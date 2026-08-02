@@ -26,6 +26,28 @@ struct LeaderboardViewModelTests {
         #expect(viewModel.leaderboardEntries.count == 1)
     }
 
+    /// Pulling to refresh with no connection must not present a warm session cache as
+    /// current. The refresh publishes nothing any more - it is purely a re-read - so the
+    /// only feedback the climber gets that it did not happen is the offline affordance.
+    @Test
+    func pullingToRefreshOfflineKeepsTheOfflineAffordanceOverCachedEntries() async {
+        let cache = LeaderboardSessionCache()
+        let userId = UUID().uuidString
+
+        let viewModel = LeaderboardViewModel(sessionCache: cache)
+        viewModel.selectedMetric = .climb
+        viewModel.selectedTimeFrame = .weekly
+
+        let stats = [makeRemoteStat(userId: userId, displayName: "User")]
+        await cache.setDetailEntries(stats, for: .climb, timeFrame: .weekly)
+
+        await viewModel.refreshLeaderboard(userId: userId, isNetworkConnected: false)
+
+        #expect(viewModel.isOffline)
+        #expect(viewModel.leaderboardEntries.count == 1)
+        #expect(viewModel.isLoading == false)
+    }
+
     @Test
     func durationMetricFormatsAsHoursMinutesSeconds() async {
         let cache = LeaderboardSessionCache()

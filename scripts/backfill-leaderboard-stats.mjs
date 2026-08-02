@@ -283,8 +283,12 @@ function printReport(report, args) {
   console.log("");
   console.log(`Rows already correct:      ${report.unchanged}`);
   console.log(`Rows rewritten:            ${report.changed.length}`);
-  console.log(`Rows removed (no workouts): ${report.deleted.length}`);
+  console.log(`Rows removed (open period, no workouts): ${report.deleted.length}`);
   console.log(`Seeded rows left alone:    ${report.syntheticSkipped}`);
+  console.log(
+    "Closed periods are never removed - they are what the nightly finalizer " +
+    "freezes permanent achievements from."
+  );
 
   const inflated = report.changed.filter((change) =>
     change.delta.fields?.totalSteps !== undefined &&

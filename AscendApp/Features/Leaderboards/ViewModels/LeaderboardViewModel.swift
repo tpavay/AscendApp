@@ -137,8 +137,14 @@ final class LeaderboardViewModel {
                 minimumLimit: fetchLimit
            ) {
             apply(stats: reconcileCurrentUserStats(cachedStats, userId: userId), userId: userId)
-            errorMessage = nil
-            isOffline = false
+            if isNetworkConnected == false {
+                // A warm session cache is still stale data with no connection behind it.
+                // Serving it silently tells the climber the board is current when it is not.
+                handleCachedFallbackError(URLError(.notConnectedToInternet))
+            } else {
+                errorMessage = nil
+                isOffline = false
+            }
             isLoading = false
             return
         }

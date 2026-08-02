@@ -24,11 +24,22 @@
  * ingestion, so the server holds no evidence a determined client could not
  * manufacture. What it does hold is a physical envelope - a session cannot
  * exceed 220 steps per minute, cannot run longer than a day, and a period's
- * sessions cannot total more time than the period contains - so a forged
+ * sessions cannot total more wall clock than the period contains - so a forged
  * standing is now bounded by what a human could conceivably have climbed
  * instead of by the range of a 64-bit integer. Closing the remainder means
  * building the evidence path (attestation and per-workout provenance), which
  * is a separate piece of work.
+ *
+ * WHERE THE ENVELOPE DOES NOT REACH. The wall-clock bound is real for daily,
+ * weekly, monthly and yearly, whose windows are fixed calendar spans the
+ * client cannot move. It is NOT a meaningful bound on all-time: that window
+ * has no start, so the budget is anchored at the climber's own earliest
+ * workout, and one backdated workout moves the anchor and buys years of
+ * headroom. Anchoring it at account creation would add precision the evidence
+ * does not support, since the workouts themselves are client-authored either
+ * way. The exposure is a visible all-time ranking rather than a frozen award:
+ * finalizeLeaderboardAchievements mints permanent achievements from weekly,
+ * monthly and yearly only (FINALIZED_TIME_FRAMES), never from all-time.
  */
 
 import {onDocumentWritten} from "firebase-functions/v2/firestore";
@@ -218,32 +229,23 @@ export function parseEligibleWorkout(
 }
 
 /**
- * Sums the eligible workouts that fall inside a period.
- * @param {EligibleWorkout[]} workouts Eligible workouts, any order.
- * @param {LeaderboardPeriod} period The board window.
+ * Sums the eligible workouts of one period.
+ *
+ * Takes the already-windowed list rather than re-filtering, so the totals and
+ * the budget they are checked against agree on the window by construction
+ * instead of by two copies of the same comparison.
+ * @param {EligibleWorkout[]} workouts Eligible workouts inside the window.
  * @return {LeaderboardAggregate} The period's totals.
  */
 export function aggregateForPeriod(
-  workouts: EligibleWorkout[],
-  period: LeaderboardPeriod
+  workouts: EligibleWorkout[]
 ): LeaderboardAggregate {
-  const startMillis = period.startAt.getTime();
-  const endMillis = period.endAt === null ?
-    Number.POSITIVE_INFINITY :
-    period.endAt.getTime();
-
   let totalSteps = 0;
   let totalFloors = 0;
   let totalWorkouts = 0;
   let totalDuration = 0;
 
   for (const workout of workouts) {
-    if (
-      workout.startedAtMillis < startMillis ||
-      workout.startedAtMillis >= endMillis
-    ) {
-      continue;
-    }
     totalSteps += workout.steps;
     totalFloors += workout.floors;
     totalWorkouts += 1;
@@ -264,9 +266,18 @@ export function aggregateForPeriod(
  * The seconds of wall clock a period can honestly account for.
  *
  * A climber cannot have spent more time on the machine than the window
- * contains. The floor at the longest single session keeps a legitimate workout
- * that straddles a boundary, or lands under a little clock skew, from tripping
- * the check.
+ * contains, so a closed window's budget is its FULL length - not the part of it
+ * that has elapsed. Measuring elapsed time instead drops honest climbers: two
+ * connected sources recording the same 45-minute climb (a Hevy record and its
+ * Apple Health twin carry different identifiers, so they survive per-source
+ * dedupe) at 00:05 and 00:10 UTC total 90 minutes against a 20-minute elapsed
+ * budget, and the whole daily row vanishes. Where bounding an abuser and
+ * protecting a real climber pull apart, protect the climber: the full-period
+ * bound still caps a forger at human scale, and no honest total can exceed it.
+ *
+ * The floor at the longest single session keeps a legitimate workout that
+ * straddles a boundary, or lands under a little clock skew, from tripping the
+ * check.
  * @param {LeaderboardPeriod} period The board window.
  * @param {EligibleWorkout[]} workouts Eligible workouts in the period.
  * @param {Date} now The reconciliation instant.
@@ -291,13 +302,15 @@ export function periodBudgetSeconds(
   );
 
   // All-time never opens at the epoch in practice - it opens when this climber
-  // first climbed, which is the only honest span to measure them against.
+  // first climbed, which is the only span available to measure them against.
+  // See the file comment: that anchor is client-authored, so all-time is the
+  // one window this budget does not meaningfully bound.
   const startMillis = period.endAt === null ?
     earliestStartMillis :
     period.startAt.getTime();
   const endMillis = period.endAt === null ?
     now.getTime() :
-    Math.min(now.getTime(), period.endAt.getTime());
+    period.endAt.getTime();
 
   return Math.max((endMillis - startMillis) / 1000, longestWorkout);
 }
@@ -325,7 +338,7 @@ export function deriveLeaderboardRows(
   for (const timeFrame of LEADERBOARD_TIME_FRAMES) {
     const period = currentPeriod(timeFrame, now);
     const inPeriod = workoutsInPeriod(workouts, period);
-    const aggregate = aggregateForPeriod(workouts, period);
+    const aggregate = aggregateForPeriod(inPeriod);
     if (aggregate.totalWorkouts === 0) {
       continue;
     }
@@ -401,6 +414,29 @@ export function leaderboardDemographics(
 }
 
 /**
+ * The document ids this derivation is allowed to author at a given instant.
+ *
+ * Exactly the five currently OPEN periods. It is the whole ownership boundary:
+ * anything outside it is a closed period's historical record, and closed
+ * periods belong to finalizeLeaderboardAchievements, not here.
+ * @param {string} userId Firebase Auth uid.
+ * @param {Date} now The reconciliation instant.
+ * @return {Set<string>} The open-period document ids.
+ */
+export function openPeriodDocumentIds(
+  userId: string,
+  now: Date
+): Set<string> {
+  return new Set(
+    LEADERBOARD_TIME_FRAMES.map((timeFrame) => leaderboardDocumentId(
+      userId,
+      timeFrame,
+      currentPeriod(timeFrame, now).key
+    ))
+  );
+}
+
+/**
  * Recomputes every board row for one climber and removes the ones that no
  * longer have evidence behind them.
  * @param {LeaderboardStatsStore} store Persistence boundary.
@@ -448,9 +484,17 @@ export async function reconcileLeaderboardStats(
       written.push(row.documentId);
     }
 
-    // A row for a period the climber no longer has evidence in - a deleted
-    // workout, an edit that pushed it out of the window, a period that rolled -
-    // is removed rather than left behind at its last value.
+    // An OPEN period the climber no longer has evidence in - a deleted workout,
+    // an edit that pushed it out of the window - is removed rather than left
+    // behind at its last value.
+    //
+    // A CLOSED period's row is never touched. It is the historical record
+    // finalizeLeaderboardAchievements reads at 00:15 UTC to freeze permanent
+    // achievements, and a workout backed up in the minutes after a period rolls
+    // would otherwise erase the previous period's standing before the finalizer
+    // could read it - destroying the very award this derivation exists to
+    // protect, and shifting every other climber's rank in that closed period.
+    const open = openPeriodDocumentIds(userId, now);
     const keep = new Set(written);
     const deleted: string[] = [];
     for (const row of snapshot.existingRows) {
@@ -463,7 +507,7 @@ export async function reconcileLeaderboardStats(
         }
         continue;
       }
-      if (keep.has(row.documentId)) {
+      if (keep.has(row.documentId) || !open.has(row.documentId)) {
         continue;
       }
       await transaction.delete(row.documentId);
@@ -520,7 +564,10 @@ export function leaderboardDocumentData(
 }
 
 /**
- * Rederives a climber's standings whenever their canonical workouts change.
+ * Rederives a climber's standings when the evidence a standing is derived from
+ * changes. A photo finishing its upload, a note, a heart-rate sidecar reference
+ * or a calorie estimate changes no total, and re-reading the whole workout
+ * collection to rewrite five identical documents for one is pure fan-out.
  */
 export const onWorkoutWrittenLeaderboardStats = onDocumentWritten(
   {
@@ -528,6 +575,12 @@ export const onWorkoutWrittenLeaderboardStats = onDocumentWritten(
     retry: true,
   },
   async (event) => {
+    if (!leaderboardEvidenceChanged(
+      event.data?.before.data(),
+      event.data?.after.data()
+    )) {
+      return;
+    }
     await reconcileLeaderboardStats(
       makeAdminLeaderboardStatsStore(),
       event.params.userId,
@@ -535,6 +588,43 @@ export const onWorkoutWrittenLeaderboardStats = onDocumentWritten(
     );
   }
 );
+
+/**
+ * The workout fields a standing is derived from - exactly the set
+ * `parseEligibleWorkout` reads, and exactly the set the store projects.
+ */
+const LEADERBOARD_EVIDENCE_FIELDS = [
+  "durationSeconds",
+  "steps",
+  "floors",
+  "source",
+] as const;
+
+/**
+ * Whether a workout write touched a field a standing is derived from.
+ *
+ * `startedAt` is compared as epoch millis rather than by value: the before and
+ * after images can carry the same instant as a Timestamp and as a Date, and a
+ * structural comparison would call that a change.
+ * @param {Record<string, unknown> | undefined} before Before image.
+ * @param {Record<string, unknown> | undefined} after After image.
+ * @return {boolean} True when leaderboard evidence changed.
+ */
+export function leaderboardEvidenceChanged(
+  before: Record<string, unknown> | undefined,
+  after: Record<string, unknown> | undefined
+): boolean {
+  if (before === undefined || after === undefined) {
+    // A create or a delete always changes the evidence set.
+    return before !== after;
+  }
+  if (timestampMillis(before.startedAt) !== timestampMillis(after.startedAt)) {
+    return true;
+  }
+  return LEADERBOARD_EVIDENCE_FIELDS.some(
+    (field) => (before[field] ?? null) !== (after[field] ?? null)
+  );
+}
 
 /**
  * Rederives a climber's standings when the demographics the board filters on
@@ -834,7 +924,9 @@ export const leaderboardStatsTestHooks = {
   demographicsChanged,
   deriveLeaderboardRows,
   leaderboardDemographics,
+  leaderboardEvidenceChanged,
   leaderboardIdentityFields,
+  openPeriodDocumentIds,
   parseEligibleWorkout,
   periodBudgetSeconds,
   reconcileLeaderboardStats,

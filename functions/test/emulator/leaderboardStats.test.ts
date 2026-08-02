@@ -150,6 +150,53 @@ test("a standing does not outlive the workouts behind it", async () => {
   assert.equal(remaining.size, 0);
 });
 
+// The award-destroying window, against a real Firestore: a period closes at
+// 00:00 UTC and finalizeLeaderboardAchievements freezes it from the closed
+// period's rows at 00:15 UTC. A workout backed up in between must leave that
+// row exactly where the finalizer will look for it.
+test("a closed period's row survives a workout saved in the new period",
+  async () => {
+    // A Monday, five minutes after the weekly period rolled.
+    const justAfterRoll = new Date("2026-08-03T00:05:00.000Z");
+    const closedWeeklyId = leaderboardDocumentId(userId, "weekly", "2026-W31");
+    await db.collection(LEADERBOARD_STATS).doc(closedWeeklyId).set({
+      userId,
+      timeFrame: "weekly",
+      periodKey: "2026-W31",
+      periodStartAt: admin.firestore.Timestamp.fromDate(
+        new Date("2026-07-27T00:00:00.000Z")
+      ),
+      totalSteps: 21_000,
+      isSynthetic: false,
+    });
+    await seedProfile();
+    await seedWorkout({
+      startedAt: admin.firestore.Timestamp.fromDate(
+        new Date("2026-08-03T00:02:00.000Z")
+      ),
+      durationSeconds: 600,
+      steps: 1_000,
+      floors: 50,
+    });
+
+    const outcome = await reconcileLeaderboardStats(
+      makeAdminLeaderboardStatsStore(),
+      userId,
+      justAfterRoll
+    );
+
+    const closed = await readStanding(closedWeeklyId);
+    assert.equal(
+      closed?.totalSteps,
+      21_000,
+      "the closed week is the finalizer's evidence and must be untouched"
+    );
+    assert.equal(outcome.deleted.includes(closedWeeklyId), false);
+    assert.ok(outcome.written.includes(
+      leaderboardDocumentId(userId, "weekly", "2026-W32")
+    ));
+  });
+
 // Seeded competitors have a standing with no canonical workouts by design.
 test("a seeded competitor's standing survives a reconciliation", async () => {
   const seededId = leaderboardDocumentId("persona-1", "weekly", "2026-W31");

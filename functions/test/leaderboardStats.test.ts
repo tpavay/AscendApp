@@ -19,6 +19,7 @@ const {
   deriveLeaderboardRows,
   demographicsChanged,
   leaderboardDemographics,
+  leaderboardEvidenceChanged,
   leaderboardIdentityFields,
   parseEligibleWorkout,
   periodBudgetSeconds,
@@ -170,10 +171,10 @@ test("the device's own integrity verdict changes nothing", () => {
 
 test("a period's sessions cannot total more time than the period contains",
   () => {
-    // Twelve two-hour sessions all opening on the same UTC day: 24 hours of
-    // climbing inside a day that has only had 12 of them so far.
+    // Thirteen two-hour sessions all opening on the same UTC day: 26 hours of
+    // climbing inside a day that only contains 24.
     const dayStart = new Date("2026-08-01T00:00:00.000Z").getTime();
-    const workouts = Array.from({length: 12}, (unused, index) => ({
+    const workouts = Array.from({length: 13}, (unused, index) => ({
       workoutId: `w${index}`,
       startedAtMillis: dayStart + index * 60_000,
       durationSeconds: 2 * 60 * 60,
@@ -191,6 +192,62 @@ test("a period's sessions cannot total more time than the period contains",
     assert.ok(
       rows.find((row) => row.timeFrame === "weekly"),
       "the same sessions fit inside the week, which is still honest"
+    );
+  });
+
+// The budget is the period's FULL length, not the part of it that has elapsed.
+// Where bounding an abuser and protecting a real climber pull apart, the real
+// climber wins: a loose bound beats one that erases an honest standing.
+test("two overlapping sessions early in the day still make the daily board",
+  () => {
+    // The same 45-minute climb reaching Ascend twice - a Hevy record and its
+    // Apple Health twin carry different identifiers, so per-source dedupe keeps
+    // both. Ninety minutes of sessions, twenty minutes into the UTC day.
+    const workouts = [
+      {
+        workoutId: "hevy-1",
+        startedAtMillis: new Date("2026-08-01T00:05:00.000Z").getTime(),
+        durationSeconds: 45 * 60,
+        steps: 6_000,
+        floors: 300,
+      },
+      {
+        workoutId: "apple-health-1",
+        startedAtMillis: new Date("2026-08-01T00:10:00.000Z").getTime(),
+        durationSeconds: 45 * 60,
+        steps: 6_000,
+        floors: 300,
+      },
+    ];
+    const evaluatedAt = new Date("2026-08-01T00:20:00.000Z");
+
+    const rows = deriveLeaderboardRows(userId, workouts, evaluatedAt);
+
+    const daily = rows.find((row) => row.timeFrame === "daily");
+    assert.ok(
+      daily,
+      "an honest climber must not vanish from the board for climbing early"
+    );
+    assert.equal(daily?.aggregate.totalDuration, 90 * 60);
+  });
+
+test("a closed period's budget is its whole length, not what has elapsed",
+  () => {
+    const period = currentPeriod("daily", new Date("2026-08-01T00:20:00.000Z"));
+
+    assert.equal(
+      periodBudgetSeconds(
+        period,
+        [{
+          workoutId: "w1",
+          startedAtMillis: new Date("2026-08-01T00:05:00.000Z").getTime(),
+          durationSeconds: 45 * 60,
+          steps: 6_000,
+          floors: 300,
+        }],
+        new Date("2026-08-01T00:20:00.000Z")
+      ),
+      24 * 60 * 60
     );
   });
 
@@ -347,10 +404,102 @@ test("a rolled period leaves its closed row alone and opens a new one",
     assert.ok(outcome.written.includes(
       leaderboardDocumentId(userId, "weekly", "2026-W31")
     ));
-    // The closed week has no evidence in the current derivation, so it goes.
-    // The finalizer has already frozen it; what survives is the achievement.
-    assert.deepEqual(outcome.deleted, [closedWeek]);
+    assert.deepEqual(
+      outcome.deleted,
+      [],
+      "the closed week is the finalizer's evidence, not this derivation's"
+    );
+    assert.deepEqual(store.deletes, []);
   });
+
+// The window this covers is the one that costs a real climber a real award:
+// a period closes at 00:00 UTC, finalizeLeaderboardAchievements freezes it from
+// the closed period's rows at 00:15 UTC, and any workout backed up in between
+// used to erase the row before the finalizer could read it. The derivation owns
+// the five currently OPEN period documents and nothing else.
+for (const rollCase of [
+  {
+    timeFrame: "weekly" as const,
+    label: "a Monday, minutes into the new week",
+    now: new Date("2026-08-03T00:05:00.000Z"),
+    workoutStartedAt: new Date("2026-08-03T00:02:00.000Z"),
+  },
+  {
+    timeFrame: "monthly" as const,
+    label: "the 1st, minutes into the new month",
+    now: new Date("2026-09-01T00:05:00.000Z"),
+    workoutStartedAt: new Date("2026-09-01T00:02:00.000Z"),
+  },
+  {
+    timeFrame: "yearly" as const,
+    label: "Jan 1, minutes into the new year",
+    now: new Date("2027-01-01T00:05:00.000Z"),
+    workoutStartedAt: new Date("2027-01-01T00:02:00.000Z"),
+  },
+]) {
+  test(
+    `a workout saved on ${rollCase.label} leaves the closed ` +
+    `${rollCase.timeFrame} row - and its permanent award - intact`,
+    async () => {
+      const closed = previousPeriod(rollCase.timeFrame, rollCase.now);
+      const closedRowId = leaderboardDocumentId(
+        userId,
+        rollCase.timeFrame,
+        closed.key
+      );
+      const openRowId = leaderboardDocumentId(
+        userId,
+        rollCase.timeFrame,
+        currentPeriod(rollCase.timeFrame, rollCase.now).key
+      );
+      const store = makeStore({
+        workouts: [{id: "w1", data: makeWorkout({
+          startedAt: rollCase.workoutStartedAt,
+          durationSeconds: 600,
+          steps: 1_000,
+        })}],
+        existingRows: [derivedRow(closedRowId)],
+      });
+
+      const outcome = await reconcileLeaderboardStats(
+        store,
+        userId,
+        rollCase.now
+      );
+
+      assert.equal(
+        store.deletes.includes(closedRowId),
+        false,
+        "the finalizer reads this row at 00:15 UTC to freeze the award"
+      );
+      assert.equal(outcome.deleted.includes(closedRowId), false);
+      assert.equal(
+        store.writes.has(closedRowId),
+        false,
+        "a closed period is a historical record, not a document to rewrite"
+      );
+      assert.ok(
+        outcome.written.includes(openRowId),
+        "the new period still opens"
+      );
+    }
+  );
+}
+
+// The open-period rule cannot be satisfied by simply never deleting: a standing
+// whose evidence disappeared inside the OPEN window must still go.
+test("an open period with no evidence left is still cleared", async () => {
+  const openWeek = leaderboardDocumentId(userId, "weekly", "2026-W31");
+  const closedWeek = leaderboardDocumentId(userId, "weekly", "2026-W30");
+  const store = makeStore({
+    workouts: [],
+    existingRows: [derivedRow(openWeek), derivedRow(closedWeek)],
+  });
+
+  const outcome = await reconcileLeaderboardStats(store, userId, NOW);
+
+  assert.deepEqual(outcome.deleted, [openWeek]);
+});
 
 test("an unpublished profile publishes a masked identity, not a blank one",
   () => {
@@ -447,6 +596,67 @@ test("only demographics inside the rules' bounds reach the row", () => {
     locationCountry: null,
     locationRegion: null,
   });
+});
+
+// Reconciliation re-reads the climber's whole workout collection and rewrites
+// five documents. A photo upload completing must not pay that cost.
+test("only a change to the evidence reruns the derivation", () => {
+  const before = makeWorkout();
+
+  assert.equal(
+    leaderboardEvidenceChanged(before, makeWorkout({steps: 3_001})),
+    true
+  );
+  assert.equal(
+    leaderboardEvidenceChanged(before, makeWorkout({floors: 151})),
+    true
+  );
+  assert.equal(
+    leaderboardEvidenceChanged(before, makeWorkout({durationSeconds: 1_801})),
+    true
+  );
+  assert.equal(
+    leaderboardEvidenceChanged(before, makeWorkout({source: "apple_health"})),
+    true
+  );
+  assert.equal(
+    leaderboardEvidenceChanged(before, makeWorkout({
+      startedAt: new Date("2026-08-01T07:00:00.000Z"),
+    })),
+    true
+  );
+
+  assert.equal(
+    leaderboardEvidenceChanged(before, makeWorkout({
+      photoURL: "https://example.com/p.jpg",
+      notes: "Brutal.",
+      heartRateSeriesPath: "users/u/hr/w1.json",
+      averageHeartRate: 148,
+      calories: 410,
+      met: 8.8,
+      integrityLevel: "unverified",
+    })),
+    false,
+    "a photo, a note, heart rate, calories or MET changes no total"
+  );
+
+  // A create and a delete always carry evidence in or out.
+  assert.equal(leaderboardEvidenceChanged(undefined, before), true);
+  assert.equal(leaderboardEvidenceChanged(before, undefined), true);
+});
+
+// The two images can carry the same instant in different shapes, and a
+// structural comparison would rederive on every touch of an unchanged workout.
+test("the same start instant in a different shape is not a change", () => {
+  const millis = new Date("2026-08-01T06:00:00.000Z").getTime();
+
+  assert.equal(
+    leaderboardEvidenceChanged(
+      makeWorkout({startedAt: new Date(millis)}),
+      makeWorkout({startedAt: {toMillis: () => millis}})
+    ),
+    false
+  );
 });
 
 test("only a demographic change reruns the derivation", () => {
