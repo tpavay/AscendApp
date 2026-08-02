@@ -18,7 +18,7 @@ The catalog is `AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift`;
 | `routine_cloud_backup_writes_enabled` | Uploading user-authored routines and routine folders | Routines and folders stay `pendingUpsert` in SwiftData and flush on the next pass |
 | `routine_remote_deletes_enabled` | Deleting remote routine and routine folder documents | `PendingRoutineDeletion` rows stay queued and replay. The routine they point at is still held back from re-upload, so the switch cannot resurrect a deleted routine |
 | `routine_cloud_restore_enabled` | Decoding routine backups into local storage | The next bootstrap still treats it as the initial hydration |
-| `local_data_migrations_enabled` | One-shot local backfills that rewrite stored workouts, and the routine adoption sweep that runs on every authenticated bootstrap to claim any ownerless user-authored routine or folder | The version key is not stamped, so the backfill runs later |
+| `local_data_migrations_enabled` | One-shot local backfills that rewrite stored workouts, and the bootstrap sweep that claims ownerless user-authored routines and folders - the ones that predate the backup and the ones saved while nobody was signed in - for the signed-in climber, catalog templates excluded | The workout backfill's version key is not stamped, so it runs later. The routine sweep stamps nothing at all: it is not one-shot, so it simply runs again on the next authenticated bootstrap after the flag returns |
 | `public_profile_publishing_enabled` | Publishing the public profile mirror, stats, summaries | Republished from local state on the next bootstrap |
 
 The invariant across all of them: **a blocked path defers its work, it never drops it.**
