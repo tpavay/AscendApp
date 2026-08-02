@@ -84,5 +84,6 @@ Ordering is the whole game. Every delete in `firestore.rules` is gated on `isOwn
 - Connectivity is *not* the same as request success. Online requests can still time out, hit backend errors, or return partial data. Features decide the user-facing response (retry button, cache fallback, error message), but the mechanics - timeout policy, retry logic, error categorization - belong in shared request infrastructure. If you find yourself implementing the same network error pattern in a second feature, extract it into the shared layer rather than duplicating it.
 
 ## Related
+- Firestore has no fixed shape, so a field change here is *not* a data migration; the local SwiftData store is the one that needs versions and stages, and `ascend-data-migration` covers it.
 - Adding a Firestore field usually also means declaring a new collected data type - see `ascend-privacy-manifest`.
 - Private workout backups are private; public surfaces use separate public data models. See `ascend-workout-model`.

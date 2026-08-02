@@ -93,4 +93,5 @@ Workouts are described by **absolute, measured signals** - steps, duration, cade
 Existing code for these can stay until the cleanup task lands, but treat it as legacy - don't add features through it, don't introduce new dependencies on it, and prefer absolute metrics in new code.
 
 ## Reference
+- Changing what `Workout` persists - adding, removing, renaming or retyping a stored property - is a schema migration; see `ascend-data-migration` before editing the `@Model`.
 - `docs/heart-rate-zones-plan.md` - heart rate zones (marked POST-LAUNCH parked).

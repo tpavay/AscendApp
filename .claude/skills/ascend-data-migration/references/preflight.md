@@ -1,0 +1,67 @@
+# Pre-flight
+
+Run this before a schema change ships.
+Every line is a gate, not a suggestion, because none of them can be checked after the fact on a device you cannot reach.
+
+## The checklist
+
+**Shape**
+
+- [ ] The change is classified against the decision procedure in `SKILL.md`, and the row is named in the PR body.
+- [ ] If a non-optional property is new, one of the three routes was chosen deliberately: optional, honest blanket default, or a custom stage. Which one, and why, is in the PR body.
+- [ ] A new `AscendSchemaV*` exists with a bumped `versionIdentifier`, listing **every** model, not only the changed ones.
+- [ ] The previous `AscendSchemaV*` is byte-for-byte unchanged.
+- [ ] A stage is appended to `AscendMigrationPlan.stages`, connecting the previous version to the new one, with no gap.
+- [ ] `AscendApp.createModelContainer` opens the store with the new schema.
+- [ ] `node scripts/check-swiftdata-schema.mjs --update` runs clean and the re-recorded `SharedTestVectors/swiftdata-schema-shape.json` is in the same commit.
+
+**Proof**
+
+- [ ] **The migration is proven against a store created by the previous shape, not a fresh one.** See below. This is the item everyone skips and it is the only one that proves anything.
+- [ ] Proven against a realistic row count, not three rows. `Workout` carries its heart-rate series inline, so a few hundred sessions is tens of megabytes on disk.
+- [ ] Asserted on the *contents* after the migration, not only that the container opened. A migration that opens successfully and drops a column is worse than one that fails loudly, because nothing reports it.
+- [ ] The empty-store case still works, because that is every new install.
+- [ ] If a stage can fail, it is proven to leave a recoverable state, and the recovery is proven to converge rather than re-run forever.
+
+**Everything else the change drags in**
+
+- [ ] If a Firestore field changed too, `firestore.rules` was updated first and accepts the version range still in the field. See `ascend-firebase-data`.
+- [ ] If a new data type is now collected, `PrivacyInfo.xcprivacy`, the privacy policy, the App Store questionnaire and the `Info.plist` strings all agree. See `ascend-privacy-manifest`.
+- [ ] Any interpretive work that could live in a post-launch backfill instead does, behind `local_data_migrations_enabled`.
+- [ ] The PR body says what happens to a user still on the previous build reading data this build wrote, and what happens to a user who restores an older backup onto a newer store.
+
+## The test everyone skips
+
+A migration tested against a store your current build just created is a migration tested against a store that already has the new schema.
+It proves nothing, because the rows it needed to fail on were never written in the old shape.
+
+**Ascend already does this properly and you should copy it, not reinvent it.**
+`AscendAppTests/WorkoutSourceSchemaMigrationTests.swift` seeds a real on-disk store through `AscendSchemaV1` first:
+
+```swift
+let schema = Schema(versionedSchema: AscendSchemaV1.self)
+let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
+```
+
+then closes that container, reopens the same file with `AscendSchemaV2` **and the migration plan**, and asserts on what came out.
+The suite's own header says why: the failure being guarded against is silent, and a store that lost every source reads back exactly like a healthy fresh install.
+
+Copy that shape:
+
+1. Seed a store through the **previous** `VersionedSchema`, with rows that cover the interesting cases - every enum case, nulls in every optional, the relationship graph populated, and at least one row that is legitimately weird.
+2. Let the seeding container go before reopening. Two live containers on one file fight.
+3. Reopen with the current schema and the plan.
+4. Assert on values, not on the open succeeding.
+
+**Where this approximation is weaker than it looks, and it matters.**
+`AscendSchemaV1` declares frozen copies of only three types - `Workout`, `WorkoutSourceLink`, `WorkoutParticipation`.
+Its `models` list names the other nine by their **live** type, because the two versions were identical for them.
+So a store seeded "under V1" already has today's shape for those nine.
+The moment you change one of them, `AscendSchemaV1` silently starts describing the new shape too, which is the "never edit a shipped schema version" rule broken by aliasing rather than by editing.
+Freeze a copy of any model you are about to change into the schema version that shipped it, in the same PR.
+
+## Things that are cheap and worth doing while you are here
+
+- Migrate a store from **two or more** versions back in one hop. Users skip releases, and a chain that is never exercised is a chain that is assumed to work.
+- Time the migration against a large store and assert it against a budget. That is the watchdog test, and the watchdog does not send you a crash report saying "your migration was slow" - it sends one that looks like a launch crash.
+- Test the low-disk case if the change rewrites rows rather than appending. Peak disk during a rewrite is roughly twice the store.

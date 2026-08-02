@@ -83,6 +83,12 @@ jobs:
             scripts:
               - "scripts/**"
               - "SharedTestVectors/**"
+              # The SwiftData schema check reads every Swift file looking for
+              # @Model declarations, and an @Model can be added anywhere. A shipped
+              # schema mistake silently defaults every existing row and an iOS
+              # binary cannot be rolled back, so this stays the whole app tree and
+              # is never narrowed to the folders models happen to live in today.
+              - "AscendApp/**"
               # The monetization build-configuration suite reads all three, so a
               # key, Info.plist, or placeholder-contract edit must run it.
               - "AscendApp.xcodeproj/**"

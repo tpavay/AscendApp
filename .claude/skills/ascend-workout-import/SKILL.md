@@ -48,5 +48,6 @@ HealthKit does not guarantee they fire - `disableBackgroundDelivery` reliably do
 `HealthKitBackgroundSyncManager` bounds them, which is what makes the cancellation guarantees above true.
 
 ## Related
+- Import writes rows; it never changes the store's shape. If a new provider needs a new stored property on `Workout`, that is a schema migration - see `ascend-data-migration`.
 - Load the `healthkit` skill for Apple Health API work.
 - Adding a new HealthKit metric read is a privacy-manifest tripwire - see `ascend-privacy-manifest`.

@@ -1,0 +1,1048 @@
+{
+  "currentSchema": "AscendSchemaV2",
+  "versionIdentifier": [
+    2,
+    0,
+    0
+  ],
+  "customStageCount": 1,
+  "lightweightStageCount": 0,
+  "models": {
+    "ActiveHeadphoneWorkoutDraft": {
+      "climbId": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "createdAt": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "durationSeconds": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "heartRateData": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "heartRateSampleCount": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "id": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "justClimbDurationMinutes": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "justClimbGoalKindRawValue": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "justClimbStepCount": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "kindRawValue": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "lastCheckpointAt": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "routineDifficulty": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "routineId": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "routineIntervalCount": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "routineSkippedIntervalCount": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "routineSourceRawValue": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "routineTemplateId": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "routineWeightConfigurationData": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "sampleCount": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "sessionID": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "splitCurveData": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "startedAt": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "statusRawValue": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "stepCorrectionsData": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "steps": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "subtitle": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "targetDurationSeconds": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "targetStepCount": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "title": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "trackingIntegrityData": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "workoutName": {
+        "optional": false,
+        "hasDefault": false
+      }
+    },
+    "BestEffortCacheEntry": {
+      "cacheVersion": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "contextID": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "contextKindRawValue": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "duration": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "generatedAt": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "id": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "kindRawValue": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "metricID": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "rank": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "scopeRawValue": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "segmentEndElapsedSeconds": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "segmentStartElapsedSeconds": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "sortKey": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "steps": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "value": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "workoutID": {
+        "optional": false,
+        "hasDefault": false
+      }
+    },
+    "BestEffortCacheMetadata": {
+      "cacheVersion": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "entryCount": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "generatedAt": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "id": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "referenceYear": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "workoutSignature": {
+        "optional": false,
+        "hasDefault": false
+      }
+    },
+    "ClimbAttempt": {
+      "accumulatedDurationSeconds": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "accumulatedSteps": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "appliedWorkoutIdsData": {
+        "optional": true,
+        "hasDefault": true
+      },
+      "bestCompletionDurationSeconds": {
+        "optional": true,
+        "hasDefault": true
+      },
+      "climbId": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "completedAt": {
+        "optional": true,
+        "hasDefault": true
+      },
+      "endedAt": {
+        "optional": true,
+        "hasDefault": true
+      },
+      "globalCompletionOrder": {
+        "optional": true,
+        "hasDefault": true
+      },
+      "id": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "sessionsCount": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "startedAt": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "statusRawValue": {
+        "optional": false,
+        "hasDefault": true
+      }
+    },
+    "LeaderboardStats": {
+      "averageFloorsPerMinute": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "averageStepsPerMinute": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "id": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "lastSyncedToFirestore": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "lastUpdated": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "needsSync": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "periodIdentifier": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "periodStartAt": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "schemaVersion": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "timeFrame": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "totalDuration": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "totalFloors": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "totalSteps": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "totalWorkouts": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "userId": {
+        "optional": false,
+        "hasDefault": false
+      }
+    },
+    "PendingMediaUpload": {
+      "createdAt": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "duration": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "id": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "isHighlighted": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "lastError": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "localFileName": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "mediaType": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "orderIndex": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "retryCount": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "status": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "workoutId": {
+        "optional": false,
+        "hasDefault": false
+      }
+    },
+    "PendingWorkoutDeletion": {
+      "enqueuedAt": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "id": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "lastError": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "ownerUserId": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "retryCount": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "workoutId": {
+        "optional": false,
+        "hasDefault": false
+      }
+    },
+    "Routine": {
+      "browseSectionRawValuesData": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "completionCount": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "createdAt": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "defaultWeightConfigurationData": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "difficulty": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "estimatedCalories": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "folderId": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "id": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "intervalsData": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "isArchived": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "isFeaturedTemplate": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "lastCompletedAt": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "name": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "order": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "routineDescription": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "sourceRawValue": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "templateDisplayOrder": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "templateFeaturedOrder": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "templateId": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "templateVersion": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "updatedAt": {
+        "optional": false,
+        "hasDefault": false
+      }
+    },
+    "RoutineFolder": {
+      "colorHex": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "createdAt": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "id": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "name": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "order": {
+        "optional": false,
+        "hasDefault": false
+      }
+    },
+    "Workout": {
+      "averageMETs": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "avgHeartRate": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "caloriesBurned": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "createdAt": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "date": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "deviceModel": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "duration": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "effortRating": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "effortScoreValue": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "equivalentLevelValue": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "floors": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "healthKitUUID": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "heartRateData": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "heartRateRestoreErrorCode": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "heartRateRestoreStatusRawValue": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "hevyWorkoutId": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "highlightedPhotoId": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "id": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "integrityLevel": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "lastModifiedAt": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "lastRemoteHeartRateSeriesReferenceData": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "lastRemoteHeartRateSeriesStoragePath": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "lastRemoteSyncAt": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "lastRemoteSyncError": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "maxHeartRate": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "name": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "notes": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "ownerUserId": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "participations": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "percentileScoresData": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "photos": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "remoteSyncStatusRawValue": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "sourceLinks": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "sourceMetadata": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "sourceRawValue": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "steps": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "stepsPerFloor": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "weightConfigurationData": {
+        "optional": true,
+        "hasDefault": false
+      }
+    },
+    "WorkoutParticipation": {
+      "contextId": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "contextTypeRawValue": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "contextVersion": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "createdAt": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "id": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "leaderboardEligible": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "metricsSnapshotData": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "roleRawValue": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "rulesVersion": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "userId": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "verificationTierRawValue": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "workout": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "workoutId": {
+        "optional": false,
+        "hasDefault": false
+      }
+    },
+    "WorkoutSourceLink": {
+      "deviceModel": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "externalRecordID": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "id": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "importedAt": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "linkedAt": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "metadataJSON": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "providerRawValue": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "providerWindowEnd": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "providerWindowStart": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "sourceBundleIdentifier": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "sourceName": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "timingPrecisionRawValue": {
+        "optional": false,
+        "hasDefault": false
+      },
+      "workout": {
+        "optional": true,
+        "hasDefault": false
+      }
+    }
+  },
+  "frozenModels": {
+    "Workout": {
+      "averageMETs": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "avgHeartRate": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "caloriesBurned": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "createdAt": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "date": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "deviceModel": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "duration": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "effortRating": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "effortScoreValue": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "equivalentLevelValue": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "floors": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "healthKitUUID": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "heartRateData": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "heartRateRestoreErrorCode": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "heartRateRestoreStatusRawValue": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "hevyWorkoutId": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "highlightedPhotoId": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "id": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "integrityLevel": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "lastModifiedAt": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "lastRemoteHeartRateSeriesReferenceData": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "lastRemoteHeartRateSeriesStoragePath": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "lastRemoteSyncAt": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "lastRemoteSyncError": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "maxHeartRate": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "name": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "notes": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "ownerUserId": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "participations": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "percentileScoresData": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "photos": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "remoteSyncStatusRawValue": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "source": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "sourceLinks": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "sourceMetadata": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "steps": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "stepsPerFloor": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "weightConfigurationData": {
+        "optional": true,
+        "hasDefault": false
+      }
+    },
+    "WorkoutParticipation": {
+      "contextId": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "contextTypeRawValue": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "contextVersion": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "createdAt": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "id": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "leaderboardEligible": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "metricsSnapshotData": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "roleRawValue": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "rulesVersion": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "userId": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "verificationTierRawValue": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "workout": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "workoutId": {
+        "optional": false,
+        "hasDefault": true
+      }
+    },
+    "WorkoutSourceLink": {
+      "deviceModel": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "externalRecordID": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "id": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "importedAt": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "linkedAt": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "metadataJSON": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "providerRawValue": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "providerWindowEnd": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "providerWindowStart": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "sourceBundleIdentifier": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "sourceName": {
+        "optional": true,
+        "hasDefault": false
+      },
+      "timingPrecisionRawValue": {
+        "optional": false,
+        "hasDefault": true
+      },
+      "workout": {
+        "optional": true,
+        "hasDefault": false
+      }
+    }
+  }
+}

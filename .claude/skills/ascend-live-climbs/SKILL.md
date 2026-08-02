@@ -21,6 +21,7 @@ For adding, editing, releasing, or validating catalog content and images, use th
 - Hardware-capability gating (headphones required) belongs at the *start-attempt* moment, not as warnings on Home or Browse. The blocking gate stays inline at start-attempt, but headphone-tracking education (headphones track steps, not a watch or phone) is a persistent, worded row on the Climb Detail overview, placed *above* the Start Live Climb button so it reaches every navigation path (not only the onboarding first-climb coach mark) and is read before the CTA without scrolling past it.
 
 ## Attempt model
+- `ClimbAttempt` is an `@Model`: changing what it persists is a schema migration - see `ascend-data-migration`.
 - The climb attempt is the source of truth for progress and history. It replaces any older completion-only model.
 - Catalog climbs are *single-session challenges*: the live attempt must reach the target step count to count as a completion. Ending early saves a failed attempt in personal history; only target-reached completions count publicly (leaderboard, First Ascent eligibility).
 - Live Climb completions come only from the live headphone-motion attempt flow. Manual entries, external imports, and routine completions cannot progress or complete a Live Climb. (Integrity gate; the canonical statement of this rule lives in `ascend-workout-model`.)
