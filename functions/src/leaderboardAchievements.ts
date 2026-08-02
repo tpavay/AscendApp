@@ -1,5 +1,11 @@
 import {onSchedule} from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
+import {
+  ClosedLeaderboardPeriod,
+  FINALIZED_TIME_FRAMES,
+  FinalizedTimeFrame,
+  previousPeriod,
+} from "./leaderboardPeriod.js";
 
 const LEADERBOARD_STATS_COLLECTION = "leaderboard_stats";
 const LEADERBOARD_PERIODS_COLLECTION = "leaderboard_periods";
@@ -10,16 +16,6 @@ const CURRENT_PROFILE_STATS_ID = "current";
 const TOP_RANK_LIMIT = 100;
 const QUERY_LIMIT = 250;
 const FINALIZING_LOCK_MINUTES = 30;
-const FINALIZED_TIME_FRAMES = ["weekly", "monthly", "yearly"] as const;
-
-type FinalizedTimeFrame = typeof FINALIZED_TIME_FRAMES[number];
-
-interface LeaderboardPeriod {
-  timeFrame: FinalizedTimeFrame;
-  key: string;
-  startAt: Date;
-  endAt: Date;
-}
 
 interface LeaderboardRow {
   documentId: string;
@@ -159,7 +155,7 @@ async function finalizeMostRecentClosedPeriod(
 }
 
 async function leaderboardRowsForPeriod(
-  period: LeaderboardPeriod
+  period: ClosedLeaderboardPeriod
 ): Promise<LeaderboardRow[]> {
   const snapshot = await admin.firestore()
     .collection(LEADERBOARD_STATS_COLLECTION)
@@ -258,47 +254,6 @@ function profileStatsIncrement(
   return data;
 }
 
-function previousPeriod(
-  timeFrame: FinalizedTimeFrame,
-  date: Date
-): LeaderboardPeriod {
-  switch (timeFrame) {
-  case "weekly": {
-    const endAt = startOfWeekUTC(date);
-    const startAt = addDays(endAt, -7);
-    const {year, week} = weekInfoUTC(startAt);
-    return {
-      timeFrame,
-      key: `${year}-W${String(week).padStart(2, "0")}`,
-      startAt,
-      endAt,
-    };
-  }
-  case "monthly": {
-    const endAt = utcDate(date.getUTCFullYear(), date.getUTCMonth(), 1);
-    const startAt = utcDate(endAt.getUTCFullYear(), endAt.getUTCMonth() - 1, 1);
-    return {
-      timeFrame,
-      key:
-          `${startAt.getUTCFullYear()}-M` +
-          `${String(startAt.getUTCMonth() + 1).padStart(2, "0")}`,
-      startAt,
-      endAt,
-    };
-  }
-  case "yearly": {
-    const endAt = utcDate(date.getUTCFullYear(), 0, 1);
-    const startAt = utcDate(endAt.getUTCFullYear() - 1, 0, 1);
-    return {
-      timeFrame,
-      key: `${startAt.getUTCFullYear()}`,
-      startAt,
-      endAt,
-    };
-  }
-  }
-}
-
 export const leaderboardAchievementsTestHooks = {
   achievementType,
   profileStatsIncrement,
@@ -322,56 +277,4 @@ function numberValue(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ?
     Math.trunc(value) :
     0;
-}
-
-function utcDate(year: number, month: number, day: number): Date {
-  return new Date(Date.UTC(year, month, day));
-}
-
-function addDays(date: Date, days: number): Date {
-  const result = new Date(date.getTime());
-  result.setUTCDate(result.getUTCDate() + days);
-  return result;
-}
-
-function startOfWeekUTC(date: Date): Date {
-  const start = utcDate(
-    date.getUTCFullYear(),
-    date.getUTCMonth(),
-    date.getUTCDate()
-  );
-  const daysSinceMonday = (start.getUTCDay() + 6) % 7;
-  start.setUTCDate(start.getUTCDate() - daysSinceMonday);
-  return start;
-}
-
-function weekInfoUTC(date: Date): {year: number; week: number} {
-  const normalizedDate = utcDate(
-    date.getUTCFullYear(),
-    date.getUTCMonth(),
-    date.getUTCDate()
-  );
-  const weekStart = startOfWeekUTC(normalizedDate);
-  const calendarYear = normalizedDate.getUTCFullYear();
-  const firstWeekStart = startOfWeekUTC(utcDate(calendarYear, 0, 1));
-
-  if (weekStart < firstWeekStart) {
-    return weekInfoUTC(utcDate(calendarYear - 1, 11, 31));
-  }
-
-  const nextYearFirstWeekStart = startOfWeekUTC(
-    utcDate(calendarYear + 1, 0, 1)
-  );
-  if (weekStart >= nextYearFirstWeekStart) {
-    return {year: calendarYear + 1, week: 1};
-  }
-
-  const diffDays = Math.round(
-    (weekStart.getTime() - firstWeekStart.getTime()) /
-      (1000 * 60 * 60 * 24)
-  );
-  return {
-    year: calendarYear,
-    week: Math.floor(diffDays / 7) + 1,
-  };
 }

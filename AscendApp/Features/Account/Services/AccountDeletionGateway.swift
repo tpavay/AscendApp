@@ -24,7 +24,6 @@ protocol AccountDeletionGateway {
 
     func deleteAllUserStorage(userId: String) async throws
 
-    func deleteLeaderboardStats(userId: String) async throws
     func deleteWorkoutBackups(userId: String) async throws
     func deleteBlockedClimbers(userId: String) async throws
 
@@ -178,16 +177,6 @@ struct FirebaseAccountDeletionGateway: AccountDeletionGateway {
     }
 
     // MARK: - Firestore
-
-    func deleteLeaderboardStats(userId: String) async throws {
-        let snapshot = try await db.collection("leaderboard_stats")
-            .whereField("userId", isEqualTo: userId)
-            .getDocuments()
-
-        for document in snapshot.documents {
-            try await document.reference.delete()
-        }
-    }
 
     func deleteWorkoutBackups(userId: String) async throws {
         try await deleteAllDocuments(in: userDocument(userId).collection("workouts"))

@@ -13,6 +13,15 @@ Load the `vibe-security` skill for any auth/authz/trust-boundary change, and `fi
 
 Server-owned collections are the exception: they are `allow write: if false` and validate no fields, because no client can write them at all. Adding a field to one (for example the `live_replay_leaderboards` subtree, written only by Cloud Functions and Admin SDK scripts) needs no rules change.
 
+## Which collections must be server-owned
+
+**Shape validation is not evidence validation.** A rule can prove a document has the right fields, the right types, and the right author, and still have no idea whether the numbers in it happened. Decide by what reads the document, not by who writes it:
+
+- If a scheduled job, a counter, or an award reads a field, that collection is **server-write-only** and derived from the canonical records. `leaderboard_stats` was the counter-example: rules validated its shape and bound its identity to the publisher's own profile, yet a signed-in climber could `PATCH` `totalSteps: 2000000000`, hold every board, and have the nightly finalizer freeze permanent achievements from it (#307). A forged permanent award is data surgery to unwind, not a code fix.
+- The derivation reads the private canonical record - `users/{uid}/workouts` for standings - and writes the projection through the Admin SDK, which bypasses rules. One derivation, called by every trigger and by the backfill script; never a per-trigger copy.
+- **Deriving is not verifying.** The canonical records are still client-authored, and Ascend has no App Check and no server-side sensor ingestion, so the server's own evidence is only as good as the device that produced it. Bound what you derive by what is physically possible (see `ascend-leaderboards` for the standings envelope) and say plainly that the remainder is open. Claiming a derived number is "verified" is how a known gap becomes an assumed guarantee.
+- A seeded fixture row in a server-owned collection needs a synthetic marker (`isSynthetic: true`), or the derivation will delete it for having no evidence behind it. See `ascend-dev-fixtures`.
+
 When changing Firestore document schemas, always update in this order:
 1. Update `firestore.rules` to allow the new/changed fields
 2. Update the Swift model + write logic

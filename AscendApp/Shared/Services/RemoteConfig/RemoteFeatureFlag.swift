@@ -31,9 +31,6 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// One-shot local backfills that rewrite existing SwiftData rows in bulk.
     case localDataMigrations = "local_data_migrations_enabled"
 
-    /// Publishing leaderboard stats documents and retiring legacy ones.
-    case leaderboardPublishing = "leaderboard_publishing_enabled"
-
     /// Publishing the public profile mirror - identity, stats, and workout summaries.
     case publicProfilePublishing = "public_profile_publishing_enabled"
 
@@ -64,8 +61,6 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Uploads queued workout photos and videos, and sweeps local originals."
         case .localDataMigrations:
             return "Runs one-shot local backfills that rewrite stored workouts."
-        case .leaderboardPublishing:
-            return "Publishes leaderboard stats and retires legacy stat documents."
         case .publicProfilePublishing:
             return "Publishes the public profile mirror, stats, and workout summaries."
         }

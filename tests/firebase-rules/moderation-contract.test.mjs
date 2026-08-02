@@ -303,10 +303,6 @@ test('display-name screening is enforced on every client-writable publication', 
     doc(db, `users/${userId}/public_profile/current`),
     makePublicProfileDocument({displayName: 'f4gg0t'})
   ));
-  await assertFails(setDoc(
-    doc(db, `leaderboard_stats/weekly_2026-W31_${userId}`),
-    makeLeaderboardDocument({displayName: 'friendlyniggername'})
-  ));
   for (const displayName of [
     'fuсk',
     'fυck',
@@ -335,10 +331,6 @@ test('display-name screening is enforced on every client-writable publication', 
       doc(db, `users/${userId}/public_profile/current`),
       makePublicProfileDocument({displayName})
     ));
-    await assertFails(setDoc(
-      doc(db, `leaderboard_stats/weekly_2026-W31_${userId}`),
-      makeLeaderboardDocument({displayName})
-    ));
   }
 
   await assertSucceeds(setDoc(
@@ -351,17 +343,6 @@ test('display-name screening is enforced on every client-writable publication', 
       displayName: 'Scunthorpe',
       identityChangedAt: serverTimestamp(),
       photoURL: STORAGE_PHOTO_URL,
-    })
-  ));
-  const publishedIdentity = (
-    await getDoc(doc(db, `users/${userId}/public_profile/current`))
-  ).data();
-  await assertSucceeds(setDoc(
-    doc(db, `leaderboard_stats/weekly_2026-W31_${userId}`),
-    makeLeaderboardDocument({
-      displayName: publishedIdentity.displayName,
-      identityChangedAt: publishedIdentity.identityChangedAt,
-      photoURL: publishedIdentity.photoURL,
     })
   ));
   await assertSucceeds(setDoc(
@@ -420,16 +401,12 @@ test('public identity requires bounded nonempty names and bounded photo urls', a
     makePublicProfileDocument({displayName: ''})
   ));
   await assertFails(setDoc(
-    doc(db, `leaderboard_stats/weekly_2026-W31_${userId}`),
-    makeLeaderboardDocument({displayName: ''})
-  ));
-  await assertFails(setDoc(
     doc(db, `users/${userId}/public_profile/current`),
     makePublicProfileDocument({displayName: 'a'.repeat(81)})
   ));
   await assertFails(setDoc(
-    doc(db, `leaderboard_stats/weekly_2026-W31_${userId}`),
-    makeLeaderboardDocument({photoURL: `${STORAGE_PHOTO_URL}${'a'.repeat(2030)}`})
+    doc(db, `users/${userId}/public_profile/current`),
+    makePublicProfileDocument({photoURL: `${STORAGE_PHOTO_URL}${'a'.repeat(2030)}`})
   ));
 });
 
@@ -466,13 +443,11 @@ test('public photo URLs must be Firebase Storage download URLs', async () => {
   const context = testEnv.authenticatedContext(userId);
   const db = context.firestore();
   const profileRef = doc(db, `users/${userId}/public_profile/current`);
-  const leaderboardRef = doc(
-    db,
-    `leaderboard_stats/weekly_2026-W31_${userId}`
-  );
 
-  // Every viewer's device fetches this URL, so an off-host value would point
-  // the whole leaderboard at a server the publisher controls.
+  // Every viewer's device fetches this URL off whichever projection copies it,
+  // so an off-host value would point the whole leaderboard at a server the
+  // publisher controls. The mirror is the one place it can be stopped now that
+  // projections are server-derived.
   for (const photoURL of [
     'https://example.com/account-photo.jpg',
     'http://firebasestorage.googleapis.com/v0/b/bucket/o/photo.jpg',
@@ -482,7 +457,6 @@ test('public photo URLs must be Firebase Storage download URLs', async () => {
     'https://firebasestorage.googleapis.com:8080/v0/b/bucket/o/photo.jpg',
   ]) {
     await assertFails(setDoc(profileRef, makePublicProfileDocument({photoURL})));
-    await assertFails(setDoc(leaderboardRef, makeLeaderboardDocument({photoURL})));
   }
 
   for (const photoURL of [STORAGE_PHOTO_URL, SDK_EMITTED_PHOTO_URL, '']) {
@@ -493,15 +467,6 @@ test('public photo URLs must be Firebase Storage download URLs', async () => {
         photoURL,
       })
     ));
-    const publishedIdentity = (await getDoc(profileRef)).data();
-    await assertSucceeds(setDoc(leaderboardRef, makeLeaderboardDocument({
-      displayName: publishedIdentity.displayName,
-      identityChangedAt: publishedIdentity.identityChangedAt,
-      photoURL: publishedIdentity.photoURL,
-    })));
-    // A leaderboard row's identity is server-owned once it exists, so the next
-    // shape is proven on a fresh row rather than by rewriting this one.
-    await assertSucceeds(deleteDoc(leaderboardRef));
   }
 });
 
@@ -509,149 +474,27 @@ test('identity policy blocks stale clients and permits modern refreshes', async 
   const context = testEnv.authenticatedContext(userId);
   const db = context.firestore();
   const profileRef = doc(db, `users/${userId}/public_profile/current`);
-  const leaderboardRef = doc(
-    db,
-    `leaderboard_stats/weekly_2026-W31_${userId}`
-  );
   const staleProfile = makePublicProfileDocument();
   delete staleProfile.identityPolicyVersion;
   delete staleProfile.identityChangedAt;
 
   await assertFails(setDoc(profileRef, staleProfile));
-  await assertFails(setDoc(leaderboardRef, makeLeaderboardDocument({
-    identityPolicyVersion: 0,
-  })));
-
   await assertSucceeds(setDoc(profileRef, makePublicProfileDocument()));
-  const publishedIdentity = (await getDoc(profileRef)).data();
-  await assertSucceeds(setDoc(leaderboardRef, makeLeaderboardDocument({
-    displayName: publishedIdentity.displayName,
-    identityChangedAt: publishedIdentity.identityChangedAt,
-    photoURL: publishedIdentity.photoURL,
-  })));
 
   await assertFails(updateDoc(profileRef, {
     displayName: 'Old Client Name',
-    lastUpdated: serverTimestamp(),
-  }));
-  await assertFails(updateDoc(leaderboardRef, {
-    photoURL: 'https://example.com/old-client.jpg',
     lastUpdated: serverTimestamp(),
   }));
   await assertSucceeds(updateDoc(profileRef, {
     identityChangedAt: serverTimestamp(),
     lastUpdated: serverTimestamp(),
   }));
-  await assertFails(updateDoc(leaderboardRef, {
-    identityPolicyVersion: 1,
-    identityChangedAt: serverTimestamp(),
-    lastUpdated: serverTimestamp(),
-  }));
-
   await assertSucceeds(updateDoc(profileRef, {
     displayName: 'Protected Name',
     identityPolicyVersion: 1,
     identityChangedAt: serverTimestamp(),
     lastUpdated: serverTimestamp(),
   }));
-  await assertFails(updateDoc(leaderboardRef, {
-    photoURL: 'https://example.com/protected.jpg',
-    identityPolicyVersion: 1,
-    identityChangedAt: serverTimestamp(),
-    lastUpdated: serverTimestamp(),
-  }));
-  await assertSucceeds(updateDoc(leaderboardRef, {
-    totalSteps: 2400,
-    lastUpdated: serverTimestamp(),
-  }));
-});
-
-test('leaderboard creates cannot spoof identity or create a masked lifecycle', async () => {
-  const context = testEnv.authenticatedContext(userId);
-  const leaderboardRef = doc(
-    context.firestore(),
-    `leaderboard_stats/weekly_2026-W31_${userId}`
-  );
-
-  await assertFails(setDoc(leaderboardRef, makeLeaderboardDocument({
-    displayName: 'Spoofed Name',
-  })));
-  await assertFails(setDoc(leaderboardRef, makeLeaderboardDocument({
-    displayName: 'Anonymous Climber',
-    identityChangedAt: null,
-    identityState: 'pending_public_profile',
-    photoURL: '',
-  })));
-  await assertFails(setDoc(leaderboardRef, makeLeaderboardDocument({
-    displayName: 'Anonymous Climber',
-    identityChangedAt: null,
-    identityState: 'deleted',
-    photoURL: '',
-  })));
-});
-
-test('metrics refresh preserves server-masked pending and deleted identity', async () => {
-  const context = testEnv.authenticatedContext(userId);
-  const leaderboardRef = doc(
-    context.firestore(),
-    `leaderboard_stats/weekly_2026-W31_${userId}`
-  );
-  const maskedDocument = makeLeaderboardDocument({
-    displayName: 'Anonymous Climber',
-    identityChangedAt: null,
-    identityState: 'pending_public_profile',
-    photoURL: '',
-  });
-
-  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
-    await setDoc(
-      doc(
-        adminContext.firestore(),
-        `leaderboard_stats/weekly_2026-W31_${userId}`
-      ),
-      maskedDocument
-    );
-  });
-
-  await assertSucceeds(updateDoc(leaderboardRef, {
-    totalSteps: 2400,
-    lastUpdated: serverTimestamp(),
-  }));
-  let refreshed = (await getDoc(leaderboardRef)).data();
-  assert.equal(refreshed.displayName, 'Anonymous Climber');
-  assert.equal(refreshed.identityState, 'pending_public_profile');
-  assert.equal(refreshed.photoURL, '');
-
-  await assertFails(updateDoc(leaderboardRef, {
-    displayName: 'Restored by client',
-    identityChangedAt: serverTimestamp(),
-    identityState: 'published',
-    photoURL: 'https://example.com/restored.jpg',
-  }));
-
-  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
-    await updateDoc(
-      doc(
-        adminContext.firestore(),
-        `leaderboard_stats/weekly_2026-W31_${userId}`
-      ),
-      {identityState: 'deleted'}
-    );
-  });
-  await assertSucceeds(updateDoc(leaderboardRef, {
-    totalSteps: 3600,
-    lastUpdated: serverTimestamp(),
-  }));
-  await assertFails(updateDoc(leaderboardRef, {
-    displayName: 'Reopened by client',
-    identityChangedAt: serverTimestamp(),
-    identityState: 'published',
-  }));
-
-  refreshed = (await getDoc(leaderboardRef)).data();
-  assert.equal(refreshed.displayName, 'Anonymous Climber');
-  assert.equal(refreshed.identityState, 'deleted');
-  assert.equal(refreshed.photoURL, '');
 });
 
 test('incoming block cleanup has a collection-group single-field index', () => {
@@ -779,28 +622,6 @@ function makePublicProfileDocument(overrides = {}) {
     photoURL: '',
     identityPolicyVersion: 1,
     identityChangedAt,
-    lastUpdated: new Date('2026-07-29T12:00:00.000Z'),
-    ...overrides,
-  };
-}
-
-function makeLeaderboardDocument(overrides = {}) {
-  return {
-    userId,
-    displayName: 'Climber',
-    photoURL: '',
-    identityPolicyVersion: 1,
-    identityChangedAt,
-    identityState: 'published',
-    timeFrame: 'weekly',
-    schemaVersion: 2,
-    periodKey: '2026-W31',
-    periodStartAt: new Date('2026-07-27T00:00:00.000Z'),
-    totalSteps: 1200,
-    totalFloors: 75,
-    totalWorkouts: 1,
-    totalDuration: 1800,
-    stepsPerMinute: 40,
     lastUpdated: new Date('2026-07-29T12:00:00.000Z'),
     ...overrides,
   };

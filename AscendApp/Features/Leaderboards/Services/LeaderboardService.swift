@@ -5,7 +5,6 @@ import SwiftData
 final class LeaderboardService {
     static let shared = LeaderboardService()
 
-    private let repository = LeaderboardRepository.shared
     private var modelContext: ModelContext?
 
     /// Callers reach the app-wide instance through `shared`. A separate instance exists so a
@@ -99,10 +98,13 @@ final class LeaderboardService {
                     }
                 }
 
+                // Only a real change counts. This used to also report "true" for a
+                // stat still flagged `needsSync`, so the caller would run the publish
+                // loop for it; nothing publishes from the device any more, so that
+                // branch bought a Firestore refresh for an aggregate that had not
+                // moved.
                 if delta != .zero {
                     stats.apply(delta: delta, period: period, updatedAt: referenceDate)
-                    touchedStats = true
-                } else if stats.needsSync {
                     touchedStats = true
                 }
             }
@@ -122,101 +124,9 @@ final class LeaderboardService {
         return currentStats[timeFrame]
     }
 
-    func prepareSyncPayloads(
-        userId: String,
-        profile: LeaderboardProfileSnapshot? = nil
-    ) throws -> [LeaderboardSyncPayload] {
-        let context = try requireContext()
-        let predicate = #Predicate<LeaderboardStats> { stats in
-            stats.userId == userId && stats.needsSync
-        }
-        let statsToSync = try context.fetch(FetchDescriptor<LeaderboardStats>(predicate: predicate))
-        var clearedNoOpStats = false
-
-        let payloads: [LeaderboardSyncPayload] = statsToSync.compactMap { stats -> LeaderboardSyncPayload? in
-            if stats.hasActivity == false, stats.lastSyncedToFirestore == nil {
-                stats.needsSync = false
-                clearedNoOpStats = true
-                return nil
-            }
-
-            guard let timeFrame = LeaderboardTimeFrame(rawValue: stats.timeFrame) else { return nil }
-            return LeaderboardSyncPayload(
-                localStatID: stats.id,
-                snapshotLastUpdated: stats.lastUpdated,
-                userId: stats.userId,
-                timeFrame: timeFrame,
-                schemaVersion: stats.schemaVersion,
-                periodKey: stats.periodKey,
-                periodStartAt: stats.periodStartAt,
-                totalSteps: stats.totalSteps,
-                totalFloors: stats.totalFloors,
-                totalWorkouts: stats.totalWorkouts,
-                totalDuration: stats.totalDuration,
-                stepsPerMinute: stats.stepsPerMinute,
-                profile: profile,
-                operation: stats.hasActivity ? .upsert : .delete
-            )
-        }
-
-        if clearedNoOpStats {
-            try context.save()
-        }
-
-        return payloads
-    }
-
-    func markSynced(payloads: [LeaderboardSyncPayload], syncedAt: Date = Date()) throws {
-        guard !payloads.isEmpty else { return }
-
-        let context = try requireContext()
-        let stats = try fetchAllStats()
-        let statsByID = Dictionary(uniqueKeysWithValues: stats.map { ($0.id, $0) })
-
-        for payload in payloads {
-            guard let stat = statsByID[payload.localStatID] else { continue }
-            guard stat.lastUpdated <= payload.snapshotLastUpdated else { continue }
-            stat.lastSyncedToFirestore = syncedAt
-            stat.needsSync = false
-        }
-
-        try context.save()
-    }
-
-    func syncPayload(_ payload: LeaderboardSyncPayload) async throws {
-        switch payload.operation {
-        case .upsert:
-            try await repository.upsertStats(payload)
-        case .delete:
-            try await repository.deleteStats(
-                userId: payload.userId,
-                timeFrame: payload.timeFrame,
-                periodKey: payload.periodKey
-            )
-        }
-    }
-
-    func deleteLegacyRemoteStats(
-        userId: String,
-        featureFlags: RemoteFeatureFlagStore = .shared
-    ) async throws {
-        // Killed: legacy documents are left in place. They are already superseded by the
-        // current-schema documents, so deferring the sweep costs nothing but a stale row.
-        guard RemoteFeatureGate.allows(
-            .leaderboardPublishing,
-            path: "LeaderboardService.deleteLegacyRemoteStats",
-            store: featureFlags
-        ) else {
-            return
-        }
-
-        try await repository.deleteLegacyStats(userId: userId)
-    }
-
-    func updateBodyWeight(userId: String, weightKg: Double) async throws {
-        try await repository.updateBodyWeight(userId: userId, weightKg: weightKg)
-        await LeaderboardSessionCache.shared.invalidateAll()
-    }
+    // Publication used to live here. Standings are derived server-side now
+    // (functions/src/leaderboardStats.ts) from the canonical workouts the app
+    // already backs up, so what remains is the local display cache above.
 
     private func aggregate(
         for timeFrame: LeaderboardTimeFrame,
@@ -296,11 +206,6 @@ final class LeaderboardService {
             stats.userId == userId
         }
         return try context.fetch(FetchDescriptor<LeaderboardStats>(predicate: predicate))
-    }
-
-    private func fetchAllStats() throws -> [LeaderboardStats] {
-        let context = try requireContext()
-        return try context.fetch(FetchDescriptor<LeaderboardStats>())
     }
 
     private func fetchWorkouts(for userId: String) throws -> [Workout] {

@@ -18,7 +18,9 @@ paths:
 - Never commit QA credentials, never bundle them into production builds, and never use the internal QA path to bypass Firestore/Storage/Auth server enforcement.
 
 ## Leaderboard Seeding Policy (Debug / CI)
-- Firestore client rules only allow writes to `leaderboard_stats` where `userId == request.auth.uid`.
+- Firestore rules deny every client write to `leaderboard_stats`; standings are derived server-side from the canonical workouts (`functions/src/leaderboardStats.ts`). A seed that writes a standing must use the Admin SDK, and it must then choose one of two shapes, because the derivation owns every row it is not told to leave alone:
+  - No workouts behind the standing (the `scripts/seed/fixtures/profile-fixtures.mjs` personas): mark the row `isSynthetic: true`, or the derivation deletes it the moment anything touches that persona's user document.
+  - Real seeded workouts behind the standing (`scripts/seed-demo-user.mjs`): leave the row unmarked and derive its totals the same way the server does, so the rebuild lands on the same numbers. Never floor, pad, or round a seeded total the workouts do not support.
 - Multi-user seed data should not be written from client debug tools in shared environments.
 - Use server-side seeding (Admin SDK / Cloud Function / CI job) for deterministic multi-user leaderboard fixtures.
 - For local-only iteration, use the Firestore emulator or seed only the authenticated user.
@@ -65,8 +67,10 @@ paths:
   currently lacks them, so a dev backfill repairs the source mirrors and waits.
 - To create one dev/staging QA Auth account, use `scripts/dev-db.mjs create-auth-user`. It must stay dev/staging-only, can generate a password, and can optionally run `--hydrate-profile` or `--seed-demo-data` after the Auth account exists.
 - To patch one dev/staging account, use `scripts/dev-db.mjs hydrate-user` so private `users/{uid}` and public `users/{uid}/public_profile/current` stay in sync.
-- `scripts/seed-demo-user.mjs` floors every demo user's totals at `minimumStepsByTimeFrame` (2,096 daily / 48,000 weekly / 145,000 monthly / 640,000 yearly / 720,000 all-time) via `Math.max`.
-  Every demo user seeded below the floor lands on the floor exactly, so identical totals across accounts - and the podium ties they produce - are a seeding artifact, not a ranking bug. Check the seeded value before investigating a tie as a defect.
+- `scripts/seed-demo-user.mjs` derives every demo user's leaderboard totals from the workouts it seeds, mirroring `aggregateForPeriod` in `functions/src/leaderboardStats.ts`, and writes no row for a period with no workouts in it.
+  The rows are deliberately not marked `isSynthetic`: a demo user has real workouts behind the standing, so the server derivation owns the row and rebuilds it to the same numbers.
+  It used to floor totals at a `minimumStepsByTimeFrame` (640,000 yearly, and so on), which is where identical demo totals and the podium ties they produced came from.
+  That floor is gone, so demo standings now differ per account and match the seeded workouts.
 
 ## Live replay seeding
 - Live replay leaderboard seed data must be Admin SDK/server-written into the read-only `live_replay_leaderboards` index, never client-written during a live session.

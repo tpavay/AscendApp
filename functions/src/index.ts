@@ -17,6 +17,10 @@ export {unsubscribeFromEmails} from "./email/unsubscribe";
 export {onFeedbackCreated} from "./feedback";
 export {recordLifecycleEvent} from "./lifecycle";
 export {finalizeLeaderboardAchievements} from "./leaderboardAchievements";
+export {
+  onUserDemographicsWrittenLeaderboardStats,
+  onWorkoutWrittenLeaderboardStats,
+} from "./leaderboardStats";
 export {onWorkoutReplaySplitsWritten} from "./liveReplayLeaderboard";
 export {
   onPublicIdentityPropagationJobWritten,

@@ -296,7 +296,7 @@ async function main() {
     `Seeded demo account ${seedPlan.user.uid} with ` +
       `${seedPlan.workouts.length} workouts, ` +
       `${seedPlan.liveContexts.length} replay context(s), and ` +
-      `${TIME_FRAMES.length} leaderboard stat rows.`
+      `${seedPlan.leaderboardRowCount} leaderboard stat rows.`
   );
 }
 
@@ -401,13 +401,22 @@ async function buildSeedPlan(db, catalog, authUser, args) {
     ]);
   }
 
+  let leaderboardRowCount = 0;
   for (const timeFrame of TIME_FRAMES) {
     const totals = leaderboardTotals(workouts, timeFrame);
     const period = currentPeriod(timeFrame, now);
-    writes.push([
-      db.collection("leaderboard_stats").doc(leaderboardDocId(user.uid, timeFrame, period.key)),
-      leaderboardStatsData(user, timeFrame, period, totals),
-    ]);
+    const statsRef = db
+      .collection("leaderboard_stats")
+      .doc(leaderboardDocId(user.uid, timeFrame, period.key));
+    // The server derivation publishes no row for a period with no eligible
+    // workouts and removes any it finds, so seeding one here would be undone on
+    // the next trigger.
+    if (totals.totalWorkouts === 0) {
+      deletes.push(statsRef);
+      continue;
+    }
+    writes.push([statsRef, leaderboardStatsData(user, timeFrame, period, totals)]);
+    leaderboardRowCount += 1;
   }
 
   await addReplayWrites(db, writes, deletes, user, liveContexts, args);
@@ -428,6 +437,7 @@ async function buildSeedPlan(db, catalog, authUser, args) {
     workouts,
     liveContexts,
     stats,
+    leaderboardRowCount,
   };
 }
 
@@ -1012,6 +1022,12 @@ function achievementPeriod(type, periodKey, earnedAt) {
   };
 }
 
+// Mirrors aggregateForPeriod in functions/src/leaderboardStats.ts. The demo user
+// has real seeded workouts, so the server derivation owns this row and rebuilds
+// it from them on the next trigger. Any total this seed asserts that those
+// workouts do not support - the step floors this used to apply - survives only
+// until then, and a seeded standing its own evidence contradicts is exactly the
+// shape issue #307 exists to stop.
 function leaderboardTotals(workouts, timeFrame) {
   const now = new Date();
   const period = currentPeriod(timeFrame, now);
@@ -1023,24 +1039,14 @@ function leaderboardTotals(workouts, timeFrame) {
   const totalFloors = included.reduce((sum, workout) => sum + workout.floors, 0);
   const totalWorkouts = included.length;
   const totalDuration = included.reduce((sum, workout) => sum + workout.durationSeconds, 0);
-
-  const minimumStepsByTimeFrame = {
-    daily: 2096,
-    weekly: 48000,
-    monthly: 145000,
-    yearly: 640000,
-    all_time: 720000,
-  };
-  const resolvedSteps = Math.max(totalSteps, minimumStepsByTimeFrame[timeFrame] ?? totalSteps);
-  const durationScale = totalSteps > 0 ? resolvedSteps / totalSteps : 1;
-  const resolvedDuration = Math.max(totalDuration * durationScale, resolvedSteps / 92 * 60);
+  const minutes = totalDuration / 60;
 
   return {
-    totalSteps: Math.round(resolvedSteps),
-    totalFloors: Math.round(resolvedSteps / STEPS_PER_FLOOR),
-    totalWorkouts: Math.max(totalWorkouts, timeFrame === "daily" ? 1 : 3),
-    totalDuration: Math.round(resolvedDuration),
-    stepsPerMinute: stepsPerMinute(resolvedSteps, resolvedDuration),
+    totalSteps,
+    totalFloors,
+    totalWorkouts,
+    totalDuration,
+    stepsPerMinute: minutes > 0 ? totalSteps / minutes : 0,
   };
 }
 
