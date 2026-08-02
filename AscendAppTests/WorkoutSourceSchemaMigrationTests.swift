@@ -867,37 +867,3 @@ private enum FailingWorkoutSourceMigrationPlan: SchemaMigrationPlan {
 private enum InjectedMigrationFailure: Error {
     case didMigrateInterrupted
 }
-
-/// Captures what the migration *asked* the diagnostics layer for.
-private final class SpyDiagnosticsRecorder: AppDiagnosticsRecording, @unchecked Sendable {
-    struct Recorded {
-        let name: String
-        let details: [String: String]
-        let mirrorToCrashlytics: Bool
-    }
-
-    private let lock = NSLock()
-    private var recorded: [Recorded] = []
-
-    var events: [Recorded] {
-        lock.lock()
-        defer { lock.unlock() }
-        return recorded
-    }
-
-    @discardableResult
-    func record(
-        _ name: String,
-        level: AppDiagnosticEvent.Level,
-        details: [String: String],
-        mirrorToCrashlytics: Bool
-    ) -> AppDiagnosticEvent {
-        lock.lock()
-        recorded.append(
-            Recorded(name: name, details: details, mirrorToCrashlytics: mirrorToCrashlytics)
-        )
-        lock.unlock()
-
-        return AppDiagnosticEvent(name: name, level: level, details: details)
-    }
-}

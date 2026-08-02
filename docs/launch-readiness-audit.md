@@ -20,7 +20,7 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 2. ~~**No Sign in with Apple token revocation on account deletion.**~~ **Fixed** (issue #197). The `authorizationCode` is captured during Apple re-auth and revoked before the account goes away.
 3. **Verify `PrivacyInfo.xcprivacy` lands in the Release bundle.** The manifest exists and is comprehensive - `AscendApp/PrivacyInfo.xcprivacy` owns the declared data types and required-reason codes, and `AscendAppTests/PrivacyManifestTests.swift` pins both. It carries no explicit `project.pbxproj` entry by design: `AscendApp/` is a `PBXFileSystemSynchronizedRootGroup` for the `AscendApp` target whose only membership exception is `Info.plist`, so the manifest is bundled automatically. Confirm once by building Release and `find`ing the file in the built .app.
 
-> Blockers 1-2 are resolved. The deletion ordering contract, the revocation rules, and what deliberately outlives an account are owned by **CLAUDE.md → Account Deletion (Apple 5.1.1(v))**; the ordering itself is locked in by `AscendAppTests/AccountDeletionServiceTests.swift`. Consult those rather than this dated snapshot.
+> Blockers 1-2 are resolved. The deletion ordering contract, the revocation rules, and what deliberately outlives an account are owned by **`.claude/skills/ascend-firebase-data` → Account deletion (Apple 5.1.1(v))**; the ordering itself is locked in by `AscendAppTests/AccountDeletionServiceTests.swift`. Consult those rather than this dated snapshot.
 
 ## 🟡 Commerce configuration (dashboards — not auditable from code)
 

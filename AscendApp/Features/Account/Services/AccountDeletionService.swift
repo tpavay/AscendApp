@@ -77,7 +77,7 @@ final class AccountDeletionService {
             throw DeletionError.notAuthenticated
         }
 
-        let totalSteps = 12
+        let totalSteps = 11
         var completedSteps = 0
         var hasStagedLocalDeletion = false
         var hasCommittedLocalDeletion = false
@@ -125,33 +125,27 @@ final class AccountDeletionService {
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 3: Delete any legacy flat-path files referenced by local records
-        updateProgress("Cleaning up legacy media...")
-        try await deleteLegacyFlatPathMedia(modelContext: modelContext)
-        completedSteps += 1
-        try Task.checkCancellation()
-
-        // Step 4: Delete Firestore leaderboard stats
+        // Step 3: Delete Firestore leaderboard stats
         updateProgress("Deleting leaderboard data...")
         try await deleteLeaderboardStats(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 5: Delete Firestore workout backup documents
+        // Step 4: Delete Firestore workout backup documents
         updateProgress("Deleting workout backups...")
         try await deleteWorkoutBackups(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 6: Delete the user's personal block list.
+        // Step 5: Delete the user's personal block list.
         updateProgress("Deleting blocked climbers...")
         try await deleteBlockedClimbers(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 7: Delete the publicly readable profile mirrors.
+        // Step 6: Delete the publicly readable profile mirrors.
         //
-        // This MUST happen before the auth account goes away (step 11):
+        // This MUST happen before the auth account goes away (step 10):
         // firestore.rules gates these deletes on isOwner(userId), so once the
         // auth user is deleted no client can ever authenticate as this uid
         // again and the documents become orphaned PII that keeps the deleted
@@ -161,7 +155,7 @@ final class AccountDeletionService {
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 8: Deactivate push delivery while the callable can still
+        // Step 7: Deactivate push delivery while the callable can still
         // authenticate and while users/{uid} still exists. The Cloud Function
         // sweep remains authoritative if this best-effort request fails.
         updateProgress("Disabling notifications...")
@@ -169,7 +163,7 @@ final class AccountDeletionService {
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 9: Delete Firestore user document.
+        // Step 8: Delete Firestore user document.
         //
         // Deleting this fires the cleanupDeletedUserData Cloud Function, which
         // sweeps every remaining subcollection, including the server-owned ones
@@ -180,21 +174,21 @@ final class AccountDeletionService {
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 10: Stage local deletion (rollback if auth deletion fails)
+        // Step 9: Stage local deletion (rollback if auth deletion fails)
         updateProgress("Preparing local data cleanup...")
         try stageLocalDataDeletion(modelContext: modelContext)
         hasStagedLocalDeletion = true
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 11: Delete the Firebase Auth account (credentials already fresh
+        // Step 10: Delete the Firebase Auth account (credentials already fresh
         // from Step 1, Apple token already revoked right after reauth).
         updateProgress("Deleting account...")
         try await deleteAuthAccount()
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 12: Commit local deletion and clear caches
+        // Step 11: Commit local deletion and clear caches
         updateProgress("Finalizing local cleanup...")
         try commitStagedLocalDeletion(modelContext: modelContext)
         hasCommittedLocalDeletion = true
@@ -289,23 +283,6 @@ final class AccountDeletionService {
         } catch {
             throw DeletionError.storageDeletionFailed(error.localizedDescription)
         }
-    }
-
-    /// Deletes legacy flat-path files that predate the user-scoped migration.
-    /// Falls back to SwiftData records because the old paths (e.g. `photos/uuid.jpg`)
-    /// have no user ID — we can only identify them through the stored download URLs.
-    private func deleteLegacyFlatPathMedia(modelContext: ModelContext) async throws {
-        let urls: [URL]
-
-        do {
-            let workouts = try modelContext.fetch(FetchDescriptor<Workout>())
-            urls = workouts.flatMap(\.photos).map(\.url)
-        } catch {
-            throw DeletionError.storageDeletionFailed(error.localizedDescription)
-        }
-
-        guard !urls.isEmpty else { return }
-        await gateway.deleteLegacyMedia(at: urls)
     }
 
     private func deleteLeaderboardStats(userId: String) async throws {
