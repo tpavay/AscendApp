@@ -25,8 +25,12 @@ Blocks follow the account to new devices, and saved display names are screened b
 ### Part A - account-authored public identity
 
 - [ ] PA-1: `PublicClimberIdentity.mode` is `.accountAuthored`, so a stored display name and photo are shown while a missing name falls back to the stable system handle.
-- [ ] PA-2: Public profile and leaderboard writes persist the account's validated stored display name and bounded photo URL rather than the `Climber` placeholder.
-- [ ] PA-3: User root, public profile, and leaderboard Firestore rules apply the same bounded profanity policy, while public profile and leaderboard documents require non-empty names and bound photo URLs to 2,048 characters.
+- [ ] PA-2: Public profile writes persist the account's validated stored display name and bounded photo URL rather than the `Climber` placeholder, and a `leaderboard_stats` row carries that same validated identity - resolved by the server from the mirror through `leaderboardIdentityFields` in `functions/src/leaderboardStats.ts`, never written by a client.
+- [ ] PA-3: The same bounded profanity and photo policy screens every public name, in both places a name can enter public data. The Firestore rules apply it to the client-writable documents (`isAllowedDisplayName` on the user root, plus `hasVisibleDisplayName`, `isAllowedDisplayName`, and `isValidPublicPhotoURL` on `users/{uid}/public_profile/current`, which bounds photo URLs to 2,048 characters and to the Firebase Storage host). The server derivation applies it again on the way out, replacing a mirror name that fails the screen with the account's stable system handle and re-bounding the photo, so no unscreened name can reach a public row.
+  > PA-2 and PA-3 describe a relocation with defence in depth, not a relaxation.
+  > `leaderboard_stats` is `allow write: if false` and server-derived (#307), so the four per-write leaderboard identity validators the rules used to carry have no document left to guard and were deleted.
+  > Enforcement did not move with them: it now runs twice, once at the rules layer on the client-writable mirror and again in `publicIdentityFromData` when the server projects that mirror onto a row.
+  > A row written before the policy existed, or a seeded mirror holding a disallowed name, is screened on the way out even though nothing screened it on the way in.
 - [ ] PA-4: Global leaderboard rows and podium, Live Replay, per-climb completion leaderboard, First Ascent, community avatars, and other-user profile render actual stored public identity before block masking.
 - [ ] PA-5: Deleted accounts continue to render `Anonymous Climber` with no photo.
 - [ ] PA-6: Profile photo and display-name edits propagate to public profile and existing leaderboard mirrors without changing ranking data.
@@ -65,7 +69,7 @@ Blocks follow the account to new devices, and saved display names are screened b
 | Acceptance criterion | Automated test or evidence | Why it proves the behavior |
 |---|---|---|
 | PA-1, PA-4, PA-5 | Public identity and audited identity-surface tests | Confirms account-authored values, stable fallback, deleted-account anonymity, and block masking across every public surface |
-| PA-2, PA-3, PA-6, PA-8 | Publication/payload tests and Firestore emulator rules tests | Confirms actual identity persistence, the pre-onboarding root exception, non-empty public fallbacks, bounded server validation, profanity enforcement, and edit propagation |
+| PA-2, PA-3, PA-6, PA-8 | `tests/firebase-rules/moderation-contract.test.mjs` (the shared display-name screening vector against the user root and the public profile mirror) plus `functions/test/publicIdentity.test.ts` and the identity cases in `functions/test/leaderboardStats.test.ts` | Confirms both layers: the rules reject an objectionable or unbounded name on every client-writable publication, and the server resolver masks a disallowed name and an off-host photo before either reaches a derived leaderboard row. Also covers the pre-onboarding root exception, non-empty public fallbacks, and edit propagation |
 | PA-7 | Feature diff and complete Part B test suite | Confirms public identity is not separated from its moderation controls |
 | PA-9 | Production rollout runbook test | Confirms the runbook ships no backfill step and orders the identity backend ahead of the publishing binary |
 | PA-10 | Cloud Function identity propagation and stable-handle parity tests | Confirms profile edits converge across every projection with exact identity-only writes and bounded retry |
