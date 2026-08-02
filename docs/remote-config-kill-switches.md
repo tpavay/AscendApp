@@ -135,7 +135,7 @@ Two things it deliberately does **not** do:
 |---|---|---|---|
 | Dev `ascend-f2e4f` | 2026-08-02 | 4 (1 = first publish; 2-3 were the switch exercise below) | Client `main_active` carries all seven, `main_default` empty |
 | Staging `ascend-staging-fa7d5` | 2026-08-02 | 1 | Client `main_active` carries all seven, `main_default` empty |
-| Production `ascend-prod-9c8f2` | 2026-08-02 | 1 | Live template only - see the caveat below |
+| Production `ascend-prod-9c8f2` | 2026-08-02 | 1 | Backend read-back, parameter by parameter - see below |
 
 Client-side verification reads the Firebase SDK's own activation store in the simulator container, `Library/Application Support/Google/RemoteConfig/RemoteConfig.sqlite3`:
 
@@ -150,7 +150,21 @@ A key present there is, by construction, a key the app resolves from the server 
 `main_default` must stay empty - Ascend deliberately calls no `setDefaults`, and a non-empty table would mean the `.remote` / `.default` distinction had been destroyed.
 The **Remote Flags** screen shows the same thing with a UI, and is the right tool on a TestFlight build where there is no container to read.
 
-**Production was verified against the live template only.** Proving the production *client* resolves `.remote` would mean running a production-configured build, which registers an app instance against the production project - beyond "publishing config is authorised". The archive preflight now covers this permanently: no production build can be cut while a flag is missing from `ascend-prod-9c8f2`.
+**Production read-back, 2026-08-02.** No production client verified this publish, so the backend was read back independently and compared against the code, parameter by parameter. `RemoteFeatureFlag.shippedDefault` is the unconditional `{ true }` - not a per-case switch - so the correct production state is all seven `true`, and that is what came back:
+
+| Parameter | Backend | Type | `shippedDefault` |
+|---|---|---|---|
+| `leaderboard_publishing_enabled` | `true` | BOOLEAN | `true` |
+| `local_data_migrations_enabled` | `true` | BOOLEAN | `true` |
+| `public_profile_publishing_enabled` | `true` | BOOLEAN | `true` |
+| `workout_cloud_backup_writes_enabled` | `true` | BOOLEAN | `true` |
+| `workout_cloud_restore_enabled` | `true` | BOOLEAN | `true` |
+| `workout_media_uploads_enabled` | `true` | BOOLEAN | `true` |
+| `workout_remote_deletes_enabled` | `true` | BOOLEAN | `true` |
+
+Seven keys in code, seven parameters on the backend, no unrecognised parameters, no `parameterGroups`, no `conditions`, template version 1. Every value matches its `shippedDefault` exactly, which is what makes this publish a no-op for behaviour: production resolves the same answers it resolved yesterday, but now from the server, where they can be changed.
+
+Proving the production *client* resolves `.remote` would mean running a production-configured build, which registers an app instance against the production project - beyond "publishing config is authorised". The archive preflight covers that permanently instead: no production build can be cut while a flag is missing from `ascend-prod-9c8f2`.
 
 ### The switch exercise (dev, 2026-08-02)
 
