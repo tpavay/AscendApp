@@ -103,6 +103,7 @@ export const PROFILE_FIELD_SETS = {
     "identityPolicyVersion",
     "identityChangedAt",
     "identityState",
+    "isSynthetic",
     "timeFrame",
     "schemaVersion",
     "periodKey",
@@ -516,6 +517,12 @@ function leaderboardDataForPersona(
     identityPolicyVersion: publicIdentity.identityPolicyVersion,
     identityChangedAt: publicIdentity.identityChangedAt,
     identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
+    // A persona has no canonical workouts behind their standing, so the
+    // server-side derivation (functions/src/leaderboardStats.ts) would
+    // otherwise delete this row the moment anything touched the persona's user
+    // document. Same exemption identity propagation already makes for seeded
+    // projections.
+    isSynthetic: true,
     timeFrame,
     schemaVersion: PROFILE_SCHEMA_VERSION,
     periodKey: period.key,

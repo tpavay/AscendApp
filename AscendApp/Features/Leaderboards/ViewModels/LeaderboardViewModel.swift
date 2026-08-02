@@ -104,59 +104,16 @@ final class LeaderboardViewModel {
         isLoading = true
         errorMessage = nil
         isOffline = false
-        var syncError: Error?
 
-        if isNetworkConnected == false {
-            syncError = URLError(.notConnectedToInternet)
-        } else {
-            do {
-                try await withLeaderboardTimeout(seconds: networkTimeoutSeconds) {
-                    try await LeaderboardSyncCoordinator.shared.flushNow(
-                        userId: userId
-                    )
-                }
-            } catch {
-                syncError = error
-            }
-        }
-
-        let refreshIssue = syncError.map(LeaderboardNetworkIssue.classify)
-        let shouldForceRemoteRefresh: Bool = {
-            guard let refreshIssue else { return true }
-            switch refreshIssue {
-            case .offline, .slowConnection:
-                return false
-            case .other:
-                return true
-            }
-        }()
-
+        // Refresh publishes nothing. The server derives standings from the workouts
+        // the app already backs up, so pulling to refresh is a re-read - and the
+        // climber's own numbers are already on screen from the local display cache
+        // (LeaderboardCurrentUserReconciler) whether or not the read succeeds.
         await loadLeaderboard(
             userId: userId,
-            forceRefresh: shouldForceRemoteRefresh,
+            forceRefresh: isNetworkConnected,
             isNetworkConnected: isNetworkConnected
         )
-
-        guard let syncError else { return }
-        let loadFailedWithoutEntries = errorMessage != nil && leaderboardEntries.isEmpty
-        guard loadFailedWithoutEntries == false else { return }
-
-        let hasUnsyncedActivity = hasUnsyncedActivityForSelectedBoard(userId: userId)
-        switch LeaderboardNetworkIssue.classify(syncError) {
-        case .offline:
-            isOffline = true
-            errorMessage = nil
-        case .slowConnection:
-            guard hasUnsyncedActivity else { return }
-            isOffline = false
-            errorMessage = "Latest changes may take a moment to appear."
-        case .other:
-            guard hasUnsyncedActivity else { return }
-            isOffline = false
-            errorMessage = leaderboardEntries.isEmpty
-                ? "Couldn’t publish your latest leaderboard stats yet."
-                : "Latest changes haven’t synced yet."
-        }
     }
 
     func loadLeaderboard(
@@ -518,14 +475,6 @@ final class LeaderboardViewModel {
         if !selectedLocationFilter.isAvailable(currentUserProfile: currentUserProfile) {
             selectedLocationFilter = .all
         }
-    }
-
-    private func hasUnsyncedActivityForSelectedBoard(userId: String) -> Bool {
-        guard let localStats = try? service.getLocalStats(for: userId, timeFrame: selectedTimeFrame) else {
-            return false
-        }
-
-        return localStats.needsSync && localStats.hasActivity
     }
 
     private func formatValue(_ value: Double, for metric: LeaderboardMetric) -> String {

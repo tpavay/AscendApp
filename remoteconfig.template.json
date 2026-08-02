@@ -35,13 +35,6 @@
       "valueType": "BOOLEAN",
       "description": "Kill switch. Off stops one-shot local backfills that rewrite stored workouts in bulk; they run on the next launch after it returns."
     },
-    "leaderboard_publishing_enabled": {
-      "defaultValue": {
-        "value": "true"
-      },
-      "valueType": "BOOLEAN",
-      "description": "Kill switch. Off stops publishing leaderboard stats and retiring legacy stat documents; local stats stay dirty and republish when it returns."
-    },
     "public_profile_publishing_enabled": {
       "defaultValue": {
         "value": "true"

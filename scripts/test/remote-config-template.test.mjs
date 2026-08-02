@@ -152,7 +152,7 @@ test("a live switch that is off is reported so the deploy can refuse", () => {
   const live = {
     parameters: {
       workout_cloud_backup_writes_enabled: { defaultValue: { value: "false" } },
-      leaderboard_publishing_enabled: { defaultValue: { value: "true" } },
+      public_profile_publishing_enabled: { defaultValue: { value: "true" } },
     },
   };
 

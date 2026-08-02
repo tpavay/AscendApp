@@ -19,90 +19,10 @@ final class LeaderboardRepository: Sendable {
         documentID(userId: userId, timeFrame: timeFrame, period: timeFrame.currentPeriod())
     }
 
-    func upsertStats(_ payload: LeaderboardSyncPayload) async throws {
-        let docRef = db.collection("leaderboard_stats")
-            .document(documentID(userId: payload.userId, timeFrame: payload.timeFrame, periodKey: payload.periodKey))
-        let publicProfileRef = db.collection("users")
-            .document(payload.userId)
-            .collection("public_profile")
-            .document("current")
-
-        let baseStats: [String: Any] = [
-            "userId": payload.userId,
-            "timeFrame": payload.timeFrame.rawValue,
-            "schemaVersion": payload.schemaVersion,
-            "periodKey": payload.periodKey,
-            "periodStartAt": Timestamp(date: payload.periodStartAt),
-            "totalSteps": payload.totalSteps,
-            "totalFloors": payload.totalFloors,
-            "totalWorkouts": payload.totalWorkouts,
-            "totalDuration": payload.totalDuration,
-            "stepsPerMinute": payload.stepsPerMinute,
-            "lastUpdated": FieldValue.serverTimestamp()
-        ]
-
-        _ = try await db.runTransaction { transaction, errorPointer -> Any? in
-            do {
-                let existing = try transaction.getDocument(docRef)
-                var stats = baseStats
-                Self.apply(
-                    payload.profile,
-                    to: &stats,
-                    deletingMissingValues: existing.exists
-                )
-
-                if existing.exists {
-                    transaction.setData(stats, forDocument: docRef, merge: true)
-                    return nil
-                }
-
-                let publicProfile = try transaction.getDocument(publicProfileRef)
-                guard let identity = publicProfile.data(),
-                      let displayName = identity["displayName"] as? String,
-                      let photoURL = identity["photoURL"] as? String,
-                      let identityPolicyVersion = identity["identityPolicyVersion"],
-                      let identityChangedAt = identity["identityChangedAt"] as? Timestamp else {
-                    errorPointer?.pointee = NSError(
-                        domain: "LeaderboardRepository",
-                        code: 1,
-                        userInfo: [
-                            NSLocalizedDescriptionKey:
-                                "Publish a current public profile before creating leaderboard stats."
-                        ]
-                    )
-                    return nil
-                }
-
-                stats["displayName"] = displayName
-                stats["photoURL"] = photoURL
-                stats["identityPolicyVersion"] = identityPolicyVersion
-                stats["identityChangedAt"] = identityChangedAt
-                stats["identityState"] = "published"
-                transaction.setData(stats, forDocument: docRef)
-                return nil
-            } catch let error as NSError {
-                errorPointer?.pointee = error
-                return nil
-            }
-        }
-    }
-
-    func deleteStats(userId: String, timeFrame: LeaderboardTimeFrame, periodKey: String) async throws {
-        let docRef = db.collection("leaderboard_stats")
-            .document(documentID(userId: userId, timeFrame: timeFrame, periodKey: periodKey))
-        try await docRef.delete()
-    }
-
-    func deleteLegacyStats(userId: String) async throws {
-        let snapshot = try await db.collection("leaderboard_stats")
-            .whereField("userId", isEqualTo: userId)
-            .getDocuments()
-
-        let legacyDocumentIDs = Set(LeaderboardTimeFrame.allCases.map { "\(userId)_\($0.rawValue)" })
-        for document in snapshot.documents where legacyDocumentIDs.contains(document.documentID) {
-            try await document.reference.delete()
-        }
-    }
+    // Standings are server-derived and this collection is read-only to clients
+    // (firestore.rules, functions/src/leaderboardStats.ts). There is deliberately
+    // no write here: a device that could publish its own totals is the whole of
+    // issue #307.
 
     func fetchLeaderboard(
         metric: LeaderboardMetric,
@@ -192,19 +112,6 @@ final class LeaderboardRepository: Sendable {
         return (rank: rank, total: allStats.count)
     }
 
-    func updateBodyWeight(userId: String, weightKg: Double) async throws {
-        let snapshot = try await db.collection("leaderboard_stats")
-            .whereField("userId", isEqualTo: userId)
-            .getDocuments()
-
-        for document in snapshot.documents {
-            try await document.reference.updateData([
-                "weight_kg": weightKg,
-                "lastUpdated": FieldValue.serverTimestamp()
-            ])
-        }
-    }
-
     func parseStat(_ data: [String: Any]) -> FirestoreLeaderboardStats? {
         guard let userId = data["userId"] as? String,
               let identityPolicyVersion = intValue(for: "identityPolicyVersion", in: data),
@@ -269,58 +176,6 @@ final class LeaderboardRepository: Sendable {
             locationCountry: data["location_country"] as? String,
             locationRegion: data["location_region"] as? String
         )
-    }
-
-    private static func apply(
-        _ profile: LeaderboardProfileSnapshot?,
-        to data: inout [String: Any],
-        deletingMissingValues: Bool
-    ) {
-        guard let profile else { return }
-
-        set(
-            profile.age,
-            for: "age",
-            in: &data,
-            deletingMissingValue: deletingMissingValues
-        )
-        set(
-            profile.weightKg,
-            for: "weight_kg",
-            in: &data,
-            deletingMissingValue: deletingMissingValues
-        )
-        set(
-            profile.locationCity,
-            for: "location_city",
-            in: &data,
-            deletingMissingValue: deletingMissingValues
-        )
-        set(
-            profile.locationCountry,
-            for: "location_country",
-            in: &data,
-            deletingMissingValue: deletingMissingValues
-        )
-        set(
-            profile.locationRegion,
-            for: "location_region",
-            in: &data,
-            deletingMissingValue: deletingMissingValues
-        )
-    }
-
-    private static func set(
-        _ value: Any?,
-        for key: String,
-        in data: inout [String: Any],
-        deletingMissingValue: Bool
-    ) {
-        if let value {
-            data[key] = value
-        } else if deletingMissingValue {
-            data[key] = FieldValue.delete()
-        }
     }
 
     private func intValue(for key: String, in data: [String: Any]) -> Int? {

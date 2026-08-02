@@ -100,7 +100,7 @@ export interface IdentityPropagationPort {
   ): Promise<boolean>;
 }
 
-interface CurrentPublicIdentity extends PublicIdentity {
+export interface CurrentPublicIdentity extends PublicIdentity {
   identityChangedAt: unknown;
   identityPolicyVersion: number;
   identityState: PublicIdentityState;
@@ -371,7 +371,7 @@ export function identityFieldsForProjection(
  * @param {Record<string, unknown> | undefined} data Current source fields.
  * @return {CurrentPublicIdentity | null} Current identity or a safe skip.
  */
-function currentPublicIdentity(
+export function currentPublicIdentity(
   userId: string,
   data: Record<string, unknown> | undefined
 ): CurrentPublicIdentity {
@@ -423,7 +423,7 @@ function anonymousIdentity(
  * @param {CurrentPublicIdentity} identity Validated current identity.
  * @return {Record<string, unknown>} Exact identity fields.
  */
-function desiredIdentityFields(
+export function desiredIdentityFields(
   kind: IdentityProjectionKind,
   identity: CurrentPublicIdentity
 ): Record<string, unknown> {

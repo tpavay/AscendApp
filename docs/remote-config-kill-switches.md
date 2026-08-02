@@ -16,19 +16,17 @@ The catalog is `AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift`;
 | `workout_cloud_restore_enabled` | Decoding cloud backups into local storage | The next bootstrap still treats it as the initial hydration |
 | `workout_media_uploads_enabled` | The background media upload queue, and the sweep that deletes local originals. A batch already running stops at the next item rather than finishing | `PendingMediaUpload` rows stay queued and local files stay on disk. The workout banner stays quiet rather than claiming an upload is in progress, and drops the retry affordance |
 | `local_data_migrations_enabled` | One-shot local backfills that rewrite stored workouts | The version key is not stamped, so the backfill runs later |
-| `leaderboard_publishing_enabled` | Publishing leaderboard stats, retiring legacy stat documents | Local stats stay dirty and republish. **Exception:** the legacy stat sweep is dropped, not deferred - see below |
 | `public_profile_publishing_enabled` | Publishing the public profile mirror, stats, summaries | Republished from local state on the next bootstrap |
 
 The invariant across all of them: **a blocked path defers its work, it never drops it.**
 Pending state survives untouched, so turning a switch back on drains the queue with no user action and no further release.
 
-One documented exception, and it is deliberate.
-`LeaderboardService.deleteLegacyRemoteStats` runs only in the launch that rebuilds local stats onto the current schema, and that rebuild is one-shot: once the rebuilt stats are saved, `needsCurrentSchemaRebuild` never returns true again.
-A device whose one rebuild happened while `leaderboard_publishing_enabled` was off therefore never sweeps its legacy stat documents.
-Those documents are already superseded by the current-schema ones, so the whole cost is a stale row that nothing reads - which is why this is left as a drop rather than given a queue of its own.
-Do not read the invariant above as universal without this line.
 `AscendAppTests/RemoteFeatureGateTests.swift` pins it for the five gates whose collaborators can be faked - backup writes, remote deletes, cloud restore, media uploads, and local backfills - including the "turn it back on and the queue drains" half.
-The remaining two (leaderboard publishing, public profile publishing) reach shared services that would need a live backend to observe, so their gates are reviewed rather than tested; making those injectable is worth doing the next time either is touched.
+Public profile publishing reaches a shared service that would need a live backend to observe, so its gate is reviewed rather than tested; making it injectable is worth doing the next time it is touched.
+
+`leaderboard_publishing_enabled` was retired with issue #307.
+The client no longer publishes standings at all - the server derives them from the canonical workouts (`functions/src/leaderboardStats.ts`), so the only kill switch that reaches the leaderboard now is `workout_cloud_backup_writes_enabled`: hold the workout backup and no new standing is derived, because the evidence never lands.
+That is the correct choke point, and it defers rather than drops.
 
 ### What is deliberately not gated
 

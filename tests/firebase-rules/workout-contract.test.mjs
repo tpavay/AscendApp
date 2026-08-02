@@ -122,72 +122,6 @@ test('public profile identity rejects empty, overlong, profane, photo, and uid s
   })));
 });
 
-test('owner can write daily leaderboard stats', async () => {
-  const context = testEnv.authenticatedContext(userId);
-  const statsRef = doc(context.firestore(), `leaderboard_stats/daily_2026-04-10_${userId}`);
-
-  await assertSucceeds(setDoc(statsRef, makeLeaderboardDocument({
-    timeFrame: 'daily',
-    periodKey: '2026-04-10',
-    periodStartAt: new Date('2026-04-10T00:00:00.000Z'),
-  })));
-});
-
-test('daily leaderboard stats require a daily period key', async () => {
-  const context = testEnv.authenticatedContext(userId);
-  const statsRef = doc(context.firestore(), `leaderboard_stats/daily_2026-W15_${userId}`);
-
-  await assertFails(setDoc(statsRef, makeLeaderboardDocument({
-    timeFrame: 'daily',
-    periodKey: '2026-W15',
-    periodStartAt: new Date('2026-04-10T00:00:00.000Z'),
-  })));
-});
-
-test('leaderboard stats accept validated account-authored public identity', async () => {
-  const context = testEnv.authenticatedContext(userId);
-  const statsRef = doc(context.firestore(), `leaderboard_stats/weekly_2026-W15_${userId}`);
-  const displayName = 'Tyler Pavay';
-  const photoURL = STORAGE_PHOTO_URL;
-
-  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
-    await setDoc(
-      doc(
-        adminContext.firestore(),
-        `users/${userId}/public_profile/current`
-      ),
-      makePublicProfileDocument({
-        displayName,
-        identityChangedAt,
-        photoURL,
-      })
-    );
-  });
-
-  await assertSucceeds(setDoc(statsRef, makeLeaderboardDocument({
-    displayName,
-    photoURL,
-  })));
-});
-
-test('leaderboard identity rejects empty, overlong, profane, photo, and uid spoofing', async () => {
-  const context = testEnv.authenticatedContext(userId);
-  const statsRef = doc(context.firestore(), `leaderboard_stats/weekly_2026-W15_${userId}`);
-
-  for (const displayName of ['', 'a'.repeat(81), 'fuсk']) {
-    await assertFails(setDoc(
-      statsRef,
-      makeLeaderboardDocument({displayName})
-    ));
-  }
-  await assertFails(setDoc(statsRef, makeLeaderboardDocument({
-    photoURL: `${STORAGE_PHOTO_URL}${'p'.repeat(2030)}`,
-  })));
-  await assertFails(setDoc(statsRef, makeLeaderboardDocument({
-    userId: otherUserId,
-  })));
-});
-
 test('signed-in users can read published routine templates', async () => {
   await testEnv.withSecurityRulesDisabled(async (adminContext) => {
     await setDoc(
@@ -503,8 +437,6 @@ test('users cannot write workouts into another users path', async () => {
 // every stored document is still at the old number.
 const CURRENT_WORKOUT_SCHEMA_VERSION = 1;
 const BUMPED_WORKOUT_SCHEMA_VERSION = CURRENT_WORKOUT_SCHEMA_VERSION + 1;
-const CURRENT_LEADERBOARD_SCHEMA_VERSION = 2;
-const BUMPED_LEADERBOARD_SCHEMA_VERSION = CURRENT_LEADERBOARD_SCHEMA_VERSION + 1;
 const MAX_SCHEMA_VERSION = 1000;
 
 async function seedWorkoutDocument(overrides = {}) {
@@ -618,29 +550,6 @@ test('heart-rate object schema versions outside the supported range are rejected
       objectSchemaVersion: MAX_SCHEMA_VERSION + 1,
     },
   })));
-});
-
-test('leaderboard stats accept every schema version still plausibly in the field', async () => {
-  const context = testEnv.authenticatedContext(userId);
-  const statsRef = doc(context.firestore(), `leaderboard_stats/weekly_2026-W15_${userId}`);
-
-  await assertSucceeds(setDoc(statsRef, makeLeaderboardDocument({
-    schemaVersion: BUMPED_LEADERBOARD_SCHEMA_VERSION,
-  })));
-  await assertSucceeds(setDoc(statsRef, makeLeaderboardDocument({
-    schemaVersion: CURRENT_LEADERBOARD_SCHEMA_VERSION - 1,
-  })));
-});
-
-test('leaderboard schema versions outside the supported range are rejected', async () => {
-  const context = testEnv.authenticatedContext(userId);
-  const statsRef = doc(context.firestore(), `leaderboard_stats/weekly_2026-W15_${userId}`);
-
-  await assertFails(setDoc(statsRef, makeLeaderboardDocument({schemaVersion: 0})));
-  await assertFails(setDoc(statsRef, makeLeaderboardDocument({
-    schemaVersion: MAX_SCHEMA_VERSION + 1,
-  })));
-  await assertFails(setDoc(statsRef, makeLeaderboardDocument({schemaVersion: '2'})));
 });
 
 test('owner can upload a valid heart-rate sidecar blob', async () => {
@@ -867,28 +776,6 @@ function makeUserDocument(overrides = {}) {
     displayName: 'Tyler',
     createdAt: new Date('2026-05-18T12:00:00.000Z'),
     lastUpdated: new Date('2026-05-18T12:00:00.000Z'),
-    ...overrides,
-  };
-}
-
-function makeLeaderboardDocument(overrides = {}) {
-  return {
-    userId,
-    displayName: 'Climber',
-    photoURL: '',
-    identityPolicyVersion: 1,
-    identityChangedAt,
-    identityState: 'published',
-    timeFrame: 'weekly',
-    schemaVersion: 2,
-    periodKey: '2026-W15',
-    periodStartAt: new Date('2026-04-06T00:00:00.000Z'),
-    totalSteps: 1200,
-    totalFloors: 75,
-    totalWorkouts: 1,
-    totalDuration: 1800,
-    stepsPerMinute: 40,
-    lastUpdated: new Date('2026-04-10T07:00:00.000Z'),
     ...overrides,
   };
 }

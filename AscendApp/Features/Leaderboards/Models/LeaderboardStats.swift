@@ -1,6 +1,13 @@
 import Foundation
 import SwiftData
 
+/// The device's own aggregate for each open board window.
+///
+/// This is a **display-only optimistic cache**, not a standing. The standing lives in
+/// `leaderboard_stats`, is derived server-side from the backed-up workouts
+/// (`functions/src/leaderboardStats.ts`), and no client can write it. What this buys is
+/// that a climber sees the session they just finished immediately, before the derivation
+/// has run - `LeaderboardCurrentUserReconciler` overlays it onto the fetched board.
 @Model
 final class LeaderboardStats {
     static let currentSchemaVersion = 2
@@ -20,6 +27,12 @@ final class LeaderboardStats {
     var averageFloorsPerMinute: Double
 
     var lastUpdated: Date
+
+    /// Vestigial: bookkeeping for the device-side publish path that issue #307 removed.
+    /// Still written, never read. Dropping them is a stored-shape change, so it needs a
+    /// `VersionedSchema` and a stage in `AscendMigrationPlan` (see `ascend-data-migration`)
+    /// - deliberately not folded into a security fix. Remove by 2026-11-01, or with the
+    /// next migration that touches this model, whichever comes first.
     var lastSyncedToFirestore: Date?
     var needsSync: Bool
 

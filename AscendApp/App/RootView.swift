@@ -246,13 +246,8 @@ struct RootView: View {
             )
 
             if didRebuild {
-                try await leaderboardService.deleteLegacyRemoteStats(userId: currentUserId)
                 await LeaderboardSessionCache.shared.invalidateAll()
             }
-
-            await LeaderboardSyncCoordinator.shared.enqueueSync(
-                userId: currentUserId
-            )
 
             await ProfilePublicationService.publishCurrentUserProfile(
                 modelContext: modelContext,

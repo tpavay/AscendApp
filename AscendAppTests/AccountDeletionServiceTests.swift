@@ -42,7 +42,6 @@ struct AccountDeletionServiceTests {
             .reauthenticate,
             .revokeAppleToken,
             .deleteAllUserStorage,
-            .deleteLeaderboardStats,
             .deleteWorkoutBackups,
             .deleteBlockedClimbers,
             .deletePublicProfileMirrors,
@@ -79,7 +78,6 @@ struct AccountDeletionServiceTests {
         let authIndex = try #require(gateway.steps.firstIndex(of: .deleteAuthAccount))
         let ownerGatedSteps: [RecordingAccountDeletionGateway.Step] = [
             .deleteAllUserStorage,
-            .deleteLeaderboardStats,
             .deleteWorkoutBackups,
             .deleteBlockedClimbers,
             .deletePublicProfileMirrors,
@@ -402,7 +400,6 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
     enum Step: Equatable {
         case reauthenticate
         case deleteAllUserStorage
-        case deleteLeaderboardStats
         case deleteWorkoutBackups
         case deleteBlockedClimbers
         case deletePublicProfileMirrors
@@ -428,10 +425,6 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
 
     func deleteAllUserStorage(userId: String) async throws {
         steps.append(.deleteAllUserStorage)
-    }
-
-    func deleteLeaderboardStats(userId: String) async throws {
-        steps.append(.deleteLeaderboardStats)
     }
 
     func deleteWorkoutBackups(userId: String) async throws {

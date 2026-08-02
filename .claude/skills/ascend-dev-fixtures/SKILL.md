@@ -18,7 +18,7 @@ paths:
 - Never commit QA credentials, never bundle them into production builds, and never use the internal QA path to bypass Firestore/Storage/Auth server enforcement.
 
 ## Leaderboard Seeding Policy (Debug / CI)
-- Firestore client rules only allow writes to `leaderboard_stats` where `userId == request.auth.uid`.
+- Firestore rules deny every client write to `leaderboard_stats`; standings are derived server-side from the canonical workouts (`functions/src/leaderboardStats.ts`). A seed that writes a standing must use the Admin SDK **and** mark the row `isSynthetic: true`, or the derivation will delete it the moment anything touches that persona's user document.
 - Multi-user seed data should not be written from client debug tools in shared environments.
 - Use server-side seeding (Admin SDK / Cloud Function / CI job) for deterministic multi-user leaderboard fixtures.
 - For local-only iteration, use the Firestore emulator or seed only the authenticated user.

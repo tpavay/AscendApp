@@ -43,11 +43,11 @@ struct RemoteFeatureFlagResolutionTests {
     @Test
     func aBackendValueOfTrueIsAttributedToTheBackend() {
         let snapshot = RemoteFeatureFlagSnapshot.resolving(
-            remoteValues: [RemoteFeatureFlag.leaderboardPublishing.key: true]
+            remoteValues: [RemoteFeatureFlag.publicProfilePublishing.key: true]
         )
 
-        #expect(snapshot.isEnabled(.leaderboardPublishing) == true)
-        #expect(snapshot.source(of: .leaderboardPublishing) == .remote)
+        #expect(snapshot.isEnabled(.publicProfilePublishing) == true)
+        #expect(snapshot.source(of: .publicProfilePublishing) == .remote)
     }
 
     @Test

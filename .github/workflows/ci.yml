@@ -166,6 +166,14 @@ jobs:
           cache: npm
           cache-dependency-path: functions/package-lock.json
 
+      # The Firestore emulator is a JVM process, and the pinned firebase-tools
+      # refuses to start it on a JDK older than 21.
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
       - name: Install dependencies
         run: npm --prefix functions ci
 
@@ -174,6 +182,12 @@ jobs:
 
       - name: Run tests
         run: npm --prefix functions test
+
+      # The unit suite injects a store, so it never exercises the Admin adapter
+      # that actually writes the world-readable leaderboard. This runs the
+      # production adapter against a real Firestore.
+      - name: Run emulator-backed integration tests
+        run: npm --prefix functions run test:emulator
 
       # Audits run last so a newly published advisory fails the job without
       # hiding the lint and test results that prove the code itself.

@@ -77,7 +77,7 @@ final class AccountDeletionService {
             throw DeletionError.notAuthenticated
         }
 
-        let totalSteps = 11
+        let totalSteps = 10
         var completedSteps = 0
         var hasStagedLocalDeletion = false
         var hasCommittedLocalDeletion = false
@@ -125,27 +125,26 @@ final class AccountDeletionService {
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 3: Delete Firestore leaderboard stats
-        updateProgress("Deleting leaderboard data...")
-        try await deleteLeaderboardStats(userId: userId)
-        completedSteps += 1
-        try Task.checkCancellation()
-
-        // Step 4: Delete Firestore workout backup documents
+        // Step 3: Delete Firestore workout backup documents.
+        //
+        // This also retires the account's global standings: they are derived from
+        // these documents (functions/src/leaderboardStats.ts), and the server sweep
+        // triggered by the user-document delete below removes whatever is left.
+        // The client cannot delete them itself - leaderboard_stats is server-owned.
         updateProgress("Deleting workout backups...")
         try await deleteWorkoutBackups(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 5: Delete the user's personal block list.
+        // Step 4: Delete the user's personal block list.
         updateProgress("Deleting blocked climbers...")
         try await deleteBlockedClimbers(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 6: Delete the publicly readable profile mirrors.
+        // Step 5: Delete the publicly readable profile mirrors.
         //
-        // This MUST happen before the auth account goes away (step 10):
+        // This MUST happen before the auth account goes away (step 9):
         // firestore.rules gates these deletes on isOwner(userId), so once the
         // auth user is deleted no client can ever authenticate as this uid
         // again and the documents become orphaned PII that keeps the deleted
@@ -155,7 +154,7 @@ final class AccountDeletionService {
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 7: Deactivate push delivery while the callable can still
+        // Step 6: Deactivate push delivery while the callable can still
         // authenticate and while users/{uid} still exists. The Cloud Function
         // sweep remains authoritative if this best-effort request fails.
         updateProgress("Disabling notifications...")
@@ -163,7 +162,7 @@ final class AccountDeletionService {
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 8: Delete Firestore user document.
+        // Step 7: Delete Firestore user document.
         //
         // Deleting this fires the cleanupDeletedUserData Cloud Function, which
         // sweeps every remaining subcollection, including the server-owned ones
@@ -174,21 +173,21 @@ final class AccountDeletionService {
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 9: Stage local deletion (rollback if auth deletion fails)
+        // Step 8: Stage local deletion (rollback if auth deletion fails)
         updateProgress("Preparing local data cleanup...")
         try stageLocalDataDeletion(modelContext: modelContext)
         hasStagedLocalDeletion = true
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 10: Delete the Firebase Auth account (credentials already fresh
+        // Step 9: Delete the Firebase Auth account (credentials already fresh
         // from Step 1, Apple token already revoked right after reauth).
         updateProgress("Deleting account...")
         try await deleteAuthAccount()
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 11: Commit local deletion and clear caches
+        // Step 10: Commit local deletion and clear caches
         updateProgress("Finalizing local cleanup...")
         try commitStagedLocalDeletion(modelContext: modelContext)
         hasCommittedLocalDeletion = true
@@ -282,12 +281,6 @@ final class AccountDeletionService {
             try await gateway.deleteAllUserStorage(userId: userId)
         } catch {
             throw DeletionError.storageDeletionFailed(error.localizedDescription)
-        }
-    }
-
-    private func deleteLeaderboardStats(userId: String) async throws {
-        try await runFirestoreDeletion {
-            try await gateway.deleteLeaderboardStats(userId: userId)
         }
     }
 

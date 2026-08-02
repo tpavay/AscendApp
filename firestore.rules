@@ -205,23 +205,6 @@ service cloud.firestore {
         );
     }
 
-    function isValidTimeFrame(timeFrame) {
-      return timeFrame in ["daily", "weekly", "monthly", "yearly", "all_time"];
-    }
-
-    function isValidPeriodKey(timeFrame, periodKey) {
-      return
-        (timeFrame == "daily" &&
-          periodKey.matches("^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$")) ||
-        (timeFrame == "weekly" &&
-          periodKey.matches("^\\d{4}-W(0[1-9]|[1-4][0-9]|5[0-3])$")) ||
-        (timeFrame == "monthly" &&
-          periodKey.matches("^\\d{4}-M(0[1-9]|1[0-2])$")) ||
-        (timeFrame == "yearly" &&
-          periodKey.matches("^\\d{4}$")) ||
-        (timeFrame == "all_time" && periodKey == "all");
-    }
-
     function isValidUserDocument() {
       return request.resource.data.keys().hasOnly([
           "email",
@@ -549,132 +532,6 @@ service cloud.firestore {
           (request.resource.data.climbCompletionDurationSeconds is int &&
             request.resource.data.climbCompletionDurationSeconds >= 0)) &&
         request.resource.data.lastUpdated is timestamp;
-    }
-
-    function isValidLeaderboardDocument(docId) {
-      return request.resource.data.keys().hasOnly([
-          "userId",
-          "displayName",
-          "photoURL",
-          "identityPolicyVersion",
-          "identityChangedAt",
-          "identityState",
-          "timeFrame",
-          "schemaVersion",
-          "periodKey",
-          "periodStartAt",
-          "totalSteps",
-          "totalFloors",
-          "totalWorkouts",
-          "totalDuration",
-          "stepsPerMinute",
-          "age",
-          "weight_kg",
-          "location_city",
-          "location_country",
-          "location_region",
-          "lastUpdated"
-        ]) &&
-        request.resource.data.keys().hasAll([
-          "userId",
-          "displayName",
-          "photoURL",
-          "identityPolicyVersion",
-          "identityChangedAt",
-          "identityState",
-          "timeFrame",
-          "schemaVersion",
-          "periodKey",
-          "periodStartAt",
-          "totalSteps",
-          "totalFloors",
-          "totalWorkouts",
-          "totalDuration",
-          "stepsPerMinute",
-          "lastUpdated"
-        ]) &&
-        request.resource.data.userId == request.auth.uid &&
-        isValidLeaderboardIdentity() &&
-        isValidTimeFrame(request.resource.data.timeFrame) &&
-        isSupportedSchemaVersion(request.resource.data.schemaVersion) &&
-        request.resource.data.periodKey is string &&
-        isValidPeriodKey(
-          request.resource.data.timeFrame,
-          request.resource.data.periodKey
-        ) &&
-        request.resource.data.periodStartAt is timestamp &&
-        docId ==
-          request.resource.data.timeFrame + "_" +
-          request.resource.data.periodKey + "_" +
-          request.auth.uid &&
-        request.resource.data.totalSteps is int &&
-        request.resource.data.totalSteps >= 0 &&
-        request.resource.data.totalFloors is int &&
-        request.resource.data.totalFloors >= 0 &&
-        request.resource.data.totalWorkouts is int &&
-        request.resource.data.totalWorkouts >= 0 &&
-        isNonNegativeNumber(request.resource.data.totalDuration) &&
-        isNonNegativeNumber(request.resource.data.stepsPerMinute) &&
-        (!request.resource.data.keys().hasAny(["age"]) ||
-          (request.resource.data.age is int &&
-            request.resource.data.age >= 13 &&
-            request.resource.data.age <= 120)) &&
-        (!request.resource.data.keys().hasAny(["weight_kg"]) ||
-          (isNonNegativeNumber(request.resource.data.weight_kg) &&
-            request.resource.data.weight_kg <= 400)) &&
-        (!request.resource.data.keys().hasAny(["location_city"]) ||
-          isValidLocationProfileText(request.resource.data.location_city)) &&
-        (!request.resource.data.keys().hasAny(["location_country"]) ||
-          (request.resource.data.location_country is string &&
-            request.resource.data.location_country.matches("^[A-Z]{2}$"))) &&
-        (!request.resource.data.keys().hasAny(["location_region"]) ||
-          isValidLocationProfileText(request.resource.data.location_region)) &&
-        request.resource.data.lastUpdated is timestamp;
-    }
-
-    function isValidLeaderboardIdentity() {
-      let state = request.resource.data.identityState;
-      let isPublished =
-        state == "published" &&
-        request.resource.data.displayName is string &&
-        hasVisibleDisplayName(request.resource.data.displayName) &&
-        isAllowedDisplayName(request.resource.data.displayName) &&
-        isValidPublicPhotoURL(request.resource.data.photoURL) &&
-        isValidIdentityPolicyMetadata();
-      let isServerMasked =
-        state in ["pending_public_profile", "deleted"] &&
-        request.resource.data.displayName == "Anonymous Climber" &&
-        request.resource.data.photoURL == "" &&
-        request.resource.data.identityPolicyVersion ==
-          currentIdentityPolicyVersion() &&
-        request.resource.data.identityChangedAt == null;
-      return isPublished || isServerMasked;
-    }
-
-    function isPublishedLeaderboardIdentityFromCurrentProfile() {
-      let profilePath =
-        /databases/$(database)/documents/users/$(request.auth.uid)/public_profile/current;
-      return request.resource.data.identityState == "published" &&
-        exists(profilePath) &&
-        request.resource.data.displayName ==
-          get(profilePath).data.displayName &&
-        request.resource.data.photoURL ==
-          get(profilePath).data.photoURL &&
-        request.resource.data.identityPolicyVersion ==
-          get(profilePath).data.identityPolicyVersion &&
-        request.resource.data.identityChangedAt ==
-          get(profilePath).data.identityChangedAt;
-    }
-
-    function preservesServerOwnedLeaderboardIdentity() {
-      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-        "userId",
-        "displayName",
-        "photoURL",
-        "identityPolicyVersion",
-        "identityChangedAt",
-        "identityState"
-      ]);
     }
 
     function isValidFeedbackType(type) {
@@ -1408,17 +1265,16 @@ service cloud.firestore {
       }
     }
 
+    // Global standings are server-derived. functions/src/leaderboardStats.ts
+    // recomputes them from the canonical private workouts and writes them with
+    // the Admin SDK, which bypasses these rules. Nothing a client sends can
+    // reach this collection: the totals here are what the nightly finalizer
+    // freezes into permanent achievements, and validating a client-authored
+    // aggregate's shape is not validating its evidence (issue #307). Reads stay
+    // open to every signed-in climber - the board is the conversation.
     match /leaderboard_stats/{docId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() &&
-        isValidLeaderboardDocument(docId) &&
-        isPublishedLeaderboardIdentityFromCurrentProfile();
-      allow update: if isSignedIn() &&
-        isValidLeaderboardDocument(docId) &&
-        preservesServerOwnedLeaderboardIdentity() &&
-        request.resource.data.userId == resource.data.userId &&
-        request.resource.data.timeFrame == resource.data.timeFrame;
-      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow write: if false;
     }
 
     match /leaderboard_periods/{docId} {

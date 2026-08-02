@@ -663,14 +663,6 @@ extension AuthenticationViewModel {
                 displayName: displayName,
                 weightKg: weightKg
             )
-            do {
-                try await LeaderboardService.shared.updateBodyWeight(
-                    userId: user.uid,
-                    weightKg: weightKg
-                )
-            } catch {
-                debugLog("Warning: Failed to update leaderboard body weight: \(error)")
-            }
             return true
         } catch {
             errorMessage = "Failed to update profile: \(error.localizedDescription)"
@@ -705,14 +697,6 @@ extension AuthenticationViewModel {
                 weightKg: weightKg,
                 heightCm: heightCm
             )
-            do {
-                try await LeaderboardService.shared.updateBodyWeight(
-                    userId: user.uid,
-                    weightKg: weightKg
-                )
-            } catch {
-                debugLog("Warning: Failed to update leaderboard body weight: \(error)")
-            }
             return true
         } catch {
             errorMessage = "Failed to update profile: \(error.localizedDescription)"

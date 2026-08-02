@@ -51,9 +51,6 @@ final class WorkoutMutationHandler {
 
             Task { @MainActor in
                 await LeaderboardSessionCache.shared.invalidateAll()
-                await LeaderboardSyncCoordinator.shared.enqueueSync(
-                    userId: userId
-                )
                 await ProfilePublicationService.publishCurrentUserProfile(
                     modelContext: modelContext,
                     userId: userId,
