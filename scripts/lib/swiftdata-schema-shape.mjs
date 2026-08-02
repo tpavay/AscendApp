@@ -804,13 +804,19 @@ export function checkModelSetAgreement(input) {
  * A rename carried by `@Attribute(originalName:)` is resolved first, because SwiftData carries that
  * column's values forward. Only the unannotated rename is a new column, and that is exactly right:
  * SwiftData reads it as a delete plus an add and the old values go without a sound.
+ *
+ * Every rule here is evaluable against a baseline recorded before per-column types existed, except
+ * the type-change rule, which has nothing to compare against. That one rule is skipped for such a
+ * baseline and the comparisons are taken on the type-free projection so it cannot manufacture
+ * false violations. Skipping it is only safe because `baselineRecordsTypes` reports the condition
+ * separately and the caller is required to refuse rather than pass; see `evaluate`.
  * @param {{baseline: object, currentShape: object, frozenShape: object, plan: object, currentSchema: object}} input Parsed facts.
  * @return {string[]} Violations, empty when the change is safe.
  */
 export function checkShapeDelta(input) {
-  assertBaselineRecordsTypes(input.baseline);
-
   const violations = [];
+  const typesRecorded = baselineRecordsTypes(input.baseline);
+  const comparable = (shape) => canonicalJson(typesRecorded ? shape : withoutTypes(shape));
   const baselineShape = input.baseline.models ?? {};
   const newCustomStages = input.plan.customStageCount - (input.baseline.customStageCount ?? 0);
   const coveredColumns = new Set(input.baseline.customStageColumns ?? []);
@@ -837,17 +843,25 @@ export function checkShapeDelta(input) {
         if (property.optional || property.hasDefault || covered) continue;
 
         violations.push(
-          `${column} is ${isNewColumn ? "new" : "newly required"}, non-optional, and has no ` +
-          "default, and no custom stage in this change claims it. Existing rows have no value to " +
-          "write. Pick one: make it optional; give it a default if a single blanket value is " +
-          "honest; if it is a rename, carry the old column with @Attribute(originalName:); or add " +
-          "a custom MigrationStage that computes the right value per record (see " +
-          `AscendMigrationPlan.migrateV1toV2) and list "${column}" in customStageColumns in ` +
-          "SharedTestVectors/swiftdata-schema-shape.json"
+          isNewColumn
+            ? `${column} is new, non-optional, and has no default, and no custom stage in this ` +
+              "change claims it. Existing rows have no value to write. Pick one: make it optional; " +
+              "give it a default if a single blanket value is honest; if it is a rename, carry the " +
+              "old column with @Attribute(originalName:); or add a custom MigrationStage that " +
+              "computes the right value per record (see AscendMigrationPlan.migrateV1toV2) and " +
+              `list "${column}" in customStageColumns in ` +
+              "SharedTestVectors/swiftdata-schema-shape.json"
+            : `${describedColumn} is newly required, non-optional, and has no default, and no ` +
+              "custom stage in this change claims it. The rows that held it optional have nothing " +
+              "to write. Pick one: leave it optional; give it a default if a single blanket value " +
+              "is honest; or add a custom MigrationStage that computes the right value per record " +
+              `(see AscendMigrationPlan.migrateV1toV2) and list "${column}" in customStageColumns ` +
+              "in SharedTestVectors/swiftdata-schema-shape.json"
         );
         continue;
       }
 
+      if (!typesRecorded) continue;
       if (unwrappedType(before.type) === unwrappedType(property.type)) continue;
       if (covered) continue;
 
@@ -870,7 +884,7 @@ export function checkShapeDelta(input) {
       );
       continue;
     }
-    if (canonicalJson(current) !== canonicalJson(properties)) {
+    if (comparable(current) !== comparable(properties)) {
       violations.push(
         `the frozen historical model ${model} changed - a shipped VersionedSchema describes a store ` +
         "shape that exists on real devices and must never be rewritten. Add a new schema version " +
@@ -879,7 +893,7 @@ export function checkShapeDelta(input) {
     }
   }
 
-  const shapeChanged = canonicalJson(input.currentShape) !== canonicalJson(baselineShape);
+  const shapeChanged = comparable(input.currentShape) !== comparable(baselineShape);
   if (shapeChanged && input.currentSchema.name === input.baseline.currentSchema) {
     violations.push(
       `the persisted shape changed but ${input.baseline.currentSchema} is still the newest ` +
@@ -889,6 +903,22 @@ export function checkShapeDelta(input) {
   }
 
   return violations;
+}
+
+/**
+ * @param {object} shape A recorded shape, or one model's recorded properties.
+ * @return {object} The same shape with every `type` dropped, so both sides compare on what a
+ *   typeless baseline can actually speak to.
+ */
+function withoutTypes(shape) {
+  return Object.fromEntries(Object.entries(shape).map(([key, value]) => {
+    if (value === null || typeof value !== "object") return [key, value];
+    if (typeof value.type === "string" || value.optional !== undefined) {
+      const {type: _dropped, ...rest} = value;
+      return [key, rest];
+    }
+    return [key, withoutTypes(value)];
+  }));
 }
 
 /**

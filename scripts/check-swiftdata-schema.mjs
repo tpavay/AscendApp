@@ -89,9 +89,15 @@ export function readSchemaFacts() {
 
 /**
  * Runs both checks against the sources.
+ *
+ * `typeRuleEvaluated` is a precondition, not a violation. A baseline recorded before per-column
+ * types existed leaves the type-change rule with nothing to compare against, and the only way to
+ * give it types is to re-record - so modelling it as a violation would make `--update` refuse the
+ * one write that fixes it. Every other rule is evaluated as normal, and the caller must refuse to
+ * report a pass while this is false.
  * @param {object} facts Output of `readSchemaFacts`.
  * @param {object} baseline The recorded baseline.
- * @return {{violations: string[], baselineStale: boolean}} The result.
+ * @return {{violations: string[], baselineStale: boolean, typeRuleEvaluated: boolean}} The result.
  */
 export function evaluate(facts, baseline) {
   const violations = [
@@ -110,7 +116,11 @@ export function evaluate(facts, baseline) {
     }),
   ];
 
-  return {violations, baselineStale: !baselineMatches(baseline, facts.record)};
+  return {
+    violations,
+    baselineStale: !baselineMatches(baseline, facts.record),
+    typeRuleEvaluated: baselineRecordsTypes(baseline),
+  };
 }
 
 /** @param {string} source `AscendApp.swift` text. @return {string} The schema the container opens. */
@@ -178,29 +188,7 @@ function main() {
   const update = process.argv.includes("--update");
   const facts = readSchemaFacts();
   const baseline = readBaseline();
-
-  // Evaluating the delta against a baseline that predates recorded types would leave the
-  // type-change rule silently unevaluated, so re-recording is the only way forward.
-  if (!baselineRecordsTypes(baseline)) {
-    if (!update) {
-      try {
-        assertBaselineRecordsTypes(baseline);
-      } catch (error) {
-        console.error(`SwiftData schema check cannot run:\n\n  - ${error.message}\n`);
-      }
-      process.exitCode = 1;
-      return;
-    }
-
-    writeFileSync(BASELINE_PATH, `${JSON.stringify(recordToWrite(baseline, facts.record), null, 2)}\n`);
-    console.log(
-      `Re-recorded ${relative(REPO_ROOT, BASELINE_PATH)} with the per-column types the ` +
-      "type-change rule needs. Run the check again to evaluate this change against it."
-    );
-    return;
-  }
-
-  const {violations, baselineStale} = evaluate(facts, baseline);
+  const {violations, baselineStale, typeRuleEvaluated} = evaluate(facts, baseline);
 
   if (violations.length > 0) {
     console.error("SwiftData schema check failed:\n");
@@ -215,6 +203,24 @@ function main() {
   if (update) {
     writeFileSync(BASELINE_PATH, `${JSON.stringify(recordToWrite(baseline, facts.record), null, 2)}\n`);
     console.log(`Recorded ${relative(REPO_ROOT, BASELINE_PATH)} at ${facts.currentSchema.name}.`);
+
+    if (!typeRuleEvaluated) {
+      console.log(
+        "\nThe previous baseline recorded no per-column types, so the type-change rule could not " +
+        "be evaluated for this run. Every other rule was, and passed. The re-recorded baseline " +
+        "carries types, so the rule is armed from the next run on."
+      );
+    }
+    return;
+  }
+
+  if (!typeRuleEvaluated) {
+    try {
+      assertBaselineRecordsTypes(baseline);
+    } catch (error) {
+      console.error(`SwiftData schema check cannot complete:\n\n  - ${error.message}\n`);
+    }
+    process.exitCode = 1;
     return;
   }
 

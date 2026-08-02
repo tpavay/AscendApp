@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import {readFileSync} from "node:fs";
+import {spawnSync} from "node:child_process";
+import {readFileSync, writeFileSync} from "node:fs";
 import test from "node:test";
 import {fileURLToPath} from "node:url";
 
@@ -55,6 +56,44 @@ function deltaInput(overrides = {}) {
 /** @param {string[]} columns Columns a stage claims. @return {object} A baseline naming them. */
 function baselineCovering(columns) {
   return {...BASELINE, customStageColumns: columns};
+}
+
+/** @param {object} baseline A recorded baseline. @return {object} It, with every type dropped. */
+function withoutRecordedTypes(baseline) {
+  const strip = (shape) => Object.fromEntries(
+    Object.entries(shape).map(([model, properties]) => [
+      model,
+      Object.fromEntries(Object.entries(properties).map(([name, {type: _dropped, ...rest}]) =>
+        [name, rest])),
+    ])
+  );
+
+  return {...baseline, models: strip(baseline.models), frozenModels: strip(baseline.frozenModels)};
+}
+
+const CHECK_SCRIPT = fileURLToPath(new URL("../check-swiftdata-schema.mjs", import.meta.url));
+const BASELINE_PATH = fileURLToPath(
+  new URL("../../SharedTestVectors/swiftdata-schema-shape.json", import.meta.url)
+);
+
+/** @param {string[]} args CLI arguments. @return {object} The finished process. */
+function runCheck(args = []) {
+  return spawnSync(process.execPath, [CHECK_SCRIPT, ...args], {encoding: "utf8"});
+}
+
+/**
+ * Runs a case against a temporarily rewritten baseline, always putting the committed one back.
+ * @param {(baseline: object) => object} mutate Produces the baseline to write.
+ * @param {(recorded: string) => void} body Receives the on-disk baseline as it was left.
+ */
+function withBaseline(mutate, body) {
+  const committed = readFileSync(BASELINE_PATH, "utf-8");
+  try {
+    writeFileSync(BASELINE_PATH, `${JSON.stringify(mutate(JSON.parse(committed)), null, 2)}\n`);
+    body(() => readFileSync(BASELINE_PATH, "utf-8"));
+  } finally {
+    writeFileSync(BASELINE_PATH, committed);
+  }
 }
 
 test("the repository's own schema passes both checks", () => {
@@ -363,6 +402,25 @@ test("a rename without the annotation still trips, because SwiftData drops the o
   assert.match(violations[0], /if it is a rename, carry the old column with @Attribute\(originalName:\)/);
 });
 
+test("a rename that also narrows to required names the column it came from", () => {
+  const violations = checkShapeDelta(deltaInput({
+    currentShape: {
+      Workout: {
+        id: BASELINE.models.Workout.id,
+        name: BASELINE.models.Workout.name,
+        title: {type: "String", optional: false, hasDefault: false, originalName: "notes"},
+      },
+    },
+    currentSchema: SCHEMA_V3,
+  }));
+
+  assert.equal(violations.length, 1);
+  assert.match(violations[0], /Workout\.title \(renamed from notes\) is newly required/);
+  // The annotation is already there, so offering it as the remedy would be nonsense.
+  assert.doesNotMatch(violations[0], /@Attribute\(originalName:\)/);
+  assert.match(violations[0], /leave it optional; give it a default/);
+});
+
 test("originalName pointing at a column that still exists is not a rename", () => {
   // Both columns exist, so nothing was carried forward and `duplicate` really is new.
   const violations = checkShapeDelta(deltaInput({
@@ -412,24 +470,78 @@ test("an originalName the parser cannot read is an error, not a new column", () 
   );
 });
 
-test("a baseline with no recorded types stops the check instead of skipping the type rule", () => {
-  const typeless = {
-    ...BASELINE,
-    models: {Workout: {id: {optional: false, hasDefault: false}}},
-    frozenModels: {},
-  };
+test("a baseline with no recorded types leaves every other rule evaluated", () => {
+  const typeless = withoutRecordedTypes(BASELINE);
 
   assert.equal(baselineRecordsTypes(typeless), false);
   assert.equal(baselineRecordsTypes(BASELINE), true);
-  assert.throws(
-    () => checkShapeDelta(deltaInput({
-      baseline: typeless,
-      currentShape: {Workout: {id: {type: "Int", optional: false, hasDefault: false}}},
-      frozenShape: {},
-      currentSchema: SCHEMA_V3,
-    })),
-    /no type for Workout\.id in models.*type-change rule cannot be evaluated/s
+
+  // The type rule is the only blind one, so an unchanged tree must not manufacture violations -
+  // otherwise `--update`, the only thing that can give the baseline types, could never write.
+  assert.deepEqual(checkShapeDelta(deltaInput({baseline: typeless})), []);
+
+  // ...and every rule that does not need a recorded type still fires.
+  const violations = checkShapeDelta(deltaInput({
+    baseline: typeless,
+    currentShape: {
+      Workout: {
+        ...BASELINE.models.Workout,
+        cadence: {type: "Int", optional: false, hasDefault: false},
+      },
+    },
+    currentSchema: SCHEMA_V3,
+  }));
+  assert.equal(violations.length, 1);
+  assert.match(violations[0], /Workout\.cadence is new, non-optional, and has no default/);
+});
+
+test("--update refuses to write over a violation, even when the baseline has no types", () => {
+  // The exact laundering path: a typeless baseline plus a column the sources declare required with
+  // no default. Re-recording would make the violation the new truth, so it must not happen.
+  withBaseline(
+    (baseline) => {
+      const typeless = withoutRecordedTypes(baseline);
+      const [model, properties] = Object.entries(typeless.models).find(([, columns]) =>
+        Object.values(columns).some((column) => !column.optional && !column.hasDefault));
+      const [dropped] = Object.entries(properties)
+        .find(([, column]) => !column.optional && !column.hasDefault);
+
+      delete typeless.models[model][dropped];
+      return typeless;
+    },
+    (recorded) => {
+      const before = recorded();
+      const result = runCheck(["--update"]);
+
+      assert.notEqual(result.status, 0, result.stdout);
+      assert.match(result.stderr, /is new, non-optional, and has no default/);
+      assert.equal(recorded(), before, "--update wrote the baseline over an unresolved violation");
+    }
   );
+});
+
+test("--update over a typeless baseline re-records it and says the type rule was not evaluated", () => {
+  const committed = readFileSync(BASELINE_PATH, "utf-8");
+
+  withBaseline(withoutRecordedTypes, (recorded) => {
+    const result = runCheck(["--update"]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /type-change rule could not be evaluated for this run/);
+    assert.match(result.stdout, /armed from the next run on/);
+    assert.equal(recorded(), committed, "the re-recorded baseline should carry the types back");
+  });
+});
+
+test("a verify run over a typeless baseline refuses rather than reporting a pass", () => {
+  withBaseline(withoutRecordedTypes, () => {
+    const result = runCheck();
+
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.match(result.stderr, /has no type for [A-Za-z_.]+ in models/);
+    assert.match(result.stderr, /type-change rule cannot be evaluated at all/);
+    assert.doesNotMatch(result.stdout, /schema check passed/);
+  });
 });
 
 test("the hand-written stage allowlist is not a stale baseline", () => {
