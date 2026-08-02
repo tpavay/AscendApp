@@ -9,7 +9,7 @@ struct LeaderboardServiceTests {
     func incrementalMutationsUpdateCurrentPeriodsAndZeroOutDeletes() throws {
         let referenceDate = utcDate(year: 2026, month: 4, day: 10, hour: 12)
         let userId = "user-1"
-        let service = LeaderboardService.shared
+        let service = LeaderboardService()
         let modelContext = try makeModelContext()
         service.configure(modelContext: modelContext)
 
@@ -88,7 +88,7 @@ struct LeaderboardServiceTests {
     func rebuildCurrentStatsIgnoresWorkoutsOwnedByOtherUsers() throws {
         let referenceDate = utcDate(year: 2026, month: 4, day: 10, hour: 12)
         let userId = "user-1"
-        let service = LeaderboardService.shared
+        let service = LeaderboardService()
         let modelContext = try makeModelContext()
         service.configure(modelContext: modelContext)
 
@@ -127,7 +127,7 @@ struct LeaderboardServiceTests {
     func prepareSyncPayloadsSkipsNeverSyncedZeroActivityStats() throws {
         let referenceDate = utcDate(year: 2026, month: 4, day: 10, hour: 12)
         let userId = "user-1"
-        let service = LeaderboardService.shared
+        let service = LeaderboardService()
         let modelContext = try makeModelContext()
         service.configure(modelContext: modelContext)
         let period = LeaderboardTimeFrame.weekly.currentPeriod(referenceDate: referenceDate)
@@ -145,7 +145,7 @@ struct LeaderboardServiceTests {
     func prepareSyncPayloadsKeepsDeleteForPreviouslySyncedZeroActivityStats() throws {
         let referenceDate = utcDate(year: 2026, month: 4, day: 10, hour: 12)
         let userId = "user-1"
-        let service = LeaderboardService.shared
+        let service = LeaderboardService()
         let modelContext = try makeModelContext()
         service.configure(modelContext: modelContext)
         let period = LeaderboardTimeFrame.weekly.currentPeriod(referenceDate: referenceDate)

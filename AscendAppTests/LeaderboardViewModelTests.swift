@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import AscendApp
 
@@ -88,8 +89,8 @@ struct LeaderboardViewModelTests {
         let listEntry = viewModel.leaderboardEntries.first { $0.userId == "zzz" }
         #expect(listEntry?.rank == 2)
         #expect(listEntry?.isTied == true)
-        #expect(viewModel.userEntry?.rank == listEntry?.rank)
-        #expect(viewModel.userEntry?.isTied == listEntry?.isTied)
+        #expect(viewModel.userStanding?.rankedEntry?.rank == listEntry?.rank)
+        #expect(viewModel.userStanding?.rankedEntry?.isTied == listEntry?.isTied)
     }
 
     @Test
@@ -122,7 +123,7 @@ struct LeaderboardViewModelTests {
                 isBlockListHydrated: true
             )
         }
-        let moderatedUserEntry = viewModel.userEntry.map {
+        let moderatedUserEntry = viewModel.userStanding?.rankedEntry.map {
             CrossUserIdentityAdapter.leaderboardEntry(
                 $0,
                 blockedUserIds: [],
@@ -137,8 +138,8 @@ struct LeaderboardViewModelTests {
         #expect(listEntry?.rank == 2)
         #expect(listEntry?.isTied == true)
         #expect(listEntry?.isCurrentUser == true)
-        #expect(viewModel.userEntry?.rank == listEntry?.rank)
-        #expect(viewModel.userEntry?.isTied == listEntry?.isTied)
+        #expect(viewModel.userStanding?.rankedEntry?.rank == listEntry?.rank)
+        #expect(viewModel.userStanding?.rankedEntry?.isTied == listEntry?.isTied)
         #expect(moderatedUserEntry?.identity.displayName == "You")
     }
 
@@ -205,6 +206,95 @@ struct LeaderboardViewModelTests {
 
         #expect(viewModel.leaderboardEntries.map(\.rank) == [1, 2, 3])
         #expect(viewModel.leaderboardEntries.allSatisfy { $0.isTied == false })
+    }
+
+    /// The captain's weekly screenshot: one climber on the board, the podium showing
+    /// places 2 and 3 unclaimed, and the pinned row underneath claiming place 2 on zero
+    /// steps.
+    ///
+    /// The pinned row used to take `leaderboardEntries.count + 1`. That is a positional
+    /// rank, and `CompetitionRanking` is the only thing allowed to produce a rank - so the
+    /// two surfaces disagreed by construction. A climber with nothing logged this period
+    /// holds no rank at all.
+    @Test
+    func aClimberWithNoActivityThisPeriodHoldsNoRank() async throws {
+        let cache = LeaderboardSessionCache()
+        // Unique per case: the shared LeaderboardService keeps whichever context was
+        // configured last, so a userId reused by another case would find these local stats.
+        let userId = "unranked-\(UUID().uuidString)"
+        let modelContext = try makeModelContext()
+        let service = LeaderboardService()
+
+        let viewModel = LeaderboardViewModel(sessionCache: cache, service: service)
+        viewModel.selectedMetric = .climb
+        viewModel.selectedTimeFrame = .weekly
+        viewModel.configure(userId: userId, modelContext: modelContext)
+
+        // No workouts at all: every current period rebuilds to zero.
+        try service.rebuildCurrentStats(for: userId, workouts: [])
+
+        let stats = [makeRemoteStat(userId: "aaa", displayName: "Leader", totalSteps: 48_000)]
+        await cache.setDetailEntries(stats, for: .climb, timeFrame: .weekly)
+
+        await viewModel.loadLeaderboard(userId: userId)
+
+        // The board itself is unchanged: the leader still stands alone at rank 1.
+        #expect(viewModel.leaderboardEntries.map(\.userId) == ["aaa"])
+        #expect(viewModel.leaderboardEntries.map(\.rank) == [1])
+
+        // The pinned row reports zero steps and, critically, no rank.
+        #expect(viewModel.userStanding == .unranked(value: 0, formattedValue: "0"))
+        #expect(viewModel.userStanding?.rankedEntry == nil)
+    }
+
+    /// The same climber, once they have climbed, is ranked normally - the unranked state
+    /// must not swallow a legitimate entrant.
+    @Test
+    func aClimberWithActivityThisPeriodIsRankedAgainstTheBoard() async throws {
+        let cache = LeaderboardSessionCache()
+        let userId = "ranked-\(UUID().uuidString)"
+        let modelContext = try makeModelContext()
+        let service = LeaderboardService()
+
+        let viewModel = LeaderboardViewModel(sessionCache: cache, service: service)
+        viewModel.selectedMetric = .climb
+        viewModel.selectedTimeFrame = .weekly
+        viewModel.configure(userId: userId, modelContext: modelContext)
+
+        let now = Date()
+        let workout = Workout(
+            name: "Workout",
+            date: now,
+            duration: 1_800,
+            steps: 2_000,
+            floors: 125,
+            stepsPerFloor: 16,
+            source: .manual
+        )
+        workout.markPendingRemoteUpsert(ownerUserId: userId, modifiedAt: now)
+        modelContext.insert(workout)
+        try modelContext.save()
+        try service.rebuildCurrentStats(for: userId, workouts: [workout])
+
+        let stats = [makeRemoteStat(userId: "aaa", displayName: "Leader", totalSteps: 48_000)]
+        await cache.setDetailEntries(stats, for: .climb, timeFrame: .weekly)
+
+        await viewModel.loadLeaderboard(userId: userId)
+
+        #expect(viewModel.userStanding?.rankedEntry?.rank == 2)
+        #expect(viewModel.userStanding?.rankedEntry?.value == 2_000)
+        #expect(viewModel.leaderboardEntries.map(\.rank) == [1, 2])
+    }
+
+    private func makeModelContext() throws -> ModelContext {
+        let container = try ModelContainer(
+            for: Workout.self,
+            WorkoutSourceLink.self,
+            WorkoutParticipation.self,
+            LeaderboardStats.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        return ModelContext(container)
     }
 
     private func makeRemoteStat(

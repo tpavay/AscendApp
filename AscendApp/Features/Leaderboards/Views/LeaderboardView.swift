@@ -151,6 +151,8 @@ struct LeaderboardView: View {
 
             timeFrameFilters
 
+            periodWindowLabel
+
             demographicFilters
         }
         .padding(.horizontal, 20)
@@ -245,6 +247,20 @@ struct LeaderboardView: View {
             .padding(.vertical, 1)
         }
         .scrollClipDisabled()
+    }
+
+    /// Names the window the selected board covers.
+    ///
+    /// Weekly and monthly windows do not nest - the week of Jul 27 2026 runs into Aug 2 -
+    /// so on the 1st a populated weekly board and an empty monthly board are both correct.
+    /// Unlabelled, that pair reads as data loss. Labelled, it reads as a calendar.
+    private var periodWindowLabel: some View {
+        Text(viewModel.selectedPeriod.windowLabel.uppercased())
+            .font(.montserratSemiBold(size: 10))
+            .foregroundStyle(primaryTextColor.opacity(0.52))
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .accessibilityLabel("Showing \(viewModel.selectedPeriod.windowLabel)")
     }
 
     private var demographicFilters: some View {
@@ -394,7 +410,7 @@ struct LeaderboardView: View {
     @ViewBuilder
     private var contentSection: some View {
         let entries = moderationStore.moderate(viewModel.displayedEntries)
-        let userEntry = viewModel.userEntry.map(moderationStore.moderate)
+        let standing = viewModel.userStanding
 
         if entries.isEmpty {
             if !viewModel.isLoading {
@@ -409,23 +425,33 @@ struct LeaderboardView: View {
                 }
             }
         } else {
-            leaderboardContent(entries: entries, userEntry: userEntry)
+            leaderboardContent(entries: entries, standing: standing)
         }
     }
 
     // MARK: - Leaderboard Content
 
     private struct LeaderboardPresentationState {
+        /// The climber's own row, pinned under the podium. `nil` when they already stand on
+        /// the podium and must not be shown twice.
+        enum PinnedRow {
+            case ranked(ModeratedLeaderboardEntry)
+            /// No rank this period, so the row renders without one rather than borrowing
+            /// its list position. It still carries the climber's value, because the chase
+            /// line under the row is measured from it.
+            case unranked(value: Double, formattedValue: String)
+        }
+
         let podiumEntries: [ModeratedLeaderboardEntry]
-        let pinnedUserEntry: ModeratedLeaderboardEntry?
+        let pinnedRow: PinnedRow?
         let listEntries: [ModeratedLeaderboardEntry]
     }
 
     private func leaderboardContent(
         entries: [ModeratedLeaderboardEntry],
-        userEntry: ModeratedLeaderboardEntry?
+        standing: LeaderboardUserStanding?
     ) -> some View {
-        let state = presentationState(for: entries, userEntry: userEntry)
+        let state = presentationState(for: entries, standing: standing)
 
         return VStack(spacing: 16) {
             if !state.podiumEntries.isEmpty {
@@ -437,11 +463,32 @@ struct LeaderboardView: View {
                 .padding(.horizontal, 20)
             }
 
-            if let userEntry = state.pinnedUserEntry {
+            switch state.pinnedRow {
+            case .none:
+                EmptyView()
+
+            case .ranked(let userEntry):
                 LeaderboardUserRowView(
                     entry: userEntry,
                     metric: viewModel.selectedMetric,
-                    crownGapText: crownGapText(for: userEntry, podiumEntries: state.podiumEntries)
+                    crownGapText: crownGapText(
+                        value: userEntry.value,
+                        userId: userEntry.userId,
+                        podiumEntries: state.podiumEntries
+                    )
+                )
+                .padding(.top, 2)
+
+            case .unranked(let value, let formattedValue):
+                LeaderboardUserRowView(
+                    unrankedFormattedValue: formattedValue,
+                    photoURL: authVM.displayPhotoURL,
+                    metric: viewModel.selectedMetric,
+                    crownGapText: crownGapText(
+                        value: value,
+                        userId: nil,
+                        podiumEntries: state.podiumEntries
+                    )
                 )
                 .padding(.top, 2)
             }
@@ -468,33 +515,43 @@ struct LeaderboardView: View {
 
     private func presentationState(
         for entries: [ModeratedLeaderboardEntry],
-        userEntry: ModeratedLeaderboardEntry?
+        standing: LeaderboardUserStanding?
     ) -> LeaderboardPresentationState {
         let podiumEntries = ModeratedLeaderboardPodiumLayout.podiumEntries(from: entries)
         let listEntries = ModeratedLeaderboardPodiumLayout.listEntries(from: entries)
 
-        guard let userEntry else {
+        switch standing {
+        case .none:
             return LeaderboardPresentationState(
                 podiumEntries: podiumEntries,
-                pinnedUserEntry: nil,
+                pinnedRow: nil,
                 listEntries: listEntries
             )
-        }
 
-        if shouldPinUserRow(userEntry, podiumEntries: podiumEntries) {
-            let dedupedRows = listEntries.filter { $0.userId != userEntry.userId }
+        case .unranked(let value, let formattedValue):
+            // An unranked climber is in no entry list, so there is nothing to dedupe.
             return LeaderboardPresentationState(
                 podiumEntries: podiumEntries,
-                pinnedUserEntry: userEntry,
-                listEntries: dedupedRows
+                pinnedRow: .unranked(value: value, formattedValue: formattedValue),
+                listEntries: listEntries
+            )
+
+        case .ranked(let entry):
+            let userEntry = moderationStore.moderate(entry)
+            guard shouldPinUserRow(userEntry, podiumEntries: podiumEntries) else {
+                return LeaderboardPresentationState(
+                    podiumEntries: podiumEntries,
+                    pinnedRow: nil,
+                    listEntries: listEntries
+                )
+            }
+
+            return LeaderboardPresentationState(
+                podiumEntries: podiumEntries,
+                pinnedRow: .ranked(userEntry),
+                listEntries: listEntries.filter { $0.userId != userEntry.userId }
             )
         }
-
-        return LeaderboardPresentationState(
-            podiumEntries: podiumEntries,
-            pinnedUserEntry: nil,
-            listEntries: listEntries
-        )
     }
 
     private func shouldPinUserRow(
@@ -504,17 +561,20 @@ struct LeaderboardView: View {
         !podiumEntries.contains { $0.userId == entry.userId }
     }
 
+    /// The chase line under the pinned row. An unranked climber passes `userId: nil` -
+    /// they are on no rung, so no podium row can be theirs.
     private func crownGapText(
-        for userEntry: ModeratedLeaderboardEntry,
+        value: Double,
+        userId: String?,
         podiumEntries: [ModeratedLeaderboardEntry]
     ) -> String? {
         guard let leader = podiumEntries.first(where: { $0.rank == 1 }),
-              leader.userId != userEntry.userId
+              leader.userId != userId
         else {
             return nil
         }
 
-        let gap = leader.value - userEntry.value
+        let gap = leader.value - value
         guard gap > 0 else { return nil }
 
         return "\(formattedCrownGap(gap, for: viewModel.selectedMetric)) TO CROWN"
@@ -607,9 +667,13 @@ struct LeaderboardView: View {
                 .font(.system(size: 36, weight: .semibold))
                 .foregroundStyle(.accent)
 
-            Text("No entries yet.")
+            // States which window is empty before it commands. "No entries yet" on a
+            // month that reset hours ago reads as lost data; "August is empty" reads as
+            // a fresh board.
+            Text("\(viewModel.selectedPeriod.windowSubject) is empty.")
                 .font(.montserratBold(size: 20))
                 .foregroundStyle(primaryTextColor)
+                .multilineTextAlignment(.center)
 
             Text("Take the first spot.")
                 .font(.montserratRegular(size: 14))

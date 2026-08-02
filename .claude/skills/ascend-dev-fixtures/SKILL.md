@@ -34,6 +34,9 @@ paths:
 - `scripts/seed/lib/public-identity-contract.mjs` is the JavaScript home of that contract - the display-name screening, the photo-URL pattern, and `assertPublishablePublicIdentity`.
   Every seeding entry point validates through it, because the Admin SDK bypasses `firestore.rules` and is therefore the one writer that could publish an identity the server would strip on projection.
   `SharedTestVectors/display-name-screening-vector.json` pins it against the Cloud Functions implementation; add a case there rather than editing one screening copy in isolation.
+- `hydrate-user` also refuses to *invent* a public display name: with none passed and none stored it errors rather than publishing a placeholder.
+  `create-auth-user --hydrate-profile` pre-flights the same requirement before it calls `auth.createUser`, so a missing `--display-name` fails the command instead of leaving an orphaned Auth account with no Firestore user document.
+  The app's own fallback for a nameless account is `PublicClimberIdentity.systemHandle`, a per-uid handle ("Climber A3F9MQ"). A bare "Climber" collides across every account that took the fallback and is indistinguishable from a real name once it reaches a podium - staging carried exactly that on its top weekly and yearly row, written by a build that predates #263.
 - `scripts/dev-db.mjs hydrate-user` fails before writing when `--display-name` fails screening or `--photo-url` is not a Firebase Storage download URL, including when the offending value is inherited from the existing user document rather than passed on the command line.
   To publish no photo, pass `--photo-url ""` or `--clear-photo`; either one wins over a stored `profilePictureURL` instead of falling back to it.
   That is the escape for stale seed data whose `profilePictureURL` predates the identity contract, and for `create-auth-user --use-existing-auth-user --hydrate-profile` when the Auth record carries a provider photo the contract does not accept.
@@ -62,6 +65,8 @@ paths:
   currently lacks them, so a dev backfill repairs the source mirrors and waits.
 - To create one dev/staging QA Auth account, use `scripts/dev-db.mjs create-auth-user`. It must stay dev/staging-only, can generate a password, and can optionally run `--hydrate-profile` or `--seed-demo-data` after the Auth account exists.
 - To patch one dev/staging account, use `scripts/dev-db.mjs hydrate-user` so private `users/{uid}` and public `users/{uid}/public_profile/current` stay in sync.
+- `scripts/seed-demo-user.mjs` floors every demo user's totals at `minimumStepsByTimeFrame` (2,096 daily / 48,000 weekly / 145,000 monthly / 640,000 yearly / 720,000 all-time) via `Math.max`.
+  Every demo user seeded below the floor lands on the floor exactly, so identical totals across accounts - and the podium ties they produce - are a seeding artifact, not a ranking bug. Check the seeded value before investigating a tie as a defect.
 
 ## Live replay seeding
 - Live replay leaderboard seed data must be Admin SDK/server-written into the read-only `live_replay_leaderboards` index, never client-written during a live session.

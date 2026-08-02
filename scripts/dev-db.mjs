@@ -346,7 +346,8 @@ create-auth-user fields:
   --email <email> [--display-name <name>] [--uid <uid>]
   [--photo-url <url> | --photo-url "" | --clear-photo]
   [--password <password> | --password-env <ENV_NAME> | --generate-password]
-  [--use-existing] [--unverified] [--hydrate-profile | --seed-demo-data]
+  [--use-existing] [--unverified]
+  [--hydrate-profile (requires --display-name for a new user) | --seed-demo-data]
   If no password flag is provided, a random password is generated and printed once.
 
 hydrate-user fields:
@@ -722,6 +723,16 @@ function validateCreateAuthUserArgs(args) {
   }
 
   if (args.hydrateProfile) {
+    // hydrate-user refuses to invent a public display name, and it runs only after
+    // auth.createUser has already succeeded. A brand-new account has no stored
+    // displayName to inherit, so without this pre-flight the command leaves an orphaned
+    // Auth record with no Firestore user document behind.
+    if (!args.displayName && !args.useExistingAuthUser) {
+      throw new Error(
+        "create-auth-user --hydrate-profile requires --display-name for a new Auth user; " +
+        "there is no stored display name to inherit."
+      );
+    }
     validateHydrateUserArgs({...args, userId: args.userId ?? "new-auth-user"});
   }
 }
@@ -843,7 +854,16 @@ async function hydrateUser(projectId, args) {
   const userRef = db.collection("users").doc(args.userId);
   const existingSnapshot = await userRef.get();
   const existing = existingSnapshot.data() ?? {};
-  const displayName = trimmed(args.displayName) ?? trimmed(existing.displayName) ?? "Climber";
+  // Never invent a public display name. The app's own fallback for a nameless account is
+  // PublicClimberIdentity.systemHandle, a per-uid handle ("Climber A3F9MQ"); a bare
+  // "Climber" published here collides across every hydrated account and is indistinguishable
+  // from a real name once it reaches a podium. Make the operator supply one instead.
+  const displayName = trimmed(args.displayName) ?? trimmed(existing.displayName);
+  if (!displayName) {
+    throw new Error(
+      `hydrate-user: ${args.userId} has no display name to publish. Pass --display-name.`
+    );
+  }
   const photoURL = resolveHydratePhotoURL(args.photoURL, existing.profilePictureURL);
   assertPublishablePublicIdentity({displayName, photoURL}, "hydrate-user");
   const joinedAt = args.joinedAt ?? timestampDate(existing.joined_at) ?? new Date();

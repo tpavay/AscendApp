@@ -221,6 +221,86 @@ struct TiedRankRenderEvidenceTests {
         )
     }
 
+    // MARK: - Unranked climber
+
+    /// The photographed contradiction, on one screen: one climber on the podium with
+    /// places 2 and 3 unclaimed, and the pinned YOU row beneath claiming rank 2 on 0
+    /// steps — a rank borrowed from list position.
+    @Test
+    func sparsePodiumAndPinnedRowBeforeGaveTheZeroActivityClimberRankTwo() async throws {
+        let entries = makeGlobalEntries(ranks: [1], steps: [48_000], currentUserIndex: nil)
+        let moderated = moderatedEntries(entries)
+        let moderationStore = await hydratedModerationStore()
+
+        // What `placeholderEntry` produced: leaderboardEntries.count + 1.
+        let positionalRank = moderated.count + 1
+        #expect(positionalRank == 2)
+
+        let placeholder = LeaderboardEntry(
+            userId: "you",
+            displayName: "You",
+            rank: positionalRank,
+            value: 0,
+            formattedValue: "0",
+            isCurrentUser: true,
+            isTied: false
+        )
+
+        try render(
+            VStack(alignment: .leading, spacing: 12) {
+                LeaderboardPodiumView(
+                    entries: ModeratedLeaderboardPodiumLayout.podiumEntries(from: moderated),
+                    metric: .climb
+                )
+
+                LeaderboardUserRowView(
+                    entry: CrossUserIdentityAdapter.leaderboardEntry(
+                        placeholder,
+                        blockedUserIds: [],
+                        isBlockListHydrated: true
+                    ),
+                    metric: .climb,
+                    crownGapText: "48,000 STEPS TO CROWN"
+                )
+            }
+            .environment(moderationStore)
+            .padding(16),
+            named: "global-unranked-pinned-row-before",
+            height: 400
+        )
+    }
+
+    /// The same board after: the second and third plinths stay unclaimed and the pinned
+    /// row shows no rank at all, so the two surfaces state the same thing.
+    @Test
+    func sparsePodiumAndUnrankedRowNowAgreeThatNoOneHoldsSecond() async throws {
+        let entries = makeGlobalEntries(ranks: [1], steps: [48_000], currentUserIndex: nil)
+        let moderated = moderatedEntries(entries)
+        let podiumEntries = ModeratedLeaderboardPodiumLayout.podiumEntries(from: moderated)
+        let moderationStore = await hydratedModerationStore()
+
+        // Only the leader is ranked; no entry claims second or third.
+        #expect(podiumEntries.map(\.rank) == [1])
+        #expect(LeaderboardUserRowView.unrankedRankLabel == "-")
+
+        try render(
+            VStack(alignment: .leading, spacing: 12) {
+                LeaderboardPodiumView(entries: podiumEntries, metric: .climb)
+
+                LeaderboardUserRowView(
+                    unrankedFormattedValue: "0",
+                    photoURL: nil,
+                    metric: .climb,
+                    crownGapText: "48,000 STEPS TO CROWN"
+                )
+            }
+            .environment(moderationStore)
+            .padding(16),
+            named: "global-unranked-pinned-row-after",
+            height: 400
+        )
+    }
+
     // MARK: - Fixtures
 
     private func competitionRanks() -> [Int] {
@@ -292,10 +372,13 @@ struct TiedRankRenderEvidenceTests {
     /// the app can actually reach.
     /// - Parameter marksTies: `false` reproduces the old client, which had no tie
     ///   concept at all.
+    /// - Parameter currentUserIndex: `nil` renders a field the signed-in climber is not
+    ///   in at all, which is what an unranked climber sees.
     private func makeGlobalEntries(
         ranks: [Int],
         steps: [Int],
-        marksTies: Bool = true
+        marksTies: Bool = true,
+        currentUserIndex: Int? = 2
     ) -> [LeaderboardEntry] {
         let names = ["Dana R.", "Priya S.", "Marcus T.", "Owen B."]
 
@@ -306,8 +389,20 @@ struct TiedRankRenderEvidenceTests {
                 rank: ranks[index],
                 value: Double(steps[index]),
                 formattedValue: steps[index].formatted(),
-                isCurrentUser: index == 2,
+                isCurrentUser: index == currentUserIndex,
                 isTied: marksTies && steps.count(where: { $0 == steps[index] }) > 1
+            )
+        }
+    }
+
+    private func moderatedEntries(
+        _ entries: [LeaderboardEntry]
+    ) -> [ModeratedLeaderboardEntry] {
+        entries.map {
+            CrossUserIdentityAdapter.leaderboardEntry(
+                $0,
+                blockedUserIds: [],
+                isBlockListHydrated: true
             )
         }
     }
