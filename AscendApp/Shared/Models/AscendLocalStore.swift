@@ -26,6 +26,34 @@ enum AscendLocalStore {
 
     static var schema: Schema { Schema(versionedSchema: currentSchema) }
 
+    /// The models that hold nothing anyone entered or earned - rows Ascend recomputes from the
+    /// workouts it already has.
+    ///
+    /// Only the sign-in ownership gate reads this. Deletion never does: "delete my account" means
+    /// the store is empty, cache included.
+    ///
+    /// The exclusion exists because counting a recomputable row as somebody's data turns the
+    /// safety mechanism into its own incident. `BestEffortCacheStore.rebuildIfNeeded` writes a
+    /// `BestEffortCacheMetadata` row the first time anyone reaches the main tab, before they have
+    /// logged anything, so a gate that counted it would send every legitimate account switch on a
+    /// shared device to `AccountDataConflictView`, whose only way out is signing out again.
+    static var derivedCacheModels: [any PersistentModel.Type] {
+        [
+            BestEffortCacheEntry.self,
+            BestEffortCacheMetadata.self
+        ]
+    }
+
+    /// The models that hold real user records: the live schema minus the caches named above.
+    ///
+    /// Subtraction, not a list of what counts. A model added later is somebody's data until
+    /// someone deliberately calls it recomputable - the opposite of the hand-written include-list
+    /// that let four models fall out of the gate (#348). An unfinished session is a user record.
+    static var userRecordModels: [any PersistentModel.Type] {
+        let derivedCacheNames = Set(derivedCacheModels.map { String(describing: $0) })
+        return models.filter { !derivedCacheNames.contains(String(describing: $0)) }
+    }
+
     /// The same models, ordered so a cascade child is always deleted before the model that
     /// cascades to it.
     ///

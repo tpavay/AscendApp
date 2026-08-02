@@ -27,4 +27,26 @@ struct AscendLocalStoreTests {
         #expect(participationIndex < workoutIndex)
         #expect(sourceLinkIndex < workoutIndex)
     }
+
+    @Test("Treats every model as a user record except the named derived caches", .bug(id: 348))
+    func userRecordModelsAreTheLiveSchemaMinusTheNamedDerivedCaches() {
+        let live = Set(AscendLocalStore.models.map { String(describing: $0) })
+        let derivedCaches = Set(AscendLocalStore.derivedCacheModels.map { String(describing: $0) })
+        let userRecords = Set(AscendLocalStore.userRecordModels.map { String(describing: $0) })
+
+        #expect(derivedCaches.isSubset(of: live))
+        #expect(userRecords == live.subtracting(derivedCaches))
+    }
+
+    @Test("Names only the Best Effort caches as recomputable", .bug(id: 348))
+    func derivedCachesAreOnlyTheBestEffortCaches() {
+        let derivedCaches = Set(AscendLocalStore.derivedCacheModels.map { String(describing: $0) })
+        let userRecords = Set(AscendLocalStore.userRecordModels.map { String(describing: $0) })
+
+        #expect(derivedCaches == ["BestEffortCacheEntry", "BestEffortCacheMetadata"])
+
+        // An unfinished session is a record the climber made, not something Ascend can recompute,
+        // so it stays on the side the ownership gate blocks on.
+        #expect(userRecords.contains("ActiveHeadphoneWorkoutDraft"))
+    }
 }

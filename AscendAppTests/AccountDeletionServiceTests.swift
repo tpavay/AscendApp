@@ -143,6 +143,28 @@ struct AccountDeletionServiceTests {
         }
     }
 
+    @Test("Empties the derived caches the ownership gate ignores", .bug(id: 348))
+    func deletesTheDerivedCachesTheOwnershipGateDoesNotCount() async throws {
+        let gateway = RecordingAccountDeletionGateway()
+        let service = AccountDeletionService(gateway: gateway, localCleanup: StubLocalCleanup())
+        let modelContext = try makeModelContext()
+
+        try AscendLocalStoreFixture.insertOneOfEach(into: modelContext)
+
+        try await service.deleteAccount(modelContext: modelContext)
+
+        // The gate skips these because a recomputable row is nobody's data. The sweep must not:
+        // the two are separate properties, and "delete my account" means the store is empty.
+        #expect(!AscendLocalStore.derivedCacheModels.isEmpty)
+        for model in AscendLocalStore.derivedCacheModels {
+            let modelName = String(describing: model)
+            #expect(
+                try model.storedCount(in: modelContext) == 0,
+                "Account deletion left \(modelName) row(s) on the device."
+            )
+        }
+    }
+
     @Test("Covers every model in the live schema with a fixture", .bug(id: 348))
     func hasAFixtureForEveryModelInTheLiveSchema() throws {
         // The guard that makes the sweep test stay honest. A model added to the schema with no

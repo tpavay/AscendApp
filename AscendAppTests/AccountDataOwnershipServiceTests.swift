@@ -66,6 +66,28 @@ struct AccountDataOwnershipServiceTests {
         #expect(conflict.summary.rowCount(of: ActiveHeadphoneWorkoutDraft.self) == 1)
     }
 
+    @Test("Lets a different account sign in over a derived Best Effort cache", .bug(id: 348))
+    func allowsRememberedOwnerMismatchWhenOnlyDerivedCacheRowsRemain() throws {
+        let modelContext = try makeModelContext()
+        let defaults = try makeUserDefaults()
+        let sessionStore = AccountSessionStore(userDefaults: defaults)
+        sessionStore.recordLocalDataOwner(userId: "user-a")
+
+        // What every entitled climber writes on their first trip to the main tab, workouts logged
+        // or not. Blocking on a row Ascend generated itself would make the gate an unrecoverable
+        // lockout - the conflict screen's only action is Sign Out.
+        try BestEffortCacheStore.rebuildIfNeeded(modelContext: modelContext)
+        #expect(try modelContext.fetchCount(FetchDescriptor<BestEffortCacheMetadata>()) == 1)
+
+        let decision = try AccountDataOwnershipService.evaluateAccess(
+            modelContext: modelContext,
+            signedInUserId: "user-b",
+            sessionStore: sessionStore
+        )
+
+        #expect(decision == .allowed)
+    }
+
     @Test
     func allowsRememberedOwnerMismatchWhenLocalStoreIsEmpty() throws {
         let modelContext = try makeModelContext()
