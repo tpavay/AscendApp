@@ -1,9 +1,18 @@
 import Foundation
 
+/// Why a record can never be backed up as it stands.
+///
+/// Every case is a bound `firestore.rules` also enforces, so every case means
+/// the server would answer a bare `PERMISSION_DENIED` - a refusal that never
+/// becomes an acceptance no matter how often it is retried. The coordinator
+/// turns these into `.rejected`, not `.failed`.
 enum RoutineSyncError: LocalizedError, Equatable {
     case missingOwner
     case notUserAuthored
     case tooManyIntervals(count: Int, limit: Int)
+    case emptyName
+    case nameTooLong(count: Int, limit: Int)
+    case descriptionTooLong(count: Int, limit: Int)
 
     var errorDescription: String? {
         switch self {
@@ -13,6 +22,33 @@ enum RoutineSyncError: LocalizedError, Equatable {
             return "Catalog routines are server-owned content and are never backed up."
         case let .tooManyIntervals(count, limit):
             return "Routine has \(count) intervals; the backup accepts at most \(limit)."
+        case .emptyName:
+            return "The backup needs a name, and this record has none."
+        case let .nameTooLong(count, limit):
+            return "Name is \(count) characters; the backup accepts at most \(limit)."
+        case let .descriptionTooLong(count, limit):
+            return "Description is \(count) characters; the backup accepts at most \(limit)."
+        }
+    }
+
+    /// What a rejection may say out loud.
+    ///
+    /// Sizes and reasons only - never the name or the description themselves,
+    /// which are the climber's own words.
+    var diagnosticDetails: [String: String] {
+        switch self {
+        case .missingOwner:
+            return ["reason": "missing_owner"]
+        case .notUserAuthored:
+            return ["reason": "not_user_authored"]
+        case let .tooManyIntervals(count, limit):
+            return ["reason": "too_many_intervals", "actual": "\(count)", "permitted": "\(limit)"]
+        case .emptyName:
+            return ["reason": "empty_name", "actual": "0", "permitted": "1"]
+        case let .nameTooLong(count, limit):
+            return ["reason": "name_too_long", "actual": "\(count)", "permitted": "\(limit)"]
+        case let .descriptionTooLong(count, limit):
+            return ["reason": "description_too_long", "actual": "\(count)", "permitted": "\(limit)"]
         }
     }
 }
@@ -30,6 +66,16 @@ enum RoutineRemoteSyncMapper {
         }
         guard routine.isUserAuthored else {
             throw RoutineSyncError.notUserAuthored
+        }
+
+        try validateName(routine.name, limit: FirestoreUserRoutineDocument.maxNameLength)
+
+        let descriptionLength = length(of: routine.routineDescription)
+        guard descriptionLength <= FirestoreUserRoutineDocument.maxDescriptionLength else {
+            throw RoutineSyncError.descriptionTooLong(
+                count: descriptionLength,
+                limit: FirestoreUserRoutineDocument.maxDescriptionLength
+            )
         }
 
         let intervals = routine.intervals
@@ -65,6 +111,8 @@ enum RoutineRemoteSyncMapper {
         guard let ownerUserId = folder.ownerUserId, !ownerUserId.isEmpty else {
             throw RoutineSyncError.missingOwner
         }
+
+        try validateName(folder.name, limit: FirestoreRoutineFolderDocument.maxNameLength)
 
         return FirestoreRoutineFolderDocument(
             userId: ownerUserId,
@@ -137,6 +185,23 @@ enum RoutineRemoteSyncMapper {
         folder.lastRemoteSyncAt = Date()
         folder.remoteSyncStatus = .synced
         folder.lastRemoteSyncError = nil
+    }
+
+    // MARK: - Field bounds
+
+    /// Rules count a string in Unicode scalars, so the client has to count the
+    /// same way. Swift's `count` measures grapheme clusters, which reads a
+    /// family emoji as one character where the server reads several.
+    static func length(of text: String) -> Int {
+        text.unicodeScalars.count
+    }
+
+    private static func validateName(_ name: String, limit: Int) throws {
+        let nameLength = length(of: name)
+        guard nameLength > 0 else { throw RoutineSyncError.emptyName }
+        guard nameLength <= limit else {
+            throw RoutineSyncError.nameTooLong(count: nameLength, limit: limit)
+        }
     }
 
     // MARK: - Interval mapping

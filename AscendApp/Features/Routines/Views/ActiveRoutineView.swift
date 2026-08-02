@@ -534,9 +534,7 @@ struct ActiveRoutineView: View {
 
     private func recordCompletionIfNeeded() {
         guard !viewModel.hasRecordedCompletion else { return }
-        routine.completionCount += 1
-        routine.lastCompletedAt = Date()
-        try? modelContext.save()
+        try? RoutineService(modelContext: modelContext).recordCompletion(for: routine)
         viewModel.markCompletionRecorded()
     }
 

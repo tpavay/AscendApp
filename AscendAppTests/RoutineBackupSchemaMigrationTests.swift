@@ -131,13 +131,10 @@ struct RoutineBackupSchemaMigrationTests {
         }
 
         let context = try Self.openMigratedStore(at: storeURL)
-        let defaults = UserDefaults(suiteName: "routine-adoption-\(UUID().uuidString)")!
-        defer { defaults.removePersistentDomain(forName: defaults.description) }
 
         try RoutineRemoteSyncAdoptionService.runIfNeeded(
             modelContext: context,
-            currentUserId: "user-304",
-            userDefaults: defaults
+            currentUserId: "user-304"
         )
 
         let routines = Dictionary(

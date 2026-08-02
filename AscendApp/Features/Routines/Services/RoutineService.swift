@@ -111,6 +111,21 @@ final class RoutineService {
         kickBackup()
     }
 
+    /// Records that the climber finished a session of this routine.
+    ///
+    /// Whether a session counts as a completion is the live session's call, not
+    /// this one's. What this owns is the write: the counters are backed-up
+    /// document fields, so a completion has to mark the routine pending like any
+    /// other edit. Writing them straight onto the model leaves a routine that is
+    /// completed for years and restores with a count of zero.
+    func recordCompletion(for routine: Routine, completedAt: Date = Date()) throws {
+        routine.completionCount += 1
+        routine.lastCompletedAt = completedAt
+        markPendingBackup(routine, modifiedAt: completedAt)
+        try modelContext.save()
+        kickBackup()
+    }
+
     /// Creates a user copy of a built-in routine
     @discardableResult
     func copyBuiltInRoutine(_ routine: Routine) throws -> Routine {

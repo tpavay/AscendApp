@@ -62,6 +62,17 @@ struct FirestoreUserRoutineDocument: Codable, Equatable, Sendable {
     /// server would reject rather than retrying it on every launch forever.
     static let maxIntervals = 40
 
+    /// The longest name and description one routine may back up.
+    ///
+    /// Mirrors the `name.size()` and `description.size()` bounds in
+    /// `firestore.rules` for the same reason `maxIntervals` does: a write past
+    /// them comes back as a bare `PERMISSION_DENIED`, which is indistinguishable
+    /// from a transient failure and would be retried on every launch forever
+    /// while the routine stays unbacked. Counted in Unicode scalars because that
+    /// is what `size()` counts in rules.
+    static let maxNameLength = 120
+    static let maxDescriptionLength = 2000
+
     let userId: String
     let schemaVersion: Int
     let name: String
@@ -126,6 +137,10 @@ struct FirestoreUserRoutineDocument: Codable, Equatable, Sendable {
 /// `users/{uid}/routine_folders/{folderId}`.
 struct FirestoreRoutineFolderDocument: Codable, Equatable, Sendable {
     static let currentSchemaVersion = 1
+
+    /// The longest folder name the backup accepts, mirroring `name.size()` in
+    /// `firestore.rules`. Folders get their own bound because the rule does.
+    static let maxNameLength = 80
 
     let userId: String
     let schemaVersion: Int

@@ -69,4 +69,9 @@ final class RoutineFolder {
         remoteSyncStatus = .failed
         lastRemoteSyncError = errorMessage
     }
+
+    func markRemoteSyncRejected(_ errorMessage: String) {
+        remoteSyncStatus = .rejected
+        lastRemoteSyncError = errorMessage
+    }
 }

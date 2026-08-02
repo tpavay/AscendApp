@@ -86,6 +86,46 @@ struct RoutineCloudBackupRoundTripTests {
         #expect(restoredFolder.order == 1)
     }
 
+    @Test("A completion the climber never edits after still reaches the backup", .bug(id: 304))
+    func recordedCompletionsSurviveAReinstall() async throws {
+        let backend = InMemoryUserRoutineBackend()
+        let coordinator = makeSyncCoordinator(backend)
+        let firstDevice = try makeModelContext()
+        let service = makeService(modelContext: firstDevice, coordinator: coordinator)
+
+        let routine = try service.createRoutine(name: "Tuesday Pyramid", intervals: makeIntervals())
+        await coordinator.processPendingRoutines(
+            modelContext: firstDevice,
+            currentUserId: Self.userId
+        )
+        #expect(routine.remoteSyncStatus == .synced)
+
+        // Finishing a routine is the whole point of having one, and it is the
+        // one mutation that never goes through the editor. If it does not mark
+        // the routine pending, a routine completed for years restores at zero.
+        let completedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        try service.recordCompletion(for: routine, completedAt: completedAt)
+        #expect(routine.completionCount == 1)
+        #expect(routine.remoteSyncStatus == .pendingUpsert)
+
+        await coordinator.processPendingRoutines(
+            modelContext: firstDevice,
+            currentUserId: Self.userId
+        )
+
+        let secondDevice = try makeModelContext()
+        RoutineHydrationService.resetSessionTrackingForTesting()
+        _ = try await RoutineHydrationService.hydrateIfNeeded(
+            modelContext: secondDevice,
+            currentUserId: Self.userId,
+            remoteRepository: backend
+        )
+
+        let restored = try #require(try secondDevice.fetch(FetchDescriptor<Routine>()).first)
+        #expect(restored.completionCount == 1)
+        #expect(restored.lastCompletedAt == completedAt)
+    }
+
     @Test("An archived routine comes back archived rather than resurrected", .bug(id: 304))
     func archivedRoutineRestoresArchived() async throws {
         let backend = InMemoryUserRoutineBackend()

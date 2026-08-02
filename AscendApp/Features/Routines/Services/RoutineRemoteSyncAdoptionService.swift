@@ -1,32 +1,30 @@
 import Foundation
 import SwiftData
 
-/// Claims routines and folders that predate the cloud backup for the signed-in
-/// climber, so their first upload actually happens.
+/// Claims ownerless routines and folders for the signed-in climber, so their
+/// first upload actually happens.
 ///
-/// Everything the coordinator uploads is keyed on `ownerUserId`, and a routine
-/// built before this build shipped - or before the climber signed in - has
-/// none. Without this pass those routines sit at `pendingUpsert` forever and
-/// are never backed up, which is the original bug wearing a new hat.
+/// Everything the coordinator uploads is keyed on `ownerUserId`, and a record
+/// built before this build shipped - or saved during a window where nobody was
+/// signed in - has none. Without this pass those records sit at `pendingUpsert`
+/// forever and are never backed up, which is the original bug wearing a new hat.
 ///
-/// The one-shot key is per user and stamped only after the sweep finishes, so a
-/// killed or interrupted run defers the work rather than marking it done.
-/// Templates are skipped: they are server-owned content, not the climber's.
+/// Deliberately NOT one-shot. A one-shot key answers "have the records that
+/// predate the backup been claimed", but ownerless records keep being created
+/// after that: any save while `Auth.auth().currentUser` is nil produces one, and
+/// a stamped key would strand it permanently with nothing to say so. The sweep
+/// runs on every authenticated bootstrap instead, and stays cheap by asking the
+/// store only for records that are actually ownerless - normally none.
+/// Templates are excluded: they are server-owned content, not the climber's.
 enum RoutineRemoteSyncAdoptionService {
-    private static let adoptionVersion = 1
-
     static func runIfNeeded(
         modelContext: ModelContext,
         currentUserId: String,
-        userDefaults: UserDefaults = .standard,
         featureFlags: RemoteFeatureFlagStore = .shared
     ) throws {
-        let versionKey = adoptionVersionKey(for: currentUserId)
-        guard userDefaults.bool(forKey: versionKey) == false else { return }
-
-        // Killed before the version key is stamped, so the sweep is deferred
-        // rather than skipped: it runs on the next bootstrap after the flag
-        // returns.
+        // Killed: the records keep their missing owner and are claimed on the
+        // next bootstrap after the flag returns. Nothing is dropped, because
+        // nothing here is stamped as done.
         guard RemoteFeatureGate.allows(
             .localDataMigrations,
             path: "RoutineRemoteSyncAdoptionService.runIfNeeded",
@@ -37,19 +35,42 @@ enum RoutineRemoteSyncAdoptionService {
 
         var didChange = false
 
-        for routine in try modelContext.fetch(FetchDescriptor<Routine>()) {
+        for routine in try ownerlessRoutines(modelContext: modelContext) {
             didChange = adopt(routine, currentUserId: currentUserId) || didChange
         }
 
-        for folder in try modelContext.fetch(FetchDescriptor<RoutineFolder>()) {
+        for folder in try ownerlessFolders(modelContext: modelContext) {
             didChange = adopt(folder, currentUserId: currentUserId) || didChange
         }
 
         if didChange {
             try modelContext.save()
         }
+    }
 
-        userDefaults.set(true, forKey: versionKey)
+    /// Ownerless user-authored routines only - the catalog is permanently
+    /// ownerless by design, so filtering it in the store rather than in memory
+    /// keeps the common case (nothing to claim) at zero rows.
+    static func ownerlessRoutines(modelContext: ModelContext) throws -> [Routine] {
+        let builtinRaw = RoutineSource.builtin.rawValue
+        let remoteTemplateRaw = RoutineSource.remoteTemplate.rawValue
+        let descriptor = FetchDescriptor<Routine>(
+            predicate: #Predicate<Routine> { routine in
+                routine.ownerUserId == nil &&
+                    routine.sourceRawValue != builtinRaw &&
+                    routine.sourceRawValue != remoteTemplateRaw
+            }
+        )
+        return try modelContext.fetch(descriptor)
+    }
+
+    static func ownerlessFolders(modelContext: ModelContext) throws -> [RoutineFolder] {
+        let descriptor = FetchDescriptor<RoutineFolder>(
+            predicate: #Predicate<RoutineFolder> { folder in
+                folder.ownerUserId == nil
+            }
+        )
+        return try modelContext.fetch(descriptor)
     }
 
     @discardableResult
@@ -75,9 +96,5 @@ enum RoutineRemoteSyncAdoptionService {
             modifiedAt: folder.effectiveUpdatedAt
         )
         return true
-    }
-
-    static func adoptionVersionKey(for userId: String) -> String {
-        "routineRemoteSyncAdoption.v\(adoptionVersion).\(userId)"
     }
 }

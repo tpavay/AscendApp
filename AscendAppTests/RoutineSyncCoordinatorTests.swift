@@ -143,6 +143,118 @@ struct RoutineSyncCoordinatorTests {
         #expect(stored.lastRemoteSyncAt == nil)
     }
 
+    @Test("A routine deleted mid-upload is not touched again", .bug(id: 304))
+    func aRoutineDeletedDuringTheUploadIsNeitherTouchedNorResurrected() async throws {
+        let modelContext = try makeModelContext()
+        let routine = makeRoutine()
+        routine.markPendingRemoteUpsert(ownerUserId: Self.userId)
+        modelContext.insert(routine)
+        try modelContext.save()
+
+        // The climber deletes the routine inside the upload window. Reading
+        // `updatedAt` off the model afterwards - or marking it synced - would be
+        // touching a row that no longer exists: NSObjectInaccessibleException,
+        // or a deleted routine dirtied back into the pending queue.
+        let backend = EditingDuringUploadBackend {
+            modelContext.delete(routine)
+            try? modelContext.save()
+        }
+        await RoutineSyncCoordinator(
+            remoteRepository: backend,
+            operationTimeoutSeconds: 5
+        ).processPendingRoutines(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+
+        #expect(try modelContext.fetch(FetchDescriptor<Routine>()).isEmpty)
+    }
+
+    @Test("A routine past a rules string bound is rejected, not retried forever", .bug(id: 304))
+    func aRoutineWithAnOverlongNameIsRejectedAndReported() async throws {
+        let modelContext = try makeModelContext()
+        let routine = makeRoutine(
+            name: String(repeating: "A", count: FirestoreUserRoutineDocument.maxNameLength + 5)
+        )
+        routine.markPendingRemoteUpsert(ownerUserId: Self.userId)
+        modelContext.insert(routine)
+        try modelContext.save()
+
+        let diagnostics = RecordingDiagnostics()
+        let backend = InMemoryUserRoutineBackend()
+        let coordinator = RoutineSyncCoordinator(
+            remoteRepository: backend,
+            diagnostics: diagnostics,
+            operationTimeoutSeconds: 5
+        )
+        await coordinator.processPendingRoutines(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+
+        let stored = try #require(try modelContext.fetch(FetchDescriptor<Routine>()).first)
+        #expect(stored.remoteSyncStatus == .rejected)
+        #expect(await backend.routineCount() == 0)
+
+        let event = try #require(diagnostics.events.first)
+        #expect(event.name == "routine_backup_rejected")
+        #expect(event.level == .warning)
+        #expect(event.details["reason"] == "name_too_long")
+        #expect(event.details["actual"] == "\(FirestoreUserRoutineDocument.maxNameLength + 5)")
+        #expect(event.details["permitted"] == "\(FirestoreUserRoutineDocument.maxNameLength)")
+        // The climber's own words never leave the device in a diagnostic.
+        #expect(event.details.values.contains { $0.contains("AAAA") } == false)
+
+        // Rejected is terminal: a second pass must not re-attempt a write the
+        // server will refuse every time.
+        await coordinator.processPendingRoutines(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+        #expect(await backend.routineCount() == 0)
+        #expect(diagnostics.events.count == 1)
+    }
+
+    @Test("A routine saved with nobody signed in is still backed up later", .bug(id: 304))
+    func anOwnerlessRoutineIsClaimedOnALaterBootstrapAndUploaded() async throws {
+        let modelContext = try makeModelContext()
+        let backend = InMemoryUserRoutineBackend()
+        let coordinator = makeCoordinator(backend)
+
+        // The first bootstrap sweeps an empty store: under a one-shot adoption
+        // key, everything created afterwards would be stranded for good.
+        try RoutineRemoteSyncAdoptionService.runIfNeeded(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+
+        let signedOutService = RoutineService(
+            modelContext: modelContext,
+            templateRepository: StubRoutineTemplateRepository(),
+            syncCoordinator: coordinator,
+            currentUserId: { nil }
+        )
+        let stranded = try signedOutService.createRoutine(
+            name: "Built while signed out",
+            intervals: [RoutineInterval(duration: 60, intensityValue: 8, order: 0)]
+        )
+        #expect(stranded.ownerUserId == nil)
+
+        try RoutineRemoteSyncAdoptionService.runIfNeeded(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+        await coordinator.processPendingRoutines(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+
+        let claimed = try #require(try modelContext.fetch(FetchDescriptor<Routine>()).first)
+        #expect(claimed.ownerUserId == Self.userId)
+        #expect(claimed.remoteSyncStatus == .synced)
+        #expect(await backend.uploadedRoutineIds() == [stranded.id])
+    }
+
     @Test
     func pendingDeletionRemovesTheRemoteDocumentAndClearsTheQueue() async throws {
         let modelContext = try makeModelContext()
@@ -331,6 +443,29 @@ struct RoutineSyncCoordinatorTests {
 }
 
 private struct TestBackupFailure: Error, Sendable {}
+
+/// Keeps what was asked for, which is the only checkable half of a diagnostic:
+/// whether it reached Crashlytics cannot be observed from inside the process.
+private final class RecordingDiagnostics: AppDiagnosticsRecording, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [AppDiagnosticEvent] = []
+
+    var events: [AppDiagnosticEvent] {
+        lock.withLock { recorded }
+    }
+
+    @discardableResult
+    func record(
+        _ name: String,
+        level: AppDiagnosticEvent.Level,
+        details: [String: String],
+        mirrorToCrashlytics: Bool
+    ) -> AppDiagnosticEvent {
+        let event = AppDiagnosticEvent(name: name, level: level, details: details)
+        lock.withLock { recorded.append(event) }
+        return event
+    }
+}
 
 /// Runs a side effect on the main actor in the middle of an upload, so the
 /// "a local edit landed while we were uploading" branch can be exercised.

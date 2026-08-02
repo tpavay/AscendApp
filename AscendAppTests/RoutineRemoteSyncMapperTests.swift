@@ -117,12 +117,104 @@ struct RoutineRemoteSyncMapperTests {
         #expect(document.intervals.count == FirestoreUserRoutineDocument.maxIntervals)
     }
 
-    /// The ceiling the client enforces and the one `firestore.rules` enforces
+    @Test
+    func aRoutineWithAnOverlongNameIsNotUploaded() {
+        let routine = Routine(
+            name: String(repeating: "A", count: FirestoreUserRoutineDocument.maxNameLength + 1),
+            source: .userCreated
+        )
+        routine.ownerUserId = Self.userId
+
+        #expect(
+            throws: RoutineSyncError.nameTooLong(
+                count: FirestoreUserRoutineDocument.maxNameLength + 1,
+                limit: FirestoreUserRoutineDocument.maxNameLength
+            )
+        ) {
+            _ = try RoutineRemoteSyncMapper.document(for: routine)
+        }
+    }
+
+    /// A name that only the copy suffix pushes over the line is the realistic
+    /// way this happens: nothing in the editor caps the field, and
+    /// `createUserCopy` appends to whatever is there.
+    @Test
+    func aRoutineAtTheNameCeilingIsUploaded() throws {
+        let routine = Routine(
+            name: String(repeating: "A", count: FirestoreUserRoutineDocument.maxNameLength),
+            source: .userCreated
+        )
+        routine.ownerUserId = Self.userId
+
+        let document = try RoutineRemoteSyncMapper.document(for: routine)
+
+        #expect(document.name.count == FirestoreUserRoutineDocument.maxNameLength)
+    }
+
+    @Test
+    func aRoutineWithAnOverlongDescriptionIsNotUploaded() {
+        let routine = Routine(
+            name: "Tuesday Pyramid",
+            routineDescription: String(
+                repeating: "b",
+                count: FirestoreUserRoutineDocument.maxDescriptionLength + 1
+            ),
+            source: .userCreated
+        )
+        routine.ownerUserId = Self.userId
+
+        #expect(
+            throws: RoutineSyncError.descriptionTooLong(
+                count: FirestoreUserRoutineDocument.maxDescriptionLength + 1,
+                limit: FirestoreUserRoutineDocument.maxDescriptionLength
+            )
+        ) {
+            _ = try RoutineRemoteSyncMapper.document(for: routine)
+        }
+    }
+
+    @Test
+    func aNamelessRecordIsNotUploaded() {
+        let routine = Routine(name: "", source: .userCreated)
+        routine.ownerUserId = Self.userId
+
+        #expect(throws: RoutineSyncError.emptyName) {
+            _ = try RoutineRemoteSyncMapper.document(for: routine)
+        }
+    }
+
+    @Test
+    func aFolderWithAnOverlongNameIsNotUploaded() {
+        let folder = RoutineFolder(
+            name: String(repeating: "A", count: FirestoreRoutineFolderDocument.maxNameLength + 1)
+        )
+        folder.ownerUserId = Self.userId
+
+        #expect(
+            throws: RoutineSyncError.nameTooLong(
+                count: FirestoreRoutineFolderDocument.maxNameLength + 1,
+                limit: FirestoreRoutineFolderDocument.maxNameLength
+            )
+        ) {
+            _ = try RoutineRemoteSyncMapper.document(for: folder)
+        }
+    }
+
+    /// Rules measure a string in Unicode scalars, so the client has to. Swift's
+    /// `count` reads this as one character where the server reads four, which is
+    /// the difference between a name the client passes and the server denies.
+    @Test
+    func stringLengthIsMeasuredTheWayTheRulesMeasureIt() {
+        #expect(RoutineRemoteSyncMapper.length(of: "👨‍👩‍👧") == 5)
+    }
+
+    /// Every bound the client enforces and the one `firestore.rules` enforces
     /// must be the same number. If they drift apart, either the client refuses
     /// writes the server would accept, or it retries writes the server will
-    /// always reject.
+    /// always reject - and a permanently denied write that keeps being retried
+    /// is a routine that is never backed up and never says so.
     @Test
-    func theClientIntervalCeilingMatchesTheRule() throws {
+    func theClientFieldBoundsMatchTheRules() throws {
         let rules = try String(
             contentsOf: URL(fileURLWithPath: #filePath)
                 .deletingLastPathComponent()
@@ -132,6 +224,22 @@ struct RoutineRemoteSyncMapperTests {
         )
 
         #expect(rules.contains("return \(FirestoreUserRoutineDocument.maxIntervals);"))
+        #expect(
+            rules.contains(
+                "request.resource.data.name.size() <= \(FirestoreUserRoutineDocument.maxNameLength)"
+            )
+        )
+        #expect(
+            rules.contains(
+                "request.resource.data.description.size() <= " +
+                    "\(FirestoreUserRoutineDocument.maxDescriptionLength)"
+            )
+        )
+        #expect(
+            rules.contains(
+                "request.resource.data.name.size() <= \(FirestoreRoutineFolderDocument.maxNameLength)"
+            )
+        )
     }
 
     @Test
