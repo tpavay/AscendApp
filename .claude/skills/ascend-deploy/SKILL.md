@@ -24,7 +24,7 @@ Read the workflow file before changing it - the job graph below is the contract,
 
 `.github/workflows/ci.yml` runs on CI-relevant PR changes targeting `develop` and `main`.
 Every verify job is gated on the changed paths, so a functions-only PR skips the iOS jobs and an iOS-only PR skips the functions job:
-- `changes` - a `dorny/paths-filter` job that resolves the `ios`, `functions`, `scripts`, `web`, `root_npm`, `firebase`, and `ruby` outputs. Every other job declares `needs: changes` and an `if:` on one of those outputs, so a new verify job is skipped by default until you add it to the filter.
+- `changes` - a `dorny/paths-filter` job that resolves the `ios`, `functions`, `scripts`, `web`, `root_npm`, `firebase`, `ruby`, and `swiftdata_schema` outputs. Every other job declares `needs: changes` and an `if:` on one of those outputs, so a new verify job is skipped by default until you add it to the filter.
 - `functions-verify` - installs `functions/`, then lints, tests, and audits (`npm --prefix functions ci`, `run lint`, `test`, `audit --audit-level=low`).
 - `scripts-verify` - installs `scripts/` (`npm --prefix scripts ci`), runs the `scripts/test/*.test.mjs` suite with `node --test`, then audits the `scripts/` lockfile (`--package-lock-only`).
   The install is required: the public-identity contract suite imports and spawns `dev-db.mjs`, which imports `firebase-admin`, so a suite that exercises a real script rather than a pure library needs the same dependencies an operator has.
@@ -32,6 +32,8 @@ Every verify job is gated on the changed paths, so a functions-only PR skips the
   Keep that pin identical to the one in both deploy workflows.
   The job is gated on changes to `scripts/**` or `SharedTestVectors/**`, plus the iOS paths the monetization build-configuration suite reads directly, the Firebase configuration files the structural-validation suite reads directly, and the web, legal, and guidance paths the subscription launch-offer suite reads directly.
   A suite here that asserts against tracked non-`scripts/` files must add its inputs to this filter, or the assertion silently stops running on the PRs that break it.
+- `swiftdata-schema-verify` - runs `node scripts/check-swiftdata-schema.mjs` against the Swift sources, on its own `swiftdata_schema` filter of `AscendApp/**` plus `SharedTestVectors/**`. That filter is the whole app tree on purpose: an `@Model` can be declared anywhere, so it is never narrowed to the folders models live in today. `ascend-data-migration` owns what the check enforces.
+  Deliberately dependency-free - no `npm ci`, no `npm audit` - so a Swift-only PR cannot be blocked by an advisory against a `scripts/`-only Node dependency. Keep it out of `scripts-verify` for that reason, even though the check ships under `scripts/`.
 - `web-verify` - installs `web/`, builds the Astro site, then audits. Gated on changes to `web/**`.
 - `root-npm-verify` - audits the committed root lockfile with `--package-lock-only` (no install). Gated on changes to `package.json` / `package-lock.json`.
 - `firebase-verify` - structurally validates `firebase.json`, `.firebaserc`, and `firestore.indexes.json`, then starts the Firestore and Storage emulators and runs `tests/firebase-rules/*.test.mjs`. The emulators load both rules files before the suite, so syntax failures stop the job.
