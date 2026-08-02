@@ -33,7 +33,7 @@ Each screen declares the first capture row clear of that device's own status chr
 | 02 | row 153 | supporting copy, row 2107 | row 2586 | end of capture, row 2622 |
 | 03 | row 93 | Easiest section header, row 1546 | row 1566 | first Easiest card, row 1567 |
 | 04 | row 44 | End attempt control, row 1766 | row 1772 | home indicator, row 1816 |
-| 05 | row 93 | rule under the third leaderboard row, row 1550 | row 1573 | fourth row's avatar, row 1574 |
+| 05 | row 153 | rule under the seventh leaderboard row, row 2581 | row 2588 | end of capture, row 2622 |
 | 06 | row 153 | Skip control, row 2380 | row 2586 | end of capture, row 2622 |
 | 07 | row 170 | chart card's rounded bottom, row 2621 | row 2622 | end of capture, row 2622 |
 
@@ -59,7 +59,7 @@ Each screen declares the first capture row clear of that device's own status chr
 - Screen 02 pairs its Everest headline with an app surface that visibly includes the Everest card and names Mt. Everest in its supporting copy. All six landmark cards are whole.
 - Screen 03 shows the live globe and real landmark catalog, with the Popular header, its See all action, and all three Popular cards complete.
 - Screen 04 shows an in-progress replay leaderboard with the current climber highlighted and the real, enabled End attempt control. Nothing below the list is painted in.
-- Screen 05 shows the per-climb completion leaderboard, its top three finishers complete, and does not use the known-bad split-summary capture.
+- Screen 05 shows the per-climb completion leaderboard, the current user's complete rank summary and its top seven finishers complete, and does not use the known-bad split-summary capture.
 - Screen 06 shows the real First Ascent badge, First Ascent copy, a genuinely enabled notification action, and its complete Skip control.
 - Screen 07 shows a real Best Effort record, its whole laurel wreath, and its progression chart with a complete axis.
 - No disabled primary action appears anywhere in the set.
@@ -68,7 +68,7 @@ Each screen declares the first capture row clear of that device's own status chr
 ## Cross-screen numbers
 
 - Empire State Building is 2,096 steps on screens 01, 03, 04 and 05.
-- Screen 01's "15th out of 20" and screen 05's "83 completed" measure different things and coexist in one dataset. The recap card's denominator is `completedCountAtCompletion`, frozen when that climb was published (`LiveReplayPublishStatus`), while the climb leaderboard shows the count today. Finishing 15th of the 20 who had completed the climb, with 63 finishing since, is one consistent history.
+- Screens 01 and 05 show the same frozen Empire State Building result: 23:53, rank 15, out of 20 finishers.
 - Screen 04's live window ranks the same climber 15th among the replay field, which is the same standing the recap froze.
 - Screen 05's top times check out against the step count: 12:18 at 170 avg SPM, 13:22 at 157, and 13:27 at 156 all resolve to 2,096 steps.
 - Screen 01's 98 SPM is over moving time and 23:53 is elapsed time, which is why the two do not multiply to 2,096.

@@ -107,12 +107,12 @@ const screens = [
   },
   {
     filename: '05-every-step-ranked.png',
-    uiSource: 'real-ui-climb-leaderboard.jpg',
-    statusBandBottom: 93,
-    sourceTop: 93,
-    sourceBottom: 1573,
-    lastRow: 1550,
-    nextRow: 1574,
+    uiSource: 'real-ui-climb-leaderboard-20.png',
+    statusBandBottom: 153,
+    sourceTop: 153,
+    sourceBottom: 2588,
+    lastRow: 2581,
+    nextRow: 2622,
     lines: ['EVERY STEP', 'RANKED.'],
   },
   {
