@@ -44,23 +44,48 @@ test("the template is wired into firebase.json", () => {
   assert.equal(firebaseConfig.remoteconfig?.template, "remoteconfig.template.json");
 });
 
-test("Remote Config is not part of any automated deploy", () => {
-  // Publishing the template is a full replace, so a CI deploy would silently re-enable a
-  // kill switch an operator had just turned off.
+test("Remote Config is not published by any automated deploy", () => {
+  // The invariant is behavioural, not syntactic: no CI workflow may publish the template by
+  // *any* route, because a publish is a full replace that silently re-enables a kill switch
+  // an operator had just turned off. Reading the live template is fine and is exactly what
+  // the archive preflight does, so this cannot be a check on the mere appearance of the word.
   //
-  // This asserts on the deploy `--only` lists rather than on the mere appearance of the
-  // word: the workflows legitimately *read* the live template as an archive preflight
-  // (`assert-remote-config-published.mjs`), and a substring check would either forbid that
-  // or, worse, pass on the spelling and be believed to mean more than it does.
-  //
-  // Every deploy must also *carry* an `--only`. firebase.json wires the template in, so a
-  // bare `firebase deploy` publishes it - and would sail past a check that only inspects the
-  // `--only` lists it happens to find.
+  // Three routes reach a publish, and all three are closed here:
+  //   1. a `firebase deploy` whose --only list names remoteconfig, quoted or not;
+  //   2. a `firebase deploy` with no --only at all - firebase.json wires the template in, so
+  //      an unscoped deploy publishes it;
+  //   3. the repository's own publish path, whether invoked through an npm alias or by
+  //      running the script directly.
+  const publishScriptFile = "deploy-remote-config.mjs";
+  const publishAliases = Object.entries(repositoryJSON("scripts/package.json").scripts)
+    .filter(([, command]) => command.includes(publishScriptFile))
+    .map(([alias]) => alias);
+
+  assert.ok(
+    publishAliases.length > 0,
+    `no npm alias runs ${publishScriptFile} - if it was renamed, rename it here too rather ` +
+      "than leaving this test asserting nothing",
+  );
+
   for (const workflow of ["deploy-staging.yml", "deploy-production.yml"]) {
     const contents = readFileSync(
       new URL(`../../.github/workflows/${workflow}`, import.meta.url),
       "utf8",
     );
+
+    assert.ok(
+      !contents.includes(publishScriptFile),
+      `${workflow} must not run ${publishScriptFile} - publishing is a manual human act, by ` +
+        "design, precisely so it cannot clobber an active kill switch on a release",
+    );
+
+    for (const alias of publishAliases) {
+      assert.ok(
+        !contents.includes(alias),
+        `${workflow} must not run the ${alias} npm alias - it publishes the template, which is ` +
+          "a full replace",
+      );
+    }
 
     const deployCommands = contents
       .split("\n")

@@ -100,7 +100,7 @@ Publishing it is a **full replace**, so a naive deploy would republish every swi
 
 Consequences, both deliberate:
 
-- Remote Config is **not** in the CI deploy `--only` lists. `scripts/test/remote-config-template.test.mjs` fails if it ever is, and fails equally on a deploy that carries no `--only` at all - `firebase.json` wires the template in, so an unscoped deploy publishes it.
+- **No CI workflow publishes the template, by any route.** `scripts/test/remote-config-template.test.mjs` closes all three: a deploy whose `--only` list names `remoteconfig`; a deploy carrying no `--only` at all, since `firebase.json` wires the template in and an unscoped deploy publishes it; and the repository's own publish path, whether run as `deploy-remote-config.mjs` or through any npm alias that invokes it. The alias names are read out of `scripts/package.json`, so renaming one cannot slip a publish past the test. Reading the live template from CI stays allowed - that is the archive preflight below.
 - `scripts/deploy-remote-config.mjs` reads the live template first and refuses when any managed flag is currently off, unless you name each one you mean to re-enable.
 
 ```bash

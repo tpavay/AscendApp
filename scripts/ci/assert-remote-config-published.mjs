@@ -106,13 +106,12 @@ if (problems.length > 0) {
   for (const problem of problems) {
     console.error(`::error::${problem}`);
   }
-  // A workflow command ends at its first newline, so the remediation would be stranded in
-  // the raw log - the least visible place at the moment someone needs it. Keep the
-  // annotation to one line and print the command separately.
+  // A workflow command ends at its first newline, so the annotation carries the diagnosis
+  // alone and the remediation follows as plain lines rather than being truncated into the
+  // raw log - the least visible place at the moment someone needs it.
   console.error(
     `::error::${problems.length} of ${appKeys.length} kill switch(es) are unreachable in ` +
-      `${projectId}. Publish the template before archiving: ` +
-      `cd scripts && npm run ${publishScript} -- --apply (see docs/remote-config-kill-switches.md).`,
+      `${projectId}. Publish the template before archiving.`,
   );
   console.error(`  cd scripts && npm run ${publishScript} -- --apply`);
   console.error("  See docs/remote-config-kill-switches.md.");
