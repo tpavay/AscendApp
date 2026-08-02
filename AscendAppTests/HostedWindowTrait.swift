@@ -9,7 +9,9 @@ import Testing
 /// `.serialized` does not cover this: it orders a suite's own cases, not two suites against each
 /// other.
 ///
-/// Apply to any suite that puts a view in a window and reads the pixels back.
+/// Apply to any suite that puts a view in a window and reads the pixels back — and to any suite
+/// that holds the main actor long enough to starve one, since a hosted appearance transition that
+/// cannot get a turn on the main actor times out exactly the same way.
 struct HostedWindowTrait: TestTrait, SuiteTrait, TestScoping {
     var isRecursive: Bool { true }
 

@@ -96,6 +96,11 @@ jobs:
               # RemoteFeatureFlag.swift, so an edit to either must run it.
               - "remoteconfig.template.json"
               - "AscendApp/Shared/Services/RemoteConfig/**"
+              # Share card templates are data: the validator reads the renderer's
+              # vocabulary out of the Swift sources, so a template edit or a
+              # renderer edit must run it. A typo'd stat name would otherwise
+              # reach a user as a card with a cell missing.
+              - "AscendApp/Features/ShareComposer/**"
               # The launch-offer suite reads the hosted paywall, public copy,
               # legal terms, and authoritative commerce guidance.
               - "web/public/superwall/**"

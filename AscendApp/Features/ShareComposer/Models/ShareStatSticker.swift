@@ -6,7 +6,7 @@ import Foundation
 /// Per the `ascend-share-composer` skill: stat stickers are typed,
 /// parameterized values — NOT per-stat bespoke layouts. Adding a new stat is
 /// data (a new case + how to read it from the workout/climb), never a new code
-/// path. The visual treatment is decided separately by `ShareStickerStyle`.
+/// path. How it is drawn is decided separately, by the card format.
 enum ShareStatStickerKind: String, CaseIterable, Identifiable, Codable, Sendable {
     // Universal
     case workoutName
@@ -60,26 +60,6 @@ enum ShareStatStickerKind: String, CaseIterable, Identifiable, Codable, Sendable
     }
 }
 
-/// Visual treatment for a stat sticker. Any stat can be rendered in any style —
-/// the style is a reusable styled view, not a per-stat layout.
-enum ShareStickerStyle: String, CaseIterable, Identifiable, Codable, Sendable {
-    /// Big value with a small uppercase unit/label beneath it.
-    case display
-    /// Small uppercase label stacked above the value.
-    case stacked
-    /// Single-line "label · value" chip on a translucent pill.
-    case chip
-
-    var id: String { rawValue }
-
-    /// Cycle order for tap-to-change.
-    func next() -> ShareStickerStyle {
-        let all = ShareStickerStyle.allCases
-        let idx = all.firstIndex(of: self) ?? 0
-        return all[(idx + 1) % all.count]
-    }
-}
-
 /// Typeface options offered in the font picker. Custom faces resolve to bundled
 /// fonts; the rest use system font designs (no bundled files needed).
 enum ShareStickerFont: String, CaseIterable, Identifiable, Codable, Sendable {
@@ -122,7 +102,7 @@ enum ShareTextBackground: String, CaseIterable, Identifiable, Codable, Sendable 
 
 /// SwiftUI-free RGBA color (0...1) stored on the model so the view model and
 /// persistence stay free of SwiftUI's `Color`.
-struct RGBAColor: Equatable, Codable, Sendable {
+struct RGBAColor: Hashable, Codable, Sendable {
     var r: Double
     var g: Double
     var b: Double
@@ -147,9 +127,32 @@ enum ShareStatLayout: String, CaseIterable, Identifiable, Codable, Sendable {
 /// (`.bestEffort` / `.totals`), the key identifying which value. Composite
 /// stickers hold several of these. The value itself is always resolved live
 /// from canonical data — only the reference is stored.
+///
+/// Decodes from a bare kind string (`"steps"`) or the full object, so a card
+/// template names most stats in one word.
 struct ShareStatRef: Hashable, Codable, Sendable {
     var kind: ShareStatStickerKind
     var injectedStatKey: String?
+
+    init(kind: ShareStatStickerKind, injectedStatKey: String? = nil) {
+        self.kind = kind
+        self.injectedStatKey = injectedStatKey
+    }
+
+    private enum CodingKeys: String, CodingKey { case kind, injectedStatKey }
+
+    init(from decoder: any Decoder) throws {
+        if let single = try? decoder.singleValueContainer(),
+           let kind = try? single.decode(ShareStatStickerKind.self) {
+            self.init(kind: kind)
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            kind: try container.decode(ShareStatStickerKind.self, forKey: .kind),
+            injectedStatKey: try container.decodeIfPresent(String.self, forKey: .injectedStatKey)
+        )
+    }
 }
 
 /// One placed sticker on the canvas. Position is normalized (0...1) relative to
@@ -158,7 +161,13 @@ struct ShareStatRef: Hashable, Codable, Sendable {
 struct ShareStickerInstance: Identifiable, Equatable {
     let id: UUID
     var kind: ShareStatStickerKind
-    var style: ShareStickerStyle
+    /// Where every label on this sticker sits relative to its value.
+    ///
+    /// The user's choice, and it belongs to the sticker rather than to whichever
+    /// renderer runs — adding a second metric or switching arrangement can no
+    /// longer discard it. Whether a given metric shows a label at all is a
+    /// separate question, answered per stat by `ShareCardLabelPolicy`.
+    var labelPlacement: ShareCardLabelPlacement
     /// Center point of the sticker, normalized to the canvas (0...1, 0...1).
     var position: CGPoint
     var scale: CGFloat
@@ -199,7 +208,7 @@ struct ShareStickerInstance: Identifiable, Equatable {
     init(
         id: UUID = UUID(),
         kind: ShareStatStickerKind,
-        style: ShareStickerStyle = .display,
+        labelPlacement: ShareCardLabelPlacement = .below,
         position: CGPoint = CGPoint(x: 0.5, y: 0.5),
         scale: CGFloat = 1,
         rotationRadians: Double = 0,
@@ -213,7 +222,7 @@ struct ShareStickerInstance: Identifiable, Equatable {
     ) {
         self.id = id
         self.kind = kind
-        self.style = style
+        self.labelPlacement = labelPlacement
         self.position = position
         self.scale = scale
         self.rotationRadians = rotationRadians
@@ -228,12 +237,32 @@ struct ShareStickerInstance: Identifiable, Equatable {
 }
 
 /// A resolved, display-ready stat value (label + value) read from canonical data.
-struct ResolvedShareStat: Equatable {
+struct ResolvedShareStat: Equatable, Sendable {
     let kind: ShareStatStickerKind
     /// Short uppercase label, e.g. "STEPS", "DURATION", "RANK".
     let label: String
     /// Formatted value, e.g. "2,096", "22:10", "#60".
     let value: String
+    /// A secondary facet of the same stat, when it has one: the splits subtitle,
+    /// the field size behind a rank. Cards read it as `facet: "detail"`; nothing
+    /// else about the stat changes.
+    let detail: String?
+
+    init(kind: ShareStatStickerKind, label: String, value: String, detail: String? = nil) {
+        self.kind = kind
+        self.label = label
+        self.value = value
+        self.detail = detail
+    }
+
+    /// The text for one facet, or nil when this stat does not carry it.
+    func text(for facet: ShareCardStatFacet) -> String? {
+        switch facet {
+        case .value: return value
+        case .label: return label.isEmpty ? nil : label
+        case .detail: return detail
+        }
+    }
 }
 
 /// Display-ready split rows for a structured share sticker.

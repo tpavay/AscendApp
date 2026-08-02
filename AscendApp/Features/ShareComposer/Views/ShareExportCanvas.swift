@@ -28,13 +28,11 @@ struct ShareExportCanvas: View {
             }
 
             ForEach(viewModel.stickers) { sticker in
-                let stats = viewModel.resolvedStats(for: sticker)
-                let splits = viewModel.resolvedSplits(for: sticker)
-                if sticker.isImage || splits != nil || !stats.isEmpty {
+                let content = viewModel.content(for: sticker)
+                if !content.isEmpty {
                     ShareStickerVisual(
                         instance: sticker,
-                        stats: stats,
-                        splits: splits,
+                        content: content,
                         climb: viewModel.climb,
                         climbArtworkOverrides: climbArtworkOverrides
                     )

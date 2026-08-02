@@ -1,6 +1,6 @@
 ---
 name: ascend-share-composer
-description: Use when working on Ascend sharing - the share composer canvas, backgrounds and presets, stat stickers, sticker gestures and snapping, photo and video export, AVFoundation compositing, Instagram Story sharing, or Photos permission at share time. Covers the user-composed canvas model that replaced fixed share-card carousels.
+description: Use when working on Ascend sharing - the share composer canvas, the declarative share-card format and its one interpreter, card templates and their bundled JSON, backgrounds and presets, stat stickers and label placement, sticker gestures and snapping, photo and video export, AVFoundation compositing, Instagram Story sharing, or Photos permission at share time. Covers the user-composed canvas model that replaced fixed share-card carousels.
 paths:
   - AscendApp/Features/ShareComposer/**
 ---
@@ -18,9 +18,25 @@ Sharing in Ascend is a **user-composed canvas**, not a gallery of pre-designed c
 - Alignment: center + edge snap guides (V1). Full Instagram-grade snapping (third-lines, between-sticker magnetism) is deferred.
 - **Editing is SwiftUI-over-player; export is the only AVFoundation work.** While composing, the canvas is a SwiftUI `ZStack` of the background (an `Image` or an `AVPlayer`-backed video) with draggable sticker views on top - no composition happens during editing. Composition runs ONCE at save/share time.
 
+## One card format, one interpreter
+
+Everything drawn on a share - a sticker on the canvas, a full recap template, every exported pixel - is a `ShareCardNode` tree rendered by `ShareCardRenderer`. **Never add a second renderer.** The composer's worst bug came from having two: a per-stat setting the chosen one did not accept was silently discarded, so a label placed on the left jumped back on top the moment a stat was added.
+
+- **Format**: `Models/ShareCardFormat.swift` (elements + modifiers), `ShareCardStyling.swift` (colors, fills, typography), `ShareCardLabel.swift` (placement + policy). SwiftUI-free and `Codable`; `Views/ShareCardStyleResolvers.swift` turns it into `Font`/`Color`.
+- **Interpreter**: `Views/ShareCardRenderer.swift` - one `switch`, one modifier order (frame, shadow, padding, background, rotation, opacity). A layout that needs a different order nests a node; the schema does not grow a knob.
+- **Stickers**: `Models/ShareStickerCardBuilder.swift` turns a `ShareStickerInstance` into that same tree. Pure, so arrangement rules are testable without a view tree.
+- **Templates**: `Resources/share-card-templates-v1.json`. Adding a card is a JSON edit plus a screenshot - **no Swift**. `scripts/validate-share-card-templates.mjs` reads the renderer's vocabulary out of the Swift sources and fails CI on a typo'd stat or element.
+
+**The schema is closed** - a fixed set of element types chosen by a Swift `switch`, no expression language, no escape hatch that takes a script. That line is what keeps a future remote payload inside App Review 2.5.2.
+
+## Label placement and policy - the rule that keeps getting rewritten wrong
+- **Where a label sits is a property of the element** (`ShareCardLabelPlacement`), not of the arrangement and not of which renderer ran. Changing the arrangement, or adding a metric, must leave it alone.
+- **Whether a label appears at all is a property of the stat** (`ShareStatStickerKind.isSelfDescribing`, read through `ShareCardLabelPolicy`). A date, a name, a `#`-sigil rank speak for themselves; a bare number needs its unit. Never write that rule as an `if` inside a view - that is how `DATE` ended up under a date and how the climb-name exemption leaked.
+
 ## Stat sticker discipline (content-driven, mirrors the rest of the app)
-- Stat stickers are typed, parameterized values - NOT per-stat bespoke layouts. A sticker is `(stat kind, visual style, transform)`. Adding a new stat is data (a new kind + how to read it from the workout/climb), not a new code path. Adding a new visual style is one reusable styled view that any stat can use.
+- Stat stickers are typed, parameterized values - NOT per-stat bespoke layouts. A sticker is `(stat kind, label placement, arrangement, transform)`. Adding a new stat is data (a new kind + how to read it from the workout/climb), not a new code path.
 - Stat values are read from the canonical `Workout` (and, for climbs, the attempt/leaderboard data) - never recomputed or stored on a share model. The composer reads derived values it trusts to be current.
+- **Resolution never happens in the render path.** `ShareComposerViewModel` memoizes the resolver, the resolved stats, and each sticker's built card behind `@ObservationIgnored`, keyed on the content-bearing parts of the sticker only. A drag changes the transform, so it must not rebuild anything. Resolving splits filters the whole heart-rate series once per split; doing that inside `body` cost ~13 ms per frame (`ShareComposerGestureCostEvidenceTests`).
 - Low-cardinality, privacy-safe: stickers display the same measured/derived metrics the rest of the app shows. No raw PII, no exact location.
 
 ## Export pipeline
@@ -28,8 +44,12 @@ Sharing in Ascend is a **user-composed canvas**, not a gallery of pre-designed c
 - **Video background**: burn the rendered sticker layers onto the video via `AVVideoCompositionCoreAnimationTool` + `AVAssetExportSession`. This is the hard, isolated piece - it only runs at export, and the editing UI is shared with the photo path. Build photo export first; video export slots in as a branch at the export step.
 - Export targets: Save to Photos and a dedicated Instagram Story share (`instagram-stories://` URL scheme) with a generic share-sheet fallback.
 
+## Composer motion
+Nothing on the canvas used to be animated. `ShareComposerAnimation` names the three curves - chrome around a drag, content reflow, sticker placement - and every canvas mutation goes through one of them. `withAnimation` lives in the view: `ShareComposerViewModel` does not import SwiftUI, so a mutation that should animate returns a fact (`handleDragEnded` returns whether it deleted) and the view decides.
+
 ## Boundaries
 - Photos library permission is requested at first share (point of use), never in onboarding.
-- Backgrounds/presets/sticker styles are bundled or locally composed - NOT server-rendered. Don't reintroduce backend-driven share backgrounds or remote-configured stat layouts.
+- Card templates ship **bundled**, and are rendered on-device. Do not build a remote template service or server-rendered card images. The format is shaped so a payload *could* later arrive over the wire; when a real reason appears (a campaign card, a template that ships broken), point the same decoder at the hosted climb-catalog channel this app already trusts (`HostedClimbCatalogRepository`) rather than adopting a second remote-content pattern. `minRendererVersion` filtering, unknown-element no-ops, and nullable stat references are already in place for that day.
+- Backgrounds/presets are bundled or locally composed - NOT server-rendered. Don't reintroduce backend-driven share backgrounds or remote-configured stat layouts.
 - The Live Climb completion summary stays as the emotional payoff; its Share button opens the composer (with the climb's card available as a preset). The composer never replaces the summary screen itself.
 - Legacy share card template assets may still live under `share-card-templates/...` in Storage, but workout share cards in v1 must not fetch their backgrounds or layout config from Firebase.

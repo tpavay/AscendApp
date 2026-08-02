@@ -19,6 +19,9 @@ struct ShareComposerView: View {
     @State private var exportingAction: ExportAction?
     @State private var toast: String?
     @State private var applyingRecap = false
+    /// The Recaps tab's templates and their resolved data, built once the
+    /// injected stats land.
+    @State private var recapPreview: ShareBackgroundPickerView.RecapPreview?
     /// Transient filter name shown briefly after a swipe.
     @State private var filterFlash: String?
     /// While a sticker gesture is active, background pan/zoom is ignored so
@@ -33,6 +36,7 @@ struct ShareComposerView: View {
     private var isExporting: Bool { exportingAction != nil }
 
     private let exporter = ShareComposerExporter()
+    private let templateStore = ShareCardTemplateStore()
     private let presets: [ShareComposerPreset]
     private let shareTitle: String
     private let accent = Color(red: 0.706, green: 0.8, blue: 0)
@@ -70,36 +74,39 @@ struct ShareComposerView: View {
         }
     }
 
-    /// Data for the picker's Recaps tab (only when sharing a climb).
-    private var recapPreview: ShareBackgroundPickerView.RecapPreview? {
-        guard let recapCardData else { return nil }
-        return .init(data: recapCardData)
-    }
-
-    private var recapCardData: ShareRecapCardData? {
+    /// Everything the templates can name, resolved once for the whole tab.
+    ///
+    /// Held rather than computed: reading it decodes the bundled payload and
+    /// resolves the full stat catalogue, and a computed property would do both on
+    /// every evaluation of `body`.
+    private func makeRecapPreview() -> ShareBackgroundPickerView.RecapPreview? {
         guard let climb = viewModel.climb else { return nil }
-        let splitSticker = ShareStickerInstance(kind: .splits)
-        return ShareRecapCardData(
-            climb: climb,
+        let templates = templateStore.templates(for: [.climb])
+        guard !templates.isEmpty else { return nil }
+
+        let context = ShareCardRenderContext.template(
             stats: viewModel.climbStats(),
-            bestEffort: viewModel.bestEffortStats.first,
+            bestEfforts: viewModel.bestEffortStats,
             weeklyTotals: viewModel.weeklyTotalStats,
-            splits: viewModel.resolvedSplits(for: splitSticker),
-            rank: viewModel.climbRank,
-            rankTotal: viewModel.climbRankTotal
+            splits: viewModel.splits()
         )
+        return .init(templates: templates, context: context, climb: climb)
     }
 
-    /// Bake the selected recap template to an image and use it as the background.
+    /// Bake the selected template to an image and use it as the background.
     /// The user can then add stickers on top or save as-is.
-    private func applyRecap(_ template: ShareRecapTemplate) {
+    private func applyTemplate(_ template: ShareCardTemplate) {
         guard !applyingRecap else { return }
         applyingRecap = true
 
         Task { @MainActor in
             defer { applyingRecap = false }
-            guard let recapCardData,
-                  let image = await exporter.renderRecap(template: template, data: recapCardData) else {
+            guard let preview = recapPreview, let climb = preview.climb,
+                  let image = await exporter.renderTemplate(
+                      template,
+                      context: preview.context,
+                      climb: climb
+                  ) else {
                 toast = "Could not build recap"
                 return
             }
@@ -124,7 +131,7 @@ struct ShareComposerView: View {
                             showAddSheet = true
                         }
                     },
-                    onPickRecap: viewModel.climb != nil ? { template in applyRecap(template) } : nil,
+                    onPickRecap: viewModel.climb != nil ? { template in applyTemplate(template) } : nil,
                     onClose: { dismiss() }
                 )
             } else {
@@ -192,13 +199,13 @@ struct ShareComposerView: View {
             .presentationBackground(Color(hex: "121212"))
         }
         .sheet(isPresented: $showFontSheet) {
-            if let index = selectedIndex, let stat = viewModel.resolve(viewModel.stickers[index]) {
+            if let sticker = selectedSticker, let stat = viewModel.resolve(sticker) {
                 ShareFontPickerSheet(
                     sampleStat: stat,
-                    current: viewModel.stickers[index].font,
+                    current: sticker.font,
                     onPick: { font in
                         HapticsManager.shared.trigger(.lightImpact)
-                        viewModel.stickers[index].font = font
+                        viewModel.setFont(font, for: sticker.id)
                     }
                 )
                 .presentationDetents([.height(290)])
@@ -207,8 +214,8 @@ struct ShareComposerView: View {
             }
         }
         .sheet(isPresented: $showStructureSheet) {
-            if let index = selectedIndex {
-                ShareStructureSheet(viewModel: viewModel, stickerID: viewModel.stickers[index].id)
+            if let sticker = selectedSticker {
+                ShareStructureSheet(viewModel: viewModel, stickerID: sticker.id)
                     .presentationDetents([.fraction(0.55), .large])
                     .presentationDragIndicator(.visible)
                     .presentationBackground(Color(hex: "121212"))
@@ -229,13 +236,15 @@ struct ShareComposerView: View {
             // so dedupe by label (the list is significance-sorted; keep the first).
             let snapshot = BestEffortCacheSnapshot(entries: bestEffortCacheEntries, workouts: [viewModel.workout])
             var seenEffortLabels = Set<String>()
-            viewModel.bestEffortStats = snapshot.efforts(for: viewModel.workout).compactMap { effort in
+            viewModel.setBestEffortStats(snapshot.efforts(for: viewModel.workout).compactMap { effort in
                 let label = effort.metric.title.uppercased()
                 guard seenEffortLabels.insert(label).inserted else { return nil }
                 return ResolvedShareStat(kind: .bestEffort, label: label, value: effort.compactValueText)
-            }
+            })
             // Inject this-week totals for the Totals tab.
             viewModel.injectWeeklyTotals(from: allWorkouts)
+            // Both injections feed the templates, so build the tab after them.
+            recapPreview = makeRecapPreview()
         }
     }
 
@@ -284,27 +293,33 @@ struct ShareComposerView: View {
                     .gesture(backgroundGesture(canvasSize: canvasSize))
                 }
 
-                // Snap guides (drawn at the active snap line: center or edge)
+                // Snap guides (drawn at the active snap line: center or edge).
+                // They arrive instantly — a guide that fades in reads as lag on a
+                // magnetic snap — and fade out as the sticker pulls away.
                 if let gx = viewModel.verticalGuideX {
                     Rectangle().fill(accent.opacity(0.85)).frame(width: 1, height: canvasSize.height)
                         .position(x: gx, y: canvasSize.height / 2)
                         .allowsHitTesting(false)
+                        .transition(.asymmetric(insertion: .identity, removal: .opacity))
                 }
                 if let gy = viewModel.horizontalGuideY {
                     Rectangle().fill(accent.opacity(0.85)).frame(width: canvasSize.width, height: 1)
                         .position(x: canvasSize.width / 2, y: gy)
                         .allowsHitTesting(false)
+                        .transition(.asymmetric(insertion: .identity, removal: .opacity))
                 }
 
                 // Stickers
-                ForEach(Array(viewModel.stickers.enumerated()), id: \.element.id) { index, sticker in
-                    let stats = viewModel.resolvedStats(for: sticker)
-                    let splits = viewModel.resolvedSplits(for: sticker)
-                    if sticker.isImage || splits != nil || !stats.isEmpty {
+                ForEach(viewModel.stickers) { sticker in
+                    let content = viewModel.content(for: sticker)
+                    if !content.isEmpty {
                         ShareStickerView(
-                            instance: $viewModel.stickers[index],
-                            stats: stats,
-                            splits: splits,
+                            // Bound by id, not by index. An index binding into an
+                            // array that shrinks mid-drag traps when the child's
+                            // body still holds the stale subscript — which is
+                            // exactly the delete-while-dragging path this canvas has.
+                            instance: stickerBinding(sticker.id),
+                            content: content,
                             climb: viewModel.climb,
                             canvasSize: canvasSize,
                             canvasScale: canvasScale,
@@ -318,7 +333,13 @@ struct ShareComposerView: View {
                                 viewModel.snappedCenter(raw, canvasSize: canvasSize)
                             },
                             onDragEnded: { center in
-                                viewModel.handleDragEnded(id: sticker.id, center: center, canvasSize: canvasSize)
+                                withAnimation(ShareComposerAnimation.placement) {
+                                    _ = viewModel.handleDragEnded(
+                                        id: sticker.id,
+                                        center: center,
+                                        canvasSize: canvasSize
+                                    )
+                                }
                             },
                             onDragCancelled: {
                                 viewModel.cancelDragFeedback()
@@ -331,12 +352,14 @@ struct ShareComposerView: View {
                                 }
                             }
                         )
+                        .transition(ShareComposerAnimation.removal)
                     }
                 }
 
                 // Trash zone (visible while dragging)
                 if viewModel.draggingID != nil {
                     trashZone(in: canvasSize)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
 
                 // Transient filter name after a swipe.
@@ -356,7 +379,9 @@ struct ShareComposerView: View {
                 // always-on Ascend wordmark that's burned into every export.
                 VStack(spacing: 10) {
                     Spacer()
-                    if viewModel.draggingID == nil { addPill }
+                    if viewModel.draggingID == nil {
+                        addPill.transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    }
                     AscendWordmark(size: 13 * canvasScale, letterColor: .white.opacity(0.92))
                         .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 1)
                         .allowsHitTesting(false)
@@ -366,9 +391,15 @@ struct ShareComposerView: View {
                 // Chrome
                 topChrome
                 if viewModel.draggingID == nil {
-                    editRail
+                    editRail.transition(.opacity.combined(with: .move(edge: .trailing)))
                 }
             }
+            // Everything that appears or disappears around a drag fades on the
+            // same curve instead of popping on a frame boundary.
+            .animation(ShareComposerAnimation.chrome, value: viewModel.draggingID)
+            .animation(ShareComposerAnimation.chrome, value: viewModel.verticalGuideX)
+            .animation(ShareComposerAnimation.chrome, value: viewModel.horizontalGuideY)
+            .animation(ShareComposerAnimation.placement, value: viewModel.stickers.map(\.id))
             .frame(width: canvasSize.width, height: canvasSize.height)
             .position(x: geo.size.width / 2, y: geo.size.height / 2)
             .clipped()
@@ -426,17 +457,27 @@ struct ShareComposerView: View {
 
     // MARK: - Selected-sticker edit rail
 
-    private var selectedIndex: Int? {
+    private var selectedSticker: ShareStickerInstance? {
         guard let id = viewModel.selectedID else { return nil }
-        return viewModel.stickers.firstIndex { $0.id == id }
+        return viewModel.sticker(id)
+    }
+
+    /// A sticker binding resolved by id on every access, so a delete mid-gesture
+    /// cannot leave a child holding a stale index into a shrunken array.
+    private func stickerBinding(_ id: UUID) -> Binding<ShareStickerInstance> {
+        Binding(
+            get: { viewModel.sticker(id) ?? ShareStickerInstance(kind: .steps) },
+            set: { viewModel.update($0) }
+        )
     }
 
     @ViewBuilder
     private var editRail: some View {
-        if let index = selectedIndex, !viewModel.stickers[index].isImage {
+        if let sticker = selectedSticker, !sticker.isImage {
             VStack(spacing: 14) {
-                // Structure: arrange multiple metrics (row / grid / column) + toggle which show.
-                if viewModel.stickers[index].kind.supportsComposite {
+                // Structure: arrange multiple metrics (row / grid / column),
+                // move their labels, and toggle which show.
+                if sticker.kind.supportsComposite {
                     railButton(systemName: "square.grid.2x2") {
                         HapticsManager.shared.trigger(.lightImpact)
                         showStructureSheet = true
@@ -444,29 +485,36 @@ struct ShareComposerView: View {
                 }
 
                 // Rename — only when the sticker includes the climb name.
-                if viewModel.stickers[index].containsClimbName {
+                if sticker.containsClimbName {
                     railButton(systemName: "pencil") {
                         HapticsManager.shared.trigger(.lightImpact)
-                        renameText = viewModel.resolve(viewModel.stickers[index])?.value ?? ""
+                        renameText = viewModel.resolve(sticker)?.value ?? ""
                         showRenameClimb = true
                     }
                 }
 
-                if !viewModel.stickers[index].isStructured {
-                    railButton(systemName: "textformat.size") {
+                // Label position. Applies to every metric on the sticker,
+                // however many there are — the control used to advance a value
+                // the multi-metric renderer ignored, so tapping it did nothing.
+                if !sticker.isStructured {
+                    railButton(systemName: sticker.labelPlacement.symbolName) {
                         HapticsManager.shared.trigger(.lightImpact)
-                        viewModel.stickers[index].style = viewModel.stickers[index].style.next()
+                        withAnimation(ShareComposerAnimation.content) {
+                            viewModel.cycleLabelPlacement(for: sticker.id)
+                        }
                     }
                 }
                 railButton(systemName: "character") { showFontSheet = true }
 
-                ColorPicker("", selection: colorBinding(index))
+                ColorPicker("", selection: colorBinding(sticker.id))
                     .labelsHidden()
                     .frame(width: 36, height: 36)
 
-                railButton(systemName: textBackgroundIcon(viewModel.stickers[index].textBackground)) {
+                railButton(systemName: textBackgroundIcon(sticker.textBackground)) {
                     HapticsManager.shared.trigger(.lightImpact)
-                    viewModel.stickers[index].textBackground = viewModel.stickers[index].textBackground.next()
+                    withAnimation(ShareComposerAnimation.content) {
+                        viewModel.cycleTextBackground(for: sticker.id)
+                    }
                 }
             }
             .padding(.trailing, 14)
@@ -493,10 +541,10 @@ struct ShareComposerView: View {
         }
     }
 
-    private func colorBinding(_ index: Int) -> Binding<Color> {
+    private func colorBinding(_ id: UUID) -> Binding<Color> {
         Binding(
-            get: { viewModel.stickers[index].color.color },
-            set: { viewModel.stickers[index].color = RGBAColor($0) }
+            get: { viewModel.stickers.first { $0.id == id }?.color.color ?? .white },
+            set: { viewModel.setColor(RGBAColor($0), for: id) }
         )
     }
 
@@ -1029,9 +1077,10 @@ private struct ShareFontPickerSheet: View {
 }
 
 /// Sheet to arrange a stat sticker's metrics: pick a layout (row / 2×2 grid /
-/// column) and select/deselect which metrics appear. Stat *values* aren't
-/// editable here — only the arrangement and which metrics show (they're the
-/// truth). Reads/writes the live view model so the canvas updates as you toggle.
+/// column), place their labels, and select/deselect which metrics appear. Stat
+/// *values* aren't editable here — only the arrangement and which metrics show
+/// (they're the truth). Reads/writes the live view model so the canvas updates
+/// as you toggle.
 private struct ShareStructureSheet: View {
     let viewModel: ShareComposerViewModel
     let stickerID: UUID
@@ -1040,7 +1089,7 @@ private struct ShareStructureSheet: View {
     private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
 
     private var sticker: ShareStickerInstance? {
-        viewModel.stickers.first { $0.id == stickerID }
+        viewModel.sticker(stickerID)
     }
 
     var body: some View {
@@ -1056,6 +1105,7 @@ private struct ShareStructureSheet: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
                         layoutSection(current: sticker.layout)
+                        labelSection(current: sticker.labelPlacement)
                         metricSection(sticker: sticker)
                     }
                     .padding(.horizontal, 24)
@@ -1083,7 +1133,9 @@ private struct ShareStructureSheet: View {
         let isOn = layout == current
         return Button {
             HapticsManager.shared.trigger(.lightImpact)
-            viewModel.setLayout(layout, for: stickerID)
+            withAnimation(ShareComposerAnimation.content) {
+                viewModel.setLayout(layout, for: stickerID)
+            }
         } label: {
             Image(systemName: icon)
                 .font(.system(size: 22, weight: .semibold))
@@ -1095,6 +1147,51 @@ private struct ShareStructureSheet: View {
                         .fill(isOn ? lime : .white.opacity(0.06))
                         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
                 )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Label position
+
+    /// Independent of LAYOUT above it, and that is the point: choosing where a
+    /// label sits is not a consequence of how the metrics are arranged, so
+    /// changing the arrangement leaves this alone.
+    private func labelSection(current: ShareCardLabelPlacement) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            header("LABEL")
+            HStack(spacing: 10) {
+                ForEach(ShareCardLabelPlacement.allCases) { placement in
+                    labelButton(placement, current: current)
+                }
+            }
+        }
+    }
+
+    private func labelButton(_ placement: ShareCardLabelPlacement, current: ShareCardLabelPlacement) -> some View {
+        let isOn = placement == current
+        return Button {
+            HapticsManager.shared.trigger(.lightImpact)
+            withAnimation(ShareComposerAnimation.content) {
+                viewModel.setLabelPlacement(placement, for: stickerID)
+            }
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: placement.symbolName)
+                    .font(.system(size: 18, weight: .semibold))
+                Text(placement.displayName.uppercased())
+                    .font(.montserratSemiBold(size: 8))
+                    .tracking(0.8)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .foregroundStyle(isOn ? .black : .white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(isOn ? lime : .white.opacity(0.06))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
+            )
         }
         .buttonStyle(.plain)
     }
@@ -1115,7 +1212,9 @@ private struct ShareStructureSheet: View {
                         isOn: selected.contains(ref)
                     ) {
                         HapticsManager.shared.trigger(.lightImpact)
-                        viewModel.toggleStat(ref, for: stickerID)
+                        withAnimation(ShareComposerAnimation.content) {
+                            viewModel.toggleStat(ref, for: stickerID)
+                        }
                     }
                 }
             }
