@@ -159,15 +159,11 @@ test("a closed period's row survives a workout saved in the new period",
     // A Monday, five minutes after the weekly period rolled.
     const justAfterRoll = new Date("2026-08-03T00:05:00.000Z");
     const closedWeeklyId = leaderboardDocumentId(userId, "weekly", "2026-W31");
-    await db.collection(LEADERBOARD_STATS).doc(closedWeeklyId).set({
-      userId,
+    await seedClosedRow(closedWeeklyId, {
       timeFrame: "weekly",
       periodKey: "2026-W31",
-      periodStartAt: admin.firestore.Timestamp.fromDate(
-        new Date("2026-07-27T00:00:00.000Z")
-      ),
+      periodStartAt: new Date("2026-07-27T00:00:00.000Z"),
       totalSteps: 21_000,
-      isSynthetic: false,
     });
     await seedProfile();
     await seedWorkout({
@@ -195,6 +191,91 @@ test("a closed period's row survives a workout saved in the new period",
     assert.ok(outcome.written.includes(
       leaderboardDocumentId(userId, "weekly", "2026-W32")
     ));
+  });
+
+// Retention follows what still reads the row. A closed daily row is never
+// finalized and the client only queries the current period, so keeping it would
+// leave one dead document per active climber per day behind.
+test("a closed daily row is removed while the closed weekly row stays",
+  async () => {
+    const justAfterRoll = new Date("2026-08-03T00:05:00.000Z");
+    const closedDailyId = leaderboardDocumentId(userId, "daily", "2026-08-02");
+    const closedWeeklyId = leaderboardDocumentId(userId, "weekly", "2026-W31");
+    await seedClosedRow(closedDailyId, {
+      timeFrame: "daily",
+      periodKey: "2026-08-02",
+      periodStartAt: new Date("2026-08-02T00:00:00.000Z"),
+      totalSteps: 4_000,
+    });
+    await seedClosedRow(closedWeeklyId, {
+      timeFrame: "weekly",
+      periodKey: "2026-W31",
+      periodStartAt: new Date("2026-07-27T00:00:00.000Z"),
+      totalSteps: 21_000,
+    });
+    await seedProfile();
+    await seedWorkout({
+      startedAt: admin.firestore.Timestamp.fromDate(
+        new Date("2026-08-03T00:02:00.000Z")
+      ),
+      durationSeconds: 600,
+      steps: 1_000,
+      floors: 50,
+    });
+
+    const outcome = await reconcileLeaderboardStats(
+      makeAdminLeaderboardStatsStore(),
+      userId,
+      justAfterRoll
+    );
+
+    assert.ok(outcome.deleted.includes(closedDailyId));
+    assert.equal(await readStanding(closedDailyId), undefined);
+    assert.equal(
+      (await readStanding(closedWeeklyId))?.totalSteps,
+      21_000,
+      "an achievement's leaderboardStatsId points back at this row"
+    );
+  });
+
+// The backfill's whole reason to exist: reach the client-authored rows sitting
+// in the window the nightly finalizer is about to freeze awards from.
+test("the operator ownership repairs a closed weekly row the trigger cannot",
+  async () => {
+    const closedWeeklyId = leaderboardDocumentId(userId, "weekly", "2026-W30");
+    await seedClosedRow(closedWeeklyId, {
+      timeFrame: "weekly",
+      periodKey: "2026-W30",
+      periodStartAt: new Date("2026-07-20T00:00:00.000Z"),
+      totalSteps: FORGED_TOTAL_STEPS,
+    });
+    await seedProfile();
+    await seedWorkout({
+      startedAt: admin.firestore.Timestamp.fromDate(
+        new Date("2026-07-22T06:00:00.000Z")
+      ),
+    });
+
+    await reconcileLeaderboardStats(
+      makeAdminLeaderboardStatsStore(),
+      userId,
+      NOW
+    );
+    assert.equal(
+      (await readStanding(closedWeeklyId))?.totalSteps,
+      FORGED_TOTAL_STEPS,
+      "an unattended trigger must not touch a closed period"
+    );
+
+    const outcome = await reconcileLeaderboardStats(
+      makeAdminLeaderboardStatsStore(),
+      userId,
+      NOW,
+      {ownership: "openAndStoredPeriods"}
+    );
+
+    assert.ok(outcome.written.includes(closedWeeklyId));
+    assert.equal((await readStanding(closedWeeklyId))?.totalSteps, 3000);
   });
 
 // Seeded competitors have a standing with no canonical workouts by design.
@@ -256,6 +337,29 @@ async function seedForgedStanding(
     stepsPerMinute: 99_999,
     lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
     ...overrides,
+  });
+}
+
+async function seedClosedRow(
+  documentId: string,
+  fields: {
+    timeFrame: string;
+    periodKey: string;
+    periodStartAt: Date;
+    totalSteps: number;
+  }
+): Promise<void> {
+  await db.collection(LEADERBOARD_STATS).doc(documentId).set({
+    userId,
+    isSynthetic: false,
+    timeFrame: fields.timeFrame,
+    periodKey: fields.periodKey,
+    periodStartAt: admin.firestore.Timestamp.fromDate(fields.periodStartAt),
+    totalSteps: fields.totalSteps,
+    totalFloors: 0,
+    totalWorkouts: 1,
+    totalDuration: 1800,
+    stepsPerMinute: 0,
   });
 }
 

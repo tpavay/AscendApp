@@ -14,10 +14,18 @@
  * "what does this climber's week add up to" would become a second answer.
  * Build it first: cd functions && npm run build
  *
+ * By default it owns only the five currently open periods, exactly as the Cloud
+ * Function triggers do. `--include-closed-periods` widens that to every period a
+ * stored row already names, which is the only way to reach the client-authored
+ * rows sitting in the window the nightly finalizer is about to freeze permanent
+ * awards from. That is opt-in because it is a supervised operation: run the dry
+ * run, read every closed-period row it lists, then apply.
+ *
  * Usage:
  *   node scripts/backfill-leaderboard-stats.mjs --project dev --dry-run
  *   node scripts/backfill-leaderboard-stats.mjs --project dev
  *   node scripts/backfill-leaderboard-stats.mjs --project staging --dry-run --verbose
+ *   node scripts/backfill-leaderboard-stats.mjs --project staging --dry-run --include-closed-periods
  */
 
 import {createRequire} from "node:module";
@@ -37,6 +45,11 @@ const DERIVATION_PATH = resolve(
   FUNCTIONS_DIR,
   "lib/src/leaderboardStats.js"
 );
+const PERIOD_PATH = resolve(
+  FUNCTIONS_DIR,
+  "lib/src/leaderboardPeriod.js"
+);
+const LEADERBOARD_PERIODS_COLLECTION = "leaderboard_periods";
 const COMPARED_FIELDS = [
   "totalSteps",
   "totalFloors",
@@ -45,15 +58,25 @@ const COMPARED_FIELDS = [
   "stepsPerMinute",
 ];
 
-function parseArgs(argv) {
-  const args = {project: null, dryRun: false, verbose: false};
+export function parseArgs(argv) {
+  const args = {
+    project: null,
+    dryRun: false,
+    verbose: false,
+    // Widening ownership to closed periods puts the rows the nightly finalizer
+    // reads in reach of a rewrite, so it never happens because someone forgot a
+    // flag - only because they passed one.
+    includeClosedPeriods: false,
+  };
 
   for (let index = 2; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--project") args.project = requireValue(argv, ++index, value);
     else if (value === "--dry-run") args.dryRun = true;
     else if (value === "--verbose") args.verbose = true;
-    else if (value === "--help" || value === "-h") args.help = true;
+    else if (value === "--include-closed-periods") {
+      args.includeClosedPeriods = true;
+    } else if (value === "--help" || value === "-h") args.help = true;
     else throw new Error(`Unknown argument: ${value}`);
   }
 
@@ -61,6 +84,15 @@ function parseArgs(argv) {
     throw new Error("--project is required (e.g. --project dev)");
   }
   return args;
+}
+
+export const OWNERSHIP_OPEN_ONLY = "openPeriodsOnly";
+export const OWNERSHIP_INCLUDING_CLOSED = "openAndStoredPeriods";
+
+export function ownershipFor(args) {
+  return args.includeClosedPeriods ?
+    OWNERSHIP_INCLUDING_CLOSED :
+    OWNERSHIP_OPEN_ONLY;
 }
 
 function requireValue(argv, index, flag) {
@@ -75,9 +107,27 @@ Usage:
   node scripts/backfill-leaderboard-stats.mjs --project dev --dry-run
   node scripts/backfill-leaderboard-stats.mjs --project dev
   node scripts/backfill-leaderboard-stats.mjs --project staging --dry-run --verbose
+  node scripts/backfill-leaderboard-stats.mjs --project staging --dry-run --include-closed-periods
+
+Flags:
+  --project <alias>          dev or staging. Production is refused.
+  --dry-run                  Report what would change and write nothing.
+  --verbose                  Print every rewritten row, not just the summary.
+  --include-closed-periods   Also own periods that have already closed.
 
 Run the dry run first and read the deltas. A row that changes is a row whose
 published total did not match the workouts behind it.
+
+--include-closed-periods is off by default. Without it this reconciles only the
+five currently open periods, which is exactly what the Cloud Function triggers
+do. With it, every period a stored row names is re-derived from the canonical
+workouts - the only way to repair the client-authored rows sitting in the window
+finalizeLeaderboardAchievements freezes permanent awards from.
+
+Repairing a row for a period that is ALREADY FINALIZED does not unwind an
+achievement minted from the old number. The dry run reports each closed period's
+finalization status for exactly that reason: a finalized period needs the award
+in users/{uid}/achievements looked at separately.
 `);
 }
 
@@ -100,6 +150,7 @@ function loadDerivation() {
   );
   return {
     derivation: requireFromFunctions(DERIVATION_PATH),
+    period: requireFromFunctions(PERIOD_PATH),
     admin: requireFromFunctions("firebase-admin"),
   };
 }
@@ -111,7 +162,7 @@ async function main() {
     return;
   }
 
-  const {derivation, admin} = loadDerivation();
+  const {derivation, period, admin} = loadDerivation();
   const projectId = resolveProjectId(args.project, REPO_ROOT);
   assertSeedableProject(projectId, "backfill");
 
@@ -121,10 +172,16 @@ async function main() {
   });
   const db = admin.firestore();
   const now = new Date();
+  const ownership = ownershipFor(args);
 
   console.log(`Project: ${projectId}`);
   console.log(`Mode: ${args.dryRun ? "dry run" : "APPLY"}`);
   console.log(`Reference instant: ${now.toISOString()}`);
+  console.log(
+    `Ownership: ${args.includeClosedPeriods ?
+      "open periods PLUS every period a stored row names" :
+      "currently open periods only"}`
+  );
 
   const userIds = await leaderboardUserIds(db);
   console.log(`Climbers with a standing or a workout: ${userIds.length}`);
@@ -137,11 +194,19 @@ async function main() {
   };
 
   for (const userId of userIds) {
-    const store = makeReportingStore(db, derivation, userId, args.dryRun);
+    const store = makeReportingStore(
+      db,
+      derivation,
+      period,
+      userId,
+      now,
+      args.dryRun
+    );
     const outcome = await derivation.reconcileLeaderboardStats(
       store,
       userId,
-      now
+      now,
+      {ownership}
     );
     report.syntheticSkipped += outcome.skippedSynthetic.length;
 
@@ -154,10 +219,43 @@ async function main() {
     }
   }
 
+  await annotateFinalizationStatus(db, report);
   printReport(report, args);
 
   if (args.dryRun) {
     console.log("\nDry run: nothing was written.");
+  }
+}
+
+/**
+ * Marks each closed-period change with the finalization status of its period.
+ *
+ * A repair only rewrites the standing. If the period is already finalized the
+ * achievement was minted from the old number and is still sitting in
+ * users/{uid}/achievements, so the operator has to be told the difference rather
+ * than left to assume the repair covered it.
+ */
+async function annotateFinalizationStatus(db, report) {
+  const closed = [...report.changed, ...report.deleted].filter(
+    (change) => change.closed && change.timeFrame && change.periodKey
+  );
+  const periodIds = new Set(
+    closed.map((change) => `${change.timeFrame}_${change.periodKey}`)
+  );
+  const statuses = new Map();
+
+  for (const periodId of periodIds) {
+    const snapshot = await db
+      .collection(LEADERBOARD_PERIODS_COLLECTION)
+      .doc(periodId)
+      .get();
+    statuses.set(periodId, snapshot.get("status") ?? "not finalized");
+  }
+
+  for (const change of closed) {
+    change.periodStatus = statuses.get(
+      `${change.timeFrame}_${change.periodKey}`
+    );
   }
 }
 
@@ -193,8 +291,9 @@ async function leaderboardUserIds(db) {
  * an apply run reports what it did. Reads always hit Firestore, so the derived
  * numbers are the real ones either way.
  */
-function makeReportingStore(db, derivation, userId, dryRun) {
+function makeReportingStore(db, derivation, period, userId, now, dryRun) {
   const adminStore = derivation.makeAdminLeaderboardStatsStore();
+  const openIds = derivation.openPeriodDocumentIds(userId, now);
   const changes = [];
   let existingById = new Map();
 
@@ -221,21 +320,34 @@ function makeReportingStore(db, derivation, userId, dryRun) {
           async write(documentId, data) {
             const before = existingById.get(documentId);
             const delta = fieldDelta(before, data);
-            if (delta === null) {
-              changes.push({kind: "unchanged", userId, documentId});
-            } else {
-              changes.push({kind: "write", userId, documentId, delta});
-            }
+            const change = {
+              kind: delta === null ? "unchanged" : "write",
+              userId,
+              documentId,
+              delta,
+              stored: summarize(before),
+              derived: summarize(data),
+              derivedWorkoutCount: numberOrNull(data.totalWorkouts) ?? 0,
+              ...describeWindow(period, data, before, documentId, openIds),
+            };
+            changes.push(change);
             if (!dryRun) {
               await transaction.write(documentId, data);
             }
           },
           async delete(documentId) {
+            const before = existingById.get(documentId);
             changes.push({
               kind: "delete",
               userId,
               documentId,
-              before: summarize(existingById.get(documentId)),
+              before: summarize(before),
+              stored: summarize(before),
+              derived: null,
+              // Nothing was derived for this window, which is the whole reason
+              // the row is going.
+              derivedWorkoutCount: 0,
+              ...describeWindow(period, undefined, before, documentId, openIds),
             });
             if (!dryRun) {
               await transaction.delete(documentId);
@@ -245,6 +357,65 @@ function makeReportingStore(db, derivation, userId, dryRun) {
       });
     },
   };
+}
+
+/**
+ * Names the window a row belongs to, from the row's own stored fields.
+ *
+ * Reuses the one Cloud Functions period derivation rather than parsing the
+ * document id, so the window a report shows is the window the derivation used.
+ */
+function describeWindow(period, derived, stored, documentId, openIds) {
+  const source = derived ?? stored ?? {};
+  const timeFrame = typeof source.timeFrame === "string" ?
+    source.timeFrame :
+    null;
+  const startMillis = timestampMillis(source.periodStartAt);
+  const closed = !openIds.has(documentId);
+
+  if (timeFrame === null || startMillis === null) {
+    return {
+      timeFrame,
+      periodKey: typeof source.periodKey === "string" ?
+        source.periodKey :
+        null,
+      windowStart: null,
+      windowEnd: null,
+      closed,
+    };
+  }
+
+  const window = period.currentPeriod(timeFrame, new Date(startMillis));
+  return {
+    timeFrame,
+    periodKey: window.key,
+    windowStart: window.startAt,
+    windowEnd: window.endAt,
+    closed,
+  };
+}
+
+function timestampMillis(value) {
+  if (value && typeof value === "object") {
+    if (typeof value.toMillis === "function") return value.toMillis();
+    if (typeof value.getTime === "function") return value.getTime();
+  }
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function numberOrNull(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function windowLabel(change) {
+  const start = change.windowStart ?
+    change.windowStart.toISOString().slice(0, 10) :
+    "?";
+  const end = change.windowEnd ?
+    change.windowEnd.toISOString().slice(0, 10) :
+    "open-ended";
+  return `${change.timeFrame ?? "?"} ${change.periodKey ?? "?"} ` +
+    `[${start} -> ${end})`;
 }
 
 function fieldDelta(before, after) {
@@ -283,12 +454,22 @@ function printReport(report, args) {
   console.log("");
   console.log(`Rows already correct:      ${report.unchanged}`);
   console.log(`Rows rewritten:            ${report.changed.length}`);
-  console.log(`Rows removed (open period, no workouts): ${report.deleted.length}`);
+  console.log(`Rows removed (no workouts): ${report.deleted.length}`);
   console.log(`Seeded rows left alone:    ${report.syntheticSkipped}`);
-  console.log(
-    "Closed periods are never removed - they are what the nightly finalizer " +
-    "freezes permanent achievements from."
-  );
+
+  const closed = [...report.changed, ...report.deleted]
+    .filter((change) => change.closed);
+  if (!args.includeClosedPeriods) {
+    console.log(
+      "\nClosed weekly, monthly and yearly rows were left untouched: without " +
+      "--include-closed-periods this run owns only the currently open " +
+      "periods. Those closed rows are what finalizeLeaderboardAchievements " +
+      "freezes permanent achievements from, so any client-authored one still " +
+      "sitting there is still reachable by the next finalizer run. Re-run " +
+      "with --dry-run --include-closed-periods to see them."
+    );
+  }
+  printClosedPeriodDetail(closed);
 
   const inflated = report.changed.filter((change) =>
     change.delta.fields?.totalSteps !== undefined &&
@@ -334,7 +515,61 @@ function printReport(report, args) {
   }
 }
 
-main().catch((error) => {
-  console.error(error.message);
-  process.exitCode = 1;
-});
+/**
+ * Prints enough about each closed-period row to tell forgery from drift.
+ *
+ * Zero eligible workouts behind a large stored total is the signature of a row
+ * a client wrote. A small delta with real workouts behind it is a legitimate row
+ * that drifted. Nobody should have to guess which one they are approving.
+ */
+function printClosedPeriodDetail(closed) {
+  if (closed.length === 0) {
+    return;
+  }
+
+  console.log("");
+  console.log(`Closed-period rows this run would touch: ${closed.length}`);
+  console.log(
+    "Repairing a row does NOT unwind an achievement already minted from the " +
+    "old number. Any row below whose period reads 'finalized' needs the award " +
+    "in users/{uid}/achievements looked at separately."
+  );
+
+  for (const change of closed) {
+    console.log("");
+    console.log(`  ${change.documentId}`);
+    console.log(`    window:            ${windowLabel(change)}`);
+    console.log(
+      `    period status:     ${change.periodStatus ?? "not finalized"}`
+    );
+    console.log(
+      `    action:            ${change.kind === "delete" ?
+        "REMOVE (no eligible workouts in this window)" :
+        "REWRITE"}`
+    );
+    console.log(
+      `    eligible workouts behind derived value: ` +
+      `${change.derivedWorkoutCount}`
+    );
+    for (const field of COMPARED_FIELDS) {
+      const stored = change.stored?.[field] ?? null;
+      const derived = change.derived?.[field] ?? null;
+      if (stored === derived) {
+        continue;
+      }
+      const delta = typeof stored === "number" && typeof derived === "number" ?
+        ` (delta ${roundedValue(derived - stored)})` :
+        "";
+      console.log(
+        `    ${field}: stored ${stored} -> derived ${derived}${delta}`
+      );
+    }
+  }
+}
+
+if (resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
+}

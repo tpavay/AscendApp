@@ -9,6 +9,7 @@ import {
 } from "../src/leaderboardStats.js";
 import {
   LEADERBOARD_TIME_FRAMES,
+  LeaderboardPeriod,
   LeaderboardTimeFrame,
   currentPeriod,
   leaderboardDocumentId,
@@ -21,10 +22,20 @@ const {
   leaderboardDemographics,
   leaderboardEvidenceChanged,
   leaderboardIdentityFields,
+  openPeriods,
+  ownedPeriods,
   parseEligibleWorkout,
   periodBudgetSeconds,
   reconcileLeaderboardStats,
 } = leaderboardStatsTestHooks;
+
+/** The UTC day before the one containing `date`. */
+function previousDailyPeriod(date: Date): LeaderboardPeriod {
+  return currentPeriod(
+    "daily",
+    new Date(currentPeriod("daily", date).startAt.getTime() - 1)
+  );
+}
 
 const userId = "user-123";
 // A Saturday, five days into its week and one day into its month, so a single
@@ -349,7 +360,7 @@ test("a forged standing is replaced by what the workouts actually show",
     );
     const store = makeStore({
       workouts: [{id: "w1", data: makeWorkout()}],
-      existingRows: [derivedRow(forgedDocumentId)],
+      existingRows: [storedRow(currentPeriod("weekly", NOW))],
     });
 
     const outcome = await reconcileLeaderboardStats(store, userId, NOW);
@@ -363,7 +374,7 @@ test("a standing with no workouts behind it is removed entirely", async () => {
   const forgedDocumentId = leaderboardDocumentId(userId, "weekly", "2026-W31");
   const store = makeStore({
     workouts: [],
-    existingRows: [derivedRow(forgedDocumentId)],
+    existingRows: [storedRow(currentPeriod("weekly", NOW))],
   });
 
   const outcome = await reconcileLeaderboardStats(store, userId, NOW);
@@ -379,9 +390,7 @@ test("the server never reads the number a client put in the row", async () => {
     workouts: [{id: "w1", data: makeWorkout()}],
     // The row already exists carrying the forged total. The derivation never
     // reads a stored total - it only ever reads workouts.
-    existingRows: [derivedRow(
-      leaderboardDocumentId(userId, "weekly", "2026-W31")
-    )],
+    existingRows: [storedRow(currentPeriod("weekly", NOW))],
   });
 
   await reconcileLeaderboardStats(store, userId, NOW);
@@ -393,10 +402,9 @@ test("the server never reads the number a client put in the row", async () => {
 
 test("a rolled period leaves its closed row alone and opens a new one",
   async () => {
-    const closedWeek = leaderboardDocumentId(userId, "weekly", "2026-W30");
     const store = makeStore({
       workouts: [{id: "w1", data: makeWorkout()}],
-      existingRows: [derivedRow(closedWeek)],
+      existingRows: [storedRow(previousPeriod("weekly", NOW))],
     });
 
     const outcome = await reconcileLeaderboardStats(store, userId, NOW);
@@ -458,7 +466,7 @@ for (const rollCase of [
           durationSeconds: 600,
           steps: 1_000,
         })}],
-        existingRows: [derivedRow(closedRowId)],
+        existingRows: [storedRow(closed)],
       });
 
       const outcome = await reconcileLeaderboardStats(
@@ -490,16 +498,211 @@ for (const rollCase of [
 // whose evidence disappeared inside the OPEN window must still go.
 test("an open period with no evidence left is still cleared", async () => {
   const openWeek = leaderboardDocumentId(userId, "weekly", "2026-W31");
-  const closedWeek = leaderboardDocumentId(userId, "weekly", "2026-W30");
   const store = makeStore({
     workouts: [],
-    existingRows: [derivedRow(openWeek), derivedRow(closedWeek)],
+    existingRows: [
+      storedRow(currentPeriod("weekly", NOW)),
+      storedRow(previousPeriod("weekly", NOW)),
+    ],
   });
 
   const outcome = await reconcileLeaderboardStats(store, userId, NOW);
 
   assert.deepEqual(outcome.deleted, [openWeek]);
 });
+
+// ---------------------------------------------------------------------------
+// Retention - what still READS the row, not whether its period closed.
+// ---------------------------------------------------------------------------
+
+// A closed daily row is not finalized into an achievement and the client only
+// ever queries the current period, so nothing reads it again. Kept forever it
+// would add one dead document per active climber per day to a per-user read
+// that is already unpaginated.
+test("a closed daily row is removed because nothing reads it again",
+  async () => {
+    const closedDay = previousDailyPeriod(NOW);
+    const store = makeStore({
+      workouts: [{id: "w1", data: makeWorkout()}],
+      existingRows: [storedRow(closedDay)],
+    });
+
+    const outcome = await reconcileLeaderboardStats(store, userId, NOW);
+
+    assert.deepEqual(
+      outcome.deleted,
+      [leaderboardDocumentId(userId, "daily", closedDay.key)]
+    );
+  });
+
+for (const timeFrame of ["weekly", "monthly", "yearly"] as const) {
+  test(
+    `a closed ${timeFrame} row survives because an award points back at it`,
+    async () => {
+      const closed = previousPeriod(timeFrame, NOW);
+      const store = makeStore({
+        workouts: [{id: "w1", data: makeWorkout()}],
+        existingRows: [storedRow(closed)],
+      });
+
+      const outcome = await reconcileLeaderboardStats(store, userId, NOW);
+
+      assert.deepEqual(outcome.deleted, []);
+      assert.deepEqual(store.deletes, []);
+    }
+  );
+}
+
+// The window has to come off the stored fields. A row that does not say which
+// period it belongs to cannot be judged, and the safe answer is to leave it.
+test("a row whose window cannot be established is never removed", async () => {
+  const store = makeStore({
+    workouts: [{id: "w1", data: makeWorkout()}],
+    existingRows: [{
+      documentId: "daily_2026-07-31_" + userId,
+      isSynthetic: false,
+      timeFrame: null,
+      periodStartAtMillis: null,
+    }],
+  });
+
+  const outcome = await reconcileLeaderboardStats(store, userId, NOW);
+
+  assert.deepEqual(outcome.deleted, []);
+});
+
+// ---------------------------------------------------------------------------
+// Ownership - the trigger owns the open windows, the operator can own more.
+// ---------------------------------------------------------------------------
+
+test("the trigger ownership owns exactly the five open windows", () => {
+  const closed = previousPeriod("weekly", NOW);
+
+  assert.deepEqual(
+    ownedPeriods(userId, NOW, [storedRow(closed)], "openPeriodsOnly")
+      .map((period) => period.key)
+      .sort(),
+    openPeriods(NOW).map((period) => period.key).sort()
+  );
+});
+
+test("the operator ownership additionally owns every stored window", () => {
+  const closed = previousPeriod("weekly", NOW);
+
+  const keys = ownedPeriods(
+    userId,
+    NOW,
+    [storedRow(closed)],
+    "openAndStoredPeriods"
+  ).map((period) => period.key);
+
+  assert.ok(keys.includes(closed.key));
+  for (const period of openPeriods(NOW)) {
+    assert.ok(keys.includes(period.key));
+  }
+  assert.equal(new Set(keys).size, keys.length, "windows must not repeat");
+});
+
+// The stored fields and the document id are two spellings of one window. When
+// they disagree the row is malformed, and rewriting it under a window it does
+// not claim would move a standing rather than repair it.
+test("a stored window that does not round-trip to its own id is not owned",
+  () => {
+    const closed = previousPeriod("weekly", NOW);
+    const mismatched = {
+      ...storedRow(closed),
+      documentId: leaderboardDocumentId(userId, "weekly", "1999-W01"),
+    };
+
+    const keys = ownedPeriods(
+      userId,
+      NOW,
+      [mismatched],
+      "openAndStoredPeriods"
+    ).map((period) => period.key);
+
+    assert.equal(keys.includes(closed.key), false);
+  });
+
+// This is what the backfill exists for: the client-authored rows sitting in the
+// window the nightly finalizer is about to freeze permanent awards from.
+test("the operator ownership repairs a closed period's forged total",
+  async () => {
+    const closed = previousPeriod("weekly", NOW);
+    const closedId = leaderboardDocumentId(userId, "weekly", closed.key);
+    const store = makeStore({
+      workouts: [{id: "w1", data: makeWorkout({
+        startedAt: new Date(closed.startAt.getTime() + 6 * 60 * 60 * 1000),
+      })}],
+      existingRows: [storedRow(closed)],
+    });
+
+    const outcome = await reconcileLeaderboardStats(
+      store,
+      userId,
+      NOW,
+      {ownership: "openAndStoredPeriods"}
+    );
+
+    assert.ok(outcome.written.includes(closedId));
+    assert.equal(store.writes.get(closedId)?.totalSteps, 3000);
+    assert.equal(store.writes.get(closedId)?.periodKey, closed.key);
+  });
+
+test("the operator ownership removes a closed row with no evidence behind it",
+  async () => {
+    const closed = previousPeriod("weekly", NOW);
+    const store = makeStore({
+      workouts: [],
+      existingRows: [storedRow(closed)],
+    });
+
+    const outcome = await reconcileLeaderboardStats(
+      store,
+      userId,
+      NOW,
+      {ownership: "openAndStoredPeriods"}
+    );
+
+    assert.deepEqual(
+      outcome.deleted,
+      [leaderboardDocumentId(userId, "weekly", closed.key)]
+    );
+  });
+
+// The wider ownership is the operator's, not the trigger's. Defaulting to it
+// would put an unattended trigger back in the finalizer's way.
+test("reconciliation defaults to the trigger ownership", async () => {
+  const closed = previousPeriod("weekly", NOW);
+  const store = makeStore({
+    workouts: [],
+    existingRows: [storedRow(closed)],
+  });
+
+  const outcome = await reconcileLeaderboardStats(store, userId, NOW);
+
+  assert.deepEqual(outcome.deleted, []);
+});
+
+test("a seeded competitor stays exempt under the operator ownership",
+  async () => {
+    const closed = previousPeriod("weekly", NOW);
+    const seededId = leaderboardDocumentId(userId, "weekly", closed.key);
+    const store = makeStore({
+      workouts: [],
+      existingRows: [storedRow(closed, true)],
+    });
+
+    const outcome = await reconcileLeaderboardStats(
+      store,
+      userId,
+      NOW,
+      {ownership: "openAndStoredPeriods"}
+    );
+
+    assert.deepEqual(outcome.deleted, []);
+    assert.deepEqual(outcome.skippedSynthetic, [seededId]);
+  });
 
 test("an unpublished profile publishes a masked identity, not a blank one",
   () => {
@@ -680,7 +883,7 @@ test("a seeded competitor's standing is neither rewritten nor removed",
     );
     const store = makeStore({
       workouts: [{id: "w1", data: makeWorkout()}],
-      existingRows: [{documentId: seededDocumentId, isSynthetic: true}],
+      existingRows: [storedRow(currentPeriod("weekly", NOW), true)],
     });
 
     const outcome = await reconcileLeaderboardStats(store, userId, NOW);
@@ -701,7 +904,7 @@ test("a seeded competitor with no workouts is reported, not deleted",
     );
     const store = makeStore({
       workouts: [],
-      existingRows: [{documentId: seededDocumentId, isSynthetic: true}],
+      existingRows: [storedRow(currentPeriod("weekly", NOW), true)],
     });
 
     const outcome = await reconcileLeaderboardStats(store, userId, NOW);
@@ -710,8 +913,18 @@ test("a seeded competitor with no workouts is reported, not deleted",
     assert.deepEqual(outcome.skippedSynthetic, [seededDocumentId]);
   });
 
-function derivedRow(documentId: string) {
-  return {documentId, isSynthetic: false};
+/**
+ * A stored row, described by the window it belongs to rather than by a bare id.
+ * The derivation reads `timeFrame` and `periodStartAt` off the document to
+ * decide what it owns, so a fixture without them tests nothing.
+ */
+function storedRow(period: LeaderboardPeriod, isSynthetic = false) {
+  return {
+    documentId: leaderboardDocumentId(userId, period.timeFrame, period.key),
+    isSynthetic,
+    timeFrame: period.timeFrame,
+    periodStartAtMillis: period.startAt.getTime(),
+  };
 }
 
 function makeWorkout(
@@ -736,7 +949,12 @@ interface RecordingStore extends LeaderboardStatsStore {
 
 function makeStore(options: {
   workouts: {id: string; data: Record<string, unknown>}[];
-  existingRows: {documentId: string; isSynthetic: boolean}[];
+  existingRows: {
+    documentId: string;
+    isSynthetic: boolean;
+    timeFrame?: LeaderboardTimeFrame | null;
+    periodStartAtMillis?: number | null;
+  }[];
   publicProfile?: Record<string, unknown>;
   user?: Record<string, unknown>;
 }): RecordingStore {
@@ -746,7 +964,11 @@ function makeStore(options: {
     workouts: options.workouts,
     publicProfile: options.publicProfile,
     user: options.user,
-    existingRows: options.existingRows,
+    existingRows: options.existingRows.map((row) => ({
+      timeFrame: null,
+      periodStartAtMillis: null,
+      ...row,
+    })),
   };
 
   return {

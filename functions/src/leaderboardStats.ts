@@ -46,6 +46,7 @@ import {onDocumentWritten} from "firebase-functions/v2/firestore";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import {
+  FINALIZED_TIME_FRAMES,
   LEADERBOARD_TIME_FRAMES,
   LeaderboardPeriod,
   LeaderboardTimeFrame,
@@ -135,10 +136,40 @@ export interface LeaderboardDemographics {
  * (scripts/seed-leaderboard.mjs), whose standing has no canonical workouts
  * behind it by design - the same exemption identity propagation already makes
  * for seeded projections. The derivation neither rewrites nor removes one.
+ *
+ * `timeFrame` and `periodStartAtMillis` are read off the stored document rather
+ * than parsed back out of the document id: the id is a formatting of those
+ * fields, and re-deriving the window from a string would become a second period
+ * derivation the moment the id format moves. Both are null when the stored row
+ * predates them or carries something unrecognised, and a row whose window
+ * cannot be established is never removed.
  */
 export interface ExistingLeaderboardRow {
   documentId: string;
   isSynthetic: boolean;
+  timeFrame: LeaderboardTimeFrame | null;
+  periodStartAtMillis: number | null;
+}
+
+/**
+ * How much of a climber's board history one reconciliation is allowed to own.
+ *
+ * `openPeriodsOnly` is what the Cloud Function triggers pass, and the reason is
+ * that nobody is watching a trigger: finalizeLeaderboardAchievements can be
+ * running concurrently, so a trigger that rewrote or removed a closed window
+ * would race the job that freezes permanent awards from it.
+ *
+ * `openAndStoredPeriods` is the operator's tool (scripts/backfill-leaderboard-
+ * stats.mjs, behind an explicit flag). It additionally owns every period a
+ * stored row already names, so the rows this issue exists to clean - the
+ * client-authored ones sitting in the window the finalizer is about to read -
+ * are actually reachable. It is opt-in because it is a supervised,
+ * dry-run-first operation, not something that should ever fire unattended.
+ */
+export type LeaderboardOwnership = "openPeriodsOnly" | "openAndStoredPeriods";
+
+export interface ReconcileOptions {
+  ownership: LeaderboardOwnership;
 }
 
 /** Everything one reconciliation reads. */
@@ -326,17 +357,20 @@ export function periodBudgetSeconds(
  * @param {string} userId Firebase Auth uid.
  * @param {EligibleWorkout[]} workouts Every eligible workout for the climber.
  * @param {Date} now The reconciliation instant.
- * @return {DerivedLeaderboardRow[]} Rows with activity, one per time frame.
+ * @param {LeaderboardPeriod[]} periods The windows to derive, defaulting to the
+ *   five currently open ones.
+ * @return {DerivedLeaderboardRow[]} Rows with activity, one per window.
  */
 export function deriveLeaderboardRows(
   userId: string,
   workouts: EligibleWorkout[],
-  now: Date
+  now: Date,
+  periods: LeaderboardPeriod[] = openPeriods(now)
 ): DerivedLeaderboardRow[] {
   const rows: DerivedLeaderboardRow[] = [];
 
-  for (const timeFrame of LEADERBOARD_TIME_FRAMES) {
-    const period = currentPeriod(timeFrame, now);
+  for (const period of periods) {
+    const timeFrame = period.timeFrame;
     const inPeriod = workoutsInPeriod(workouts, period);
     const aggregate = aggregateForPeriod(inPeriod);
     if (aggregate.totalWorkouts === 0) {
@@ -414,11 +448,18 @@ export function leaderboardDemographics(
 }
 
 /**
- * The document ids this derivation is allowed to author at a given instant.
- *
- * Exactly the five currently OPEN periods. It is the whole ownership boundary:
- * anything outside it is a closed period's historical record, and closed
- * periods belong to finalizeLeaderboardAchievements, not here.
+ * The five currently open windows.
+ * @param {Date} now The reconciliation instant.
+ * @return {LeaderboardPeriod[]} One open period per time frame.
+ */
+export function openPeriods(now: Date): LeaderboardPeriod[] {
+  return LEADERBOARD_TIME_FRAMES.map(
+    (timeFrame) => currentPeriod(timeFrame, now)
+  );
+}
+
+/**
+ * The document ids of the five currently open periods.
  * @param {string} userId Firebase Auth uid.
  * @param {Date} now The reconciliation instant.
  * @return {Set<string>} The open-period document ids.
@@ -428,12 +469,62 @@ export function openPeriodDocumentIds(
   now: Date
 ): Set<string> {
   return new Set(
-    LEADERBOARD_TIME_FRAMES.map((timeFrame) => leaderboardDocumentId(
-      userId,
-      timeFrame,
-      currentPeriod(timeFrame, now).key
-    ))
+    openPeriods(now).map(
+      (period) => leaderboardDocumentId(userId, period.timeFrame, period.key)
+    )
   );
+}
+
+/**
+ * Every window one reconciliation may derive and write under a given ownership.
+ *
+ * A stored row contributes its own window only when re-deriving that window
+ * from the row's `timeFrame` and `periodStartAt` lands back on the same
+ * document id. That round-trip is the check that the stored fields and the id
+ * agree; a row where they do not is malformed, and rewriting it under a window
+ * it does not claim would move a standing rather than repair it.
+ * @param {string} userId Firebase Auth uid.
+ * @param {Date} now The reconciliation instant.
+ * @param {ExistingLeaderboardRow[]} existingRows The climber's stored rows.
+ * @param {LeaderboardOwnership} ownership How much history to own.
+ * @return {LeaderboardPeriod[]} The owned windows, deduplicated.
+ */
+export function ownedPeriods(
+  userId: string,
+  now: Date,
+  existingRows: ExistingLeaderboardRow[],
+  ownership: LeaderboardOwnership
+): LeaderboardPeriod[] {
+  const periods = openPeriods(now);
+  if (ownership === "openPeriodsOnly") {
+    return periods;
+  }
+
+  const seen = new Set(
+    periods.map(
+      (period) => leaderboardDocumentId(userId, period.timeFrame, period.key)
+    )
+  );
+  for (const row of existingRows) {
+    if (row.timeFrame === null || row.periodStartAtMillis === null) {
+      continue;
+    }
+    const period = currentPeriod(
+      row.timeFrame,
+      new Date(row.periodStartAtMillis)
+    );
+    const documentId = leaderboardDocumentId(
+      userId,
+      period.timeFrame,
+      period.key
+    );
+    if (documentId !== row.documentId || seen.has(documentId)) {
+      continue;
+    }
+    seen.add(documentId);
+    periods.push(period);
+  }
+  return periods;
 }
 
 /**
@@ -442,12 +533,14 @@ export function openPeriodDocumentIds(
  * @param {LeaderboardStatsStore} store Persistence boundary.
  * @param {string} userId Firebase Auth uid.
  * @param {Date} now The reconciliation instant.
+ * @param {ReconcileOptions} options Ownership, defaulting to open periods only.
  * @return {Promise<ReconcileOutcome>} The document ids written and deleted.
  */
 export async function reconcileLeaderboardStats(
   store: LeaderboardStatsStore,
   userId: string,
-  now: Date
+  now: Date,
+  options: ReconcileOptions = {ownership: "openPeriodsOnly"}
 ): Promise<ReconcileOutcome> {
   return store.runTransaction(async (transaction) => {
     // Every read happens before the first write, so Firestore can retry the
@@ -461,7 +554,13 @@ export async function reconcileLeaderboardStats(
       }
     }
 
-    const rows = deriveLeaderboardRows(userId, eligible, now);
+    const periods = ownedPeriods(
+      userId,
+      now,
+      snapshot.existingRows,
+      options.ownership
+    );
+    const rows = deriveLeaderboardRows(userId, eligible, now, periods);
     const identity = leaderboardIdentityFields(userId, snapshot.publicProfile);
     const demographics = leaderboardDemographics(snapshot.user);
     const synthetic = new Set(
@@ -471,10 +570,10 @@ export async function reconcileLeaderboardStats(
     );
 
     const written: string[] = [];
-    const skippedSynthetic: string[] = [];
+    const skippedSyntheticIds = new Set<string>();
     for (const row of rows) {
       if (synthetic.has(row.documentId)) {
-        skippedSynthetic.push(row.documentId);
+        skippedSyntheticIds.add(row.documentId);
         continue;
       }
       await transaction.write(
@@ -484,17 +583,12 @@ export async function reconcileLeaderboardStats(
       written.push(row.documentId);
     }
 
-    // An OPEN period the climber no longer has evidence in - a deleted workout,
-    // an edit that pushed it out of the window - is removed rather than left
-    // behind at its last value.
-    //
-    // A CLOSED period's row is never touched. It is the historical record
-    // finalizeLeaderboardAchievements reads at 00:15 UTC to freeze permanent
-    // achievements, and a workout backed up in the minutes after a period rolls
-    // would otherwise erase the previous period's standing before the finalizer
-    // could read it - destroying the very award this derivation exists to
-    // protect, and shifting every other climber's rank in that closed period.
     const open = openPeriodDocumentIds(userId, now);
+    const owned = new Set(
+      periods.map(
+        (period) => leaderboardDocumentId(userId, period.timeFrame, period.key)
+      )
+    );
     const keep = new Set(written);
     const deleted: string[] = [];
     for (const row of snapshot.existingRows) {
@@ -502,20 +596,69 @@ export async function reconcileLeaderboardStats(
         // Reported, not silently passed over: an operator reading a backfill
         // needs to see that a standing survived because it was seeded, not
         // because the derivation agreed with it.
-        if (!skippedSynthetic.includes(row.documentId)) {
-          skippedSynthetic.push(row.documentId);
-        }
+        skippedSyntheticIds.add(row.documentId);
         continue;
       }
-      if (keep.has(row.documentId) || !open.has(row.documentId)) {
+      if (keep.has(row.documentId)) {
+        continue;
+      }
+      if (!isRemovableRow(row, {open, owned, ownership: options.ownership})) {
         continue;
       }
       await transaction.delete(row.documentId);
       deleted.push(row.documentId);
     }
 
-    return {written, deleted, skippedSynthetic};
+    return {written, deleted, skippedSynthetic: [...skippedSyntheticIds]};
   });
+}
+
+const FINALIZED_TIME_FRAME_SET: ReadonlySet<string> = new Set(
+  FINALIZED_TIME_FRAMES
+);
+
+/**
+ * Whether a stored row the derivation did not just write may be removed.
+ *
+ * Retention follows what still READS the row, not whether its period closed:
+ *
+ * - An OPEN period with no evidence left is dead weight and goes, whatever the
+ *   time frame.
+ * - A closed WEEKLY, MONTHLY or YEARLY row stays under the trigger ownership
+ *   for two separate reasons. finalizeLeaderboardAchievements reads the
+ *   previous period's rows at 00:15 UTC to freeze permanent achievements, so
+ *   removing one in that window destroys an earned award. And the achievement
+ *   it writes stores `leaderboardStatsId` pointing back at the row as the
+ *   award's provenance, so removing it later orphans a permanent record.
+ *   Neither reason expires; do not "clean this up".
+ * - A closed DAILY row is never finalized and the client only ever queries the
+ *   current period, so nothing reads it again. Left immortal it would add one
+ *   dead document per active climber per day to an unpaginated per-user read.
+ * - ALL_TIME never closes, so it is always in the open set.
+ *
+ * Under the operator ownership every owned window is removable, because that
+ * run is supervised, dry-run first, and exists precisely to reach the closed
+ * rows that were authored by a client and never checked against evidence.
+ * @param {ExistingLeaderboardRow} row The stored row.
+ * @param {object} scope The open ids, owned ids, and ownership in force.
+ * @return {boolean} True when the row may be removed.
+ */
+function isRemovableRow(
+  row: ExistingLeaderboardRow,
+  scope: {
+    open: Set<string>;
+    owned: Set<string>;
+    ownership: LeaderboardOwnership;
+  }
+): boolean {
+  if (scope.open.has(row.documentId)) {
+    return true;
+  }
+  if (scope.ownership === "openAndStoredPeriods") {
+    return scope.owned.has(row.documentId);
+  }
+  return row.timeFrame !== null &&
+    !FINALIZED_TIME_FRAME_SET.has(row.timeFrame);
 }
 
 /**
@@ -728,7 +871,11 @@ export function makeAdminLeaderboardStatsStore(): LeaderboardStatsStore {
                       db
                         .collection(LEADERBOARD_STATS_COLLECTION)
                         .where("userId", "==", userId)
-                        .select("isSynthetic")
+                        .select(
+                          "isSynthetic",
+                          "timeFrame",
+                          "periodStartAt"
+                        )
                     ),
                   ]);
 
@@ -746,6 +893,10 @@ export function makeAdminLeaderboardStatsStore(): LeaderboardStatsStore {
                   existingRows: existing.docs.map((document) => ({
                     documentId: document.id,
                     isSynthetic: document.get("isSynthetic") === true,
+                    timeFrame: parseTimeFrame(document.get("timeFrame")),
+                    periodStartAtMillis: timestampMillis(
+                      document.get("periodStartAt")
+                    ),
                   })),
                 };
               },
@@ -807,6 +958,17 @@ function workoutsInPeriod(
     (workout) => workout.startedAtMillis >= startMillis &&
       workout.startedAtMillis < endMillis
   );
+}
+
+/**
+ * Parses a stored time frame, or null when it is absent or unrecognised.
+ * @param {unknown} value Raw value.
+ * @return {LeaderboardTimeFrame | null} The time frame.
+ */
+export function parseTimeFrame(value: unknown): LeaderboardTimeFrame | null {
+  return LEADERBOARD_TIME_FRAMES.find(
+    (timeFrame) => timeFrame === value
+  ) ?? null;
 }
 
 /**
@@ -927,7 +1089,10 @@ export const leaderboardStatsTestHooks = {
   leaderboardEvidenceChanged,
   leaderboardIdentityFields,
   openPeriodDocumentIds,
+  openPeriods,
+  ownedPeriods,
   parseEligibleWorkout,
+  parseTimeFrame,
   periodBudgetSeconds,
   reconcileLeaderboardStats,
 };
