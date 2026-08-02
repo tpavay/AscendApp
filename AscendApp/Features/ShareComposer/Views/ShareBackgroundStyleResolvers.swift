@@ -1,28 +1,8 @@
 import SwiftUI
 
-/// SwiftUI-layer resolvers for the model's SwiftUI-free style enums. Kept out of
-/// the model/view-model layer so those stay free of `Font`/`Color`.
-
-extension ShareStickerFont {
-    /// The typeface at a given point size. Custom faces resolve to bundled
-    /// fonts; the rest use system font designs.
-    func swiftUIFont(size: CGFloat) -> Font {
-        switch self {
-        case .montserrat:
-            return .montserratBold(size: size)
-        case .anton:
-            return .custom("Anton-Regular", size: size)
-        case .playfair:
-            return .custom("PlayfairDisplay-Italic", size: size)
-        case .spaceMono:
-            return .custom("SpaceMono-Bold", size: size)
-        case .rounded:
-            return .system(size: size, weight: .bold, design: .rounded)
-        case .thin:
-            return .system(size: size, weight: .ultraLight)
-        }
-    }
-}
+/// SwiftUI-layer resolvers for the background layer's SwiftUI-free enums. Kept
+/// out of the model/view-model layer so those stay free of `Color`.
+/// The card format's own resolvers live in `ShareCardStyleResolvers`.
 
 extension View {
     /// Applies a background filter's color grade. Resolution-independent

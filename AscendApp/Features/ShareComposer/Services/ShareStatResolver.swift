@@ -78,7 +78,7 @@ struct ShareStatResolver {
 
         case .splits:
             guard let splits = resolveSplits() else { return nil }
-            return ResolvedShareStat(kind: kind, label: splits.label, value: splits.value)
+            return ResolvedShareStat(kind: kind, label: splits.label, value: splits.value, detail: splits.subtitle)
 
         case .climbName:
             guard let climbName else { return nil }
@@ -94,7 +94,8 @@ struct ShareStatResolver {
             return ResolvedShareStat(
                 kind: kind,
                 label: "RANK / TOTAL",
-                value: "#\(climbRank) / \(Self.integer(climbRankTotal))"
+                value: "#\(climbRank) / \(Self.integer(climbRankTotal))",
+                detail: Self.integer(climbRankTotal)
             )
 
         case .bestEffort, .totals:

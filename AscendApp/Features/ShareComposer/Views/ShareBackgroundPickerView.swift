@@ -5,10 +5,10 @@ import SwiftUI
 struct ShareBackgroundPickerView: View {
     let title: String
     let presets: [ShareComposerPreset]
-    /// Optional one-tap recap card (climb hero + auto-arranged stats).
+    /// Optional one-tap recap cards (climb hero + auto-arranged stats).
     var recap: RecapPreview?
     let onPick: (ShareBackgroundSource) -> Void
-    var onPickRecap: ((ShareRecapTemplate) -> Void)?
+    var onPickRecap: ((ShareCardTemplate) -> Void)?
     let onClose: () -> Void
 
     @State private var selectedTab: Tab = .cameraRoll
@@ -17,9 +17,11 @@ struct ShareBackgroundPickerView: View {
 
     enum Tab { case cameraRoll, presets, recaps }
 
-    /// Data for the Recaps tab card (our pre-made climb card).
+    /// The templates offered on the Recaps tab, with the data they render against.
     struct RecapPreview {
-        let data: ShareRecapCardData
+        let templates: [ShareCardTemplate]
+        let context: ShareCardRenderContext
+        let climb: Climb?
     }
 
     var body: some View {
@@ -151,13 +153,17 @@ struct ShareBackgroundPickerView: View {
                         ],
                         spacing: 16
                     ) {
-                        ForEach(ShareRecapTemplate.allCases) { template in
+                        ForEach(recap.templates) { template in
                             Button {
                                 HapticsManager.shared.trigger(.lightImpact)
                                 onPickRecap(template)
                             } label: {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    ShareRecapThumbnail(template: template, data: recap.data)
+                                    ShareRecapThumbnail(
+                                        template: template,
+                                        context: recap.context,
+                                        climb: recap.climb
+                                    )
                                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -187,15 +193,20 @@ struct ShareBackgroundPickerView: View {
 }
 
 private struct ShareRecapThumbnail: View {
-    let template: ShareRecapTemplate
-    let data: ShareRecapCardData
+    let template: ShareCardTemplate
+    let context: ShareCardRenderContext
+    let climb: Climb?
 
     var body: some View {
         Color.black
-            .aspectRatio(ShareRecapCard.aspectRatio, contentMode: .fit)
+            .aspectRatio(ShareCardTemplateView.aspectRatio, contentMode: .fit)
             .overlay {
                 GeometryReader { proxy in
-                    ShareRecapCard(template: template, data: data)
+                    ShareCardTemplateView(
+                        template: template,
+                        context: context,
+                        artwork: ShareCardArtworkSource(climb: climb)
+                    )
                         .frame(width: proxy.size.width, height: proxy.size.height)
                         .clipped()
                 }
