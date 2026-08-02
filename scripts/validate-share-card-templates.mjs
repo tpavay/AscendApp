@@ -116,6 +116,9 @@ export function validate(vocabulary, document) {
         problems.push(`${id}: unknown requirement "${requirement}"`);
       }
     }
+    if (template.background !== undefined) {
+      checkColor(template.background, `${id}.background`, problems);
+    }
     if (!template.root) {
       problems.push(`${id}: no root node`);
       continue;
@@ -125,6 +128,20 @@ export function validate(vocabulary, document) {
 
   return problems;
 }
+
+/**
+ * Keys whose value is a color, a color plus opacity, a fill, or a stroke. Every
+ * color literal in the payload sits at one of these, however deeply nested.
+ */
+const COLOR_KEYS = new Set([
+  "tint", "color", "fill", "track", "stroke", "border", "background", "stops", "overlay",
+]);
+
+/** Color names the renderer resolves against the render context. */
+const COLOR_SLOTS = new Set(["value", "label"]);
+
+/** The only literal spelling `ShareCardColor.color(fromHex:)` reads correctly. */
+const HEX_COLOR = /^#?[0-9a-fA-F]{6}$/;
 
 /**
  * Checks one node and its children.
@@ -150,6 +167,8 @@ function walk(node, path, vocabulary, problems) {
     );
     return;
   }
+
+  checkColors(node, path, problems);
 
   if (type === "metric") {
     checkStat(node.stat, `${path}.stat`, vocabulary, problems);
@@ -179,6 +198,57 @@ function walk(node, path, vocabulary, problems) {
       walk(child, `${path}.children[${index}]`, vocabulary, problems);
     }
   }
+}
+
+/**
+ * Finds every color a node names and checks each one.
+ *
+ * A misspelled slot or a malformed hex is the one authoring typo the renderer
+ * cannot signal: `ShareCardColor` treats any unrecognised string as a hex and
+ * `color(fromHex:)` falls back to `0`, so the mistake ships as opaque black
+ * rather than as a missing element. Children are skipped — `walk` recurses into
+ * them so their problems are reported at their own path.
+ *
+ * @param {*} value Node or nested value to scan.
+ * @param {string} path Human-readable location.
+ * @param {string[]} problems Accumulator.
+ * @return {void}
+ */
+function checkColors(value, path, problems) {
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => checkColors(entry, `${path}[${index}]`, problems));
+    return;
+  }
+  if (typeof value !== "object" || value === null) return;
+  for (const [key, nested] of Object.entries(value)) {
+    if (key === "children") continue;
+    if (COLOR_KEYS.has(key)) checkColor(nested, `${path}.${key}`, problems);
+    else checkColors(nested, `${path}.${key}`, problems);
+  }
+}
+
+/**
+ * Checks a value at a color-bearing key, in any spelling the format accepts:
+ * a bare string, a tint object, a fill, a stroke, or an array of any of those.
+ * @param {*} value Value to check.
+ * @param {string} path Human-readable location.
+ * @param {string[]} problems Accumulator.
+ * @return {void}
+ */
+function checkColor(value, path, problems) {
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => checkColor(entry, `${path}[${index}]`, problems));
+    return;
+  }
+  if (typeof value === "string") {
+    if (!COLOR_SLOTS.has(value) && !HEX_COLOR.test(value)) {
+      problems.push(
+        `${path}: unknown color "${value}" — the renderer would draw it opaque black`
+      );
+    }
+    return;
+  }
+  checkColors(value, path, problems);
 }
 
 /**

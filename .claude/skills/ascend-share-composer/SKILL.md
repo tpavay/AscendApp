@@ -29,6 +29,10 @@ Everything drawn on a share - a sticker on the canvas, a full recap template, ev
 
 **The schema is closed** - a fixed set of element types chosen by a Swift `switch`, no expression language, no escape hatch that takes a script. That line is what keeps a future remote payload inside App Review 2.5.2.
 
+**Card content does not scale with Dynamic Type; composer chrome does.** `ShareStickerFont.swiftUIFont` uses `Font.custom(_:fixedSize:)` because the exported image renders at the default text size for everyone - a canvas that scaled would show the author something the export cannot reproduce, and an export that scaled would make one template produce a different image per reader.
+The composer's own chrome - the add sheet, the font and structure pickers, action pills, toasts, the background picker - uses `Font.montserrat*` (`relativeTo:`) and **must keep scaling**; that is reading UI, not card content.
+Do not unify the two in either direction.
+
 ## Label placement and policy - the rule that keeps getting rewritten wrong
 - **Where a label sits is a property of the element** (`ShareCardLabelPlacement`), not of the arrangement and not of which renderer ran. Changing the arrangement, or adding a metric, must leave it alone.
 - **Whether a label appears at all is a property of the stat** (`ShareStatStickerKind.isSelfDescribing`, read through `ShareCardLabelPolicy`). A date, a name, a `#`-sigil rank speak for themselves; a bare number needs its unit. Never write that rule as an `if` inside a view - that is how `DATE` ended up under a date and how the climb-name exemption leaked.

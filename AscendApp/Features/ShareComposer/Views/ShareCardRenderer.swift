@@ -243,11 +243,41 @@ private extension View {
         self
             .shareCardFrame(modifiers.frame)
             .shareCardShadow(modifiers.shadow, context: context)
-            .padding(modifiers.padding?.edgeInsets ?? EdgeInsets())
+            .shareCardPadding(modifiers.padding)
             .shareCardFill(modifiers.background, shape: shape, context: context)
             .shareCardBorder(modifiers.border, shape: shape, context: context)
-            .rotationEffect(.degrees(modifiers.rotationDegrees ?? 0))
-            .opacity(modifiers.opacity ?? 1)
+            .shareCardRotation(modifiers.rotationDegrees)
+            .shareCardOpacity(modifiers.opacity)
+    }
+
+    /// Every optional modifier is applied only when the node asked for it. A card
+    /// is thirty-odd nodes and a sticker re-lays out on every gesture frame, so an
+    /// identity geometry effect per node is a cost with nothing to show for it.
+    @ViewBuilder
+    func shareCardPadding(_ insets: ShareCardEdgeInsets?) -> some View {
+        if let insets {
+            padding(insets.edgeInsets)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func shareCardRotation(_ degrees: Double?) -> some View {
+        if let degrees, degrees != 0 {
+            rotationEffect(.degrees(degrees))
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func shareCardOpacity(_ value: Double?) -> some View {
+        if let value, value != 1 {
+            opacity(value)
+        } else {
+            self
+        }
     }
 
     @ViewBuilder

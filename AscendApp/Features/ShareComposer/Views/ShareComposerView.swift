@@ -318,7 +318,7 @@ struct ShareComposerView: View {
                             // array that shrinks mid-drag traps when the child's
                             // body still holds the stale subscript — which is
                             // exactly the delete-while-dragging path this canvas has.
-                            instance: stickerBinding(sticker.id),
+                            instance: stickerBinding(sticker.id, lastKnown: sticker),
                             content: content,
                             climb: viewModel.climb,
                             canvasSize: canvasSize,
@@ -464,9 +464,14 @@ struct ShareComposerView: View {
 
     /// A sticker binding resolved by id on every access, so a delete mid-gesture
     /// cannot leave a child holding a stale index into a shrunken array.
-    private func stickerBinding(_ id: UUID) -> Binding<ShareStickerInstance> {
+    ///
+    /// `lastKnown` is the value this pass of the `ForEach` rendered. Once the
+    /// sticker is gone the outgoing view keeps drawing where it was for the length
+    /// of its removal transition, instead of snapping to the defaults of a
+    /// substituted instance; writes to a deleted sticker are no-ops.
+    private func stickerBinding(_ id: UUID, lastKnown: ShareStickerInstance) -> Binding<ShareStickerInstance> {
         Binding(
-            get: { viewModel.sticker(id) ?? ShareStickerInstance(kind: .steps) },
+            get: { viewModel.sticker(id) ?? lastKnown },
             set: { viewModel.update($0) }
         )
     }

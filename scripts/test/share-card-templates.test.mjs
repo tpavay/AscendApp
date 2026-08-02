@@ -66,6 +66,58 @@ test("a template naming an unknown element fails validation", () => {
   assert.match(problems[0], /unknown element type "hologram"/);
 });
 
+// A misspelled slot or a malformed hex is the one typo the renderer cannot
+// signal: it draws opaque black instead of dropping the element.
+test("a template naming an unknown color fails validation", () => {
+  const vocabulary = readVocabulary();
+  const problems = validate(vocabulary, {
+    formatVersion: 1,
+    templates: [
+      {
+        id: "tints",
+        title: "Tints",
+        minRendererVersion: 1,
+        background: {kind: "linearGradient", stops: ["lable", "#0B0B0B"]},
+        root: {
+          type: "text",
+          segments: ["Hello"],
+          style: {size: 20, tint: {color: "#F4F1E", opacity: 0.5}},
+        },
+      },
+    ],
+  });
+
+  assert.equal(problems.length, 2, problems.join("; "));
+  assert.match(problems[0], /unknown color "lable"/);
+  assert.match(problems[1], /unknown color "#F4F1E"/);
+});
+
+test("the context color slots and hex literals pass validation", () => {
+  const vocabulary = readVocabulary();
+  const problems = validate(vocabulary, {
+    formatVersion: 1,
+    templates: [
+      {
+        id: "tints",
+        title: "Tints",
+        minRendererVersion: 1,
+        background: "#0B0B0B",
+        root: {
+          type: "stack",
+          background: {kind: "material", material: "thin", opacity: 0.4},
+          border: {tint: {color: "label", opacity: 0.3}, width: 1},
+          children: [
+            {type: "rule", tint: "value"},
+            {type: "artwork", overlay: ["#000000", {color: "value", opacity: 0}]},
+          ],
+        },
+      },
+    ],
+  });
+
+  assert.deepEqual(problems, []);
+});
+
 test("a template authored above the shipped renderer fails validation", () => {
   const vocabulary = readVocabulary();
   const problems = validate(vocabulary, {

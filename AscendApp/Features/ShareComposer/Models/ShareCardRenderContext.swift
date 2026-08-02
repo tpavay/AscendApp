@@ -86,13 +86,16 @@ extension ShareCardNode {
 
     /// Whether this node would draw anything for the given data.
     ///
-    /// Used for two things a card must get right: dropping a metric whose stat
-    /// this workout has no value for, and honouring `maxVisibleChildren` — a
-    /// template lists metrics in priority order and takes the first few that
-    /// actually resolved, instead of Swift picking for it.
+    /// Used for three things a card must get right: dropping a metric whose stat
+    /// this workout has no value for, dropping a stack that ended up with nothing
+    /// to arrange — a sticker whose stats all failed to resolve is not placed at
+    /// all rather than placed as an empty plate — and honouring
+    /// `maxVisibleChildren`, where a template lists metrics in priority order and
+    /// takes the first few that actually resolved instead of Swift picking for it.
     func resolves(in context: ShareCardRenderContext) -> Bool {
         switch element {
         case .stack(let stack):
+            guard !stack.children.isEmpty else { return false }
             let dataBacked = stack.children.filter(\.carriesData)
             guard !dataBacked.isEmpty else { return true }
             return dataBacked.contains { $0.resolves(in: context) }

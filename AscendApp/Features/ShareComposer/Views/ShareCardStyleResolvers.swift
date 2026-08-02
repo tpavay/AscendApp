@@ -9,6 +9,16 @@ extension ShareStickerFont {
     /// `fixedSize` deliberately: the composer is a WYSIWYG image editor, so the
     /// canvas must match the exported pixels rather than track Dynamic Type.
     /// Faces that ship one weight render every role from that file.
+    ///
+    /// **The Dynamic Type boundary runs here, and only here.** Card content —
+    /// stickers, the splits table, template text — is fixed because the exported
+    /// image is the product: it renders at the default text size for everyone, so
+    /// a canvas that scaled would show the author something the export cannot
+    /// reproduce, and letting the export scale would make one template produce a
+    /// different image per reader. The composer's own chrome — the add sheet, the
+    /// font and structure pickers, action pills, toasts, the background picker —
+    /// goes through `Font.montserrat*`, which is `relativeTo:` and **must keep
+    /// scaling**: that is reading UI, not card content. Do not unify the two.
     func swiftUIFont(size: CGFloat, role: ShareCardFontRole = .heavy) -> Font {
         switch self {
         case .montserrat:

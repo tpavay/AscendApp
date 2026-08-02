@@ -78,6 +78,55 @@ struct ShareCardTemplateStoreTests {
         #expect(!node.resolves(in: ShareCardRenderContext()))
     }
 
+    /// A stack with nothing left in it draws nothing, so it must not report that
+    /// it resolved — a sticker whose stats all failed would otherwise be placed as
+    /// an empty plate on the canvas and burned into the export.
+    @Test
+    func anEmptyStackDoesNotResolve() throws {
+        let empty = ShareCardNode(.stack(ShareCardStack(axis: .vertical, children: [])))
+        #expect(!empty.resolves(in: ShareCardRenderContext()))
+
+        // Decoration-only stacks still resolve: they carry no data to fail.
+        let decoration = ShareCardNode(.stack(ShareCardStack(axis: .vertical, children: [
+            ShareCardNode(.rule(ShareCardRule()))
+        ])))
+        #expect(decoration.resolves(in: ShareCardRenderContext()))
+    }
+
+    /// The canvas and the exporter both gate on `ShareStickerContent.isEmpty`.
+    @Test
+    func aStickerWithNoResolvableStatsIsNotPlaced() throws {
+        let sticker = ShareStickerInstance(
+            kind: .bestEffort,
+            extraStats: [ShareStatRef(kind: .duration)]
+        )
+        let content = ShareStickerContent(
+            node: ShareStickerCardBuilder.node(for: sticker, resolvedRefs: []),
+            context: ShareCardRenderContext(),
+            signature: ShareStickerContentSignature(sticker)
+        )
+
+        #expect(content.isEmpty, "a sticker with nothing to draw must reach neither the canvas nor the export")
+    }
+
+    /// One bad template must cost one card, not the picker. The element-level
+    /// degradation guarantees are worthless if the array is all-or-nothing.
+    @Test
+    func aMalformedTemplateIsSkippedWithoutLosingTheOthers() throws {
+        let json = Data("""
+        {"formatVersion": 1, "templates": [
+          {"id": "good", "title": "Good", "root": {"type": "spacer"}},
+          {"title": "Missing an id", "root": {"type": "spacer"}},
+          {"id": "alsoGood", "title": "Also Good", "root": {"type": "spacer"}}
+        ]}
+        """.utf8)
+
+        let document = try ShareCardTemplateStore.decode(json)
+
+        #expect(document.formatVersion == 1)
+        #expect(document.templates.map(\.id) == ["good", "alsoGood"])
+    }
+
     @Test
     func templatesAreFilteredByTheDataAtHand() throws {
         let store = ShareCardTemplateStore(bundle: .main)

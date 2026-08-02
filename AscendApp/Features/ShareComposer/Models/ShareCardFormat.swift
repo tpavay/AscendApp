@@ -30,6 +30,46 @@ import Foundation
 struct ShareCardDocument: Codable, Equatable, Sendable {
     var formatVersion: Int
     var templates: [ShareCardTemplate]
+
+    init(formatVersion: Int, templates: [ShareCardTemplate]) {
+        self.formatVersion = formatVersion
+        self.templates = templates
+    }
+
+    private enum CodingKeys: String, CodingKey { case formatVersion, templates }
+
+    /// Templates are decoded one at a time and a template that fails is dropped.
+    ///
+    /// The element-level guarantees — an unknown element draws nothing, an
+    /// unresolvable stat drops its element — are worth nothing if one malformed
+    /// template throws the array away with the five valid ones and empties the
+    /// picker. The document degrades the way an element does.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        formatVersion = try container.decode(Int.self, forKey: .formatVersion)
+
+        var list = try container.nestedUnkeyedContainer(forKey: .templates)
+        var decoded: [ShareCardTemplate] = []
+        decoded.reserveCapacity(list.count ?? 0)
+        while !list.isAtEnd {
+            // Decoded through a never-throwing wrapper: a container's index does
+            // not advance past an element whose decode threw, so catching here
+            // rather than inside would loop forever on the first bad template.
+            if let template = try list.decode(DecodedTemplate.self).template {
+                decoded.append(template)
+            }
+        }
+        templates = decoded
+    }
+}
+
+/// One array element of `ShareCardDocument.templates`, nil when it did not decode.
+private struct DecodedTemplate: Decodable {
+    let template: ShareCardTemplate?
+
+    init(from decoder: any Decoder) throws {
+        template = try? ShareCardTemplate(from: decoder)
+    }
 }
 
 /// Data a template needs before it is worth offering. A template that asks for a
