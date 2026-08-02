@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -56,6 +56,10 @@ test("Remote Config is not published by any automated deploy", () => {
   //      an unscoped deploy publishes it;
   //   3. the repository's own publish path, whether invoked through an npm alias or by
   //      running the script directly.
+  //
+  // Every workflow is read, not a named few: a publish added to a workflow nobody thought to
+  // list is exactly as damaging as one added to a deploy, and the directory is the only
+  // enumeration that cannot go stale.
   const publishScriptFile = "deploy-remote-config.mjs";
   const publishAliases = Object.entries(repositoryJSON("scripts/package.json").scripts)
     .filter(([, command]) => command.includes(publishScriptFile))
@@ -67,11 +71,15 @@ test("Remote Config is not published by any automated deploy", () => {
       "than leaving this test asserting nothing",
   );
 
-  for (const workflow of ["deploy-staging.yml", "deploy-production.yml"]) {
-    const contents = readFileSync(
-      new URL(`../../.github/workflows/${workflow}`, import.meta.url),
-      "utf8",
-    );
+  const workflowsDirectory = new URL("../../.github/workflows/", import.meta.url);
+  const workflowFiles = readdirSync(workflowsDirectory)
+    .filter((name) => /\.ya?ml$/.test(name))
+    .sort();
+
+  assert.ok(workflowFiles.length > 0, "found no workflow files to check");
+
+  for (const workflow of workflowFiles) {
+    const contents = readFileSync(new URL(workflow, workflowsDirectory), "utf8");
 
     assert.ok(
       !contents.includes(publishScriptFile),
@@ -91,7 +99,12 @@ test("Remote Config is not published by any automated deploy", () => {
       .split("\n")
       .filter((line) => /\bfirebase(-tools@\S+)?\s+deploy\b/.test(line));
 
-    assert.ok(deployCommands.length > 0, `${workflow} should still deploy something`);
+    // Scoped to the workflows whose job *is* deploying, so the assertions above cannot pass
+    // vacuously if the deploy steps are ever restructured - while a workflow that legitimately
+    // deploys nothing is still checked for publishes.
+    if (workflow === "deploy-staging.yml" || workflow === "deploy-production.yml") {
+      assert.ok(deployCommands.length > 0, `${workflow} should still deploy something`);
+    }
 
     for (const command of deployCommands) {
       const only = command.match(/--only\s+("[^"]*"|'[^']*'|\S+)/);

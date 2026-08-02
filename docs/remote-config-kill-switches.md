@@ -100,7 +100,7 @@ Publishing it is a **full replace**, so a naive deploy would republish every swi
 
 Consequences, both deliberate:
 
-- **No CI workflow publishes the template, by any route.** `scripts/test/remote-config-template.test.mjs` closes all three: a deploy whose `--only` list names `remoteconfig`; a deploy carrying no `--only` at all, since `firebase.json` wires the template in and an unscoped deploy publishes it; and the repository's own publish path, whether run as `deploy-remote-config.mjs` or through any npm alias that invokes it. The alias names are read out of `scripts/package.json`, so renaming one cannot slip a publish past the test. Reading the live template from CI stays allowed - that is the archive preflight below.
+- **No CI workflow publishes the template, by any route.** `scripts/test/remote-config-template.test.mjs` closes all three: a deploy whose `--only` list names `remoteconfig`; a deploy carrying no `--only` at all, since `firebase.json` wires the template in and an unscoped deploy publishes it; and the repository's own publish path, whether run as `deploy-remote-config.mjs` or through any npm alias that invokes it. The alias names are read out of `scripts/package.json` and the workflow list is read out of `.github/workflows/`, so neither renaming an alias nor adding a workflow can slip a publish past the test. Reading the live template from CI stays allowed - that is the archive preflight below.
 - `scripts/deploy-remote-config.mjs` reads the live template first and refuses when any managed flag is currently off, unless you name each one you mean to re-enable.
 
 ```bash
