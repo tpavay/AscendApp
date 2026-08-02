@@ -127,7 +127,7 @@ struct AscendApp: App {
     
     private static func createModelContainer() -> ModelContainerCreationResult {
         do {
-            let schema = Schema(versionedSchema: AscendSchemaV2.self)
+            let schema = AscendLocalStore.schema
             let config = ModelConfiguration(schema: schema)
             let container = try ModelContainer(
                 for: schema,

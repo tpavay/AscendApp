@@ -12,7 +12,8 @@ Every line is a gate, not a suggestion, because none of them can be checked afte
 - [ ] A new `AscendSchemaV*` exists with a bumped `versionIdentifier`, listing **every** model, not only the changed ones.
 - [ ] The previous `AscendSchemaV*` is byte-for-byte unchanged.
 - [ ] A stage is appended to `AscendMigrationPlan.stages`, connecting the previous version to the new one, with no gap.
-- [ ] `AscendApp.createModelContainer` opens the store with the new schema.
+- [ ] `AscendLocalStore.currentSchema` points at the new schema. `AscendApp.createModelContainer` reads it from there, and so do account deletion's local sweep and the sign-in ownership gate.
+- [ ] If the change adds a model, `AscendLocalStoreFixture` gains a row for it. Deletion and the gate pick it up on their own, but nothing *proves* deletion removes it until the fixture can create one - and the coverage test fails until it does.
 - [ ] If a stage computes the value for a new required column, `SharedTestVectors/swiftdata-schema-shape.json` names that column in `customStageColumns`. See below.
 - [ ] `node scripts/check-swiftdata-schema.mjs --update` runs clean and the re-recorded `SharedTestVectors/swiftdata-schema-shape.json` is in the same commit.
 

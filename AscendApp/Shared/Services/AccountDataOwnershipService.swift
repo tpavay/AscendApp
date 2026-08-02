@@ -13,26 +13,24 @@ struct AccountDataOwnershipConflict: Equatable {
 }
 
 struct AccountDataOwnershipSummary: Equatable {
-    let workoutCount: Int
-    let pendingDeletionCount: Int
-    let leaderboardStatsCount: Int
-    let routineCount: Int
-    let routineFolderCount: Int
-    let climbAttemptCount: Int
-    let pendingMediaUploadCount: Int
-    let bestEffortCacheEntryCount: Int
+    /// Stored row counts for every model that holds user records, keyed by model type name.
+    ///
+    /// Schema-driven rather than a fixed set of named counters, so a model added later is counted
+    /// here by default. The named-counter version knew only eight of the twelve models in the
+    /// container, which is a gate that answers "no local data on this device" while another
+    /// account's records are sitting on it (#348).
+    ///
+    /// `AscendLocalStore.derivedCacheModels` are the one thing left out, and only here: a
+    /// recomputable row is nobody's data, and blocking on one would lock a legitimate account
+    /// switch out of a device that holds no records at all. Deletion still sweeps them.
+    let rowCountsByModelName: [String: Int]
 
     var hasLocalData: Bool {
-        [
-            workoutCount,
-            pendingDeletionCount,
-            leaderboardStatsCount,
-            routineCount,
-            routineFolderCount,
-            climbAttemptCount,
-            pendingMediaUploadCount,
-            bestEffortCacheEntryCount
-        ].contains { $0 > 0 }
+        rowCountsByModelName.values.contains { $0 > 0 }
+    }
+
+    func rowCount(of model: any PersistentModel.Type) -> Int {
+        rowCountsByModelName[String(describing: model)] ?? 0
     }
 }
 
@@ -99,6 +97,13 @@ enum AccountDataOwnershipService {
         sessionStore.recordLocalDataOwner(userId: signedInUserId)
     }
 
+    /// The owner ids the store can actually prove, which is only the models that carry one.
+    ///
+    /// Deliberately not schema-driven: there is no owner column to read on a `ClimbAttempt` or a
+    /// cache entry, so this list can only grow when a model gains one. What protects the device
+    /// against a model with no owner column is `summary.hasLocalData`, which covers every model
+    /// holding user records - an unowned leftover blocks the remembered-owner mismatch even though
+    /// it can never name its owner here.
     private static func storedOwnerUserIds(modelContext: ModelContext) throws -> [String] {
         var ownerIds = Set<String>()
 
@@ -115,16 +120,13 @@ enum AccountDataOwnershipService {
     }
 
     private static func summary(modelContext: ModelContext) throws -> AccountDataOwnershipSummary {
-        AccountDataOwnershipSummary(
-            workoutCount: try modelContext.fetchCount(FetchDescriptor<Workout>()),
-            pendingDeletionCount: try modelContext.fetchCount(FetchDescriptor<PendingWorkoutDeletion>()),
-            leaderboardStatsCount: try modelContext.fetchCount(FetchDescriptor<LeaderboardStats>()),
-            routineCount: try modelContext.fetchCount(FetchDescriptor<Routine>()),
-            routineFolderCount: try modelContext.fetchCount(FetchDescriptor<RoutineFolder>()),
-            climbAttemptCount: try modelContext.fetchCount(FetchDescriptor<ClimbAttempt>()),
-            pendingMediaUploadCount: try modelContext.fetchCount(FetchDescriptor<PendingMediaUpload>()),
-            bestEffortCacheEntryCount: try modelContext.fetchCount(FetchDescriptor<BestEffortCacheEntry>())
-        )
+        var rowCountsByModelName: [String: Int] = [:]
+
+        for model in AscendLocalStore.userRecordModels {
+            rowCountsByModelName[String(describing: model)] = try model.storedCount(in: modelContext)
+        }
+
+        return AccountDataOwnershipSummary(rowCountsByModelName: rowCountsByModelName)
     }
 
     private static func normalizedOwnerId(_ ownerId: String?) -> String? {

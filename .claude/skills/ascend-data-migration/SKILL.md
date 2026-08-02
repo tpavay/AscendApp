@@ -20,6 +20,7 @@ Start from what is actually here.
 | The shape older installs wrote, frozen | `AscendApp/Shared/Models/Migrations/AscendSchemaV1.swift` |
 | The shape the app writes now | `AscendApp/Shared/Models/Migrations/AscendSchemaV2.swift` |
 | The plan that carries V1 forward to V2 | `AscendApp/Shared/Models/Migrations/AscendMigrationPlan.swift` |
+| The one declaration of which schema is live, read by everything that must cover the whole store | `AscendApp/Shared/Models/AscendLocalStore.swift` (`currentSchema`) |
 | Where the container is opened, and the interrupted-migration retry | `AscendApp/App/AscendApp.swift` (`createModelContainer`, `finishInterruptedMigrationIfNeeded`) |
 | Proof it works against a real V1 store | `AscendAppTests/WorkoutSourceSchemaMigrationTests.swift` |
 | A gated post-launch backfill, for contrast | `AscendApp/Shared/Services/WorkoutSourceMigrationService.swift` |
