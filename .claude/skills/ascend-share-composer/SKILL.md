@@ -3,6 +3,8 @@ name: ascend-share-composer
 description: Use when working on Ascend sharing - the share composer canvas, the declarative share-card format and its one interpreter, card templates and their bundled JSON, backgrounds and presets, stat stickers and label placement, sticker gestures and snapping, photo and video export, AVFoundation compositing, Instagram Story sharing, or Photos permission at share time. Covers the user-composed canvas model that replaced fixed share-card carousels.
 paths:
   - AscendApp/Features/ShareComposer/**
+  - scripts/validate-share-card-templates.mjs
+  - scripts/test/share-card-templates.test.mjs
 ---
 
 # Share Composer Architecture
@@ -11,7 +13,7 @@ Sharing in Ascend is a **user-composed canvas**, not a gallery of pre-designed c
 
 ## The two composable inputs - keep them independent
 - **Background** = what fills the canvas. Sources: the user's Camera Roll (photo or video) or a bundled/known **preset**. For a Live Climb, the climb's bespoke share card becomes one of the presets - it's no longer a parallel share path. Backgrounds and stats are decoupled: a background is just a backing layer, never bundled with baked-in stats.
-- **Stat stickers** = draggable overlays the user adds on top. Each sticker is one stat (Steps, Duration, Calories, Avg SPM, Heart Rate, Climb Rank/"Nth finisher", Climb Name, Date, etc.) rendered in a chosen visual style. The user adds as many as they want, in any arrangement.
+- **Stat stickers** = draggable overlays the user adds on top. A sticker carries one stat (Steps, Duration, Calories, Avg SPM, Heart Rate, Climb Rank/"Nth finisher", Climb Name, Date, etc.), optionally composited with more, and is drawn by the card format - see *One card format, one interpreter*. The user adds as many as they want, in any arrangement.
 
 ## Composer interaction model
 - Each sticker supports simultaneous pan / pinch-scale / rotate via composed SwiftUI gestures. Drag-to-bottom reveals a trash zone; release over it deletes the sticker.
@@ -23,7 +25,7 @@ Sharing in Ascend is a **user-composed canvas**, not a gallery of pre-designed c
 Everything drawn on a share - a sticker on the canvas, a full recap template, every exported pixel - is a `ShareCardNode` tree rendered by `ShareCardRenderer`. **Never add a second renderer.** The composer's worst bug came from having two: a per-stat setting the chosen one did not accept was silently discarded, so a label placed on the left jumped back on top the moment a stat was added.
 
 - **Format**: `Models/ShareCardFormat.swift` (elements + modifiers), `ShareCardStyling.swift` (colors, fills, typography), `ShareCardLabel.swift` (placement + policy). SwiftUI-free and `Codable`; `Views/ShareCardStyleResolvers.swift` turns it into `Font`/`Color`.
-- **Interpreter**: `Views/ShareCardRenderer.swift` - one `switch`, one modifier order (frame, shadow, padding, background, rotation, opacity). A layout that needs a different order nests a node; the schema does not grow a knob.
+- **Interpreter**: `Views/ShareCardRenderer.swift` - one `switch`, one modifier order (frame, shadow, padding, background, border, rotation, opacity). A layout that needs a different order nests a node; the schema does not grow a knob.
 - **Stickers**: `Models/ShareStickerCardBuilder.swift` turns a `ShareStickerInstance` into that same tree. Pure, so arrangement rules are testable without a view tree.
 - **Templates**: `Resources/share-card-templates-v1.json`. Adding a card is a JSON edit plus a screenshot - **no Swift**. `scripts/validate-share-card-templates.mjs` reads the renderer's vocabulary out of the Swift sources and fails CI on a typo'd stat or element.
 
