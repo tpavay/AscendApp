@@ -16,6 +16,7 @@ Routines are a **first-class peer feature** to climbs - not a stepping stone tow
 Both have their own browse, detail, live, and leaderboard surfaces. Don't fold one into the other.
 
 ## Routine structure
+- `Routine` and `RoutineFolder` are `@Model` types: changing what they persist is a schema migration, not a local edit - see `ascend-data-migration`.
 - A routine is an ordered sequence of **intervals**, each specifying a target level (1-25 on the StairMaster mapping) and a duration. The session ends when all intervals are completed, or when the user ends early.
 - Routines are content-driven: server-published catalog entries plus user-created routines. Adding a new routine should never require an app release. The same content-driven principle that applies to the climbs catalog applies to routines.
 - User-created routines live alongside server-published routines and use the same model. The browse surface distinguishes them visually (e.g. "My Routines" vs. catalog) but the detail / live / leaderboard experiences are the same.

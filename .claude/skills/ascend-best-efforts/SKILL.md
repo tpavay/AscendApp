@@ -23,4 +23,5 @@ paths:
 - Reserve full achievement sentences (e.g. *"2nd fastest 3,000 steps all-time"*) for surfaces where the effort appears out of record-category context - workout list, workout summary, Live Climb completion, share cards.
 
 ## Related
+- `BestEffortCacheEntry` and `BestEffortCacheMetadata` are `@Model` types, so changing what they persist is a schema migration, not a cache-version bump - see `ascend-data-migration`.
 - Achievement motif vocabulary (laurels vs crowns) lives in `ascend-design-system`.

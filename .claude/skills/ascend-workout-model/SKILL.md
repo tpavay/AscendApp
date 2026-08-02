@@ -22,10 +22,8 @@ Three distinct concepts. Keep them cleanly separated - don't fold feature-specif
 **Participation = why the workout exists / what it counts toward.** Feature-specific attribution (climb attempt, routine, challenge, future contexts) lives on a separate participation type, never as nullable fields on `Workout`. New features add new participation kinds; they don't add nullable columns to the canonical type. This is the open/closed principle applied to the workout schema.
 
 ### Persisted shape and schema versioning
-- The store is versioned. `AscendSchemaV2` is current, the stages live in `AscendApp/Shared/Models/Migrations/`, and `AscendApp.createModelContainer` builds the container from `AscendMigrationPlan` - never from an ad-hoc `Schema([...])` list, which would silently take lightweight migration instead of the stage.
-- Any change to an `@Model`'s persisted shape adds a `VersionedSchema` plus a stage. Pre-launch means *production* data is free; dev, staging, and TestFlight stores are not, and lightweight migration defaults every existing row without saying so.
 - Enums on `Workout` are stored as raw values, `source` included (`sourceRawValue`, with `source` as a computed accessor). A Codable enum cannot appear in a `#Predicate` - SwiftData rejects it with `unsupportedPredicate` - so a non-raw enum column is unfilterable, which is what forced source filtering to scan the whole store in ASCEND-IOS-1K.
-- A `didMigrate` that dies mid-flight leaves the store on the new version with the old values gone, and SwiftData will not re-enter the stage. Recovery therefore runs against the already-migrated store at launch (`AscendMigrationPlan.recoverInterruptedMigrationIfNeeded`), off a stash that survives until the repair succeeds; a failed repair reports and retries next launch, bounded by an attempt counter, rather than blocking launch.
+- Everything else about changing that shape - the versioned schema and plan, what lightweight migration silently does to existing rows, and how an interrupted stage recovers - belongs to `ascend-data-migration`. Load it before editing the `@Model`.
 
 ### Integrity rules
 - Sensor capture (headphone motion, future wearables) lives behind a shared service layer. The step / progress algorithm is pure compute - unit-testable without hardware. Sensor callbacks must run safely off the main thread; UI updates marshal back to main explicitly.
@@ -93,4 +91,5 @@ Workouts are described by **absolute, measured signals** - steps, duration, cade
 Existing code for these can stay until the cleanup task lands, but treat it as legacy - don't add features through it, don't introduce new dependencies on it, and prefer absolute metrics in new code.
 
 ## Reference
+- Changing what `Workout` persists - adding, removing, renaming or retyping a stored property - is a schema migration; see `ascend-data-migration` before editing the `@Model`.
 - `docs/heart-rate-zones-plan.md` - heart rate zones (marked POST-LAUNCH parked).
