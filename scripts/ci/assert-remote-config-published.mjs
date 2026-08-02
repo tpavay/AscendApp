@@ -27,10 +27,12 @@ import {appFlagKeys, unpublishedFlagProblems} from "../lib/remote-config-templat
 const FIREBASE_TOOLS = "firebase-tools@15.22.1";
 const STRUCTURAL_EXIT_CODE = 2;
 
+// The publish script's npm alias lives beside its project id so a renamed script cannot
+// leave the remediation below pointing at a command that does not exist.
 const PROJECTS = {
-  dev: "ascend-f2e4f",
-  staging: "ascend-staging-fa7d5",
-  prod: "ascend-prod-9c8f2",
+  dev: {projectId: "ascend-f2e4f", publishScript: "remoteconfig:deploy"},
+  staging: {projectId: "ascend-staging-fa7d5", publishScript: "remoteconfig:deploy:staging"},
+  prod: {projectId: "ascend-prod-9c8f2", publishScript: "remoteconfig:deploy:production"},
 };
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -40,7 +42,9 @@ const FLAG_SOURCE_PATH = resolve(
 );
 
 function failStructurally(message) {
-  console.error(`::error::${message}`);
+  // A workflow command terminates at its first raw newline; `%0A` is how a multi-line
+  // annotation survives into the rendered error rather than only the raw log.
+  console.error(`::error::${message.replaceAll("\n", "%0A")}`);
   process.exit(STRUCTURAL_EXIT_CODE);
 }
 
@@ -52,7 +56,7 @@ if (!environment || !(environment in PROJECTS)) {
   );
 }
 
-const projectId = PROJECTS[environment];
+const {projectId, publishScript} = PROJECTS[environment];
 
 let swiftSource;
 try {
@@ -70,16 +74,14 @@ if (appKeys.length === 0) {
   );
 }
 
-// A token is only needed on CI; a developer running this locally is already
-// logged in through the CLI.
-const token = process.env.FIREBASE_TOKEN;
-const tokenArguments = token ? ["--token", token] : [];
-
 let raw;
 try {
+  // FIREBASE_TOKEN is read straight from the inherited environment by firebase-tools, so it
+  // is deliberately not passed as an argument - a CI credential does not belong in the
+  // runner's process argument list. A developer running this locally is already logged in.
   raw = execFileSync(
     "npx",
-    ["-y", FIREBASE_TOOLS, "remoteconfig:get", "--project", projectId, "--json", ...tokenArguments],
+    ["-y", FIREBASE_TOOLS, "remoteconfig:get", "--project", projectId, "--json"],
     {cwd: REPO_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"]},
   );
 } catch (error) {
@@ -104,16 +106,20 @@ if (problems.length > 0) {
   for (const problem of problems) {
     console.error(`::error::${problem}`);
   }
+  // A workflow command ends at its first newline, so the remediation would be stranded in
+  // the raw log - the least visible place at the moment someone needs it. Keep the
+  // annotation to one line and print the command separately.
   console.error(
     `::error::${problems.length} of ${appKeys.length} kill switch(es) are unreachable in ` +
-      `${projectId}. Publish the template before archiving:\n` +
-      `  cd scripts && npm run remoteconfig:deploy${environment === "dev" ? "" : `:${environment === "prod" ? "production" : environment}`} -- --apply\n` +
-      "See docs/remote-config-kill-switches.md.",
+      `${projectId}. Publish the template before archiving: ` +
+      `cd scripts && npm run ${publishScript} -- --apply (see docs/remote-config-kill-switches.md).`,
   );
+  console.error(`  cd scripts && npm run ${publishScript} -- --apply`);
+  console.error("  See docs/remote-config-kill-switches.md.");
   process.exit(1);
 }
 
 console.log(
-  `Verified all ${appKeys.length} kill switch(es) are published as BOOLEAN parameters in ` +
-    `${projectId}.`,
+  `Verified all ${appKeys.length} kill switch(es) are published in ${projectId} as BOOLEAN ` +
+    "parameters carrying a backend default the client can resolve.",
 );

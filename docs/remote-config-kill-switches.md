@@ -100,7 +100,7 @@ Publishing it is a **full replace**, so a naive deploy would republish every swi
 
 Consequences, both deliberate:
 
-- Remote Config is **not** in the CI deploy `--only` lists. `scripts/test/remote-config-template.test.mjs` fails if it ever is.
+- Remote Config is **not** in the CI deploy `--only` lists. `scripts/test/remote-config-template.test.mjs` fails if it ever is, and fails equally on a deploy that carries no `--only` at all - `firebase.json` wires the template in, so an unscoped deploy publishes it.
 - `scripts/deploy-remote-config.mjs` reads the live template first and refuses when any managed flag is currently off, unless you name each one you mean to re-enable.
 
 ```bash
@@ -112,7 +112,11 @@ npm run remoteconfig:deploy:production -- --apply
 ```
 
 To restore normal behaviour, flip the parameter back to `true` in the console.
-Deleting the parameter also works - the flag falls back to its shipped default, which is `true`.
+
+**Flip it, do not delete it.**
+Deleting the parameter restores the same behaviour - the flag falls back to its shipped default, which is `true` - but it also removes the lever, and the archive preflight below refuses to build staging or production while a flag the binary reads is missing from the backend.
+An operator who deletes rather than flips will block the next release, with nothing in the build log pointing at the console as the cause.
+The same applies to switching a parameter to "use in-app default": the key stays visible in the console while the backend stops supplying a value, which the preflight treats exactly like a deletion.
 
 ### Publishing is not optional, and CI now checks it
 
@@ -121,8 +125,15 @@ Every flag resolved to its `shippedDefault`, the app behaved completely normally
 The comparison nobody made was against the live backend, which was empty in dev, staging and production.
 
 `scripts/ci/assert-remote-config-published.mjs <dev|staging|prod>` closes that.
-It reads the live template and fails the staging and production archives when a flag the build reads is missing from the backend, or is published as something other than a `BOOLEAN`.
-Both are the same failure from the client's point of view: strict parsing treats a non-boolean as absent, so the flag silently falls back to its shipped default.
+It reads the live template and fails the staging and production archives when a flag the build reads is unreachable on the backend it will talk to.
+
+Unreachable is wider than absent.
+The condition that matters is `RemoteConfigValue.source == .remote`, the single thing `FirebaseRemoteFeatureFlagSource.remoteSourcedValues()` requires before a value counts, so the preflight refuses all of these:
+
+- The parameter is **missing** from the live template.
+- The parameter is set to **use in-app default**, so the backend deliberately supplies no value. The key is right there in the console and the flag still resolves from `shippedDefault` - the most deceptive shape of the lot.
+- The parameter carries **only conditional values** and no default, so any client matching no condition receives nothing.
+- The parameter is not declared **`BOOLEAN`**. Note carefully what this one is and is not: the client reads `stringValue` and never inspects `valueType`, so a `STRING` parameter holding `"false"` *is* honoured as a live kill switch. Do not read a type warning during an incident as "the switch is inert" - it may well be doing exactly what you asked. The declaration is refused because the template requires `BOOLEAN` and because the console type is what stops a value the client's strict parser would drop from ever being saved against a switch. Blocking a config that happens to work is the safe direction here; passing one that does not is #318.
 
 Two things it deliberately does **not** do:
 

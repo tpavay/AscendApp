@@ -52,22 +52,39 @@ test("Remote Config is not part of any automated deploy", () => {
   // word: the workflows legitimately *read* the live template as an archive preflight
   // (`assert-remote-config-published.mjs`), and a substring check would either forbid that
   // or, worse, pass on the spelling and be believed to mean more than it does.
+  //
+  // Every deploy must also *carry* an `--only`. firebase.json wires the template in, so a
+  // bare `firebase deploy` publishes it - and would sail past a check that only inspects the
+  // `--only` lists it happens to find.
   for (const workflow of ["deploy-staging.yml", "deploy-production.yml"]) {
     const contents = readFileSync(
       new URL(`../../.github/workflows/${workflow}`, import.meta.url),
       "utf8",
     );
 
-    const deployTargets = [...contents.matchAll(/--only\s+(\S+)/g)].flatMap((match) =>
-      match[1].split(","),
-    );
+    const deployCommands = contents
+      .split("\n")
+      .filter((line) => /\bfirebase(-tools@\S+)?\s+deploy\b/.test(line));
 
-    assert.ok(deployTargets.length > 0, `${workflow} should still deploy something`);
-    assert.ok(
-      !deployTargets.includes("remoteconfig"),
-      `${workflow} must not deploy remoteconfig - publishing is a full replace and would ` +
-        "silently re-enable an active kill switch",
-    );
+    assert.ok(deployCommands.length > 0, `${workflow} should still deploy something`);
+
+    for (const command of deployCommands) {
+      const only = command.match(/--only\s+("[^"]*"|'[^']*'|\S+)/);
+
+      assert.ok(
+        only,
+        `${workflow} runs a deploy with no --only list: ${command.trim()} - firebase.json wires ` +
+          "remoteconfig in, so an unscoped deploy publishes the template",
+      );
+
+      const targets = only[1].replaceAll(/["']/g, "").split(",");
+
+      assert.ok(
+        !targets.includes("remoteconfig"),
+        `${workflow} must not deploy remoteconfig - publishing is a full replace and would ` +
+          "silently re-enable an active kill switch",
+      );
+    }
   }
 });
 
@@ -149,7 +166,11 @@ test("a switch an operator turned off is the mechanism working, not a problem", 
 });
 
 test("a single flag added to the app but never published is caught", () => {
-  const live = { parameters: { existing_flag_enabled: { valueType: "BOOLEAN" } } };
+  const live = {
+    parameters: {
+      existing_flag_enabled: { valueType: "BOOLEAN", defaultValue: { value: "true" } },
+    },
+  };
 
   const problems = unpublishedFlagProblems(live, [
     "existing_flag_enabled",
@@ -160,9 +181,12 @@ test("a single flag added to the app but never published is caught", () => {
   assert.match(problems[0], /brand_new_flag_enabled is missing from the live template/);
 });
 
-test("a published parameter of the wrong type is as unreachable as a missing one", () => {
-  // The client parses strictly and treats a non-boolean as absent, so this silently falls
-  // back to the shipped default in the same way.
+test("a parameter published with the wrong declared type is refused", () => {
+  // Not because the client would ignore it - it reads `stringValue` and never inspects
+  // `valueType`, so a STRING "false" is honoured as a live kill switch. The template
+  // declares BOOLEAN, and the declaration is what keeps a value the client's strict parser
+  // would drop from ever being saved here. Erring toward blocking a working config is the
+  // safe direction; the opposite is what #318 was.
   const live = {
     parameters: { a_flag_enabled: { valueType: "STRING", defaultValue: { value: "true" } } },
   };
@@ -170,7 +194,50 @@ test("a published parameter of the wrong type is as unreachable as a missing one
   const problems = unpublishedFlagProblems(live, ["a_flag_enabled"]);
 
   assert.equal(problems.length, 1);
-  assert.match(problems[0], /published as STRING, not BOOLEAN/);
+  assert.match(problems[0], /published as STRING, not the BOOLEAN the template declares/);
+});
+
+test("a parameter set to use the in-app default is as unreachable as a missing one", () => {
+  // A normal console option, and the most deceptive shape of all: the key is right there in
+  // Remote Config, but the backend supplies nothing, `RemoteConfigValue.source` stays
+  // `.static`, and the flag resolves from `shippedDefault`.
+  const live = {
+    parameters: {
+      a_flag_enabled: { valueType: "BOOLEAN", defaultValue: { useInAppDefault: true } },
+    },
+  };
+
+  const problems = unpublishedFlagProblems(live, ["a_flag_enabled"]);
+
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /use in-app default/);
+});
+
+test("a parameter carrying only conditional values is reported as unreachable", () => {
+  // A client matching no condition receives nothing, so the switch is live for some devices
+  // and decorative for the rest - which is not a lever anyone can rely on mid-incident.
+  const live = {
+    parameters: {
+      a_flag_enabled: {
+        valueType: "BOOLEAN",
+        conditionalValues: { "iOS internal": { value: "false" } },
+      },
+    },
+  };
+
+  const problems = unpublishedFlagProblems(live, ["a_flag_enabled"]);
+
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /only conditional values and no default value/);
+});
+
+test("a parameter with no value of any kind is reported as unreachable", () => {
+  const live = { parameters: { a_flag_enabled: { valueType: "BOOLEAN" } } };
+
+  const problems = unpublishedFlagProblems(live, ["a_flag_enabled"]);
+
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /no default value/);
 });
 
 test("a result-wrapped live template is unwrapped before the published check", () => {
@@ -183,8 +250,8 @@ test("parameters the app does not know about are ignored", () => {
   // The backend is allowed to carry keys for other app versions.
   const live = {
     parameters: {
-      a_flag_enabled: { valueType: "BOOLEAN" },
-      some_future_flag_enabled: { valueType: "BOOLEAN" },
+      a_flag_enabled: { valueType: "BOOLEAN", defaultValue: { value: "true" } },
+      some_future_flag_enabled: { valueType: "BOOLEAN", defaultValue: { useInAppDefault: true } },
     },
   };
 

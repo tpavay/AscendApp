@@ -56,6 +56,13 @@ export function appFlagKeys(swiftSource) {
  * template's *shape*, never on its values: a switch an operator has deliberately turned off
  * is the mechanism working, and must never be mistaken for a problem.
  *
+ * "Unreachable" is wider than "absent". The condition the client actually cares about is
+ * `RemoteConfigValue.source == .remote`, which is the single thing
+ * `FirebaseRemoteFeatureFlagSource.remoteSourcedValues()` requires before a value counts. A
+ * parameter published with "use in-app default", or one carrying only conditional values with
+ * no default at all, leaves that source `.static` for a client matching no condition - the
+ * key is in the console, looks configured, and still resolves to `shippedDefault`.
+ *
  * Parameters the app does not know about are ignored - the backend is allowed to carry keys
  * for other app versions.
  */
@@ -71,12 +78,30 @@ export function unpublishedFlagProblems(liveTemplate, appKeys) {
       ];
     }
 
-    // Strict boolean parsing on the client treats a non-boolean value as absent, so a
-    // parameter of the wrong type is unreachable in exactly the same way as a missing one.
+    if (parameter.defaultValue?.useInAppDefault === true) {
+      return [
+        `${key} is published with "use in-app default" - the backend deliberately supplies no ` +
+          "value, so the client resolves it from the shipped default and the switch is decorative.",
+      ];
+    }
+
+    if (parameter.defaultValue?.value === undefined) {
+      const only = parameter.conditionalValues ? " only conditional values and" : "";
+      return [
+        `${key} is published with${only} no default value - a client matching no condition ` +
+          "receives nothing from the backend and falls back to the shipped default.",
+      ];
+    }
+
+    // Not a claim that the current value is inert: the client reads `stringValue` and never
+    // inspects `valueType`, so a STRING "false" would in fact be honoured. The template
+    // declares BOOLEAN, and that declaration is what keeps a value the client's strict parser
+    // would drop from ever reaching the parameter in the first place.
     if (parameter.valueType !== "BOOLEAN") {
       return [
-        `${key} is published as ${parameter.valueType ?? "an untyped parameter"}, not BOOLEAN - ` +
-          "the client ignores it and falls back to the shipped default.",
+        `${key} is published as ${parameter.valueType ?? "an untyped parameter"}, not the ` +
+          "BOOLEAN the template declares - the console type is what stops a value the client's " +
+          "strict parser would drop from being saved against this switch.",
       ];
     }
 
