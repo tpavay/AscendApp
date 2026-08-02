@@ -122,6 +122,88 @@ struct AccountDeletionServiceTests {
         #expect(routines.count == 1, "Expected staged local deletion to roll back.")
     }
 
+    // MARK: - Local store sweep
+
+    @Test("Empties every model in the live schema", .bug(id: 348))
+    func deletesEveryModelInTheLiveSchema() async throws {
+        let gateway = RecordingAccountDeletionGateway()
+        let service = AccountDeletionService(gateway: gateway, localCleanup: StubLocalCleanup())
+        let modelContext = try makeModelContext()
+
+        let insertedCounts = try AscendLocalStoreFixture.insertOneOfEach(into: modelContext)
+        for (modelName, count) in insertedCounts {
+            #expect(count > 0, "Fixture inserted nothing for \(modelName); the sweep would pass vacuously.")
+        }
+
+        try await service.deleteAccount(modelContext: modelContext)
+
+        let remainingCounts = try AscendLocalStoreFixture.storedCountsByModelName(in: modelContext)
+        for (modelName, count) in remainingCounts {
+            #expect(count == 0, "Account deletion left \(count) \(modelName) row(s) on the device.")
+        }
+    }
+
+    @Test("Covers every model in the live schema with a fixture", .bug(id: 348))
+    func hasAFixtureForEveryModelInTheLiveSchema() throws {
+        // The guard that makes the sweep test stay honest. A model added to the schema with no
+        // fixture would leave `deletesEveryModelInTheLiveSchema` asserting 0 == 0 for it forever,
+        // which is how four models ended up surviving account deletion unnoticed.
+        let uncovered = AscendLocalStoreFixture.liveModelNames
+            .subtracting(AscendLocalStoreFixture.coveredModelNames)
+            .sorted()
+
+        #expect(
+            uncovered.isEmpty,
+            """
+            \(uncovered.joined(separator: ", ")) is in the live schema with no fixture row. \
+            Add one to AscendLocalStoreFixture so deletion is actually proven to remove it.
+            """
+        )
+    }
+
+    @Test("Rolls the whole schema sweep back when the auth deletion fails", .bug(id: 348))
+    func rollsBackEveryModelInTheLiveSchemaWhenTheAuthDeletionFails() async throws {
+        let gateway = RecordingAccountDeletionGateway()
+        gateway.authDeletionError = TestError.remoteFailure
+        let service = AccountDeletionService(gateway: gateway, localCleanup: StubLocalCleanup())
+        let modelContext = try makeModelContext()
+
+        let insertedCounts = try AscendLocalStoreFixture.insertOneOfEach(into: modelContext)
+
+        await #expect(throws: AccountDeletionService.DeletionError.self) {
+            try await service.deleteAccount(modelContext: modelContext)
+        }
+
+        // Widening the sweep must not widen what an aborted deletion destroys.
+        let remainingCounts = try AscendLocalStoreFixture.storedCountsByModelName(in: modelContext)
+        #expect(remainingCounts == insertedCounts)
+    }
+
+    // MARK: - What the next account on this device sees
+
+    @Test("Leaves no completed climbs or resumable session for the next account", .bug(id: 348))
+    func leavesNothingForTheNextAccountToClaim() async throws {
+        let gateway = RecordingAccountDeletionGateway()
+        let service = AccountDeletionService(gateway: gateway, localCleanup: StubLocalCleanup())
+        let modelContext = try makeModelContext()
+
+        try AscendLocalStoreFixture.insertOneOfEach(into: modelContext)
+
+        // The deleted account's record, read exactly the way the surfaces that publish it do.
+        #expect(ClimbCompletionRepository.completedClimbSet(modelContext: modelContext).completedCount == 1)
+
+        try await service.deleteAccount(modelContext: modelContext)
+
+        // A second account signs in on this device. Deletion cleared the UserDefaults pointer, so
+        // the draft store falls back to "most recent draft" - which is only safe because there is
+        // no longer a draft to find.
+        let nextAccountDefaults = try makeUserDefaults()
+        let draftStore = ActiveHeadphoneWorkoutDraftStore(userDefaults: nextAccountDefaults)
+
+        #expect(ClimbCompletionRepository.completedClimbSet(modelContext: modelContext).completedCount == 0)
+        #expect(try draftStore.activeDraft(in: modelContext) == nil)
+    }
+
     // MARK: - Sign in with Apple token revocation
 
     @Test
@@ -219,22 +301,17 @@ struct AccountDeletionServiceTests {
 
     // MARK: - Helpers
 
+    /// Over the live schema, not a hand-listed subset. The subset this replaced was missing
+    /// `ActiveHeadphoneWorkoutDraft`, so no test here could have seen the draft survive deletion.
     private func makeModelContext() throws -> ModelContext {
-        let container = try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            PendingWorkoutDeletion.self,
-            LeaderboardStats.self,
-            Routine.self,
-            RoutineFolder.self,
-            ClimbAttempt.self,
-            PendingMediaUpload.self,
-            BestEffortCacheEntry.self,
-            BestEffortCacheMetadata.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
-        return ModelContext(container)
+        try AscendLocalStoreFixture.makeModelContext()
+    }
+
+    private func makeUserDefaults() throws -> UserDefaults {
+        let suiteName = "AccountDeletionServiceTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
     }
 }
 

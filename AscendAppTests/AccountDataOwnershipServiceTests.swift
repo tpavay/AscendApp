@@ -27,7 +27,43 @@ struct AccountDataOwnershipServiceTests {
         }
 
         #expect(conflict.rememberedOwnerUserId == "user-a")
-        #expect(conflict.summary.routineCount == 1)
+        #expect(conflict.summary.rowCount(of: Routine.self) == 1)
+    }
+
+    @Test("Counts every model in the live schema as local data", .bug(id: 348))
+    func blocksARememberedOwnerMismatchForAnyModelInTheLiveSchema() throws {
+        let modelContext = try AscendLocalStoreFixture.makeModelContext()
+        let defaults = try makeUserDefaults()
+        let sessionStore = AccountSessionStore(userDefaults: defaults)
+        sessionStore.recordLocalDataOwner(userId: "user-a")
+
+        // An in-progress session draft was in the container and outside the gate's fixed list of
+        // counters, so on its own it read as an empty device (#348).
+        modelContext.insert(
+            ActiveHeadphoneWorkoutDraft(
+                sessionID: "user-a-session",
+                kind: .justClimb,
+                title: "Session",
+                subtitle: "In progress",
+                workoutName: "Session",
+                targetStepCount: nil,
+                targetDurationSeconds: nil
+            )
+        )
+        try modelContext.save()
+
+        let decision = try AccountDataOwnershipService.evaluateAccess(
+            modelContext: modelContext,
+            signedInUserId: "user-b",
+            sessionStore: sessionStore
+        )
+
+        guard case .blocked(let conflict) = decision else {
+            Issue.record("Expected leftover data in any live model to block a different account.")
+            return
+        }
+
+        #expect(conflict.summary.rowCount(of: ActiveHeadphoneWorkoutDraft.self) == 1)
     }
 
     @Test
@@ -68,7 +104,7 @@ struct AccountDataOwnershipServiceTests {
         }
 
         #expect(conflict.storedOwnerUserIds == ["user-a"])
-        #expect(conflict.summary.workoutCount == 1)
+        #expect(conflict.summary.rowCount(of: Workout.self) == 1)
     }
 
     @Test
@@ -89,21 +125,7 @@ struct AccountDataOwnershipServiceTests {
     }
 
     private func makeModelContext() throws -> ModelContext {
-        let container = try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            PendingWorkoutDeletion.self,
-            LeaderboardStats.self,
-            Routine.self,
-            RoutineFolder.self,
-            ClimbAttempt.self,
-            PendingMediaUpload.self,
-            BestEffortCacheEntry.self,
-            BestEffortCacheMetadata.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
-        return ModelContext(container)
+        try AscendLocalStoreFixture.makeModelContext()
     }
 
     private func makeUserDefaults() throws -> UserDefaults {

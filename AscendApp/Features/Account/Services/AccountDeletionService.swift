@@ -352,43 +352,21 @@ final class AccountDeletionService {
 
     // MARK: - Local Deletion
 
-    /// Stages local data deletion without saving (allows rollback on failure)
+    /// Empties the local store without saving, so the whole sweep can still be rolled back.
+    ///
+    /// Driven by `AscendLocalStore` rather than by a list of types written out here. The
+    /// hand-written version stopped covering the store every time a model was added and said
+    /// nothing about it: `ClimbAttempt`, both Best Effort cache models and the in-progress session
+    /// draft were all in the container and none of them were being deleted, so the next account to
+    /// sign in on the device inherited them (#348). Deletion means the store is empty, not that a
+    /// remembered set of types is.
+    ///
+    /// Cascade children go first so the rollback below stays survivable - see
+    /// `AscendLocalStore.modelsInCascadeSafeDeletionOrder`.
     private func stageLocalDataDeletion(modelContext: ModelContext) throws {
         do {
-            let workoutDescriptor = FetchDescriptor<Workout>()
-            let workouts = try modelContext.fetch(workoutDescriptor)
-            for workout in workouts {
-                modelContext.delete(workout)
-            }
-
-            let statsDescriptor = FetchDescriptor<LeaderboardStats>()
-            let stats = try modelContext.fetch(statsDescriptor)
-            for stat in stats {
-                modelContext.delete(stat)
-            }
-
-            let routineDescriptor = FetchDescriptor<Routine>()
-            let routines = try modelContext.fetch(routineDescriptor)
-            for routine in routines {
-                modelContext.delete(routine)
-            }
-
-            let folderDescriptor = FetchDescriptor<RoutineFolder>()
-            let folders = try modelContext.fetch(folderDescriptor)
-            for folder in folders {
-                modelContext.delete(folder)
-            }
-
-            let pendingUploadDescriptor = FetchDescriptor<PendingMediaUpload>()
-            let pendingUploads = try modelContext.fetch(pendingUploadDescriptor)
-            for upload in pendingUploads {
-                modelContext.delete(upload)
-            }
-
-            let pendingWorkoutDeletionDescriptor = FetchDescriptor<PendingWorkoutDeletion>()
-            let pendingWorkoutDeletions = try modelContext.fetch(pendingWorkoutDeletionDescriptor)
-            for pendingDeletion in pendingWorkoutDeletions {
-                modelContext.delete(pendingDeletion)
+            for model in AscendLocalStore.modelsInCascadeSafeDeletionOrder {
+                try model.stageDeletionOfAll(in: modelContext)
             }
         } catch {
             throw DeletionError.localDataDeletionFailed(error.localizedDescription)

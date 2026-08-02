@@ -35,6 +35,7 @@ const APP_ROOT = join(REPO_ROOT, "AscendApp");
 const MIGRATIONS_DIR = join(APP_ROOT, "Shared/Models/Migrations");
 const PLAN_PATH = join(MIGRATIONS_DIR, "AscendMigrationPlan.swift");
 const ENTRY_POINT_PATH = join(APP_ROOT, "App/AscendApp.swift");
+const LOCAL_STORE_PATH = join(APP_ROOT, "Shared/Models/AscendLocalStore.swift");
 const BASELINE_PATH = join(REPO_ROOT, "SharedTestVectors/swiftdata-schema-shape.json");
 
 /**
@@ -67,7 +68,7 @@ export function readSchemaFacts() {
   }
 
   const plan = parseMigrationPlan(readFileSync(PLAN_PATH, "utf-8"), relative(REPO_ROOT, PLAN_PATH));
-  const containerSchema = readContainerSchema(readFileSync(ENTRY_POINT_PATH, "utf-8"));
+  const containerSchema = readContainerSchema();
   const currentSchema = versionedSchemas.at(-1);
 
   return {
@@ -123,14 +124,33 @@ export function evaluate(facts, baseline) {
   };
 }
 
-/** @param {string} source `AscendApp.swift` text. @return {string} The schema the container opens. */
-function readContainerSchema(source) {
-  const match = /Schema\(versionedSchema:\s*([A-Za-z_][A-Za-z0-9_]*)\.self\)/
-    .exec(stripComments(source));
-  if (!match) {
-    throw new Error("AscendApp.swift does not build its Schema from a VersionedSchema");
+/**
+ * The `VersionedSchema` the app actually opens its store with.
+ *
+ * The entry point may name it directly, or defer to `AscendLocalStore` - the one declaration of
+ * the live model set that account deletion's sweep and the sign-in ownership gate read too, so
+ * none of them can drift from the container (#348). Following that hop keeps this check pointed
+ * at what opens the store rather than at whatever the entry point happens to spell out.
+ * @return {string} The schema the container opens.
+ */
+function readContainerSchema() {
+  const entryPoint = stripComments(readFileSync(ENTRY_POINT_PATH, "utf-8"));
+  const named = /Schema\(versionedSchema:\s*([A-Za-z_][A-Za-z0-9_]*)\.self\)/.exec(entryPoint);
+  if (named) return named[1];
+
+  if (!/AscendLocalStore\.schema\b/.test(entryPoint)) {
+    throw new Error(
+      "AscendApp.swift builds its Schema from neither a VersionedSchema nor AscendLocalStore",
+    );
   }
-  return match[1];
+
+  const localStore = stripComments(readFileSync(LOCAL_STORE_PATH, "utf-8"));
+  const deferred = /currentSchema:\s*any VersionedSchema\.Type\s*\{\s*([A-Za-z_][A-Za-z0-9_]*)\.self/
+    .exec(localStore);
+  if (!deferred) {
+    throw new Error("AscendLocalStore.swift does not name a VersionedSchema as currentSchema");
+  }
+  return deferred[1];
 }
 
 /** @param {string} directory Directory to walk. @return {string[]} Every `.swift` file beneath it. */
