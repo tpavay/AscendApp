@@ -20,6 +20,14 @@ enum ClosedLegacyMediaPath {
 
     private static let closedRootPrefixes = ["photos/", "videos/", "profile_pictures/"]
 
+    /// Hosts that serve Firebase Storage download URLs: the production endpoint
+    /// `StorageReference.downloadURL()` emits, plus the emulator's loopback host.
+    private static let storageHosts: Set<String> = [
+        "firebasestorage.googleapis.com",
+        "127.0.0.1",
+        "localhost"
+    ]
+
     /// Whether a Firebase Storage download URL points at a closed root prefix.
     static func addressesClosedRootObject(_ url: URL) -> Bool {
         guard let objectPath = storageObjectPath(in: url) else { return false }
@@ -28,16 +36,19 @@ enum ClosedLegacyMediaPath {
 
     /// The object path a Firebase Storage download URL addresses.
     ///
-    /// A download URL is `/v0/b/{bucket}/o/{object}`, with the whole object path
-    /// percent-encoded into that last segment. The raw path is split before
-    /// decoding - decoding first would turn `photos%2Ffile.jpg` into two
-    /// segments and lose the shape. Anything not matching that layout returns
-    /// nil, so an unrelated URL is never mistaken for a closed object.
+    /// A download URL is `/v0/b/{bucket}/o/{object}` on a Storage host, with the
+    /// whole object path percent-encoded into that last segment. The raw path is
+    /// split before decoding - decoding first would turn `photos%2Ffile.jpg`
+    /// into two segments and lose the shape. A foreign host or any other layout
+    /// returns nil, so an unrelated URL is never mistaken for a closed object.
     private static func storageObjectPath(in url: URL) -> String? {
-        guard let encodedPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-            .percentEncodedPath else {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let host = components.host?.lowercased(),
+              storageHosts.contains(host) else {
             return nil
         }
+
+        let encodedPath = components.percentEncodedPath
 
         let segments = encodedPath.split(separator: "/", omittingEmptySubsequences: true)
         guard segments.count == 5,

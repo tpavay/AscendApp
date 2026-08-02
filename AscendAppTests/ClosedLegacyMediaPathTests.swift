@@ -14,7 +14,7 @@ struct ClosedLegacyMediaPathTests {
     private static func downloadURL(objectPath: String) -> URL {
         let encoded = objectPath.replacing("/", with: "%2F")
         return URL(
-            string: "https://firebasestorage.googleapis.com/v0/b/\(bucket)/o/\(encoded)"
+            string: "https://firebasestorage.googleapis.com/v0/b/\(Self.bucket)/o/\(encoded)"
                 + "?alt=media&token=94f4cee6-de5e-4562-b7f8-c1cf2fbc6d44"
         )!
     }
@@ -62,6 +62,10 @@ struct ClosedLegacyMediaPathTests {
             "https://example.com/v0/b/bucket/o/photos%2Fnot-a-storage-url.jpg/extra",
             "https://firebasestorage.googleapis.com/v0/b/bucket/o",
             "https://picsum.photos/200/200",
+            // Exactly the download-URL shape, but not a Storage host: the path
+            // alone must never be enough to call an object unreachable.
+            "https://example.com/v0/b/bucket/o/photos%2Fa.jpg",
+            "https://firebasestorage.googleapis.com.attacker.test/v0/b/bucket/o/photos%2Fa.jpg",
         ]
 
         for value in strangers {
@@ -71,6 +75,34 @@ struct ClosedLegacyMediaPathTests {
                 "Expected \(value) to stay deletable."
             )
         }
+    }
+
+    @Test
+    func recognisesClosedObjectsBehindTheStorageEmulator() {
+        let emulatorURLs = [
+            "http://127.0.0.1:9199/v0/b/\(Self.bucket)/o/photos%2Flegacy.jpg",
+            "http://localhost:9199/v0/b/\(Self.bucket)/o/videos%2Flegacy.mov",
+        ]
+
+        for value in emulatorURLs {
+            let url = URL(string: value)!
+            #expect(
+                ClosedLegacyMediaPath.addressesClosedRootObject(url),
+                "Expected \(value) to be recognised as unreachable."
+            )
+        }
+    }
+
+    @Test
+    func recognisesTheExplicitPortTheStorageSDKEmits() {
+        // StorageReference.downloadURL() builds its URL with Storage.port set,
+        // so the shape the SDK actually emits carries an explicit :443.
+        let url = URL(
+            string: "https://firebasestorage.googleapis.com:443/v0/b/\(Self.bucket)/o/photos%2Flegacy.jpg"
+                + "?alt=media&token=94f4cee6-de5e-4562-b7f8-c1cf2fbc6d44"
+        )!
+
+        #expect(ClosedLegacyMediaPath.addressesClosedRootObject(url))
     }
 
     @Test

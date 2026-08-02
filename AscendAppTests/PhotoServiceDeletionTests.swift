@@ -47,6 +47,35 @@ struct PhotoServiceDeletionTests {
     }
 
     @Test
+    func reportsSkippedUnreachableMediaAsADiagnostic() async throws {
+        // Skipped media is counted as deleted, so without this signal a delete
+        // that never happened is indistinguishable from one that did.
+        let diagnostics = SpyDiagnosticsRecorder()
+        let service = PhotoService(repo: RecordingPhotoRepository(), diagnostics: diagnostics)
+        let legacy = Photo(url: Self.downloadURL(objectPath: "photos/legacy.jpg"))
+        let owned = Photo(url: Self.downloadURL(objectPath: "users/uid-1/photos/owned.jpg"))
+
+        _ = await service.deletePhotosWithResult([legacy, owned])
+
+        let events = diagnostics.events
+        #expect(events.count == 1)
+        #expect(events.first?.name == "media_delete_skipped_closed_legacy_path")
+        #expect(events.first?.details["skipped_count"] == "1")
+        #expect(events.first?.details["requested_count"] == "2")
+    }
+
+    @Test
+    func staysQuietWhenEveryPhotoIsReachable() async throws {
+        let diagnostics = SpyDiagnosticsRecorder()
+        let service = PhotoService(repo: RecordingPhotoRepository(), diagnostics: diagnostics)
+        let owned = Photo(url: Self.downloadURL(objectPath: "users/uid-1/photos/owned.jpg"))
+
+        _ = await service.deletePhotosWithResult([owned])
+
+        #expect(diagnostics.events.isEmpty)
+    }
+
+    @Test
     func stillReportsAFailureWhenOwnerScopedMediaCannotBeDeleted() async throws {
         // Skipping unreachable media must not soften the guarantee that a real
         // cloud object is gone before the local workout is.
