@@ -47,7 +47,9 @@ If a bug reaches those paths, the lever is a fixed build - which is exactly why 
 
 1. Firebase console -> Remote Config -> the project (`ascend-prod-9c8f2` for production).
 2. Set the parameter to `false` and publish.
-3. Running apps pick it up within seconds through the real-time listener; suspended apps pick it up on their next foreground.
+3. Suspended apps pick it up on their next foreground, and that is the path known to work.
+   A running app is *meant* to pick it up within seconds through the real-time listener, but that has never been observed - see "The switch exercise" below.
+   Plan an incident around the foreground fetch until someone confirms the listener on a device.
 
 There is nothing to build, submit, or wait for review on.
 
@@ -255,7 +257,7 @@ It does not remove it from anyone who already updated - which is exactly why a d
 ### Order of operations for a bad build
 
 1. **Flip the Remote Config switch** for the affected path.
-   This reaches every install, including the ones already updated, within seconds.
+   This reaches every install, including the ones already updated, with no submission and no wait for review - on the next foreground at the latest, and see "Flipping one" for why that is the timing to plan around.
 2. **Pause the phased release.**
    This stops the population of affected installs growing.
 3. Fix, submit, and re-arm phased release on the new version.
