@@ -76,6 +76,11 @@ The same entry is what lets a deliberate type change through.
 
 A stage declared but never referenced from `stages` counts for nothing, because it migrates nothing.
 
+**A rename does not need any of this.**
+`@Attribute(originalName: "oldName")` is read off the declaration, so the check treats the column as a continuation of `oldName` rather than as a brand-new required one, and no stage or allowlist entry is involved.
+A rename *without* the annotation still fails, and that is correct: SwiftData reads it as a delete plus an add and the old values are gone.
+A rename that also changes the type is still a type change, and is still caught.
+
 ## Collapsing unshipped schema versions before a release
 
 The check demands a new `AscendSchemaV*` for every persisted-shape change, and it cannot tell a version that has shipped from one that exists only on your machine.

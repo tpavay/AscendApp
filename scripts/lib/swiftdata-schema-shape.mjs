@@ -32,14 +32,19 @@ const CONTINUES_AFTER = /[=:,.&|+\-*\/<(\[]$/;
 /** A following line starting with one of these continues the declaration above it. */
 const CONTINUES_BEFORE = /^[=.,)\]?:&|+*\/{]/;
 
+/** Characters a string literal must not contribute, because every depth count reads them. */
+const STRUCTURAL_IN_STRING = /[{}()\[\]]/;
+
 /**
- * Strips comment and string-literal bodies while preserving line structure and offsets.
+ * Strips comment bodies, and the brackets a string literal would otherwise contribute to the depth
+ * counts, while preserving line structure and offsets.
  *
  * Comment bodies are full of braces and `var` spellings, and a string literal can hold an unpaired
- * brace; counting either would put the brace depth and the property list both wrong. Only the
- * bodies go - the quotes stay, so a default value is still visible as a default value.
+ * brace; counting either would put the brace depth and the property list both wrong. A string's
+ * text survives, because `@Attribute(originalName: "oldName")` is how a rename is declared and a
+ * rename this checker cannot read is a column it reports as new.
  * @param {string} source Swift source text.
- * @return {string} Source with comment and string bodies blanked out.
+ * @return {string} Source with comment bodies blanked and string literals de-bracketed.
  */
 export function stripComments(source) {
   let output = "";
@@ -84,7 +89,7 @@ export function stripComments(source) {
           continue;
         }
       }
-      output += source[index] === "\n" ? "\n" : " ";
+      output += STRUCTURAL_IN_STRING.test(source[index]) ? " " : source[index];
       index += 1;
       continue;
     }
@@ -401,10 +406,35 @@ function parseStoredProperties(body, file, model) {
       type,
       optional: isOptional(type),
       hasDefault: defaultText !== null,
+      originalName: originalNameOf(allAttributes, file, model, name[1]),
     });
   }
 
   return properties;
+}
+
+/**
+ * Reads the column a renamed property continues, so a rename is not read as a column vanishing and
+ * an unrelated required one appearing.
+ * @param {string[]} attributes The attributes applied to the declaration.
+ * @param {string} file Repo-relative path, for error messages.
+ * @param {string} model Model name, for error messages.
+ * @param {string} property Property name, for error messages.
+ * @return {string|null} The previous column name, or null when the property was never renamed.
+ */
+function originalNameOf(attributes, file, model, property) {
+  const text = attributes.join(" ");
+  if (!/\boriginalName\s*:/.test(text)) return null;
+
+  const literal = /\boriginalName\s*:\s*"([^"]+)"/.exec(text);
+  if (literal === null) {
+    throw new Error(
+      `${file}: ${model}.${property} declares originalName but not as a string literal this ` +
+      "checker can read, so it cannot tell the rename from a brand-new column"
+    );
+  }
+
+  return literal[1];
 }
 
 /**
@@ -704,6 +734,7 @@ export function shapeOf(models) {
         type: property.type,
         optional: property.optional,
         hasDefault: property.hasDefault,
+        ...(property.originalName ? {originalName: property.originalName} : {}),
       };
     }
     shape[key] = properties;
@@ -769,10 +800,16 @@ export function checkModelSetAgreement(input) {
  * A stage does not excuse a column on its own. `customStageColumns` in the baseline names each
  * column a stage computes, so a second unrelated required column cannot ride in on the first one's
  * stage - the developer has to say, in the diff, which column the stage covers.
+ *
+ * A rename carried by `@Attribute(originalName:)` is resolved first, because SwiftData carries that
+ * column's values forward. Only the unannotated rename is a new column, and that is exactly right:
+ * SwiftData reads it as a delete plus an add and the old values go without a sound.
  * @param {{baseline: object, currentShape: object, frozenShape: object, plan: object, currentSchema: object}} input Parsed facts.
  * @return {string[]} Violations, empty when the change is safe.
  */
 export function checkShapeDelta(input) {
+  assertBaselineRecordsTypes(input.baseline);
+
   const violations = [];
   const baselineShape = input.baseline.models ?? {};
   const newCustomStages = input.plan.customStageCount - (input.baseline.customStageCount ?? 0);
@@ -783,9 +820,15 @@ export function checkShapeDelta(input) {
     // A model that did not exist has no rows, so nothing has to be defaulted into them.
     if (!baselineProperties) continue;
 
+    const currentNames = new Set(Object.keys(properties));
+
     for (const [name, property] of Object.entries(properties)) {
-      const before = baselineProperties[name];
+      const renamedFrom = renameSource(property, name, baselineProperties, currentNames);
+      const before = baselineProperties[renamedFrom ?? name];
       const column = `${model}.${name}`;
+      const describedColumn = renamedFrom === null
+        ? column
+        : `${column} (renamed from ${renamedFrom})`;
       const covered = coveredColumns.has(column) && newCustomStages > 0;
       const isNewColumn = !before;
       const becameRequired = Boolean(before) && before.optional && !property.optional;
@@ -794,22 +837,22 @@ export function checkShapeDelta(input) {
         if (property.optional || property.hasDefault || covered) continue;
 
         violations.push(
-          `${model}.${name} is ${isNewColumn ? "new" : "newly required"}, non-optional, and has no ` +
+          `${column} is ${isNewColumn ? "new" : "newly required"}, non-optional, and has no ` +
           "default, and no custom stage in this change claims it. Existing rows have no value to " +
           "write. Pick one: make it optional; give it a default if a single blanket value is " +
-          "honest; or add a custom MigrationStage that computes the right value per record (see " +
+          "honest; if it is a rename, carry the old column with @Attribute(originalName:); or add " +
+          "a custom MigrationStage that computes the right value per record (see " +
           `AscendMigrationPlan.migrateV1toV2) and list "${column}" in customStageColumns in ` +
           "SharedTestVectors/swiftdata-schema-shape.json"
         );
         continue;
       }
 
-      if (before.type === undefined) continue;
       if (unwrappedType(before.type) === unwrappedType(property.type)) continue;
       if (covered) continue;
 
       violations.push(
-        `${model}.${name} changed type from ${before.type} to ${property.type}. A stored column ` +
+        `${describedColumn} changed type from ${before.type} to ${property.type}. A stored column ` +
         "cannot be reinterpreted in place: lightweight migration drops the old column and takes " +
         "the new one's default, so every existing row loses its value. Decompose the change (see " +
         "the skill's Step 3), or add a custom MigrationStage that converts each record and list " +
@@ -827,7 +870,7 @@ export function checkShapeDelta(input) {
       );
       continue;
     }
-    if (JSON.stringify(current) !== JSON.stringify(properties)) {
+    if (canonicalJson(current) !== canonicalJson(properties)) {
       violations.push(
         `the frozen historical model ${model} changed - a shipped VersionedSchema describes a store ` +
         "shape that exists on real devices and must never be rewritten. Add a new schema version " +
@@ -836,7 +879,7 @@ export function checkShapeDelta(input) {
     }
   }
 
-  const shapeChanged = JSON.stringify(input.currentShape) !== JSON.stringify(baselineShape);
+  const shapeChanged = canonicalJson(input.currentShape) !== canonicalJson(baselineShape);
   if (shapeChanged && input.currentSchema.name === input.baseline.currentSchema) {
     violations.push(
       `the persisted shape changed but ${input.baseline.currentSchema} is still the newest ` +
@@ -846,6 +889,58 @@ export function checkShapeDelta(input) {
   }
 
   return violations;
+}
+
+/**
+ * Resolves the baseline column a property continues, when `@Attribute(originalName:)` says so.
+ *
+ * The annotation only carries values forward if the old column is genuinely gone; if a property
+ * still holds that name, the annotated one is a second column, not a rename of it.
+ * @param {object} property The current property's recorded shape.
+ * @param {string} name Its current name.
+ * @param {object} baselineProperties The model's recorded properties.
+ * @param {Set<string>} currentNames Every property name the model declares now.
+ * @return {string|null} The baseline column it continues, or null when it is not a rename.
+ */
+function renameSource(property, name, baselineProperties, currentNames) {
+  if (baselineProperties[name] !== undefined) return null;
+  if (property.originalName === undefined || property.originalName === null) return null;
+  if (baselineProperties[property.originalName] === undefined) return null;
+  if (currentNames.has(property.originalName)) return null;
+
+  return property.originalName;
+}
+
+/**
+ * The type-change rule needs a recorded type on both sides, so a baseline without one stops the
+ * check rather than quietly disabling the rule it was written to feed.
+ * @param {object} baseline Recorded baseline.
+ */
+export function assertBaselineRecordsTypes(baseline) {
+  for (const group of ["models", "frozenModels"]) {
+    for (const [model, properties] of Object.entries(baseline?.[group] ?? {})) {
+      for (const [name, property] of Object.entries(properties ?? {})) {
+        if (typeof property?.type === "string") continue;
+
+        throw new Error(
+          `the recorded baseline has no type for ${model}.${name} in ${group}, so the type-change ` +
+          "rule cannot be evaluated at all. Re-record it with `node " +
+          "scripts/check-swiftdata-schema.mjs --update` first: this is a missing input the rule " +
+          "needs, not shape drift"
+        );
+      }
+    }
+  }
+}
+
+/** @param {object} baseline Recorded baseline. @return {boolean} Whether every column has a type. */
+export function baselineRecordsTypes(baseline) {
+  try {
+    assertBaselineRecordsTypes(baseline);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Baseline fields a developer writes by hand, so they are not part of what `--update` records. */

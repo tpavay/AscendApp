@@ -18,7 +18,9 @@ import {join, relative} from "node:path";
 import {fileURLToPath} from "node:url";
 
 import {
+  assertBaselineRecordsTypes,
   baselineMatches,
+  baselineRecordsTypes,
   checkModelSetAgreement,
   checkShapeDelta,
   parseMigrationPlan,
@@ -159,10 +161,45 @@ export function readBaseline() {
   }
 }
 
+/**
+ * @param {object} baseline The recorded baseline.
+ * @param {object} record The freshly parsed record.
+ * @return {object} What to write, carrying the hand-written annotations across.
+ */
+function recordToWrite(baseline, record) {
+  // `customStageColumns` is written by hand, not derived from the sources, so re-recording must
+  // carry it across rather than silently erase the one thing a stage's exemption rests on.
+  return Array.isArray(baseline.customStageColumns) && baseline.customStageColumns.length > 0
+    ? {...record, customStageColumns: [...baseline.customStageColumns].sort()}
+    : record;
+}
+
 function main() {
   const update = process.argv.includes("--update");
   const facts = readSchemaFacts();
   const baseline = readBaseline();
+
+  // Evaluating the delta against a baseline that predates recorded types would leave the
+  // type-change rule silently unevaluated, so re-recording is the only way forward.
+  if (!baselineRecordsTypes(baseline)) {
+    if (!update) {
+      try {
+        assertBaselineRecordsTypes(baseline);
+      } catch (error) {
+        console.error(`SwiftData schema check cannot run:\n\n  - ${error.message}\n`);
+      }
+      process.exitCode = 1;
+      return;
+    }
+
+    writeFileSync(BASELINE_PATH, `${JSON.stringify(recordToWrite(baseline, facts.record), null, 2)}\n`);
+    console.log(
+      `Re-recorded ${relative(REPO_ROOT, BASELINE_PATH)} with the per-column types the ` +
+      "type-change rule needs. Run the check again to evaluate this change against it."
+    );
+    return;
+  }
+
   const {violations, baselineStale} = evaluate(facts, baseline);
 
   if (violations.length > 0) {
@@ -176,13 +213,7 @@ function main() {
   }
 
   if (update) {
-    // `customStageColumns` is written by hand, not derived from the sources, so re-recording must
-    // carry it across rather than silently erase the one thing a stage's exemption rests on.
-    const record = Array.isArray(baseline.customStageColumns) && baseline.customStageColumns.length > 0
-      ? {...facts.record, customStageColumns: [...baseline.customStageColumns].sort()}
-      : facts.record;
-
-    writeFileSync(BASELINE_PATH, `${JSON.stringify(record, null, 2)}\n`);
+    writeFileSync(BASELINE_PATH, `${JSON.stringify(recordToWrite(baseline, facts.record), null, 2)}\n`);
     console.log(`Recorded ${relative(REPO_ROOT, BASELINE_PATH)} at ${facts.currentSchema.name}.`);
     return;
   }

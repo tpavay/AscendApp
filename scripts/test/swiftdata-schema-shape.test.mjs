@@ -6,6 +6,7 @@ import {fileURLToPath} from "node:url";
 import {evaluate, readBaseline, readSchemaFacts} from "../check-swiftdata-schema.mjs";
 import {
   baselineMatches,
+  baselineRecordsTypes,
   checkModelSetAgreement,
   checkShapeDelta,
   parseMigrationPlan,
@@ -314,6 +315,123 @@ test("editing or deleting a shipped historical schema fails", () => {
   assert.match(deleted[0], /frozen historical model AscendSchemaV1\.Workout was deleted/);
 });
 
+test("a rename carried by @Attribute(originalName:) is the same column, not a new one", () => {
+  const violations = checkShapeDelta(deltaInput({
+    currentShape: {
+      Workout: {
+        id: BASELINE.models.Workout.id,
+        notes: BASELINE.models.Workout.notes,
+        title: {type: "String", optional: false, hasDefault: false, originalName: "name"},
+      },
+    },
+    currentSchema: SCHEMA_V3,
+  }));
+
+  assert.deepEqual(violations, []);
+});
+
+test("a rename that also changes the type still trips the type rule", () => {
+  const violations = checkShapeDelta(deltaInput({
+    currentShape: {
+      Workout: {
+        id: BASELINE.models.Workout.id,
+        notes: BASELINE.models.Workout.notes,
+        title: {type: "Int", optional: false, hasDefault: false, originalName: "name"},
+      },
+    },
+    currentSchema: SCHEMA_V3,
+  }));
+
+  assert.equal(violations.length, 1);
+  assert.match(violations[0], /Workout\.title \(renamed from name\) changed type from String to Int/);
+});
+
+test("a rename without the annotation still trips, because SwiftData drops the old values", () => {
+  const violations = checkShapeDelta(deltaInput({
+    currentShape: {
+      Workout: {
+        id: BASELINE.models.Workout.id,
+        notes: BASELINE.models.Workout.notes,
+        title: {type: "String", optional: false, hasDefault: false},
+      },
+    },
+    currentSchema: SCHEMA_V3,
+  }));
+
+  assert.equal(violations.length, 1);
+  assert.match(violations[0], /Workout\.title is new, non-optional, and has no default/);
+  assert.match(violations[0], /if it is a rename, carry the old column with @Attribute\(originalName:\)/);
+});
+
+test("originalName pointing at a column that still exists is not a rename", () => {
+  // Both columns exist, so nothing was carried forward and `duplicate` really is new.
+  const violations = checkShapeDelta(deltaInput({
+    currentShape: {
+      Workout: {
+        ...BASELINE.models.Workout,
+        duplicate: {type: "String", optional: false, hasDefault: false, originalName: "name"},
+      },
+    },
+    currentSchema: SCHEMA_V3,
+  }));
+
+  assert.equal(violations.length, 1);
+  assert.match(violations[0], /Workout\.duplicate is new, non-optional, and has no default/);
+});
+
+test("the parser reads originalName off the declaration it annotates", () => {
+  const source = `
+    @Model
+    final class Sample {
+        @Attribute(originalName: "oldTitle") var title: String = ""
+        @Attribute(.unique, originalName: "oldCode")
+        var code: String = ""
+        var untouched: String = ""
+    }
+  `;
+
+  const [model] = parseModels(source, "Sample.swift");
+  const shape = shapeOf([model]).Sample;
+
+  assert.equal(shape.title.originalName, "oldTitle");
+  assert.equal(shape.code.originalName, "oldCode");
+  assert.equal("originalName" in shape.untouched, false);
+});
+
+test("an originalName the parser cannot read is an error, not a new column", () => {
+  const source = `
+    @Model
+    final class Sample {
+        @Attribute(originalName: Self.legacyKey) var title: String = ""
+    }
+  `;
+
+  assert.throws(
+    () => parseModels(source, "Sample.swift"),
+    /Sample\.title declares originalName but not as a string literal/
+  );
+});
+
+test("a baseline with no recorded types stops the check instead of skipping the type rule", () => {
+  const typeless = {
+    ...BASELINE,
+    models: {Workout: {id: {optional: false, hasDefault: false}}},
+    frozenModels: {},
+  };
+
+  assert.equal(baselineRecordsTypes(typeless), false);
+  assert.equal(baselineRecordsTypes(BASELINE), true);
+  assert.throws(
+    () => checkShapeDelta(deltaInput({
+      baseline: typeless,
+      currentShape: {Workout: {id: {type: "Int", optional: false, hasDefault: false}}},
+      frozenShape: {},
+      currentSchema: SCHEMA_V3,
+    })),
+    /no type for Workout\.id in models.*type-change rule cannot be evaluated/s
+  );
+});
+
 test("the hand-written stage allowlist is not a stale baseline", () => {
   const record = {...BASELINE};
   delete record.customStageColumns;
@@ -361,7 +479,7 @@ test("only stored properties count as columns", () => {
     label: {type: "String", optional: false, hasDefault: true},
     levels: {type: "[Int: Set<String>]", optional: false, hasDefault: true},
     note: {type: "String?", optional: true, hasDefault: false},
-    renamed: {type: "Int", optional: false, hasDefault: true},
+    renamed: {type: "Int", optional: false, hasDefault: true, originalName: "old"},
   });
 });
 
