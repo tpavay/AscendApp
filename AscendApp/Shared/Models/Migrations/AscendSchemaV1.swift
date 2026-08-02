@@ -12,8 +12,11 @@ import SwiftData
 /// `AscendMigrationPlan` should touch these types, and they must never be edited to track the
 /// live models - the whole point is that they stay frozen at the shape older installs wrote.
 ///
-/// Only the three entities that participate in `Workout`'s relationship graph need frozen copies;
-/// every other model is byte-identical across the two versions and is listed by its live type.
+/// `Workout`'s relationship graph needs frozen copies because V1 stored `source` as a Codable
+/// enum. `Routine` and `RoutineFolder` need them for a different reason: they gained cloud-backup
+/// columns in V3, and a schema version that named them by their live type would silently start
+/// describing that newer shape - "never edit a shipped schema version", broken by aliasing rather
+/// than by editing. Every other model is byte-identical here and is listed by its live type.
 enum AscendSchemaV1: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(1, 0, 0) }
 
@@ -160,6 +163,56 @@ extension AscendSchemaV1 {
             self.workoutId = workout?.id ?? UUID()
             self.contextId = contextId
             self.workout = workout
+        }
+    }
+}
+
+extension AscendSchemaV1 {
+    /// `Routine` as it was persisted before user routines had a cloud backup:
+    /// no owner, no sync status, no last-synced stamp.
+    @Model
+    final class Routine {
+        var id: UUID = UUID()
+        var name: String = ""
+        var routineDescription: String = ""
+        var sourceRawValue: String = RoutineSource.userCreated.rawValue
+        var createdAt: Date = Date()
+        var updatedAt: Date = Date()
+        var folderId: UUID?
+        var isArchived: Bool = false
+        var intervalsData: Data?
+        var defaultWeightConfigurationData: Data?
+        var templateId: String?
+        var templateVersion: Int?
+        var difficulty: Int?
+        var estimatedCalories: Int?
+        var isFeaturedTemplate: Bool = false
+        var templateDisplayOrder: Int = 0
+        var templateFeaturedOrder: Int?
+        var browseSectionRawValuesData: Data?
+        var completionCount: Int = 0
+        var lastCompletedAt: Date?
+        var order: Int = 0
+
+        init(id: UUID = UUID(), name: String = "") {
+            self.id = id
+            self.name = name
+        }
+    }
+
+    /// `RoutineFolder` before the cloud backup, and before it recorded when it
+    /// was last edited.
+    @Model
+    final class RoutineFolder {
+        var id: UUID = UUID()
+        var name: String = ""
+        var colorHex: String?
+        var order: Int = 0
+        var createdAt: Date = Date()
+
+        init(id: UUID = UUID(), name: String = "") {
+            self.id = id
+            self.name = name
         }
     }
 }

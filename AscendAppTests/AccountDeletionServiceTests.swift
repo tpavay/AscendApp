@@ -43,6 +43,7 @@ struct AccountDeletionServiceTests {
             .revokeAppleToken,
             .deleteAllUserStorage,
             .deleteWorkoutBackups,
+            .deleteRoutineBackups,
             .deleteBlockedClimbers,
             .deletePublicProfileMirrors,
             .unregisterPushDevice,
@@ -79,6 +80,7 @@ struct AccountDeletionServiceTests {
         let ownerGatedSteps: [RecordingAccountDeletionGateway.Step] = [
             .deleteAllUserStorage,
             .deleteWorkoutBackups,
+            .deleteRoutineBackups,
             .deleteBlockedClimbers,
             .deletePublicProfileMirrors,
             .deleteUserDocument,
@@ -401,6 +403,7 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
         case reauthenticate
         case deleteAllUserStorage
         case deleteWorkoutBackups
+        case deleteRoutineBackups
         case deleteBlockedClimbers
         case deletePublicProfileMirrors
         case unregisterPushDevice
@@ -429,6 +432,10 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
 
     func deleteWorkoutBackups(userId: String) async throws {
         steps.append(.deleteWorkoutBackups)
+    }
+
+    func deleteRoutineBackups(userId: String) async throws {
+        steps.append(.deleteRoutineBackups)
     }
 
     func deleteBlockedClimbers(userId: String) async throws {

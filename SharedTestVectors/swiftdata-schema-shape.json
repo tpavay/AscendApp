@@ -1,12 +1,12 @@
 {
-  "currentSchema": "AscendSchemaV2",
+  "currentSchema": "AscendSchemaV3",
   "versionIdentifier": [
-    2,
+    3,
     0,
     0
   ],
   "customStageCount": 1,
-  "lightweightStageCount": 0,
+  "lightweightStageCount": 1,
   "models": {
     "ActiveHeadphoneWorkoutDraft": {
       "climbId": {
@@ -475,6 +475,43 @@
         "hasDefault": false
       }
     },
+    "PendingRoutineDeletion": {
+      "enqueuedAt": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": false
+      },
+      "id": {
+        "type": "UUID",
+        "optional": false,
+        "hasDefault": false
+      },
+      "kindRawValue": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": false
+      },
+      "lastError": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "ownerUserId": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": false
+      },
+      "recordId": {
+        "type": "UUID",
+        "optional": false,
+        "hasDefault": false
+      },
+      "retryCount": {
+        "type": "Int",
+        "optional": false,
+        "hasDefault": false
+      }
+    },
     "PendingWorkoutDeletion": {
       "enqueuedAt": {
         "type": "Date",
@@ -568,6 +605,16 @@
         "optional": true,
         "hasDefault": false
       },
+      "lastRemoteSyncAt": {
+        "type": "Date?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "lastRemoteSyncError": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
       "name": {
         "type": "String",
         "optional": false,
@@ -575,6 +622,16 @@
       },
       "order": {
         "type": "Int",
+        "optional": false,
+        "hasDefault": true
+      },
+      "ownerUserId": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "remoteSyncStatusRawValue": {
+        "type": "String",
         "optional": false,
         "hasDefault": true
       },
@@ -630,6 +687,16 @@
         "optional": false,
         "hasDefault": false
       },
+      "lastRemoteSyncAt": {
+        "type": "Date?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "lastRemoteSyncError": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
       "name": {
         "type": "String",
         "optional": false,
@@ -638,6 +705,21 @@
       "order": {
         "type": "Int",
         "optional": false,
+        "hasDefault": false
+      },
+      "ownerUserId": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "remoteSyncStatusRawValue": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "updatedAt": {
+        "type": "Date?",
+        "optional": true,
         "hasDefault": false
       }
     },
@@ -969,6 +1051,140 @@
     }
   },
   "frozenModels": {
+    "AscendSchemaV1.Routine": {
+      "browseSectionRawValuesData": {
+        "type": "Data?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "completionCount": {
+        "type": "Int",
+        "optional": false,
+        "hasDefault": true
+      },
+      "createdAt": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      },
+      "defaultWeightConfigurationData": {
+        "type": "Data?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "difficulty": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "estimatedCalories": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "folderId": {
+        "type": "UUID?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "id": {
+        "type": "UUID",
+        "optional": false,
+        "hasDefault": true
+      },
+      "intervalsData": {
+        "type": "Data?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "isArchived": {
+        "type": "Bool",
+        "optional": false,
+        "hasDefault": true
+      },
+      "isFeaturedTemplate": {
+        "type": "Bool",
+        "optional": false,
+        "hasDefault": true
+      },
+      "lastCompletedAt": {
+        "type": "Date?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "name": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "order": {
+        "type": "Int",
+        "optional": false,
+        "hasDefault": true
+      },
+      "routineDescription": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "sourceRawValue": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "templateDisplayOrder": {
+        "type": "Int",
+        "optional": false,
+        "hasDefault": true
+      },
+      "templateFeaturedOrder": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "templateId": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "templateVersion": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "updatedAt": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      }
+    },
+    "AscendSchemaV1.RoutineFolder": {
+      "colorHex": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "createdAt": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      },
+      "id": {
+        "type": "UUID",
+        "optional": false,
+        "hasDefault": true
+      },
+      "name": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "order": {
+        "type": "Int",
+        "optional": false,
+        "hasDefault": true
+      }
+    },
     "AscendSchemaV1.Workout": {
       "averageMETs": {
         "type": "Double?",
@@ -1293,6 +1509,140 @@
         "type": "Workout?",
         "optional": true,
         "hasDefault": false
+      }
+    },
+    "AscendSchemaV2.Routine": {
+      "browseSectionRawValuesData": {
+        "type": "Data?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "completionCount": {
+        "type": "Int",
+        "optional": false,
+        "hasDefault": true
+      },
+      "createdAt": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      },
+      "defaultWeightConfigurationData": {
+        "type": "Data?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "difficulty": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "estimatedCalories": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "folderId": {
+        "type": "UUID?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "id": {
+        "type": "UUID",
+        "optional": false,
+        "hasDefault": true
+      },
+      "intervalsData": {
+        "type": "Data?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "isArchived": {
+        "type": "Bool",
+        "optional": false,
+        "hasDefault": true
+      },
+      "isFeaturedTemplate": {
+        "type": "Bool",
+        "optional": false,
+        "hasDefault": true
+      },
+      "lastCompletedAt": {
+        "type": "Date?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "name": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "order": {
+        "type": "Int",
+        "optional": false,
+        "hasDefault": true
+      },
+      "routineDescription": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "sourceRawValue": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "templateDisplayOrder": {
+        "type": "Int",
+        "optional": false,
+        "hasDefault": true
+      },
+      "templateFeaturedOrder": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "templateId": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "templateVersion": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "updatedAt": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      }
+    },
+    "AscendSchemaV2.RoutineFolder": {
+      "colorHex": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "createdAt": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      },
+      "id": {
+        "type": "UUID",
+        "optional": false,
+        "hasDefault": true
+      },
+      "name": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "order": {
+        "type": "Int",
+        "optional": false,
+        "hasDefault": true
       }
     }
   }

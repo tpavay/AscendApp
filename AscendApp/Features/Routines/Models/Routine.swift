@@ -35,6 +35,19 @@ final class Routine {
     // Order within folder for drag-and-drop reordering
     var order: Int = 0
 
+    // MARK: - Cloud backup state
+    //
+    // Kept on the routine itself rather than in a side queue, for the same
+    // reason `Workout` does it: the routine stays the editing surface and the
+    // source of truth, and the pending work travels with the record it
+    // describes. Pending *deletions* are the exception - they outlive the row,
+    // so they live on `PendingRoutineDeletion`.
+
+    var ownerUserId: String?
+    var lastRemoteSyncAt: Date?
+    var lastRemoteSyncError: String?
+    var remoteSyncStatusRawValue: String = RoutineRemoteSyncStatus.pendingUpsert.rawValue
+
     // Computed property for source enum
     var source: RoutineSource {
         get { RoutineSource(rawValue: sourceRawValue) ?? .userCreated }
@@ -174,6 +187,47 @@ final class Routine {
         self.intervals = intervals
         self.defaultWeightConfiguration = defaultWeightConfiguration
         self.browseSections = browseSections
+        self.ownerUserId = nil
+        self.lastRemoteSyncAt = nil
+        self.lastRemoteSyncError = nil
+        self.remoteSyncStatusRawValue = RoutineRemoteSyncStatus.pendingUpsert.rawValue
+    }
+
+    var remoteSyncStatus: RoutineRemoteSyncStatus {
+        get { RoutineRemoteSyncStatus(rawValue: remoteSyncStatusRawValue) ?? .pendingUpsert }
+        set { remoteSyncStatusRawValue = newValue.rawValue }
+    }
+
+    /// Whether this routine is the climber's own work, and therefore worth
+    /// backing up. Catalog templates are server-owned content every device
+    /// re-derives from `routine_templates`; uploading one would be writing our
+    /// own content back to us under the climber's uid, and `firestore.rules`
+    /// rejects it.
+    var isUserAuthored: Bool {
+        !source.isTemplate
+    }
+
+    func markPendingRemoteUpsert(ownerUserId: String, modifiedAt: Date = Date()) {
+        self.ownerUserId = ownerUserId
+        updatedAt = modifiedAt
+        remoteSyncStatus = .pendingUpsert
+        lastRemoteSyncError = nil
+    }
+
+    func markRemoteSyncSucceeded(syncedAt: Date = Date()) {
+        lastRemoteSyncAt = syncedAt
+        remoteSyncStatus = .synced
+        lastRemoteSyncError = nil
+    }
+
+    func markRemoteSyncFailed(_ errorMessage: String) {
+        remoteSyncStatus = .failed
+        lastRemoteSyncError = errorMessage
+    }
+
+    func markRemoteSyncRejected(_ errorMessage: String) {
+        remoteSyncStatus = .rejected
+        lastRemoteSyncError = errorMessage
     }
 
     /// Creates a user copy of a built-in routine

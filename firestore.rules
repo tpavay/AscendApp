@@ -950,6 +950,172 @@ service cloud.firestore {
           ));
     }
 
+    // A user-authored routine or folder lives at one document id spelling: the
+    // uppercase UUID Swift's `UUID.uuidString` already produces. Accepting any
+    // other casing would fork one routine into two documents, which is exactly
+    // the restore-time collision workouts had to be repaired for.
+    function isCanonicalRecordId(recordId) {
+      return recordId.matches("^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$");
+    }
+
+    // Only routines the climber authored are backed up. Catalog templates
+    // (`builtin`, `remoteTemplate`) are server-owned content re-derived on every
+    // device from routine_templates, so a client that tried to upload one would
+    // be writing our content back to us under their own uid.
+    function isValidUserRoutineSource(source) {
+      return source in ["userCreated", "copiedFromBuiltin"];
+    }
+
+    // How many intervals one routine may back up.
+    //
+    // 40 covers twenty work/rest rounds, which is past anything the shipped
+    // catalog does (it averages five intervals, longest nine) and past any
+    // interval session a stair stepper realistically holds.
+    function maxRoutineIntervals() {
+      return 40;
+    }
+
+    // Intervals are bounded and typed as a list, and deliberately NOT validated
+    // element by element. That is a measurement, not an oversight.
+    //
+    // A rule evaluation aborts at 1000 expressions, and rules functions inline
+    // their arguments, so every `item.<field>` re-evaluates the whole
+    // `request.resource.data.intervals[i]` chain. Measured against the emulator
+    // with this document: a full per-element validator (hasOnly/hasAll plus the
+    // ten interval fields) fits exactly TWO intervals before the write starts
+    // failing with a bare PERMISSION_DENIED; a validator narrowed to four typed
+    // fields fits eleven; `item is map` alone fits twenty-four. Every one of
+    // those ceilings is below a normal interval routine, and a routine that
+    // silently stops backing up at interval eleven is a worse outcome than an
+    // unvalidated interval body. This is the same wall the workout rule hit in
+    // issue #295.
+    //
+    // What makes the trade acceptable here and not there: a workout's
+    // `participations` are read and trusted by Cloud Functions that publish
+    // leaderboard rows, so their contents are a real trust boundary. A user
+    // routine is private to one climber - no other client reads it, and no
+    // server code derives anything from it - so the boundary that matters is
+    // ownership plus the strict `hasOnly`/`hasAll` on the document itself, both
+    // of which are enforced above. Interval bodies are validated where they can
+    // be validated for free: `RoutineRemoteSyncMapper` writes them and
+    // `FirestoreUserRoutineDocument` decodes them, dropping any interval it
+    // cannot read rather than restoring a corrupt one.
+    //
+    // Before adding any check here, re-measure. Do not assume there is room.
+    function isValidRoutineIntervalList(intervals) {
+      return intervals is list &&
+        intervals.size() <= maxRoutineIntervals();
+    }
+
+    function isValidUserRoutineDocument(userId, routineId) {
+      return isCanonicalRecordId(routineId) &&
+        request.resource.data.keys().hasOnly([
+          "userId",
+          "schemaVersion",
+          "name",
+          "description",
+          "source",
+          "intervals",
+          "folderId",
+          "isArchived",
+          "order",
+          "templateId",
+          "templateVersion",
+          "difficulty",
+          "estimatedCalories",
+          "defaultWeightConfiguration",
+          "completionCount",
+          "lastCompletedAt",
+          "createdAt",
+          "updatedAt"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "userId",
+          "schemaVersion",
+          "name",
+          "description",
+          "source",
+          "intervals",
+          "isArchived",
+          "order",
+          "completionCount",
+          "createdAt",
+          "updatedAt"
+        ]) &&
+        request.resource.data.userId == userId &&
+        isSupportedSchemaVersion(request.resource.data.schemaVersion) &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() > 0 &&
+        request.resource.data.name.size() <= 120 &&
+        request.resource.data.description is string &&
+        request.resource.data.description.size() <= 2000 &&
+        isValidUserRoutineSource(request.resource.data.source) &&
+        isValidRoutineIntervalList(request.resource.data.intervals) &&
+        (!request.resource.data.keys().hasAny(["folderId"]) ||
+          (request.resource.data.folderId is string &&
+            isCanonicalRecordId(request.resource.data.folderId))) &&
+        request.resource.data.isArchived is bool &&
+        request.resource.data.order is int &&
+        request.resource.data.order >= 0 &&
+        (!request.resource.data.keys().hasAny(["templateId"]) ||
+          (request.resource.data.templateId is string &&
+            request.resource.data.templateId.size() > 0 &&
+            request.resource.data.templateId.size() <= 160)) &&
+        (!request.resource.data.keys().hasAny(["templateVersion"]) ||
+          (request.resource.data.templateVersion is int &&
+            request.resource.data.templateVersion >= 0)) &&
+        (!request.resource.data.keys().hasAny(["difficulty"]) ||
+          (request.resource.data.difficulty is int &&
+            request.resource.data.difficulty >= 0 &&
+            request.resource.data.difficulty <= 25)) &&
+        (!request.resource.data.keys().hasAny(["estimatedCalories"]) ||
+          (request.resource.data.estimatedCalories is int &&
+            request.resource.data.estimatedCalories >= 0)) &&
+        (!request.resource.data.keys().hasAny(["defaultWeightConfiguration"]) ||
+          isValidWorkoutWeightConfiguration(
+            request.resource.data.defaultWeightConfiguration
+          )) &&
+        request.resource.data.completionCount is int &&
+        request.resource.data.completionCount >= 0 &&
+        (!request.resource.data.keys().hasAny(["lastCompletedAt"]) ||
+          request.resource.data.lastCompletedAt is timestamp) &&
+        request.resource.data.createdAt is timestamp &&
+        request.resource.data.updatedAt is timestamp;
+    }
+
+    function isValidRoutineFolderDocument(userId, folderId) {
+      return isCanonicalRecordId(folderId) &&
+        request.resource.data.keys().hasOnly([
+          "userId",
+          "schemaVersion",
+          "name",
+          "colorHex",
+          "order",
+          "createdAt",
+          "updatedAt"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "userId",
+          "schemaVersion",
+          "name",
+          "order",
+          "createdAt",
+          "updatedAt"
+        ]) &&
+        request.resource.data.userId == userId &&
+        isSupportedSchemaVersion(request.resource.data.schemaVersion) &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() > 0 &&
+        request.resource.data.name.size() <= 80 &&
+        (!request.resource.data.keys().hasAny(["colorHex"]) ||
+          (request.resource.data.colorHex is string &&
+            request.resource.data.colorHex.matches("^#[0-9a-fA-F]{6}$"))) &&
+        request.resource.data.order is int &&
+        request.resource.data.order >= 0 &&
+        request.resource.data.createdAt is timestamp &&
+        request.resource.data.updatedAt is timestamp;
+    }
+
     function userRateLimitDocPath() {
       return /databases/$(database)/documents/userRateLimits/$(request.auth.uid);
     }
@@ -1199,6 +1365,39 @@ service cloud.firestore {
         // build drop the fields a newer schema added.
         allow update: if isOwner(userId) &&
           isValidWorkoutDocument(userId, workoutId) &&
+          request.resource.data.userId == resource.data.userId &&
+          request.resource.data.schemaVersion >= resource.data.schemaVersion &&
+          request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if isOwner(userId);
+      }
+
+      // Routines the climber built themselves, and the folders they organise
+      // them into. Private backup only: nobody but the owner reads or writes
+      // them, and no server code derives anything from them. Deliberately kept
+      // away from the top-level `routine_templates`, which is server-owned
+      // published content and must stay read-only to every client.
+      match /routines/{routineId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidUserRoutineDocument(userId, routineId);
+        // Same forward-only schema version rule as workouts, and for the same
+        // reason: writes are whole-document `setData`, so letting the stored
+        // version move backward would let an older build drop the fields a
+        // newer schema added.
+        allow update: if isOwner(userId) &&
+          isValidUserRoutineDocument(userId, routineId) &&
+          request.resource.data.userId == resource.data.userId &&
+          request.resource.data.schemaVersion >= resource.data.schemaVersion &&
+          request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if isOwner(userId);
+      }
+
+      match /routine_folders/{folderId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidRoutineFolderDocument(userId, folderId);
+        allow update: if isOwner(userId) &&
+          isValidRoutineFolderDocument(userId, folderId) &&
           request.resource.data.userId == resource.data.userId &&
           request.resource.data.schemaVersion >= resource.data.schemaVersion &&
           request.resource.data.createdAt == resource.data.createdAt;

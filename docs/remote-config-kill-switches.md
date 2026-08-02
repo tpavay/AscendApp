@@ -15,7 +15,10 @@ The catalog is `AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift`;
 | `workout_remote_deletes_enabled` | Deleting remote workout documents and sidecars | `PendingWorkoutDeletion` rows stay queued and replay |
 | `workout_cloud_restore_enabled` | Decoding cloud backups into local storage | The next bootstrap still treats it as the initial hydration |
 | `workout_media_uploads_enabled` | The background media upload queue, and the sweep that deletes local originals. A batch already running stops at the next item rather than finishing | `PendingMediaUpload` rows stay queued and local files stay on disk. The workout banner stays quiet rather than claiming an upload is in progress, and drops the retry affordance |
-| `local_data_migrations_enabled` | One-shot local backfills that rewrite stored workouts | The version key is not stamped, so the backfill runs later |
+| `routine_cloud_backup_writes_enabled` | Uploading user-authored routines and routine folders | Routines and folders stay `pendingUpsert` in SwiftData and flush on the next pass |
+| `routine_remote_deletes_enabled` | Deleting remote routine and routine folder documents | `PendingRoutineDeletion` rows stay queued and replay. The routine they point at is still held back from re-upload, so the switch cannot resurrect a deleted routine |
+| `routine_cloud_restore_enabled` | Decoding routine backups into local storage | The next bootstrap still treats it as the initial hydration |
+| `local_data_migrations_enabled` | One-shot local backfills that rewrite stored workouts, and the routine adoption sweep that runs on every authenticated bootstrap to claim any ownerless user-authored routine or folder | The version key is not stamped, so the backfill runs later |
 | `public_profile_publishing_enabled` | Publishing the public profile mirror, stats, summaries | Republished from local state on the next bootstrap |
 
 The invariant across all of them: **a blocked path defers its work, it never drops it.**

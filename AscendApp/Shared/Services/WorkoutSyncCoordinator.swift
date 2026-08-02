@@ -137,7 +137,7 @@ private extension WorkoutSyncCoordinator {
         let finalDocument: FirestoreWorkoutDocument
 
         if let heartRateBlob = snapshot.heartRateBlob {
-            let heartRateSeries = try await withWorkoutSyncTimeout(seconds: operationTimeoutSeconds) {
+            let heartRateSeries = try await withRemoteSyncTimeout(seconds: operationTimeoutSeconds) {
                 try await self.heartRateStorageRepository.uploadHeartRateSeries(
                     userId: snapshot.userId,
                     workoutId: snapshot.workoutId,
@@ -148,7 +148,7 @@ private extension WorkoutSyncCoordinator {
             finalDocument = baseDocument.replacingHeartRateSeries(heartRateSeries)
         } else if baseDocument.heartRateSeries == nil,
                   snapshot.previousHeartRateSeriesStoragePath != nil {
-            try await withWorkoutSyncTimeout(seconds: operationTimeoutSeconds) {
+            try await withRemoteSyncTimeout(seconds: operationTimeoutSeconds) {
                 try await self.heartRateStorageRepository.deleteHeartRateSeriesIfPresent(
                     userId: snapshot.userId,
                     workoutId: snapshot.workoutId
@@ -159,7 +159,7 @@ private extension WorkoutSyncCoordinator {
             finalDocument = baseDocument
         }
 
-        try await withWorkoutSyncTimeout(seconds: operationTimeoutSeconds) {
+        try await withRemoteSyncTimeout(seconds: operationTimeoutSeconds) {
             try await self.remoteRepository.upsertWorkout(
                 userId: snapshot.userId,
                 workoutId: snapshot.workoutId,
@@ -224,14 +224,14 @@ private extension WorkoutSyncCoordinator {
         // Sidecar-first deletion removes active HR access before deleting the workout envelope.
         // Preventing stale devices from recreating either record still depends on the planned
         // revisioned tombstone and grace-period durability slice.
-        try await withWorkoutSyncTimeout(seconds: operationTimeoutSeconds) {
+        try await withRemoteSyncTimeout(seconds: operationTimeoutSeconds) {
             try await self.heartRateStorageRepository.deleteHeartRateSeriesIfPresent(
                 userId: userId,
                 workoutId: workoutId
             )
         }
 
-        try await withWorkoutSyncTimeout(seconds: operationTimeoutSeconds) {
+        try await withRemoteSyncTimeout(seconds: operationTimeoutSeconds) {
             try await self.remoteRepository.deleteWorkout(
                 userId: userId,
                 workoutId: workoutId
@@ -355,7 +355,7 @@ private extension WorkoutSyncCoordinator {
 
         switch error {
         case is WorkoutSyncError,
-             is WorkoutSyncTimeoutError:
+             is RemoteSyncTimeoutError:
             context = .firestore
             code = "workout_sync_failed"
         case is GzipCodec.Error:

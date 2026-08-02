@@ -52,6 +52,12 @@ Rules functions inline their arguments, so each `item.` dereference inside a per
 The workout rule is already over budget well below its own declared list caps (issue #295), so before adding any check to that path, exercise it against a document with several nested list elements rather than the single-element fixtures.
 Enum validators there take their value untyped on purpose: membership in a list of string literals already excludes non-strings, so a preceding `is string` is a no-op the budget cannot afford.
 
+**Measured, so nobody has to re-derive it.** The user-routine rule (issue #304) was benchmarked against the emulator with a real document: a full per-element validator - `hasOnly`/`hasAll` plus ten typed fields - fits **two** list elements; narrowed to four typed fields it fits **eleven**; `item is map` alone fits **twenty-four**.
+That is the whole budget, for one list, in a rule with about twenty other scalar checks.
+So a user-authored list of unbounded length simply cannot be validated element by element, and pretending otherwise ships a rule that silently rejects the largest documents.
+When that is where you land, say so in the rule with the numbers, validate what the document-level `hasOnly`/`hasAll` can reach, bound the list size, and move element validation into the client's decoder - `users/{uid}/routines` is the worked example.
+The asymmetry that makes it acceptable there and not for workouts: nothing but the owner reads a routine, while a workout's `participations` are read and trusted by the Cloud Functions that publish leaderboard rows.
+
 ## Storage pathing + rules
 
 User-generated media must be stored under user-scoped prefixes:
