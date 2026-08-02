@@ -5,6 +5,7 @@ import {fileURLToPath} from "node:url";
 
 import {evaluate, readBaseline, readSchemaFacts} from "../check-swiftdata-schema.mjs";
 import {
+  baselineMatches,
   checkModelSetAgreement,
   checkShapeDelta,
   parseMigrationPlan,
@@ -28,13 +29,13 @@ const BASELINE = {
   lightweightStageCount: 0,
   models: {
     Workout: {
-      id: {optional: false, hasDefault: false},
-      name: {optional: false, hasDefault: false},
-      notes: {optional: true, hasDefault: false},
+      id: {type: "UUID", optional: false, hasDefault: false},
+      name: {type: "String", optional: false, hasDefault: false},
+      notes: {type: "String?", optional: true, hasDefault: false},
     },
   },
   frozenModels: {
-    "AscendSchemaV1.Workout": {id: {optional: false, hasDefault: false}},
+    "AscendSchemaV1.Workout": {id: {type: "UUID", optional: false, hasDefault: false}},
   },
 };
 
@@ -48,6 +49,11 @@ function deltaInput(overrides = {}) {
     currentSchema: SCHEMA_V2,
     ...overrides,
   };
+}
+
+/** @param {string[]} columns Columns a stage claims. @return {object} A baseline naming them. */
+function baselineCovering(columns) {
+  return {...BASELINE, customStageColumns: columns};
 }
 
 test("the repository's own schema passes both checks", () => {
@@ -66,18 +72,31 @@ test("the repository's own schema passes both checks", () => {
 
 test("CI runs this check on any app-source change", () => {
   // An @Model can be declared anywhere under AscendApp, so a filter narrowed to
-  // the folders models live in today would let the next one ship unchecked.
+  // the folders models live in today would let the next one ship unchecked. The
+  // check owns a job of its own so a Swift-only change is not gated on the
+  // scripts package's dependency audit.
   const workflow = readFileSync(
     fileURLToPath(new URL("../../.github/workflows/ci.yml", import.meta.url)),
     "utf-8"
   );
-  const scriptsFilter = workflow.slice(
-    workflow.indexOf("            scripts:\n"),
-    workflow.indexOf("            web:\n")
+  const schemaFilter = workflow.slice(
+    workflow.indexOf("            swiftdata_schema:\n"),
+    workflow.indexOf("\n  functions-verify:")
   );
 
-  assert.match(scriptsFilter, /- "AscendApp\/\*\*"/);
-  assert.match(scriptsFilter, /- "SharedTestVectors\/\*\*"/);
+  assert.match(schemaFilter, /- "AscendApp\/\*\*"/);
+  assert.match(schemaFilter, /- "SharedTestVectors\/\*\*"/);
+  assert.match(workflow, /swiftdata_schema: \$\{\{ steps\.filter\.outputs\.swiftdata_schema \}\}/);
+
+  const job = workflow.slice(
+    workflow.indexOf("  swiftdata-schema-verify:"),
+    workflow.indexOf("  web-verify:")
+  );
+
+  assert.match(job, /if: needs\.changes\.outputs\.swiftdata_schema == 'true'/);
+  assert.match(job, /run: node scripts\/check-swiftdata-schema\.mjs/);
+  // The job's independence is the point: nothing it installs can fail it.
+  assert.doesNotMatch(job, /npm/);
 });
 
 test("an unchanged model set with no shape change is clean", () => {
@@ -133,7 +152,7 @@ test("a new required property with no default and no custom stage fails", () => 
     currentShape: {
       Workout: {
         ...BASELINE.models.Workout,
-        cadence: {optional: false, hasDefault: false},
+        cadence: {type: "Int", optional: false, hasDefault: false},
       },
     },
     currentSchema: SCHEMA_V3,
@@ -144,27 +163,99 @@ test("a new required property with no default and no custom stage fails", () => 
   assert.match(violations[0], /make it optional; give it a default.*or add a custom MigrationStage/s);
 });
 
-test("the same property passes optional, defaulted, or backed by a new custom stage", () => {
+test("the same property passes optional, defaulted, or backed by a stage that claims it", () => {
   const optional = checkShapeDelta(deltaInput({
-    currentShape: {Workout: {...BASELINE.models.Workout, cadence: {optional: true, hasDefault: false}}},
+    currentShape: {
+      Workout: {...BASELINE.models.Workout, cadence: {type: "Int?", optional: true, hasDefault: false}},
+    },
     currentSchema: SCHEMA_V3,
   }));
   assert.deepEqual(optional, []);
 
   const defaulted = checkShapeDelta(deltaInput({
-    currentShape: {Workout: {...BASELINE.models.Workout, cadence: {optional: false, hasDefault: true}}},
+    currentShape: {
+      Workout: {...BASELINE.models.Workout, cadence: {type: "Int", optional: false, hasDefault: true}},
+    },
     currentSchema: SCHEMA_V3,
   }));
   assert.deepEqual(defaulted, []);
 
   // The third route: a blanket value would be a lie, so a stage computes one per record. This is
-  // what AscendMigrationPlan.migrateV1toV2 does for Workout.source.
+  // what AscendMigrationPlan.migrateV1toV2 does for Workout.source. The stage has to exist *and*
+  // the baseline has to name the column it covers.
   const staged = checkShapeDelta(deltaInput({
-    currentShape: {Workout: {...BASELINE.models.Workout, cadence: {optional: false, hasDefault: false}}},
+    baseline: baselineCovering(["Workout.cadence"]),
+    currentShape: {
+      Workout: {...BASELINE.models.Workout, cadence: {type: "Int", optional: false, hasDefault: false}},
+    },
     plan: {...PLAN, customStageCount: 2},
     currentSchema: SCHEMA_V3,
   }));
   assert.deepEqual(staged, []);
+});
+
+test("a stage does not excuse a column it never claimed", () => {
+  // The failure this rule exists for: one PR adds a stage that migrates Routine.intervalPlan, and
+  // an unrelated required Workout.cadence rides in on it with no value for existing rows.
+  const violations = checkShapeDelta(deltaInput({
+    baseline: baselineCovering(["Routine.intervalPlan"]),
+    currentShape: {
+      Workout: {...BASELINE.models.Workout, cadence: {type: "Int", optional: false, hasDefault: false}},
+    },
+    plan: {...PLAN, customStageCount: 2},
+    currentSchema: SCHEMA_V3,
+  }));
+
+  assert.equal(violations.length, 1);
+  assert.match(violations[0], /Workout\.cadence is new, non-optional, and has no default/);
+});
+
+test("naming a column without adding a stage excuses nothing", () => {
+  const violations = checkShapeDelta(deltaInput({
+    baseline: baselineCovering(["Workout.cadence"]),
+    currentShape: {
+      Workout: {...BASELINE.models.Workout, cadence: {type: "Int", optional: false, hasDefault: false}},
+    },
+    currentSchema: SCHEMA_V3,
+  }));
+
+  assert.equal(violations.length, 1);
+  assert.match(violations[0], /Workout\.cadence is new, non-optional, and has no default/);
+});
+
+test("changing a stored property's type fails without a stage that claims it", () => {
+  const violations = checkShapeDelta(deltaInput({
+    currentShape: {
+      Workout: {...BASELINE.models.Workout, name: {type: "Int", optional: false, hasDefault: false}},
+    },
+    currentSchema: SCHEMA_V3,
+  }));
+
+  assert.equal(violations.length, 1);
+  assert.match(violations[0], /Workout\.name changed type from String to Int/);
+
+  const staged = checkShapeDelta(deltaInput({
+    baseline: baselineCovering(["Workout.name"]),
+    currentShape: {
+      Workout: {...BASELINE.models.Workout, name: {type: "Int", optional: false, hasDefault: false}},
+    },
+    plan: {...PLAN, customStageCount: 2},
+    currentSchema: SCHEMA_V3,
+  }));
+  assert.deepEqual(staged, []);
+});
+
+test("widening an existing column to optional is not a type change", () => {
+  // Lightweight migration handles this and no row loses a value, so demanding a stage would only
+  // teach people to add stages that do nothing.
+  const violations = checkShapeDelta(deltaInput({
+    currentShape: {
+      Workout: {...BASELINE.models.Workout, name: {type: "String?", optional: true, hasDefault: false}},
+    },
+    currentSchema: SCHEMA_V3,
+  }));
+
+  assert.deepEqual(violations, []);
 });
 
 test("an existing required property with no default is not a defect", () => {
@@ -175,7 +266,9 @@ test("an existing required property with no default is not a defect", () => {
 
 test("turning an existing optional property required without a default fails", () => {
   const violations = checkShapeDelta(deltaInput({
-    currentShape: {Workout: {...BASELINE.models.Workout, notes: {optional: false, hasDefault: false}}},
+    currentShape: {
+      Workout: {...BASELINE.models.Workout, notes: {type: "String", optional: false, hasDefault: false}},
+    },
     currentSchema: SCHEMA_V3,
   }));
 
@@ -187,7 +280,10 @@ test("a brand new model is exempt, because it has no existing rows", () => {
   const violations = checkShapeDelta(deltaInput({
     currentShape: {
       ...BASELINE.models,
-      Streak: {id: {optional: false, hasDefault: false}, length: {optional: false, hasDefault: false}},
+      Streak: {
+        id: {type: "UUID", optional: false, hasDefault: false},
+        length: {type: "Int", optional: false, hasDefault: false},
+      },
     },
     currentSchema: SCHEMA_V3,
   }));
@@ -197,7 +293,9 @@ test("a brand new model is exempt, because it has no existing rows", () => {
 
 test("changing the shape without a new schema version fails", () => {
   const violations = checkShapeDelta(deltaInput({
-    currentShape: {Workout: {...BASELINE.models.Workout, cadence: {optional: true, hasDefault: false}}},
+    currentShape: {
+      Workout: {...BASELINE.models.Workout, cadence: {type: "Int?", optional: true, hasDefault: false}},
+    },
   }));
 
   assert.equal(violations.length, 1);
@@ -206,12 +304,22 @@ test("changing the shape without a new schema version fails", () => {
 
 test("editing or deleting a shipped historical schema fails", () => {
   const edited = checkShapeDelta(deltaInput({
-    frozenShape: {"AscendSchemaV1.Workout": {id: {optional: true, hasDefault: false}}},
+    frozenShape: {
+      "AscendSchemaV1.Workout": {id: {type: "UUID", optional: true, hasDefault: false}},
+    },
   }));
   assert.match(edited[0], /frozen historical model AscendSchemaV1\.Workout changed/);
 
   const deleted = checkShapeDelta(deltaInput({frozenShape: {}}));
   assert.match(deleted[0], /frozen historical model AscendSchemaV1\.Workout was deleted/);
+});
+
+test("the hand-written stage allowlist is not a stale baseline", () => {
+  const record = {...BASELINE};
+  delete record.customStageColumns;
+
+  assert.equal(baselineMatches(baselineCovering(["Workout.cadence"]), record), true);
+  assert.equal(baselineMatches({...record, currentSchema: "AscendSchemaV3"}, record), false);
 });
 
 test("only stored properties count as columns", () => {
@@ -234,6 +342,10 @@ test("only stored properties count as columns", () => {
             set { label = newValue }
         }
 
+        var shorthand: String {
+            label
+        }
+
         func recompute() {
             var local = 0
             _ = local
@@ -245,15 +357,78 @@ test("only stored properties count as columns", () => {
   assert.equal(model.name, "Sample");
   assert.equal(model.nested, false);
   assert.deepEqual(shapeOf([model]).Sample, {
-    id: {optional: false, hasDefault: false},
-    label: {optional: false, hasDefault: true},
-    levels: {optional: false, hasDefault: true},
-    note: {optional: true, hasDefault: false},
-    renamed: {optional: false, hasDefault: true},
+    id: {type: "UUID", optional: false, hasDefault: false},
+    label: {type: "String", optional: false, hasDefault: true},
+    levels: {type: "[Int: Set<String>]", optional: false, hasDefault: true},
+    note: {type: "String?", optional: true, hasDefault: false},
+    renamed: {type: "Int", optional: false, hasDefault: true},
   });
 });
 
-test("a model nested inside a historical schema is read as frozen", () => {
+test("a property with an observer is a column; a declaration split over lines is one too", () => {
+  const source = `
+    @Model
+    final class Sample {
+        var attemptCount: Int = 0 { didSet { recompute() } }
+
+        var failureCount: Int = 0 {
+            willSet { prepare() }
+            didSet { recompute() }
+        }
+
+        var summary:
+            String = "none"
+
+        var levels: [Int: Set<String>]
+            = [:]
+
+        var title: String =
+            "untitled"
+
+        func recompute() {}
+        func prepare() {}
+    }
+  `;
+
+  const [model] = parseModels(source, "Sample.swift");
+  assert.deepEqual(shapeOf([model]).Sample, {
+    attemptCount: {type: "Int", optional: false, hasDefault: true},
+    failureCount: {type: "Int", optional: false, hasDefault: true},
+    levels: {type: "[Int: Set<String>]", optional: false, hasDefault: true},
+    summary: {type: "String", optional: false, hasDefault: true},
+    title: {type: "String", optional: false, hasDefault: true},
+  });
+});
+
+test("a declaration the parser cannot classify fails loudly instead of vanishing", () => {
+  const untyped = `
+    @Model
+    final class Sample {
+        var id = UUID()
+    }
+  `;
+
+  assert.throws(
+    () => parseModels(untyped, "Sample.swift"),
+    /Sample\.id has no type annotation/
+  );
+});
+
+test("a brace inside a string literal does not derail the property list", () => {
+  const source = `
+    @Model
+    final class Sample {
+        var id: UUID
+        var template: String = "a } b { c"
+        var caption: String = "trailing"
+    }
+  `;
+
+  const [model] = parseModels(source, "Sample.swift");
+  assert.deepEqual(Object.keys(shapeOf([model]).Sample), ["caption", "id", "template"]);
+});
+
+test("a model nested inside a historical schema is read as frozen, keyed to that schema", () => {
   const source = `
     extension AscendSchemaV1 {
         @Model
@@ -261,10 +436,36 @@ test("a model nested inside a historical schema is read as frozen", () => {
             var id: UUID = UUID()
         }
     }
+
+    extension AscendSchemaV2 {
+        @Model
+        final class Workout {
+            var id: UUID = UUID()
+            var cadence: Int = 0
+        }
+    }
   `;
 
-  const [model] = parseModels(source, "AscendSchemaV1.swift");
-  assert.equal(model.nested, true);
+  const models = parseModels(source, "AscendSchemas.swift");
+  assert.equal(models.length, 2);
+  assert.deepEqual(models.map((model) => model.nested), [true, true]);
+
+  // Two versions freezing the same class is how a model changes twice. Keyed by bare class name
+  // they collapse into one entry, and V1's frozen shape silently loses its immutability guard.
+  const shape = shapeOf(models);
+  assert.deepEqual(Object.keys(shape), ["AscendSchemaV1.Workout", "AscendSchemaV2.Workout"]);
+  assert.deepEqual(Object.keys(shape["AscendSchemaV1.Workout"]), ["id"]);
+  assert.deepEqual(Object.keys(shape["AscendSchemaV2.Workout"]), ["cadence", "id"]);
+});
+
+test("the repository's own frozen copies are recorded under their schema version", () => {
+  const facts = readSchemaFacts();
+
+  assert.ok(facts.frozenModels.length > 0);
+  for (const model of facts.frozenModels) {
+    assert.match(model.qualifiedName, /^AscendSchemaV\d+\.[A-Za-z_][A-Za-z0-9_]*$/);
+  }
+  assert.ok(Object.keys(facts.record.frozenModels).includes("AscendSchemaV1.Workout"));
 });
 
 test("versioned schemas and migration plans are read from their declarations", () => {
@@ -306,7 +507,51 @@ test("versioned schemas and migration plans are read from their declarations", (
 
   assert.deepEqual(plan, {
     schemas: ["AscendSchemaV1", "AscendSchemaV2"],
+    stages: [{name: "migrateV1toV2", kind: "custom"}],
     customStageCount: 1,
     lightweightStageCount: 0,
   });
+});
+
+test("a stage nothing wires into `stages` counts for nothing", () => {
+  const plan = parseMigrationPlan(`
+    enum AscendMigrationPlan: SchemaMigrationPlan {
+        static var schemas: [any VersionedSchema.Type] {
+            [AscendSchemaV1.self, AscendSchemaV2.self]
+        }
+
+        static var stages: [MigrationStage] {
+            [migrateV1toV2]
+        }
+
+        static let migrateV1toV2 = MigrationStage.lightweight(
+            fromVersion: AscendSchemaV1.self,
+            toVersion: AscendSchemaV2.self
+        )
+
+        static let neverWiredIn = MigrationStage.custom(
+            fromVersion: AscendSchemaV1.self,
+            toVersion: AscendSchemaV2.self,
+            willMigrate: { _ in },
+            didMigrate: { _ in }
+        )
+    }
+  `, "AscendMigrationPlan.swift");
+
+  assert.equal(plan.customStageCount, 0);
+  assert.equal(plan.lightweightStageCount, 1);
+});
+
+test("a stage reference the checker cannot resolve is an error, not a free pass", () => {
+  assert.throws(() => parseMigrationPlan(`
+    enum AscendMigrationPlan: SchemaMigrationPlan {
+        static var schemas: [any VersionedSchema.Type] {
+            [AscendSchemaV1.self, AscendSchemaV2.self]
+        }
+
+        static var stages: [MigrationStage] {
+            [makeStage()]
+        }
+    }
+  `, "AscendMigrationPlan.swift"), /references makeStage, but nothing declares it/);
 });

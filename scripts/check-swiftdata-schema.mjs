@@ -162,7 +162,8 @@ export function readBaseline() {
 function main() {
   const update = process.argv.includes("--update");
   const facts = readSchemaFacts();
-  const {violations, baselineStale} = evaluate(facts, readBaseline());
+  const baseline = readBaseline();
+  const {violations, baselineStale} = evaluate(facts, baseline);
 
   if (violations.length > 0) {
     console.error("SwiftData schema check failed:\n");
@@ -175,7 +176,13 @@ function main() {
   }
 
   if (update) {
-    writeFileSync(BASELINE_PATH, `${JSON.stringify(facts.record, null, 2)}\n`);
+    // `customStageColumns` is written by hand, not derived from the sources, so re-recording must
+    // carry it across rather than silently erase the one thing a stage's exemption rests on.
+    const record = Array.isArray(baseline.customStageColumns) && baseline.customStageColumns.length > 0
+      ? {...facts.record, customStageColumns: [...baseline.customStageColumns].sort()}
+      : facts.record;
+
+    writeFileSync(BASELINE_PATH, `${JSON.stringify(record, null, 2)}\n`);
     console.log(`Recorded ${relative(REPO_ROOT, BASELINE_PATH)} at ${facts.currentSchema.name}.`);
     return;
   }

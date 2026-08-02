@@ -13,6 +13,7 @@ Every line is a gate, not a suggestion, because none of them can be checked afte
 - [ ] The previous `AscendSchemaV*` is byte-for-byte unchanged.
 - [ ] A stage is appended to `AscendMigrationPlan.stages`, connecting the previous version to the new one, with no gap.
 - [ ] `AscendApp.createModelContainer` opens the store with the new schema.
+- [ ] If a stage computes the value for a new required column, `SharedTestVectors/swiftdata-schema-shape.json` names that column in `customStageColumns`. See below.
 - [ ] `node scripts/check-swiftdata-schema.mjs --update` runs clean and the re-recorded `SharedTestVectors/swiftdata-schema-shape.json` is in the same commit.
 
 **Proof**
@@ -59,6 +60,35 @@ Its `models` list names the other nine by their **live** type, because the two v
 So a store seeded "under V1" already has today's shape for those nine.
 The moment you change one of them, `AscendSchemaV1` silently starts describing the new shape too, which is the "never edit a shipped schema version" rule broken by aliasing rather than by editing.
 Freeze a copy of any model you are about to change into the schema version that shipped it, in the same PR.
+
+## Naming the column a stage covers
+
+A custom stage does not excuse a required column on its own.
+`SharedTestVectors/swiftdata-schema-shape.json` carries a hand-written `customStageColumns` list, and a new required column with no default passes only when that list names it **and** the change adds a stage that `AscendMigrationPlan.stages` actually runs:
+
+```json
+"customStageColumns": ["Workout.sourceRawValue"]
+```
+
+The list is written by hand and `--update` carries it across rather than regenerating it, because the whole point is that a human said which column the stage computes.
+Without it, one PR that adds a stage for `Routine.intervalPlan` would silently wave through an unrelated `Workout.cadence` in the same diff, and every existing workout would take whatever SwiftData decided.
+The same entry is what lets a deliberate type change through.
+
+A stage declared but never referenced from `stages` counts for nothing, because it migrates nothing.
+
+## Collapsing unshipped schema versions before a release
+
+The check demands a new `AscendSchemaV*` for every persisted-shape change, and it cannot tell a version that has shipped from one that exists only on your machine.
+So several versions can accumulate inside a single unreleased cycle: three PRs that each change the shape leave you at V5 with three stages, even though users are still on V2.
+
+**Before a release ships, collapse the versions that have never reached a user into a single version with a single stage.**
+Every surplus version is another stage chained inside `ModelContainer.init`, on the launch path, forever - and that is the most expensive place in the app to do work.
+Collapsing is a hand edit: delete the intermediate `AscendSchemaV*` files and their stages, renumber the survivor, then re-record the baseline with `node scripts/check-swiftdata-schema.mjs --update`.
+The check does not offer an escape hatch for this and is not meant to: re-recording is the escape hatch, and it only writes once the collapsed state is legal.
+
+**A version that has reached a user can never be collapsed. That includes TestFlight.**
+A store on someone's device was written by that version, and the plan is the only thing that knows how to read it.
+The moment a build leaves your machine, its schema version is permanent.
 
 ## Things that are cheap and worth doing while you are here
 

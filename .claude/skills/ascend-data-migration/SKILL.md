@@ -134,11 +134,15 @@ Firestore is an operation you perform and can perform again.
 `node scripts/check-swiftdata-schema.mjs` reads the Swift sources and fails on the two mistakes that are otherwise invisible in a diff:
 
 1. **The model list and the current versioned schema disagree.** A model declared but absent from `AscendSchemaV2.models` is never migrated and never opened with the store. The check also catches a plan or a container left pointing at a stale schema.
-2. **A schema change adds a required property with no default and no stage.** It fires only on properties that are *new* or newly non-optional, and only on models that already have rows - a brand-new model is exempt because it has none. It also fails a change to a shipped `VersionedSchema`, and a shape change with no new schema version.
+2. **A schema change adds a required property with no default and no stage, or changes a stored property's type.** The first fires only on properties that are *new* or newly non-optional, and only on models that already have rows - a brand-new model is exempt because it has none. The second fires on any existing column whose type changed, because lightweight migration drops the old column and takes the new one's default. It also fails a change to a shipped `VersionedSchema`, and a shape change with no new schema version.
 
+Either one is excused only by a stage `AscendMigrationPlan.stages` actually runs **plus** a hand-written `customStageColumns` entry naming the column it covers, so a second unrelated column cannot ride in on the first one's stage.
 The recorded shape lives in `SharedTestVectors/swiftdata-schema-shape.json`.
-After a legitimate schema change, re-record it in the same PR with `node scripts/check-swiftdata-schema.mjs --update`; the update refuses to write while a rule is violated.
-`scripts/test/swiftdata-schema-shape.test.mjs` runs both checks against this repository and proves each rule fires, and CI runs it via `node --test scripts/test/*.test.mjs`.
+After a legitimate schema change, re-record it in the same PR with `node scripts/check-swiftdata-schema.mjs --update`; the update refuses to write while a rule is violated, and carries `customStageColumns` across untouched.
+`scripts/test/swiftdata-schema-shape.test.mjs` runs both checks against this repository and proves each rule fires, and CI runs it in the `SwiftData Schema Verify` job on every change under `AscendApp/`.
+
+Because the check cannot tell a shipped schema version from an unshipped one, several can pile up inside one unreleased cycle - and every surplus version is another stage chained inside `ModelContainer.init` at launch, forever.
+`references/preflight.md` has the collapse step to run before a release ships, and the rule that a version which has reached a user, TestFlight included, can never be collapsed.
 
 ## References
 

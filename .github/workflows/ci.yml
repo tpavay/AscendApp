@@ -56,6 +56,7 @@ jobs:
       root_npm: ${{ steps.filter.outputs.root_npm }}
       firebase: ${{ steps.filter.outputs.firebase }}
       ruby: ${{ steps.filter.outputs.ruby }}
+      swiftdata_schema: ${{ steps.filter.outputs.swiftdata_schema }}
 
     steps:
       - name: Checkout repository
@@ -83,12 +84,6 @@ jobs:
             scripts:
               - "scripts/**"
               - "SharedTestVectors/**"
-              # The SwiftData schema check reads every Swift file looking for
-              # @Model declarations, and an @Model can be added anywhere. A shipped
-              # schema mistake silently defaults every existing row and an iOS
-              # binary cannot be rolled back, so this stays the whole app tree and
-              # is never narrowed to the folders models happen to live in today.
-              - "AscendApp/**"
               # The monetization build-configuration suite reads all three, so a
               # key, Info.plist, or placeholder-contract edit must run it.
               - "AscendApp.xcodeproj/**"
@@ -137,6 +132,15 @@ jobs:
               - "Gemfile.lock"
               - ".ruby-version"
               - "fastlane/**"
+              - ".github/workflows/**"
+            swiftdata_schema:
+              # The SwiftData schema check reads every Swift file looking for
+              # @Model declarations, and an @Model can be added anywhere. A shipped
+              # schema mistake silently defaults every existing row and an iOS
+              # binary cannot be rolled back, so this stays the whole app tree and
+              # is never narrowed to the folders models happen to live in today.
+              - "AscendApp/**"
+              - "SharedTestVectors/**"
               - ".github/workflows/**"
 
   functions-verify:
@@ -208,6 +212,30 @@ jobs:
       # hiding the test results that prove the code itself.
       - name: Audit dependencies
         run: npm --prefix scripts audit --package-lock-only --audit-level=low
+
+  # Its own job, deliberately dependency-free. The check imports nothing but Node
+  # builtins and local .mjs files, so it installs nothing and audits nothing: a
+  # Swift-only pull request must never be blocked by an advisory against a
+  # scripts-only Node dependency, or the gate that guards a user's data becomes
+  # the thing people learn to route around.
+  swiftdata-schema-verify:
+    name: SwiftData Schema Verify
+    needs: changes
+    if: needs.changes.outputs.swiftdata_schema == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Check the persisted SwiftData shape
+        run: node scripts/check-swiftdata-schema.mjs
 
   web-verify:
     name: Web Verify
