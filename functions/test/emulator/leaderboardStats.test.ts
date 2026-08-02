@@ -231,6 +231,11 @@ test("a closed daily row is removed while the closed weekly row stays",
 
     assert.ok(outcome.deleted.includes(closedDailyId));
     assert.equal(await readStanding(closedDailyId), undefined);
+    assert.deepEqual(
+      outcome.unresolvableRows,
+      [],
+      "both rows name a window this derivation can resolve"
+    );
     assert.equal(
       (await readStanding(closedWeeklyId))?.totalSteps,
       21_000,
@@ -276,6 +281,46 @@ test("the operator ownership repairs a closed weekly row the trigger cannot",
 
     assert.ok(outcome.written.includes(closedWeeklyId));
     assert.equal((await readStanding(closedWeeklyId))?.totalSteps, 3000);
+  });
+
+// The legacy `{uid}_{timeFrame}` shape the device used to write. Its id encodes
+// no period, so nothing can re-derive it - but the finalizer still matches it
+// on timeFrame + periodStartAt, so it must never be invisible.
+test("a legacy row is reported by a trigger and removable by the operator",
+  async () => {
+    const legacyId = `${userId}_weekly`;
+    await db.collection(LEADERBOARD_STATS).doc(legacyId).set({
+      userId,
+      isSynthetic: false,
+      timeFrame: "weekly",
+      periodKey: "2026-W30",
+      periodStartAt: admin.firestore.Timestamp.fromDate(
+        new Date("2026-07-20T00:00:00.000Z")
+      ),
+      totalSteps: FORGED_TOTAL_STEPS,
+      lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    await seedProfile();
+    await seedWorkout();
+
+    const triggerOutcome = await reconcileLeaderboardStats(
+      makeAdminLeaderboardStatsStore(),
+      userId,
+      NOW
+    );
+    assert.deepEqual(triggerOutcome.unresolvableRows, [legacyId]);
+    assert.equal(triggerOutcome.deleted.includes(legacyId), false);
+    assert.ok(await readStanding(legacyId));
+
+    const operatorOutcome = await reconcileLeaderboardStats(
+      makeAdminLeaderboardStatsStore(),
+      userId,
+      NOW,
+      {ownership: "openAndStoredPeriods"}
+    );
+
+    assert.ok(operatorOutcome.deleted.includes(legacyId));
+    assert.equal(await readStanding(legacyId), undefined);
   });
 
 // Seeded competitors have a standing with no canonical workouts by design.

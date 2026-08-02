@@ -180,11 +180,33 @@ export interface LeaderboardStatsSnapshot {
   existingRows: ExistingLeaderboardRow[];
 }
 
+/**
+ * Why a stored row is being removed.
+ *
+ * The reason travels with the removal because only the derivation knows it, and
+ * a caller that has to guess will guess wrong: "no eligible workouts" and "this
+ * window was never examined" produce the same empty result and mean opposite
+ * things about the row.
+ *
+ * - `noEvidence`: the window WAS derived and no eligible workout fell in it.
+ * - `prunedClosedWindow`: the window was not derived at all. It closed, nothing
+ *   reads it again, and the row is housekeeping rather than a finding.
+ * - `unresolvableWindow`: the row's identifier encodes no period this
+ *   derivation can name, so there is nothing to re-derive it from.
+ */
+export type LeaderboardRemovalReason =
+  | "noEvidence"
+  | "prunedClosedWindow"
+  | "unresolvableWindow";
+
 /** The operations available inside one reconciliation. */
 export interface LeaderboardStatsTransaction {
   read(userId: string): Promise<LeaderboardStatsSnapshot>;
   write(documentId: string, data: Record<string, unknown>): Promise<void>;
-  delete(documentId: string): Promise<void>;
+  delete(
+    documentId: string,
+    reason: LeaderboardRemovalReason
+  ): Promise<void>;
 }
 
 /**
@@ -207,6 +229,21 @@ export interface ReconcileOutcome {
   written: string[];
   deleted: string[];
   skippedSynthetic: string[];
+  /**
+   * Rows whose window this derivation cannot name - in practice the legacy
+   * `{uid}_{timeFrame}` documents the device used to write.
+   *
+   * Reported whether or not they were removed, because they are not inert.
+   * Deleting the client write path in this branch also deleted
+   * `LeaderboardRepository.deleteLegacyStats`, which was the ONLY sweeper for
+   * them, and `leaderboardRowsForPeriod` in finalizeLeaderboardAchievements
+   * matches on `timeFrame` + `periodStartAt` with no constraint on document id,
+   * resolving duplicates by newest `lastUpdated`. A legacy client-authored row
+   * can therefore still win a permanent award, and nothing sweeps it now. That
+   * is a partial reopening of the hole this change exists to close, introduced
+   * by this change, and an operator has to be able to see it.
+   */
+  unresolvableRows: string[];
 }
 
 /**
@@ -506,25 +543,52 @@ export function ownedPeriods(
     )
   );
   for (const row of existingRows) {
-    if (row.timeFrame === null || row.periodStartAtMillis === null) {
+    const period = resolvedPeriodForRow(userId, row);
+    if (period === null) {
       continue;
     }
-    const period = currentPeriod(
-      row.timeFrame,
-      new Date(row.periodStartAtMillis)
-    );
     const documentId = leaderboardDocumentId(
       userId,
       period.timeFrame,
       period.key
     );
-    if (documentId !== row.documentId || seen.has(documentId)) {
+    if (seen.has(documentId)) {
       continue;
     }
     seen.add(documentId);
     periods.push(period);
   }
   return periods;
+}
+
+/**
+ * The window a stored row belongs to, or null when it names none.
+ *
+ * Null is the legacy `{uid}_{timeFrame}` case. Such a row can NEVER be
+ * re-derived: its identifier encodes no period, so there is no window to sum
+ * workouts over and nothing to rebuild it from. It is still live evidence as
+ * far as the finalizer is concerned - see `ReconcileOutcome.unresolvableRows`.
+ * @param {string} userId Firebase Auth uid.
+ * @param {ExistingLeaderboardRow} row The stored row.
+ * @return {LeaderboardPeriod | null} The window, or null.
+ */
+export function resolvedPeriodForRow(
+  userId: string,
+  row: ExistingLeaderboardRow
+): LeaderboardPeriod | null {
+  if (row.timeFrame === null || row.periodStartAtMillis === null) {
+    return null;
+  }
+  const period = currentPeriod(
+    row.timeFrame,
+    new Date(row.periodStartAtMillis)
+  );
+  const documentId = leaderboardDocumentId(
+    userId,
+    period.timeFrame,
+    period.key
+  );
+  return documentId === row.documentId ? period : null;
 }
 
 /**
@@ -591,6 +655,7 @@ export async function reconcileLeaderboardStats(
     );
     const keep = new Set(written);
     const deleted: string[] = [];
+    const unresolvableRows: string[] = [];
     for (const row of snapshot.existingRows) {
       if (row.isSynthetic) {
         // Reported, not silently passed over: an operator reading a backfill
@@ -599,17 +664,32 @@ export async function reconcileLeaderboardStats(
         skippedSyntheticIds.add(row.documentId);
         continue;
       }
+      if (!open.has(row.documentId) &&
+        resolvedPeriodForRow(userId, row) === null) {
+        unresolvableRows.push(row.documentId);
+      }
       if (keep.has(row.documentId)) {
         continue;
       }
-      if (!isRemovableRow(row, {open, owned, ownership: options.ownership})) {
+      const reason = removalReasonFor(row, {
+        userId,
+        open,
+        owned,
+        ownership: options.ownership,
+      });
+      if (reason === null) {
         continue;
       }
-      await transaction.delete(row.documentId);
+      await transaction.delete(row.documentId, reason);
       deleted.push(row.documentId);
     }
 
-    return {written, deleted, skippedSynthetic: [...skippedSyntheticIds]};
+    return {
+      written,
+      deleted,
+      skippedSynthetic: [...skippedSyntheticIds],
+      unresolvableRows,
+    };
   });
 }
 
@@ -618,12 +698,16 @@ const FINALIZED_TIME_FRAME_SET: ReadonlySet<string> = new Set(
 );
 
 /**
- * Whether a stored row the derivation did not just write may be removed.
+ * Why a stored row the derivation did not just write may be removed, or null
+ * when it must stay.
  *
  * Retention follows what still READS the row, not whether its period closed:
  *
  * - An OPEN period with no evidence left is dead weight and goes, whatever the
- *   time frame.
+ *   time frame. That window was derived, so the emptiness is a finding.
+ * - A row whose window cannot be named is left alone under the trigger
+ *   ownership. Removing it is final - there is nothing to re-derive it from -
+ *   so that call belongs to a supervised operator run, never to a trigger.
  * - A closed WEEKLY, MONTHLY or YEARLY row stays under the trigger ownership
  *   for two separate reasons. finalizeLeaderboardAchievements reads the
  *   previous period's rows at 00:15 UTC to freeze permanent achievements, so
@@ -634,31 +718,41 @@ const FINALIZED_TIME_FRAME_SET: ReadonlySet<string> = new Set(
  * - A closed DAILY row is never finalized and the client only ever queries the
  *   current period, so nothing reads it again. Left immortal it would add one
  *   dead document per active climber per day to an unpaginated per-user read.
+ *   The trigger never derives that window, so this is housekeeping and must
+ *   never be reported as an evidence failure.
  * - ALL_TIME never closes, so it is always in the open set.
  *
  * Under the operator ownership every owned window is removable, because that
  * run is supervised, dry-run first, and exists precisely to reach the closed
  * rows that were authored by a client and never checked against evidence.
  * @param {ExistingLeaderboardRow} row The stored row.
- * @param {object} scope The open ids, owned ids, and ownership in force.
- * @return {boolean} True when the row may be removed.
+ * @param {object} scope The uid, open ids, owned ids, and ownership in force.
+ * @return {LeaderboardRemovalReason | null} The reason, or null to keep it.
  */
-function isRemovableRow(
+function removalReasonFor(
   row: ExistingLeaderboardRow,
   scope: {
+    userId: string;
     open: Set<string>;
     owned: Set<string>;
     ownership: LeaderboardOwnership;
   }
-): boolean {
+): LeaderboardRemovalReason | null {
   if (scope.open.has(row.documentId)) {
-    return true;
+    return "noEvidence";
+  }
+  if (resolvedPeriodForRow(scope.userId, row) === null) {
+    return scope.ownership === "openAndStoredPeriods" ?
+      "unresolvableWindow" :
+      null;
   }
   if (scope.ownership === "openAndStoredPeriods") {
-    return scope.owned.has(row.documentId);
+    return scope.owned.has(row.documentId) ? "noEvidence" : null;
   }
   return row.timeFrame !== null &&
-    !FINALIZED_TIME_FRAME_SET.has(row.timeFrame);
+    !FINALIZED_TIME_FRAME_SET.has(row.timeFrame) ?
+    "prunedClosedWindow" :
+    null;
 }
 
 /**
@@ -1093,6 +1187,7 @@ export const leaderboardStatsTestHooks = {
   ownedPeriods,
   parseEligibleWorkout,
   parseTimeFrame,
+  resolvedPeriodForRow,
   periodBudgetSeconds,
   reconcileLeaderboardStats,
 };

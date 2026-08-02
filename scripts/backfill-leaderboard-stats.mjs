@@ -21,6 +21,12 @@
  * awards from. That is opt-in because it is a supervised operation: run the dry
  * run, read every closed-period row it lists, then apply.
  *
+ * The report distinguishes outcomes that look identical in the data and are not
+ * the same statement. A window that was derived and came back empty is a
+ * finding; a window that was never derived is not, and reporting the second as
+ * the first would make yesterday's honest daily row read exactly like a forged
+ * one - which is the distinction the dry run exists to draw.
+ *
  * Usage:
  *   node scripts/backfill-leaderboard-stats.mjs --project dev --dry-run
  *   node scripts/backfill-leaderboard-stats.mjs --project dev
@@ -31,7 +37,7 @@
 import {createRequire} from "node:module";
 import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
-import {existsSync} from "node:fs";
+import {existsSync, realpathSync} from "node:fs";
 
 import {
   assertSeedableProject,
@@ -57,6 +63,7 @@ const COMPARED_FIELDS = [
   "totalDuration",
   "stepsPerMinute",
 ];
+const DETAIL_LIMIT = 20;
 
 export function parseArgs(argv) {
   const args = {
@@ -67,6 +74,10 @@ export function parseArgs(argv) {
     // reads in reach of a rewrite, so it never happens because someone forgot a
     // flag - only because they passed one.
     includeClosedPeriods: false,
+    // Deleting a row a minted achievement points at is a separate, harsher act
+    // than repairing one, so it needs its own consent rather than riding along
+    // on the broader flag.
+    allowFinalizedProvenanceLoss: false,
   };
 
   for (let index = 2; index < argv.length; index += 1) {
@@ -76,6 +87,8 @@ export function parseArgs(argv) {
     else if (value === "--verbose") args.verbose = true;
     else if (value === "--include-closed-periods") {
       args.includeClosedPeriods = true;
+    } else if (value === "--allow-finalized-provenance-loss") {
+      args.allowFinalizedProvenanceLoss = true;
     } else if (value === "--help" || value === "-h") args.help = true;
     else throw new Error(`Unknown argument: ${value}`);
   }
@@ -114,6 +127,10 @@ Flags:
   --dry-run                  Report what would change and write nothing.
   --verbose                  Print every rewritten row, not just the summary.
   --include-closed-periods   Also own periods that have already closed.
+  --allow-finalized-provenance-loss
+                             Permit REMOVING a row whose period is already
+                             finalized. Off by default and NOT implied by
+                             --include-closed-periods.
 
 Run the dry run first and read the deltas. A row that changes is a row whose
 published total did not match the workouts behind it.
@@ -128,6 +145,20 @@ Repairing a row for a period that is ALREADY FINALIZED does not unwind an
 achievement minted from the old number. The dry run reports each closed period's
 finalization status for exactly that reason: a finalized period needs the award
 in users/{uid}/achievements looked at separately.
+
+REMOVING a row for an already-finalized period is worse than repairing one: the
+permanent achievement survives, but the record its leaderboardStatsId points at
+as provenance is gone, and that is not reversible. Such removals are refused and
+reported unless --allow-finalized-provenance-loss is passed as well.
+
+Legacy {uid}_{timeFrame} rows CAN NEVER BE RE-DERIVED - their identifier encodes
+no period, so there is no window to sum workouts over and nothing to rebuild
+them from. Removing one is FINAL. They are reported in their own section on
+every run, and removed only with --include-closed-periods. They are not inert:
+finalizeLeaderboardAchievements matches rows on timeFrame + periodStartAt with
+no constraint on document id and breaks ties by newest lastUpdated, so a legacy
+client-authored row can still win a permanent award, and this branch deleted the
+only sweeper that used to remove them.
 `);
 }
 
@@ -183,25 +214,33 @@ async function main() {
       "currently open periods only"}`
   );
 
+  // Read up front rather than per row: a removal has to know whether its period
+  // is finalized at the moment it decides, not after the run is over.
+  const periodStatuses = await finalizationStatuses(db);
   const userIds = await leaderboardUserIds(db);
   console.log(`Climbers with a standing or a workout: ${userIds.length}`);
 
   const report = {
     changed: [],
-    deleted: [],
+    removedNoEvidence: [],
+    prunedClosedWindows: [],
+    refusedRemovals: [],
+    unresolvable: [],
     unchanged: 0,
     syntheticSkipped: 0,
   };
 
   for (const userId of userIds) {
-    const store = makeReportingStore(
+    const store = makeReportingStore({
       db,
       derivation,
       period,
       userId,
       now,
-      args.dryRun
-    );
+      periodStatuses,
+      dryRun: args.dryRun,
+      allowFinalizedProvenanceLoss: args.allowFinalizedProvenanceLoss,
+    });
     const outcome = await derivation.reconcileLeaderboardStats(
       store,
       userId,
@@ -209,17 +248,9 @@ async function main() {
       {ownership}
     );
     report.syntheticSkipped += outcome.skippedSynthetic.length;
-
-    for (const change of store.changes) {
-      if (change.kind === "unchanged") {
-        report.unchanged += 1;
-        continue;
-      }
-      report[change.kind === "delete" ? "deleted" : "changed"].push(change);
-    }
+    collect(report, store, outcome, userId);
   }
 
-  await annotateFinalizationStatus(db, report);
   printReport(report, args);
 
   if (args.dryRun) {
@@ -228,35 +259,69 @@ async function main() {
 }
 
 /**
- * Marks each closed-period change with the finalization status of its period.
+ * Routes one climber's changes into the counters that describe them honestly.
  *
- * A repair only rewrites the standing. If the period is already finalized the
- * achievement was minted from the old number and is still sitting in
- * users/{uid}/achievements, so the operator has to be told the difference rather
- * than left to assume the repair covered it.
+ * A pruned closed window and a window that was derived and came back empty are
+ * different statements about a row, so they never share a bucket.
  */
-async function annotateFinalizationStatus(db, report) {
-  const closed = [...report.changed, ...report.deleted].filter(
-    (change) => change.closed && change.timeFrame && change.periodKey
+function collect(report, store, outcome, userId) {
+  const changeById = new Map(
+    store.changes.map((change) => [change.documentId, change])
   );
-  const periodIds = new Set(
-    closed.map((change) => `${change.timeFrame}_${change.periodKey}`)
-  );
-  const statuses = new Map();
 
-  for (const periodId of periodIds) {
-    const snapshot = await db
-      .collection(LEADERBOARD_PERIODS_COLLECTION)
-      .doc(periodId)
-      .get();
-    statuses.set(periodId, snapshot.get("status") ?? "not finalized");
+  for (const change of store.changes) {
+    if (change.reason === "unresolvableWindow") {
+      continue;
+    }
+    if (change.kind === "unchanged") {
+      report.unchanged += 1;
+    } else if (change.kind === "write") {
+      report.changed.push(change);
+    } else if (change.kind === "refusedDelete") {
+      report.refusedRemovals.push(change);
+    } else if (change.reason === "prunedClosedWindow") {
+      report.prunedClosedWindows.push(change);
+    } else {
+      report.removedNoEvidence.push(change);
+    }
   }
 
-  for (const change of closed) {
-    change.periodStatus = statuses.get(
-      `${change.timeFrame}_${change.periodKey}`
-    );
+  for (const documentId of outcome.unresolvableRows) {
+    const change = changeById.get(documentId);
+    report.unresolvable.push({
+      userId,
+      documentId,
+      action: describeUnresolvableAction(change),
+      ...store.legacyFacts(documentId),
+    });
   }
+}
+
+function describeUnresolvableAction(change) {
+  if (change === undefined) {
+    return "left in place (needs --include-closed-periods to remove)";
+  }
+  if (change.kind === "refusedDelete") {
+    return "REMOVAL REFUSED (period is finalized)";
+  }
+  return "REMOVE - final, nothing can rebuild it";
+}
+
+/**
+ * Every leaderboard period's finalization status, keyed the way the finalizer
+ * names its documents.
+ */
+async function finalizationStatuses(db) {
+  const snapshot = await db
+    .collection(LEADERBOARD_PERIODS_COLLECTION)
+    .select("status")
+    .get();
+  return new Map(
+    snapshot.docs.map((document) => [
+      document.id,
+      document.get("status") ?? "not finalized",
+    ])
+  );
 }
 
 /**
@@ -291,7 +356,17 @@ async function leaderboardUserIds(db) {
  * an apply run reports what it did. Reads always hit Firestore, so the derived
  * numbers are the real ones either way.
  */
-function makeReportingStore(db, derivation, period, userId, now, dryRun) {
+function makeReportingStore(options) {
+  const {
+    db,
+    derivation,
+    period,
+    userId,
+    now,
+    periodStatuses,
+    dryRun,
+    allowFinalizedProvenanceLoss,
+  } = options;
   const adminStore = derivation.makeAdminLeaderboardStatsStore();
   const openIds = derivation.openPeriodDocumentIds(userId, now);
   const changes = [];
@@ -299,6 +374,9 @@ function makeReportingStore(db, derivation, period, userId, now, dryRun) {
 
   return {
     changes,
+    legacyFacts(documentId) {
+      return legacyFacts(existingById.get(documentId));
+    },
     async runTransaction(operation) {
       return adminStore.runTransaction(async (transaction) => {
         // A retry re-runs the whole callback, so the change log has to start
@@ -320,36 +398,64 @@ function makeReportingStore(db, derivation, period, userId, now, dryRun) {
           async write(documentId, data) {
             const before = existingById.get(documentId);
             const delta = fieldDelta(before, data);
-            const change = {
+            const window = describeWindow(
+              period,
+              data,
+              before,
+              documentId,
+              openIds
+            );
+            changes.push({
               kind: delta === null ? "unchanged" : "write",
+              reason: null,
               userId,
               documentId,
               delta,
               stored: summarize(before),
               derived: summarize(data),
               derivedWorkoutCount: numberOrNull(data.totalWorkouts) ?? 0,
-              ...describeWindow(period, data, before, documentId, openIds),
-            };
-            changes.push(change);
+              periodStatus: window.timeFrame && window.periodKey ?
+                periodStatuses.get(`${window.timeFrame}_${window.periodKey}`) ??
+                  "not finalized" :
+                "not finalized",
+              ...window,
+            });
             if (!dryRun) {
               await transaction.write(documentId, data);
             }
           },
-          async delete(documentId) {
+          async delete(documentId, reason) {
             const before = existingById.get(documentId);
+            const window = describeWindow(
+              period,
+              undefined,
+              before,
+              documentId,
+              openIds
+            );
+            const periodStatus = window.timeFrame && window.periodKey ?
+              periodStatuses.get(`${window.timeFrame}_${window.periodKey}`) ??
+                "not finalized" :
+              "not finalized";
+            const refused = shouldRefuseRemoval(
+              periodStatus,
+              allowFinalizedProvenanceLoss
+            );
             changes.push({
-              kind: "delete",
+              kind: refused ? "refusedDelete" : "delete",
+              reason,
               userId,
               documentId,
               before: summarize(before),
               stored: summarize(before),
+              // A window that was never derived has no derived value, and
+              // printing a zero here would assert a finding nobody made.
               derived: null,
-              // Nothing was derived for this window, which is the whole reason
-              // the row is going.
-              derivedWorkoutCount: 0,
-              ...describeWindow(period, undefined, before, documentId, openIds),
+              derivedWorkoutCount: reason === "noEvidence" ? 0 : null,
+              periodStatus,
+              ...window,
             });
-            if (!dryRun) {
+            if (!refused && !dryRun) {
               await transaction.delete(documentId);
             }
           },
@@ -372,6 +478,9 @@ function describeWindow(period, derived, stored, documentId, openIds) {
     null;
   const startMillis = timestampMillis(source.periodStartAt);
   const closed = !openIds.has(documentId);
+  // Only the time frames the finalizer freezes awards from can ever carry one,
+  // so only those belong in the section an operator reads before approving.
+  const awardBearing = period.FINALIZED_TIME_FRAMES.includes(timeFrame);
 
   if (timeFrame === null || startMillis === null) {
     return {
@@ -382,6 +491,7 @@ function describeWindow(period, derived, stored, documentId, openIds) {
       windowStart: null,
       windowEnd: null,
       closed,
+      awardBearing,
     };
   }
 
@@ -392,6 +502,7 @@ function describeWindow(period, derived, stored, documentId, openIds) {
     windowStart: window.startAt,
     windowEnd: window.endAt,
     closed,
+    awardBearing,
   };
 }
 
@@ -403,8 +514,39 @@ function timestampMillis(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+/**
+ * Whether a removal must be refused because it would orphan award provenance.
+ *
+ * The achievement stores `leaderboardStatsId` pointing back at the row. Deleting
+ * it leaves a permanent award pointing at a document that no longer exists, the
+ * award itself is not unwound, and no rerun can put the row back.
+ */
+export function shouldRefuseRemoval(periodStatus, allowFinalizedProvenanceLoss) {
+  return periodStatus === "finalized" && !allowFinalizedProvenanceLoss;
+}
+
 function numberOrNull(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * What a human needs to judge a legacy row.
+ *
+ * `lastUpdated` matters most: finalizeLeaderboardAchievements breaks ties by
+ * newest, so it is what decides whether this row beats the canonical one for a
+ * permanent award.
+ */
+function legacyFacts(stored) {
+  return {
+    timeFrame: typeof stored?.timeFrame === "string" ? stored.timeFrame : null,
+    periodStartAt: isoOrNull(timestampMillis(stored?.periodStartAt)),
+    lastUpdated: isoOrNull(timestampMillis(stored?.lastUpdated)),
+    stored: summarize(stored),
+  };
+}
+
+function isoOrNull(millis) {
+  return millis === null ? null : new Date(millis).toISOString();
 }
 
 function windowLabel(change) {
@@ -450,15 +592,39 @@ function roundedValue(value) {
   return typeof value === "number" ? Math.round(value * 1000) / 1000 : null;
 }
 
-function printReport(report, args) {
+export function printReport(report, args) {
   console.log("");
-  console.log(`Rows already correct:      ${report.unchanged}`);
-  console.log(`Rows rewritten:            ${report.changed.length}`);
-  console.log(`Rows removed (no workouts): ${report.deleted.length}`);
-  console.log(`Seeded rows left alone:    ${report.syntheticSkipped}`);
+  console.log(`Rows already correct:            ${report.unchanged}`);
+  console.log(`Rows rewritten:                  ${report.changed.length}`);
+  console.log(
+    "Rows removed - window derived, no eligible workouts: " +
+    `${report.removedNoEvidence.length}`
+  );
+  console.log(
+    "Closed daily rows pruned - window not examined, nothing reads them: " +
+    `${report.prunedClosedWindows.length}`
+  );
+  console.log(
+    `Legacy rows with no derivable period: ${report.unresolvable.length}`
+  );
+  console.log(
+    `Removals refused (finalized period):  ${report.refusedRemovals.length}`
+  );
+  console.log(`Seeded rows left alone:          ${report.syntheticSkipped}`);
 
-  const closed = [...report.changed, ...report.deleted]
-    .filter((change) => change.closed);
+  if (report.prunedClosedWindows.length > 0) {
+    console.log("");
+    console.log(
+      "Pruned rows are routine housekeeping, NOT an evidence finding. Daily " +
+      "windows are never finalized and the app only ever queries the current " +
+      "period, so a closed daily row is dead weight. This run did not derive " +
+      "those windows, so it makes no claim about what was behind them."
+    );
+  }
+
+  printLegacyRowDetail(report.unresolvable, args);
+  printRefusedRemovals(report.refusedRemovals);
+
   if (!args.includeClosedPeriods) {
     console.log(
       "\nClosed weekly, monthly and yearly rows were left untouched: without " +
@@ -469,7 +635,11 @@ function printReport(report, args) {
       "with --dry-run --include-closed-periods to see them."
     );
   }
-  printClosedPeriodDetail(closed);
+  printAwardBearingDetail([
+    ...report.changed,
+    ...report.removedNoEvidence,
+    ...report.refusedRemovals,
+  ]);
 
   const inflated = report.changed.filter((change) =>
     change.delta.fields?.totalSteps !== undefined &&
@@ -482,28 +652,24 @@ function printReport(report, args) {
       "account for. Read every one before applying - an inflated standing is " +
       "either forged or a defect in what the device counted."
     );
-    for (const change of inflated.slice(0, 20)) {
+    for (const change of inflated.slice(0, DETAIL_LIMIT)) {
       const steps = change.delta.fields.totalSteps;
       console.log(
         `  ${change.documentId}: ${steps.before} -> ${steps.after}`
       );
     }
-    if (inflated.length > 20) {
-      console.log(`  ... and ${inflated.length - 20} more`);
-    }
+    printOverflow(inflated.length);
   }
 
-  if (report.deleted.length > 0) {
+  if (report.removedNoEvidence.length > 0) {
     console.log("");
-    console.log("Removed standings:");
-    for (const change of report.deleted.slice(0, 20)) {
+    console.log("Removed for no eligible evidence in the derived window:");
+    for (const change of report.removedNoEvidence.slice(0, DETAIL_LIMIT)) {
       console.log(
         `  ${change.documentId}: was ${JSON.stringify(change.before)}`
       );
     }
-    if (report.deleted.length > 20) {
-      console.log(`  ... and ${report.deleted.length - 20} more`);
-    }
+    printOverflow(report.removedNoEvidence.length);
   }
 
   if (args.verbose) {
@@ -515,42 +681,117 @@ function printReport(report, args) {
   }
 }
 
+function printOverflow(total) {
+  if (total > DETAIL_LIMIT) {
+    console.log(`  ... and ${total - DETAIL_LIMIT} more`);
+  }
+}
+
 /**
- * Prints enough about each closed-period row to tell forgery from drift.
+ * Lists the legacy rows this derivation cannot name a window for.
+ *
+ * Its own section rather than folded into the repair counts, because it is the
+ * one class of row the tool cannot fix and the operator has to decide about.
+ */
+function printLegacyRowDetail(rows, args) {
+  if (rows.length === 0) {
+    return;
+  }
+
+  console.log("");
+  console.log(`Legacy rows with no derivable period: ${rows.length}`);
+  console.log(
+    "These carry timeFrame and periodStartAt but their document id encodes no " +
+    "period, so they CAN NEVER BE RE-DERIVED - there is nothing to rebuild " +
+    "them from and a removal here is FINAL. They are not inert: " +
+    "finalizeLeaderboardAchievements matches on timeFrame + periodStartAt " +
+    "with no constraint on document id and breaks ties by newest lastUpdated, " +
+    "so one of these can still win a permanent award."
+  );
+  if (!args.includeClosedPeriods) {
+    console.log(
+      "This run left them in place. Removing them needs " +
+      "--include-closed-periods."
+    );
+  }
+
+  for (const row of rows.slice(0, DETAIL_LIMIT)) {
+    console.log("");
+    console.log(`  ${row.documentId}`);
+    console.log(`    action:         ${row.action}`);
+    console.log(`    timeFrame:      ${row.timeFrame ?? "?"}`);
+    console.log(`    periodStartAt:  ${row.periodStartAt ?? "?"}`);
+    console.log(`    lastUpdated:    ${row.lastUpdated ?? "?"}`);
+    console.log(`    stored totals:  ${JSON.stringify(row.stored)}`);
+  }
+  printOverflow(rows.length);
+}
+
+function printRefusedRemovals(refused) {
+  if (refused.length === 0) {
+    return;
+  }
+
+  console.log("");
+  console.log(`Removals REFUSED - period already finalized: ${refused.length}`);
+  console.log(
+    "Deleting one of these would leave the permanent achievement in place " +
+    "with its leaderboardStatsId pointing at a document that no longer " +
+    "exists, and that is not reversible. Pass " +
+    "--allow-finalized-provenance-loss as well if that is genuinely intended."
+  );
+  for (const change of refused.slice(0, DETAIL_LIMIT)) {
+    console.log(`  ${change.documentId}: ${windowLabel(change)}`);
+  }
+  printOverflow(refused.length);
+}
+
+/**
+ * Prints enough about each award-bearing closed-period row to tell forgery from
+ * drift.
+ *
+ * Scoped to the time frames finalizeLeaderboardAchievements actually freezes
+ * awards from. A daily row can never carry an award, so listing one here would
+ * bury the rows this section exists to surface under noise that cannot matter.
  *
  * Zero eligible workouts behind a large stored total is the signature of a row
  * a client wrote. A small delta with real workouts behind it is a legitimate row
  * that drifted. Nobody should have to guess which one they are approving.
  */
-function printClosedPeriodDetail(closed) {
+function printAwardBearingDetail(changes) {
+  const closed = changes.filter(
+    (change) => change.closed && change.awardBearing
+  );
   if (closed.length === 0) {
     return;
   }
 
   console.log("");
-  console.log(`Closed-period rows this run would touch: ${closed.length}`);
+  console.log(
+    `Closed award-bearing rows this run would touch: ${closed.length}`
+  );
   console.log(
     "Repairing a row does NOT unwind an achievement already minted from the " +
     "old number. Any row below whose period reads 'finalized' needs the award " +
     "in users/{uid}/achievements looked at separately."
   );
 
-  for (const change of closed) {
+  for (const change of closed.slice(0, DETAIL_LIMIT)) {
     console.log("");
     console.log(`  ${change.documentId}`);
     console.log(`    window:            ${windowLabel(change)}`);
     console.log(
       `    period status:     ${change.periodStatus ?? "not finalized"}`
     );
-    console.log(
-      `    action:            ${change.kind === "delete" ?
-        "REMOVE (no eligible workouts in this window)" :
-        "REWRITE"}`
-    );
-    console.log(
-      `    eligible workouts behind derived value: ` +
-      `${change.derivedWorkoutCount}`
-    );
+    console.log(`    action:            ${describeAction(change)}`);
+    if (change.derivedWorkoutCount !== null) {
+      console.log(
+        "    eligible workouts behind derived value: " +
+        `${change.derivedWorkoutCount}`
+      );
+    } else {
+      console.log("    this window was not derived, so nothing was examined");
+    }
     for (const field of COMPARED_FIELDS) {
       const stored = change.stored?.[field] ?? null;
       const derived = change.derived?.[field] ?? null;
@@ -565,11 +806,43 @@ function printClosedPeriodDetail(closed) {
       );
     }
   }
+  printOverflow(closed.length);
 }
 
-if (resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
+export function describeAction(change) {
+  if (change.kind === "refusedDelete") {
+    return "REMOVAL REFUSED (period is finalized)";
+  }
+  if (change.kind !== "delete") {
+    return "REWRITE";
+  }
+  if (change.reason === "prunedClosedWindow") {
+    return "PRUNE (window closed, nothing reads it; not examined)";
+  }
+  if (change.reason === "unresolvableWindow") {
+    return "REMOVE (no derivable period; final)";
+  }
+  return "REMOVE (window derived, no eligible workouts)";
+}
+
+// Node leaves argv[1] unresolved through symlinks while the ESM loader
+// realpaths the module URL, so a plain compare makes this whole tool a
+// silent no-op that exits 0 whenever it is invoked through a linked path.
+if (isEntrypoint()) {
   main().catch((error) => {
     console.error(error.message);
     process.exitCode = 1;
   });
+}
+
+function isEntrypoint() {
+  const invoked = process.argv[1];
+  if (!invoked) {
+    return false;
+  }
+  try {
+    return realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
 }

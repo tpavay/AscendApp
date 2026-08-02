@@ -25,6 +25,7 @@ const {
   openPeriods,
   ownedPeriods,
   parseEligibleWorkout,
+  resolvedPeriodForRow,
   periodBudgetSeconds,
   reconcileLeaderboardStats,
 } = leaderboardStatsTestHooks;
@@ -529,9 +530,38 @@ test("a closed daily row is removed because nothing reads it again",
 
     const outcome = await reconcileLeaderboardStats(store, userId, NOW);
 
-    assert.deepEqual(
-      outcome.deleted,
-      [leaderboardDocumentId(userId, "daily", closedDay.key)]
+    const closedDayId = leaderboardDocumentId(userId, "daily", closedDay.key);
+    assert.deepEqual(outcome.deleted, [closedDayId]);
+    // The trigger never derived that window, so calling this an evidence
+    // failure would state a finding nobody made.
+    assert.equal(store.deleteReasons.get(closedDayId), "prunedClosedWindow");
+  });
+
+// A pruned window and an examined-but-empty window look identical in the data
+// and mean opposite things about the row. A dry run that describes a legitimate
+// daily row the way it describes a forged one is worthless.
+test("pruning a closed window and finding no evidence are different verdicts",
+  async () => {
+    const closedDay = previousDailyPeriod(NOW);
+    const openWeek = currentPeriod("weekly", NOW);
+    const store = makeStore({
+      workouts: [],
+      existingRows: [storedRow(closedDay), storedRow(openWeek)],
+    });
+
+    await reconcileLeaderboardStats(store, userId, NOW);
+
+    assert.equal(
+      store.deleteReasons.get(
+        leaderboardDocumentId(userId, "daily", closedDay.key)
+      ),
+      "prunedClosedWindow"
+    );
+    assert.equal(
+      store.deleteReasons.get(
+        leaderboardDocumentId(userId, "weekly", openWeek.key)
+      ),
+      "noEvidence"
     );
   });
 
@@ -554,21 +584,74 @@ for (const timeFrame of ["weekly", "monthly", "yearly"] as const) {
 }
 
 // The window has to come off the stored fields. A row that does not say which
-// period it belongs to cannot be judged, and the safe answer is to leave it.
-test("a row whose window cannot be established is never removed", async () => {
-  const store = makeStore({
-    workouts: [{id: "w1", data: makeWorkout()}],
-    existingRows: [{
-      documentId: "daily_2026-07-31_" + userId,
-      isSynthetic: false,
-      timeFrame: null,
-      periodStartAtMillis: null,
-    }],
+// period it belongs to cannot be judged by a trigger, and the safe answer is to
+// leave it - but never to say nothing about it.
+test("a row whose window cannot be established is never removed by a trigger",
+  async () => {
+    const store = makeStore({
+      workouts: [{id: "w1", data: makeWorkout()}],
+      existingRows: [{
+        documentId: "daily_2026-07-31_" + userId,
+        isSynthetic: false,
+        timeFrame: null,
+        periodStartAtMillis: null,
+      }],
+    });
+
+    const outcome = await reconcileLeaderboardStats(store, userId, NOW);
+
+    assert.deepEqual(outcome.deleted, []);
   });
 
-  const outcome = await reconcileLeaderboardStats(store, userId, NOW);
+// The legacy `{uid}_{timeFrame}` documents. This branch deleted their only
+// sweeper, and the finalizer matches rows on timeFrame + periodStartAt with no
+// constraint on document id, so one can still win a permanent award. Leaving
+// them out of the report would hide that.
+test("a legacy row with no derivable period is reported, not skipped silently",
+  async () => {
+    const legacyId = `${userId}_weekly`;
+    const legacyRow = {
+      documentId: legacyId,
+      isSynthetic: false,
+      timeFrame: "weekly" as const,
+      periodStartAtMillis: previousPeriod("weekly", NOW).startAt.getTime(),
+    };
 
-  assert.deepEqual(outcome.deleted, []);
+    assert.equal(resolvedPeriodForRow(userId, legacyRow), null);
+
+    const store = makeStore({
+      workouts: [{id: "w1", data: makeWorkout()}],
+      existingRows: [legacyRow],
+    });
+    const outcome = await reconcileLeaderboardStats(store, userId, NOW);
+
+    assert.deepEqual(outcome.unresolvableRows, [legacyId]);
+    assert.deepEqual(outcome.deleted, [], "a trigger must not make it final");
+  });
+
+test("a legacy row is removable only under the operator ownership", async () => {
+  const legacyId = `${userId}_weekly`;
+  const legacyRow = {
+    documentId: legacyId,
+    isSynthetic: false,
+    timeFrame: "weekly" as const,
+    periodStartAtMillis: previousPeriod("weekly", NOW).startAt.getTime(),
+  };
+  const store = makeStore({
+    workouts: [{id: "w1", data: makeWorkout()}],
+    existingRows: [legacyRow],
+  });
+
+  const outcome = await reconcileLeaderboardStats(
+    store,
+    userId,
+    NOW,
+    {ownership: "openAndStoredPeriods"}
+  );
+
+  assert.deepEqual(outcome.deleted, [legacyId]);
+  assert.deepEqual(outcome.unresolvableRows, [legacyId]);
+  assert.equal(store.deleteReasons.get(legacyId), "unresolvableWindow");
 });
 
 // ---------------------------------------------------------------------------
@@ -664,10 +747,9 @@ test("the operator ownership removes a closed row with no evidence behind it",
       {ownership: "openAndStoredPeriods"}
     );
 
-    assert.deepEqual(
-      outcome.deleted,
-      [leaderboardDocumentId(userId, "weekly", closed.key)]
-    );
+    const closedId = leaderboardDocumentId(userId, "weekly", closed.key);
+    assert.deepEqual(outcome.deleted, [closedId]);
+    assert.equal(store.deleteReasons.get(closedId), "noEvidence");
   });
 
 // The wider ownership is the operator's, not the trigger's. Defaulting to it
@@ -945,6 +1027,7 @@ function makeWorkout(
 interface RecordingStore extends LeaderboardStatsStore {
   writes: Map<string, Record<string, unknown>>;
   deletes: string[];
+  deleteReasons: Map<string, string>;
 }
 
 function makeStore(options: {
@@ -960,6 +1043,7 @@ function makeStore(options: {
 }): RecordingStore {
   const writes = new Map<string, Record<string, unknown>>();
   const deletes: string[] = [];
+  const deleteReasons = new Map<string, string>();
   const snapshot: LeaderboardStatsSnapshot = {
     workouts: options.workouts,
     publicProfile: options.publicProfile,
@@ -974,6 +1058,7 @@ function makeStore(options: {
   return {
     writes,
     deletes,
+    deleteReasons,
     async runTransaction(operation) {
       return operation({
         async read() {
@@ -982,8 +1067,9 @@ function makeStore(options: {
         async write(documentId, data) {
           writes.set(documentId, data);
         },
-        async delete(documentId) {
+        async delete(documentId, reason) {
           deletes.push(documentId);
+          deleteReasons.set(documentId, reason);
         },
       });
     },
