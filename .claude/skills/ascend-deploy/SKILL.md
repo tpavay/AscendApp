@@ -25,7 +25,10 @@ Read the workflow file before changing it - the job graph below is the contract,
 `.github/workflows/ci.yml` runs on CI-relevant PR changes targeting `develop` and `main`.
 Every verify job is gated on the changed paths, so a functions-only PR skips the iOS jobs and an iOS-only PR skips the functions job:
 - `changes` - a `dorny/paths-filter` job that resolves the `ios`, `functions`, `scripts`, `web`, `root_npm`, `firebase`, `ruby`, and `swiftdata_schema` outputs. Every other job declares `needs: changes` and an `if:` on one of those outputs, so a new verify job is skipped by default until you add it to the filter.
-- `functions-verify` - installs `functions/`, then lints, tests, and audits (`npm --prefix functions ci`, `run lint`, `test`, `audit --audit-level=low`).
+- `functions-verify` - installs `functions/`, then lints, unit-tests, runs the emulator-backed suite, and audits (`npm --prefix functions ci`, `run lint`, `test`, `run test:emulator`, `audit --audit-level=low`).
+  `test:emulator` runs `functions/test/emulator/*` against a real Firestore through `emulators:exec`, because the unit suite injects a store and so never exercises the Admin adapter that actually writes the world-readable leaderboard.
+  It asserts `FIRESTORE_EMULATOR_HOST` is set rather than skipping, so it cannot pass by doing nothing.
+  It therefore pins the same Temurin JDK 21 `actions/setup-java` step `firebase-verify` does, for the same reason.
 - `scripts-verify` - installs `scripts/` (`npm --prefix scripts ci`), runs the `scripts/test/*.test.mjs` suite with `node --test`, then audits the `scripts/` lockfile (`--package-lock-only`).
   The install is required: the public-identity contract suite imports and spawns `dev-db.mjs`, which imports `firebase-admin`, so a suite that exercises a real script rather than a pure library needs the same dependencies an operator has.
   It also installs a globally pinned `@sentry/cli`, because the dSYM-upload suite asserts the release script's flags against that exact CLI's help.

@@ -1,6 +1,6 @@
 ---
 name: ascend-leaderboards
-description: Use when working on Ascend leaderboards - the global leaderboard tab, per-climb leaderboards, ranking, podium, rank subtitles, tie handling, achievement tiers (Top 1/3/10/100), week boundaries, leaderboard periods/windowing, or leaderboard publication and sync. Covers the Monday-week rule, the current-period-only document model, and standard competition ranking.
+description: Use when working on Ascend leaderboards - the global leaderboard tab, per-climb leaderboards, ranking, podium, rank subtitles, tie handling, achievement tiers (Top 1/3/10/100), week boundaries, leaderboard periods/windowing, or how a standing is derived, retained, and backfilled. Covers the Monday-week rule, the server-derived document model and its plausibility envelope, and standard competition ranking.
 paths:
   - AscendApp/Features/Leaderboards/**
   - functions/src/leaderboardStats.ts
@@ -27,7 +27,7 @@ Two distinct surfaces - the global tab (community-wide aggregate stats) and per-
 - Per-week user-configurable numeric targets are intentionally out of scope. Don't reintroduce target cards, setup prompts, or CRUD around personal weekly goals unless product explicitly changes direction.
 
 ### Document model
-- Leaderboard documents are **current-period-only**, not historical archives. One document per user per time frame: weekly, monthly, yearly, all-time.
+- One document per user, per time frame (daily, weekly, monthly, yearly, all-time), per period, and the client only ever reads the **current** period. A closed row is never an archive to read from; whether it is kept or pruned is the retention rule under Publication & sync, and the reason is always what still reads it.
 - Each document carries metadata (schema version, time frame, period key, period start timestamp) and the aggregated metrics for the period (steps, floors, workouts, duration, pace). The exact field names live in `firestore.rules`; the Firestore schema-change rule (see `ascend-firebase-data`) governs how to extend or modify them.
 
 ### Metrics

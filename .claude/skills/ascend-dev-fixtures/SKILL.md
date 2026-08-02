@@ -67,6 +67,7 @@ paths:
 - To patch one dev/staging account, use `scripts/dev-db.mjs hydrate-user` so private `users/{uid}` and public `users/{uid}/public_profile/current` stay in sync.
 - `scripts/seed-demo-user.mjs` floors every demo user's totals at `minimumStepsByTimeFrame` (2,096 daily / 48,000 weekly / 145,000 monthly / 640,000 yearly / 720,000 all-time) via `Math.max`.
   Every demo user seeded below the floor lands on the floor exactly, so identical totals across accounts - and the podium ties they produce - are a seeding artifact, not a ranking bug. Check the seeded value before investigating a tie as a defect.
+  That floor holds at seed time only. The row it writes carries no `isSynthetic` marker, so the server derivation owns it: once a trigger fires for that user, or the backfill runs, the open-period standing is rebuilt from the seeded workouts and a floored total falls back to what those workouts actually support.
 
 ## Live replay seeding
 - Live replay leaderboard seed data must be Admin SDK/server-written into the read-only `live_replay_leaderboards` index, never client-written during a live session.
