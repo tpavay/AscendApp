@@ -25,6 +25,51 @@ struct AccountDeletionServiceTests {
     }
 
     @Test
+    func sweepsOnlyOwnerScopedStorageAndNeverTheLegacyFlatPaths() async throws {
+        let gateway = RecordingAccountDeletionGateway()
+        gateway.reauthenticationResult = .success(
+            ReauthenticationResult(appleAuthorizationCode: "apple-auth-code")
+        )
+        let service = AccountDeletionService(gateway: gateway, localCleanup: StubLocalCleanup())
+
+        try await service.deleteAccount(modelContext: try makeModelContext())
+
+        // The root photos/ and videos/ prefixes carry no owner segment, so
+        // storage.rules closes them to every client. A sweep aimed there could
+        // only ever fail, and reaching for another climber's media is exactly
+        // what the closed rules exist to prevent.
+        #expect(gateway.steps == [
+            .reauthenticate,
+            .revokeAppleToken,
+            .deleteAllUserStorage,
+            .deleteLeaderboardStats,
+            .deleteWorkoutBackups,
+            .deleteBlockedClimbers,
+            .deletePublicProfileMirrors,
+            .unregisterPushDevice,
+            .deleteUserDocument,
+            .deleteAuthAccount,
+        ])
+    }
+
+    @Test
+    func reportsFullProgressOnceEveryStepHasRun() async throws {
+        let gateway = RecordingAccountDeletionGateway()
+        let service = AccountDeletionService(gateway: gateway, localCleanup: StubLocalCleanup())
+
+        // totalSteps is hand-maintained, so a step added or removed without
+        // updating it leaves the progress bar permanently short or early.
+        var lastProgress: AccountDeletionService.DeletionProgress?
+        try await service.deleteAccount(modelContext: try makeModelContext()) { progress in
+            lastProgress = progress
+        }
+
+        let progress = try #require(lastProgress)
+        #expect(progress.completedSteps == progress.totalSteps)
+        #expect(progress.progressPercentage == 1.0)
+    }
+
+    @Test
     func deletesEveryRemoteRecordBeforeTheAuthAccount() async throws {
         let gateway = RecordingAccountDeletionGateway()
         let service = AccountDeletionService(gateway: gateway, localCleanup: StubLocalCleanup())
@@ -258,7 +303,6 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
     enum Step: Equatable {
         case reauthenticate
         case deleteAllUserStorage
-        case deleteLegacyMedia
         case deleteLeaderboardStats
         case deleteWorkoutBackups
         case deleteBlockedClimbers
@@ -285,10 +329,6 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
 
     func deleteAllUserStorage(userId: String) async throws {
         steps.append(.deleteAllUserStorage)
-    }
-
-    func deleteLegacyMedia(at urls: [URL]) async {
-        steps.append(.deleteLegacyMedia)
     }
 
     func deleteLeaderboardStats(userId: String) async throws {
