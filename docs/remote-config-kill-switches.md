@@ -47,7 +47,9 @@ If a bug reaches those paths, the lever is a fixed build - which is exactly why 
 
 1. Firebase console -> Remote Config -> the project (`ascend-prod-9c8f2` for production).
 2. Set the parameter to `false` and publish.
-3. Running apps pick it up within seconds through the real-time listener; suspended apps pick it up on their next foreground.
+3. Suspended apps pick it up on their next foreground, and that is the path known to work.
+   A running app is *meant* to pick it up within seconds through the real-time listener, but that has never been observed - see "The switch exercise" below.
+   Plan an incident around the foreground fetch until someone confirms the listener on a device.
 
 There is nothing to build, submit, or wait for review on.
 
@@ -100,7 +102,7 @@ Publishing it is a **full replace**, so a naive deploy would republish every swi
 
 Consequences, both deliberate:
 
-- Remote Config is **not** in the CI deploy `--only` lists. `scripts/test/remote-config-template.test.mjs` fails if it ever is.
+- **No CI workflow publishes the template, by any route.** `scripts/test/remote-config-template.test.mjs` closes all three: a deploy whose `--only` list names `remoteconfig`; a deploy carrying no `--only` at all, since `firebase.json` wires the template in and an unscoped deploy publishes it; and the repository's own publish path, whether run as `deploy-remote-config.mjs` or through any npm alias that invokes it. The alias names are read out of `scripts/package.json` and the workflow list is read out of `.github/workflows/`, so neither renaming an alias nor adding a workflow can slip a publish past the test. Reading the live template from CI stays allowed - that is the archive preflight below.
 - `scripts/deploy-remote-config.mjs` reads the live template first and refuses when any managed flag is currently off, unless you name each one you mean to re-enable.
 
 ```bash
@@ -112,7 +114,82 @@ npm run remoteconfig:deploy:production -- --apply
 ```
 
 To restore normal behaviour, flip the parameter back to `true` in the console.
-Deleting the parameter also works - the flag falls back to its shipped default, which is `true`.
+
+**Flip it, do not delete it.**
+Deleting the parameter restores the same behaviour - the flag falls back to its shipped default, which is `true` - but it also removes the lever, and the archive preflight below refuses to build staging or production while a flag the binary reads is missing from the backend.
+An operator who deletes rather than flips will block the next release, with nothing in the build log pointing at the console as the cause.
+The same applies to switching a parameter to "use in-app default": the key stays visible in the console while the backend stops supplying a value, which the preflight treats exactly like a deletion.
+
+### Publishing is not optional, and CI now checks it
+
+Between #298 and #318 the template existed, was correct, and had never been published to any project.
+Every flag resolved to its `shippedDefault`, the app behaved completely normally, and nothing caught it - because the only parity check compared the checked-in template to `RemoteFeatureFlag.swift`, and both of those were right.
+The comparison nobody made was against the live backend, which was empty in dev, staging and production.
+
+`scripts/ci/assert-remote-config-published.mjs <dev|staging|prod>` closes that.
+It reads the live template and fails the staging and production archives when a flag the build reads is unreachable on the backend it will talk to.
+
+Unreachable is wider than absent.
+The condition that matters is `RemoteConfigValue.source == .remote`, the single thing `FirebaseRemoteFeatureFlagSource.remoteSourcedValues()` requires before a value counts, so the preflight refuses all of these:
+
+- The parameter is **missing** from the live template.
+- The parameter is set to **use in-app default**, so the backend deliberately supplies no value. The key is right there in the console and the flag still resolves from `shippedDefault` - the most deceptive shape of the lot.
+- The parameter carries **only conditional values** and no default, so any client matching no condition receives nothing.
+- The parameter is not declared **`BOOLEAN`**. Note carefully what this one is and is not: the client reads `stringValue` and never inspects `valueType`, so a `STRING` parameter holding `"false"` *is* honoured as a live kill switch. Do not read a type warning during an incident as "the switch is inert" - it may well be doing exactly what you asked. The declaration is refused because the template requires `BOOLEAN` and because the console type is what stops a value the client's strict parser would drop from ever being saved against a switch. Blocking a config that happens to work is the safe direction here; passing one that does not is #318.
+
+Two things it deliberately does **not** do:
+
+- It never looks at parameter *values*. A switch an operator has turned off is the mechanism working, and an archive must not be blocked because someone is using the lever.
+- It fails rather than passes when it cannot reach the backend. "Could not look" must never read as "looks fine" - that is the exact shape of the gap it exists to end.
+
+### Publish and verification record
+
+| Project | Published | Template version | Verified |
+|---|---|---|---|
+| Dev `ascend-f2e4f` | 2026-08-02 | 4 (1 = first publish; 2-3 were the switch exercise below) | Client `main_active` carries all seven, `main_default` empty |
+| Staging `ascend-staging-fa7d5` | 2026-08-02 | 1 | Client `main_active` carries all seven, `main_default` empty |
+| Production `ascend-prod-9c8f2` | 2026-08-02 | 1 | Backend read-back, parameter by parameter - see below |
+
+Client-side verification reads the Firebase SDK's own activation store in the simulator container, `Library/Application Support/Google/RemoteConfig/RemoteConfig.sqlite3`:
+
+```bash
+container=$(xcrun simctl get_app_container booted com.TylerPavay.AscendApp.dev data)
+sqlite3 "$container/Library/Application Support/Google/RemoteConfig/RemoteConfig.sqlite3" \
+  "select key, cast(value as text) from main_active order by key;"
+```
+
+`main_active` is what makes `RemoteConfigValue.source` report `.remote`, which is the single condition `FirebaseRemoteFeatureFlagSource.remoteSourcedValues()` requires before a value counts.
+A key present there is, by construction, a key the app resolves from the server rather than from `shippedDefault`.
+`main_default` must stay empty - Ascend deliberately calls no `setDefaults`, and a non-empty table would mean the `.remote` / `.default` distinction had been destroyed.
+The **Remote Flags** screen shows the same thing with a UI, and is the right tool on a TestFlight build where there is no container to read.
+
+**Production read-back, 2026-08-02.** No production client verified this publish, so the backend was read back independently and compared against the code, parameter by parameter. `RemoteFeatureFlag.shippedDefault` is the unconditional `{ true }` - not a per-case switch - so the correct production state is all seven `true`, and that is what came back:
+
+| Parameter | Backend | Type | `shippedDefault` |
+|---|---|---|---|
+| `leaderboard_publishing_enabled` | `true` | BOOLEAN | `true` |
+| `local_data_migrations_enabled` | `true` | BOOLEAN | `true` |
+| `public_profile_publishing_enabled` | `true` | BOOLEAN | `true` |
+| `workout_cloud_backup_writes_enabled` | `true` | BOOLEAN | `true` |
+| `workout_cloud_restore_enabled` | `true` | BOOLEAN | `true` |
+| `workout_media_uploads_enabled` | `true` | BOOLEAN | `true` |
+| `workout_remote_deletes_enabled` | `true` | BOOLEAN | `true` |
+
+Seven keys in code, seven parameters on the backend, no unrecognised parameters, no `parameterGroups`, no `conditions`, template version 1. Every value matches its `shippedDefault` exactly, which is what makes this publish a no-op for behaviour: production resolves the same answers it resolved yesterday, but now from the server, where they can be changed.
+
+Proving the production *client* resolves `.remote` would mean running a production-configured build, which registers an app instance against the production project - beyond "publishing config is authorised". The archive preflight covers that permanently instead: no production build can be cut while a flag is missing from `ascend-prod-9c8f2`.
+
+### The switch exercise (dev, 2026-08-02)
+
+The console-to-gate chain had never run end to end, because until this publish no parameter existed on any backend to flip.
+Exercised on dev with `workout_media_uploads_enabled`:
+
+1. Published with the flag set to `false`. The client resolved `false` on its next launch.
+2. The other six stayed `true` - one switch moves one path.
+3. Re-running the deploy **refused**, naming the active kill switch, and published only once re-run with `--allow-overwriting-active-kill-switch workout_media_uploads_enabled`.
+4. The client returned to `true`.
+
+**Not yet demonstrated: the real-time listener.** Both transitions above were observed after a relaunch, which is the foreground-fetch path. On a foregrounded simulator build the listener did not deliver either change within 60 seconds, in either direction. That is one unexplained observation on one simulator, not an established defect - the `streamFetchInvalidations` connection did open, and a simulator's QUIC handling is not a device's. The claim under "Flipping one" that a running app picks a change up within seconds is therefore **unverified**, and the deferred behaviour of the gates themselves is covered by `AscendAppTests/RemoteFeatureGateTests.swift` rather than by this exercise. Confirm the listener on a real Staging TestFlight device via the Remote Flags screen before relying on it during an incident; a foreground relaunch is the fallback that is known to work.
 
 ## Cost
 
@@ -180,7 +257,7 @@ It does not remove it from anyone who already updated - which is exactly why a d
 ### Order of operations for a bad build
 
 1. **Flip the Remote Config switch** for the affected path.
-   This reaches every install, including the ones already updated, within seconds.
+   This reaches every install, including the ones already updated, with no submission and no wait for review - on the next foreground at the latest, and see "Flipping one" for why that is the timing to plan around.
 2. **Pause the phased release.**
    This stops the population of affected installs growing.
 3. Fix, submit, and re-arm phased release on the new version.
