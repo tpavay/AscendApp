@@ -45,8 +45,11 @@ let schema = Schema(versionedSchema: AscendSchemaV1.self)
 let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
 ```
 
-then closes that container, reopens the same file with `AscendSchemaV2` **and the migration plan**, and asserts on what came out.
-The suite's own header says why: the failure being guarded against is silent, and a store that lost every source reads back exactly like a healthy fresh install.
+then closes that container, reopens the same file with the **live** schema and the migration plan, and asserts on what came out.
+`AscendAppTests/RoutineBackupSchemaMigrationTests.swift` is the same shape one version later, seeded through `AscendSchemaV2`.
+The suites' own headers say why: the failure being guarded against is silent, and a store that lost every source reads back exactly like a healthy fresh install.
+
+**Reopen at the schema the build actually ships, not at the version your suite is about.** Stopping a test container at an older frozen version registers that older `@Model` under the same Core Data entity name as the live one, and while it is alive *any* `ModelContext` in the process silently drops writes to the columns only the live shape carries - no error, nothing thrown from `save()`. In a parallel run that window lands on whatever else is writing. `WorkoutSourceSchemaMigrationTests.advanceToCurrentSchema` exists for exactly this.
 
 Copy that shape:
 
@@ -56,11 +59,11 @@ Copy that shape:
 4. Assert on values, not on the open succeeding.
 
 **Where this approximation is weaker than it looks, and it matters.**
-`AscendSchemaV1` declares frozen copies of only three types - `Workout`, `WorkoutSourceLink`, `WorkoutParticipation`.
-Its `models` list names the other nine by their **live** type, because the two versions were identical for them.
-So a store seeded "under V1" already has today's shape for those nine.
-The moment you change one of them, `AscendSchemaV1` silently starts describing the new shape too, which is the "never edit a shipped schema version" rule broken by aliasing rather than by editing.
-Freeze a copy of any model you are about to change into the schema version that shipped it, in the same PR.
+A shipped `AscendSchemaV*` freezes its own copy only of the models that have since changed - `Workout`, `WorkoutSourceLink`, `WorkoutParticipation`, `Routine`, `RoutineFolder` in V1; `Routine` and `RoutineFolder` in V2.
+Every other model is named by its **live** type, because those versions were identical for them.
+So a store seeded "under V1" already has today's shape for the rest.
+The moment you change one of them, every shipped schema version that names it live silently starts describing the new shape too, which is the "never edit a shipped schema version" rule broken by aliasing rather than by editing.
+Freeze a copy of any model you are about to change into **every** shipped schema version that still names it live, in the same PR - that is why `Routine` and `RoutineFolder` now appear frozen in both V1 and V2.
 
 ## Naming the column a stage covers
 
