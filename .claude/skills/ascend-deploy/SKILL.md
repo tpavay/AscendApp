@@ -165,11 +165,12 @@ Do not introduce a *new* long-lived JSON service-account key for deploy auth; th
   - `MATCH_GIT_URL`
   - `MATCH_PASSWORD`
   - `MATCH_GIT_PRIVATE_KEY`
-- Also required by both build jobs: `SENTRY_AUTH_TOKEN`.
+- Also required by both build jobs: `SENTRY_AUTH_TOKEN`, plus `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_API_ISSUER_ID` and `APP_STORE_CONNECT_API_KEY`.
+  The build-number allocator reads App Store Connect before the archive, so those three credentials now reach the archive job as well as the upload job - widening their blast radius to every step that runs on the build runner.
 
 ### Build numbers (CFBundleVersion allocator)
 - `BUILD_NUMBER` is derived by `scripts/ci/derive-build-number.sh <app-store-connect-app-id> <bundle-id>` in a pre-archive "Derive build number" step, not from `github.run_id` or `github.run_number`.
-  The step assigns the result to a variable first so a non-zero exit propagates under `set -e` before anything is written to `$GITHUB_ENV`.
+  The step assigns the result to a variable first so a non-zero exit propagates under `set -e` before anything is written to `$GITHUB_ENV`, and rejects an empty value explicitly - a zero-exit-no-output derivation would otherwise archive an empty `CFBundleVersion`.
   A failed derivation stops the deploy instead of exporting an empty build number.
 - The value uses `YYYYMMDDNN`: the UTC date plus the next two-digit sequence for that app on that day.
   The allocator asks App Store Connect for every uploaded build on the configured app, validates that the app owns the expected bundle ID, and derives `01` or one more than today's highest suffix.
@@ -178,9 +179,14 @@ Do not introduce a *new* long-lived JSON service-account key for deploy auth; th
   Their workflows deliberately can emit the same date sequence because the signed IPAs upload to separate apps.
   The workflow-level app ID and bundle ID are also passed explicitly to Fastlane so allocation and upload cannot silently target different apps.
 - Uniqueness depends on each uploadable workflow declaring a **fixed, non-ref-scoped** per-app concurrency group (`deploy-staging`, `deploy-production`).
-  That serialization spans archive and upload, so another run for the same app cannot derive against stale remote state.
   Cancelled runs and reruns consume no sequence value because App Store Connect, not workflow history, owns the state.
-  `scripts/test/ci-workflow-contracts.test.mjs` enforces the fixed groups and distinct app mappings.
+  `scripts/test/ci-workflow-contracts.test.mjs` enforces the fixed groups, the distinct app mappings, and the post-upload wait below.
+- **The concurrency group alone is not enough, and the reason is not obvious.** It serializes workflow *runs*, not Apple's ingestion.
+  `upload_to_testflight` keeps `skip_waiting_for_build_processing: true`, so the lane returns when the transporter accepts the binary - minutes before the Build record is queryable through `/v1/builds`, which is the allocator's only sequence state.
+  Left there, the next queued run would derive against the pre-upload maximum and mint the same `YYYYMMDDNN`, and Apple would reject it at the end of a full archive cycle.
+  `scripts/ci/await-build-visible.mjs` closes that window: the upload job polls `/v1/builds` for the exact build it just uploaded and does not exit - does not release the group - until the record is listed.
+  It waits for *visibility*, not for processing to finish, and fails loudly after a bounded 15 minutes rather than hanging or proceeding.
+  The derived number reaches that job as the `build-ios` job output `build-number`; an empty one is a hard failure, not a skipped wait.
 - The allocator refuses a number at or below the legacy cutover floor, at or below the highest uploaded build, or above the App Store's 32-bit ceiling.
   `YYYYMMDDNN` remains below the ceiling through 4294 and fails rather than wrapping after that.
 - Legacy manual-signing CI secrets are deprecated:

@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 
+import {isEntrypoint} from "../lib/is-entrypoint.mjs";
 import {
+  BUILD_NUMBER_PATTERN,
   appStoreConnectRequest,
+  assertAppOwnsBundleId,
   makeAppStoreConnectToken,
   readAppStoreConnectCredentials,
 } from "../lib/app-store-connect-client.mjs";
@@ -10,9 +13,6 @@ export const MAX_BUILD_NUMBER = 4_294_967_295;
 export const PREVIOUS_BUILD_NUMBER_FLOOR = 37_105_794;
 export const BUILDS_PER_DAY = 99;
 
-const APP_ID_PATTERN = /^\d+$/;
-const BUNDLE_ID_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
-const BUILD_NUMBER_PATTERN = /^\d+$/;
 const PAGE_LIMIT = 200;
 const MAX_PAGES = 1_000;
 
@@ -95,24 +95,7 @@ export async function fetchHighestUploadedBuildNumber(
   {token, appId, expectedBundleId},
   request = appStoreConnectRequest,
 ) {
-  if (!APP_ID_PATTERN.test(appId)) {
-    throw new Error(`App Store Connect app ID must be numeric, got '${appId}'.`);
-  }
-  if (!BUNDLE_ID_PATTERN.test(expectedBundleId)) {
-    throw new Error(`Expected bundle ID is invalid, got '${expectedBundleId}'.`);
-  }
-
-  const app = await request(
-    token,
-    `/apps/${appId}?fields%5Bapps%5D=bundleId,name`,
-  );
-  const actualBundleId = app?.data?.attributes?.bundleId;
-  if (actualBundleId !== expectedBundleId) {
-    throw new Error(
-      `App Store Connect app ${appId} belongs to '${actualBundleId ?? "(missing)"}', ` +
-        `not expected bundle '${expectedBundleId}'.`,
-    );
-  }
+  await assertAppOwnsBundleId({token, appId, expectedBundleId}, request);
 
   const versions = [];
   let next =
@@ -156,7 +139,9 @@ async function main() {
   process.stdout.write(`${buildNumber}\n`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// A guard that silently fails to match exits 0 with no output, and the deploy
+// archives an empty CFBundleVersion from it.
+if (isEntrypoint(import.meta.url)) {
   main().catch((error) => {
     console.error(`::error::${error.message}`);
     process.exitCode = 1;

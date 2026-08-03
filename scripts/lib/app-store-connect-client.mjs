@@ -4,6 +4,10 @@ const API_ROOT = "https://api.appstoreconnect.apple.com/v1";
 const API_ORIGIN = new URL(API_ROOT).origin;
 const TOKEN_LIFETIME_SECONDS = 900;
 
+export const APP_ID_PATTERN = /^\d+$/;
+export const BUNDLE_ID_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
+export const BUILD_NUMBER_PATTERN = /^\d+$/;
+
 function base64url(input) {
   return Buffer.from(input).toString("base64url");
 }
@@ -93,4 +97,29 @@ export async function appStoreConnectRequest(
   }
 
   return parsed;
+}
+
+/**
+ * An app ID is an opaque number, so a wrong one reads as a working configuration
+ * right up to the point it allocates or inspects the wrong app's builds.
+ */
+export async function assertAppOwnsBundleId(
+  {token, appId, expectedBundleId},
+  request = appStoreConnectRequest,
+) {
+  if (!APP_ID_PATTERN.test(String(appId))) {
+    throw new Error(`App Store Connect app ID must be numeric, got '${appId}'.`);
+  }
+  if (!BUNDLE_ID_PATTERN.test(String(expectedBundleId))) {
+    throw new Error(`Expected bundle ID is invalid, got '${expectedBundleId}'.`);
+  }
+
+  const app = await request(token, `/apps/${appId}?fields%5Bapps%5D=bundleId,name`);
+  const actualBundleId = app?.data?.attributes?.bundleId;
+  if (actualBundleId !== expectedBundleId) {
+    throw new Error(
+      `App Store Connect app ${appId} belongs to '${actualBundleId ?? "(missing)"}', ` +
+        `not expected bundle '${expectedBundleId}'.`,
+    );
+  }
 }

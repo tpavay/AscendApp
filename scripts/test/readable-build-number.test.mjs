@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { copyFileSync, mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   BUILDS_PER_DAY,
@@ -9,10 +14,13 @@ import {
   fetchHighestUploadedBuildNumber,
   utcDateStamp,
 } from "../ci/derive-build-number.mjs";
+import {awaitBuildVisible} from "../ci/await-build-visible.mjs";
 import {
   appStoreConnectRequest,
   readAppStoreConnectCredentials,
 } from "../lib/app-store-connect-client.mjs";
+
+const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 test("the first build of a UTC day is readable and later builds increment", () => {
   assert.equal(deriveReadableBuildNumber("20260803", null), 2_026_080_301);
@@ -160,6 +168,146 @@ test("an unavailable App Store Connect API fails closed", async () => {
     }),
     /failed \(503\): Unavailable: Retry later/,
   );
+});
+
+// `import.meta.url` is both percent-encoded and realpath-resolved; `process.argv[1]`
+// is neither. A main-module guard that compares them as strings silently exits 0
+// having written nothing whenever the invocation path holds a space or crosses a
+// symlink - and the deploy archives that empty value as its CFBundleVersion.
+// The temp root below is both: it contains spaces and sits behind /private on macOS.
+test("the CI entrypoints still run from a path with spaces or a symlink", () => {
+  const root = mkdtempSync(join(tmpdir(), "ascend build number "));
+  mkdirSync(join(root, "scripts/ci"), {recursive: true});
+  mkdirSync(join(root, "scripts/lib"), {recursive: true});
+  for (const file of [
+    "scripts/ci/derive-build-number.mjs",
+    "scripts/ci/await-build-visible.mjs",
+    "scripts/lib/app-store-connect-client.mjs",
+    "scripts/lib/is-entrypoint.mjs",
+  ]) {
+    copyFileSync(join(repositoryRoot, file), join(root, file));
+  }
+
+  assert.ok(root.includes(" "));
+
+  for (const [script, usage] of [
+    ["derive-build-number.mjs", /::error::Usage: derive-build-number/],
+    ["await-build-visible.mjs", /::error::Usage: await-build-visible/],
+  ]) {
+    const result = spawnSync(process.execPath, [join(root, "scripts/ci", script)], {
+      encoding: "utf8",
+    });
+
+    assert.notEqual(result.status, 0, `${script} never ran main and exited 0`);
+    assert.match(result.stderr, usage);
+    assert.equal(result.stdout, "");
+  }
+});
+
+test("the upload holds the concurrency group until the exact build is listed", async () => {
+  const paths = [];
+  const responses = [
+    {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}},
+    {data: []},
+    {data: []},
+    {data: [{attributes: {version: "2026080301"}}]},
+  ];
+  const slept = [];
+
+  const attempt = await awaitBuildVisible(
+    {
+      token: "redacted-test-token",
+      appId: "6759919365",
+      expectedBundleId: "com.TylerPavay.AscendApp.staging",
+      buildNumber: "2026080301",
+      timeoutSeconds: 60,
+      pollIntervalSeconds: 15,
+    },
+    {
+      request: async (token, path) => {
+        paths.push(path);
+        return responses.shift();
+      },
+      sleep: async (seconds) => slept.push(seconds),
+      report: () => {},
+    },
+  );
+
+  assert.equal(attempt, 3);
+  assert.deepEqual(slept, [15, 15]);
+  assert.match(paths[1], /filter%5Bapp%5D=6759919365/);
+  assert.match(paths[1], /filter%5Bversion%5D=2026080301/);
+});
+
+test("an upload that never becomes visible fails loudly within a bounded timeout", async () => {
+  let polls = 0;
+  const slept = [];
+
+  await assert.rejects(
+    awaitBuildVisible(
+      {
+        token: "redacted-test-token",
+        appId: "6759919365",
+        expectedBundleId: "com.TylerPavay.AscendApp.staging",
+        buildNumber: "2026080301",
+        timeoutSeconds: 45,
+        pollIntervalSeconds: 15,
+      },
+      {
+        request: async (token, path) => {
+          if (path.startsWith("/apps/")) {
+            return {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}};
+          }
+          polls += 1;
+          return {data: []};
+        },
+        sleep: async (seconds) => slept.push(seconds),
+        report: () => {},
+      },
+    ),
+    /still not listed in \/v1\/builds after 45s.*mint a duplicate/s,
+  );
+
+  assert.equal(polls, 3);
+  assert.deepEqual(slept, [15, 15]);
+});
+
+test("the wait refuses an app that does not own the expected bundle", async () => {
+  await assert.rejects(
+    awaitBuildVisible(
+      {
+        token: "redacted-test-token",
+        appId: "6757202987",
+        expectedBundleId: "com.TylerPavay.AscendApp.staging",
+        buildNumber: "2026080301",
+      },
+      {
+        request: async () => ({data: {attributes: {bundleId: "com.TylerPavay.AscendApp"}}}),
+        report: () => {},
+      },
+    ),
+    /not expected bundle/,
+  );
+});
+
+test("the wait refuses a missing or non-numeric build number", async () => {
+  for (const buildNumber of ["", "1.2.3", undefined]) {
+    await assert.rejects(
+      awaitBuildVisible(
+        {
+          token: "redacted-test-token",
+          appId: "6759919365",
+          expectedBundleId: "com.TylerPavay.AscendApp.staging",
+          buildNumber,
+        },
+        {
+          request: async () => assert.fail("must not reach App Store Connect"),
+          report: () => {},
+        },
+      ),
+      /Build number must be a non-negative integer/,
+    );
+  }
 });
 
 test("pagination cannot send the API token to another origin", async () => {

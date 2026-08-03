@@ -47,12 +47,8 @@ const STATE_FOR_COMMAND = {
   "release-to-all": "COMPLETE",
 };
 
-async function callApi(token, path, options) {
-  return appStoreConnectRequest(token, path, options);
-}
-
 async function findApp(token) {
-  const result = await callApi(
+  const result = await appStoreConnectRequest(
     token,
     `/apps?filter[bundleId]=${encodeURIComponent(BUNDLE_ID)}&limit=1`,
   );
@@ -73,7 +69,7 @@ async function findApp(token) {
 async function fetchVersionCandidates(token, appId) {
   const candidates = [];
   let url =
-    `https://api.appstoreconnect.apple.com/v1/apps/${appId}/appStoreVersions?filter[platform]=IOS` +
+    `/apps/${appId}/appStoreVersions?filter[platform]=IOS` +
     `&limit=${VERSION_PAGE_LIMIT}&include=appStoreVersionPhasedRelease`;
 
   for (let page = 0; page < MAX_VERSION_PAGES && url; page += 1) {
@@ -120,7 +116,7 @@ async function enable(token, {version, phasedRelease}) {
     return;
   }
 
-  await callApi(token, "/appStoreVersionPhasedReleases", {
+  await appStoreConnectRequest(token, "/appStoreVersionPhasedReleases", {
     method: "POST",
     body: {
       data: {
@@ -146,7 +142,7 @@ async function setState(token, phasedRelease, state) {
     );
   }
 
-  await callApi(token, `/appStoreVersionPhasedReleases/${phasedRelease.id}`, {
+  await appStoreConnectRequest(token, `/appStoreVersionPhasedReleases/${phasedRelease.id}`, {
     method: "PATCH",
     body: {
       data: {

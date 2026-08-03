@@ -58,7 +58,6 @@ test("production readiness failure is visible to GitHub Actions", async () => {
   assert.match(disabledBranch, /^\s+exit 1$/m);
 });
 
-const deriveScript = `${repositoryRoot}scripts/ci/derive-build-number.sh`;
 const workflowsDirectory = `${repositoryRoot}.github/workflows`;
 
 // A workflow can put a build on TestFlight if it drives a signed archive lane
@@ -142,8 +141,25 @@ test("every uploadable workflow serializes on a fixed group and owns a distinct 
   );
 });
 
+// A step block runs from its `- name:` line to the next step or to any line that
+// dedents out of the step list.
+function stepBlock(workflow, stepName) {
+  const lines = workflow.split("\n");
+  const startIndex = lines.indexOf(`      - name: ${stepName}`);
+  assert.notEqual(startIndex, -1, `Missing step: ${stepName}`);
+
+  const block = [lines[startIndex]];
+  for (const line of lines.slice(startIndex + 1)) {
+    if (line.startsWith("      - ")) break;
+    if (line.trim() !== "" && !line.startsWith("       ")) break;
+    block.push(line);
+  }
+
+  return block.join("\n");
+}
+
 function deriveStep(workflow) {
-  return sectionBetween(workflow, "      - name: Derive build number\n", "\n      - name: ");
+  return stepBlock(workflow, "Derive build number");
 }
 
 function deriveStepScript(workflow) {
@@ -188,39 +204,84 @@ test("a failed derivation stops the deploy instead of exporting an empty build n
     const root = mkdtempSync(join(tmpdir(), "ascend-build-number-"));
     const stubPath = join(root, "scripts/ci/derive-build-number.sh");
     const environmentFile = join(root, "github-env");
+    const outputFile = join(root, "github-output");
     mkdirSync(dirname(stubPath), {recursive: true});
     writeFileSync(environmentFile, "");
+    writeFileSync(outputFile, "");
+
+    const runStep = () =>
+      spawnSync("bash", ["-c", stepScript], {
+        cwd: root,
+        encoding: "utf8",
+        env: {
+          PATH: "/usr/bin:/bin",
+          GITHUB_ENV: environmentFile,
+          GITHUB_OUTPUT: outputFile,
+          APP_STORE_CONNECT_APP_ID: "1234567890",
+          APP_STORE_CONNECT_BUNDLE_ID: "com.example.App",
+        },
+      });
 
     writeFileSync(stubPath, "#!/bin/sh\necho '::error::boom' >&2\nexit 1\n");
     chmodSync(stubPath, 0o755);
-    const failed = spawnSync("bash", ["-c", stepScript], {
-      cwd: root,
-      encoding: "utf8",
-      env: {
-        PATH: "/usr/bin:/bin",
-        GITHUB_ENV: environmentFile,
-        APP_STORE_CONNECT_APP_ID: "1234567890",
-        APP_STORE_CONNECT_BUNDLE_ID: "com.example.App",
-      },
-    });
+    const failed = runStep();
 
     assert.notEqual(failed.status, 0, `${name} must fail when derivation fails`);
     assert.doesNotMatch(readFileSync(environmentFile, "utf8"), /BUILD_NUMBER=/, name);
 
+    // A zero exit with no output is the shape that would archive an empty
+    // CFBundleVersion, because Ruby treats "" as truthy.
+    writeFileSync(stubPath, "#!/bin/sh\nexit 0\n");
+    chmodSync(stubPath, 0o755);
+    const silent = runStep();
+
+    assert.notEqual(silent.status, 0, `${name} must fail on an empty derived build number`);
+    assert.doesNotMatch(readFileSync(environmentFile, "utf8"), /BUILD_NUMBER=/, name);
+    assert.doesNotMatch(readFileSync(outputFile, "utf8"), /build_number=/, name);
+
     writeFileSync(stubPath, "#!/bin/sh\necho 4321\n");
     chmodSync(stubPath, 0o755);
-    const succeeded = spawnSync("bash", ["-c", stepScript], {
-      cwd: root,
-      encoding: "utf8",
-      env: {
-        PATH: "/usr/bin:/bin",
-        GITHUB_ENV: environmentFile,
-        APP_STORE_CONNECT_APP_ID: "1234567890",
-        APP_STORE_CONNECT_BUNDLE_ID: "com.example.App",
-      },
-    });
+    const succeeded = runStep();
 
     assert.equal(succeeded.status, 0, succeeded.stderr);
     assert.match(readFileSync(environmentFile, "utf8"), /^BUILD_NUMBER=4321$/m, name);
+    assert.match(readFileSync(outputFile, "utf8"), /^build_number=4321$/m, name);
+  }
+});
+
+// Workflow concurrency serializes runs, not App Store Connect's ingestion of an
+// upload that skipped build processing. Without this wait the next queued run
+// derives against the pre-upload maximum and mints a duplicate.
+test("every uploadable workflow holds its concurrency group until the upload is visible", async () => {
+  for (const {name, workflow} of await uploadableWorkflows()) {
+    const uploadIndex = workflow.indexOf("bundle exec fastlane upload_testflight");
+    const waitIndex = workflow.indexOf("scripts/ci/await-build-visible.mjs");
+
+    assert.notEqual(uploadIndex, -1, `${name} must upload to TestFlight`);
+    assert.notEqual(
+      waitIndex,
+      -1,
+      `${name} must wait for the uploaded build to appear in App Store Connect`,
+    );
+    assert.ok(uploadIndex < waitIndex, `${name} must wait after the upload, not before it`);
+
+    const waitStep = stepBlock(workflow, "Wait for the uploaded build to be visible in App Store Connect");
+
+    assert.match(
+      waitStep,
+      /BUILD_NUMBER: \$\{\{ needs\.build-ios\.outputs\.build-number \}\}/,
+      `${name} must wait on the exact build number the archive job derived`,
+    );
+    assert.match(
+      waitStep,
+      /await-build-visible\.mjs "\$APP_STORE_CONNECT_APP_ID" "\$APP_STORE_CONNECT_BUNDLE_ID" "\$BUILD_NUMBER"/,
+      name,
+    );
+    assert.match(waitStep, /if \[ -z "\$BUILD_NUMBER" \]; then/, name);
+    assert.match(
+      workflow,
+      /^    outputs:\n      build-number: \$\{\{ steps\.derive-build-number\.outputs\.build_number \}\}$/m,
+      `${name} must publish its derived build number as a job output`,
+    );
   }
 });

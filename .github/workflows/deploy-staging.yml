@@ -89,6 +89,8 @@ jobs:
     needs: publish-kill-switches
     runs-on: macos-15
     timeout-minutes: 60
+    outputs:
+      build-number: ${{ steps.derive-build-number.outputs.build_number }}
 
     steps:
       - name: Checkout repository
@@ -221,6 +223,7 @@ jobs:
         run: node scripts/ci/assert-remote-config-published.mjs staging
 
       - name: Derive build number
+        id: derive-build-number
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
@@ -229,7 +232,12 @@ jobs:
         run: |
           set -euo pipefail
           build_number="$(scripts/ci/derive-build-number.sh "$APP_STORE_CONNECT_APP_ID" "$APP_STORE_CONNECT_BUNDLE_ID")"
+          if [ -z "$build_number" ]; then
+            echo "::error::Build number derivation exited successfully but produced no value."
+            exit 1
+          fi
           echo "BUILD_NUMBER=${build_number}" >> "$GITHUB_ENV"
+          echo "build_number=${build_number}" >> "$GITHUB_OUTPUT"
 
       - name: Build staging IPA via Fastlane
         env:
@@ -300,7 +308,7 @@ jobs:
       - build-ios
       - deploy-firebase
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -311,6 +319,11 @@ jobs:
         with:
           ruby-version: "3.1"
           bundler-cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
 
       - name: Download staging IPA artifact
         uses: actions/download-artifact@v4
@@ -325,3 +338,22 @@ jobs:
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
         run: bundle exec fastlane upload_testflight
+
+      # This job is the last one in the group, so it is what holds `deploy-staging`.
+      # The upload lane returns before App Store Connect lists the build, and the
+      # allocator's only sequence state is that listing - so releasing the group
+      # here would let the next run derive the same number. See the script.
+      - name: Wait for the uploaded build to be visible in App Store Connect
+        env:
+          BUILD_NUMBER: ${{ needs.build-ios.outputs.build-number }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$BUILD_NUMBER" ]; then
+            echo "::error::The build job published no derived build number to wait on."
+            exit 1
+          fi
+          node scripts/ci/await-build-visible.mjs "$APP_STORE_CONNECT_APP_ID" "$APP_STORE_CONNECT_BUNDLE_ID" "$BUILD_NUMBER"
