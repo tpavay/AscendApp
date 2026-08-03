@@ -8,6 +8,7 @@ import {
   additiveMergeViolations,
   additivePublishPlan,
   killSwitchChanges,
+  publishedParameterMismatches,
   templateParameters,
 } from "../lib/remote-config-template.mjs";
 
@@ -255,6 +256,49 @@ test("an addition that already exists is caught", () => {
   );
 });
 
+test("the backend's own field ordering is not mistaken for a failed publish", () => {
+  // The checked-in template writes `defaultValue`, `valueType`, `description`; the REST API
+  // echoes a parameter back in proto field order. A key-order-sensitive comparison would call
+  // every newly added switch - the only kind this publisher ever writes - a failed publish, and
+  // fail the staging deploy seconds after the write it had just completed successfully.
+  const published = {
+    parameters: {
+      routine_cloud_backup_writes_enabled: {
+        defaultValue: {value: "true"},
+        valueType: "BOOLEAN",
+        description: "Kill switch.",
+      },
+    },
+  };
+  const echoedBackByFirebase = {
+    parameters: {
+      routine_cloud_backup_writes_enabled: {
+        defaultValue: {value: "true"},
+        description: "Kill switch.",
+        valueType: "BOOLEAN",
+      },
+    },
+  };
+
+  assert.deepEqual(publishedParameterMismatches(echoedBackByFirebase, published), []);
+});
+
+test("a parameter the backend did not store as published is still named", () => {
+  const published = {parameters: {a_flag_enabled: parameter("true"), b_flag_enabled: parameter("true")}};
+  const stored = {
+    parameters: {
+      a_flag_enabled: parameter("false"),
+      b_flag_enabled: parameter("true"),
+    },
+  };
+
+  assert.deepEqual(publishedParameterMismatches(stored, published), ["a_flag_enabled"]);
+  assert.deepEqual(publishedParameterMismatches({parameters: {}}, published), [
+    "a_flag_enabled",
+    "b_flag_enabled",
+  ]);
+});
+
 test("a change that adds a switch names it, and one that removes a switch names that", () => {
   const base = {parameters: {a_flag_enabled: {}, retired_flag_enabled: {}}};
   const current = {parameters: {a_flag_enabled: {}, brand_new_flag_enabled: {}}};
@@ -420,6 +464,66 @@ test("staging publishes new kill switches on every push to develop", () => {
     applied.some((line) => /\bdev\b/.test(line)),
     "dev must receive new kill switches too; nothing else publishes to it",
   );
+});
+
+/** The `on: push: paths:` filter of a workflow, as a list. */
+function pushPaths(contents) {
+  const lines = contents.split("\n");
+  const start = lines.findIndex((line) => /^ {4}paths:\s*$/.test(line));
+  if (start === -1) {
+    return [];
+  }
+
+  const paths = [];
+  for (const line of lines.slice(start + 1)) {
+    const item = line.match(/^ {6}-\s*"?([^"#]+?)"?\s*$/);
+    if (!item) {
+      if (/^\s*(#.*)?$/.test(line)) {
+        continue;
+      }
+      break;
+    }
+    paths.push(item[1]);
+  }
+  return paths;
+}
+
+test("the file that declares the kill switches triggers the job that publishes them", () => {
+  // Without this the staging deploy fires on a template-only change solely by way of the
+  // AscendApp/** match, which holds because the parity check forces RemoteFeatureFlag.swift to
+  // move with it. That is another check's guarantee, not this workflow's.
+  const paths = pushPaths(workflowText("deploy-staging.yml"));
+
+  assert.ok(paths.length > 0, "parsed no push paths - the assertion below would be vacuous");
+  assert.ok(
+    paths.includes("remoteconfig.template.json"),
+    "deploy-staging.yml must fire on remoteconfig.template.json - the file that defines what " +
+      "publish-kill-switches publishes must be the file that triggers it",
+  );
+});
+
+test("the archive guard's remediation names the additive publisher before the full replace", () => {
+  // Mid-release, the operator reads this failure and runs the first command in it. The full
+  // replace is the one command that can re-enable a switch someone deliberately turned off, so
+  // it cannot be the one named first.
+  const guard = readFileSync(
+    new URL(`../ci/${ARCHIVE_GUARD}`, import.meta.url),
+    "utf8",
+  );
+  const aliases = repositoryJSON("scripts/package.json").scripts;
+
+  for (const suffix of ["", ":staging", ":production"]) {
+    const additive = `remoteconfig:publish-new${suffix}`;
+    const fullReplace = `remoteconfig:deploy${suffix}`;
+
+    assert.ok(additive in aliases, `${additive} must exist as an npm alias`);
+    assert.ok(fullReplace in aliases, `${fullReplace} must exist as an npm alias`);
+    assert.ok(guard.includes(additive), `${ARCHIVE_GUARD} must offer ${additive}`);
+    assert.ok(
+      guard.indexOf(additive) < guard.indexOf(fullReplace),
+      `${ARCHIVE_GUARD} must name ${additive} before ${fullReplace}`,
+    );
+  }
 });
 
 test("the archive preflight cannot run before the publish it depends on", () => {

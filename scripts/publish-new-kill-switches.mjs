@@ -43,15 +43,17 @@
  */
 
 import {execFileSync} from "node:child_process";
-import {appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
+import {mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {dirname, join, resolve} from "node:path";
 import process from "node:process";
 import {fileURLToPath} from "node:url";
 
+import {annotate, summarize} from "./lib/ci-annotations.mjs";
 import {
   additiveMergeViolations,
   additivePublishPlan,
+  publishedParameterMismatches,
   templateParameters,
   templateVersionNumber,
   unwrapTemplate,
@@ -68,21 +70,6 @@ const PROJECTS = {
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TEMPLATE_PATH = resolve(REPO_ROOT, "remoteconfig.template.json");
-
-// A workflow command terminates at its first raw newline, so a multi-line annotation has to
-// carry `%0A` to survive into the rendered error rather than only the raw log.
-function annotate(level, message) {
-  const stream = level === "error" ? console.error : console.log;
-  stream(`::${level}::${message.replaceAll("\n", "%0A")}`);
-}
-
-function summarize(lines) {
-  const path = process.env.GITHUB_STEP_SUMMARY;
-  if (!path) {
-    return;
-  }
-  appendFileSync(path, `${lines.join("\n")}\n`);
-}
 
 function failStructurally(message) {
   annotate("error", message);
@@ -241,11 +228,8 @@ function verifyPublish(projectId, {versionBefore, mergedTemplate}) {
     }
   }
 
-  const liveAfter = templateParameters(after);
-  for (const [key, parameter] of Object.entries(templateParameters(mergedTemplate))) {
-    if (JSON.stringify(liveAfter[key]) !== JSON.stringify(parameter)) {
-      problems.push(`${key} does not match what this run published.`);
-    }
+  for (const key of publishedParameterMismatches(after, mergedTemplate)) {
+    problems.push(`${key} does not match what this run published.`);
   }
 
   return problems;

@@ -19,6 +19,11 @@ on:
       - "firestore.indexes.json"
       - "storage.rules"
       - ".firebaserc"
+      # The file that declares the kill switches is the file that must trigger the
+      # job that publishes them. It would fire today by way of the AscendApp/**
+      # match, since the parity check forces RemoteFeatureFlag.swift to move with
+      # it - but that is a coincidence of another check, not a guarantee.
+      - "remoteconfig.template.json"
       - ".github/workflows/deploy-staging.yml"
 
 # Never cancel a staging deploy in flight. Every push to develop now triggers

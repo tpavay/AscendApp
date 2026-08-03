@@ -19,11 +19,12 @@
  */
 
 import {execFileSync} from "node:child_process";
-import {appendFileSync, readFileSync} from "node:fs";
+import {readFileSync} from "node:fs";
 import {dirname, resolve} from "node:path";
 import process from "node:process";
 import {fileURLToPath} from "node:url";
 
+import {annotate, summarize} from "../lib/ci-annotations.mjs";
 import {
   flagParityProblems,
   killSwitchChanges,
@@ -34,20 +35,6 @@ import {
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const TEMPLATE_PATH = "remoteconfig.template.json";
 const FLAG_SOURCE_PATH = "AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift";
-
-function annotate(level, message) {
-  const stream = level === "error" ? console.error : console.log;
-  stream(`::${level}::${message.replaceAll("\n", "%0A")}`);
-}
-
-function summarize(lines) {
-  const path = process.env.GITHUB_STEP_SUMMARY;
-  if (!path) {
-    console.log(lines.join("\n"));
-    return;
-  }
-  appendFileSync(path, `${lines.join("\n")}\n`);
-}
 
 function parseArgs(argv) {
   const args = {baseRef: null};
@@ -148,25 +135,30 @@ function main() {
     );
   }
 
-  summarize([
-    "### Remote Config kill switches",
-    "",
-    ...added.map((key) => `- **Added** \`${key}\``),
-    ...removed.map((key) => `- **Removed** \`${key}\``),
-    "",
-    ...(added.length > 0
-      ? [
-          "| Project | How it gets published |",
-          "|---|---|",
-          "| `ascend-f2e4f` (dev) | Automatically, on merge to `develop` |",
-          "| `ascend-staging-fa7d5` (staging) | Automatically, on merge to `develop`, before the staging archive checks the backend |",
-          "| `ascend-prod-9c8f2` (production) | **By hand.** `cd scripts && npm run remoteconfig:publish-new:production -- --apply` |",
-          "",
-          "The automated publish only ever adds a parameter the project has never held, and refuses to write at all while any switch is off.",
-          "See `docs/remote-config-kill-switches.md`.",
-        ]
-      : []),
-  ]);
+  // Falls back to the console on purpose: this one is run by hand as often as by CI, and a
+  // local run that printed nothing would read as "this change touches no switch".
+  summarize(
+    [
+      "### Remote Config kill switches",
+      "",
+      ...added.map((key) => `- **Added** \`${key}\``),
+      ...removed.map((key) => `- **Removed** \`${key}\``),
+      "",
+      ...(added.length > 0
+        ? [
+            "| Project | How it gets published |",
+            "|---|---|",
+            "| `ascend-f2e4f` (dev) | Automatically, on merge to `develop` |",
+            "| `ascend-staging-fa7d5` (staging) | Automatically, on merge to `develop`, before the staging archive checks the backend |",
+            "| `ascend-prod-9c8f2` (production) | **By hand.** `cd scripts && npm run remoteconfig:publish-new:production -- --apply` |",
+            "",
+            "The automated publish only ever adds a parameter the project has never held, and refuses to write at all while any switch is off.",
+            "See `docs/remote-config-kill-switches.md`.",
+          ]
+        : []),
+    ],
+    {fallbackToConsole: true},
+  );
 }
 
 try {

@@ -20,11 +20,12 @@
  */
 
 import {execFileSync} from "node:child_process";
-import {appendFileSync, readFileSync} from "node:fs";
+import {readFileSync} from "node:fs";
 import {dirname, resolve} from "node:path";
 import process from "node:process";
 import {fileURLToPath} from "node:url";
 
+import {annotate, summarize} from "../lib/ci-annotations.mjs";
 import {
   appFlagKeys,
   findActiveKillSwitches,
@@ -48,19 +49,6 @@ const FLAG_SOURCE_PATH = resolve(
   REPO_ROOT,
   "AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift",
 );
-
-function annotate(level, message) {
-  const stream = level === "error" ? console.error : console.log;
-  stream(`::${level}::${message.replaceAll("\n", "%0A")}`);
-}
-
-function summarize(lines) {
-  const path = process.env.GITHUB_STEP_SUMMARY;
-  if (!path) {
-    return;
-  }
-  appendFileSync(path, `${lines.join("\n")}\n`);
-}
 
 function failStructurally(message) {
   annotate("error", message);

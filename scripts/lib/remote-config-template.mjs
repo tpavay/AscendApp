@@ -371,6 +371,22 @@ export function additivePublishPlan(liveTemplate, localTemplate) {
 }
 
 /**
+ * The managed parameter keys the backend did not store exactly as they were published.
+ *
+ * Compared structurally, never textually. The REST API serialises a parameter in proto field
+ * order - `defaultValue`, `conditionalValues`, `description`, `valueType` - which is not the
+ * order the checked-in template writes it, so a key-order-sensitive comparison would report a
+ * newly added switch as a failed publish every time and fail the deploy that had just succeeded.
+ */
+export function publishedParameterMismatches(liveTemplate, publishedTemplate) {
+  const liveParameters = templateParameters(liveTemplate);
+
+  return Object.entries(templateParameters(publishedTemplate))
+    .filter(([key, parameter]) => !isDeepStrictEqual(liveParameters[key], parameter))
+    .map(([key]) => key);
+}
+
+/**
  * Why a merged template is not the live template plus exactly the named additions.
  *
  * `additivePublishPlan` is already written to be additive; this proves it of the object that
