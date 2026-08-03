@@ -115,6 +115,8 @@ Both `build-ios` jobs then run `scripts/ci/assert-remote-config-published.mjs <s
 
 `.github/workflows/deploy-production-watchdog.yml` runs on `workflow_run` completion of Deploy Production, on a 3-hourly cron, and on dispatch. It runs `scripts/check-deploy-production-health.mjs`, which opens/updates/closes a single marker-identified issue labelled `deploy-health` and exits non-zero when unhealthy. It is deliberately outside the pipeline it watches - see below.
 
+`.github/workflows/remote-config-drift.yml` runs on a weekly cron and on `workflow_dispatch`, and is strictly read-only across dev, staging and production - see "Phased release and the remote kill switches" below, and `docs/remote-config-kill-switches.md` for what it reports.
+
 ## A cancelled run is silent - the 2026-07 production outage
 
 Production ran the code from `6341ad6` for 13 days while eight consecutive `Deploy Production` runs concluded `cancelled`. Nobody knew, because **GitHub emails on `failure` and says nothing about `cancelled`.** The full chain, all of it reconstructible from the API:
