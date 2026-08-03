@@ -215,6 +215,92 @@ struct RoutineSyncCoordinatorTests {
         #expect(diagnostics.events.count == 1)
     }
 
+    @Test("A copied template's bad metadata is repaired and reported, not rejected", .bug(id: 304))
+    func aRoutineCarryingOutOfBoundsCatalogMetadataUploadsRepaired() async throws {
+        let modelContext = try makeModelContext()
+        let template = Routine(
+            name: "Pyramid Climb",
+            source: .remoteTemplate,
+            intervals: [RoutineInterval(duration: 120, intensityValue: 8, order: 0)],
+            templateId: "pyramid_climb",
+            difficulty: FirestoreUserRoutineDocument.maxDifficulty + 5,
+            estimatedCalories: -40
+        )
+        let copy = template.createUserCopy()
+        copy.markPendingRemoteUpsert(ownerUserId: Self.userId)
+        modelContext.insert(copy)
+        try modelContext.save()
+
+        let diagnostics = RecordingDiagnostics()
+        let backend = InMemoryUserRoutineBackend()
+        await RoutineSyncCoordinator(
+            remoteRepository: backend,
+            diagnostics: diagnostics,
+            operationTimeoutSeconds: 5
+        ).processPendingRoutines(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+
+        let stored = try #require(try modelContext.fetch(FetchDescriptor<Routine>()).first)
+        #expect(stored.remoteSyncStatus == .synced)
+
+        let uploaded = try #require(await backend.routineDocument(copy.id))
+        #expect(uploaded.difficulty == FirestoreUserRoutineDocument.maxDifficulty)
+        #expect(uploaded.estimatedCalories == 0)
+
+        // A value we published being out of bounds is ours to see, so a repair is
+        // reported as loudly as a refusal - and never quotes what the climber wrote.
+        #expect(diagnostics.events.allSatisfy { $0.name == "routine_backup_repaired" })
+        #expect(
+            Set(diagnostics.events.compactMap { $0.details["reason"] }) ==
+                ["difficulty_clamped", "estimated_calories_clamped"]
+        )
+        #expect(diagnostics.events.allSatisfy { $0.level == .warning })
+        #expect(
+            diagnostics.events.contains { event in
+                event.details["actual"] == "\(FirestoreUserRoutineDocument.maxDifficulty + 5)" &&
+                    event.details["applied"] == "\(FirestoreUserRoutineDocument.maxDifficulty)"
+            }
+        )
+        #expect(
+            diagnostics.events.contains { $0.details.values.contains("Pyramid Climb (Copy)") } == false
+        )
+    }
+
+    @Test("A folder colour the rules refuse is repaired rather than losing the backup", .bug(id: 304))
+    func aFolderWithAnUnusableColourStillBacksUp() async throws {
+        let modelContext = try makeModelContext()
+        let folder = RoutineFolder(name: "Race prep", colorHex: "lime")
+        folder.markPendingRemoteUpsert(ownerUserId: Self.userId)
+        modelContext.insert(folder)
+        try modelContext.save()
+
+        let diagnostics = RecordingDiagnostics()
+        let backend = InMemoryUserRoutineBackend()
+        await RoutineSyncCoordinator(
+            remoteRepository: backend,
+            diagnostics: diagnostics,
+            operationTimeoutSeconds: 5
+        ).processPendingRoutines(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+
+        let stored = try #require(try modelContext.fetch(FetchDescriptor<RoutineFolder>()).first)
+        #expect(stored.remoteSyncStatus == .synced)
+        #expect(stored.colorHex == "lime")
+
+        let uploaded = try #require(await backend.folderDocument(folder.id))
+        #expect(uploaded.colorHex == nil)
+
+        let event = try #require(diagnostics.events.first)
+        #expect(event.name == "routine_backup_repaired")
+        #expect(event.details["reason"] == "folder_color_dropped")
+        #expect(event.details["record_kind"] == "routine_folder")
+        #expect(event.details.values.contains("lime") == false)
+    }
+
     /// Parked, not deleted, and not hidden - see issue #362.
     ///
     /// This fails about half the time under the documented `xcodebuild ... test`

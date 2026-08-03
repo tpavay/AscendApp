@@ -156,6 +156,11 @@ struct FirestoreRoutineFolderDocument: Codable, Equatable, Sendable {
     /// `firestore.rules`. Folders get their own bound because the rule does.
     static let maxNameLength = 80
 
+    /// The only colour spelling the backup accepts, mirroring the `colorHex`
+    /// match in `firestore.rules`. A colour that does not match is dropped from
+    /// the uploaded document rather than costing the folder its backup.
+    static let colorHexPattern = "^#[0-9a-fA-F]{6}$"
+
     let userId: String
     let schemaVersion: Int
     let name: String

@@ -72,7 +72,7 @@ struct RoutineRemoteSyncMapperTests {
         let routine = Routine(name: "Orphan", source: .userCreated)
 
         #expect(throws: RoutineSyncError.missingOwner) {
-            _ = try RoutineRemoteSyncMapper.document(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine)
         }
     }
 
@@ -82,7 +82,7 @@ struct RoutineRemoteSyncMapperTests {
         routine.ownerUserId = Self.userId
 
         #expect(throws: RoutineSyncError.notUserAuthored) {
-            _ = try RoutineRemoteSyncMapper.document(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine)
         }
     }
 
@@ -100,7 +100,7 @@ struct RoutineRemoteSyncMapperTests {
                 limit: FirestoreUserRoutineDocument.maxIntervals
             )
         ) {
-            _ = try RoutineRemoteSyncMapper.document(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine)
         }
     }
 
@@ -112,7 +112,7 @@ struct RoutineRemoteSyncMapperTests {
             RoutineInterval(duration: 30, intensityValue: 5, order: index)
         }
 
-        let document = try RoutineRemoteSyncMapper.document(for: routine)
+        let document = try RoutineRemoteSyncMapper.build(for: routine).document
 
         #expect(document.intervals.count == FirestoreUserRoutineDocument.maxIntervals)
     }
@@ -131,7 +131,7 @@ struct RoutineRemoteSyncMapperTests {
                 limit: FirestoreUserRoutineDocument.maxNameLength
             )
         ) {
-            _ = try RoutineRemoteSyncMapper.document(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine)
         }
     }
 
@@ -146,7 +146,7 @@ struct RoutineRemoteSyncMapperTests {
         )
         routine.ownerUserId = Self.userId
 
-        let document = try RoutineRemoteSyncMapper.document(for: routine)
+        let document = try RoutineRemoteSyncMapper.build(for: routine).document
 
         #expect(document.name.count == FirestoreUserRoutineDocument.maxNameLength)
     }
@@ -169,18 +169,18 @@ struct RoutineRemoteSyncMapperTests {
                 limit: FirestoreUserRoutineDocument.maxDescriptionLength
             )
         ) {
-            _ = try RoutineRemoteSyncMapper.document(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine)
         }
     }
 
-    /// The realistic way a routine breaches a numeric bound: `routine_templates`
-    /// is server-authored and no client rule bounds what it publishes, so a
-    /// template with an out-of-range difficulty walks straight into the climber's
-    /// own routines the moment they tap Copy. Rejecting it client-side is the
-    /// difference between one terminal diagnostic and a PERMISSION_DENIED retried
-    /// on every launch forever.
-    @Test("A copied template past the difficulty ceiling is rejected, not retried", .bug(id: 304))
-    func aCopiedTemplateWithAnOutOfRangeDifficultyIsNotUploaded() {
+    /// The metadata a climber never types. `routine_templates` is server-authored
+    /// and nothing bounds what it publishes (issue #364), so an out-of-range
+    /// difficulty walks straight into the climber's own routines the moment they
+    /// tap Copy. Refusing the whole routine over it would leave a name and
+    /// intervals that are perfectly valid permanently unbacked because of a number
+    /// we shipped - so the number is repaired and the routine goes up.
+    @Test("A copied template's out-of-range difficulty is clamped, not fatal", .bug(id: 304))
+    func aCopiedTemplateWithAnOutOfRangeDifficultyIsClampedAndUploaded() throws {
         let template = Routine(
             name: "Pyramid Climb",
             source: .remoteTemplate,
@@ -190,19 +190,37 @@ struct RoutineRemoteSyncMapperTests {
         let copy = template.createUserCopy()
         copy.ownerUserId = Self.userId
 
+        let build = try RoutineRemoteSyncMapper.build(for: copy)
+
+        #expect(build.document.difficulty == FirestoreUserRoutineDocument.maxDifficulty)
         #expect(
-            throws: RoutineSyncError.difficultyOutOfRange(
-                value: FirestoreUserRoutineDocument.maxDifficulty + 5,
-                minimum: FirestoreUserRoutineDocument.minDifficulty,
-                maximum: FirestoreUserRoutineDocument.maxDifficulty
-            )
-        ) {
-            _ = try RoutineRemoteSyncMapper.document(for: copy)
-        }
+            build.repairs == [
+                .difficultyClamped(
+                    from: FirestoreUserRoutineDocument.maxDifficulty + 5,
+                    to: FirestoreUserRoutineDocument.maxDifficulty,
+                    minimum: FirestoreUserRoutineDocument.minDifficulty,
+                    maximum: FirestoreUserRoutineDocument.maxDifficulty
+                )
+            ]
+        )
+        // The climber's own work is untouched by the repair.
+        #expect(build.document.name == copy.name)
+        #expect(build.document.intervals.count == copy.intervals.count)
     }
 
     @Test
-    func aRoutineAtTheDifficultyCeilingIsUploaded() throws {
+    func aNegativeDifficultyIsClampedUpRatherThanRefused() throws {
+        let routine = Routine(name: "Below zero", source: .userCreated, difficulty: -3)
+        routine.ownerUserId = Self.userId
+
+        let build = try RoutineRemoteSyncMapper.build(for: routine)
+
+        #expect(build.document.difficulty == FirestoreUserRoutineDocument.minDifficulty)
+        #expect(build.repairs.count == 1)
+    }
+
+    @Test
+    func aRoutineAtTheDifficultyCeilingIsUploadedUnrepaired() throws {
         let routine = Routine(
             name: "Everest",
             source: .userCreated,
@@ -210,40 +228,102 @@ struct RoutineRemoteSyncMapperTests {
         )
         routine.ownerUserId = Self.userId
 
-        let document = try RoutineRemoteSyncMapper.document(for: routine)
+        let build = try RoutineRemoteSyncMapper.build(for: routine)
 
-        #expect(document.difficulty == FirestoreUserRoutineDocument.maxDifficulty)
+        #expect(build.document.difficulty == FirestoreUserRoutineDocument.maxDifficulty)
+        #expect(build.repairs.isEmpty)
+    }
+
+    /// Provenance, not content: an id past the ceiling names no template the
+    /// server would recognise, and truncating it would invent one. The local
+    /// record keeps its own copy, which is what `savedCopy(templateId:)` reads.
+    @Test
+    func anOverlongTemplateIdIsDroppedRatherThanRefused() throws {
+        let overlongId = String(
+            repeating: "t",
+            count: FirestoreUserRoutineDocument.maxTemplateIdLength + 1
+        )
+        let routine = Routine(name: "Copied", source: .copiedFromBuiltin, templateId: overlongId)
+        routine.ownerUserId = Self.userId
+
+        let build = try RoutineRemoteSyncMapper.build(for: routine)
+
+        #expect(build.document.templateId == nil)
+        #expect(
+            build.repairs == [
+                .templateIdDropped(
+                    count: FirestoreUserRoutineDocument.maxTemplateIdLength + 1,
+                    limit: FirestoreUserRoutineDocument.maxTemplateIdLength
+                )
+            ]
+        )
+        #expect(routine.templateId == overlongId)
     }
 
     @Test
-    func aRoutineWithAnOverlongTemplateIdIsNotUploaded() {
+    func anEmptyTemplateIdIsDroppedRatherThanRefused() throws {
+        let routine = Routine(name: "Copied", source: .copiedFromBuiltin, templateId: "")
+        routine.ownerUserId = Self.userId
+
+        let build = try RoutineRemoteSyncMapper.build(for: routine)
+
+        #expect(build.document.templateId == nil)
+        #expect(
+            build.repairs == [
+                .templateIdDropped(
+                    count: 0,
+                    limit: FirestoreUserRoutineDocument.maxTemplateIdLength
+                )
+            ]
+        )
+    }
+
+    @Test
+    func aNegativeTemplateVersionIsClampedRatherThanRefused() throws {
         let routine = Routine(
             name: "Copied",
             source: .copiedFromBuiltin,
-            templateId: String(
-                repeating: "t",
-                count: FirestoreUserRoutineDocument.maxTemplateIdLength + 1
-            )
+            templateId: "pyramid_climb",
+            templateVersion: -2
+        )
+        routine.ownerUserId = Self.userId
+
+        let build = try RoutineRemoteSyncMapper.build(for: routine)
+
+        #expect(build.document.templateVersion == 0)
+        #expect(build.repairs == [.templateVersionClamped(from: -2, to: 0)])
+    }
+
+    @Test
+    func aNegativeCalorieEstimateIsClampedRatherThanRefused() throws {
+        let routine = Routine(name: "Impossible", source: .userCreated, estimatedCalories: -40)
+        routine.ownerUserId = Self.userId
+
+        let build = try RoutineRemoteSyncMapper.build(for: routine)
+
+        #expect(build.document.estimatedCalories == 0)
+        #expect(build.repairs == [.estimatedCaloriesClamped(from: -40, to: 0)])
+    }
+
+    /// A repair never rescues a routine whose own content is out of bounds - the
+    /// climber's name still costs the backup, and that is the line the policy
+    /// draws.
+    @Test
+    func aRepairableFieldDoesNotRescueAnOverlongName() {
+        let routine = Routine(
+            name: String(repeating: "A", count: FirestoreUserRoutineDocument.maxNameLength + 1),
+            source: .userCreated,
+            difficulty: FirestoreUserRoutineDocument.maxDifficulty + 5
         )
         routine.ownerUserId = Self.userId
 
         #expect(
-            throws: RoutineSyncError.templateIdTooLong(
-                count: FirestoreUserRoutineDocument.maxTemplateIdLength + 1,
-                limit: FirestoreUserRoutineDocument.maxTemplateIdLength
+            throws: RoutineSyncError.nameTooLong(
+                count: FirestoreUserRoutineDocument.maxNameLength + 1,
+                limit: FirestoreUserRoutineDocument.maxNameLength
             )
         ) {
-            _ = try RoutineRemoteSyncMapper.document(for: routine)
-        }
-    }
-
-    @Test
-    func aRoutineWithANegativeCalorieEstimateIsNotUploaded() {
-        let routine = Routine(name: "Impossible", source: .userCreated, estimatedCalories: -40)
-        routine.ownerUserId = Self.userId
-
-        #expect(throws: RoutineSyncError.negativeEstimatedCalories(value: -40)) {
-            _ = try RoutineRemoteSyncMapper.document(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine)
         }
     }
 
@@ -267,7 +347,7 @@ struct RoutineRemoteSyncMapperTests {
                 limit: FirestoreWorkoutWeightConfiguration.maxEntries
             )
         ) {
-            _ = try RoutineRemoteSyncMapper.document(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine)
         }
     }
 
@@ -284,7 +364,7 @@ struct RoutineRemoteSyncMapperTests {
         routine.ownerUserId = Self.userId
 
         #expect(throws: RoutineSyncError.duplicateWeightEquipmentTypes(count: 2, distinct: 1)) {
-            _ = try RoutineRemoteSyncMapper.document(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine)
         }
     }
 
@@ -304,7 +384,7 @@ struct RoutineRemoteSyncMapperTests {
                 equipmentType: WeightEquipmentType.weightedVest.rawValue
             )
         ) {
-            _ = try RoutineRemoteSyncMapper.document(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine)
         }
     }
 
@@ -314,7 +394,7 @@ struct RoutineRemoteSyncMapperTests {
         routine.ownerUserId = Self.userId
 
         #expect(throws: RoutineSyncError.emptyName) {
-            _ = try RoutineRemoteSyncMapper.document(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine)
         }
     }
 
@@ -331,7 +411,41 @@ struct RoutineRemoteSyncMapperTests {
                 limit: FirestoreRoutineFolderDocument.maxNameLength
             )
         ) {
-            _ = try RoutineRemoteSyncMapper.document(for: folder)
+            _ = try RoutineRemoteSyncMapper.build(for: folder)
+        }
+    }
+
+    /// A colour is a presentation token, not the climber's work, so a spelling
+    /// the rule refuses costs the folder its colour rather than its backup.
+    @Test("A folder colour the rules refuse is dropped, not fatal", .bug(id: 304))
+    func aFolderColourTheRulesRefuseIsDroppedRatherThanRefused() throws {
+        for unusable in ["lime", "86D30A", "#86D30AFF", "#86D30", "#86d30ag"] {
+            let folder = RoutineFolder(name: "Race prep", colorHex: unusable)
+            folder.ownerUserId = Self.userId
+
+            let build = try RoutineRemoteSyncMapper.build(for: folder)
+
+            #expect(build.document.colorHex == nil)
+            #expect(
+                build.repairs == [
+                    .folderColorDropped(pattern: FirestoreRoutineFolderDocument.colorHexPattern)
+                ]
+            )
+            // The local folder keeps whatever it had; only the upload is repaired.
+            #expect(folder.colorHex == unusable)
+        }
+    }
+
+    @Test
+    func aFolderColourTheRulesAcceptSurvivesInEitherCase() throws {
+        for usable in ["#86D30A", "#86d30a"] {
+            let folder = RoutineFolder(name: "Race prep", colorHex: usable)
+            folder.ownerUserId = Self.userId
+
+            let build = try RoutineRemoteSyncMapper.build(for: folder)
+
+            #expect(build.document.colorHex == usable)
+            #expect(build.repairs.isEmpty)
         }
     }
 
@@ -343,11 +457,12 @@ struct RoutineRemoteSyncMapperTests {
         #expect(RoutineRemoteSyncMapper.length(of: "👨‍👩‍👧") == 5)
     }
 
-    /// Every bound the client enforces and the one `firestore.rules` enforces
-    /// must be the same number. If they drift apart, either the client refuses
-    /// writes the server would accept, or it retries writes the server will
-    /// always reject - and a permanently denied write that keeps being retried
-    /// is a routine that is never backed up and never says so.
+    /// Every bound the client enforces - whether it refuses the record or repairs
+    /// it - and the one `firestore.rules` enforces must be the same number. If
+    /// they drift apart, either the client refuses writes the server would accept,
+    /// or it retries writes the server will always reject, and a permanently
+    /// denied write that keeps being retried is a routine that is never backed up
+    /// and never says so.
     @Test
     func theClientFieldBoundsMatchTheRules() throws {
         let rules = try String(
@@ -399,12 +514,18 @@ struct RoutineRemoteSyncMapperTests {
         // pin, so pin the helper the rule calls instead.
         #expect(rules.contains("hasUniqueWorkoutWeightEquipmentTypes(entries)"))
         #expect(rules.contains("isNonNegativeNumber(entry.weightValue)"))
+        #expect(
+            rules.contains(
+                "request.resource.data.colorHex.matches(" +
+                    "\"\(FirestoreRoutineFolderDocument.colorHexPattern)\")"
+            )
+        )
     }
 
     @Test
     func aFolderWithNoOwnerIsNotUploaded() {
         #expect(throws: RoutineSyncError.missingOwner) {
-            _ = try RoutineRemoteSyncMapper.document(for: RoutineFolder(name: "Orphan"))
+            _ = try RoutineRemoteSyncMapper.build(for: RoutineFolder(name: "Orphan"))
         }
     }
 
@@ -414,7 +535,7 @@ struct RoutineRemoteSyncMapperTests {
         folder.ownerUserId = Self.userId
         folder.updatedAt = nil
 
-        let document = try RoutineRemoteSyncMapper.document(for: folder)
+        let document = try RoutineRemoteSyncMapper.build(for: folder).document
 
         #expect(document.updatedAt == folder.createdAt)
     }

@@ -6,6 +6,12 @@ import Foundation
 /// the server would answer a bare `PERMISSION_DENIED` - a refusal that never
 /// becomes an acceptance no matter how often it is retried. The coordinator
 /// turns these into `.rejected`, not `.failed`.
+///
+/// Refusal is reserved for what the climber wrote themselves - the name, the
+/// description, the intervals, the default weights. Silently rewriting their own
+/// work would be worse than declining to back it up, and issue #363 tracks
+/// capping those inputs in the editor. Bounds on metadata Ascend published are
+/// repaired instead: see `RoutineSyncRepair`.
 enum RoutineSyncError: LocalizedError, Equatable {
     case missingOwner
     case notUserAuthored
@@ -13,11 +19,6 @@ enum RoutineSyncError: LocalizedError, Equatable {
     case emptyName
     case nameTooLong(count: Int, limit: Int)
     case descriptionTooLong(count: Int, limit: Int)
-    case difficultyOutOfRange(value: Int, minimum: Int, maximum: Int)
-    case emptyTemplateId
-    case templateIdTooLong(count: Int, limit: Int)
-    case negativeTemplateVersion(value: Int)
-    case negativeEstimatedCalories(value: Int)
     case tooManyWeightEntries(count: Int, limit: Int)
     case duplicateWeightEquipmentTypes(count: Int, distinct: Int)
     case negativeWeightValue(equipmentType: String)
@@ -36,16 +37,6 @@ enum RoutineSyncError: LocalizedError, Equatable {
             return "Name is \(count) characters; the backup accepts at most \(limit)."
         case let .descriptionTooLong(count, limit):
             return "Description is \(count) characters; the backup accepts at most \(limit)."
-        case let .difficultyOutOfRange(value, minimum, maximum):
-            return "Difficulty is \(value); the backup accepts \(minimum) through \(maximum)."
-        case .emptyTemplateId:
-            return "The routine names a template with an empty id, which the backup refuses."
-        case let .templateIdTooLong(count, limit):
-            return "Template id is \(count) characters; the backup accepts at most \(limit)."
-        case let .negativeTemplateVersion(value):
-            return "Template version is \(value); the backup accepts no negative version."
-        case let .negativeEstimatedCalories(value):
-            return "Estimated calories is \(value); the backup accepts no negative estimate."
         case let .tooManyWeightEntries(count, limit):
             return "Routine carries \(count) weight entries; the backup accepts at most \(limit)."
         case let .duplicateWeightEquipmentTypes(count, distinct):
@@ -73,20 +64,6 @@ enum RoutineSyncError: LocalizedError, Equatable {
             return ["reason": "name_too_long", "actual": "\(count)", "permitted": "\(limit)"]
         case let .descriptionTooLong(count, limit):
             return ["reason": "description_too_long", "actual": "\(count)", "permitted": "\(limit)"]
-        case let .difficultyOutOfRange(value, minimum, maximum):
-            return [
-                "reason": "difficulty_out_of_range",
-                "actual": "\(value)",
-                "permitted": "\(minimum)...\(maximum)"
-            ]
-        case .emptyTemplateId:
-            return ["reason": "empty_template_id", "actual": "0", "permitted": "1"]
-        case let .templateIdTooLong(count, limit):
-            return ["reason": "template_id_too_long", "actual": "\(count)", "permitted": "\(limit)"]
-        case let .negativeTemplateVersion(value):
-            return ["reason": "negative_template_version", "actual": "\(value)", "permitted": "0"]
-        case let .negativeEstimatedCalories(value):
-            return ["reason": "negative_estimated_calories", "actual": "\(value)", "permitted": "0"]
         case let .tooManyWeightEntries(count, limit):
             return ["reason": "too_many_weight_entries", "actual": "\(count)", "permitted": "\(limit)"]
         case let .duplicateWeightEquipmentTypes(count, distinct):
@@ -101,6 +78,73 @@ enum RoutineSyncError: LocalizedError, Equatable {
     }
 }
 
+/// A bound the record breached that the backup fixed rather than refused.
+///
+/// Every case sits on a field Ascend authored, not the climber: `difficulty`,
+/// `estimatedCalories`, `templateId` and `templateVersion` are copied verbatim
+/// out of a `routine_templates` document by `Routine.createUserCopy()`, and a
+/// folder colour is a presentation token. Nothing bounds what the catalog
+/// publishes (issue #364), so refusing the whole document over one of these
+/// would mean a routine whose name and intervals are perfectly valid is
+/// permanently unbacked because of a number we shipped - which the climber
+/// never typed, cannot see, and could neither avoid nor detect.
+///
+/// A repair is still reported. Clamping is a fix, not a reason to stop looking.
+enum RoutineSyncRepair: Equatable, Sendable {
+    case difficultyClamped(from: Int, to: Int, minimum: Int, maximum: Int)
+    case estimatedCaloriesClamped(from: Int, to: Int)
+    case templateVersionClamped(from: Int, to: Int)
+    case templateIdDropped(count: Int, limit: Int)
+    case folderColorDropped(pattern: String)
+
+    /// The same privacy contract the rejections keep: reasons, sizes and the
+    /// bound that was missed, never the value itself.
+    var diagnosticDetails: [String: String] {
+        switch self {
+        case let .difficultyClamped(from, to, minimum, maximum):
+            return [
+                "reason": "difficulty_clamped",
+                "actual": "\(from)",
+                "permitted": "\(minimum)...\(maximum)",
+                "applied": "\(to)"
+            ]
+        case let .estimatedCaloriesClamped(from, to):
+            return [
+                "reason": "estimated_calories_clamped",
+                "actual": "\(from)",
+                "permitted": "0",
+                "applied": "\(to)"
+            ]
+        case let .templateVersionClamped(from, to):
+            return [
+                "reason": "template_version_clamped",
+                "actual": "\(from)",
+                "permitted": "0",
+                "applied": "\(to)"
+            ]
+        case let .templateIdDropped(count, limit):
+            return [
+                "reason": "template_id_dropped",
+                "actual": "\(count)",
+                "permitted": "1...\(limit)"
+            ]
+        case let .folderColorDropped(pattern):
+            return ["reason": "folder_color_dropped", "permitted": pattern]
+        }
+    }
+}
+
+/// An upload-ready document and everything that had to be fixed to make it one.
+struct RoutineDocumentBuild<Document: Sendable>: Sendable {
+    let document: Document
+    let repairs: [RoutineSyncRepair]
+
+    init(document: Document, repairs: [RoutineSyncRepair] = []) {
+        self.document = document
+        self.repairs = repairs
+    }
+}
+
 /// Turns a local `Routine` / `RoutineFolder` into the document that is uploaded,
 /// and applies a downloaded document back onto a local record.
 ///
@@ -108,7 +152,7 @@ enum RoutineSyncError: LocalizedError, Equatable {
 /// likely to silently drop a field, and it is only worth trusting if a test can
 /// exercise it without a store or a backend.
 enum RoutineRemoteSyncMapper {
-    static func document(for routine: Routine) throws -> FirestoreUserRoutineDocument {
+    static func build(for routine: Routine) throws -> RoutineDocumentBuild<FirestoreUserRoutineDocument> {
         guard let ownerUserId = routine.ownerUserId, !ownerUserId.isEmpty else {
             throw RoutineSyncError.missingOwner
         }
@@ -134,53 +178,62 @@ enum RoutineRemoteSyncMapper {
             )
         }
 
-        try validateTemplateIdentity(
-            templateId: routine.templateId,
-            templateVersion: routine.templateVersion
-        )
-        try validateMetadata(
-            difficulty: routine.difficulty,
-            estimatedCalories: routine.estimatedCalories
-        )
-
         let defaultWeightConfiguration = weightConfiguration(from: routine.defaultWeightConfiguration)
         try validateWeightConfiguration(defaultWeightConfiguration)
 
-        return FirestoreUserRoutineDocument(
-            userId: ownerUserId,
-            name: routine.name,
-            description: routine.routineDescription,
-            source: routine.sourceRawValue,
-            intervals: intervals.map(interval(from:)),
-            folderId: routine.folderId?.uuidString,
-            isArchived: routine.isArchived,
-            order: max(0, routine.order),
-            templateId: routine.templateId,
-            templateVersion: routine.templateVersion,
-            difficulty: routine.difficulty,
-            estimatedCalories: routine.estimatedCalories,
-            defaultWeightConfiguration: defaultWeightConfiguration,
-            completionCount: max(0, routine.completionCount),
-            lastCompletedAt: routine.lastCompletedAt,
-            createdAt: routine.createdAt,
-            updatedAt: routine.updatedAt
+        let metadata = repairedMetadata(for: routine)
+
+        return RoutineDocumentBuild(
+            document: FirestoreUserRoutineDocument(
+                userId: ownerUserId,
+                name: routine.name,
+                description: routine.routineDescription,
+                source: routine.sourceRawValue,
+                intervals: intervals.map(interval(from:)),
+                folderId: routine.folderId?.uuidString,
+                isArchived: routine.isArchived,
+                order: max(0, routine.order),
+                templateId: metadata.templateId,
+                templateVersion: metadata.templateVersion,
+                difficulty: metadata.difficulty,
+                estimatedCalories: metadata.estimatedCalories,
+                defaultWeightConfiguration: defaultWeightConfiguration,
+                completionCount: max(0, routine.completionCount),
+                lastCompletedAt: routine.lastCompletedAt,
+                createdAt: routine.createdAt,
+                updatedAt: routine.updatedAt
+            ),
+            repairs: metadata.repairs
         )
     }
 
-    static func document(for folder: RoutineFolder) throws -> FirestoreRoutineFolderDocument {
+    static func build(for folder: RoutineFolder) throws -> RoutineDocumentBuild<FirestoreRoutineFolderDocument> {
         guard let ownerUserId = folder.ownerUserId, !ownerUserId.isEmpty else {
             throw RoutineSyncError.missingOwner
         }
 
         try validateName(folder.name, limit: FirestoreRoutineFolderDocument.maxNameLength)
 
-        return FirestoreRoutineFolderDocument(
-            userId: ownerUserId,
-            name: folder.name,
-            colorHex: folder.colorHex,
-            order: max(0, folder.order),
-            createdAt: folder.createdAt,
-            updatedAt: folder.effectiveUpdatedAt
+        var repairs: [RoutineSyncRepair] = []
+        var colorHex = folder.colorHex
+
+        if let candidate = colorHex, !isCanonicalColorHex(candidate) {
+            repairs.append(
+                .folderColorDropped(pattern: FirestoreRoutineFolderDocument.colorHexPattern)
+            )
+            colorHex = nil
+        }
+
+        return RoutineDocumentBuild(
+            document: FirestoreRoutineFolderDocument(
+                userId: ownerUserId,
+                name: folder.name,
+                colorHex: colorHex,
+                order: max(0, folder.order),
+                createdAt: folder.createdAt,
+                updatedAt: folder.effectiveUpdatedAt
+            ),
+            repairs: repairs
         )
     }
 
@@ -264,44 +317,84 @@ enum RoutineRemoteSyncMapper {
         }
     }
 
-    /// A copied catalog template carries the published template's identity and
-    /// metadata through untouched, and nothing bounds what `routine_templates`
-    /// publishes - so these are bounds a climber reaches by tapping Copy rather
-    /// than by editing anything.
-    private static func validateTemplateIdentity(
-        templateId: String?,
-        templateVersion: Int?
-    ) throws {
-        if let templateId {
+    /// The four fields `Routine.createUserCopy()` carries verbatim out of a
+    /// catalog template, brought inside the bounds `firestore.rules` enforces.
+    ///
+    /// `templateId` is dropped rather than clamped because it is provenance
+    /// rather than content: truncating it would invent a template that does not
+    /// exist, and the local record keeps its own copy for `savedCopy(templateId:)`
+    /// to match on.
+    private struct RepairedRoutineMetadata {
+        var templateId: String?
+        var templateVersion: Int?
+        var difficulty: Int?
+        var estimatedCalories: Int?
+        var repairs: [RoutineSyncRepair] = []
+    }
+
+    private static func repairedMetadata(for routine: Routine) -> RepairedRoutineMetadata {
+        var repaired = RepairedRoutineMetadata(
+            templateId: routine.templateId,
+            templateVersion: routine.templateVersion,
+            difficulty: routine.difficulty,
+            estimatedCalories: routine.estimatedCalories
+        )
+
+        if let templateId = repaired.templateId {
             let templateIdLength = length(of: templateId)
-            guard templateIdLength > 0 else { throw RoutineSyncError.emptyTemplateId }
-            guard templateIdLength <= FirestoreUserRoutineDocument.maxTemplateIdLength else {
-                throw RoutineSyncError.templateIdTooLong(
-                    count: templateIdLength,
-                    limit: FirestoreUserRoutineDocument.maxTemplateIdLength
+            let limit = FirestoreUserRoutineDocument.maxTemplateIdLength
+
+            if templateIdLength == 0 || templateIdLength > limit {
+                repaired.repairs.append(
+                    .templateIdDropped(count: templateIdLength, limit: limit)
                 )
+                repaired.templateId = nil
             }
         }
 
-        if let templateVersion, templateVersion < 0 {
-            throw RoutineSyncError.negativeTemplateVersion(value: templateVersion)
+        if let templateVersion = repaired.templateVersion, templateVersion < 0 {
+            repaired.repairs.append(.templateVersionClamped(from: templateVersion, to: 0))
+            repaired.templateVersion = 0
         }
+
+        if let difficulty = repaired.difficulty {
+            let minimum = FirestoreUserRoutineDocument.minDifficulty
+            let maximum = FirestoreUserRoutineDocument.maxDifficulty
+            let clamped = min(max(difficulty, minimum), maximum)
+
+            if clamped != difficulty {
+                repaired.repairs.append(
+                    .difficultyClamped(
+                        from: difficulty,
+                        to: clamped,
+                        minimum: minimum,
+                        maximum: maximum
+                    )
+                )
+                repaired.difficulty = clamped
+            }
+        }
+
+        if let estimatedCalories = repaired.estimatedCalories, estimatedCalories < 0 {
+            repaired.repairs.append(.estimatedCaloriesClamped(from: estimatedCalories, to: 0))
+            repaired.estimatedCalories = 0
+        }
+
+        return repaired
     }
 
-    private static func validateMetadata(difficulty: Int?, estimatedCalories: Int?) throws {
-        if let difficulty,
-           difficulty < FirestoreUserRoutineDocument.minDifficulty ||
-            difficulty > FirestoreUserRoutineDocument.maxDifficulty {
-            throw RoutineSyncError.difficultyOutOfRange(
-                value: difficulty,
-                minimum: FirestoreUserRoutineDocument.minDifficulty,
-                maximum: FirestoreUserRoutineDocument.maxDifficulty
-            )
+    /// Matched against the one pattern `firestore.rules` is pinned to, and only
+    /// when it covers the whole string - the rule's `matches()` is a full-string
+    /// test, where a Swift anchored search would still accept a trailing newline.
+    private static func isCanonicalColorHex(_ colorHex: String) -> Bool {
+        guard let matched = colorHex.range(
+            of: FirestoreRoutineFolderDocument.colorHexPattern,
+            options: .regularExpression
+        ) else {
+            return false
         }
 
-        if let estimatedCalories, estimatedCalories < 0 {
-            throw RoutineSyncError.negativeEstimatedCalories(value: estimatedCalories)
-        }
+        return matched == colorHex.startIndex..<colorHex.endIndex
     }
 
     /// Mirrors `isValidWorkoutWeightEntryList`: at most five entries, one per

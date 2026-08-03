@@ -208,12 +208,13 @@ private extension RoutineSyncCoordinator {
     /// Builds the upload list, and takes the records the server would refuse
     /// out of it for good.
     ///
-    /// A routine past a bound in `firestore.rules` - too many intervals, a name
-    /// or description past its ceiling, a catalog template that should never
-    /// have been queued - is `rejected` rather than retried on every launch
-    /// forever, and says so through the diagnostics recorder. Retrying a
-    /// permanent refusal is the worst shape available: the routine stays
-    /// unbacked and nothing ever says why.
+    /// A routine past a bound in `firestore.rules` on the climber's own work -
+    /// too many intervals, a name or description past its ceiling, a catalog
+    /// template that should never have been queued - is `rejected` rather than
+    /// retried on every launch forever, and says so through the diagnostics
+    /// recorder. Retrying a permanent refusal is the worst shape available: the
+    /// routine stays unbacked and nothing ever says why. A bound on metadata
+    /// Ascend published is repaired instead, and reported the same way.
     func loadPendingRoutineSnapshots(
         modelContext: ModelContext,
         currentUserId: String,
@@ -224,12 +225,14 @@ private extension RoutineSyncCoordinator {
         for routine in try pendingRoutines(modelContext: modelContext, currentUserId: currentUserId)
         where !excludedIds.contains(routine.id) {
             do {
+                let build = try RoutineRemoteSyncMapper.build(for: routine)
+                recordRepairs(build.repairs, kind: "routine", recordId: routine.id)
                 snapshots.append(
                     RoutineUploadSnapshot(
                         routineId: routine.id,
                         userId: currentUserId,
                         expectedModifiedAt: routine.updatedAt,
-                        document: try RoutineRemoteSyncMapper.document(for: routine)
+                        document: build.document
                     )
                 )
             } catch {
@@ -252,12 +255,14 @@ private extension RoutineSyncCoordinator {
         for folder in try pendingFolders(modelContext: modelContext, currentUserId: currentUserId)
         where !excludedIds.contains(folder.id) {
             do {
+                let build = try RoutineRemoteSyncMapper.build(for: folder)
+                recordRepairs(build.repairs, kind: "routine_folder", recordId: folder.id)
                 snapshots.append(
                     FolderUploadSnapshot(
                         folderId: folder.id,
                         userId: currentUserId,
                         expectedModifiedAt: folder.effectiveUpdatedAt,
-                        document: try RoutineRemoteSyncMapper.document(for: folder)
+                        document: build.document
                     )
                 )
             } catch {
@@ -502,6 +507,23 @@ private extension RoutineSyncCoordinator {
             mirrorToCrashlytics: true
         )
         recordFailure(error, code: "routine_sync_rejected", recordId: recordId)
+    }
+
+    /// A repaired record still uploads, so nothing else would ever say a value we
+    /// published was out of bounds. This is the only thing that does.
+    func recordRepairs(_ repairs: [RoutineSyncRepair], kind: String, recordId: UUID) {
+        for repair in repairs {
+            var details = repair.diagnosticDetails
+            details["record_kind"] = kind
+            details["record_id"] = recordId.uuidString
+
+            diagnostics.record(
+                "routine_backup_repaired",
+                level: .warning,
+                details: details,
+                mirrorToCrashlytics: true
+            )
+        }
     }
 
     func recordFailure(_ error: Error, code: String, recordId: UUID?) {
