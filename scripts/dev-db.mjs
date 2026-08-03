@@ -46,6 +46,9 @@ const WIPE_COLLECTION_IDS = [
   "userRateLimits",
   "config",
   "email_jobs",
+  // Retained-data cleanup: nothing writes this any more, but rows written by the
+  // retired public endpoint are hashed requester IPs that need a deletion path.
+  "email_rate_limits",
   "oauthStates",
 ];
 
