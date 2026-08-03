@@ -220,7 +220,23 @@ final class RoutineService {
         kickBackup()
     }
 
+    /// Deletes a folder and detaches the routines it held.
+    ///
+    /// The routines survive - only their `folderId` goes. Leaving the pointer
+    /// behind would strand every one of them on an id that names nothing, and
+    /// because an untouched routine stays `synced` that dangling pointer is what
+    /// the cloud backup already holds and what a restore hands back. Detaching,
+    /// the tombstone and the local delete all land in one save, so a crash
+    /// between them cannot leave half of it done.
     func deleteFolder(_ folder: RoutineFolder) throws {
+        let detachedAt = Date()
+
+        for routine in try routines(inFolder: folder.id) {
+            routine.folderId = nil
+            routine.updatedAt = detachedAt
+            markPendingBackup(routine, modifiedAt: detachedAt)
+        }
+
         try syncCoordinator.enqueuePendingDeletion(
             recordId: folder.id,
             kind: .folder,
@@ -230,6 +246,14 @@ final class RoutineService {
         modelContext.delete(folder)
         try modelContext.save()
         kickBackup()
+    }
+
+    private func routines(inFolder folderId: UUID) throws -> [Routine] {
+        let target: UUID? = folderId
+        let descriptor = FetchDescriptor<Routine>(
+            predicate: #Predicate<Routine> { $0.folderId == target }
+        )
+        return try modelContext.fetch(descriptor)
     }
 
     func getAllFolders() throws -> [RoutineFolder] {

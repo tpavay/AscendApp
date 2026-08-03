@@ -13,6 +13,14 @@ enum RoutineSyncError: LocalizedError, Equatable {
     case emptyName
     case nameTooLong(count: Int, limit: Int)
     case descriptionTooLong(count: Int, limit: Int)
+    case difficultyOutOfRange(value: Int, minimum: Int, maximum: Int)
+    case emptyTemplateId
+    case templateIdTooLong(count: Int, limit: Int)
+    case negativeTemplateVersion(value: Int)
+    case negativeEstimatedCalories(value: Int)
+    case tooManyWeightEntries(count: Int, limit: Int)
+    case duplicateWeightEquipmentTypes(count: Int, distinct: Int)
+    case negativeWeightValue(equipmentType: String)
 
     var errorDescription: String? {
         switch self {
@@ -28,6 +36,22 @@ enum RoutineSyncError: LocalizedError, Equatable {
             return "Name is \(count) characters; the backup accepts at most \(limit)."
         case let .descriptionTooLong(count, limit):
             return "Description is \(count) characters; the backup accepts at most \(limit)."
+        case let .difficultyOutOfRange(value, minimum, maximum):
+            return "Difficulty is \(value); the backup accepts \(minimum) through \(maximum)."
+        case .emptyTemplateId:
+            return "The routine names a template with an empty id, which the backup refuses."
+        case let .templateIdTooLong(count, limit):
+            return "Template id is \(count) characters; the backup accepts at most \(limit)."
+        case let .negativeTemplateVersion(value):
+            return "Template version is \(value); the backup accepts no negative version."
+        case let .negativeEstimatedCalories(value):
+            return "Estimated calories is \(value); the backup accepts no negative estimate."
+        case let .tooManyWeightEntries(count, limit):
+            return "Routine carries \(count) weight entries; the backup accepts at most \(limit)."
+        case let .duplicateWeightEquipmentTypes(count, distinct):
+            return "Routine carries \(count) weight entries across only \(distinct) equipment types."
+        case let .negativeWeightValue(equipmentType):
+            return "The \(equipmentType) weight is negative, which the backup refuses."
         }
     }
 
@@ -49,6 +73,30 @@ enum RoutineSyncError: LocalizedError, Equatable {
             return ["reason": "name_too_long", "actual": "\(count)", "permitted": "\(limit)"]
         case let .descriptionTooLong(count, limit):
             return ["reason": "description_too_long", "actual": "\(count)", "permitted": "\(limit)"]
+        case let .difficultyOutOfRange(value, minimum, maximum):
+            return [
+                "reason": "difficulty_out_of_range",
+                "actual": "\(value)",
+                "permitted": "\(minimum)...\(maximum)"
+            ]
+        case .emptyTemplateId:
+            return ["reason": "empty_template_id", "actual": "0", "permitted": "1"]
+        case let .templateIdTooLong(count, limit):
+            return ["reason": "template_id_too_long", "actual": "\(count)", "permitted": "\(limit)"]
+        case let .negativeTemplateVersion(value):
+            return ["reason": "negative_template_version", "actual": "\(value)", "permitted": "0"]
+        case let .negativeEstimatedCalories(value):
+            return ["reason": "negative_estimated_calories", "actual": "\(value)", "permitted": "0"]
+        case let .tooManyWeightEntries(count, limit):
+            return ["reason": "too_many_weight_entries", "actual": "\(count)", "permitted": "\(limit)"]
+        case let .duplicateWeightEquipmentTypes(count, distinct):
+            return [
+                "reason": "duplicate_weight_equipment_types",
+                "actual": "\(count)",
+                "permitted": "\(distinct)"
+            ]
+        case let .negativeWeightValue(equipmentType):
+            return ["reason": "negative_weight_value", "equipment_type": equipmentType]
         }
     }
 }
@@ -86,6 +134,18 @@ enum RoutineRemoteSyncMapper {
             )
         }
 
+        try validateTemplateIdentity(
+            templateId: routine.templateId,
+            templateVersion: routine.templateVersion
+        )
+        try validateMetadata(
+            difficulty: routine.difficulty,
+            estimatedCalories: routine.estimatedCalories
+        )
+
+        let defaultWeightConfiguration = weightConfiguration(from: routine.defaultWeightConfiguration)
+        try validateWeightConfiguration(defaultWeightConfiguration)
+
         return FirestoreUserRoutineDocument(
             userId: ownerUserId,
             name: routine.name,
@@ -99,7 +159,7 @@ enum RoutineRemoteSyncMapper {
             templateVersion: routine.templateVersion,
             difficulty: routine.difficulty,
             estimatedCalories: routine.estimatedCalories,
-            defaultWeightConfiguration: weightConfiguration(from: routine.defaultWeightConfiguration),
+            defaultWeightConfiguration: defaultWeightConfiguration,
             completionCount: max(0, routine.completionCount),
             lastCompletedAt: routine.lastCompletedAt,
             createdAt: routine.createdAt,
@@ -201,6 +261,74 @@ enum RoutineRemoteSyncMapper {
         guard nameLength > 0 else { throw RoutineSyncError.emptyName }
         guard nameLength <= limit else {
             throw RoutineSyncError.nameTooLong(count: nameLength, limit: limit)
+        }
+    }
+
+    /// A copied catalog template carries the published template's identity and
+    /// metadata through untouched, and nothing bounds what `routine_templates`
+    /// publishes - so these are bounds a climber reaches by tapping Copy rather
+    /// than by editing anything.
+    private static func validateTemplateIdentity(
+        templateId: String?,
+        templateVersion: Int?
+    ) throws {
+        if let templateId {
+            let templateIdLength = length(of: templateId)
+            guard templateIdLength > 0 else { throw RoutineSyncError.emptyTemplateId }
+            guard templateIdLength <= FirestoreUserRoutineDocument.maxTemplateIdLength else {
+                throw RoutineSyncError.templateIdTooLong(
+                    count: templateIdLength,
+                    limit: FirestoreUserRoutineDocument.maxTemplateIdLength
+                )
+            }
+        }
+
+        if let templateVersion, templateVersion < 0 {
+            throw RoutineSyncError.negativeTemplateVersion(value: templateVersion)
+        }
+    }
+
+    private static func validateMetadata(difficulty: Int?, estimatedCalories: Int?) throws {
+        if let difficulty,
+           difficulty < FirestoreUserRoutineDocument.minDifficulty ||
+            difficulty > FirestoreUserRoutineDocument.maxDifficulty {
+            throw RoutineSyncError.difficultyOutOfRange(
+                value: difficulty,
+                minimum: FirestoreUserRoutineDocument.minDifficulty,
+                maximum: FirestoreUserRoutineDocument.maxDifficulty
+            )
+        }
+
+        if let estimatedCalories, estimatedCalories < 0 {
+            throw RoutineSyncError.negativeEstimatedCalories(value: estimatedCalories)
+        }
+    }
+
+    /// Mirrors `isValidWorkoutWeightEntryList`: at most five entries, one per
+    /// equipment type, none of them carrying a negative weight.
+    private static func validateWeightConfiguration(
+        _ configuration: FirestoreWorkoutWeightConfiguration?
+    ) throws {
+        guard let configuration else { return }
+
+        let entries = configuration.entries
+        guard entries.count <= FirestoreWorkoutWeightConfiguration.maxEntries else {
+            throw RoutineSyncError.tooManyWeightEntries(
+                count: entries.count,
+                limit: FirestoreWorkoutWeightConfiguration.maxEntries
+            )
+        }
+
+        let distinctEquipmentTypes = Set(entries.map(\.equipmentType))
+        guard distinctEquipmentTypes.count == entries.count else {
+            throw RoutineSyncError.duplicateWeightEquipmentTypes(
+                count: entries.count,
+                distinct: distinctEquipmentTypes.count
+            )
+        }
+
+        if let negativeEntry = entries.first(where: { $0.weightValue < 0 }) {
+            throw RoutineSyncError.negativeWeightValue(equipmentType: negativeEntry.equipmentType)
         }
     }
 

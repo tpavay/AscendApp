@@ -73,6 +73,20 @@ struct FirestoreUserRoutineDocument: Codable, Equatable, Sendable {
     static let maxNameLength = 120
     static let maxDescriptionLength = 2000
 
+    /// The longest `templateId` the backup accepts, mirroring the
+    /// `templateId.size()` bound in `firestore.rules`.
+    static let maxTemplateIdLength = 160
+
+    /// The difficulty range the backup accepts, mirroring the `difficulty`
+    /// bounds in `firestore.rules`.
+    ///
+    /// A copied catalog template carries the published template's difficulty
+    /// through unchanged, and nothing bounds what a `routine_templates`
+    /// document may publish - so this is the bound a climber reaches by tapping
+    /// Copy, not by editing anything.
+    static let minDifficulty = 0
+    static let maxDifficulty = 25
+
     let userId: String
     let schemaVersion: Int
     let name: String

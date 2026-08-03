@@ -173,6 +173,141 @@ struct RoutineRemoteSyncMapperTests {
         }
     }
 
+    /// The realistic way a routine breaches a numeric bound: `routine_templates`
+    /// is server-authored and no client rule bounds what it publishes, so a
+    /// template with an out-of-range difficulty walks straight into the climber's
+    /// own routines the moment they tap Copy. Rejecting it client-side is the
+    /// difference between one terminal diagnostic and a PERMISSION_DENIED retried
+    /// on every launch forever.
+    @Test("A copied template past the difficulty ceiling is rejected, not retried", .bug(id: 304))
+    func aCopiedTemplateWithAnOutOfRangeDifficultyIsNotUploaded() {
+        let template = Routine(
+            name: "Pyramid Climb",
+            source: .remoteTemplate,
+            templateId: "pyramid_climb",
+            difficulty: FirestoreUserRoutineDocument.maxDifficulty + 5
+        )
+        let copy = template.createUserCopy()
+        copy.ownerUserId = Self.userId
+
+        #expect(
+            throws: RoutineSyncError.difficultyOutOfRange(
+                value: FirestoreUserRoutineDocument.maxDifficulty + 5,
+                minimum: FirestoreUserRoutineDocument.minDifficulty,
+                maximum: FirestoreUserRoutineDocument.maxDifficulty
+            )
+        ) {
+            _ = try RoutineRemoteSyncMapper.document(for: copy)
+        }
+    }
+
+    @Test
+    func aRoutineAtTheDifficultyCeilingIsUploaded() throws {
+        let routine = Routine(
+            name: "Everest",
+            source: .userCreated,
+            difficulty: FirestoreUserRoutineDocument.maxDifficulty
+        )
+        routine.ownerUserId = Self.userId
+
+        let document = try RoutineRemoteSyncMapper.document(for: routine)
+
+        #expect(document.difficulty == FirestoreUserRoutineDocument.maxDifficulty)
+    }
+
+    @Test
+    func aRoutineWithAnOverlongTemplateIdIsNotUploaded() {
+        let routine = Routine(
+            name: "Copied",
+            source: .copiedFromBuiltin,
+            templateId: String(
+                repeating: "t",
+                count: FirestoreUserRoutineDocument.maxTemplateIdLength + 1
+            )
+        )
+        routine.ownerUserId = Self.userId
+
+        #expect(
+            throws: RoutineSyncError.templateIdTooLong(
+                count: FirestoreUserRoutineDocument.maxTemplateIdLength + 1,
+                limit: FirestoreUserRoutineDocument.maxTemplateIdLength
+            )
+        ) {
+            _ = try RoutineRemoteSyncMapper.document(for: routine)
+        }
+    }
+
+    @Test
+    func aRoutineWithANegativeCalorieEstimateIsNotUploaded() {
+        let routine = Routine(name: "Impossible", source: .userCreated, estimatedCalories: -40)
+        routine.ownerUserId = Self.userId
+
+        #expect(throws: RoutineSyncError.negativeEstimatedCalories(value: -40)) {
+            _ = try RoutineRemoteSyncMapper.document(for: routine)
+        }
+    }
+
+    @Test
+    func aRoutineCarryingTooManyWeightEntriesIsNotUploaded() {
+        let allTypes = WeightEquipmentType.allCases
+        let entries = (0...FirestoreWorkoutWeightConfiguration.maxEntries).map { index in
+            WeightEntry(equipmentType: allTypes[index % allTypes.count], weightValue: 10)
+        }
+
+        let routine = Routine(
+            name: "Loaded",
+            source: .userCreated,
+            defaultWeightConfiguration: WeightConfiguration(entries: entries)
+        )
+        routine.ownerUserId = Self.userId
+
+        #expect(
+            throws: RoutineSyncError.tooManyWeightEntries(
+                count: FirestoreWorkoutWeightConfiguration.maxEntries + 1,
+                limit: FirestoreWorkoutWeightConfiguration.maxEntries
+            )
+        ) {
+            _ = try RoutineRemoteSyncMapper.document(for: routine)
+        }
+    }
+
+    @Test
+    func aRoutineRepeatingAnEquipmentTypeIsNotUploaded() {
+        let routine = Routine(
+            name: "Double vest",
+            source: .userCreated,
+            defaultWeightConfiguration: WeightConfiguration(entries: [
+                WeightEntry(equipmentType: .weightedVest, weightValue: 20),
+                WeightEntry(equipmentType: .weightedVest, weightValue: 30)
+            ])
+        )
+        routine.ownerUserId = Self.userId
+
+        #expect(throws: RoutineSyncError.duplicateWeightEquipmentTypes(count: 2, distinct: 1)) {
+            _ = try RoutineRemoteSyncMapper.document(for: routine)
+        }
+    }
+
+    @Test
+    func aRoutineCarryingANegativeWeightIsNotUploaded() {
+        let routine = Routine(
+            name: "Antigravity",
+            source: .userCreated,
+            defaultWeightConfiguration: WeightConfiguration(entries: [
+                WeightEntry(equipmentType: .weightedVest, weightValue: -5)
+            ])
+        )
+        routine.ownerUserId = Self.userId
+
+        #expect(
+            throws: RoutineSyncError.negativeWeightValue(
+                equipmentType: WeightEquipmentType.weightedVest.rawValue
+            )
+        ) {
+            _ = try RoutineRemoteSyncMapper.document(for: routine)
+        }
+    }
+
     @Test
     func aNamelessRecordIsNotUploaded() {
         let routine = Routine(name: "", source: .userCreated)
@@ -240,6 +375,30 @@ struct RoutineRemoteSyncMapperTests {
                 "request.resource.data.name.size() <= \(FirestoreRoutineFolderDocument.maxNameLength)"
             )
         )
+        #expect(
+            rules.contains(
+                "request.resource.data.templateId.size() <= " +
+                    "\(FirestoreUserRoutineDocument.maxTemplateIdLength)"
+            )
+        )
+        #expect(
+            rules.contains(
+                "request.resource.data.difficulty >= \(FirestoreUserRoutineDocument.minDifficulty)"
+            )
+        )
+        #expect(
+            rules.contains(
+                "request.resource.data.difficulty <= \(FirestoreUserRoutineDocument.maxDifficulty)"
+            )
+        )
+        #expect(rules.contains("request.resource.data.estimatedCalories >= 0"))
+        #expect(
+            rules.contains("entries.size() <= \(FirestoreWorkoutWeightConfiguration.maxEntries)")
+        )
+        // The unique-equipment-type half of the entry-list rule has no number to
+        // pin, so pin the helper the rule calls instead.
+        #expect(rules.contains("hasUniqueWorkoutWeightEquipmentTypes(entries)"))
+        #expect(rules.contains("isNonNegativeNumber(entry.weightValue)"))
     }
 
     @Test

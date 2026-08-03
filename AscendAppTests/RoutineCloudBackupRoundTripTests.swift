@@ -185,6 +185,63 @@ struct RoutineCloudBackupRoundTripTests {
         #expect(try secondDevice.fetch(FetchDescriptor<Routine>()).isEmpty)
     }
 
+    /// Folder deletion has no UI yet, so this test is the only thing exercising
+    /// the path - which is exactly why it is worth pinning now. A routine left
+    /// pointing at a deleted folder stays `synced`, so the dangling pointer is
+    /// already in the backup and is what the next device restores.
+    @Test("Deleting a folder detaches its routines instead of stranding them", .bug(id: 304))
+    func deletingAFolderClearsTheFolderPointerEverywhereIncludingTheBackup() async throws {
+        let backend = InMemoryUserRoutineBackend()
+        let coordinator = makeSyncCoordinator(backend)
+        let firstDevice = try makeModelContext()
+        let service = makeService(modelContext: firstDevice, coordinator: coordinator)
+
+        let folder = try service.createFolder(name: "Race prep")
+        let filed = try service.createRoutine(
+            name: "Tuesday Pyramid",
+            intervals: makeIntervals(),
+            folderId: folder.id
+        )
+        let loose = try service.createRoutine(name: "Loose", intervals: makeIntervals())
+
+        await coordinator.processPendingRoutines(
+            modelContext: firstDevice,
+            currentUserId: Self.userId
+        )
+        #expect(await backend.routineDocument(filed.id)?.folderId == folder.id.uuidString)
+
+        try service.deleteFolder(folder)
+
+        #expect(filed.folderId == nil)
+        #expect(filed.remoteSyncStatus == .pendingUpsert)
+        // A routine that was never in the folder is left entirely alone.
+        #expect(loose.remoteSyncStatus == .synced)
+        #expect(try firstDevice.fetch(FetchDescriptor<Routine>()).count == 2)
+
+        await coordinator.processPendingRoutines(
+            modelContext: firstDevice,
+            currentUserId: Self.userId
+        )
+
+        #expect(await backend.folderCount() == 0)
+        #expect(await backend.routineDocument(filed.id)?.folderId == nil)
+
+        // The point of the whole exercise: the next device restores a routine
+        // that points at nothing rather than at a folder that no longer exists.
+        let secondDevice = try makeModelContext()
+        RoutineHydrationService.resetSessionTrackingForTesting()
+        _ = try await RoutineHydrationService.hydrateIfNeeded(
+            modelContext: secondDevice,
+            currentUserId: Self.userId,
+            remoteRepository: backend
+        )
+
+        let restored = try secondDevice.fetch(FetchDescriptor<Routine>())
+        #expect(restored.count == 2)
+        #expect(restored.allSatisfy { $0.folderId == nil })
+        #expect(try secondDevice.fetch(FetchDescriptor<RoutineFolder>()).isEmpty)
+    }
+
     @Test("Catalog templates are never uploaded as the climber's own content", .bug(id: 304))
     func catalogTemplatesAreNotBackedUp() async throws {
         let backend = InMemoryUserRoutineBackend()
