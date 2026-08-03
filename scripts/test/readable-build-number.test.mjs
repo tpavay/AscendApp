@@ -204,6 +204,22 @@ test("the CI entrypoints still run from a path with spaces or a symlink", () => 
   }
 });
 
+// A clock that only advances when the poller sleeps, so the elapsed budget the
+// loop enforces is exactly what the assertions below can pin.
+function testClock() {
+  const slept = [];
+  let current = 0;
+
+  return {
+    slept,
+    now: () => current,
+    sleep: async (seconds) => {
+      slept.push(seconds);
+      current += seconds * 1_000;
+    },
+  };
+}
+
 test("the upload holds the concurrency group until the exact build is listed", async () => {
   const paths = [];
   const responses = [
@@ -212,11 +228,10 @@ test("the upload holds the concurrency group until the exact build is listed", a
     {data: []},
     {data: [{attributes: {version: "2026080301"}}]},
   ];
-  const slept = [];
+  const clock = testClock();
 
   const attempt = await awaitBuildVisible(
     {
-      token: "redacted-test-token",
       appId: "6759919365",
       expectedBundleId: "com.TylerPavay.AscendApp.staging",
       buildNumber: "2026080301",
@@ -224,29 +239,32 @@ test("the upload holds the concurrency group until the exact build is listed", a
       pollIntervalSeconds: 15,
     },
     {
+      makeToken: () => "redacted-test-token",
       request: async (token, path) => {
         paths.push(path);
         return responses.shift();
       },
-      sleep: async (seconds) => slept.push(seconds),
+      sleep: clock.sleep,
+      now: clock.now,
       report: () => {},
     },
   );
 
   assert.equal(attempt, 3);
-  assert.deepEqual(slept, [15, 15]);
+  assert.deepEqual(clock.slept, [15, 15]);
   assert.match(paths[1], /filter%5Bapp%5D=6759919365/);
   assert.match(paths[1], /filter%5Bversion%5D=2026080301/);
 });
 
-test("an upload that never becomes visible fails loudly within a bounded timeout", async () => {
-  let polls = 0;
-  const slept = [];
+// TOKEN_LIFETIME_SECONDS equals the default poll budget, so a token minted once
+// up front expires mid-poll and turns a build that appears late into a 401.
+test("every poll attempt carries a freshly minted token", async () => {
+  const tokens = [];
+  const clock = testClock();
 
   await assert.rejects(
     awaitBuildVisible(
       {
-        token: "redacted-test-token",
         appId: "6759919365",
         expectedBundleId: "com.TylerPavay.AscendApp.staging",
         buildNumber: "2026080301",
@@ -254,6 +272,89 @@ test("an upload that never becomes visible fails loudly within a bounded timeout
         pollIntervalSeconds: 15,
       },
       {
+        makeToken: () => {
+          const token = `token-${tokens.length}`;
+          tokens.push(token);
+          return token;
+        },
+        request: async (token, path) => {
+          if (path.startsWith("/apps/")) {
+            return {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}};
+          }
+          assert.equal(token, tokens.at(-1), "a poll reused a stale token");
+          return {data: []};
+        },
+        sleep: clock.sleep,
+        now: clock.now,
+        report: () => {},
+      },
+    ),
+    /still not listed/,
+  );
+
+  // One for the ownership check plus one per poll attempt.
+  assert.equal(tokens.length, 5);
+  assert.equal(new Set(tokens).size, tokens.length);
+});
+
+test("transient App Store Connect failures do not fail a completed upload", async () => {
+  const clock = testClock();
+  const outcomes = [
+    () => {
+      throw new Error("App Store Connect GET /v1/builds failed (503): Unavailable: Retry later");
+    },
+    () => {
+      throw new Error("App Store Connect GET /v1/builds failed (429): Too many requests");
+    },
+    () => ({data: []}),
+    () => ({data: [{attributes: {version: "2026080301"}}]}),
+  ];
+  const reported = [];
+
+  const attempt = await awaitBuildVisible(
+    {
+      appId: "6759919365",
+      expectedBundleId: "com.TylerPavay.AscendApp.staging",
+      buildNumber: "2026080301",
+      timeoutSeconds: 900,
+      pollIntervalSeconds: 15,
+    },
+    {
+      makeToken: () => "redacted-test-token",
+      request: async (token, path) => {
+        if (path.startsWith("/apps/")) {
+          return {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}};
+        }
+        return outcomes.shift()();
+      },
+      sleep: clock.sleep,
+      now: clock.now,
+      report: (message) => reported.push(message),
+    },
+  );
+
+  assert.equal(attempt, 4);
+  assert.equal(outcomes.length, 0);
+  assert.ok(reported.some((message) => /failed on attempt 1.*503/.test(message)));
+  assert.ok(reported.some((message) => /failed on attempt 2.*429/.test(message)));
+  assert.ok(reported.every((message) => !message.includes("redacted-test-token")));
+});
+
+test("an upload that never becomes visible fails loudly within a bounded timeout", async () => {
+  let polls = 0;
+  const clock = testClock();
+
+  await assert.rejects(
+    awaitBuildVisible(
+      {
+        appId: "6759919365",
+        expectedBundleId: "com.TylerPavay.AscendApp.staging",
+        buildNumber: "2026080301",
+        timeoutSeconds: 45,
+        pollIntervalSeconds: 15,
+      },
+      {
+        makeToken: () => "redacted-test-token",
         request: async (token, path) => {
           if (path.startsWith("/apps/")) {
             return {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}};
@@ -261,27 +362,58 @@ test("an upload that never becomes visible fails loudly within a bounded timeout
           polls += 1;
           return {data: []};
         },
-        sleep: async (seconds) => slept.push(seconds),
+        sleep: clock.sleep,
+        now: clock.now,
         report: () => {},
       },
     ),
-    /still not listed in \/v1\/builds after 45s.*mint a duplicate/s,
+    /still not listed in \/v1\/builds after 45s across 4 attempts.*mint a duplicate/s,
   );
 
-  assert.equal(polls, 3);
-  assert.deepEqual(slept, [15, 15]);
+  // The reported budget must be what actually elapsed, not one interval more.
+  assert.equal(polls, 4);
+  assert.deepEqual(clock.slept, [15, 15, 15]);
+});
+
+test("a timeout spent entirely on transient errors names the last one", async () => {
+  const clock = testClock();
+
+  await assert.rejects(
+    awaitBuildVisible(
+      {
+        appId: "6759919365",
+        expectedBundleId: "com.TylerPavay.AscendApp.staging",
+        buildNumber: "2026080301",
+        timeoutSeconds: 30,
+        pollIntervalSeconds: 15,
+      },
+      {
+        makeToken: () => "redacted-test-token",
+        request: async (token, path) => {
+          if (path.startsWith("/apps/")) {
+            return {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}};
+          }
+          throw new Error("App Store Connect GET /v1/builds failed (500): Internal");
+        },
+        sleep: clock.sleep,
+        now: clock.now,
+        report: () => {},
+      },
+    ),
+    /after 30s across 3 attempts \(last error: .*500.*\).*mint a duplicate/s,
+  );
 });
 
 test("the wait refuses an app that does not own the expected bundle", async () => {
   await assert.rejects(
     awaitBuildVisible(
       {
-        token: "redacted-test-token",
         appId: "6757202987",
         expectedBundleId: "com.TylerPavay.AscendApp.staging",
         buildNumber: "2026080301",
       },
       {
+        makeToken: () => "redacted-test-token",
         request: async () => ({data: {attributes: {bundleId: "com.TylerPavay.AscendApp"}}}),
         report: () => {},
       },
@@ -290,17 +422,50 @@ test("the wait refuses an app that does not own the expected bundle", async () =
   );
 });
 
+// The ownership check is what proves the poll is watching the right app, so an
+// error there must stop the deploy rather than be retried as transient.
+test("an ownership check failure is fatal rather than retried", async () => {
+  const clock = testClock();
+  let requests = 0;
+
+  await assert.rejects(
+    awaitBuildVisible(
+      {
+        appId: "6759919365",
+        expectedBundleId: "com.TylerPavay.AscendApp.staging",
+        buildNumber: "2026080301",
+        timeoutSeconds: 900,
+        pollIntervalSeconds: 15,
+      },
+      {
+        makeToken: () => "redacted-test-token",
+        request: async () => {
+          requests += 1;
+          throw new Error("App Store Connect GET /v1/apps/6759919365 failed (401): Unauthorized");
+        },
+        sleep: clock.sleep,
+        now: clock.now,
+        report: () => {},
+      },
+    ),
+    /failed \(401\)/,
+  );
+
+  assert.equal(requests, 1);
+  assert.deepEqual(clock.slept, []);
+});
+
 test("the wait refuses a missing or non-numeric build number", async () => {
   for (const buildNumber of ["", "1.2.3", undefined]) {
     await assert.rejects(
       awaitBuildVisible(
         {
-          token: "redacted-test-token",
           appId: "6759919365",
           expectedBundleId: "com.TylerPavay.AscendApp.staging",
           buildNumber,
         },
         {
+          makeToken: () => assert.fail("must not mint a token for invalid input"),
           request: async () => assert.fail("must not reach App Store Connect"),
           report: () => {},
         },

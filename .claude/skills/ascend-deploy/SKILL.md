@@ -187,6 +187,8 @@ Do not introduce a *new* long-lived JSON service-account key for deploy auth; th
   `scripts/ci/await-build-visible.mjs` closes that window: the upload job polls `/v1/builds` for the exact build it just uploaded and does not exit - does not release the group - until the record is listed.
   It waits for *visibility*, not for processing to finish, and fails loudly after a bounded 15 minutes rather than hanging or proceeding.
   The derived number reaches that job as the `build-ios` job output `build-number`; an empty one is a hard failure, not a skipped wait.
+  Two properties of that poll are load-bearing and easy to regress: it mints a **fresh JWT per attempt**, because the token lifetime and the poll budget are both 900s and a once-minted token 401s exactly when a slow build finally appears; and it treats a per-attempt 429/5xx as **transient**, retrying for the remaining budget, because the binary is already accepted by the transporter and failing early only discards budget that might still have confirmed visibility.
+  Credential loading and the app-to-bundle ownership check stay fatal - the latter is what proves the poll is watching the right app.
 - The allocator refuses a number at or below the legacy cutover floor, at or below the highest uploaded build, or above the App Store's 32-bit ceiling.
   `YYYYMMDDNN` remains below the ceiling through 4294 and fails rather than wrapping after that.
 - Legacy manual-signing CI secrets are deprecated:
