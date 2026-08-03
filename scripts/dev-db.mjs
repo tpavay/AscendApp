@@ -46,9 +46,7 @@ const WIPE_COLLECTION_IDS = [
   "userRateLimits",
   "config",
   "email_jobs",
-  "email_rate_limits",
   "oauthStates",
-  "waitlist",
 ];
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));

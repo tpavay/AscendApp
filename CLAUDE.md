@@ -40,7 +40,7 @@ Full playbook: `ascend-brand-voice`. Design patterns: `product-design-playbook`.
 - **Subscriptions / Paywall**: RevenueCat for subscription management and entitlements; SuperWall for paywall presentation and onboarding/conversion analytics
 - **Analytics / Diagnostics**: Firebase Analytics, Mixpanel, Sentry
 - **Integrations**: Apple HealthKit, Hevy
-- **Cloud Functions** (TypeScript): Beehiiv-backed waitlist signup endpoint with dedupe, transactional email for server-owned notifications
+- **Cloud Functions** (TypeScript): transactional email for server-owned notifications, plus server-derived leaderboard, achievement, and identity projections
 - **Web**: Astro site in `web/`, built to `web/dist/`
 
 ## Project Structure
@@ -191,7 +191,7 @@ Ascend domains - load before touching the area:
 | Firestore, Storage, rules, connectivity | `ascend-firebase-data` |
 | Privacy manifest, App Store data declarations | `ascend-privacy-manifest` |
 | CI, release, TestFlight, fastlane | `ascend-deploy` |
-| Web, email, Cloud Functions, waitlist | `ascend-web-email` |
+| Web, email, Cloud Functions | `ascend-web-email` |
 | Seeding, fixtures, debug tools, QA sign-in | `ascend-dev-fixtures` |
 | UI conventions, branding, icons | `ascend-design-system`, `icon-workflow` |
 | Copy, empty states, tone | `ascend-brand-voice` |

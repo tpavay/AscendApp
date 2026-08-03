@@ -7,15 +7,6 @@ import type {
 } from "./types";
 
 /**
- * Builds the deterministic dedupe key for a waitlist welcome email.
- * @param {string} recipientHash - Normalized recipient hash
- * @return {string} Stable dedupe key
- */
-export function buildWaitlistWelcomeDedupeKey(recipientHash: string): string {
-  return `waitlist-welcome:${recipientHash}`;
-}
-
-/**
  * Builds the deterministic Firestore job ID for an email dedupe key.
  * @param {string} dedupeKey - Stable dedupe key
  * @return {string} Stable Firestore document ID

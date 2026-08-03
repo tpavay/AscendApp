@@ -838,21 +838,22 @@ test("index.ts exports are read in both shapes the file uses", () => {
     "  sendClimbDropNotification as sendDrop,",
     "} from \"./pushNotifications\";",
     "export type {Foo} from \"./types\";",
-    "export const joinWaitlist = onRequest(handler);",
+    "export const unsubscribeFromEmails = onRequest(handler);",
     "import {setGlobalOptions} from \"firebase-functions/v2\";",
   ].join("\n");
 
   assert.deepEqual(parseExportedFunctionNames(source), [
     "cleanupDeletedUserData",
-    "joinWaitlist",
     "registerPushDevice",
     "sendDrop",
+    "unsubscribeFromEmails",
   ]);
 });
 
 test("the checked-in production gap is what the diff reports", () => {
   // Source exports on `main` at b3fe797 vs the eleven functions the production
-  // project actually had on 2026-07-31.
+  // project actually had on 2026-07-31. A dated snapshot, so `joinWaitlist`
+  // stays in it even though #330 removed the function from source.
   const exported = [
     "cleanupDeletedUserData",
     "finalizeLeaderboardAchievements",
@@ -893,10 +894,12 @@ test("the checked-in production gap is what the diff reports", () => {
 
 test("functions left behind after removal from source are orphans", () => {
   // The four `strava*` functions still live in dev, removed from source in
-  // 2ca544d. A deploy log cannot show this; only a reconciliation can.
+  // 2ca544d, and `joinWaitlist` joins them as of #330. A deploy log cannot
+  // show this; only a reconciliation can.
   const diff = diffDeployedFunctions({
-    exported: ["joinWaitlist"],
+    exported: ["unsubscribeFromEmails"],
     deployed: [
+      "unsubscribeFromEmails",
       "joinWaitlist",
       "stravaCallback",
       "stravaCreateActivity",
@@ -906,6 +909,7 @@ test("functions left behind after removal from source are orphans", () => {
   });
 
   assert.deepEqual(diff.orphaned, [
+    "joinWaitlist",
     "stravaCallback",
     "stravaCreateActivity",
     "stravaCreateOAuthState",
@@ -931,15 +935,15 @@ test("the firebase functions:list payload is read by id", () => {
   const payload = JSON.stringify({
     status: "success",
     result: [
-      {id: "joinWaitlist", platform: "gcfv2"},
       {id: "processEmailJobs", platform: "gcfv2"},
-      {id: "joinWaitlist", platform: "gcfv2"},
+      {id: "unsubscribeFromEmails", platform: "gcfv2"},
+      {id: "processEmailJobs", platform: "gcfv2"},
     ],
   });
 
   assert.deepEqual(parseDeployedFunctionNames(payload), [
-    "joinWaitlist",
     "processEmailJobs",
+    "unsubscribeFromEmails",
   ]);
 });
 
@@ -949,12 +953,12 @@ test("a deployed function that is not ACTIVE is not serving, so it fails", () =>
   const deployed = parseDeployedFunctions({
     status: "success",
     result: [
-      {id: "joinWaitlist", state: "ACTIVE"},
+      {id: "unsubscribeFromEmails", state: "ACTIVE"},
       {id: "processEmailJobs", state: "FAILED"},
     ],
   });
   const inactive = inactiveDeployedFunctions(deployed, [
-    "joinWaitlist",
+    "unsubscribeFromEmails",
     "processEmailJobs",
   ]);
 
@@ -963,7 +967,7 @@ test("a deployed function that is not ACTIVE is not serving, so it fails", () =>
   ]);
 
   const diff = diffDeployedFunctions({
-    exported: ["joinWaitlist", "processEmailJobs"],
+    exported: ["unsubscribeFromEmails", "processEmailJobs"],
     deployed: deployed.map((entry) => entry.id),
   });
   const {ok, lines} = formatFunctionsDiff({projectId: "p", diff, inactive});
@@ -977,11 +981,16 @@ test("a payload with no state field is not invented into a failure", () => {
   // evidence of anything, and must not block a deploy.
   const deployed = parseDeployedFunctions({
     status: "success",
-    result: [{id: "joinWaitlist"}],
+    result: [{id: "unsubscribeFromEmails"}],
   });
 
-  assert.deepEqual(deployed, [{id: "joinWaitlist", region: null, state: null}]);
-  assert.deepEqual(inactiveDeployedFunctions(deployed, ["joinWaitlist"]), []);
+  assert.deepEqual(deployed, [
+    {id: "unsubscribeFromEmails", region: null, state: null},
+  ]);
+  assert.deepEqual(
+    inactiveDeployedFunctions(deployed, ["unsubscribeFromEmails"]),
+    []
+  );
 });
 
 test("one function serving in one region and broken in another is not serving", () => {
@@ -1018,12 +1027,14 @@ test("a multi-region function is one name, not one name per region", () => {
   const payload = {
     status: "success",
     result: [
-      {id: "joinWaitlist", region: "us-central1"},
-      {id: "joinWaitlist", region: "europe-west1"},
+      {id: "unsubscribeFromEmails", region: "us-central1"},
+      {id: "unsubscribeFromEmails", region: "europe-west1"},
     ],
   };
 
-  assert.deepEqual(parseDeployedFunctionNames(payload), ["joinWaitlist"]);
+  assert.deepEqual(parseDeployedFunctionNames(payload), [
+    "unsubscribeFromEmails",
+  ]);
 });
 
 test("an orphan's state is irrelevant - it should not be there at all", () => {
@@ -1033,7 +1044,7 @@ test("an orphan's state is irrelevant - it should not be there at all", () => {
   });
 
   assert.deepEqual(
-    inactiveDeployedFunctions(deployed, ["joinWaitlist"]),
+    inactiveDeployedFunctions(deployed, ["unsubscribeFromEmails"]),
     [],
     "an unexported function is reported as an orphan, not as inactive"
   );

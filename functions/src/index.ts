@@ -1,7 +1,7 @@
 /**
  * Cloud Functions for AscendApp
  *
- * - Email: Background transactional waitlist email processing
+ * - Email: Background transactional email processing
  */
 
 import {setGlobalOptions} from "firebase-functions/v2";
@@ -32,6 +32,5 @@ export {
   unregisterPushDevice,
   updatePushNotificationPreferences,
 } from "./pushNotifications";
-export {joinWaitlist} from "./waitlist";
 
 setGlobalOptions({maxInstances: 10});

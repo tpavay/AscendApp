@@ -8,7 +8,6 @@ Ascend's Cloud Functions use the `TRANSACTIONAL_EMAIL_CONFIG` JSON secret for ba
 {
   "provider": "resend",
   "apiKey": "re_xxxxxxxxx",
-  "betaInviteUrl": "https://testflight.apple.com/join/ZZ1zUmBf",
   "feedbackNotificationEmail": "tyler@ascendstepper.com",
   "fromEmail": "hello@updates.ascendstepper.com",
   "fromName": "Ascend",
@@ -23,8 +22,8 @@ Ascend's Cloud Functions use the `TRANSACTIONAL_EMAIL_CONFIG` JSON secret for ba
 - Verify the sending domain in Resend before deploying.
 - Use a sender address from that verified domain for `fromEmail`.
 - Keep the API key only in Secret Manager or local emulator secret overrides.
-- `betaInviteUrl` is optional. If set, waitlist emails show a primary TestFlight CTA.
 - `feedbackNotificationEmail` is optional. Admin email for feedback notifications. Falls back to `replyTo`, then `fromEmail`.
+- Unknown keys are ignored, so a deployed secret still carrying the retired `betaInviteUrl` is harmless and can be dropped on the next rotation.
 
 ### Required fields
 
@@ -40,7 +39,7 @@ See CLAUDE.md, Firebase Hosting, for why these two fail loudly rather than defau
 Firebase's Cloud Functions emulator can override secret values with `functions/.secret.local`.
 
 ```dotenv
-TRANSACTIONAL_EMAIL_CONFIG={"provider":"resend","apiKey":"re_xxxxxxxxx","betaInviteUrl":"https://testflight.apple.com/join/ZZ1zUmBf","fromEmail":"hello@updates.ascendstepper.com","fromName":"Ascend","replyTo":"support@ascendstepper.com","unsubscribeSigningKey":"a-long-random-secret-of-at-least-32-chars","websiteUrl":"https://ascendstepper.com"}
+TRANSACTIONAL_EMAIL_CONFIG={"provider":"resend","apiKey":"re_xxxxxxxxx","fromEmail":"hello@updates.ascendstepper.com","fromName":"Ascend","replyTo":"support@ascendstepper.com","unsubscribeSigningKey":"a-long-random-secret-of-at-least-32-chars","websiteUrl":"https://ascendstepper.com"}
 ```
 
 ## Deploying the secret
@@ -60,7 +59,6 @@ npx -y firebase-tools@15.22.1 deploy --only firestore:rules,firestore:indexes,fu
 
 ## Current behavior
 
-- `joinWaitlist` validates email input, rate limits by hashed requester IP, and subscribes the address to Beehiiv. Beehiiv owns broadcast/newsletter delivery and any Beehiiv-hosted welcome email.
 - The scheduled `processEmailJobs` worker sends queued transactional app emails. It asserts the secret config once per invocation before claiming any job, so a mis-ordered deploy fails the whole run loudly instead of per message.
 - `email_jobs` stores queue state, attempts, retry timing, and provider metadata.
 - Retryable provider failures are requeued automatically; permanent failures are marked on the job.
@@ -68,7 +66,7 @@ npx -y firebase-tools@15.22.1 deploy --only firestore:rules,firestore:indexes,fu
 ## Unsubscribe
 
 - Every email addressed to a user carries RFC 8058 one-click `List-Unsubscribe` headers and a footer unsubscribe link, both derived from the job's `recipientUid`.
-- Waitlist mail and admin feedback notifications carry neither. They have no `recipientUid`, and Beehiiv owns the waitlist opt-out.
+- Admin feedback notifications carry neither. They have no `recipientUid`, so there is no per-recipient preference an unsubscribe could flip.
 - Links point at `/api/unsubscribe`, a Hosting rewrite to the `unsubscribeFromEmails` function, and carry an HMAC token signed with `unsubscribeSigningKey`. Tokens do not expire, so links outlive the message.
 - `GET` renders a confirmation page and does not act; `POST` performs the opt-out and sets `lifecycleEmailsEnabled: false`. See CLAUDE.md, Firebase Hosting, for why that split is load-bearing.
 - The write merges into `users/{uid}/communication_preferences/current`, so the push notification preference survives.

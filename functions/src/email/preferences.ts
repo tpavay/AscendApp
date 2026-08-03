@@ -67,8 +67,8 @@ export async function readCommunicationPreferences(
  *
  * The queue-time gate is not enough on its own: a retrying job can sit in the
  * queue for hours, so the preference is re-read at send time. Mail with no
- * recipient uid (waitlist, admin notifications) has no preference to consult
- * and always sends. A failed read throws rather than falling through, so a
+ * recipient uid (admin notifications) has no preference to consult and always
+ * sends. A failed read throws rather than falling through, so a
  * transient Firestore error can never deliver mail to an unsubscribed user.
  * @param {Pick<EmailJobDocument, "recipientUid">} job Claimed email job.
  * @param {CommunicationPreferencesReader} readPreferences Preference reader.

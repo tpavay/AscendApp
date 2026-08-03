@@ -46,8 +46,8 @@ function serializeErrorMessage(error: unknown): string {
 /**
  * Builds the signed unsubscribe URL for a job's recipient.
  *
- * Only user-addressed mail gets a link: waitlist and admin notifications have
- * no uid whose preference an unsubscribe could flip.
+ * Only user-addressed mail gets a link: admin notifications have no uid whose
+ * preference an unsubscribe could flip.
  * @param {EmailJobDocument} job - Claimed email job
  * @return {string | null} Signed unsubscribe URL, or null when not applicable
  */
