@@ -33,8 +33,51 @@ permissions:
   contents: read
 
 jobs:
+  # Its own job, and `build-ios` waits on it, because the obvious home for this -
+  # a step in `deploy-firebase` beside the rules and indexes - does not actually
+  # run first. `deploy-firebase` runs in PARALLEL with `build-ios` here, so a
+  # publish there would race the archive preflight that reads the same backend;
+  # and in `deploy-production.yml` `deploy-firebase` NEEDS `build-ios`, so a
+  # publish there would land strictly after the archive it was meant to satisfy.
+  # A dedicated job ahead of the archive is the only ordering that holds, and it
+  # costs the staging build about a minute.
+  #
+  # What it publishes is only ever a parameter the project has never held. It
+  # cannot change or re-enable an existing switch, and it refuses to write at all
+  # while any switch is off - see scripts/publish-new-kill-switches.mjs.
+  # Production is deliberately absent: it stays a captain-only manual publish,
+  # per docs/production-backend-rollout-runbook.md.
+  publish-kill-switches:
+    name: Publish New Kill Switches (Dev + Staging)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # Dev is the developer sandbox and nothing archives against it, so a dev-only
+      # failure must not hold the staging release train. It still shows red in the
+      # run, and remote-config-drift.yml is the backstop that keeps dev honest.
+      - name: Publish new kill switches to dev
+        continue-on-error: true
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: node scripts/publish-new-kill-switches.mjs dev --apply
+
+      - name: Publish new kill switches to staging
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: node scripts/publish-new-kill-switches.mjs staging --apply
+
   build-ios:
     name: Build iOS IPA (Staging)
+    needs: publish-kill-switches
     runs-on: macos-15
     timeout-minutes: 60
 
@@ -158,6 +201,10 @@ jobs:
       # normally until the moment someone needs the lever. CI previously compared
       # the checked-in template to the Swift enum and never to the live project,
       # which is how #318 stayed invisible. Compare against the backend.
+      #
+      # `publish-kill-switches` has already added anything this ref introduces, so
+      # a failure here now means the automation deliberately declined to write -
+      # a switch is off, or the live template is a shape it will not guess at.
       - name: Verify staging kill switches are published
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}

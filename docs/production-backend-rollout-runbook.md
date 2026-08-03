@@ -56,7 +56,8 @@ Complete every item before starting the production workflow.
    `Staging` carries its own staging publishable keys and clears the same preflight, and `Debug` is intentionally unset.
    The per-environment key split is owned by `docs/superwall-paywall-setup.md`.
 9. Confirm the production Remote Config template is published, so every kill switch exists before the binary that needs one ships.
-   No deploy workflow publishes it; see "Remote Config kill switches" below for the captain-only command.
+   No deploy workflow publishes it to production; dev and staging receive new switches automatically, production stays a captain-only publish.
+   See "Remote Config kill switches" below for the command, and `npm run remoteconfig:drift` for what is live in all three right now.
    The production `build-ios` job now refuses to archive while any flag the build reads is unreachable in `ascend-prod-9c8f2`, so a missed publish stops the release rather than shipping a decorative lever.
 
 Use these read-only GitHub checks:
@@ -247,14 +248,24 @@ Rollback: rebuild and redeploy only Hosting from the last known good production 
 ### 6. Remote Config kill switches
 
 Publishes the parameters that let a shipped iOS binary be halted without a new submission.
-This is the one step that is deliberately **not** part of any CI deploy: publishing the template is a full replace, so an automated deploy could silently re-enable a switch an operator had just turned off.
+This is the one step that is deliberately **not** part of any CI deploy for production.
+Dev and staging now receive newly added switches automatically, additively, from `deploy-staging.yml`; production does not, and no workflow may invoke the additive publisher against `ascend-prod-9c8f2`.
+
+Prefer the additive publisher, which can only add a parameter the project has never held and refuses to write while any switch is off:
+
+```sh
+node scripts/publish-new-kill-switches.mjs prod --confirm-production ascend-prod-9c8f2
+node scripts/publish-new-kill-switches.mjs prod --confirm-production ascend-prod-9c8f2 --apply
+```
+
+Use the full replace when production has diverged and the checked-in template is the state you want restored:
 
 ```sh
 node scripts/deploy-remote-config.mjs --env prod --confirm-production ascend-prod-9c8f2
 node scripts/deploy-remote-config.mjs --env prod --confirm-production ascend-prod-9c8f2 --apply
 ```
 
-The script reads the live template first and refuses to publish while any managed flag is switched off.
+Both read the live template first and refuse to publish while any managed flag is switched off.
 Production was first published on 2026-08-02 and read back parameter by parameter; `remote-config-kill-switches.md` holds that record and owns the publish contract.
 Re-run this whenever a flag is added - the production archive fails while any flag the build reads is unreachable on the backend.
 

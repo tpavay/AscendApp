@@ -68,6 +68,10 @@
     "remoteconfig:deploy": "node deploy-remote-config.mjs --env dev",
     "remoteconfig:deploy:staging": "node deploy-remote-config.mjs --env staging",
     "remoteconfig:deploy:production": "node deploy-remote-config.mjs --env prod --confirm-production ascend-prod-9c8f2",
+    "remoteconfig:publish-new": "node publish-new-kill-switches.mjs dev",
+    "remoteconfig:publish-new:staging": "node publish-new-kill-switches.mjs staging",
+    "remoteconfig:publish-new:production": "node publish-new-kill-switches.mjs prod --confirm-production ascend-prod-9c8f2",
+    "remoteconfig:drift": "node ci/report-remote-config-drift.mjs dev staging prod",
     "phased-release:status": "node appstore-phased-release.mjs status",
     "phased-release:pause": "node appstore-phased-release.mjs pause --confirm"
   },

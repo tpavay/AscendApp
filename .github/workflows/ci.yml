@@ -57,6 +57,7 @@ jobs:
       firebase: ${{ steps.filter.outputs.firebase }}
       ruby: ${{ steps.filter.outputs.ruby }}
       swiftdata_schema: ${{ steps.filter.outputs.swiftdata_schema }}
+      remote_config: ${{ steps.filter.outputs.remote_config }}
 
     steps:
       - name: Checkout repository
@@ -137,6 +138,17 @@ jobs:
               - "Gemfile.lock"
               - ".ruby-version"
               - "fastlane/**"
+              - ".github/workflows/**"
+            remote_config:
+              # A kill switch is added in two files that have to agree, and the
+              # only check that can see whether one was ever published talks to a
+              # live backend - which cannot help on a pull request, where the flag
+              # is by definition not published yet. So this gate is the offline
+              # half, and it runs whenever either declaration moves.
+              - "remoteconfig.template.json"
+              - "AscendApp/Shared/Services/RemoteConfig/**"
+              - "scripts/lib/remote-config-template.mjs"
+              - "scripts/ci/report-kill-switch-changes.mjs"
               - ".github/workflows/**"
             swiftdata_schema:
               # The SwiftData schema check reads every Swift file looking for
@@ -255,6 +267,32 @@ jobs:
 
       - name: Check the persisted SwiftData shape
         run: node scripts/check-swiftdata-schema.mjs
+
+  # Dependency-free for the same reason as the SwiftData gate above: it imports
+  # nothing but Node builtins and local .mjs files, so a pull request that adds a
+  # kill switch is never blocked by an advisory against an unrelated dependency.
+  remote-config-verify:
+    name: Remote Config Verify
+    needs: changes
+    if: needs.changes.outputs.remote_config == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # The base commit has to be present for the added/removed comparison; the
+      # check still asserts app-to-template parity without it.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Report what this change does to the kill switches
+        run: node scripts/ci/report-kill-switch-changes.mjs --base-ref "${{ github.event.pull_request.base.sha }}"
 
   web-verify:
     name: Web Verify
