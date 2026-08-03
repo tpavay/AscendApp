@@ -329,15 +329,53 @@ struct RoutineSyncCoordinatorTests {
         let repaired = try #require(
             diagnostics.events.first { $0.name == "routine_backup_repaired" }
         )
-        #expect(repaired.details["reason"] == "unbacked_folder_id_dropped")
+        #expect(repaired.details["reason"] == "unreachable_folder_id_dropped")
         #expect(repaired.details["folder_id"] == folder.id.uuidString)
     }
 
-    /// Case two: the folder is still owed to the backup - its own upload keeps
-    /// failing. The routine still uploads; it just uploads unfiled until the
-    /// folder lands, at which point the next routine write files it.
-    @Test("A routine whose folder has not arrived yet uploads unfiled", .bug(id: 304))
-    func aRoutineWhoseFolderUploadKeepsFailingUploadsWithoutItsFolderId() async throws {
+    /// Case two: the folder is still owed to the backup - its own upload failed.
+    /// The routine waits rather than uploading unfiled. Uploading it now would
+    /// mark it `synced` and nothing re-files it when the folder lands, so the
+    /// backup would hold an unfiled routine for good.
+    @Test("A routine whose folder has not arrived yet waits", .bug(id: 304))
+    func aRoutineWhoseFolderUploadFailedIsHeldBackRatherThanUploadedUnfiled() async throws {
+        let modelContext = try makeModelContext()
+        let folder = RoutineFolder(name: "Race prep")
+        folder.markPendingRemoteUpsert(ownerUserId: Self.userId)
+        modelContext.insert(folder)
+
+        let routine = makeRoutine()
+        routine.folderId = folder.id
+        routine.markPendingRemoteUpsert(ownerUserId: Self.userId)
+        modelContext.insert(routine)
+        try modelContext.save()
+
+        let diagnostics = RecordingDiagnostics()
+        let backend = InMemoryUserRoutineBackend(folderUpsertError: TestBackupFailure())
+        let coordinator = RoutineSyncCoordinator(
+            remoteRepository: backend,
+            diagnostics: diagnostics,
+            operationTimeoutSeconds: 5
+        )
+        await coordinator.processPendingRoutines(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+
+        #expect(await backend.folderCount() == 0)
+        #expect(await backend.routineCount() == 0)
+
+        let held = try #require(try modelContext.fetch(FetchDescriptor<Routine>()).first)
+        #expect(held.remoteSyncStatus == .pendingUpsert)
+        #expect(held.folderId == folder.id)
+        // Nothing was dropped, so nothing is reported: waiting is not a repair.
+        #expect(diagnostics.events.contains { $0.name == "routine_backup_repaired" } == false)
+    }
+
+    /// The other half of case two, and the reason waiting is enough on its own:
+    /// no re-file machinery, no record of what was deferred, just the next pass.
+    @Test("A routine held back for its folder uploads filed once the folder lands", .bug(id: 304))
+    func aRoutineHeldBackForItsFolderUploadsWithItsFolderIdOnTheNextPass() async throws {
         let modelContext = try makeModelContext()
         let folder = RoutineFolder(name: "Race prep")
         folder.markPendingRemoteUpsert(ownerUserId: Self.userId)
@@ -355,18 +393,11 @@ struct RoutineSyncCoordinatorTests {
             modelContext: modelContext,
             currentUserId: Self.userId
         )
+        #expect(await backend.routineCount() == 0)
 
-        #expect(await backend.folderCount() == 0)
-        #expect(await backend.routineDocument(routine.id)?.folderId == nil)
-
-        let stored = try #require(try modelContext.fetch(FetchDescriptor<Routine>()).first)
-        #expect(stored.remoteSyncStatus == .synced)
-        #expect(stored.folderId == folder.id)
-
-        // Once the folder lands, the next routine write files it for real.
+        // The next pass needs no nudge from the climber: the routine is still
+        // pending, so the folder landing is enough.
         await backend.setFolderUpsertError(nil)
-        stored.markPendingRemoteUpsert(ownerUserId: Self.userId)
-        try modelContext.save()
         await coordinator.processPendingRoutines(
             modelContext: modelContext,
             currentUserId: Self.userId
@@ -374,6 +405,9 @@ struct RoutineSyncCoordinatorTests {
 
         #expect(await backend.folderCount() == 1)
         #expect(await backend.routineDocument(routine.id)?.folderId == folder.id.uuidString)
+
+        let stored = try #require(try modelContext.fetch(FetchDescriptor<Routine>()).first)
+        #expect(stored.remoteSyncStatus == .synced)
     }
 
     /// Case three, the ordinary one: the folder uploads first in the same pass,

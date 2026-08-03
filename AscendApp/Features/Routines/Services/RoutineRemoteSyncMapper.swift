@@ -106,10 +106,10 @@ enum RoutineSyncError: LocalizedError, Equatable {
 ///   in the backup. `templateId` is what `savedCopy(templateId:)` matches on, so
 ///   nulling it locally would break the catalog Save toggle on the spot;
 ///   `templateVersion` has not been proven free of local readers; a `folderId`
-///   whose folder is not in the backup names a real local folder the climber
-///   filed the routine under, and only the restore would be misled by it. The
-///   value survives in the store, so the repair re-reports once per upload - the
-///   price of not breaking something that works on this device.
+///   whose folder can never reach the backup still names a real local folder the
+///   climber filed the routine under, and only the restore would be misled by
+///   it. The value survives in the store, so the repair re-reports once per
+///   upload - the price of not breaking something that works on this device.
 /// - **Repaired and converged** - a field Ascend authored that nothing reads as
 ///   a key: `difficulty` and `estimatedCalories`. `applyRepairs` writes these
 ///   back onto the local record once the upload lands, so local and backup agree
@@ -122,7 +122,7 @@ enum RoutineSyncRepair: Equatable, Sendable {
     case estimatedCaloriesClamped(from: Int, to: Int)
     case templateVersionClamped(from: Int, to: Int)
     case templateIdDropped(count: Int, limit: Int)
-    case unbackedFolderIdDropped(folderId: UUID)
+    case unreachableFolderIdDropped(folderId: UUID)
 
     /// The same privacy contract the rejections keep: reasons, sizes and the
     /// bound that was missed, never the value itself.
@@ -155,9 +155,9 @@ enum RoutineSyncRepair: Equatable, Sendable {
                 "actual": "\(count)",
                 "permitted": "1...\(limit)"
             ]
-        case let .unbackedFolderIdDropped(folderId):
+        case let .unreachableFolderIdDropped(folderId):
             return [
-                "reason": "unbacked_folder_id_dropped",
+                "reason": "unreachable_folder_id_dropped",
                 "folder_id": folderId.uuidString
             ]
         }
@@ -366,24 +366,28 @@ enum RoutineRemoteSyncMapper {
     /// The folder pointer as the backup may hold it.
     ///
     /// `uploadPendingFolders` sends folders before routines, which covers the
-    /// ordinary case, but it cannot cover a folder that never arrives: one
-    /// refused for an unusable name or colour, one still queued or failed, or a
-    /// `folderId` naming a folder that is not in the store at all. The rule only
-    /// bounds `folderId` to a canonical UUID - it does not check the folder
-    /// exists - so an unbacked pointer uploads happily and a restore builds a
-    /// routine filed under nothing.
+    /// ordinary case, but it cannot cover a folder that will *never* arrive: one
+    /// refused for an unusable name or colour, or a `folderId` naming a folder
+    /// that is not in the store at all. The rule only bounds `folderId` to a
+    /// canonical UUID - it does not check the folder exists - so that pointer
+    /// uploads happily and a restore builds a routine filed under nothing.
     ///
     /// So the pointer is omitted from the document and left alone in the store.
-    /// A restore yields an unfiled routine, which is true: the folder really is
-    /// not there. The local routine stays filed, because on this device the
-    /// folder really is.
+    /// A restore yields an unfiled routine, which is true and stays true: the
+    /// folder is never coming. The local routine stays filed, because on this
+    /// device the folder really is there.
+    ///
+    /// A folder that has merely not arrived *yet* never reaches this function -
+    /// `loadPendingRoutineSnapshots` leaves those routines out of the pass
+    /// entirely, so they upload later with the pointer intact. Widening this to
+    /// "not in the backup" would file them under nothing permanently.
     private static func backedUpFolderId(
         for routine: Routine,
         backedUpFolderIds: Set<UUID>
     ) -> (folderId: String?, repairs: [RoutineSyncRepair]) {
         guard let folderId = routine.folderId else { return (nil, []) }
         guard backedUpFolderIds.contains(folderId) else {
-            return (nil, [.unbackedFolderIdDropped(folderId: folderId)])
+            return (nil, [.unreachableFolderIdDropped(folderId: folderId)])
         }
 
         return (folderId.uuidString, [])
@@ -461,7 +465,7 @@ enum RoutineRemoteSyncMapper {
                 routine.difficulty = to
             case let .estimatedCaloriesClamped(_, to):
                 routine.estimatedCalories = to
-            case .templateVersionClamped, .templateIdDropped, .unbackedFolderIdDropped:
+            case .templateVersionClamped, .templateIdDropped, .unreachableFolderIdDropped:
                 break
             }
         }

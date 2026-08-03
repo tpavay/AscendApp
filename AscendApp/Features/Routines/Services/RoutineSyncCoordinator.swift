@@ -125,6 +125,12 @@ private extension RoutineSyncCoordinator {
         let repairs: [RoutineSyncRepair]
     }
 
+    /// How the backup can see a folder a routine is filed under.
+    enum FolderBackupState: Equatable {
+        case backedUp
+        case awaitingUpload
+    }
+
     struct FolderUploadSnapshot: Sendable {
         let folderId: UUID
         let userId: String
@@ -143,12 +149,12 @@ private extension RoutineSyncCoordinator {
     /// Folders go up before the routines that point at them, which is what makes
     /// the ordinary case land in the right order on a restore.
     ///
-    /// Ordering alone does not carry the invariant, though: a folder refused for
-    /// an unusable name or colour never arrives at all, and one whose upload
-    /// failed has not arrived yet. What actually guarantees a restore never sees
-    /// a `folderId` naming a folder that is not there is the routine document
-    /// omitting the pointer whenever the folder is not in the backup - see
-    /// `RoutineRemoteSyncMapper.build(for:backedUpFolderIds:)`.
+    /// Ordering alone does not carry the invariant, though, and the two ways it
+    /// fails need opposite answers. A folder refused for an unusable name or
+    /// colour never arrives at all, so its routines upload with the pointer
+    /// omitted. A folder whose upload merely failed has not arrived yet, so its
+    /// routines wait for a later pass instead. Both live in
+    /// `loadPendingRoutineSnapshots`.
     func uploadPendingFolders(
         modelContext: ModelContext,
         currentUserId: String,
@@ -223,20 +229,40 @@ private extension RoutineSyncCoordinator {
     /// recorder. Retrying a permanent refusal is the worst shape available: the
     /// routine stays unbacked and nothing ever says why. A bound on metadata
     /// Ascend published is repaired instead, and reported the same way.
+    ///
+    /// A routine whose folder has not reached the backup *yet* - the folder is
+    /// still queued, or its last upload failed - is left out of this pass
+    /// entirely. It stays pending and goes up on a later pass with its
+    /// `folderId` intact, which is self-healing and needs no record of what was
+    /// deferred. Uploading it now would file it under nothing permanently: the
+    /// routine would go `synced` and nothing re-marks it when the folder lands.
+    ///
+    /// This is deliberately *not* "hold a routine back until its folder is
+    /// backed up". Holding one behind a folder that will never arrive trades a
+    /// dangling pointer for a routine that is never backed up at all, which is
+    /// the failure this whole change exists to end. Holding it only behind a
+    /// folder that *will* arrive is a different thing. Do not collapse the two.
     func loadPendingRoutineSnapshots(
         modelContext: ModelContext,
         currentUserId: String,
         excludedIds: Set<UUID>
     ) throws -> [RoutineUploadSnapshot] {
         var snapshots: [RoutineUploadSnapshot] = []
-        let backedUpFolderIds = try backedUpFolderIds(
+        let folderStates = try folderBackupStates(
             modelContext: modelContext,
             currentUserId: currentUserId,
             excludedIds: excludedIds
         )
+        let backedUpFolderIds = Set(
+            folderStates.filter { $0.value == .backedUp }.keys
+        )
 
         for routine in try pendingRoutines(modelContext: modelContext, currentUserId: currentUserId)
         where !excludedIds.contains(routine.id) {
+            if let folderId = routine.folderId, folderStates[folderId] == .awaitingUpload {
+                continue
+            }
+
             do {
                 let build = try RoutineRemoteSyncMapper.build(
                     for: routine,
@@ -492,22 +518,37 @@ private extension RoutineSyncCoordinator {
         return try modelContext.fetch(descriptor)
     }
 
-    /// The folders a routine may safely point at from inside the backup: owned
-    /// by this climber, already `synced`, and not queued for deletion in this
-    /// same pass.
-    func backedUpFolderIds(
+    /// Where each of this climber's folders stands with the backup.
+    ///
+    /// Only two states are worth naming, because only two lead anywhere
+    /// different. A folder absent from the map is unreachable: `rejected` and so
+    /// terminal, queued for deletion, or not in the store at all. There is no
+    /// case for it because "will never arrive" and "was never here" call for the
+    /// same answer.
+    func folderBackupStates(
         modelContext: ModelContext,
         currentUserId: String,
         excludedIds: Set<UUID>
-    ) throws -> Set<UUID> {
+    ) throws -> [UUID: FolderBackupState] {
         let syncedRawValue = RoutineRemoteSyncStatus.synced.rawValue
+        let pendingRawValue = RoutineRemoteSyncStatus.pendingUpsert.rawValue
+        let failedRawValue = RoutineRemoteSyncStatus.failed.rawValue
         let descriptor = FetchDescriptor<RoutineFolder>(
             predicate: #Predicate<RoutineFolder> { folder in
                 folder.ownerUserId == currentUserId &&
-                    folder.remoteSyncStatusRawValue == syncedRawValue
+                    (
+                        folder.remoteSyncStatusRawValue == syncedRawValue ||
+                            folder.remoteSyncStatusRawValue == pendingRawValue ||
+                            folder.remoteSyncStatusRawValue == failedRawValue
+                    )
             }
         )
-        return Set(try modelContext.fetch(descriptor).map(\.id)).subtracting(excludedIds)
+
+        return try modelContext.fetch(descriptor).reduce(into: [:]) { states, folder in
+            guard !excludedIds.contains(folder.id) else { return }
+
+            states[folder.id] = folder.remoteSyncStatus == .synced ? .backedUp : .awaitingUpload
+        }
     }
 
     func pendingDeletions(

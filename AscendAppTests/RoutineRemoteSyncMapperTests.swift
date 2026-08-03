@@ -465,7 +465,7 @@ struct RoutineRemoteSyncMapperTests {
         RoutineRemoteSyncMapper.applyRepairs(build.repairs, to: routine)
 
         #expect(build.document.folderId == nil)
-        #expect(build.repairs == [.unbackedFolderIdDropped(folderId: folderId)])
+        #expect(build.repairs == [.unreachableFolderIdDropped(folderId: folderId)])
         // On this device the folder is real and the routine stays filed under it.
         #expect(routine.folderId == folderId)
     }
