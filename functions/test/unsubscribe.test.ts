@@ -348,8 +348,8 @@ test("a job for a user with no stored preferences sends", async () => {
 });
 
 test("mail with no recipient uid sends unconditionally", async () => {
-  // Waitlist and admin feedback mail: Beehiiv owns the waitlist opt-out, and
-  // admin notifications are not user mail, so neither has a uid to gate on.
+  // Admin feedback notifications are not user mail, so they carry no uid to
+  // gate on.
   let readCount = 0;
   const suppressed = await isEmailJobSuppressed(
     {recipientUid: null},

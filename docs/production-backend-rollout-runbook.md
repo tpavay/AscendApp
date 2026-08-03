@@ -116,7 +116,7 @@ The workflow performs the following order automatically:
 15. Assert the run reached a real outcome, so a run that deployed nothing fails instead of reporting green.
 
 This ordering makes indexes available before `onWorkoutWritten` can execute its `source + climbId` query.
-It makes Functions available before Hosting publishes rewrites to `joinWaitlist` and `unsubscribeFromEmails`.
+It makes Functions available before Hosting publishes the rewrite to `unsubscribeFromEmails`.
 It keeps the backend ahead of the binary because `upload-testflight` depends on the complete `deploy-firebase` job.
 
 ## Exact deployment commands
@@ -240,8 +240,8 @@ curl --fail --location --retry 5 --retry-all-errors \
   --output /dev/null
 ```
 
-Verify `/api/join-waitlist` and `/api/unsubscribe` route to their deployed Functions with safe test requests.
-Do not submit a real email address as a routing probe.
+Verify `/api/unsubscribe` routes to its deployed Function with a safe test request.
+Use a `GET`, which renders the confirmation page and never acts, rather than a `POST` that would opt someone out.
 
 Rollback: rebuild and redeploy only Hosting from the last known good production SHA.
 

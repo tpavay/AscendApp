@@ -79,11 +79,6 @@ export interface CleanupSummary {
  * no longer resolves to anyone once users/{uid} and the auth user are gone, and
  * the client still reads it to decide whether the viewer holds the slot.
  *
- * Waitlist-welcome email_jobs are deliberately left behind: they are keyed by
- * email hash rather than uid because they belong to the newsletter
- * relationship, which has its own unsubscribe path and is not granted or
- * revoked by owning an account.
- *
  * Each step is isolated: one failure must not abandon the rest of the PII.
  * @param {string} userId The uid of the deleted user.
  * @param {DeletedUserCleanupPort} port Firestore operations.

@@ -1564,20 +1564,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    match /email_rate_limits/{docId} {
-      allow read, write: if false;
-    }
-
     match /_public_identity_propagation_jobs/{userId} {
       allow read, write: if false;
 
       match /kinds/{kind} {
         allow read, write: if false;
       }
-    }
-
-    match /waitlist/{docId} {
-      allow read, write: if false;
     }
 
   }
