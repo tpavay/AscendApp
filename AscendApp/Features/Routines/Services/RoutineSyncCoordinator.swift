@@ -231,11 +231,13 @@ private extension RoutineSyncCoordinator {
     /// Ascend published is repaired instead, and reported the same way.
     ///
     /// A routine whose folder has not reached the backup *yet* - the folder is
-    /// still queued, or its last upload failed - is left out of this pass
-    /// entirely. It stays pending and goes up on a later pass with its
-    /// `folderId` intact, which is self-healing and needs no record of what was
-    /// deferred. Uploading it now would file it under nothing permanently: the
-    /// routine would go `synced` and nothing re-marks it when the folder lands.
+    /// still queued, its last upload failed, or it is ownerless and waiting for
+    /// adoption to claim it - is left out of this pass entirely. It stays pending
+    /// and goes up on a later pass with its `folderId` intact, which is
+    /// self-healing and needs no record of what was deferred. Uploading it now
+    /// would file it under nothing permanently: the routine would go `synced` and
+    /// nothing re-marks it when the folder lands. `folderBackupStates` owns which
+    /// conditions are late and which are terminal.
     ///
     /// This is deliberately *not* "hold a routine back until its folder is
     /// backed up". Holding one behind a folder that will never arrive trades a
@@ -520,11 +522,22 @@ private extension RoutineSyncCoordinator {
 
     /// Where each of this climber's folders stands with the backup.
     ///
-    /// Only two states are worth naming, because only two lead anywhere
-    /// different. A folder absent from the map is unreachable: `rejected` and so
-    /// terminal, queued for deletion, or not in the store at all. There is no
-    /// case for it because "will never arrive" and "was never here" call for the
-    /// same answer.
+    /// Two states are named because only two lead anywhere different, but three
+    /// distinct conditions map onto `awaitingUpload`, and leaving one out of this
+    /// list is how the third got misfiled once already:
+    ///
+    /// - `pendingUpsert` - queued and not yet sent.
+    /// - `failed` - sent and refused for something transient; retried next pass.
+    /// - ownerless - created while nobody was signed in, so it is not queued
+    ///   under any uid yet. `RoutineRemoteSyncAdoptionService` claims it on the
+    ///   next authenticated bootstrap and it uploads normally after that. It has
+    ///   not failed and it is not absent; it is late.
+    ///
+    /// A folder absent from the map is genuinely unreachable, and there are only
+    /// two of those: `rejected`, which is terminal, and a `folderId` naming no
+    /// folder in the store at all. Queued for deletion counts as absent for the
+    /// same reason. There is no case for unreachable because "will never arrive"
+    /// and "was never here" call for the same answer.
     func folderBackupStates(
         modelContext: ModelContext,
         currentUserId: String,
@@ -544,11 +557,20 @@ private extension RoutineSyncCoordinator {
             }
         )
 
-        return try modelContext.fetch(descriptor).reduce(into: [:]) { states, folder in
-            guard !excludedIds.contains(folder.id) else { return }
+        var states: [UUID: FolderBackupState] = [:]
 
+        for folder in try RoutineRemoteSyncAdoptionService.ownerlessFolders(
+            modelContext: modelContext
+        ) where !excludedIds.contains(folder.id) {
+            states[folder.id] = .awaitingUpload
+        }
+
+        for folder in try modelContext.fetch(descriptor)
+        where !excludedIds.contains(folder.id) {
             states[folder.id] = folder.remoteSyncStatus == .synced ? .backedUp : .awaitingUpload
         }
+
+        return states
     }
 
     func pendingDeletions(

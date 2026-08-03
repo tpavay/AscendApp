@@ -410,6 +410,51 @@ struct RoutineSyncCoordinatorTests {
         #expect(stored.remoteSyncStatus == .synced)
     }
 
+    /// The third way a folder is merely late, and the one that reads like
+    /// absence: it exists locally but has no owner yet, because it was built
+    /// while nobody was signed in. Adoption claims it on the next authenticated
+    /// bootstrap, so it is not unreachable - dropping the pointer here would
+    /// unfile the routine permanently for a folder that was about to arrive.
+    @Test("A routine whose folder is still ownerless waits for adoption", .bug(id: 304))
+    func aRoutineWhoseFolderIsOwnerlessWaitsRatherThanUploadingUnfiled() async throws {
+        let modelContext = try makeModelContext()
+        let folder = RoutineFolder(name: "Race prep")
+        modelContext.insert(folder)
+        #expect(folder.ownerUserId == nil)
+
+        let routine = makeRoutine()
+        routine.folderId = folder.id
+        routine.markPendingRemoteUpsert(ownerUserId: Self.userId)
+        modelContext.insert(routine)
+        try modelContext.save()
+
+        let backend = InMemoryUserRoutineBackend()
+        let coordinator = makeCoordinator(backend)
+        await coordinator.processPendingRoutines(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+
+        #expect(await backend.folderCount() == 0)
+        #expect(await backend.routineCount() == 0)
+
+        let held = try #require(try modelContext.fetch(FetchDescriptor<Routine>()).first)
+        #expect(held.remoteSyncStatus == .pendingUpsert)
+        #expect(held.folderId == folder.id)
+
+        try RoutineRemoteSyncAdoptionService.runIfNeeded(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+        await coordinator.processPendingRoutines(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+
+        #expect(await backend.folderCount() == 1)
+        #expect(await backend.routineDocument(routine.id)?.folderId == folder.id.uuidString)
+    }
+
     /// Case three, the ordinary one: the folder uploads first in the same pass,
     /// so the pointer is carried through untouched.
     @Test("A routine whose folder is backed up keeps its folderId", .bug(id: 304))
