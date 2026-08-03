@@ -1,7 +1,7 @@
-// The required `iOS Verify (Staging)` check is owned by ci.yml's ios-verify job
+// The required iOS check names are owned by ci.yml's marked verify jobs
 // whenever ci.yml triggers. This module decides the one case where the fallback
-// workflow may claim that name instead: a pull request whose every changed path
-// is positively known to need no verification.
+// workflow may claim those names instead: a pull request whose every changed
+// path is positively known to need no verification.
 //
 // It is an allowlist, not the inverse of the CI trigger. ci.yml gates only the
 // paths its jobs verify. Anything unrecognised stays blocked.

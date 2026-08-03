@@ -219,7 +219,7 @@ Resolve work to a GitHub issue before implementing:
 - `.firebaserc` - project aliases (dev, staging, prod)
 - `firebase.json` - hosting, functions, firestore config
 - `firestore.rules`, `storage.rules`, `firestore.indexes.json` - security rules and indexes
-- `.github/workflows/ci.yml` - PR validation; `ci-required-check-fallback.yml` routes the required check for PRs that change no CI-relevant path (`ascend-deploy`)
+- `.github/workflows/ci.yml` - PR validation; `ci-required-check-fallback.yml` routes the required checks for PRs that change no CI-relevant path (`ascend-deploy`)
 - `.github/workflows/deploy-staging.yml`, `deploy-production.yml` - deploy pipelines (prod gated)
 - `Gemfile`, `fastlane/Appfile`, `fastlane/Fastfile`, `fastlane/Matchfile` - build/signing/TestFlight
 - `remoteconfig.template.json` - the kill-switch parameters; CI publishes new ones additively to dev and staging only, full replaces stay manual via `scripts/deploy-remote-config.mjs` (`docs/remote-config-kill-switches.md`)

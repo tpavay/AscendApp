@@ -35,8 +35,8 @@ jobs:
       # The classifier is an allowlist over the whole diff, which dorny cannot
       # express: it ORs its rules per file, so a negated rule reads as "any file
       # that is not this" rather than as an exclusion. Every failure here leaves
-      # the job unsuccessful, and the fallback job below refuses to claim the
-      # required name unless this job succeeded.
+      # the job unsuccessful, and the fallback jobs below refuse to claim the
+      # required names unless this job succeeded.
       - name: Classify changed paths
         id: classify
         env:

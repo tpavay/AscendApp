@@ -61,7 +61,10 @@ Every verify job is gated on the changed paths, so a functions-only PR skips the
 `.github/workflows/ci-required-check-fallback.yml` is the companion required-check router, and unlike `ci.yml` it is unfiltered: it runs on every PR targeting `develop` or `main`, whatever the changed paths.
 Its `route` job lists the PR's changed files and hands them to `scripts/ci/classify-required-check-route.mjs`, which decides through `scripts/lib/required-check-routing.mjs`.
 Its fallback matrix derives every required iOS context from the marked jobs in `ci.yml`, then claims those exact names only when the route job succeeded *and* returned `fallback_eligible=true`.
-For anything else the fallback jobs take distinct `Fallback (Not Required)` display names and are skipped, so they can never satisfy branch protection in place of the real checks.
+For anything else every matrix leg falls back to the one static `iOS Verify Fallback (Not Required)` name and is skipped, so none of them can ever satisfy branch protection in place of the real checks.
+The derivation is positional: `scripts/ci/list-required-check-contexts.mjs` reads the `name:` of every job between the `# required-check-contexts:start` and `# required-check-contexts:end` comments in `ci.yml`.
+A required iOS verify job declared outside that block is invisible to the matrix, so branch protection would demand a context the eligible fallback never publishes - which is the original defect.
+`scripts/test/ci-workflow-contracts.test.mjs` fails on either mistake: an `iOS Verify` job outside the block, or a non-verify job inside it.
 
 **The router is an allowlist, not the inverse of the CI trigger.** `classifyChangedPaths` answers "is every changed path positively known to need no verification?" - `VERIFICATION_IRRELEVANT_PATHS` is `docs/**`, `AppStoreAssets/**`, `data/ascend-support-page-and-product-page-package/**`, `.claude/skills/**`, `README.md`, and `.gitignore`, and CI-relevance is evaluated first so the four gated `docs/*.md` files still route to real CI.
 Anything unrecognised is blocked, which is the deliberate fail-closed default.
