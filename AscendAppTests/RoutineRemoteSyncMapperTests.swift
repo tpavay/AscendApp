@@ -178,7 +178,9 @@ struct RoutineRemoteSyncMapperTests {
     /// difficulty walks straight into the climber's own routines the moment they
     /// tap Copy. Refusing the whole routine over it would leave a name and
     /// intervals that are perfectly valid permanently unbacked because of a number
-    /// we shipped - so the number is repaired and the routine goes up.
+    /// we shipped - so the number is repaired and the routine goes up. Nothing
+    /// looks a routine up by its difficulty, which is what puts it on the
+    /// converged side of the rule.
     @Test("A copied template's out-of-range difficulty is clamped, not fatal", .bug(id: 304))
     func aCopiedTemplateWithAnOutOfRangeDifficultyIsClampedAndUploaded() throws {
         let template = Routine(
@@ -209,14 +211,16 @@ struct RoutineRemoteSyncMapperTests {
     }
 
     @Test
-    func aNegativeDifficultyIsClampedUpRatherThanRefused() throws {
+    func aNegativeDifficultyIsClampedUpAndConverged() throws {
         let routine = Routine(name: "Below zero", source: .userCreated, difficulty: -3)
         routine.ownerUserId = Self.userId
 
         let build = try RoutineRemoteSyncMapper.build(for: routine)
+        RoutineRemoteSyncMapper.applyRepairs(build.repairs, to: routine)
 
         #expect(build.document.difficulty == FirestoreUserRoutineDocument.minDifficulty)
         #expect(build.repairs.count == 1)
+        #expect(routine.difficulty == FirestoreUserRoutineDocument.minDifficulty)
     }
 
     @Test
@@ -234,12 +238,12 @@ struct RoutineRemoteSyncMapperTests {
         #expect(build.repairs.isEmpty)
     }
 
-    /// Dropped rather than truncated: an id cut to fit can name a different
-    /// template, and wrong provenance is worse than none. The mapper itself never
-    /// touches the local record - the drop reaches it only once the upload lands,
-    /// through `applyRepairs`.
+    /// The repaired-on-the-way-out side of the rule. Dropped rather than
+    /// truncated, because an id cut to fit can name a different template and
+    /// wrong provenance is worse than none - and dropped from the document only,
+    /// because `savedCopy(templateId:)` matches on the local id.
     @Test
-    func anOverlongTemplateIdIsDroppedRatherThanRefused() throws {
+    func anOverlongTemplateIdIsDroppedFromTheDocumentOnly() throws {
         let overlongId = String(
             repeating: "t",
             count: FirestoreUserRoutineDocument.maxTemplateIdLength + 1
@@ -261,12 +265,32 @@ struct RoutineRemoteSyncMapperTests {
         #expect(routine.templateId == overlongId)
     }
 
+    /// The Save toggle reads `savedCopy(templateId:)`, which matches on the local
+    /// id. Converging the drop onto the record would make the toggle read unsaved
+    /// after every backup, so each tap would mint another copy and un-saving
+    /// would become unreachable.
+    @Test("A dropped templateId leaves the Save toggle working", .bug(id: 304))
+    func aDroppedTemplateIdIsNeverConvergedOntoTheLocalRecord() throws {
+        let overlongId = String(
+            repeating: "t",
+            count: FirestoreUserRoutineDocument.maxTemplateIdLength + 1
+        )
+        let routine = Routine(name: "Copied", source: .copiedFromBuiltin, templateId: overlongId)
+        routine.ownerUserId = Self.userId
+
+        let build = try RoutineRemoteSyncMapper.build(for: routine)
+        RoutineRemoteSyncMapper.applyRepairs(build.repairs, to: routine)
+
+        #expect(routine.templateId == overlongId)
+    }
+
     @Test
-    func anEmptyTemplateIdIsDroppedRatherThanRefused() throws {
+    func anEmptyTemplateIdIsDroppedFromTheDocumentOnly() throws {
         let routine = Routine(name: "Copied", source: .copiedFromBuiltin, templateId: "")
         routine.ownerUserId = Self.userId
 
         let build = try RoutineRemoteSyncMapper.build(for: routine)
+        RoutineRemoteSyncMapper.applyRepairs(build.repairs, to: routine)
 
         #expect(build.document.templateId == nil)
         #expect(
@@ -277,10 +301,14 @@ struct RoutineRemoteSyncMapperTests {
                 )
             ]
         )
+        #expect(routine.templateId == "")
     }
 
+    /// Clamped on the way out and left alone in the store: no local reader has
+    /// been ruled out, and the round that converged by pattern-matching on
+    /// "server authored" got it wrong twice.
     @Test
-    func aNegativeTemplateVersionIsClampedRatherThanRefused() throws {
+    func aNegativeTemplateVersionIsClampedOnTheDocumentOnly() throws {
         let routine = Routine(
             name: "Copied",
             source: .copiedFromBuiltin,
@@ -290,20 +318,27 @@ struct RoutineRemoteSyncMapperTests {
         routine.ownerUserId = Self.userId
 
         let build = try RoutineRemoteSyncMapper.build(for: routine)
+        RoutineRemoteSyncMapper.applyRepairs(build.repairs, to: routine)
 
         #expect(build.document.templateVersion == 0)
         #expect(build.repairs == [.templateVersionClamped(from: -2, to: 0)])
+        #expect(routine.templateVersion == -2)
     }
 
+    /// The converged side of the rule: nothing looks a routine up by its calorie
+    /// estimate, so the local record is brought into line and the repair stops
+    /// being one.
     @Test
-    func aNegativeCalorieEstimateIsClampedRatherThanRefused() throws {
+    func aNegativeCalorieEstimateIsClampedAndConverged() throws {
         let routine = Routine(name: "Impossible", source: .userCreated, estimatedCalories: -40)
         routine.ownerUserId = Self.userId
 
         let build = try RoutineRemoteSyncMapper.build(for: routine)
+        RoutineRemoteSyncMapper.applyRepairs(build.repairs, to: routine)
 
         #expect(build.document.estimatedCalories == 0)
         #expect(build.repairs == [.estimatedCaloriesClamped(from: -40, to: 0)])
+        #expect(routine.estimatedCalories == 0)
     }
 
     /// A repair never rescues a routine whose own content is out of bounds - the
@@ -416,24 +451,24 @@ struct RoutineRemoteSyncMapperTests {
         }
     }
 
-    /// A colour is a presentation token, not the climber's work, so a spelling
-    /// the rule refuses costs the folder its colour rather than its backup.
-    @Test("A folder colour the rules refuse is dropped, not fatal", .bug(id: 304))
-    func aFolderColourTheRulesRefuseIsDroppedRatherThanRefused() throws {
+    /// The validated-never-repaired side of the rule. A folder colour is copied
+    /// out of no catalog document - `createFolder` takes whatever its caller
+    /// hands it - so it is the climber's pick, and dropping or rewriting it would
+    /// silently discard a choice they can see. It costs the folder its backup,
+    /// exactly like an over-long folder name.
+    @Test("A folder colour the rules refuse is rejected, never rewritten", .bug(id: 304))
+    func aFolderColourTheRulesRefuseIsRejectedRatherThanRepaired() {
         for unusable in ["lime", "86D30A", "#86D30AFF", "#86D30", "#86d30ag"] {
             let folder = RoutineFolder(name: "Race prep", colorHex: unusable)
             folder.ownerUserId = Self.userId
 
-            let build = try RoutineRemoteSyncMapper.build(for: folder)
-
-            #expect(build.document.colorHex == nil)
             #expect(
-                build.repairs == [
-                    .folderColorDropped(pattern: FirestoreRoutineFolderDocument.colorHexPattern)
-                ]
-            )
-            // The mapper is pure: the local record changes only once the upload
-            // lands, through `applyRepairs`.
+                throws: RoutineSyncError.unusableFolderColor(
+                    pattern: FirestoreRoutineFolderDocument.colorHexPattern
+                )
+            ) {
+                _ = try RoutineRemoteSyncMapper.build(for: folder)
+            }
             #expect(folder.colorHex == unusable)
         }
     }
@@ -449,6 +484,17 @@ struct RoutineRemoteSyncMapperTests {
             #expect(build.document.colorHex == usable)
             #expect(build.repairs.isEmpty)
         }
+    }
+
+    @Test
+    func aFolderWithNoColourIsUploadedUnrepaired() throws {
+        let folder = RoutineFolder(name: "Race prep")
+        folder.ownerUserId = Self.userId
+
+        let build = try RoutineRemoteSyncMapper.build(for: folder)
+
+        #expect(build.document.colorHex == nil)
+        #expect(build.repairs.isEmpty)
     }
 
     /// Rules measure a string in Unicode scalars, so the client has to. Swift's

@@ -8,10 +8,10 @@ import Foundation
 /// turns these into `.rejected`, not `.failed`.
 ///
 /// Refusal is reserved for what the climber wrote themselves - the name, the
-/// description, the intervals, the default weights. Silently rewriting their own
-/// work would be worse than declining to back it up, and issue #363 tracks
-/// capping those inputs in the editor. Bounds on metadata Ascend published are
-/// repaired instead: see `RoutineSyncRepair`.
+/// description, the intervals, the default weights, a folder's colour. Silently
+/// rewriting their own work would be worse than declining to back it up, and
+/// issue #363 tracks capping those inputs in the editor. Bounds on metadata
+/// Ascend published are repaired instead: see `RoutineSyncRepair`.
 enum RoutineSyncError: LocalizedError, Equatable {
     case missingOwner
     case notUserAuthored
@@ -22,6 +22,7 @@ enum RoutineSyncError: LocalizedError, Equatable {
     case tooManyWeightEntries(count: Int, limit: Int)
     case duplicateWeightEquipmentTypes(count: Int, distinct: Int)
     case negativeWeightValue(equipmentType: String)
+    case unusableFolderColor(pattern: String)
 
     var errorDescription: String? {
         switch self {
@@ -43,6 +44,8 @@ enum RoutineSyncError: LocalizedError, Equatable {
             return "Routine carries \(count) weight entries across only \(distinct) equipment types."
         case let .negativeWeightValue(equipmentType):
             return "The \(equipmentType) weight is negative, which the backup refuses."
+        case let .unusableFolderColor(pattern):
+            return "Folder colour is not spelled \(pattern), which the backup refuses."
         }
     }
 
@@ -74,6 +77,8 @@ enum RoutineSyncError: LocalizedError, Equatable {
             ]
         case let .negativeWeightValue(equipmentType):
             return ["reason": "negative_weight_value", "equipment_type": equipmentType]
+        case let .unusableFolderColor(pattern):
+            return ["reason": "unusable_folder_color", "permitted": pattern]
         }
     }
 }
@@ -82,23 +87,38 @@ enum RoutineSyncError: LocalizedError, Equatable {
 ///
 /// Every case sits on a field Ascend authored, not the climber: `difficulty`,
 /// `estimatedCalories`, `templateId` and `templateVersion` are copied verbatim
-/// out of a `routine_templates` document by `Routine.createUserCopy()`, and a
-/// folder colour is a presentation token. Nothing bounds what the catalog
-/// publishes (issue #364), so refusing the whole document over one of these
-/// would mean a routine whose name and intervals are perfectly valid is
-/// permanently unbacked because of a number we shipped - which the climber
-/// never typed, cannot see, and could neither avoid nor detect.
+/// out of a `routine_templates` document by `Routine.createUserCopy()`, and
+/// nothing bounds what the catalog publishes (issue #364). Refusing the whole
+/// document over one of these would mean a routine whose name and intervals are
+/// perfectly valid is permanently unbacked because of a number we shipped -
+/// which the climber never typed, cannot see, and could neither avoid nor
+/// detect.
 ///
-/// A repair is still reported - clamping is a fix, not a reason to stop looking -
-/// and it converges: once the upload lands, `applyRepairs` writes the repaired
-/// value onto the local record too, so local and backup agree and the next pass
-/// finds nothing to repair or report.
+/// A repair is always reported: clamping is a fix, not a reason to stop looking.
+/// Where it lands is a three-way split, and the third rule is the one that keeps
+/// getting missed:
+///
+/// - **Validated, never repaired** - anything the climber wrote. Name,
+///   description, intervals, default weights, a folder's colour. These are
+///   `RoutineSyncError`, not cases here.
+/// - **Repaired on the way out only** - a field Ascend authored that something
+///   local still reads as a key. `templateId` is what `savedCopy(templateId:)`
+///   matches on, so nulling it locally would break the catalog Save toggle on
+///   the spot; `templateVersion` has not been proven free of local readers.
+///   The out-of-range value survives in the store, so the repair re-reports once
+///   per upload - the price of not breaking a lookup.
+/// - **Repaired and converged** - a field Ascend authored that nothing reads as
+///   a key: `difficulty` and `estimatedCalories`. `applyRepairs` writes these
+///   back onto the local record once the upload lands, so local and backup agree
+///   and the next pass finds nothing to repair or report.
+///
+/// Do not add a case to the converged set by pattern-matching on "server
+/// authored". Check what reads the field first.
 enum RoutineSyncRepair: Equatable, Sendable {
     case difficultyClamped(from: Int, to: Int, minimum: Int, maximum: Int)
     case estimatedCaloriesClamped(from: Int, to: Int)
     case templateVersionClamped(from: Int, to: Int)
     case templateIdDropped(count: Int, limit: Int)
-    case folderColorDropped(pattern: String)
 
     /// The same privacy contract the rejections keep: reasons, sizes and the
     /// bound that was missed, never the value itself.
@@ -131,8 +151,6 @@ enum RoutineSyncRepair: Equatable, Sendable {
                 "actual": "\(count)",
                 "permitted": "1...\(limit)"
             ]
-        case let .folderColorDropped(pattern):
-            return ["reason": "folder_color_dropped", "permitted": pattern]
         }
     }
 }
@@ -216,27 +234,17 @@ enum RoutineRemoteSyncMapper {
         }
 
         try validateName(folder.name, limit: FirestoreRoutineFolderDocument.maxNameLength)
-
-        var repairs: [RoutineSyncRepair] = []
-        var colorHex = folder.colorHex
-
-        if let candidate = colorHex, !isCanonicalColorHex(candidate) {
-            repairs.append(
-                .folderColorDropped(pattern: FirestoreRoutineFolderDocument.colorHexPattern)
-            )
-            colorHex = nil
-        }
+        try validateColorHex(folder.colorHex)
 
         return RoutineDocumentBuild(
             document: FirestoreRoutineFolderDocument(
                 userId: ownerUserId,
                 name: folder.name,
-                colorHex: colorHex,
+                colorHex: folder.colorHex,
                 order: max(0, folder.order),
                 createdAt: folder.createdAt,
                 updatedAt: folder.effectiveUpdatedAt
-            ),
-            repairs: repairs
+            )
         )
     }
 
@@ -325,12 +333,14 @@ enum RoutineRemoteSyncMapper {
     ///
     /// `templateId` is dropped rather than truncated: an identifier cut to fit
     /// can silently name a *different* template, and wrong provenance is worse
-    /// than none. Dropping it is not free. `savedCopy(templateId:)` is how
-    /// `RoutineDetailView` decides whether a template is already saved, so once
-    /// the drop is applied that lookup finds nothing, the template renders as
-    /// unsaved, and tapping Save mints a second routine. The residual is a
-    /// duplicate the climber did not ask for - not lost data, and not a routine
-    /// refused its backup over a value we published. The trigger is a
+    /// than none. Dropping it is not free, which is exactly why the drop stays
+    /// out of the converged set - see `RoutineSyncRepair`. The local id survives,
+    /// so `savedCopy(templateId:)` keeps matching and the catalog Save toggle
+    /// keeps working on this device. What does not survive is a reinstall: the
+    /// restored copy comes from the backup, where the field was dropped, so the
+    /// template reads as unsaved and tapping Save mints a duplicate. That
+    /// residual is a routine the climber did not ask for, not lost data and not a
+    /// backup refused over a value we published. The trigger is a
     /// `routine_templates` field we author, and issue #364 removes it at source.
     private struct RepairedRoutineMetadata {
         var templateId: String?
@@ -393,8 +403,13 @@ enum RoutineRemoteSyncMapper {
 
     /// Writes a repair back onto the local record so it stops being a repair.
     ///
-    /// Only the fields `RoutineSyncRepair` covers, which are only ever ones
-    /// Ascend authored. Nothing the climber wrote is reachable from here, and
+    /// Deliberately narrower than `RoutineSyncRepair`: only `difficulty` and
+    /// `estimatedCalories`, the two Ascend-authored numbers nothing looks a
+    /// record up by. `templateId` is a key `savedCopy(templateId:)` matches on
+    /// and `templateVersion` has no proven absence of local readers, so both are
+    /// corrected on the way out and left alone in the store - converging either
+    /// would trade a repeated diagnostic for a broken lookup.
+    ///
     /// `updatedAt` deliberately does not move: converging a value we published is
     /// not an edit, and bumping the hydration tiebreaker over it would let this
     /// device outrank a second one that has the same routine.
@@ -405,42 +420,30 @@ enum RoutineRemoteSyncMapper {
                 routine.difficulty = to
             case let .estimatedCaloriesClamped(_, to):
                 routine.estimatedCalories = to
-            case let .templateVersionClamped(_, to):
-                routine.templateVersion = to
-            case .templateIdDropped:
-                routine.templateId = nil
-            case .folderColorDropped:
+            case .templateVersionClamped, .templateIdDropped:
                 break
             }
         }
     }
 
-    static func applyRepairs(_ repairs: [RoutineSyncRepair], to folder: RoutineFolder) {
-        for repair in repairs {
-            switch repair {
-            case .folderColorDropped:
-                folder.colorHex = nil
-            case .difficultyClamped,
-                 .estimatedCaloriesClamped,
-                 .templateVersionClamped,
-                 .templateIdDropped:
-                break
-            }
-        }
-    }
-
+    /// A folder colour is the climber's pick, not catalog metadata - nothing
+    /// copies it out of a `routine_templates` document, `RoutineService.createFolder`
+    /// takes whatever its caller hands it. So it is validated like a name and
+    /// never repaired: dropping it from the upload or rewriting it locally would
+    /// silently discard a choice they made and can see. The unusable spelling is
+    /// the editor's to prevent (issue #363).
+    ///
     /// Matched against the one pattern `firestore.rules` is pinned to, and only
     /// when it covers the whole string - the rule's `matches()` is a full-string
     /// test, where a Swift anchored search would still accept a trailing newline.
-    private static func isCanonicalColorHex(_ colorHex: String) -> Bool {
-        guard let matched = colorHex.range(
-            of: FirestoreRoutineFolderDocument.colorHexPattern,
-            options: .regularExpression
-        ) else {
-            return false
-        }
+    private static func validateColorHex(_ colorHex: String?) throws {
+        guard let colorHex else { return }
 
-        return matched == colorHex.startIndex..<colorHex.endIndex
+        let pattern = FirestoreRoutineFolderDocument.colorHexPattern
+        guard let matched = colorHex.range(of: pattern, options: .regularExpression),
+              matched == colorHex.startIndex..<colorHex.endIndex else {
+            throw RoutineSyncError.unusableFolderColor(pattern: pattern)
+        }
     }
 
     /// Mirrors `isValidWorkoutWeightEntryList`: at most five entries, one per

@@ -292,8 +292,50 @@ struct RoutineSyncCoordinatorTests {
         #expect(await backend.routineDocument(copy.id)?.estimatedCalories == uploaded.estimatedCalories)
     }
 
-    @Test("A folder colour the rules refuse is repaired rather than losing the backup", .bug(id: 304))
-    func aFolderWithAnUnusableColourStillBacksUp() async throws {
+    /// The upload-only side of the rule, through the production path. The drop
+    /// must not reach the store: `savedCopy(templateId:)` matches on the local id,
+    /// so nulling it would make the catalog Save toggle read unsaved after every
+    /// backup and mint another copy on every tap.
+    @Test("A dropped templateId never reaches the local record", .bug(id: 304))
+    func anOverlongTemplateIdIsDroppedFromTheUploadButKeptLocally() async throws {
+        let modelContext = try makeModelContext()
+        let overlongId = String(
+            repeating: "t",
+            count: FirestoreUserRoutineDocument.maxTemplateIdLength + 1
+        )
+        let routine = Routine(
+            name: "Copied",
+            source: .copiedFromBuiltin,
+            intervals: [RoutineInterval(duration: 120, intensityValue: 8, order: 0)],
+            templateId: overlongId,
+            templateVersion: -2
+        )
+        routine.markPendingRemoteUpsert(ownerUserId: Self.userId)
+        modelContext.insert(routine)
+        try modelContext.save()
+
+        let backend = InMemoryUserRoutineBackend()
+        await makeCoordinator(backend).processPendingRoutines(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+
+        let uploaded = try #require(await backend.routineDocument(routine.id))
+        #expect(uploaded.templateId == nil)
+        #expect(uploaded.templateVersion == 0)
+
+        let stored = try #require(try modelContext.fetch(FetchDescriptor<Routine>()).first)
+        #expect(stored.remoteSyncStatus == .synced)
+        #expect(stored.templateId == overlongId)
+        #expect(stored.templateVersion == -2)
+    }
+
+    /// The other side of the rule from the test above. A colour is the climber's
+    /// pick, so it is refused rather than rewritten: the folder stays `.rejected`
+    /// and keeps the colour they chose, where dropping it would have deleted a
+    /// choice they can see the moment the backup succeeded.
+    @Test("A folder colour the rules refuse is rejected, never rewritten", .bug(id: 304))
+    func aFolderWithAnUnusableColourIsRejectedWithItsColourIntact() async throws {
         let modelContext = try makeModelContext()
         let folder = RoutineFolder(name: "Race prep", colorHex: "lime")
         folder.markPendingRemoteUpsert(ownerUserId: Self.userId)
@@ -302,27 +344,35 @@ struct RoutineSyncCoordinatorTests {
 
         let diagnostics = RecordingDiagnostics()
         let backend = InMemoryUserRoutineBackend()
-        await RoutineSyncCoordinator(
+        let coordinator = RoutineSyncCoordinator(
             remoteRepository: backend,
             diagnostics: diagnostics,
             operationTimeoutSeconds: 5
-        ).processPendingRoutines(
+        )
+        await coordinator.processPendingRoutines(
             modelContext: modelContext,
             currentUserId: Self.userId
         )
 
         let stored = try #require(try modelContext.fetch(FetchDescriptor<RoutineFolder>()).first)
-        #expect(stored.remoteSyncStatus == .synced)
-        #expect(stored.colorHex == nil)
-
-        let uploaded = try #require(await backend.folderDocument(folder.id))
-        #expect(uploaded.colorHex == nil)
+        #expect(stored.remoteSyncStatus == .rejected)
+        #expect(stored.colorHex == "lime")
+        #expect(await backend.folderCount() == 0)
 
         let event = try #require(diagnostics.events.first)
-        #expect(event.name == "routine_backup_repaired")
-        #expect(event.details["reason"] == "folder_color_dropped")
+        #expect(event.name == "routine_backup_rejected")
+        #expect(event.details["reason"] == "unusable_folder_color")
         #expect(event.details["record_kind"] == "routine_folder")
+        #expect(event.details["permitted"] == FirestoreRoutineFolderDocument.colorHexPattern)
         #expect(event.details.values.contains("lime") == false)
+
+        // Rejected is terminal: a second pass must not re-attempt a write the
+        // server will refuse every time.
+        await coordinator.processPendingRoutines(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+        #expect(await backend.folderCount() == 0)
         #expect(diagnostics.events.count == 1)
     }
 
