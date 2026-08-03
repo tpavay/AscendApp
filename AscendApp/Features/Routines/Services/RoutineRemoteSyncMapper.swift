@@ -85,14 +85,15 @@ enum RoutineSyncError: LocalizedError, Equatable {
 
 /// A bound the record breached that the backup fixed rather than refused.
 ///
-/// Every case sits on a field Ascend authored, not the climber: `difficulty`,
+/// No case sits on something the climber wrote. `difficulty`,
 /// `estimatedCalories`, `templateId` and `templateVersion` are copied verbatim
 /// out of a `routine_templates` document by `Routine.createUserCopy()`, and
 /// nothing bounds what the catalog publishes (issue #364). Refusing the whole
 /// document over one of these would mean a routine whose name and intervals are
 /// perfectly valid is permanently unbacked because of a number we shipped -
 /// which the climber never typed, cannot see, and could neither avoid nor
-/// detect.
+/// detect. A `folderId` is the climber's filing, but the repair is about the
+/// backup's own consistency rather than the value.
 ///
 /// A repair is always reported: clamping is a fix, not a reason to stop looking.
 /// Where it lands is a three-way split, and the third rule is the one that keeps
@@ -101,12 +102,14 @@ enum RoutineSyncError: LocalizedError, Equatable {
 /// - **Validated, never repaired** - anything the climber wrote. Name,
 ///   description, intervals, default weights, a folder's colour. These are
 ///   `RoutineSyncError`, not cases here.
-/// - **Repaired on the way out only** - a field Ascend authored that something
-///   local still reads as a key. `templateId` is what `savedCopy(templateId:)`
-///   matches on, so nulling it locally would break the catalog Save toggle on
-///   the spot; `templateVersion` has not been proven free of local readers.
-///   The out-of-range value survives in the store, so the repair re-reports once
-///   per upload - the price of not breaking a lookup.
+/// - **Repaired on the way out only** - a value that is right locally and wrong
+///   in the backup. `templateId` is what `savedCopy(templateId:)` matches on, so
+///   nulling it locally would break the catalog Save toggle on the spot;
+///   `templateVersion` has not been proven free of local readers; a `folderId`
+///   whose folder is not in the backup names a real local folder the climber
+///   filed the routine under, and only the restore would be misled by it. The
+///   value survives in the store, so the repair re-reports once per upload - the
+///   price of not breaking something that works on this device.
 /// - **Repaired and converged** - a field Ascend authored that nothing reads as
 ///   a key: `difficulty` and `estimatedCalories`. `applyRepairs` writes these
 ///   back onto the local record once the upload lands, so local and backup agree
@@ -119,6 +122,7 @@ enum RoutineSyncRepair: Equatable, Sendable {
     case estimatedCaloriesClamped(from: Int, to: Int)
     case templateVersionClamped(from: Int, to: Int)
     case templateIdDropped(count: Int, limit: Int)
+    case unbackedFolderIdDropped(folderId: UUID)
 
     /// The same privacy contract the rejections keep: reasons, sizes and the
     /// bound that was missed, never the value itself.
@@ -151,19 +155,23 @@ enum RoutineSyncRepair: Equatable, Sendable {
                 "actual": "\(count)",
                 "permitted": "1...\(limit)"
             ]
+        case let .unbackedFolderIdDropped(folderId):
+            return [
+                "reason": "unbacked_folder_id_dropped",
+                "folder_id": folderId.uuidString
+            ]
         }
     }
 }
 
-/// An upload-ready document and everything that had to be fixed to make it one.
-struct RoutineDocumentBuild<Document: Sendable>: Sendable {
-    let document: Document
+/// An upload-ready routine document and everything that had to be fixed to make
+/// it one.
+///
+/// Folders have no counterpart: every bound on a folder is either the climber's
+/// own work or structural, so a folder is uploaded as it stands or refused.
+struct RoutineDocumentBuild: Sendable {
+    let document: FirestoreUserRoutineDocument
     let repairs: [RoutineSyncRepair]
-
-    init(document: Document, repairs: [RoutineSyncRepair] = []) {
-        self.document = document
-        self.repairs = repairs
-    }
 }
 
 /// Turns a local `Routine` / `RoutineFolder` into the document that is uploaded,
@@ -173,7 +181,13 @@ struct RoutineDocumentBuild<Document: Sendable>: Sendable {
 /// likely to silently drop a field, and it is only worth trusting if a test can
 /// exercise it without a store or a backend.
 enum RoutineRemoteSyncMapper {
-    static func build(for routine: Routine) throws -> RoutineDocumentBuild<FirestoreUserRoutineDocument> {
+    /// - Parameter backedUpFolderIds: the folders that are actually in the
+    ///   backup right now. Passed in rather than fetched so this stays a pure
+    ///   function; the coordinator owns the query.
+    static func build(
+        for routine: Routine,
+        backedUpFolderIds: Set<UUID>
+    ) throws -> RoutineDocumentBuild {
         guard let ownerUserId = routine.ownerUserId, !ownerUserId.isEmpty else {
             throw RoutineSyncError.missingOwner
         }
@@ -203,6 +217,7 @@ enum RoutineRemoteSyncMapper {
         try validateWeightConfiguration(defaultWeightConfiguration)
 
         let metadata = repairedMetadata(for: routine)
+        let filing = backedUpFolderId(for: routine, backedUpFolderIds: backedUpFolderIds)
 
         return RoutineDocumentBuild(
             document: FirestoreUserRoutineDocument(
@@ -211,7 +226,7 @@ enum RoutineRemoteSyncMapper {
                 description: routine.routineDescription,
                 source: routine.sourceRawValue,
                 intervals: intervals.map(interval(from:)),
-                folderId: routine.folderId?.uuidString,
+                folderId: filing.folderId,
                 isArchived: routine.isArchived,
                 order: max(0, routine.order),
                 templateId: metadata.templateId,
@@ -224,11 +239,11 @@ enum RoutineRemoteSyncMapper {
                 createdAt: routine.createdAt,
                 updatedAt: routine.updatedAt
             ),
-            repairs: metadata.repairs
+            repairs: metadata.repairs + filing.repairs
         )
     }
 
-    static func build(for folder: RoutineFolder) throws -> RoutineDocumentBuild<FirestoreRoutineFolderDocument> {
+    static func document(for folder: RoutineFolder) throws -> FirestoreRoutineFolderDocument {
         guard let ownerUserId = folder.ownerUserId, !ownerUserId.isEmpty else {
             throw RoutineSyncError.missingOwner
         }
@@ -236,15 +251,13 @@ enum RoutineRemoteSyncMapper {
         try validateName(folder.name, limit: FirestoreRoutineFolderDocument.maxNameLength)
         try validateColorHex(folder.colorHex)
 
-        return RoutineDocumentBuild(
-            document: FirestoreRoutineFolderDocument(
-                userId: ownerUserId,
-                name: folder.name,
-                colorHex: folder.colorHex,
-                order: max(0, folder.order),
-                createdAt: folder.createdAt,
-                updatedAt: folder.effectiveUpdatedAt
-            )
+        return FirestoreRoutineFolderDocument(
+            userId: ownerUserId,
+            name: folder.name,
+            colorHex: folder.colorHex,
+            order: max(0, folder.order),
+            createdAt: folder.createdAt,
+            updatedAt: folder.effectiveUpdatedAt
         )
     }
 
@@ -350,6 +363,32 @@ enum RoutineRemoteSyncMapper {
         var repairs: [RoutineSyncRepair] = []
     }
 
+    /// The folder pointer as the backup may hold it.
+    ///
+    /// `uploadPendingFolders` sends folders before routines, which covers the
+    /// ordinary case, but it cannot cover a folder that never arrives: one
+    /// refused for an unusable name or colour, one still queued or failed, or a
+    /// `folderId` naming a folder that is not in the store at all. The rule only
+    /// bounds `folderId` to a canonical UUID - it does not check the folder
+    /// exists - so an unbacked pointer uploads happily and a restore builds a
+    /// routine filed under nothing.
+    ///
+    /// So the pointer is omitted from the document and left alone in the store.
+    /// A restore yields an unfiled routine, which is true: the folder really is
+    /// not there. The local routine stays filed, because on this device the
+    /// folder really is.
+    private static func backedUpFolderId(
+        for routine: Routine,
+        backedUpFolderIds: Set<UUID>
+    ) -> (folderId: String?, repairs: [RoutineSyncRepair]) {
+        guard let folderId = routine.folderId else { return (nil, []) }
+        guard backedUpFolderIds.contains(folderId) else {
+            return (nil, [.unbackedFolderIdDropped(folderId: folderId)])
+        }
+
+        return (folderId.uuidString, [])
+    }
+
     private static func repairedMetadata(for routine: Routine) -> RepairedRoutineMetadata {
         var repaired = RepairedRoutineMetadata(
             templateId: routine.templateId,
@@ -405,10 +444,12 @@ enum RoutineRemoteSyncMapper {
     ///
     /// Deliberately narrower than `RoutineSyncRepair`: only `difficulty` and
     /// `estimatedCalories`, the two Ascend-authored numbers nothing looks a
-    /// record up by. `templateId` is a key `savedCopy(templateId:)` matches on
-    /// and `templateVersion` has no proven absence of local readers, so both are
-    /// corrected on the way out and left alone in the store - converging either
-    /// would trade a repeated diagnostic for a broken lookup.
+    /// record up by. `templateId` is a key `savedCopy(templateId:)` matches on,
+    /// `templateVersion` has no proven absence of local readers, and a `folderId`
+    /// the backup cannot hold is still the climber's filing on this device - all
+    /// three are corrected on the way out and left alone in the store, because
+    /// converging any of them would trade a repeated diagnostic for something
+    /// that works here breaking.
     ///
     /// `updatedAt` deliberately does not move: converging a value we published is
     /// not an edit, and bumping the hydration tiebreaker over it would let this
@@ -420,7 +461,7 @@ enum RoutineRemoteSyncMapper {
                 routine.difficulty = to
             case let .estimatedCaloriesClamped(_, to):
                 routine.estimatedCalories = to
-            case .templateVersionClamped, .templateIdDropped:
+            case .templateVersionClamped, .templateIdDropped, .unbackedFolderIdDropped:
                 break
             }
         }

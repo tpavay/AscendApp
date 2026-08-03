@@ -72,7 +72,7 @@ struct RoutineRemoteSyncMapperTests {
         let routine = Routine(name: "Orphan", source: .userCreated)
 
         #expect(throws: RoutineSyncError.missingOwner) {
-            _ = try RoutineRemoteSyncMapper.build(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: [])
         }
     }
 
@@ -82,7 +82,7 @@ struct RoutineRemoteSyncMapperTests {
         routine.ownerUserId = Self.userId
 
         #expect(throws: RoutineSyncError.notUserAuthored) {
-            _ = try RoutineRemoteSyncMapper.build(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: [])
         }
     }
 
@@ -100,7 +100,7 @@ struct RoutineRemoteSyncMapperTests {
                 limit: FirestoreUserRoutineDocument.maxIntervals
             )
         ) {
-            _ = try RoutineRemoteSyncMapper.build(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: [])
         }
     }
 
@@ -112,7 +112,7 @@ struct RoutineRemoteSyncMapperTests {
             RoutineInterval(duration: 30, intensityValue: 5, order: index)
         }
 
-        let document = try RoutineRemoteSyncMapper.build(for: routine).document
+        let document = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: []).document
 
         #expect(document.intervals.count == FirestoreUserRoutineDocument.maxIntervals)
     }
@@ -131,7 +131,7 @@ struct RoutineRemoteSyncMapperTests {
                 limit: FirestoreUserRoutineDocument.maxNameLength
             )
         ) {
-            _ = try RoutineRemoteSyncMapper.build(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: [])
         }
     }
 
@@ -146,7 +146,7 @@ struct RoutineRemoteSyncMapperTests {
         )
         routine.ownerUserId = Self.userId
 
-        let document = try RoutineRemoteSyncMapper.build(for: routine).document
+        let document = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: []).document
 
         #expect(document.name.count == FirestoreUserRoutineDocument.maxNameLength)
     }
@@ -169,7 +169,7 @@ struct RoutineRemoteSyncMapperTests {
                 limit: FirestoreUserRoutineDocument.maxDescriptionLength
             )
         ) {
-            _ = try RoutineRemoteSyncMapper.build(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: [])
         }
     }
 
@@ -192,7 +192,7 @@ struct RoutineRemoteSyncMapperTests {
         let copy = template.createUserCopy()
         copy.ownerUserId = Self.userId
 
-        let build = try RoutineRemoteSyncMapper.build(for: copy)
+        let build = try RoutineRemoteSyncMapper.build(for: copy, backedUpFolderIds: [])
 
         #expect(build.document.difficulty == FirestoreUserRoutineDocument.maxDifficulty)
         #expect(
@@ -215,7 +215,7 @@ struct RoutineRemoteSyncMapperTests {
         let routine = Routine(name: "Below zero", source: .userCreated, difficulty: -3)
         routine.ownerUserId = Self.userId
 
-        let build = try RoutineRemoteSyncMapper.build(for: routine)
+        let build = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: [])
         RoutineRemoteSyncMapper.applyRepairs(build.repairs, to: routine)
 
         #expect(build.document.difficulty == FirestoreUserRoutineDocument.minDifficulty)
@@ -232,7 +232,7 @@ struct RoutineRemoteSyncMapperTests {
         )
         routine.ownerUserId = Self.userId
 
-        let build = try RoutineRemoteSyncMapper.build(for: routine)
+        let build = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: [])
 
         #expect(build.document.difficulty == FirestoreUserRoutineDocument.maxDifficulty)
         #expect(build.repairs.isEmpty)
@@ -251,7 +251,7 @@ struct RoutineRemoteSyncMapperTests {
         let routine = Routine(name: "Copied", source: .copiedFromBuiltin, templateId: overlongId)
         routine.ownerUserId = Self.userId
 
-        let build = try RoutineRemoteSyncMapper.build(for: routine)
+        let build = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: [])
 
         #expect(build.document.templateId == nil)
         #expect(
@@ -278,7 +278,7 @@ struct RoutineRemoteSyncMapperTests {
         let routine = Routine(name: "Copied", source: .copiedFromBuiltin, templateId: overlongId)
         routine.ownerUserId = Self.userId
 
-        let build = try RoutineRemoteSyncMapper.build(for: routine)
+        let build = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: [])
         RoutineRemoteSyncMapper.applyRepairs(build.repairs, to: routine)
 
         #expect(routine.templateId == overlongId)
@@ -289,7 +289,7 @@ struct RoutineRemoteSyncMapperTests {
         let routine = Routine(name: "Copied", source: .copiedFromBuiltin, templateId: "")
         routine.ownerUserId = Self.userId
 
-        let build = try RoutineRemoteSyncMapper.build(for: routine)
+        let build = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: [])
         RoutineRemoteSyncMapper.applyRepairs(build.repairs, to: routine)
 
         #expect(build.document.templateId == nil)
@@ -317,7 +317,7 @@ struct RoutineRemoteSyncMapperTests {
         )
         routine.ownerUserId = Self.userId
 
-        let build = try RoutineRemoteSyncMapper.build(for: routine)
+        let build = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: [])
         RoutineRemoteSyncMapper.applyRepairs(build.repairs, to: routine)
 
         #expect(build.document.templateVersion == 0)
@@ -333,7 +333,7 @@ struct RoutineRemoteSyncMapperTests {
         let routine = Routine(name: "Impossible", source: .userCreated, estimatedCalories: -40)
         routine.ownerUserId = Self.userId
 
-        let build = try RoutineRemoteSyncMapper.build(for: routine)
+        let build = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: [])
         RoutineRemoteSyncMapper.applyRepairs(build.repairs, to: routine)
 
         #expect(build.document.estimatedCalories == 0)
@@ -359,7 +359,7 @@ struct RoutineRemoteSyncMapperTests {
                 limit: FirestoreUserRoutineDocument.maxNameLength
             )
         ) {
-            _ = try RoutineRemoteSyncMapper.build(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: [])
         }
     }
 
@@ -383,7 +383,7 @@ struct RoutineRemoteSyncMapperTests {
                 limit: FirestoreWorkoutWeightConfiguration.maxEntries
             )
         ) {
-            _ = try RoutineRemoteSyncMapper.build(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: [])
         }
     }
 
@@ -400,7 +400,7 @@ struct RoutineRemoteSyncMapperTests {
         routine.ownerUserId = Self.userId
 
         #expect(throws: RoutineSyncError.duplicateWeightEquipmentTypes(count: 2, distinct: 1)) {
-            _ = try RoutineRemoteSyncMapper.build(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: [])
         }
     }
 
@@ -420,7 +420,7 @@ struct RoutineRemoteSyncMapperTests {
                 equipmentType: WeightEquipmentType.weightedVest.rawValue
             )
         ) {
-            _ = try RoutineRemoteSyncMapper.build(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: [])
         }
     }
 
@@ -430,7 +430,7 @@ struct RoutineRemoteSyncMapperTests {
         routine.ownerUserId = Self.userId
 
         #expect(throws: RoutineSyncError.emptyName) {
-            _ = try RoutineRemoteSyncMapper.build(for: routine)
+            _ = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: [])
         }
     }
 
@@ -447,8 +447,42 @@ struct RoutineRemoteSyncMapperTests {
                 limit: FirestoreRoutineFolderDocument.maxNameLength
             )
         ) {
-            _ = try RoutineRemoteSyncMapper.build(for: folder)
+            _ = try RoutineRemoteSyncMapper.document(for: folder)
         }
+    }
+
+    /// The repaired-on-the-way-out side again, for the pointer rather than a
+    /// value. The rule only bounds `folderId` to a canonical UUID, so a routine
+    /// filed under a folder the backup does not hold would restore pointing at
+    /// nothing.
+    @Test("A folderId the backup cannot resolve is left out of the document", .bug(id: 304))
+    func aFolderIdOutsideTheBackupIsDroppedFromTheDocumentOnly() throws {
+        let folderId = UUID()
+        let routine = Routine(name: "Tuesday Pyramid", source: .userCreated, folderId: folderId)
+        routine.ownerUserId = Self.userId
+
+        let build = try RoutineRemoteSyncMapper.build(for: routine, backedUpFolderIds: [])
+        RoutineRemoteSyncMapper.applyRepairs(build.repairs, to: routine)
+
+        #expect(build.document.folderId == nil)
+        #expect(build.repairs == [.unbackedFolderIdDropped(folderId: folderId)])
+        // On this device the folder is real and the routine stays filed under it.
+        #expect(routine.folderId == folderId)
+    }
+
+    @Test
+    func aFolderIdTheBackupHoldsIsCarriedThrough() throws {
+        let folderId = UUID()
+        let routine = Routine(name: "Tuesday Pyramid", source: .userCreated, folderId: folderId)
+        routine.ownerUserId = Self.userId
+
+        let build = try RoutineRemoteSyncMapper.build(
+            for: routine,
+            backedUpFolderIds: [folderId]
+        )
+
+        #expect(build.document.folderId == folderId.uuidString)
+        #expect(build.repairs.isEmpty)
     }
 
     /// The validated-never-repaired side of the rule. A folder colour is copied
@@ -467,7 +501,7 @@ struct RoutineRemoteSyncMapperTests {
                     pattern: FirestoreRoutineFolderDocument.colorHexPattern
                 )
             ) {
-                _ = try RoutineRemoteSyncMapper.build(for: folder)
+                _ = try RoutineRemoteSyncMapper.document(for: folder)
             }
             #expect(folder.colorHex == unusable)
         }
@@ -479,22 +513,20 @@ struct RoutineRemoteSyncMapperTests {
             let folder = RoutineFolder(name: "Race prep", colorHex: usable)
             folder.ownerUserId = Self.userId
 
-            let build = try RoutineRemoteSyncMapper.build(for: folder)
+            let document = try RoutineRemoteSyncMapper.document(for: folder)
 
-            #expect(build.document.colorHex == usable)
-            #expect(build.repairs.isEmpty)
+            #expect(document.colorHex == usable)
         }
     }
 
     @Test
-    func aFolderWithNoColourIsUploadedUnrepaired() throws {
+    func aFolderWithNoColourIsUploaded() throws {
         let folder = RoutineFolder(name: "Race prep")
         folder.ownerUserId = Self.userId
 
-        let build = try RoutineRemoteSyncMapper.build(for: folder)
+        let document = try RoutineRemoteSyncMapper.document(for: folder)
 
-        #expect(build.document.colorHex == nil)
-        #expect(build.repairs.isEmpty)
+        #expect(document.colorHex == nil)
     }
 
     /// Rules measure a string in Unicode scalars, so the client has to. Swift's
@@ -573,7 +605,7 @@ struct RoutineRemoteSyncMapperTests {
     @Test
     func aFolderWithNoOwnerIsNotUploaded() {
         #expect(throws: RoutineSyncError.missingOwner) {
-            _ = try RoutineRemoteSyncMapper.build(for: RoutineFolder(name: "Orphan"))
+            _ = try RoutineRemoteSyncMapper.document(for: RoutineFolder(name: "Orphan"))
         }
     }
 
@@ -583,7 +615,7 @@ struct RoutineRemoteSyncMapperTests {
         folder.ownerUserId = Self.userId
         folder.updatedAt = nil
 
-        let document = try RoutineRemoteSyncMapper.build(for: folder).document
+        let document = try RoutineRemoteSyncMapper.document(for: folder)
 
         #expect(document.updatedAt == folder.createdAt)
     }

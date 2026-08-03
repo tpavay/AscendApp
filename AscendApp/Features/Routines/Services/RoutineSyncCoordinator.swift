@@ -130,7 +130,6 @@ private extension RoutineSyncCoordinator {
         let userId: String
         let expectedModifiedAt: Date
         let document: FirestoreRoutineFolderDocument
-        let repairs: [RoutineSyncRepair]
     }
 
     var backupsAreEnabled: Bool {
@@ -141,8 +140,15 @@ private extension RoutineSyncCoordinator {
         )
     }
 
-    /// Folders go up before the routines that point at them, so a restore on a
-    /// clean device never sees a `folderId` whose folder has not arrived yet.
+    /// Folders go up before the routines that point at them, which is what makes
+    /// the ordinary case land in the right order on a restore.
+    ///
+    /// Ordering alone does not carry the invariant, though: a folder refused for
+    /// an unusable name or colour never arrives at all, and one whose upload
+    /// failed has not arrived yet. What actually guarantees a restore never sees
+    /// a `folderId` naming a folder that is not there is the routine document
+    /// omitting the pointer whenever the folder is not in the backup - see
+    /// `RoutineRemoteSyncMapper.build(for:backedUpFolderIds:)`.
     func uploadPendingFolders(
         modelContext: ModelContext,
         currentUserId: String,
@@ -223,11 +229,19 @@ private extension RoutineSyncCoordinator {
         excludedIds: Set<UUID>
     ) throws -> [RoutineUploadSnapshot] {
         var snapshots: [RoutineUploadSnapshot] = []
+        let backedUpFolderIds = try backedUpFolderIds(
+            modelContext: modelContext,
+            currentUserId: currentUserId,
+            excludedIds: excludedIds
+        )
 
         for routine in try pendingRoutines(modelContext: modelContext, currentUserId: currentUserId)
         where !excludedIds.contains(routine.id) {
             do {
-                let build = try RoutineRemoteSyncMapper.build(for: routine)
+                let build = try RoutineRemoteSyncMapper.build(
+                    for: routine,
+                    backedUpFolderIds: backedUpFolderIds
+                )
                 snapshots.append(
                     RoutineUploadSnapshot(
                         routineId: routine.id,
@@ -257,14 +271,12 @@ private extension RoutineSyncCoordinator {
         for folder in try pendingFolders(modelContext: modelContext, currentUserId: currentUserId)
         where !excludedIds.contains(folder.id) {
             do {
-                let build = try RoutineRemoteSyncMapper.build(for: folder)
                 snapshots.append(
                     FolderUploadSnapshot(
                         folderId: folder.id,
                         userId: currentUserId,
                         expectedModifiedAt: folder.effectiveUpdatedAt,
-                        document: build.document,
-                        repairs: build.repairs
+                        document: try RoutineRemoteSyncMapper.document(for: folder)
                     )
                 )
             } catch {
@@ -334,8 +346,6 @@ private extension RoutineSyncCoordinator {
 
         folder.markRemoteSyncSucceeded()
         try modelContext.save()
-
-        recordRepairs(snapshot.repairs, kind: "routine_folder", recordId: snapshot.folderId)
     }
 
     func markFolderFailed(
@@ -480,6 +490,24 @@ private extension RoutineSyncCoordinator {
             sortBy: [SortDescriptor(\RoutineFolder.createdAt)]
         )
         return try modelContext.fetch(descriptor)
+    }
+
+    /// The folders a routine may safely point at from inside the backup: owned
+    /// by this climber, already `synced`, and not queued for deletion in this
+    /// same pass.
+    func backedUpFolderIds(
+        modelContext: ModelContext,
+        currentUserId: String,
+        excludedIds: Set<UUID>
+    ) throws -> Set<UUID> {
+        let syncedRawValue = RoutineRemoteSyncStatus.synced.rawValue
+        let descriptor = FetchDescriptor<RoutineFolder>(
+            predicate: #Predicate<RoutineFolder> { folder in
+                folder.ownerUserId == currentUserId &&
+                    folder.remoteSyncStatusRawValue == syncedRawValue
+            }
+        )
+        return Set(try modelContext.fetch(descriptor).map(\.id)).subtracting(excludedIds)
     }
 
     func pendingDeletions(

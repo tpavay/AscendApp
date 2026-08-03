@@ -292,6 +292,121 @@ struct RoutineSyncCoordinatorTests {
         #expect(await backend.routineDocument(copy.id)?.estimatedCalories == uploaded.estimatedCalories)
     }
 
+    /// Case one: the folder was refused. Rejection is terminal, so the folder is
+    /// never in the backup and a routine that uploaded its pointer would restore
+    /// filed under a folder that does not exist.
+    @Test("A routine whose folder was rejected uploads unfiled", .bug(id: 304))
+    func aRoutineWhoseFolderIsRejectedUploadsWithoutItsFolderId() async throws {
+        let modelContext = try makeModelContext()
+        let folder = RoutineFolder(name: "Race prep", colorHex: "lime")
+        folder.markPendingRemoteUpsert(ownerUserId: Self.userId)
+        modelContext.insert(folder)
+
+        let routine = makeRoutine()
+        routine.folderId = folder.id
+        routine.markPendingRemoteUpsert(ownerUserId: Self.userId)
+        modelContext.insert(routine)
+        try modelContext.save()
+
+        let diagnostics = RecordingDiagnostics()
+        let backend = InMemoryUserRoutineBackend()
+        await RoutineSyncCoordinator(
+            remoteRepository: backend,
+            diagnostics: diagnostics,
+            operationTimeoutSeconds: 5
+        ).processPendingRoutines(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+
+        #expect(await backend.folderCount() == 0)
+        #expect(await backend.routineDocument(routine.id)?.folderId == nil)
+
+        let stored = try #require(try modelContext.fetch(FetchDescriptor<Routine>()).first)
+        #expect(stored.remoteSyncStatus == .synced)
+        #expect(stored.folderId == folder.id)
+
+        let repaired = try #require(
+            diagnostics.events.first { $0.name == "routine_backup_repaired" }
+        )
+        #expect(repaired.details["reason"] == "unbacked_folder_id_dropped")
+        #expect(repaired.details["folder_id"] == folder.id.uuidString)
+    }
+
+    /// Case two: the folder is still owed to the backup - its own upload keeps
+    /// failing. The routine still uploads; it just uploads unfiled until the
+    /// folder lands, at which point the next routine write files it.
+    @Test("A routine whose folder has not arrived yet uploads unfiled", .bug(id: 304))
+    func aRoutineWhoseFolderUploadKeepsFailingUploadsWithoutItsFolderId() async throws {
+        let modelContext = try makeModelContext()
+        let folder = RoutineFolder(name: "Race prep")
+        folder.markPendingRemoteUpsert(ownerUserId: Self.userId)
+        modelContext.insert(folder)
+
+        let routine = makeRoutine()
+        routine.folderId = folder.id
+        routine.markPendingRemoteUpsert(ownerUserId: Self.userId)
+        modelContext.insert(routine)
+        try modelContext.save()
+
+        let backend = InMemoryUserRoutineBackend(folderUpsertError: TestBackupFailure())
+        let coordinator = makeCoordinator(backend)
+        await coordinator.processPendingRoutines(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+
+        #expect(await backend.folderCount() == 0)
+        #expect(await backend.routineDocument(routine.id)?.folderId == nil)
+
+        let stored = try #require(try modelContext.fetch(FetchDescriptor<Routine>()).first)
+        #expect(stored.remoteSyncStatus == .synced)
+        #expect(stored.folderId == folder.id)
+
+        // Once the folder lands, the next routine write files it for real.
+        await backend.setFolderUpsertError(nil)
+        stored.markPendingRemoteUpsert(ownerUserId: Self.userId)
+        try modelContext.save()
+        await coordinator.processPendingRoutines(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+
+        #expect(await backend.folderCount() == 1)
+        #expect(await backend.routineDocument(routine.id)?.folderId == folder.id.uuidString)
+    }
+
+    /// Case three, the ordinary one: the folder uploads first in the same pass,
+    /// so the pointer is carried through untouched.
+    @Test("A routine whose folder is backed up keeps its folderId", .bug(id: 304))
+    func aRoutineWhoseFolderIsBackedUpUploadsFiled() async throws {
+        let modelContext = try makeModelContext()
+        let folder = RoutineFolder(name: "Race prep")
+        folder.markPendingRemoteUpsert(ownerUserId: Self.userId)
+        modelContext.insert(folder)
+
+        let routine = makeRoutine()
+        routine.folderId = folder.id
+        routine.markPendingRemoteUpsert(ownerUserId: Self.userId)
+        modelContext.insert(routine)
+        try modelContext.save()
+
+        let diagnostics = RecordingDiagnostics()
+        let backend = InMemoryUserRoutineBackend()
+        await RoutineSyncCoordinator(
+            remoteRepository: backend,
+            diagnostics: diagnostics,
+            operationTimeoutSeconds: 5
+        ).processPendingRoutines(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+
+        #expect(await backend.folderCount() == 1)
+        #expect(await backend.routineDocument(routine.id)?.folderId == folder.id.uuidString)
+        #expect(diagnostics.events.isEmpty)
+    }
+
     /// The upload-only side of the rule, through the production path. The drop
     /// must not reach the store: `savedCopy(templateId:)` matches on the local id,
     /// so nulling it would make the catalog Save toggle read unsaved after every

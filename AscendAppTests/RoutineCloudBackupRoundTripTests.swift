@@ -332,12 +332,18 @@ actor InMemoryUserRoutineBackend: UserRoutineRemoteRepositoryProtocol {
     var upsertError: (any Error & Sendable)?
     var deleteError: (any Error & Sendable)?
 
+    /// Fails folder upserts only, so a routine can be uploaded while the folder
+    /// it points at is still missing from the backup.
+    var folderUpsertError: (any Error & Sendable)?
+
     init(
         upsertError: (any Error & Sendable)? = nil,
-        deleteError: (any Error & Sendable)? = nil
+        deleteError: (any Error & Sendable)? = nil,
+        folderUpsertError: (any Error & Sendable)? = nil
     ) {
         self.upsertError = upsertError
         self.deleteError = deleteError
+        self.folderUpsertError = folderUpsertError
     }
 
     func fetchRoutines(userId: String) async throws -> [RemoteUserRoutineRecord] {
@@ -367,6 +373,7 @@ actor InMemoryUserRoutineBackend: UserRoutineRemoteRepositoryProtocol {
         folderId: UUID,
         document: FirestoreRoutineFolderDocument
     ) async throws {
+        if let folderUpsertError { throw folderUpsertError }
         if let upsertError { throw upsertError }
         folders[folderId] = document
         upsertOrder.append(folderId)
@@ -405,6 +412,10 @@ actor InMemoryUserRoutineBackend: UserRoutineRemoteRepositoryProtocol {
 
     func setDeleteError(_ error: (any Error & Sendable)?) {
         deleteError = error
+    }
+
+    func setFolderUpsertError(_ error: (any Error & Sendable)?) {
+        folderUpsertError = error
     }
 }
 
