@@ -570,34 +570,38 @@ struct RoutineSyncCoordinatorTests {
         #expect(diagnostics.events.count == 1)
     }
 
-    /// Parked, not deleted, and not hidden - see issue #362.
+    /// The only proof the ownerless-routine adoption path works. It was parked
+    /// while it flaked under parallel execution; the cause is established and
+    /// fixed, so it runs again - see issues #362 and #366.
     ///
-    /// This fails about half the time under the documented `xcodebuild ... test`
-    /// command (4 failures in 8 unmodified runs on a dedicated simulator with no
-    /// lane contention), passes 846/846 with `-parallel-testing-enabled NO`, and
-    /// passes when the suite runs alone.
+    /// The cause was never in this file. `AscendSchemaV1.Routine` and
+    /// `AscendSchemaV2.Routine` are frozen copies of the pre-cloud-backup shape,
+    /// and SwiftData registers a frozen copy under the *same* Core Data entity
+    /// name as the live `Routine`. While a container built on a frozen schema is
+    /// alive, a write to one of the four columns only the live shape carries -
+    /// `ownerUserId`, `lastRemoteSyncAt`, `lastRemoteSyncError`,
+    /// `remoteSyncStatusRawValue` - is dropped by *any* `ModelContext` in the
+    /// process: no error, and nothing thrown from `save()`. That is why exactly
+    /// those fields lost their writes while `difficulty` and `folderId` in the
+    /// same save stuck. `WorkoutSourceSchemaMigrationTests` held V2 contexts open
+    /// for whole test bodies, so under parallel execution that window landed on
+    /// whatever else was writing a routine.
     ///
-    /// What is established: the routine IS adopted and the upload DOES happen,
-    /// but `lastRemoteSyncAt` and `lastRemoteSyncError` both stay nil. The write
-    /// is lost *inside* `markRoutineSynced`, immediately after `save()`, and does
-    /// not stick even on retry - `save()` is discarding the change to that
-    /// object. Refuted along the way: that cross-suite in-memory containers share
-    /// a store (separate containers see zero of each other's rows), that unique
-    /// in-memory configuration names separate them (every in-memory store is
-    /// `file:///dev/null`, so a name cannot), and that unique on-disk URLs fix it
-    /// (they do not). This suite is already `.serialized`, so within-suite
-    /// parallelism is not the cause.
+    /// Every earlier hypothesis was about store isolation - shared in-memory
+    /// stores, configuration names, on-disk URLs - and every one was refuted,
+    /// because they were true statements about the wrong subsystem: the entity
+    /// registry is process-wide however many separate stores exist.
     ///
-    /// It is `.disabled` rather than removed because it is the only proof the
-    /// ownerless-routine adoption path works, and its assertions are the point.
-    /// Serialising the suite or disabling parallel testing to make it pass is
-    /// explicitly not the answer: that hides the defect for the next test to hit.
-    /// Re-enable it with the cause fixed, proven over at least 8 unmodified runs.
+    /// The fix is test-only and lives in `WorkoutSourceSchemaMigrationTests`:
+    /// open migrated stores at the current schema rather than leaving a
+    /// frozen-schema container alive, and stop unlinking SQLite files while a
+    /// container still holds them open. Serialising this suite or disabling
+    /// parallel testing was explicitly not the answer - it would have hidden the
+    /// hazard for the next test to hit.
     @Test(
         "A routine saved with nobody signed in is still backed up later",
         .bug(id: 304),
-        .bug(id: 362),
-        .disabled("Known-intermittent under parallel testing - see issue #362")
+        .bug(id: 362)
     )
     func anOwnerlessRoutineIsClaimedOnALaterBootstrapAndUploaded() async throws {
         let modelContext = try makeModelContext()
