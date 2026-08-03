@@ -179,18 +179,26 @@ struct RoutineBackupSchemaMigrationTests {
 
     /// Writes rows through the schema that shipped before this change, then lets
     /// the container go. Two live containers on one file fight.
+    ///
+    /// The teardown is deliberate rather than left to scope exit: this comment
+    /// promised a guarantee the code did not enforce, and a seeding container
+    /// still holding the SQLite file when `openMigratedStore` reopens it is a
+    /// genuine violation of that promise. `autoreleasepool` makes the release
+    /// happen here rather than whenever the pool next drains.
     private static func seedV2Store(
         at url: URL,
         seed: (ModelContext) throws -> Void
     ) throws {
-        let schema = Schema(versionedSchema: AscendSchemaV2.self)
-        let container = try ModelContainer(
-            for: schema,
-            configurations: ModelConfiguration(schema: schema, url: url)
-        )
-        let context = ModelContext(container)
-        try seed(context)
-        try context.save()
+        try autoreleasepool {
+            let schema = Schema(versionedSchema: AscendSchemaV2.self)
+            let container = try ModelContainer(
+                for: schema,
+                configurations: ModelConfiguration(schema: schema, url: url)
+            )
+            let context = ModelContext(container)
+            try seed(context)
+            try context.save()
+        }
     }
 
     private static func openMigratedStore(at url: URL) throws -> ModelContext {
