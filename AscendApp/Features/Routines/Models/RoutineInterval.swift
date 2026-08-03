@@ -64,6 +64,13 @@ struct RoutineInterval: Codable, Identifiable, Equatable {
         }
     }
 
+    /// The label drawn inside a timeline block: always `m:ss`, so a column of blocks reads
+    /// as one scale rather than a mix of "30s" and "4 min".
+    var durationClockLabel: String {
+        let totalSeconds = Int(duration.rounded())
+        return "\(totalSeconds / 60):\(String(format: "%02d", totalSeconds % 60))"
+    }
+
     var intensityDisplay: String {
         switch intensityType {
         case .level:

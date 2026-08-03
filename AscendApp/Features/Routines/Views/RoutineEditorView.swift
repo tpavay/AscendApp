@@ -6,132 +6,88 @@ private enum RoutineEditorField: Hashable {
     case description
 }
 
+/// Building a routine is dragging blocks on a timeline. There is no interval list and no
+/// interval creator: the timeline carries the level and the duration inside each block, and
+/// the only control under it is the step type.
 struct RoutineEditorView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
-    @State private var themeManager = ThemeManager.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var settingsManager = SettingsManager.shared
     @State private var viewModel = RoutineEditorViewModel()
     @State private var showSaveError = false
-    @State private var draggingIntervalId: UUID?
+    @State private var interactionBaseline: RoutineEditorStats?
+    @State private var coachMark: RoutineBuilderCoachMark?
+    @AppStorage(RoutineBuilderCoachMark.seenStorageKey) private var hasSeenCoachMarks = false
     @FocusState private var focusedField: RoutineEditorField?
 
     let routine: Routine?
     let folderId: UUID?
+    /// The sheet must not treat a vertical drag on a block as a dismissal. Cancel in the top
+    /// left is still how you leave.
+    @Binding var isInteractingWithTimeline: Bool
     var onSave: ((Routine) -> Void)?
 
-    init(routine: Routine? = nil, folderId: UUID? = nil, onSave: ((Routine) -> Void)? = nil) {
+    init(
+        routine: Routine? = nil,
+        folderId: UUID? = nil,
+        isInteractingWithTimeline: Binding<Bool> = .constant(false),
+        onSave: ((Routine) -> Void)? = nil
+    ) {
         self.routine = routine
         self.folderId = folderId
+        self._isInteractingWithTimeline = isInteractingWithTimeline
         self.onSave = onSave
     }
 
-    private var effectiveColorScheme: ColorScheme {
-        themeManager.effectiveColorScheme(for: colorScheme)
+    private var liveStatKeys: Set<RoutineEditorStats.Key> {
+        guard let interactionBaseline else { return [] }
+        return viewModel.stats.changedKeys(comparedTo: interactionBaseline)
     }
 
     var body: some View {
-        ScrollViewReader { scrollProxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    RoutineEditorNavigationBar(
-                        title: viewModel.navigationTitle,
-                        canSave: viewModel.canSave,
-                        onCancel: { dismiss() },
-                        onSave: saveRoutine
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                RoutineEditorNavigationBar(
+                    title: viewModel.navigationTitle,
+                    canSave: viewModel.canSave,
+                    onCancel: { dismiss() },
+                    onSave: saveRoutine
+                )
+
+                RoutineEditorNameField(
+                    text: $viewModel.name,
+                    focusedField: $focusedField
+                )
+
+                RoutineEditorStatsRow(stats: viewModel.stats, liveKeys: liveStatKeys)
+
+                timeline
+                    .routineCoachMarkTarget(.timeline)
+
+                if let selectedInterval = viewModel.selectedInterval {
+                    RoutineStepTypeControl(
+                        stepType: viewModel.selectedStepType,
+                        onSelect: { viewModel.setStepType($0, forIntervalWithId: selectedInterval.id) },
+                        onDelete: { deleteInterval(withId: selectedInterval.id) }
                     )
-
-                    RoutineEditorNameField(
-                        text: $viewModel.name,
-                        focusedField: $focusedField
-                    )
-
-                    RoutineEditorPreviewCard(
-                        intervals: viewModel.previewIntervals,
-                        ghostInterval: viewModel.previewGhostInterval
-                    )
-
-                    if !viewModel.displayedIntervals.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            RoutineEditorSectionLabel(text: "Intervals")
-
-                            LazyVStack(spacing: 10) {
-                                ForEach(viewModel.displayedIntervals) { interval in
-                                    VStack(spacing: 10) {
-                                        RoutineEditorIntervalRow(
-                                            interval: interval,
-                                            isSelected: viewModel.selectedInterval?.id == interval.id,
-                                            onTap: {
-                                                withAnimation(.easeInOut(duration: 0.2)) {
-                                                    viewModel.selectInterval(interval)
-                                                }
-                                            }
-                                        )
-                                        .draggable(interval.id.uuidString) {
-                                            RoutineEditorIntervalRow(
-                                                interval: interval,
-                                                isSelected: false,
-                                                onTap: {}
-                                            )
-                                            .frame(width: 320)
-                                            .onAppear {
-                                                draggingIntervalId = interval.id
-                                                HapticsManager.shared.trigger(.lightImpact)
-                                            }
-                                        }
-                                        .dropDestination(for: String.self) { items, _ in
-                                            guard let rawValue = items.first,
-                                                  let draggedId = UUID(uuidString: rawValue) else {
-                                                return false
-                                            }
-
-                                            withAnimation(.easeInOut(duration: 0.18)) {
-                                                viewModel.moveInterval(withId: draggedId, before: interval.id)
-                                            }
-                                            draggingIntervalId = nil
-                                            HapticsManager.shared.trigger(.lightImpact)
-                                            return true
-                                        }
-                                        .opacity(draggingIntervalId == interval.id ? 0.5 : 1)
-
-                                        if viewModel.selectedInterval?.id == interval.id {
-                                            builderCard
-                                                .id(builderAnchorId(for: interval.id))
-                                                .transition(.move(edge: .top).combined(with: .opacity))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if !viewModel.isEditingInterval {
-                        builderCard
-                    }
-
-                    RoutineEditorAdvancedSettingsSection(
-                        isExpanded: $viewModel.isAdvancedExpanded,
-                        description: $viewModel.routineDescription,
-                        defaultWeightConfiguration: $viewModel.defaultWeightConfiguration,
-                        measurementSystem: settingsManager.measurementSystem,
-                        focusedField: $focusedField
-                    )
+                    .routineCoachMarkTarget(.stepControl)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 18)
-                .padding(.bottom, 28)
-            }
-            .onChange(of: viewModel.selectedInterval?.id) { _, selectedIntervalId in
-                guard let selectedIntervalId else { return }
 
-                Task {
-                    try await Task.sleep(for: .milliseconds(80))
-                    withAnimation(.easeInOut(duration: 0.24)) {
-                        scrollProxy.scrollTo(builderAnchorId(for: selectedIntervalId), anchor: .center)
-                    }
-                }
+                addIntervalButton
+                    .routineCoachMarkTarget(.add)
+
+                RoutineEditorAdvancedSettingsSection(
+                    isExpanded: $viewModel.isAdvancedExpanded,
+                    description: $viewModel.routineDescription,
+                    defaultWeightConfiguration: $viewModel.defaultWeightConfiguration,
+                    measurementSystem: settingsManager.measurementSystem,
+                    focusedField: $focusedField
+                )
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+            .padding(.bottom, 28)
         }
         .scrollDismissesKeyboard(.interactively)
         .scrollIndicators(.hidden)
@@ -140,6 +96,19 @@ struct RoutineEditorView: View {
         .keyboardDoneToolbar {
             focusedField = nil
         }
+        .overlayPreferenceValue(RoutineBuilderCoachMarkAnchorKey.self) { anchors in
+            GeometryReader { proxy in
+                if let coachMark {
+                    RoutineBuilderCoachMarkOverlay(
+                        mark: coachMark,
+                        targetRect: anchors[coachMark].map { proxy[$0] },
+                        containerSize: proxy.size,
+                        onNext: advanceCoachMarks,
+                        onSkip: finishCoachMarks
+                    )
+                }
+            }
+        }
         .alert("Error", isPresented: $showSaveError) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -147,13 +116,77 @@ struct RoutineEditorView: View {
         }
         .onAppear {
             viewModel.configure(modelContext: modelContext, routine: routine, folderId: folderId)
+            startCoachMarksIfNeeded()
         }
-        .onChange(of: focusedField) {
-            if focusedField == nil {
-                draggingIntervalId = nil
-            }
+        .onChange(of: viewModel.intervals.count) {
+            startCoachMarksIfNeeded()
+        }
+        .onDisappear {
+            isInteractingWithTimeline = false
         }
         .appSheetBackground()
+    }
+
+    // MARK: - Timeline
+
+    private var timeline: some View {
+        RoutineTimelineEditor(
+            intervals: viewModel.intervals,
+            selectedIntervalId: viewModel.selectedIntervalId,
+            onSelect: { viewModel.select(intervalWithId: $0) },
+            onSetLevel: { viewModel.setLevel($1, forIntervalWithId: $0) },
+            onSetDuration: { viewModel.setDuration($1, forIntervalWithId: $0) },
+            onAdjustLevel: { viewModel.adjustLevel(by: $1, forIntervalWithId: $0) },
+            onAdjustDuration: { viewModel.adjustDuration(bySteps: $1, forIntervalWithId: $0) },
+            onCycleStepType: { viewModel.cycleStepType(forIntervalWithId: $0) },
+            onDelete: { deleteInterval(withId: $0) },
+            onMove: { viewModel.moveInterval(fromIndex: $0, toIndex: $1) },
+            onInteractingChange: handleTimelineInteraction
+        )
+    }
+
+    private var addIntervalButton: some View {
+        Button {
+            withAnimation(RoutineTimelineMotion.resize(reduceMotion: reduceMotion)) {
+                viewModel.addInterval()
+            }
+            HapticsManager.shared.trigger(.lightImpact)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.system(size: 15, weight: .semibold))
+
+                Text("Add Interval")
+                    .font(.montserratSemiBold(size: 16))
+            }
+            .foregroundStyle(Color.accent)
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(
+                        Color.accent.opacity(0.45),
+                        style: StrokeStyle(lineWidth: 1, dash: [6, 4])
+                    )
+            )
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add interval")
+        .accessibilityHint("Adds a Standard interval at level 1.")
+    }
+
+    // MARK: - Actions
+
+    private func handleTimelineInteraction(_ isInteracting: Bool) {
+        isInteractingWithTimeline = isInteracting
+        interactionBaseline = isInteracting ? viewModel.stats : nil
+    }
+
+    private func deleteInterval(withId id: UUID) {
+        withAnimation(RoutineTimelineMotion.resize(reduceMotion: reduceMotion)) {
+            viewModel.deleteInterval(withId: id)
+        }
     }
 
     private func saveRoutine() {
@@ -168,33 +201,33 @@ struct RoutineEditorView: View {
         }
     }
 
-    @ViewBuilder
-    private var builderCard: some View {
-        RoutineIntervalBuilderCard(
-            level: $viewModel.draftLevel,
-            duration: $viewModel.draftDuration,
-            stepType: $viewModel.draftStepType,
-            isEditing: viewModel.isEditingInterval,
-            onCommit: {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    viewModel.commitDraftInterval()
-                }
-            },
-            onCancelEdit: viewModel.isEditingInterval ? {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    viewModel.cancelEditingInterval()
-                }
-            } : nil,
-            onDelete: viewModel.isEditingInterval ? {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    viewModel.deleteSelectedInterval()
-                }
-            } : nil
-        )
+    // MARK: - Coach marks
+
+    /// The walkthrough waits until there is a timeline worth pointing at, so the first
+    /// spotlight never lands on an empty plot.
+    private func startCoachMarksIfNeeded() {
+        guard !hasSeenCoachMarks, coachMark == nil, !viewModel.intervals.isEmpty else { return }
+        withAnimation(RoutineTimelineMotion.coachMark(reduceMotion: reduceMotion)) {
+            coachMark = .timeline
+        }
     }
 
-    private func builderAnchorId(for intervalId: UUID) -> String {
-        "routine-editor-builder-\(intervalId.uuidString)"
+    private func advanceCoachMarks() {
+        guard let next = coachMark?.next else {
+            finishCoachMarks()
+            return
+        }
+
+        withAnimation(RoutineTimelineMotion.coachMark(reduceMotion: reduceMotion)) {
+            coachMark = next
+        }
+    }
+
+    private func finishCoachMarks() {
+        hasSeenCoachMarks = true
+        withAnimation(RoutineTimelineMotion.coachMark(reduceMotion: reduceMotion)) {
+            coachMark = nil
+        }
     }
 }
 
@@ -234,21 +267,24 @@ private struct RoutineEditorNavigationBar: View {
     }
 }
 
+/// The name is the document title, not a boxed field - which buys the timeline 40pt.
 private struct RoutineEditorNameField: View {
     @Binding var text: String
     let focusedField: FocusState<RoutineEditorField?>.Binding
 
     var body: some View {
-        TextField("", text: $text, prompt: Text("Routine name").foregroundStyle(.white.opacity(0.2)))
-            .font(.montserratMedium(size: 17))
+        TextField("", text: $text, prompt: Text("Name it").foregroundStyle(.white.opacity(0.22)))
+            .font(.montserratSemiBold(size: 22))
             .foregroundStyle(.white)
+            .tint(.accent)
             .focused(focusedField, equals: .name)
-            .padding(.horizontal, 16)
-            .frame(height: 78)
-            .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(Color.jetLighter.opacity(0.65))
-            )
+            .padding(.bottom, 10)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(.white.opacity(0.08))
+                    .frame(height: 1)
+            }
+            .accessibilityLabel("Routine name")
     }
 }
 

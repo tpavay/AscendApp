@@ -64,15 +64,17 @@ struct RoutineIntensityBarChart: View {
         return segment.isGhost ? baseColor.opacity(0.12) : baseColor
     }
 
+    /// By level rather than by tier, so the shape a climber drags in the builder is the shape
+    /// they see everywhere else - level 16 and level 20 are no longer the same bar.
     private func segmentColor(for interval: RoutineInterval) -> Color {
         Color.heatMapColor(
-            for: interval.intensityTier.heatMapScore,
+            for: RoutineIntervalScale.normalizedLevel(interval.resolvedLevel),
             colorScheme: colorScheme
         )
     }
 
     private func segmentHeight(for interval: RoutineInterval) -> CGFloat {
-        max(minimumBarHeight, height * interval.intensityTier.chartHeightMultiplier)
+        max(minimumBarHeight, height * RoutineIntervalScale.heightFraction(forLevel: interval.resolvedLevel))
     }
 
     private func resolvedWidths(totalWidth: CGFloat) -> [CGFloat] {
@@ -96,23 +98,6 @@ struct RoutineIntensityBarChart: View {
             return chartSegments.map { segment in
                 availableWidth * CGFloat(segment.interval.duration / totalDuration)
             }
-        }
-    }
-}
-
-private extension IntensityTier {
-    var chartHeightMultiplier: CGFloat {
-        switch self {
-        case .minimal:
-            return 0.2
-        case .light:
-            return 0.4
-        case .moderate:
-            return 0.6
-        case .high:
-            return 0.8
-        case .maximum:
-            return 1.0
         }
     }
 }

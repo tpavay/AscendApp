@@ -25,6 +25,7 @@ class DebugToolsViewModel {
         static let replayPostAuthOnboarding = "Replay Onboarding Now"
         static let replayFullOnboardingFromLanding = "Replay From Landing"
         static let completePostAuthOnboarding = "Complete Post-Auth Onboarding"
+        static let resetRoutineBuilderWalkthrough = "Reset Routine Builder Walkthrough"
         static let forceAppAccessGate = "Force App Access Gate"
         static let clearAppAccessGateOverride = "Clear App Access Gate Override"
         static let presentAppAccessPaywall = "Present App Access Paywall"
@@ -91,6 +92,12 @@ class DebugToolsViewModel {
                     description: "Marks the current account as having completed the post-auth onboarding flow.",
                     icon: "checkmark.seal.fill",
                     iconColor: .green
+                ),
+                DebugAction(
+                    title: ActionTitle.resetRoutineBuilderWalkthrough,
+                    description: "Clears the device-local first-open flag so the routine builder coach marks play again.",
+                    icon: "hand.draw.fill",
+                    iconColor: .accent
                 )
             ]
         )
@@ -211,6 +218,10 @@ class DebugToolsViewModel {
                 PostAuthOnboardingStore().reset(for: userId)
                 NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
                 successMessage = "Reset post-auth onboarding for this user."
+
+            case ActionTitle.resetRoutineBuilderWalkthrough:
+                UserDefaults.standard.removeObject(forKey: RoutineBuilderCoachMark.seenStorageKey)
+                successMessage = "Routine builder walkthrough will play again on this device."
 
             case ActionTitle.replayPostAuthOnboarding:
                 let userId = try currentUserId()
