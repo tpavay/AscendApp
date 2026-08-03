@@ -104,10 +104,13 @@ Tests: `AscendAppTests/RemoteFeatureFlagResolutionTests.swift`.
 The template is checked in so the parameters exist, identically, in all three projects.
 Publishing it is a **full replace**, so a naive deploy would republish every switch as `true` and silently undo an active kill switch.
 
-Consequences, both deliberate:
+There are two publish paths, and the difference between them is the whole safety argument.
 
-- **No CI workflow publishes the template, by any route.** `scripts/test/remote-config-template.test.mjs` closes all three: a deploy whose `--only` list names `remoteconfig`; a deploy carrying no `--only` at all, since `firebase.json` wires the template in and an unscoped deploy publishes it; and the repository's own publish path, whether run as `deploy-remote-config.mjs` or through any npm alias that invokes it. The alias names are read out of `scripts/package.json` and the workflow list is read out of `.github/workflows/`, so neither renaming an alias nor adding a workflow can slip a publish past the test. Reading the live template from CI stays allowed - that is the archive preflight below.
-- `scripts/deploy-remote-config.mjs` reads the live template first and refuses when any managed flag is currently off, unless you name each one you mean to re-enable.
+### The full replace, by hand
+
+`scripts/deploy-remote-config.mjs` publishes the checked-in template as it stands.
+That is the right thing for a person who has read the diff, and it is what puts a project into the healthy state after any divergence.
+It reads the live template first and **refuses** while any managed flag is currently off, unless you name each one you mean to re-enable.
 
 ```bash
 cd scripts
@@ -117,7 +120,53 @@ npm run remoteconfig:deploy:staging -- --apply
 npm run remoteconfig:deploy:production -- --apply
 ```
 
-To restore normal behaviour, flip the parameter back to `true` in the console.
+**No CI workflow may run it, by any route.**
+`scripts/test/remote-config-template.test.mjs` closes all three: a deploy whose `--only` list names `remoteconfig`; a deploy carrying no `--only` at all, since `firebase.json` wires the template in and an unscoped deploy publishes it; and the repository's own full-replace path, whether run as `deploy-remote-config.mjs` or through any npm alias that invokes it.
+The alias names are read out of `scripts/package.json` and the workflow list is read out of `.github/workflows/`, so neither renaming an alias nor adding a workflow can slip a full replace past the test.
+
+### The additive publish, automatic
+
+`scripts/publish-new-kill-switches.mjs` publishes only parameters the target project has never held, and it is what `deploy-staging.yml` runs against dev and staging on every push to `develop`.
+It exists because publishing was a separate manual act nobody remembers: #367 added three switches, the repository was correct, nothing was published, and the 2026-08-03 staging archive stopped on `routine_cloud_backup_writes_enabled is missing from the live template`.
+
+It cannot re-enable a switch, in two independent layers:
+
+1. **The payload is built from the live template, never from the checked-in one.** Existing parameters, conditions and parameter groups cross over verbatim, so there is no code path that writes a checked-in value over a live one. Only keys the project has never held are added, and nothing is ever deleted - a retired parameter no current flag reads stays where it is.
+2. **It refuses to write anything at all while any managed switch is off.** Remote Config publishes are full replaces, so the payload necessarily restates every live parameter, and a flip landing between the read and the write would be undone by a payload that was correct when it was built. Rather than race that, an automated run stops and names the switch. A human still can publish, with the full picture.
+
+It also proves the write afterwards.
+The backend increments `version.versionNumber` on every publish, so a post-publish version that is not exactly one past the version the run read means something else published in between; the run fails, names the intervening version and who published it, and **restores nothing** - reconciling would be a second automated write into a situation nobody understands yet.
+
+A live value that differs from the checked-in template is reported and left exactly as it is, whatever the reason.
+
+```bash
+cd scripts
+npm run remoteconfig:publish-new                       # dev, rehearsal only
+npm run remoteconfig:publish-new -- --apply
+npm run remoteconfig:publish-new:staging -- --apply
+npm run remoteconfig:publish-new:production -- --apply
+```
+
+Without `--apply` it runs the real `firebase deploy --only remoteconfig` with `--dry-run`, so a rehearsal exercises the same command and stops before the write rather than describing what it would have done.
+
+**Production is deliberately not automated.**
+No workflow may invoke this script against `ascend-prod-9c8f2`, and a test in `scripts/test/remote-config-publish.test.mjs` fails if one ever does.
+The additive argument would make it safe; widening what automation touches in production is a separate decision, and the production archive preflight already refuses to build while a flag is unreachable, so a missed publish stops the release rather than shipping a decorative lever.
+`docs/production-backend-rollout-runbook.md` owns the captain-only step.
+
+### Drift
+
+`.github/workflows/remote-config-drift.yml` compares dev, staging and production against `develop` every Monday, and on demand through **Run workflow** - which is the form that matters mid-incident, when the question is "what is actually live in all three right now".
+
+It is strictly read-only, production included.
+An unreachable switch fails it; a switch someone has turned off is reported and does not, because using the lever is the mechanism working.
+
+```bash
+cd scripts
+npm run remoteconfig:drift
+```
+
+To restore normal behaviour after using a switch, flip the parameter back to `true` in the console.
 
 **Flip it, do not delete it.**
 Deleting the parameter restores the same behaviour - the flag falls back to its shipped default, which is `true` - but it also removes the lever, and the archive preflight below refuses to build staging or production while a flag the binary reads is missing from the backend.
@@ -146,13 +195,26 @@ Two things it deliberately does **not** do:
 - It never looks at parameter *values*. A switch an operator has turned off is the mechanism working, and an archive must not be blocked because someone is using the lever.
 - It fails rather than passes when it cannot reach the backend. "Could not look" must never read as "looks fine" - that is the exact shape of the gap it exists to end.
 
+### What a pull request is told
+
+The archive preflight cannot run on a pull request: a flag added there is not published anywhere yet, by definition, and never should be.
+So `scripts/ci/report-kill-switch-changes.mjs` runs instead, and asserts the half that needs no backend - `RemoteFeatureFlag.swift` and `remoteconfig.template.json` declare the same keys, and each parameter is a `BOOLEAN` that ships on with a description.
+
+The rest is reporting.
+A pull request that adds a switch says so in its checks, naming the switch, where it lands automatically, and that production does not.
+That is the difference between learning about a new switch at review time and learning about it from a staging archive that failed hours after the merge.
+
 ### Publish and verification record
 
 | Project | Published | Template version | Verified |
 |---|---|---|---|
-| Dev `ascend-f2e4f` | 2026-08-02 | 4 (1 = first publish; 2-3 were the switch exercise below) | Client `main_active` carries all seven, `main_default` empty |
-| Staging `ascend-staging-fa7d5` | 2026-08-02 | 1 | Client `main_active` carries all seven, `main_default` empty |
+| Dev `ascend-f2e4f` | 2026-08-03 | 7 (1 = first publish; 2-3 were the switch exercise below) | Backend read-back: all nine present |
+| Staging `ascend-staging-fa7d5` | 2026-08-03 | 2 | Backend read-back: all nine present |
 | Production `ascend-prod-9c8f2` | 2026-08-02 | 1 | Backend read-back, parameter by parameter - see below |
+
+The 2026-08-03 dev and staging rows are the manual remediation of #367's three routine switches, read back off the backend rather than off a client.
+Both now carry all nine and no longer carry the retired `leaderboard_publishing_enabled`.
+Production was not re-read for that remediation and still shows the 2026-08-02 publish of seven; the production archive preflight is what refuses to ship a binary against it while the routine switches are unreachable there.
 
 Client-side verification reads the Firebase SDK's own activation store in the simulator container, `Library/Application Support/Google/RemoteConfig/RemoteConfig.sqlite3`:
 

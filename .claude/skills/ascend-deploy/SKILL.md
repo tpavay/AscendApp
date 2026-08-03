@@ -24,7 +24,7 @@ Read the workflow file before changing it - the job graph below is the contract,
 
 `.github/workflows/ci.yml` runs on CI-relevant PR changes targeting `develop` and `main`.
 Every verify job is gated on the changed paths, so a functions-only PR skips the iOS jobs and an iOS-only PR skips the functions job:
-- `changes` - a `dorny/paths-filter` job that resolves the `ios`, `functions`, `scripts`, `web`, `root_npm`, `firebase`, `ruby`, and `swiftdata_schema` outputs. Every other job declares `needs: changes` and an `if:` on one of those outputs, so a new verify job is skipped by default until you add it to the filter.
+- `changes` - a `dorny/paths-filter` job that resolves the `ios`, `functions`, `scripts`, `web`, `root_npm`, `firebase`, `ruby`, `swiftdata_schema`, and `remote_config` outputs. Every other job declares `needs: changes` and an `if:` on one of those outputs, so a new verify job is skipped by default until you add it to the filter.
 - `functions-verify` - installs `functions/`, then lints, unit-tests, runs the emulator-backed suite, and audits (`npm --prefix functions ci`, `run lint`, `test`, `run test:emulator`, `audit --audit-level=low`).
   `test:emulator` runs `functions/test/emulator/*` against a real Firestore through `emulators:exec`, because the unit suite injects a store and so never exercises the Admin adapter that actually writes the world-readable leaderboard.
   It asserts `FIRESTORE_EMULATOR_HOST` is set rather than skipping, so it cannot pass by doing nothing.
@@ -37,6 +37,7 @@ Every verify job is gated on the changed paths, so a functions-only PR skips the
   A suite here that asserts against tracked non-`scripts/` files must add its inputs to this filter, or the assertion silently stops running on the PRs that break it.
 - `swiftdata-schema-verify` - runs `node scripts/check-swiftdata-schema.mjs` against the Swift sources, on its own `swiftdata_schema` filter of `AscendApp/**` plus `SharedTestVectors/**`. That filter is the whole app tree on purpose: an `@Model` can be declared anywhere, so it is never narrowed to the folders models live in today. `ascend-data-migration` owns what the check enforces.
   Deliberately dependency-free - no `npm ci`, no `npm audit` - so a Swift-only PR cannot be blocked by an advisory against a `scripts/`-only Node dependency. Keep it out of `scripts-verify` for that reason, even though the check ships under `scripts/`.
+- `remote-config-verify` - runs `node scripts/ci/report-kill-switch-changes.mjs --base-ref <PR base sha>` on its own `remote_config` filter, and checks out with `fetch-depth: 0` so the base commit is present for the added/removed comparison. Dependency-free for the same reason as the SwiftData gate. It asserts only the half a pull request can prove - a flag added on a branch is by definition not published yet, so the live-backend check is the archive preflight's job, not this one. `docs/remote-config-kill-switches.md` owns what it asserts and reports.
 - `web-verify` - installs `web/`, builds the Astro site, then audits. Gated on changes to `web/**`.
 - `root-npm-verify` - audits the committed root lockfile with `--package-lock-only` (no install). Gated on changes to `package.json` / `package-lock.json`.
 - `firebase-verify` - structurally validates `firebase.json`, `.firebaserc`, and `firestore.indexes.json`, then starts the Firestore and Storage emulators and runs `tests/firebase-rules/*.test.mjs`. The emulators load both rules files before the suite, so syntax failures stop the job.
@@ -92,8 +93,9 @@ Every npm project is audit-gated at `--audit-level=low`, so any newly published 
 
 A trigger pointing at a branch that no longer exists silently disables the workflow rather than failing. When the branching model changes, change the trigger in the same PR.
 
-`.github/workflows/deploy-staging.yml` runs on pushes to `develop` and on manual dispatch. Three jobs, **not** a sequential chain:
-- `build-ios` - Staging scheme, produces the IPA.
+`.github/workflows/deploy-staging.yml` runs on pushes to `develop` and on manual dispatch. Four jobs, and still **not** a sequential chain:
+- `publish-kill-switches` - additively publishes any newly declared Remote Config kill switch to dev then staging, ahead of the archive that checks them. The dev step is `continue-on-error` on purpose; nothing archives against dev, so a dev-only failure must not hold the staging release train. See "Phased release and the remote kill switches" below.
+- `build-ios` - Staging scheme, produces the IPA. `needs: publish-kill-switches`, so the archive preflight cannot read the backend before the publish it depends on.
 - `deploy-firebase` - has **no `needs:`**, so it runs in parallel with `build-ios` and will deploy even if the app build fails. Steps 2-6 of the old "sequential" story are in fact one command: `--only functions,firestore:rules,firestore:indexes,storage,hosting`. The workflow comment frames this as tolerated, but it is a known CI safety gap tracked in issue #202 - treat it as a gap, not as settled design.
   It then runs `scripts/verify-deployed-functions.mjs` against `ascend-staging-fa7d5`, so a functions drift fails staging rather than waiting to be discovered in production.
 - `upload-testflight` - the only gated job here: `needs: [build-ios, deploy-firebase]`. Last because it is hardest to reverse.
@@ -112,6 +114,8 @@ Both `build-ios` jobs run `scripts/ci/assert-monetization-keys-configured.mjs <S
 Both `build-ios` jobs then run `scripts/ci/assert-remote-config-published.mjs <staging|prod>`, which reads the live Remote Config template with `FIREBASE_TOKEN` and refuses the archive when a kill switch the binary reads is unreachable on that project's backend - missing, published as "use in-app default", carrying only conditional values, or not declared `BOOLEAN`. It reports on template *shape*, never on values, so a switch an operator has deliberately turned off never blocks a release; and it exits `2` rather than passing when it cannot reach the backend, because "could not look" reading as "looks fine" is exactly how #318 stayed invisible. `docs/remote-config-kill-switches.md` owns the rest.
 
 `.github/workflows/deploy-production-watchdog.yml` runs on `workflow_run` completion of Deploy Production, on a 3-hourly cron, and on dispatch. It runs `scripts/check-deploy-production-health.mjs`, which opens/updates/closes a single marker-identified issue labelled `deploy-health` and exits non-zero when unhealthy. It is deliberately outside the pipeline it watches - see below.
+
+`.github/workflows/remote-config-drift.yml` runs on a weekly cron and on `workflow_dispatch`, and is strictly read-only across dev, staging and production - see "Phased release and the remote kill switches" below, and `docs/remote-config-kill-switches.md` for what it reports.
 
 ## A cancelled run is silent - the 2026-07 production outage
 
@@ -179,8 +183,11 @@ Do not introduce a *new* long-lived JSON service-account key for deploy auth; th
 An iOS binary cannot be rolled back, so a shipped release has exactly two undo levers. Full detail, including the fetch-failure posture and verified Remote Config pricing: `docs/remote-config-kill-switches.md`.
 
 - **Remote Config kill switches** in front of every data-shape-touching path. Flipping one in the Firebase console reaches every install without a submission, including ones that already updated. Catalog: `AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift`; template: `remoteconfig.template.json`.
-  - Publishing the template is a full replace, so **no workflow may publish it by any route** - not a `--only` list naming `remoteconfig`, not an unscoped `firebase deploy` (`firebase.json` wires the template in), and not `scripts/deploy-remote-config.mjs` or any npm alias that runs it. `scripts/test/remote-config-template.test.mjs` closes all three across every file in `.github/workflows/`. *Reading* the live template from CI is deliberately allowed - that is what the `build-ios` archive preflight does.
+  - Publishing the template is a full replace, so **no workflow may full-replace it by any route** - not a `--only` list naming `remoteconfig`, not an unscoped `firebase deploy` (`firebase.json` wires the template in), and not `scripts/deploy-remote-config.mjs` or any npm alias that runs it. `scripts/test/remote-config-template.test.mjs` closes all three across every file in `.github/workflows/`. *Reading* the live template from CI is deliberately allowed - that is what the `build-ios` archive preflight does.
   - `scripts/deploy-remote-config.mjs` refuses to publish over a switch that is currently off unless you name it.
+  - What CI *does* publish is `scripts/publish-new-kill-switches.mjs`, in `deploy-staging.yml`'s `publish-kill-switches` job, to **dev and staging only**. It builds its payload from the live template so it can only add a parameter the project has never held, refuses to write at all while any switch is off, and verifies afterwards that exactly one publish - its own - separates the version it read from the version now live. `scripts/test/remote-config-publish.test.mjs` pins that, and fails if any workflow aims it at production.
+  - `build-ios` **needs** that job. Putting the publish in `deploy-firebase` would not work: in `deploy-staging.yml` that job runs in parallel with the archive, and in `deploy-production.yml` it runs after it.
+  - `remote-config-drift.yml` reads all three projects weekly and on demand. Read-only, production included.
 - **App Store phased release** - 1/2/5/10/20/50/100% over seven days. It does **not** apply to an app's first release, so 1.0 goes to everyone at once and only the kill switches cover launch day.
   - Arm and halt with `scripts/appstore-phased-release.mjs` (`status`, `enable`, `pause`, `resume`, `release-to-all`), using the same `APP_STORE_CONNECT_API_*` credentials as `upload_testflight`.
   - Pausing stops further users being moved onto a build; it does not remove it from anyone who already updated. For a data-corrupting bug, flip the kill switch first, then pause.

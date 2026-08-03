@@ -1,0 +1,49 @@
+name: Remote Config Drift
+
+# Every other check looks at one project, at the moment someone is shipping to it.
+# That leaves production - which is built for rarely and deployed to by hand -
+# free to diverge for weeks with nothing looking. A schedule is what makes
+# divergence something you can see rather than something an incident discovers,
+# and workflow_dispatch is what makes it usable DURING one: it answers "what is
+# actually live in all three right now" in a minute, without a console tab each.
+#
+# Weekly rather than daily on purpose. The thing being watched changes only when
+# someone publishes, and a check that cries every morning is a check people learn
+# to scroll past.
+#
+# Strictly read-only, production included. It reports drift and never reconciles
+# it - an automated repair here would be indistinguishable from the incident-time
+# clobber that scripts/publish-new-kill-switches.mjs exists to prevent.
+on:
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: remote-config-drift
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: Report Remote Config Drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # A scheduled run reads the default branch, so the comparison is against
+      # what `develop` declares - the flags the next staging build will read.
+      - name: Compare dev, staging and production against this ref
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: node scripts/ci/report-remote-config-drift.mjs dev staging prod

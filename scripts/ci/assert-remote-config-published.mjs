@@ -22,17 +22,34 @@ import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import process from "node:process";
 
+import {annotate} from "../lib/ci-annotations.mjs";
 import {appFlagKeys, unpublishedFlagProblems} from "../lib/remote-config-template.mjs";
 
 const FIREBASE_TOOLS = "firebase-tools@15.22.1";
 const STRUCTURAL_EXIT_CODE = 2;
 
-// The publish script's npm alias lives beside its project id so a renamed script cannot
-// leave the remediation below pointing at a command that does not exist.
+// Both npm aliases live beside the project id so a renamed script cannot leave the remediation
+// below pointing at a command that does not exist. The additive publisher comes first because
+// it is the one that cannot re-enable a switch an operator has turned off: it only ever adds a
+// parameter the project has never held, and refuses to write at all while any switch is off.
+// The full replace is the second option, for a project that has genuinely diverged, and it is
+// the one a human must read the diff before running.
 const PROJECTS = {
-  dev: {projectId: "ascend-f2e4f", publishScript: "remoteconfig:deploy"},
-  staging: {projectId: "ascend-staging-fa7d5", publishScript: "remoteconfig:deploy:staging"},
-  prod: {projectId: "ascend-prod-9c8f2", publishScript: "remoteconfig:deploy:production"},
+  dev: {
+    projectId: "ascend-f2e4f",
+    additivePublishScript: "remoteconfig:publish-new",
+    fullReplaceScript: "remoteconfig:deploy",
+  },
+  staging: {
+    projectId: "ascend-staging-fa7d5",
+    additivePublishScript: "remoteconfig:publish-new:staging",
+    fullReplaceScript: "remoteconfig:deploy:staging",
+  },
+  prod: {
+    projectId: "ascend-prod-9c8f2",
+    additivePublishScript: "remoteconfig:publish-new:production",
+    fullReplaceScript: "remoteconfig:deploy:production",
+  },
 };
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -42,9 +59,7 @@ const FLAG_SOURCE_PATH = resolve(
 );
 
 function failStructurally(message) {
-  // A workflow command terminates at its first raw newline; `%0A` is how a multi-line
-  // annotation survives into the rendered error rather than only the raw log.
-  console.error(`::error::${message.replaceAll("\n", "%0A")}`);
+  annotate("error", message);
   process.exit(STRUCTURAL_EXIT_CODE);
 }
 
@@ -56,7 +71,7 @@ if (!environment || !(environment in PROJECTS)) {
   );
 }
 
-const {projectId, publishScript} = PROJECTS[environment];
+const {projectId, additivePublishScript, fullReplaceScript} = PROJECTS[environment];
 
 let swiftSource;
 try {
@@ -104,16 +119,26 @@ const problems = unpublishedFlagProblems(liveTemplate, appKeys);
 
 if (problems.length > 0) {
   for (const problem of problems) {
-    console.error(`::error::${problem}`);
+    annotate("error", problem);
   }
   // A workflow command ends at its first newline, so the annotation carries the diagnosis
   // alone and the remediation follows as plain lines rather than being truncated into the
   // raw log - the least visible place at the moment someone needs it.
-  console.error(
-    `::error::${problems.length} of ${appKeys.length} kill switch(es) are unreachable in ` +
-      `${projectId}. Publish the template before archiving.`,
+  annotate(
+    "error",
+    `${problems.length} of ${appKeys.length} kill switch(es) are unreachable in ${projectId}. ` +
+      "Publish the template before archiving.",
   );
-  console.error(`  cd scripts && npm run ${publishScript} -- --apply`);
+  console.error(`  cd scripts && npm run ${additivePublishScript} -- --apply`);
+  console.error(
+    "  That adds only the switches this project has never held, and refuses to write at all " +
+      "while any switch is off - so it cannot re-enable one mid-incident.",
+  );
+  console.error(
+    `  If ${projectId} has genuinely diverged and needs the whole template rewritten, that is ` +
+      "the full replace, and it is a human's call after reading the diff:",
+  );
+  console.error(`  cd scripts && npm run ${fullReplaceScript} -- --apply`);
   console.error("  See docs/remote-config-kill-switches.md.");
   process.exit(1);
 }

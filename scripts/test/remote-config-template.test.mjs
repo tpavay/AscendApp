@@ -5,8 +5,11 @@ import test from "node:test";
 import {
   appFlagKeys,
   findActiveKillSwitches,
+  flagParityProblems,
   isParameterOff,
   templateParameters,
+  templateShapeProblems,
+  templateVersionNumber,
   unpublishedFlagProblems,
 } from "../lib/remote-config-template.mjs";
 
@@ -24,18 +27,21 @@ const flagSource = repositoryText(
 );
 
 test("every checked-in parameter is a boolean that ships on", () => {
-  const parameters = templateParameters(localTemplate);
-  assert.ok(Object.keys(parameters).length > 0);
+  assert.ok(Object.keys(templateParameters(localTemplate)).length > 0);
+  assert.deepEqual(templateShapeProblems(localTemplate), []);
+});
 
-  for (const [key, parameter] of Object.entries(parameters)) {
-    assert.equal(parameter.valueType, "BOOLEAN", `${key} must be a BOOLEAN parameter`);
-    assert.equal(
-      parameter.defaultValue?.value,
-      "true",
-      `${key} must ship on - the checked-in template is the healthy state`,
-    );
-    assert.ok(parameter.description?.length > 0, `${key} needs a description`);
-  }
+test("a malformed checked-in parameter is reported by shape", () => {
+  const problems = templateShapeProblems({
+    parameters: {
+      a_flag_enabled: {valueType: "STRING", defaultValue: {value: "false"}},
+    },
+  });
+
+  assert.equal(problems.length, 3);
+  assert.ok(problems.some((problem) => /must be declared BOOLEAN/.test(problem)));
+  assert.ok(problems.some((problem) => /must ship on/.test(problem)));
+  assert.ok(problems.some((problem) => /needs a description/.test(problem)));
 });
 
 test("the template is wired into firebase.json", () => {
@@ -44,18 +50,25 @@ test("the template is wired into firebase.json", () => {
   assert.equal(firebaseConfig.remoteconfig?.template, "remoteconfig.template.json");
 });
 
-test("Remote Config is not published by any automated deploy", () => {
-  // The invariant is behavioural, not syntactic: no CI workflow may publish the template by
-  // *any* route, because a publish is a full replace that silently re-enables a kill switch
-  // an operator had just turned off. Reading the live template is fine and is exactly what
-  // the archive preflight does, so this cannot be a check on the mere appearance of the word.
+test("no automated deploy full-replaces the Remote Config template", () => {
+  // The invariant is behavioural, not syntactic: no CI workflow may replace the live template
+  // wholesale, because that silently re-enables a kill switch an operator had just turned off.
+  // Reading the live template is fine and is exactly what the archive preflight does, so this
+  // cannot be a check on the mere appearance of the word.
   //
-  // Three routes reach a publish, and all three are closed here:
+  // Three routes reach a full replace, and all three are closed here:
   //   1. a `firebase deploy` whose --only list names remoteconfig, quoted or not;
   //   2. a `firebase deploy` with no --only at all - firebase.json wires the template in, so
   //      an unscoped deploy publishes it;
-  //   3. the repository's own publish path, whether invoked through an npm alias or by
-  //      running the script directly.
+  //   3. the repository's own full-replace publish path, whether invoked through an npm alias
+  //      or by running the script directly.
+  //
+  // What IS allowed in a workflow is the additive publisher, which builds its payload from the
+  // live template and can only ever add a parameter the project has never held - see
+  // `remote-config-publish.test.mjs`, which pins that guarantee against the merge itself
+  // rather than against a filename. Its production form stays out of every workflow: the
+  // additive argument makes it safe, but widening what automation touches in production is a
+  // separate decision nobody has made.
   //
   // Every workflow is read, not a named few: a publish added to a workflow nobody thought to
   // list is exactly as damaging as one added to a deploy, and the directory is the only
@@ -133,6 +146,47 @@ test("the template carries exactly the flags the app knows about", () => {
 
   assert.ok(appKeys.length > 0, "could not parse any flag keys out of RemoteFeatureFlag.swift");
   assert.deepEqual(Object.keys(templateParameters(localTemplate)).sort(), appKeys);
+  assert.deepEqual(flagParityProblems(localTemplate, flagSource), []);
+});
+
+test("a flag the app reads with no parameter behind it is reported", () => {
+  const problems = flagParityProblems({parameters: {}}, 'case newSwitch = "new_switch_enabled"');
+
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /new_switch_enabled is read by the app but carries no parameter/);
+});
+
+test("a parameter no code reads is reported", () => {
+  const problems = flagParityProblems(
+    {
+      parameters: {
+        new_switch_enabled: {},
+        forgotten_switch_enabled: {},
+      },
+    },
+    'case newSwitch = "new_switch_enabled"',
+  );
+
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /forgotten_switch_enabled is in remoteconfig.template.json/);
+});
+
+test("a Swift source with no flags is a parity failure, not a pass", () => {
+  // The same reason the archive preflight refuses an empty parse: asserting nothing is how
+  // this class of gap opens.
+  assert.equal(flagParityProblems(localTemplate, "// no cases here").length, 1);
+});
+
+test("the live template's version number is read from either envelope", () => {
+  assert.equal(templateVersionNumber({version: {versionNumber: "4"}}), 4);
+  assert.equal(templateVersionNumber({result: {version: {versionNumber: "1"}}}), 1);
+});
+
+test("a project that has never been published carries no version", () => {
+  // Distinct from version 0, which does not exist - `{}` is the literal response every project
+  // gave on 2026-08-02, and the first publish makes it version 1.
+  assert.equal(templateVersionNumber({}), null);
+  assert.equal(templateVersionNumber({parameters: {}}), null);
 });
 
 test("a value of false is recognised as a live kill switch", () => {
