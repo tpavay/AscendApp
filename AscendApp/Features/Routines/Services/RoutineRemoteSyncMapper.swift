@@ -89,7 +89,10 @@ enum RoutineSyncError: LocalizedError, Equatable {
 /// permanently unbacked because of a number we shipped - which the climber
 /// never typed, cannot see, and could neither avoid nor detect.
 ///
-/// A repair is still reported. Clamping is a fix, not a reason to stop looking.
+/// A repair is still reported - clamping is a fix, not a reason to stop looking -
+/// and it converges: once the upload lands, `applyRepairs` writes the repaired
+/// value onto the local record too, so local and backup agree and the next pass
+/// finds nothing to repair or report.
 enum RoutineSyncRepair: Equatable, Sendable {
     case difficultyClamped(from: Int, to: Int, minimum: Int, maximum: Int)
     case estimatedCaloriesClamped(from: Int, to: Int)
@@ -320,10 +323,15 @@ enum RoutineRemoteSyncMapper {
     /// The four fields `Routine.createUserCopy()` carries verbatim out of a
     /// catalog template, brought inside the bounds `firestore.rules` enforces.
     ///
-    /// `templateId` is dropped rather than clamped because it is provenance
-    /// rather than content: truncating it would invent a template that does not
-    /// exist, and the local record keeps its own copy for `savedCopy(templateId:)`
-    /// to match on.
+    /// `templateId` is dropped rather than truncated: an identifier cut to fit
+    /// can silently name a *different* template, and wrong provenance is worse
+    /// than none. Dropping it is not free. `savedCopy(templateId:)` is how
+    /// `RoutineDetailView` decides whether a template is already saved, so once
+    /// the drop is applied that lookup finds nothing, the template renders as
+    /// unsaved, and tapping Save mints a second routine. The residual is a
+    /// duplicate the climber did not ask for - not lost data, and not a routine
+    /// refused its backup over a value we published. The trigger is a
+    /// `routine_templates` field we author, and issue #364 removes it at source.
     private struct RepairedRoutineMetadata {
         var templateId: String?
         var templateVersion: Int?
@@ -381,6 +389,44 @@ enum RoutineRemoteSyncMapper {
         }
 
         return repaired
+    }
+
+    /// Writes a repair back onto the local record so it stops being a repair.
+    ///
+    /// Only the fields `RoutineSyncRepair` covers, which are only ever ones
+    /// Ascend authored. Nothing the climber wrote is reachable from here, and
+    /// `updatedAt` deliberately does not move: converging a value we published is
+    /// not an edit, and bumping the hydration tiebreaker over it would let this
+    /// device outrank a second one that has the same routine.
+    static func applyRepairs(_ repairs: [RoutineSyncRepair], to routine: Routine) {
+        for repair in repairs {
+            switch repair {
+            case let .difficultyClamped(_, to, _, _):
+                routine.difficulty = to
+            case let .estimatedCaloriesClamped(_, to):
+                routine.estimatedCalories = to
+            case let .templateVersionClamped(_, to):
+                routine.templateVersion = to
+            case .templateIdDropped:
+                routine.templateId = nil
+            case .folderColorDropped:
+                break
+            }
+        }
+    }
+
+    static func applyRepairs(_ repairs: [RoutineSyncRepair], to folder: RoutineFolder) {
+        for repair in repairs {
+            switch repair {
+            case .folderColorDropped:
+                folder.colorHex = nil
+            case .difficultyClamped,
+                 .estimatedCaloriesClamped,
+                 .templateVersionClamped,
+                 .templateIdDropped:
+                break
+            }
+        }
     }
 
     /// Matched against the one pattern `firestore.rules` is pinned to, and only

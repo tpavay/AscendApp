@@ -233,11 +233,12 @@ struct RoutineSyncCoordinatorTests {
 
         let diagnostics = RecordingDiagnostics()
         let backend = InMemoryUserRoutineBackend()
-        await RoutineSyncCoordinator(
+        let coordinator = RoutineSyncCoordinator(
             remoteRepository: backend,
             diagnostics: diagnostics,
             operationTimeoutSeconds: 5
-        ).processPendingRoutines(
+        )
+        await coordinator.processPendingRoutines(
             modelContext: modelContext,
             currentUserId: Self.userId
         )
@@ -248,6 +249,11 @@ struct RoutineSyncCoordinatorTests {
         let uploaded = try #require(await backend.routineDocument(copy.id))
         #expect(uploaded.difficulty == FirestoreUserRoutineDocument.maxDifficulty)
         #expect(uploaded.estimatedCalories == 0)
+
+        // The repair converges: the local record holds the repaired values too,
+        // so local and backup agree from here on.
+        #expect(stored.difficulty == FirestoreUserRoutineDocument.maxDifficulty)
+        #expect(stored.estimatedCalories == 0)
 
         // A value we published being out of bounds is ours to see, so a repair is
         // reported as loudly as a refusal - and never quotes what the climber wrote.
@@ -266,6 +272,24 @@ struct RoutineSyncCoordinatorTests {
         #expect(
             diagnostics.events.contains { $0.details.values.contains("Pyramid Climb (Copy)") } == false
         )
+
+        // A condition that will never change must not be reported forever. The
+        // climber runs this routine three times a week; every completion marks it
+        // pending again, and a repair re-detected on each pass would mirror to
+        // Crashlytics every time and evict real rejections from the shared ring
+        // buffer. Converging is what stops it.
+        let reportedOnce = diagnostics.events.count
+        stored.markPendingRemoteUpsert(ownerUserId: Self.userId)
+        try modelContext.save()
+
+        await coordinator.processPendingRoutines(
+            modelContext: modelContext,
+            currentUserId: Self.userId
+        )
+
+        #expect(diagnostics.events.count == reportedOnce)
+        #expect(await backend.routineDocument(copy.id)?.difficulty == uploaded.difficulty)
+        #expect(await backend.routineDocument(copy.id)?.estimatedCalories == uploaded.estimatedCalories)
     }
 
     @Test("A folder colour the rules refuse is repaired rather than losing the backup", .bug(id: 304))
@@ -289,7 +313,7 @@ struct RoutineSyncCoordinatorTests {
 
         let stored = try #require(try modelContext.fetch(FetchDescriptor<RoutineFolder>()).first)
         #expect(stored.remoteSyncStatus == .synced)
-        #expect(stored.colorHex == "lime")
+        #expect(stored.colorHex == nil)
 
         let uploaded = try #require(await backend.folderDocument(folder.id))
         #expect(uploaded.colorHex == nil)
@@ -299,6 +323,7 @@ struct RoutineSyncCoordinatorTests {
         #expect(event.details["reason"] == "folder_color_dropped")
         #expect(event.details["record_kind"] == "routine_folder")
         #expect(event.details.values.contains("lime") == false)
+        #expect(diagnostics.events.count == 1)
     }
 
     /// Parked, not deleted, and not hidden - see issue #362.

@@ -234,9 +234,10 @@ struct RoutineRemoteSyncMapperTests {
         #expect(build.repairs.isEmpty)
     }
 
-    /// Provenance, not content: an id past the ceiling names no template the
-    /// server would recognise, and truncating it would invent one. The local
-    /// record keeps its own copy, which is what `savedCopy(templateId:)` reads.
+    /// Dropped rather than truncated: an id cut to fit can name a different
+    /// template, and wrong provenance is worse than none. The mapper itself never
+    /// touches the local record - the drop reaches it only once the upload lands,
+    /// through `applyRepairs`.
     @Test
     func anOverlongTemplateIdIsDroppedRatherThanRefused() throws {
         let overlongId = String(
@@ -431,7 +432,8 @@ struct RoutineRemoteSyncMapperTests {
                     .folderColorDropped(pattern: FirestoreRoutineFolderDocument.colorHexPattern)
                 ]
             )
-            // The local folder keeps whatever it had; only the upload is repaired.
+            // The mapper is pure: the local record changes only once the upload
+            // lands, through `applyRepairs`.
             #expect(folder.colorHex == unusable)
         }
     }

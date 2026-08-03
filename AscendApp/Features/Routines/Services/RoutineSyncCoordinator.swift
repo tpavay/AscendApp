@@ -122,6 +122,7 @@ private extension RoutineSyncCoordinator {
         let userId: String
         let expectedModifiedAt: Date
         let document: FirestoreUserRoutineDocument
+        let repairs: [RoutineSyncRepair]
     }
 
     struct FolderUploadSnapshot: Sendable {
@@ -129,6 +130,7 @@ private extension RoutineSyncCoordinator {
         let userId: String
         let expectedModifiedAt: Date
         let document: FirestoreRoutineFolderDocument
+        let repairs: [RoutineSyncRepair]
     }
 
     var backupsAreEnabled: Bool {
@@ -226,13 +228,13 @@ private extension RoutineSyncCoordinator {
         where !excludedIds.contains(routine.id) {
             do {
                 let build = try RoutineRemoteSyncMapper.build(for: routine)
-                recordRepairs(build.repairs, kind: "routine", recordId: routine.id)
                 snapshots.append(
                     RoutineUploadSnapshot(
                         routineId: routine.id,
                         userId: currentUserId,
                         expectedModifiedAt: routine.updatedAt,
-                        document: build.document
+                        document: build.document,
+                        repairs: build.repairs
                     )
                 )
             } catch {
@@ -256,13 +258,13 @@ private extension RoutineSyncCoordinator {
         where !excludedIds.contains(folder.id) {
             do {
                 let build = try RoutineRemoteSyncMapper.build(for: folder)
-                recordRepairs(build.repairs, kind: "routine_folder", recordId: folder.id)
                 snapshots.append(
                     FolderUploadSnapshot(
                         folderId: folder.id,
                         userId: currentUserId,
                         expectedModifiedAt: folder.effectiveUpdatedAt,
-                        document: build.document
+                        document: build.document,
+                        repairs: build.repairs
                     )
                 )
             } catch {
@@ -277,6 +279,12 @@ private extension RoutineSyncCoordinator {
 
     /// A local edit that landed during the upload keeps the record pending, so
     /// the newer content is not reported as backed up.
+    ///
+    /// A repaired value is written back onto the local record here, in the same
+    /// transaction as the bookkeeping. Repairing only the outgoing document would
+    /// leave the local record holding the out-of-range value for the life of the
+    /// install, so local and backup would disagree permanently and every later
+    /// pass would re-detect and re-report the identical repair.
     func markRoutineSynced(
         _ snapshot: RoutineUploadSnapshot,
         modelContext: ModelContext
@@ -288,8 +296,11 @@ private extension RoutineSyncCoordinator {
         ) else { return }
         guard routine.updatedAt <= snapshot.expectedModifiedAt else { return }
 
+        RoutineRemoteSyncMapper.applyRepairs(snapshot.repairs, to: routine)
         routine.markRemoteSyncSucceeded()
         try modelContext.save()
+
+        recordRepairs(snapshot.repairs, kind: "routine", recordId: snapshot.routineId)
     }
 
     func markRoutineFailed(
@@ -319,8 +330,11 @@ private extension RoutineSyncCoordinator {
         ) else { return }
         guard folder.effectiveUpdatedAt <= snapshot.expectedModifiedAt else { return }
 
+        RoutineRemoteSyncMapper.applyRepairs(snapshot.repairs, to: folder)
         folder.markRemoteSyncSucceeded()
         try modelContext.save()
+
+        recordRepairs(snapshot.repairs, kind: "routine_folder", recordId: snapshot.folderId)
     }
 
     func markFolderFailed(
@@ -511,6 +525,10 @@ private extension RoutineSyncCoordinator {
 
     /// A repaired record still uploads, so nothing else would ever say a value we
     /// published was out of bounds. This is the only thing that does.
+    ///
+    /// Reported from the pass that converged the local record, which is what
+    /// bounds it: the next pass finds nothing left to repair, so a bad catalog
+    /// value costs one event per record rather than one per upload forever.
     func recordRepairs(_ repairs: [RoutineSyncRepair], kind: String, recordId: UUID) {
         for repair in repairs {
             var details = repair.diagnosticDetails
