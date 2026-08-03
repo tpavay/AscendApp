@@ -337,6 +337,14 @@ jobs:
 
       # The emulators load firestore.rules and storage.rules before executing
       # the suite, so invalid syntax fails the job before any unit test runs.
+      #
+      # The npm script pins `--test-concurrency=1` and must keep it. Firestore
+      # rulesets are per project, but the Storage emulator holds exactly one
+      # global ruleset: every `initializeTestEnvironment({storage})` tears the
+      # loaded ruleset down and rebuilds it, and while that is in flight the
+      # emulator denies every Storage request - including the admin `owner`
+      # token `clearStorage()` uses. Two rules files that both configure Storage
+      # therefore knock each other out when node runs test files in parallel.
       - name: Validate rules and run emulator tests
         run: npm run test:firebase-rules
 
