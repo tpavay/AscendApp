@@ -220,36 +220,32 @@ test("the pattern guard rejects every glob shape the model cannot evaluate", () 
   }
 });
 
-test("the fallback claims the real iOS job's exact check name", () => {
-  const requiredCheckName = jobName("ios-verify");
-  const claimed = fallbackWorkflow.match(
-    /name:\s+\$\{\{\s*.*?&&\s*'(?<required>[^']+)'\s*\|\|\s*'(?<inert>[^']+)'\s*\}\}/,
-  )?.groups;
+test("the fallback derives required check names from the real iOS jobs", () => {
+  assert.match(
+    fallbackWorkflow,
+    /node scripts\/ci\/list-required-check-contexts\.mjs \.github\/workflows\/ci\.yml/,
+  );
+  assert.match(
+    fallbackWorkflow,
+    /context: \$\{\{ fromJSON\(needs\.route\.outputs\.required_contexts\) \}\}/,
+  );
 
-  assert.ok(
-    claimed,
-    "the fallback job must name itself through a conditional expression",
-  );
-  assert.equal(
-    claimed.required,
-    requiredCheckName,
-    "the fallback must claim exactly the name ci.yml's ios-verify job publishes, or renaming that job leaves CI-relevant PRs with no required check at all",
-  );
-  assert.notEqual(
-    claimed.inert,
-    requiredCheckName,
-    "the fallback's non-claiming name must differ from the required check name",
-  );
+  for (const jobId of ["ios-verify", "ios-verify-release"]) {
+    assert.doesNotMatch(
+      fallbackWorkflow,
+      new RegExp(`['\"]${jobName(jobId).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}['\"]`),
+      `${jobId}'s context must come from ci.yml instead of being copied into the fallback`,
+    );
+  }
 });
 
-test("fallback claims the required name only after a successful eligible route", () => {
+test("fallback claims each derived name only after a successful eligible route", () => {
   const safeRoute =
     "needs.route.result == 'success' && needs.route.outputs.fallback_eligible == 'true'";
-  const requiredCheckName = jobName("ios-verify");
 
   assert.ok(
     fallbackWorkflow.includes(
-      `name: \${{ ${safeRoute} && '${requiredCheckName}'`,
+      `name: \${{ ${safeRoute} && matrix.context || 'iOS Verify Fallback (Not Required)' }}`,
     ),
   );
   assert.ok(fallbackWorkflow.includes(`if: ${safeRoute}`));

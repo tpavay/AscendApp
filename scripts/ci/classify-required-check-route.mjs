@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Decides whether the CI required-check fallback may claim the required
-// `iOS Verify (Staging)` name. Every failure path exits non-zero so the routing
-// job fails and the fallback job's `if:` guard keeps it from claiming the name.
+// required iOS check names. Every failure path exits non-zero so the routing
+// job fails and the fallback job's `if:` guard keeps it from claiming them.
 //
 // This file is argv and stdio plumbing only. Every routing decision, including
 // the truncated-diff refusal, lives in the module below so it can be tested.

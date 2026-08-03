@@ -410,6 +410,7 @@ jobs:
       - name: Validate Fastlane lanes
         run: bundle exec fastlane lanes
 
+# required-check-contexts:start
   ios-verify:
     name: iOS Verify (Staging)
     needs: changes
@@ -744,3 +745,4 @@ jobs:
           path: build-logs/
           retention-days: 7
           if-no-files-found: warn
+# required-check-contexts:end

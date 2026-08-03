@@ -13,6 +13,26 @@ async function readWorkflow(name) {
   return readFile(`${repositoryRoot}/.github/workflows/${name}`, "utf8");
 }
 
+function requiredCheckContexts(ciWorkflow) {
+  const block = sectionBetween(
+    ciWorkflow,
+    "# required-check-contexts:start\n",
+    "# required-check-contexts:end",
+  );
+  const contexts = [...block.matchAll(/^ {4}name:\s+(?<name>.+?)\s*$/gm)].map(
+    (match) => match.groups.name,
+  );
+
+  assert.ok(contexts.length > 0, "CI must declare at least one required check context");
+  assert.equal(
+    new Set(contexts).size,
+    contexts.length,
+    "required check contexts must be unique",
+  );
+
+  return contexts;
+}
+
 function sectionBetween(source, start, end) {
   const startIndex = source.indexOf(start);
   assert.notEqual(startIndex, -1, `Missing section start: ${start}`);
@@ -22,6 +42,78 @@ function sectionBetween(source, start, end) {
 
   return source.slice(startIndex, endIndex);
 }
+
+test("the eligible fallback publishes every required iOS verification context", async () => {
+  const ciWorkflow = await readWorkflow("ci.yml");
+  const fallbackWorkflow = await readWorkflow("ci-required-check-fallback.yml");
+  const contexts = requiredCheckContexts(ciWorkflow);
+
+  assert.deepEqual(contexts, ["iOS Verify (Staging)", "iOS Verify (Release)"]);
+  assert.match(
+    fallbackWorkflow,
+    /required_contexts: \$\{\{ steps\.required-contexts\.outputs\.required_contexts \}\}/,
+  );
+  assert.match(
+    fallbackWorkflow,
+    /context: \$\{\{ fromJSON\(needs\.route\.outputs\.required_contexts\) \}\}/,
+  );
+
+  const script = `${repositoryRoot}/scripts/ci/list-required-check-contexts.mjs`;
+  const workspace = mkdtempSync(join(tmpdir(), "ascend-required-contexts-"));
+  const outputPath = join(workspace, "github-output");
+  writeFileSync(outputPath, "");
+
+  const result = spawnSync(process.execPath, [script, `${repositoryRoot}/.github/workflows/ci.yml`], {
+    encoding: "utf8",
+    env: {...process.env, GITHUB_OUTPUT: outputPath},
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(
+    readFileSync(outputPath, "utf8").trim(),
+    `required_contexts=${JSON.stringify(contexts)}`,
+  );
+
+  const expandedWorkflowPath = join(workspace, "ci-with-third-required-check.yml");
+  const expandedOutputPath = join(workspace, "expanded-github-output");
+  writeFileSync(
+    expandedWorkflowPath,
+    ciWorkflow.replace(
+      "# required-check-contexts:end",
+      "  ios-verify-third:\n    name: iOS Verify (Third)\n# required-check-contexts:end",
+    ),
+  );
+  writeFileSync(expandedOutputPath, "");
+
+  const expanded = spawnSync(process.execPath, [script, expandedWorkflowPath], {
+    encoding: "utf8",
+    env: {...process.env, GITHUB_OUTPUT: expandedOutputPath},
+  });
+
+  assert.equal(expanded.status, 0, expanded.stderr);
+  assert.equal(
+    readFileSync(expandedOutputPath, "utf8").trim(),
+    `required_contexts=${JSON.stringify([...contexts, "iOS Verify (Third)"])}`,
+  );
+});
+
+test("an ineligible fallback cannot publish a required verification context", async () => {
+  const fallbackWorkflow = await readWorkflow("ci-required-check-fallback.yml");
+  const safeRoute =
+    "needs.route.result == 'success' && needs.route.outputs.fallback_eligible == 'true'";
+
+  assert.ok(fallbackWorkflow.includes(`if: ${safeRoute}`));
+  assert.ok(
+    fallbackWorkflow.includes(
+      `name: \${{ ${safeRoute} && matrix.context || 'iOS Verify Fallback (Not Required)' }}`,
+    ),
+  );
+  assert.doesNotMatch(fallbackWorkflow, /^\s+paths(?:-ignore)?:/m);
+
+  for (const context of ["iOS Verify (Staging)", "iOS Verify (Release)"]) {
+    assert.notEqual("iOS Verify Fallback (Not Required)", context);
+  }
+});
 
 test("CI watches every iOS source and Firebase index definition", async () => {
   const workflow = await readWorkflow("ci.yml");

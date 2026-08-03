@@ -19,10 +19,18 @@ jobs:
     timeout-minutes: 5
     outputs:
       fallback_eligible: ${{ steps.classify.outputs.fallback_eligible }}
+      required_contexts: ${{ steps.required-contexts.outputs.required_contexts }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # The real CI workflow owns the context names. Deriving the matrix from
+      # those jobs keeps a future required iOS check from needing a second,
+      # easy-to-miss update in this fallback workflow.
+      - name: Read required check contexts
+        id: required-contexts
+        run: node scripts/ci/list-required-check-contexts.mjs .github/workflows/ci.yml
 
       # The classifier is an allowlist over the whole diff, which dorny cannot
       # express: it ORs its rules per file, so a negated rule reads as "any file
@@ -52,11 +60,15 @@ jobs:
 
   fallback:
     needs: route
-    name: ${{ needs.route.result == 'success' && needs.route.outputs.fallback_eligible == 'true' && 'iOS Verify (Staging)' || 'iOS Verify Fallback (Not Required)' }}
+    name: ${{ needs.route.result == 'success' && needs.route.outputs.fallback_eligible == 'true' && matrix.context || 'iOS Verify Fallback (Not Required)' }}
     if: needs.route.result == 'success' && needs.route.outputs.fallback_eligible == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        context: ${{ fromJSON(needs.route.outputs.required_contexts) }}
 
     steps:
       - name: Satisfy required check for non-CI changes
-        run: echo "Every changed path is verification-irrelevant. The required iOS verification check is satisfied by the fallback."
+        run: echo "Every changed path is verification-irrelevant. The required iOS verification checks are satisfied by the fallback."
