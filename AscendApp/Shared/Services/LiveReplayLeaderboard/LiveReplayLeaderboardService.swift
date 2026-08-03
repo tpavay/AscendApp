@@ -7,7 +7,8 @@ protocol LiveReplayLeaderboardServicing: Sendable {
 
     func fetchCompletionRank(
         context: LiveReplayLeaderboardContext,
-        completionDurationSeconds: TimeInterval
+        completionDurationSeconds: TimeInterval,
+        finalSteps: Int
     ) async throws -> LiveReplayCompletionRank
 
     func fetchCompletionRankSnapshot(
@@ -120,13 +121,15 @@ actor LiveReplayLeaderboardService: LiveReplayLeaderboardServicing {
 
     func fetchCompletionRank(
         context: LiveReplayLeaderboardContext,
-        completionDurationSeconds: TimeInterval
+        completionDurationSeconds: TimeInterval,
+        finalSteps: Int
     ) async throws -> LiveReplayCompletionRank {
         let repository = repository
         return try await withLiveReplayLeaderboardTimeout(seconds: fetchTimeoutSeconds) {
             try await repository.fetchCompletionRank(
                 context: context,
-                completionDurationSeconds: completionDurationSeconds
+                completionDurationSeconds: completionDurationSeconds,
+                finalSteps: finalSteps
             )
         }
     }
@@ -253,47 +256,28 @@ private enum LiveReplayLeaderboardTimeoutError: LocalizedError {
     }
 }
 
+/// Bounds a leaderboard read, and - because the group is structured - tears the read down when the
+/// caller is cancelled. A screen that closes mid-fetch must not leave a request running to its
+/// timeout: work that outlives its screen is wasted battery and a stale write waiting to happen.
 private func withLiveReplayLeaderboardTimeout<T: Sendable>(
     seconds: Double,
     operation: @escaping @Sendable () async throws -> T
 ) async throws -> T {
-    try await withCheckedThrowingContinuation { continuation in
-        let state = LiveReplayLeaderboardTimeoutContinuationState(continuation: continuation)
-
-        let operationTask = Task {
-            do {
-                let value = try await operation()
-                await state.resume(with: .success(value))
-            } catch {
-                await state.resume(with: .failure(error))
-            }
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask {
+            try await operation()
         }
 
-        Task {
-            do {
-                try await Task.sleep(for: .seconds(seconds))
-            } catch {
-                return
-            }
-
-            operationTask.cancel()
-            await state.resume(with: .failure(LiveReplayLeaderboardTimeoutError.operationTimedOut))
+        group.addTask {
+            try await Task.sleep(for: .seconds(seconds))
+            throw LiveReplayLeaderboardTimeoutError.operationTimedOut
         }
-    }
-}
 
-private actor LiveReplayLeaderboardTimeoutContinuationState<T: Sendable> {
-    private var continuation: CheckedContinuation<T, Error>?
-    private var hasResumed = false
+        defer { group.cancelAll() }
+        guard let result = try await group.next() else {
+            throw LiveReplayLeaderboardTimeoutError.operationTimedOut
+        }
 
-    init(continuation: CheckedContinuation<T, Error>) {
-        self.continuation = continuation
-    }
-
-    func resume(with result: Result<T, Error>) {
-        guard hasResumed == false, let continuation else { return }
-        hasResumed = true
-        self.continuation = nil
-        continuation.resume(with: result)
+        return result
     }
 }

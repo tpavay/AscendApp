@@ -3,7 +3,7 @@ import SwiftUI
 struct ReplayCompletionLeaderboardView: View {
     @State private var selectedFilter: LiveReplayLeaderboardFilter = .everyone
 
-    let rows: [LiveReplayLeaderboardRow]
+    let rows: [ModeratedReplayLeaderboardRow]
     let completedCount: Int
     let isLoading: Bool
     let isLoadingMore: Bool
@@ -12,10 +12,13 @@ struct ReplayCompletionLeaderboardView: View {
     let effectiveColorScheme: ColorScheme
     let emptyTitle: String
     let emptyMessage: String
-    let onRowAppear: (LiveReplayLeaderboardRow) -> Void
+    /// Which number the rows lead with. A board must headline the number it ranked on,
+    /// or its ordering reads as broken.
+    let emphasis: LiveReplayRowEmphasis
+    let onRowAppear: (ModeratedReplayLeaderboardRow) -> Void
 
     init(
-        rows: [LiveReplayLeaderboardRow],
+        rows: [ModeratedReplayLeaderboardRow],
         completedCount: Int,
         isLoading: Bool,
         isLoadingMore: Bool = false,
@@ -24,7 +27,8 @@ struct ReplayCompletionLeaderboardView: View {
         effectiveColorScheme: ColorScheme,
         emptyTitle: String,
         emptyMessage: String,
-        onRowAppear: @escaping (LiveReplayLeaderboardRow) -> Void = { _ in }
+        emphasis: LiveReplayRowEmphasis,
+        onRowAppear: @escaping (ModeratedReplayLeaderboardRow) -> Void = { _ in }
     ) {
         self.rows = rows
         self.completedCount = completedCount
@@ -35,10 +39,11 @@ struct ReplayCompletionLeaderboardView: View {
         self.effectiveColorScheme = effectiveColorScheme
         self.emptyTitle = emptyTitle
         self.emptyMessage = emptyMessage
+        self.emphasis = emphasis
         self.onRowAppear = onRowAppear
     }
 
-    private var visibleRows: [LiveReplayLeaderboardRow] {
+    private var visibleRows: [ModeratedReplayLeaderboardRow] {
         switch selectedFilter {
         case .everyone:
             return rows
@@ -60,11 +65,7 @@ struct ReplayCompletionLeaderboardView: View {
             } else if !visibleRows.isEmpty {
                 VStack(spacing: 8) {
                     ForEach(visibleRows) { row in
-                        ReplayCompletionLeaderboardRowView(
-                            row: row,
-                            currentUserPhotoURL: currentUserPhotoURL,
-                            effectiveColorScheme: effectiveColorScheme
-                        )
+                        resolvedRowView(for: row)
                         .onAppear {
                             onRowAppear(row)
                         }
@@ -180,12 +181,42 @@ struct ReplayCompletionLeaderboardView: View {
     private var secondaryColor: Color {
         effectiveColorScheme == .dark ? .white.opacity(0.58) : .black.opacity(0.5)
     }
+
+    @ViewBuilder
+    private func resolvedRowView(
+        for row: ModeratedReplayLeaderboardRow
+    ) -> some View {
+        if !row.isCurrentUser, row.userId != nil {
+            NavigationLink {
+                OtherUserProfileView(
+                    identity: row.identity,
+                    moderationSource: .completionLeaderboard
+                )
+            } label: {
+                rowView(row)
+            }
+            .buttonStyle(.plain)
+        } else {
+            rowView(row)
+        }
+    }
+
+    private func rowView(_ row: ModeratedReplayLeaderboardRow) -> some View {
+        ReplayCompletionLeaderboardRowView(
+            row: row,
+            currentUserPhotoURL: currentUserPhotoURL,
+            effectiveColorScheme: effectiveColorScheme,
+            emphasis: emphasis
+        )
+    }
+
 }
 
 private struct ReplayCompletionLeaderboardRowView: View {
-    let row: LiveReplayLeaderboardRow
+    let row: ModeratedReplayLeaderboardRow
     let currentUserPhotoURL: URL?
     let effectiveColorScheme: ColorScheme
+    let emphasis: LiveReplayRowEmphasis
 
     var body: some View {
         let rank = row.rank
@@ -202,7 +233,7 @@ private struct ReplayCompletionLeaderboardRowView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 7) {
-                    Text(row.isCurrentUser ? "You" : row.displayName)
+                    Text(row.isCurrentUser ? "You" : row.identity.displayName)
                         .font(.montserratBold(size: 15))
                         .foregroundStyle(primaryColor)
                         .lineLimit(1)
@@ -229,7 +260,7 @@ private struct ReplayCompletionLeaderboardRowView: View {
                         .minimumScaleFactor(0.75)
                 }
 
-                Text("\(displaySteps.formatted()) steps")
+                Text(supportingText)
                     .font(.montserratMedium(size: rank == 1 ? 12 : 11))
                     .foregroundStyle(secondaryColor)
                     .monospacedDigit()
@@ -238,10 +269,17 @@ private struct ReplayCompletionLeaderboardRowView: View {
             Spacer(minLength: 8)
 
             VStack(alignment: .trailing, spacing: 4) {
-                Text(durationText)
-                    .font(.montserratBold(size: rank == 1 ? 18 : 16))
-                    .foregroundStyle(isPodium ? rowAccent : (row.isCurrentUser ? .accent : primaryColor))
-                    .monospacedDigit()
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(headlineText)
+                        .font(.montserratBold(size: rank == 1 ? 18 : 16))
+                        .monospacedDigit()
+
+                    if let headlineUnit {
+                        Text(headlineUnit)
+                            .font(.montserratSemiBold(size: rank == 1 ? 10 : 9))
+                    }
+                }
+                .foregroundStyle(isPodium ? rowAccent : (row.isCurrentUser ? .accent : primaryColor))
 
                 if let averageStepsPerMinute = row.averageStepsPerMinute {
                     Text("\(Int(averageStepsPerMinute.rounded()).formatted()) avg SPM")
@@ -272,6 +310,31 @@ private struct ReplayCompletionLeaderboardRowView: View {
 
     private var displaySteps: Int {
         max(row.finalSteps, row.stepsAtBucket)
+    }
+
+    /// The ranked number, in the trailing headline slot.
+    private var headlineText: String {
+        switch emphasis {
+        case .duration:
+            return durationText
+        case .steps:
+            return displaySteps.formatted()
+        }
+    }
+
+    /// A clock reads as a clock unaided; a bare step count does not.
+    private var headlineUnit: String? {
+        emphasis == .steps ? "STEPS" : nil
+    }
+
+    /// The unranked number, demoted under the climber's name.
+    private var supportingText: String {
+        switch emphasis {
+        case .duration:
+            return "\(displaySteps.formatted()) steps"
+        case .steps:
+            return durationText
+        }
     }
 
     private var durationText: String {
@@ -316,7 +379,9 @@ private struct ReplayCompletionLeaderboardRowView: View {
     private func avatarView(size: CGFloat, borderColor: Color?) -> some View {
         let resolvedBorderColor = borderColor ?? (row.isCurrentUser ? Color.accent : .white.opacity(0.14))
 
-        if let photoURL = row.isCurrentUser ? (row.photoURL ?? currentUserPhotoURL) : row.photoURL {
+        if let photoURL = row.isCurrentUser ?
+            (row.identity.photoURL ?? currentUserPhotoURL) :
+            row.identity.photoURL {
             AsyncImage(
                 url: photoURL,
                 transaction: Transaction(animation: .easeInOut(duration: 0.2))
@@ -344,9 +409,18 @@ private struct ReplayCompletionLeaderboardRowView: View {
         }
     }
 
+    @ViewBuilder
     private func avatarToken(size: CGFloat, borderColor: Color?) -> some View {
-        Text(row.isCurrentUser ? "YOU" : row.avatarToken)
-            .font(.montserratBold(size: row.isCurrentUser ? 11 : 13))
+        Group {
+            if row.identity.avatarToken.isEmpty {
+                Image(systemName: PublicClimberIdentity.genericAvatarSystemName)
+                    .font(.system(size: 16, weight: .semibold))
+                    .accessibilityHidden(true)
+            } else {
+                Text(row.isCurrentUser ? "YOU" : row.identity.avatarToken)
+                    .font(.montserratBold(size: row.isCurrentUser ? 11 : 13))
+            }
+        }
             .foregroundStyle(row.isCurrentUser ? .black : .white)
             .lineLimit(1)
             .minimumScaleFactor(0.72)
@@ -362,7 +436,9 @@ private struct ReplayCompletionLeaderboardRowView: View {
     }
 
     @ViewBuilder
-    private func rowBackground(for row: LiveReplayLeaderboardRow) -> some View {
+    private func rowBackground(
+        for row: ModeratedReplayLeaderboardRow
+    ) -> some View {
         let rank = row.rank
         let rowAccent = leaderboardAccentColor(for: rank)
 

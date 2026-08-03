@@ -77,7 +77,7 @@ struct ClimbCompletionRepositoryTests {
             achievements: .zero
         )
         let snapshot = ProfileSnapshotBuilder.makeOwnSnapshot(
-            identity: ProfileUserIdentity(userId: userId, displayName: "Tester"),
+            demographics: ProfileDemographicsSnapshot(userId: userId),
             workouts: [],
             climbAttempts: attempts,
             completedClimbSet: set,

@@ -87,7 +87,6 @@ export function getTransactionalEmailConfig(): TransactionalEmailConfig {
   return {
     provider: config.provider,
     apiKey: config.apiKey,
-    betaInviteUrl: config.betaInviteUrl,
     feedbackNotificationEmail: config.feedbackNotificationEmail,
     fromEmail: config.fromEmail,
     fromName: config.fromName,
@@ -158,21 +157,5 @@ export function getTransactionalReplyToEmail(): string {
     return config.replyTo ?? config.fromEmail;
   } catch {
     return DEFAULT_TRANSACTIONAL_REPLY_TO_EMAIL;
-  }
-}
-
-/**
- * Returns the TestFlight or beta invite URL when configured.
- * @return {string | null} Normalized beta invite URL
- */
-export function getBetaInviteUrl(): string | null {
-  if (!process.env.TRANSACTIONAL_EMAIL_CONFIG) {
-    return null;
-  }
-
-  try {
-    return normalizePublicUrl(getTransactionalEmailConfig().betaInviteUrl);
-  } catch {
-    return null;
   }
 }

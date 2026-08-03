@@ -32,7 +32,7 @@ struct ProfileComparisonSummaryTests {
 
     private func snapshot(userId: String, workouts: [ProfileWorkoutSummary]) -> ProfileSnapshot {
         ProfileSnapshot(
-            identity: ProfileUserIdentity(userId: userId, displayName: userId),
+            demographics: ProfileDemographicsSnapshot(userId: userId),
             stats: ProfileStatsSnapshot(
                 totalClimbsCompleted: workouts.count,
                 totalFirstAscents: 0,

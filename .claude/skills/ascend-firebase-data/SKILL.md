@@ -13,6 +13,15 @@ Load the `vibe-security` skill for any auth/authz/trust-boundary change, and `fi
 
 Server-owned collections are the exception: they are `allow write: if false` and validate no fields, because no client can write them at all. Adding a field to one (for example the `live_replay_leaderboards` subtree, written only by Cloud Functions and Admin SDK scripts) needs no rules change.
 
+## Which collections must be server-owned
+
+**Shape validation is not evidence validation.** A rule can prove a document has the right fields, the right types, and the right author, and still have no idea whether the numbers in it happened. Decide by what reads the document, not by who writes it:
+
+- If a scheduled job, a counter, or an award reads a field, that collection is **server-write-only** and derived from the canonical records. `leaderboard_stats` was the counter-example: rules validated its shape and bound its identity to the publisher's own profile, yet a signed-in climber could `PATCH` `totalSteps: 2000000000`, hold every board, and have the nightly finalizer freeze permanent achievements from it (#307). A forged permanent award is data surgery to unwind, not a code fix.
+- The derivation reads the private canonical record - `users/{uid}/workouts` for standings - and writes the projection through the Admin SDK, which bypasses rules. One derivation, called by every trigger and by the backfill script; never a per-trigger copy.
+- **Deriving is not verifying.** The canonical records are still client-authored, and Ascend has no App Check and no server-side sensor ingestion, so the server's own evidence is only as good as the device that produced it. Bound what you derive by what is physically possible (see `ascend-leaderboards` for the standings envelope) and say plainly that the remainder is open. Claiming a derived number is "verified" is how a known gap becomes an assumed guarantee.
+- A seeded fixture row in a server-owned collection needs a synthetic marker (`isSynthetic: true`), or the derivation will delete it for having no evidence behind it. See `ascend-dev-fixtures`.
+
 When changing Firestore document schemas, always update in this order:
 1. Update `firestore.rules` to allow the new/changed fields
 2. Update the Swift model + write logic
@@ -21,6 +30,38 @@ When changing Firestore document schemas, always update in this order:
 The same `firestore.rules` file must be deployed to all environments (dev, staging, production) to catch schema mismatches early. Never test against loose rules in dev while production has strict ones.
 
 Verify with `npm run test:firebase-rules` (emulator-backed rules tests under `tests/firebase-rules/`).
+CI runs the same command on any PR touching rules, indexes, or Firebase config - see `ascend-deploy` for that job.
+
+That command pins `--test-concurrency=1`, and the files must keep running one at a time.
+The Storage emulator holds exactly one global ruleset - `PUT /internal/setRules` takes no project - so each file's `initializeTestEnvironment` replaces the ruleset every other file is using.
+While the swap is in flight the emulator answers *every* storage request with a blanket 403 that skips the auth check entirely, so a parallel run both fails owner-only setup like `clearStorage()` and turns `assertFails` assertions green for the wrong reason.
+Giving each file its own `projectId` does not help; the buckets are separate but the ruleset is not.
+
+## Schema versions are ranges in the rules, never equalities
+
+`schemaVersion` and `objectSchemaVersion` go through `isSupportedSchemaVersion`, which accepts a bounded range rather than one exact number.
+Never write `schemaVersion == <n>` into a rule, and never require an incoming version to equal the stored one.
+Rules deploy globally and instantly while app rollout is gradual, so an exact pin locks out in both directions the day the number moves: stored documents at the old number stop being updatable by an updated client, and clients still on the old build stop being able to write at all.
+The number carries no authority - every field is validated by type and domain independently of it, which is what actually protects the data.
+The workout update rule lets the stored version move forward but not backward, because whole-document `setData` would otherwise let an older build drop the fields a newer schema added.
+
+`identityPolicyVersion` is deliberately not one of these: it asserts which moderation policy screened a display name, so accepting an older value would accept weaker screening.
+
+Bumping a version then needs no rules edit at all - it is a Swift-constant change. Verify with the schema-version range tests in `tests/firebase-rules/workout-contract.test.mjs`.
+The rules being permissive does not make every bump free on the client: the heart-rate sidecar blob version is still matched exactly by `WorkoutHeartRateSidecarValidator`, so bumping it makes already-uploaded sidecars unrestorable unless the validator learns to read the older shape - see `ascend-workout-model`.
+
+## The workout write rule has almost no expression budget left
+
+Firestore aborts rule evaluation at 1000 expressions and returns a plain `PERMISSION_DENIED`, so an over-budget document silently never reaches the cloud backup.
+Rules functions inline their arguments, so each `item.` dereference inside a per-element validator re-evaluates the whole `request.resource.data.<list>[i]` chain - the cost scales with the number of distinct field references per element, not with the number of comparisons.
+The workout rule is already over budget well below its own declared list caps (issue #295), so before adding any check to that path, exercise it against a document with several nested list elements rather than the single-element fixtures.
+Enum validators there take their value untyped on purpose: membership in a list of string literals already excludes non-strings, so a preceding `is string` is a no-op the budget cannot afford.
+
+**Measured, so nobody has to re-derive it.** The user-routine rule (issue #304) was benchmarked against the emulator with a real document: a full per-element validator - `hasOnly`/`hasAll` plus ten typed fields - fits **two** list elements; narrowed to four typed fields it fits **eleven**; `item is map` alone fits **twenty-four**.
+That is the whole budget, for one list, in a rule with about twenty other scalar checks.
+So a user-authored list of unbounded length simply cannot be validated element by element, and pretending otherwise ships a rule that silently rejects the largest documents.
+When that is where you land, say so in the rule with the numbers, validate what the document-level `hasOnly`/`hasAll` can reach, bound the list size, and move element validation into the client's decoder - `users/{uid}/routines` is the worked example.
+The asymmetry that makes it acceptable there and not for workouts: nothing but the owner reads a routine, while a workout's `participations` are read and trusted by the Cloud Functions that publish leaderboard rows.
 
 ## Storage pathing + rules
 
@@ -31,7 +72,7 @@ User-generated media must be stored under user-scoped prefixes:
 - `users/{uid}/workout_heart_rate/...`
 
 Rules:
-- Never write user media to shared root paths (`photos/`, `videos/`, `profile_pictures/`) in production.
+- Never write user media to shared root paths. `photos/`, `videos/`, and `profile_pictures/` at the bucket root are closed to every client (`read, write: if false`) and must stay that way: a flat path carries no owner segment, so any rule permissive enough to admit the owner admits every signed-in account. Objects predating the user-scoped migration still sit there, unattributable and reachable only by the backend.
 - Server-owned synthetic Live Replay avatar fixtures may live under `live-replay-avatars/{seedPackId}/...`; they are not user media, should be read-only to clients, and must be written only by admin/server tooling.
 - Legacy share card template assets may still live under `share-card-templates/...`, but workout share cards in v1 must not fetch their backgrounds or layout config from Firebase.
 - Account deletion and cleanup should target only the authenticated user's scoped prefixes, including durable workout heart-rate sidecars and private workout backup documents.
@@ -46,10 +87,14 @@ Ordering is the whole game. Every delete in `firestore.rules` is gated on `isOwn
 - Re-authentication prefers Apple whenever `apple.com` is linked, even alongside another provider. Firebase's "link accounts that use the same email" setting puts several providers on one uid, and only an Apple authorization yields the code revocation needs, so any other choice silently skips revocation. `AccountDeletionReauthenticationProvider.preferred(forProviderIDs:)` owns that decision so it stays unit-testable.
 - Clients can only delete what the rules allow. Server-owned subcollections (`achievements`, `lifecycle`, `lifecycle_events`, `communication_preferences`, `notification_devices`, `integrations`, `liveClimbPublishStatuses`) are `allow write: if false` and are unreachable from any client.
 - The `cleanupDeletedUserData` Cloud Function (`functions/src/accountCleanup.ts`) is the authoritative sweep, not just a safety net. It triggers on delete of `users/{uid}`, discovers subcollections via `listCollections()` rather than a hardcoded list, and retries on failure.
-- Discovery only reaches the `users/{uid}` subtree. User-keyed PII stored outside it needs an explicit step in the sweep, so `leaderboard_stats`, `userRateLimits`, `live_replay_leaderboards/{contextKey}/finishers/{uid}`, the `firstAscent*` fields on `live_replay_leaderboards/{contextKey}`, `feedback`, and the uid-keyed `email_jobs` each get one. Add a step whenever a new collection denormalizes a user's display fields or stores their email.
+- Discovery only reaches the `users/{uid}` subtree.
+  User-keyed data stored outside it needs an explicit step in the sweep - top-level collections, the collection-group replay `entries`, another user's `blocked` subcollection holding the deleted uid, and denormalized fields such as `firstAscent*` all qualify.
+  The `cleanupDeletedUserData` doc comment in `functions/src/accountCleanup.ts` is the authoritative step list; read it rather than trusting a copy.
+  Add a step whenever a new collection denormalizes a user's display fields, delivery tokens, email, or safety context.
 - `feedback` is hard-deleted, not anonymized. Its `message` is free text the user typed, so it can hold anything they chose to disclose and stripping `userEmail` alone would not make it anonymous. The report is not lost: `onFeedbackCreated` already emails it to the admin inbox, which is a support record rather than a user-data store.
-- A First Ascent is de-identified, not deleted. The slot can never be reclaimed, so the claim itself outlives the account: `firstAscentCompletedAt`, `firstAscentWorkoutId`, and `firstAscentUserId` stay, while `firstAscentDisplayName` becomes `Anonymous Climber` and `firstAscentPhotoURL` and `firstAscentAvatarToken` are cleared. The uid is kept on purpose - it resolves to nobody once `users/{uid}` and the auth user are gone, and the client still reads it to decide whether the viewer holds the slot. Aggregate `completedCount` is untouched, because decrementing it could reassign a permanent finisher order.
-- Waitlist-welcome `email_jobs` deliberately outlive the account. They are keyed by email hash rather than uid and belong to the newsletter relationship, which has its own unsubscribe path and is neither granted nor revoked by owning an account.
+- A First Ascent is de-identified, not deleted. The slot can never be reclaimed, so the claim itself outlives the account: `firstAscentCompletedAt`, `firstAscentWorkoutId`, and `firstAscentUserId` stay, while `firstAscentDisplayName` becomes `Anonymous Climber`, `firstAscentPhotoURL` and `firstAscentAvatarToken` are cleared, and `firstAscentIsSynthetic` is forced to `false` so the record can never pass for a preserved fixture identity. The uid is kept on purpose - it resolves to nobody once `users/{uid}` and the auth user are gone, and the client still reads it to decide whether the viewer holds the slot. Aggregate `completedCount` is untouched, because decrementing it could reassign a permanent finisher order.
+- Replay entries are de-identified rather than deleted so ranks, steps, times, and race history remain stable.
+  Account cleanup queries the `entries` collection group by `userId`, sets `displayName` to `Anonymous Climber`, clears `avatarToken` and `photoURL`, sets `identityState` to `deleted`, and forces `isSynthetic` to `false` while leaving every competitive field unchanged.
 
 ## Connectivity UX
 - Connectivity is an app-wide concern with a single source of truth - features must not each implement their own offline detection.
@@ -58,5 +103,6 @@ Ordering is the whole game. Every delete in `firestore.rules` is gated on `isOwn
 - Connectivity is *not* the same as request success. Online requests can still time out, hit backend errors, or return partial data. Features decide the user-facing response (retry button, cache fallback, error message), but the mechanics - timeout policy, retry logic, error categorization - belong in shared request infrastructure. If you find yourself implementing the same network error pattern in a second feature, extract it into the shared layer rather than duplicating it.
 
 ## Related
+- Firestore has no fixed shape, so a field change here is *not* a data migration; the local SwiftData store is the one that needs versions and stages, and `ascend-data-migration` covers it.
 - Adding a Firestore field usually also means declaring a new collected data type - see `ascend-privacy-manifest`.
 - Private workout backups are private; public surfaces use separate public data models. See `ascend-workout-model`.

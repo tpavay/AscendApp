@@ -7,6 +7,12 @@ protocol WorkoutHeartRateStorageRepositoryProtocol: Sendable {
         blob: WorkoutHeartRateStorageBlob
     ) async throws -> FirestoreWorkoutHeartRateSeriesReference
 
+    func downloadHeartRateSeries(
+        userId: String,
+        workoutId: UUID,
+        reference: FirestoreWorkoutHeartRateSeriesReference
+    ) async throws -> WorkoutHeartRateStorageBlob
+
     func deleteHeartRateSeriesIfPresent(
         userId: String,
         workoutId: UUID

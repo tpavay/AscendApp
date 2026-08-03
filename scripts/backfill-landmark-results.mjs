@@ -38,7 +38,8 @@
  *   node scripts/backfill-landmark-results.mjs --env staging --apply
  *
  * Prerequisites: Node 20+, `cd scripts && npm install`,
- * `gcloud auth application-default login`.
+ * `gcloud auth application-default login`, and a successful
+ * `backfill-workout-climb-ids.mjs` apply for the target environment.
  */
 
 import {FieldValue, Timestamp} from "firebase-admin/firestore";
@@ -65,7 +66,7 @@ if (args.rest.has("help")) {
 }
 
 const environment = resolveEnvironment(args.env);
-const db = initFirestore(environment);
+const db = await initFirestore(environment);
 
 const plan = await planMaterializations(db);
 console.log(
@@ -241,14 +242,14 @@ function makeTransactionalStore(firestore) {
   return {
     async runTransaction(operation) {
       return firestore.runTransaction(async (transaction) => operation({
-        async listUserWorkouts(userId) {
-          // Narrowed to the only source the derivation can accept, matching the
-          // Cloud Function so both keep the same transactional lock range.
+        async listLandmarkWorkouts(userId, climbId) {
+          // Match the Cloud Function's indexed, landmark-scoped transaction.
           const query = firestore
             .collection("users")
             .doc(userId)
             .collection("workouts")
-            .where("source", "==", HEADPHONE_MOTION_SOURCE);
+            .where("source", "==", HEADPHONE_MOTION_SOURCE)
+            .where("climbId", "==", climbId);
           const snapshot = await transaction.get(query);
           return snapshot.docs.map((doc) => ({id: doc.id, data: doc.data()}));
         },

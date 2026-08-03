@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import * as admin from "firebase-admin";
 import {pushNotificationTestHooks} from "../src/pushNotifications.js";
 
 test("push token hashes are deterministic and Firestore-safe", () => {
@@ -60,4 +61,113 @@ test("climb-drop send payload requires a user id for user audience", () => {
     }),
     /A user audience requires userId/
   );
+});
+
+/**
+ * Builds a Firestore stand-in over a flat path -> fields map that records the
+ * documents a write created.
+ * @param {object} documents Seed documents keyed by full path.
+ * @return {object} The stand-in plus the recorded documents and creations.
+ */
+function makeDeviceFirestore(
+  documents: Record<string, Record<string, unknown>>
+): {
+  firestore: admin.firestore.Firestore;
+  documents: Record<string, Record<string, unknown>>;
+  created: string[];
+} {
+  const created: string[] = [];
+
+  const documentAt = (path: string) => ({
+    collection(collectionId: string) {
+      return collectionAt(`${path}/${collectionId}`);
+    },
+    get() {
+      const fields = documents[path];
+      return Promise.resolve({
+        data: () => fields,
+        exists: fields !== undefined,
+      });
+    },
+    set(fields: Record<string, unknown>) {
+      if (documents[path] === undefined) {
+        created.push(path);
+      }
+      documents[path] = {...(documents[path] ?? {}), ...fields};
+      return Promise.resolve({});
+    },
+  });
+
+  const collectionAt = (path: string) => ({
+    doc(documentId: string) {
+      return documentAt(`${path}/${documentId}`);
+    },
+  });
+
+  const firestore = {
+    collection(collectionId: string) {
+      return collectionAt(collectionId);
+    },
+  };
+
+  return {
+    created,
+    documents,
+    firestore: firestore as unknown as admin.firestore.Firestore,
+  };
+}
+
+test("unregistering an unknown token creates no delivery record", async () => {
+  // A merging write would mint notification_devices/{tokenHash} with no `uid`,
+  // and the account-deletion sweep queries by `uid`, so that orphan would
+  // outlive the account forever.
+  const {created, documents, firestore} = makeDeviceFirestore({});
+
+  await pushNotificationTestHooks.deactivateToken(
+    firestore,
+    "user-a",
+    "hash-1",
+    admin.firestore.Timestamp.now()
+  );
+
+  assert.deepEqual(created, []);
+  assert.deepEqual(Object.keys(documents), []);
+});
+
+test("unregistering leaves another climber's token active", async () => {
+  const {created, documents, firestore} = makeDeviceFirestore({
+    "notification_devices/hash-1": {active: true, uid: "user-b"},
+  });
+
+  await pushNotificationTestHooks.deactivateToken(
+    firestore,
+    "user-a",
+    "hash-1",
+    admin.firestore.Timestamp.now()
+  );
+
+  // Knowing a token is not proof of owning it.
+  assert.equal(documents["notification_devices/hash-1"].active, true);
+  assert.deepEqual(created, []);
+});
+
+test("unregistering deactivates the caller's token and mirror", async () => {
+  const {created, documents, firestore} = makeDeviceFirestore({
+    "notification_devices/hash-1": {active: true, uid: "user-a"},
+    "users/user-a/notification_devices/hash-1": {active: true},
+  });
+
+  await pushNotificationTestHooks.deactivateToken(
+    firestore,
+    "user-a",
+    "hash-1",
+    admin.firestore.Timestamp.now()
+  );
+
+  assert.equal(documents["notification_devices/hash-1"].active, false);
+  assert.equal(
+    documents["users/user-a/notification_devices/hash-1"].active,
+    false
+  );
+  assert.deepEqual(created, []);
 });

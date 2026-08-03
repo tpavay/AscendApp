@@ -22,7 +22,7 @@ esac
 
 skip_linking=0
 if [ -n "$required_plist" ] && [ -f "$TARGET_DIR/$required_plist" ]; then
-  echo "Firebase plist already present at $TARGET_DIR/$required_plist — skipping link."
+  echo "Firebase plist already present at $TARGET_DIR/$required_plist - skipping link."
   skip_linking=1
 fi
 
@@ -61,11 +61,41 @@ MSG
   fi
 fi
 
+is_tracked() {
+  git -C "$PROJECT_ROOT" ls-files --error-unmatch -- "$1" >/dev/null 2>&1
+}
+
+linked_any=0
+
 link_plist() {
   file_name="$1"
   source_file="$source_dir/$file_name"
   target_file="$TARGET_DIR/$file_name"
   required="${2:-0}"
+
+  if is_tracked "$target_file"; then
+    if [ -e "$target_file" ]; then
+      echo "Firebase plist is tracked at $target_file - leaving it unchanged."
+      return 0
+    fi
+
+    if [ "$required" = "1" ]; then
+      cat <<MSG
+error: Tracked $file_name is missing from the working tree: $target_file
+Restore it instead of linking over a tracked path:
+  git -C "$PROJECT_ROOT" restore -- "$target_file"
+MSG
+      exit 1
+    fi
+
+    echo "warning: Tracked $file_name is missing from the working tree - restore it with git restore; not linking over a tracked path."
+    return 0
+  fi
+
+  if [ -e "$target_file" ] && [ ! -L "$target_file" ]; then
+    echo "Firebase plist at $target_file is a real file - leaving it unchanged."
+    return 0
+  fi
 
   if [ ! -f "$source_file" ]; then
     if [ "$required" = "1" ]; then
@@ -77,6 +107,7 @@ link_plist() {
   fi
 
   ln -sfn "$source_file" "$target_file"
+  linked_any=1
 }
 
 required_dev=0
@@ -100,7 +131,11 @@ if [ "$skip_linking" != "1" ]; then
   link_plist "GoogleService-Info-Staging.plist" "$required_staging"
   link_plist "GoogleService-Info-Production.plist" "$required_production"
 
-  echo "Linked Firebase plists from: $source_dir"
+  if [ "$linked_any" = "1" ]; then
+    echo "Linked Firebase plists from: $source_dir"
+  else
+    echo "No Firebase plists linked - existing files left unchanged."
+  fi
 fi
 
 copy_selected_plist_into_bundle() {

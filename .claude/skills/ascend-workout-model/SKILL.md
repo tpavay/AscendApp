@@ -1,6 +1,6 @@
 ---
 name: ascend-workout-model
-description: Use when working on the canonical Ascend Workout model, or when wiring any new workout origin - manual entry, external import, or sensor capture - into it, which fires from integration and feature code outside the Workouts folder. Covers workout durability and cloud backup, sync state and the sync coordinator, workout source vs participation separation, plausibility validation, workout measurement (steps, duration, SPM, StairMaster level mapping, historical percentile), the integrity gate keeping Live Climb and routine completions exclusive to their live sensor flows, the deprecated base-level/effort-score legacy, and the local-first SwiftData + Firestore contract with the workout schema open/closed rule.
+description: Use when working on the canonical Ascend Workout model, or when wiring any new workout origin - manual entry, external import, or sensor capture - into it, which fires from integration and feature code outside the Workouts folder. Covers workout durability and cloud backup, heart-rate sidecar upload/restore and its validation contract, sync state and the sync coordinator, workout source vs participation separation, plausibility validation, workout measurement (steps, duration, SPM, StairMaster level mapping, historical percentile), the integrity gate keeping Live Climb and routine completions exclusive to their live sensor flows, the deprecated base-level/effort-score legacy, and the local-first SwiftData + Firestore contract with the workout schema open/closed rule.
 ---
 
 # Workout Model
@@ -21,9 +21,15 @@ Three distinct concepts. Keep them cleanly separated - don't fold feature-specif
 
 **Participation = why the workout exists / what it counts toward.** Feature-specific attribution (climb attempt, routine, challenge, future contexts) lives on a separate participation type, never as nullable fields on `Workout`. New features add new participation kinds; they don't add nullable columns to the canonical type. This is the open/closed principle applied to the workout schema.
 
+### Persisted shape and schema versioning
+- Enums on `Workout` are stored as raw values, `source` included (`sourceRawValue`, with `source` as a computed accessor). A Codable enum cannot appear in a `#Predicate` - SwiftData rejects it with `unsupportedPredicate` - so a non-raw enum column is unfilterable, which is what forced source filtering to scan the whole store in ASCEND-IOS-1K.
+- Everything else about changing that shape - the versioned schema and plan, what lightweight migration silently does to existing rows, and how an interrupted stage recovers - belongs to `ascend-data-migration`. Load it before editing the `@Model`.
+
 ### Integrity rules
 - Sensor capture (headphone motion, future wearables) lives behind a shared service layer. The step / progress algorithm is pure compute - unit-testable without hardware. Sensor callbacks must run safely off the main thread; UI updates marshal back to main explicitly.
 - Plausibility validation runs at the entry boundary - bad data (implausible step rates, impossible durations) never enters the canonical store. The gate is the same for manual save, edit, external import, and Live Climb completion.
+  Heart rate has exactly one definition of a usable reading (`WorkoutHeartRatePlausibility`), applied wherever Ascend first writes a sample into its own cache: the live sensor seam, the live capture buffer, and the HealthKit metrics reader.
+  Filtering at ingress keeps the stored series, average, and maximum consistent for the life of the workout - an out-of-range summary is replaced from the retained samples instead of being reconciled downstream, and source records are never rewritten, only Ascend's derived copy.
 
 ## Workout Durability Architecture
 
@@ -32,9 +38,11 @@ Local-first with cloud backup. SwiftData is the editing surface and source of tr
 ### Identity and storage
 - Each workout has *one* durable identity - a stable UUID shared across the local `Workout`, its Firestore document at `users/{uid}/workouts/{workoutId}`, its heart-rate sidecar in Storage, and any associated media. One identity = cleanup and repair flows can act on all resources at once.
 - That identity has exactly one document-id spelling: the uppercase UUID string.
-  The rule covers every collection keyed by a workout document id, not just the private backup: `firestore.rules` rejects any other casing on `users/{uid}/workouts/{workoutId}` and on the public `users/{uid}/profile_workouts/{workoutId}` mirror, the client builds every such reference through `WorkoutDocumentID`, and Admin SDK scripts and seed fixtures go through `scripts/lib/workout-document-id.mjs`.
-  Mixed casing silently forks one workout into two documents, so restore-time collisions are deduplicated newest-wins - with the canonical spelling breaking a tie - and recorded as `workout_backup_case_variant_duplicate`; existing dev/staging twins, including the live replay rows and the workout-id fields that name them, are merged by `scripts/cleanup-case-variant-workout-ids.mjs` (dry-run by default, production refused).
+  `firestore.rules` rejects any other casing on `users/{uid}/workouts/{workoutId}` and the public `users/{uid}/profile_workouts/{workoutId}` mirror, the client builds every workout document reference through `WorkoutDocumentID`, and Admin SDK scripts go through `scripts/lib/workout-document-id.mjs`.
+  Mixed casing silently forks one workout into two documents, so restore-time collisions are deduplicated newest-wins and recorded as `workout_backup_case_variant_duplicate`; existing dev/staging twins, including live replay rows and the workout-id fields that name them, are merged by `scripts/cleanup-case-variant-workout-ids.mjs` (dry-run by default, production refused).
 - Firestore stores the workout's metadata and summary fields (averages, max HR, totals). Large time-series data (heart-rate samples) goes to Storage as a compressed sidecar - never embedded in Firestore documents. Firestore holds only pointers and summaries.
+  The sidecar's owner-scoped path is derived in exactly one place (`WorkoutHeartRateStoragePath`) from the same canonical workout id, and a download whose stored reference points anywhere else is rejected rather than followed.
+  The pointer also carries integrity metadata (object schema version, compressed byte count, sha256) so a restore can prove the object it fetched is the one the envelope promised.
 - A workout is *fully synced* only when every component (Firestore document + Storage sidecar + media uploads) has succeeded. Partial success is not success.
 
 ### Sync state
@@ -45,7 +53,23 @@ Local-first with cloud backup. SwiftData is the editing surface and source of tr
 - A single sync coordinator owns all pending remote work. Mutations don't write to Firestore directly - they update local sync state and kick the coordinator.
 - Backup is mutation-driven (immediate after each mutation), not deferred to next launch. The coordinator also runs on authenticated bootstrap and foreground repair to recover missed or failed work.
 - Ordering: deletes before upserts; Storage sidecars before the Firestore document that references them; overlapping requests coalesced so launch / auth / lifecycle hooks don't produce duplicate remote work.
+  Workout deletion is sidecar-first for the same reason - removing the heart-rate object ends active access before the envelope that points at it disappears.
+  Stopping a stale client from recreating either record needs revisioned tombstones plus a grace period, which is deliberately a later durability slice, not something this ordering already solves.
+- The uploaded document is always derived from the canonical envelope (`FirestoreWorkoutDocument.replacingHeartRateSeries`), never re-assembled field by field. A hand-built copy silently drops every field added since it was written - that is how participations were lost on the heart-rate upload path.
 - Media uploads are part of the durability contract. When media changes after upload completion, the workout is re-marked pending and the backup is republished.
+
+### Restore
+- Restore is the other half of durability, not a bonus: a clean signed-in device re-downloads the heart-rate sidecar, so an empty local series is authoritative only when the workout's `WorkoutHeartRateRestoreStatus` says it is (`notNeeded` / `ready`).
+  Every other status means "not restored yet". Detail-view rendering and the upload path must read that status instead of inferring "this workout has no heart rate" from local emptiness.
+- A pending, retrying, or unavailable restore carries the last known sidecar reference forward on the next upsert, so a device that never restored the series cannot orphan it.
+  The one exception is a sidecar the server reported as missing: that reference is dropped, because a dangling pointer would fail every other clean device's restore forever.
+- A downloaded sidecar is validated before it is trusted - owner-scoped path, encoding, size, sha256 and byte count, schema version, workout id, sample count, per-sample plausibility, and series bounds against the reference.
+  The schema version is the one exact match in that list: `WorkoutHeartRateSidecarValidator` requires the blob to carry `WorkoutHeartRateStorageBlob.currentSchemaVersion`, so bumping that constant strands every already-uploaded sidecar as `.malformed` unless the validator is taught to read the older shape at the same time.
+  Every failure resolves to one case of `WorkoutHeartRateSidecarError` - missing, forbidden, and integrity/schema faults are distinct from transient ones - and is recorded as a privacy-safe diagnostic carrying the error class, not sample values.
+  Only transient failures retry automatically, riding the app-wide connectivity lifecycle rather than a private retry loop; anything else waits for the explicit retry affordance on the workout.
+- Hydration is idempotent and runs more than once per process. Only the first pass merges remote documents into existing local workouts - later passes retry sidecars and never re-apply a remote document over a local edit.
+  A workout already queued for remote deletion is never re-inserted from its surviving remote copy.
+- Schema-one references uploaded before integrity metadata existed carry none of it, so those fields stay optional on the reference and in `firestore.rules`. Absent means "unverifiable, still restorable", never "invalid" - restoring an older backup must keep working.
 
 ### Boundaries
 - Private workout backups are *private*. Future public sharing, posts, comments, or likes must use *separate public data models* - they don't read private workout documents directly. The privacy boundary is data-model separation, not just security rules.
@@ -67,4 +91,5 @@ Workouts are described by **absolute, measured signals** - steps, duration, cade
 Existing code for these can stay until the cleanup task lands, but treat it as legacy - don't add features through it, don't introduce new dependencies on it, and prefer absolute metrics in new code.
 
 ## Reference
+- Changing what `Workout` persists - adding, removing, renaming or retyping a stored property - is a schema migration; see `ascend-data-migration` before editing the `@Model`.
 - `docs/heart-rate-zones-plan.md` - heart rate zones (marked POST-LAUNCH parked).

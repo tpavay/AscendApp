@@ -6,7 +6,7 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { getBytes, ref, uploadBytes } from 'firebase/storage';
 
 const projectId = 'demo-ascendapp-rules';
@@ -21,6 +21,7 @@ const mediaId = '11111111-1111-1111-1111-111111111111';
 const secondMediaId = '22222222-2222-2222-2222-222222222222';
 const weightEntryId = '33333333-3333-3333-3333-333333333333';
 const participationId = '44444444-4444-4444-4444-444444444444';
+const identityChangedAt = new Date('2026-04-09T12:00:00.000Z');
 
 let testEnv;
 
@@ -43,6 +44,15 @@ before(async () => {
 beforeEach(async () => {
   await testEnv.clearFirestore();
   await testEnv.clearStorage();
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await setDoc(
+      doc(
+        adminContext.firestore(),
+        `users/${userId}/public_profile/current`
+      ),
+      makePublicProfileDocument({identityChangedAt})
+    );
+  });
 });
 
 after(async () => {
@@ -84,25 +94,31 @@ test('users cannot write demographics into another users profile', async () => {
   })));
 });
 
-test('owner can write daily leaderboard stats', async () => {
+test('owner can publish validated account-authored public identity', async () => {
   const context = testEnv.authenticatedContext(userId);
-  const statsRef = doc(context.firestore(), `leaderboard_stats/daily_2026-04-10_${userId}`);
+  const profileRef = doc(context.firestore(), `users/${userId}/public_profile/current`);
 
-  await assertSucceeds(setDoc(statsRef, makeLeaderboardDocument({
-    timeFrame: 'daily',
-    periodKey: '2026-04-10',
-    periodStartAt: new Date('2026-04-10T00:00:00.000Z'),
+  await assertSucceeds(setDoc(profileRef, makePublicProfileDocument({
+    displayName: 'Tyler Pavay',
+    photoURL: STORAGE_PHOTO_URL,
   })));
 });
 
-test('daily leaderboard stats require a daily period key', async () => {
+test('public profile identity rejects empty, overlong, profane, photo, and uid spoofing', async () => {
   const context = testEnv.authenticatedContext(userId);
-  const statsRef = doc(context.firestore(), `leaderboard_stats/daily_2026-W15_${userId}`);
+  const profileRef = doc(context.firestore(), `users/${userId}/public_profile/current`);
 
-  await assertFails(setDoc(statsRef, makeLeaderboardDocument({
-    timeFrame: 'daily',
-    periodKey: '2026-W15',
-    periodStartAt: new Date('2026-04-10T00:00:00.000Z'),
+  for (const displayName of ['', 'a'.repeat(81), 'fuuuck']) {
+    await assertFails(setDoc(
+      profileRef,
+      makePublicProfileDocument({displayName})
+    ));
+  }
+  await assertFails(setDoc(profileRef, makePublicProfileDocument({
+    photoURL: `${STORAGE_PHOTO_URL}${'p'.repeat(2030)}`,
+  })));
+  await assertFails(setDoc(profileRef, makePublicProfileDocument({
+    userId: otherUserId,
   })));
 });
 
@@ -150,6 +166,43 @@ test('owner can write a valid workout backup document', async () => {
       entries: [makeWeightEntry()],
     },
     heartRateSeries: makeHeartRateSeriesReference(userId, workoutId),
+  })));
+});
+
+// The workout write rule sits close to Firestore's 1000-expression evaluation ceiling, so the
+// integrity metadata is guarded by type and domain rather than by an additional byte-count range:
+// a wrong-typed value is what breaks the whole envelope's decode, while a merely wrong byte count
+// is already caught client-side by the exact-size and hash comparison.
+test('workout HR integrity metadata is bounded and validated', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    heartRateSeries: {
+      ...makeHeartRateSeriesReference(userId, workoutId),
+      sha256: 'not-a-sha256',
+    },
+  })));
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    heartRateSeries: {
+      ...makeHeartRateSeriesReference(userId, workoutId),
+      compressedByteCount: 'x',
+    },
+  })));
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    heartRateSeries: {
+      ...makeHeartRateSeriesReference(userId, workoutId),
+      objectSchemaVersion: 0,
+    },
+  })));
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    heartRateSeries: {
+      ...makeHeartRateSeriesReference(userId, workoutId),
+      objectSchemaVersion: 'one',
+    },
   })));
 });
 
@@ -201,8 +254,30 @@ test('owner can write a headphone motion workout with climb attempt participatio
 
   await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument({
     source: 'headphone_motion',
+    climbId: 'gateway-arch',
     integrityLevel: 'verified',
     participations: [makeClimbAttemptParticipation()],
+  })));
+});
+
+test('workout climb query key is bounded and limited to headphone motion', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    climbId: 'gateway-arch',
+  })));
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    source: 'headphone_motion',
+    climbId: '',
+    integrityLevel: 'verified',
+  })));
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    source: 'headphone_motion',
+    climbId: 'x'.repeat(161),
+    integrityLevel: 'verified',
   })));
 });
 
@@ -260,12 +335,220 @@ test('invalid weight entries are rejected', async () => {
   })));
 });
 
+// Nested-map key-set contract.
+//
+// Four workout sub-maps are validated by `keys().size() == N` paired with a single `hasAll([...])`
+// literal, because the `hasOnly`/`hasAll` pair the count replaces costs expression budget the
+// workout write rule does not have. The count is only exact while it matches the list beside it,
+// and nothing in the rules file ties the two together. These tests are that tie: for each map, an
+// unknown extra key must be rejected (the count catches what `hasOnly` used to) and a required key
+// swapped for an unknown one of the same arity must be rejected (the list catches what the count
+// alone cannot). Raising a count without extending its list, or the reverse, fails here.
+//
+// Each fixture populates at most one nested list - the write rule is already over Firestore's
+// 1000-expression ceiling well below its declared caps (issue #295), and a denial from that would
+// pass these assertions while proving nothing.
+test('a workout weight entry rejects an unknown key and a missing required key', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    weightConfiguration: {
+      entries: [{...makeWeightEntry(), unexpected: 'extra'}],
+    },
+  })));
+
+  const {isEnabled, ...weightEntryMissingIsEnabled} = makeWeightEntry();
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    weightConfiguration: {
+      entries: [{...weightEntryMissingIsEnabled, enabled: isEnabled}],
+    },
+  })));
+});
+
+test('a workout weight configuration rejects an unknown key and a missing required key', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    weightConfiguration: {
+      entries: [makeWeightEntry()],
+      unexpected: 'extra',
+    },
+  })));
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    weightConfiguration: {
+      items: [makeWeightEntry()],
+    },
+  })));
+});
+
+test('a participation metrics snapshot rejects an unknown key and a missing required key', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    participations: [{
+      ...makeRoutineTemplateParticipation(),
+      metricsSnapshot: {...makeMetricsSnapshot(), unexpected: 'extra'},
+    }],
+  })));
+
+  const {floors, ...snapshotMissingFloors} = makeMetricsSnapshot();
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    participations: [{
+      ...makeRoutineTemplateParticipation(),
+      metricsSnapshot: {...snapshotMissingFloors, flights: floors},
+    }],
+  })));
+});
+
+test('a workout participation rejects an unknown key and a missing required key', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    participations: [{...makeRoutineTemplateParticipation(), unexpected: 'extra'}],
+  })));
+
+  const {createdAt, ...participationMissingCreatedAt} = makeRoutineTemplateParticipation();
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    participations: [{...participationMissingCreatedAt, created: createdAt}],
+  })));
+});
+
 test('users cannot write workouts into another users path', async () => {
   const context = testEnv.authenticatedContext(userId);
   const workoutRef = doc(context.firestore(), `users/${otherUserId}/workouts/${workoutId}`);
 
   await assertFails(setDoc(workoutRef, makeWorkoutDocument({
     userId: otherUserId,
+  })));
+});
+
+// Schema-version range contract.
+//
+// Rules deploy globally and instantly; app rollout is gradual and lags behind. Any rule that pins
+// a schema version to one exact number therefore fails in both directions the day the number moves:
+// stored documents at the old number stop being updatable by an updated client, and clients still
+// running the old build stop being able to write at all. These tests simulate the next bump by
+// putting `CURRENT + 1` on the wire - exactly what the first client build after a bump emits while
+// every stored document is still at the old number.
+const CURRENT_WORKOUT_SCHEMA_VERSION = 1;
+const BUMPED_WORKOUT_SCHEMA_VERSION = CURRENT_WORKOUT_SCHEMA_VERSION + 1;
+const MAX_SCHEMA_VERSION = 1000;
+
+async function seedWorkoutDocument(overrides = {}) {
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await setDoc(
+      doc(adminContext.firestore(), `users/${userId}/workouts/${workoutId}`),
+      makeWorkoutDocument(overrides)
+    );
+  });
+}
+
+test('a workout stored at the previous schema version stays updatable after a bump', async () => {
+  await seedWorkoutDocument({schemaVersion: CURRENT_WORKOUT_SCHEMA_VERSION});
+
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument({
+    schemaVersion: BUMPED_WORKOUT_SCHEMA_VERSION,
+  })));
+});
+
+test('a client still emitting the previous schema version is not locked out of writing', async () => {
+  await seedWorkoutDocument({schemaVersion: CURRENT_WORKOUT_SCHEMA_VERSION});
+
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument({
+    schemaVersion: CURRENT_WORKOUT_SCHEMA_VERSION,
+    steps: 1400,
+  })));
+});
+
+// Writes are whole-document `setData`, so letting an older build stamp its lower version back onto
+// a migrated document would drop the fields the newer schema added. The write is refused instead.
+test('a workout schema version may not regress to an older number', async () => {
+  await seedWorkoutDocument({schemaVersion: BUMPED_WORKOUT_SCHEMA_VERSION});
+
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    schemaVersion: CURRENT_WORKOUT_SCHEMA_VERSION,
+  })));
+});
+
+test('workout schema versions outside the supported range are rejected', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({schemaVersion: 0})));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({schemaVersion: -1})));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    schemaVersion: MAX_SCHEMA_VERSION + 1,
+  })));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({schemaVersion: '1'})));
+});
+
+// The workout write rule has no expression budget for an `is string` check in front of an enum
+// validator, so those were dropped. Membership in a list of string literals has to carry the type
+// check on its own for every enum in the document.
+test('non-string enum values are rejected without a separate type check', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({source: 1})));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({integrityLevel: true})));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    media: [{...makeMediaItem(), type: 3}],
+  })));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    weightConfiguration: {entries: [{...makeWeightEntry(), equipmentType: 7}]},
+  })));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    participations: [{...makeRoutineTemplateParticipation(), contextType: 2}],
+  })));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    participations: [{...makeRoutineTemplateParticipation(), role: 4}],
+  })));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    participations: [{...makeRoutineTemplateParticipation(), verificationTier: 5}],
+  })));
+});
+
+test('a heart-rate reference at a bumped object schema version stays writable', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument({
+    heartRateSeries: {
+      ...makeHeartRateSeriesReference(userId, workoutId),
+      objectSchemaVersion: BUMPED_WORKOUT_SCHEMA_VERSION,
+    },
+  })));
+});
+
+test('heart-rate object schema versions outside the supported range are rejected', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    heartRateSeries: {
+      ...makeHeartRateSeriesReference(userId, workoutId),
+      objectSchemaVersion: 0,
+    },
+  })));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    heartRateSeries: {
+      ...makeHeartRateSeriesReference(userId, workoutId),
+      objectSchemaVersion: MAX_SCHEMA_VERSION + 1,
+    },
   })));
 });
 
@@ -369,6 +652,19 @@ test('signed-in users can read server-owned live replay avatars', async () => {
   await assertFails(uploadBytes(ref(context.storage(), avatarPath), new Uint8Array([4, 5, 6]), {
     contentType: 'image/jpeg',
   }));
+});
+
+test('legacy root profile pictures are private even to signed-in users', async () => {
+  const legacyPath = 'profile_pictures/legacy-profile.jpg';
+
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await uploadBytes(ref(adminContext.storage(), legacyPath), new Uint8Array([1, 2, 3]), {
+      contentType: 'image/jpeg',
+    });
+  });
+
+  const context = testEnv.authenticatedContext(userId);
+  await assertFails(getBytes(ref(context.storage(), legacyPath)));
 });
 
 test('clients cannot write live replay leaderboard indexes', async () => {
@@ -484,21 +780,18 @@ function makeUserDocument(overrides = {}) {
   };
 }
 
-function makeLeaderboardDocument(overrides = {}) {
+const STORAGE_PHOTO_URL =
+  'https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/' +
+  `users%2F${userId}%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc123`;
+
+function makePublicProfileDocument(overrides = {}) {
   return {
     userId,
-    displayName: 'Tyler',
+    displayName: 'Climber',
     photoURL: '',
-    timeFrame: 'weekly',
-    schemaVersion: 2,
-    periodKey: '2026-W15',
-    periodStartAt: new Date('2026-04-06T00:00:00.000Z'),
-    totalSteps: 1200,
-    totalFloors: 75,
-    totalWorkouts: 1,
-    totalDuration: 1800,
-    stepsPerMinute: 40,
-    lastUpdated: new Date('2026-04-10T07:00:00.000Z'),
+    identityPolicyVersion: 1,
+    identityChangedAt: serverTimestamp(),
+    lastUpdated: new Date('2026-05-18T12:00:00.000Z'),
     ...overrides,
   };
 }
@@ -571,6 +864,9 @@ function makeHeartRateSeriesReference(ownerUserId, ownerWorkoutId) {
     sampleCount: 3,
     seriesStartAt: new Date('2026-04-10T06:30:00.000Z'),
     seriesEndAt: new Date('2026-04-10T06:45:00.000Z'),
+    objectSchemaVersion: 1,
+    compressedByteCount: 256,
+    sha256: 'a'.repeat(64),
   };
 }
 

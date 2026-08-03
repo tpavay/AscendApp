@@ -6,6 +6,7 @@ struct LiveClimbSessionView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(ModerationStore.self) private var moderationStore
 
     @State private var viewModel: LiveClimbSessionViewModel
     @State private var showingZeroStepEndOptions = false
@@ -59,8 +60,10 @@ struct LiveClimbSessionView: View {
                     workout: savedWorkout,
                     leaderboardRank: viewModel.completionLeaderboardRank,
                     leaderboardTotal: viewModel.completionLeaderboardTotal,
+                    leaderboardRankBasis: .liveSession,
                     allowsRatingPrompt: true,
                     leaderboardContext: viewModel.replayContext,
+                    moment: .freshCompletion,
                     onDone: { dismiss() }
                 )
             } else {
@@ -214,8 +217,8 @@ struct LiveClimbSessionView: View {
 
             Spacer(minLength: 0)
 
-            if viewModel.isHeartRateMonitorConnected {
-                heartRateChip
+            if let heartRateStatus = viewModel.liveHeartRateStatus {
+                LiveHeartRateStatusChip(status: heartRateStatus)
             }
 
             if !(viewModel.isRecording && selectedTab == .justMe) {
@@ -235,37 +238,6 @@ struct LiveClimbSessionView: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 14)
-    }
-
-    /// Live heart rate from the connected monitor, tinted by effort zone
-    /// (blue recovery / green aerobic / amber push). Shows a dimmed "--"
-    /// when the strap is connected but the signal has gone stale.
-    private var heartRateChip: some View {
-        let zoneColor = viewModel.liveHeartRateZone?.color ?? .white.opacity(0.4)
-
-        return HStack(spacing: 5) {
-            Image(systemName: "heart.fill")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(zoneColor)
-
-            Text(viewModel.liveHeartRate.map(String.init) ?? "--")
-                .font(.montserratBold(size: 13))
-                .monospacedDigit()
-                .foregroundStyle(viewModel.liveHeartRate == nil ? .white.opacity(0.4) : .white)
-                .contentTransition(.numericText())
-        }
-        .lineLimit(1)
-        .padding(.horizontal, 12)
-        .frame(height: 38)
-        .background(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(zoneColor.opacity(0.16))
-        )
-        .animation(.smooth(duration: 0.3), value: zoneColor)
-        .accessibilityLabel(
-            viewModel.liveHeartRate.map { "Heart rate \($0) beats per minute" }
-                ?? "Heart rate signal lost"
-        )
     }
 
     @ViewBuilder
@@ -303,7 +275,7 @@ struct LiveClimbSessionView: View {
 
     private var leaderboardPanel: some View {
         LiveReplayLeaderboardPanel(
-            rows: viewModel.leaderboardRows,
+            rows: moderationStore.moderate(viewModel.leaderboardRows),
             progressScaleSteps: viewModel.leaderboardProgressScale,
             targetStepGoal: viewModel.mode.targetStepCount,
             progress: viewModel.leaderboardCurrentProgressFraction,
@@ -906,5 +878,6 @@ struct LiveClimbSessionView: View {
     NavigationStack {
         LiveClimbSessionView(climb: .preview)
     }
+    .environment(ModerationStore.shared)
     .preferredColorScheme(.dark)
 }

@@ -70,13 +70,24 @@ struct ShareComposerExporter {
         return renderer.uiImage
     }
 
-    /// Bake a recap card (climb artwork + laid-out stats) to a full-resolution
+    /// Bake a card template (climb artwork + laid-out stats) to a full-resolution
     /// image, used as a ready-made background. Preload the climb artwork before
     /// rendering so ImageRenderer snapshots the real asset, not the async
     /// placeholder.
-    func renderRecap(template: ShareRecapTemplate, data: ShareRecapCardData) async -> UIImage? {
-        let artwork = await loadClimbArtwork(for: data.climb, variant: .hero)
-        let card = ShareRecapCard(template: template, data: data, climbArtworkOverride: artwork)
+    func renderTemplate(
+        _ template: ShareCardTemplate,
+        context: ShareCardRenderContext,
+        climb: Climb
+    ) async -> UIImage? {
+        let artwork = await loadClimbArtwork(for: climb, variant: .hero)
+        let card = ShareCardTemplateView(
+            template: template,
+            context: context,
+            artwork: ShareCardArtworkSource(
+                climb: climb,
+                overrides: artwork.map { [.hero: $0] } ?? [:]
+            )
+        )
         let sized = card
             .frame(width: Self.exportSize.width, height: Self.exportSize.height)
             .clipped()

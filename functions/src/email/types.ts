@@ -2,7 +2,6 @@ import * as admin from "firebase-admin";
 
 export type TransactionalEmailProvider = "resend";
 export type EmailType =
-  | "waitlist_welcome"
   | "rating_positive_followup"
   | "rating_negative_feedback"
   | "onboarding_abandoned_before_paywall"
@@ -22,7 +21,6 @@ export type EmailJobStatus =
 export interface TransactionalEmailConfig {
   provider: TransactionalEmailProvider;
   apiKey: string;
-  betaInviteUrl?: string;
   feedbackNotificationEmail?: string;
   fromEmail: string;
   fromName: string;
@@ -60,10 +58,6 @@ export interface TransactionalEmailRenderResult {
   text: string;
 }
 
-export interface WaitlistWelcomePayload {
-  source: string;
-}
-
 export interface EmptyEmailPayload {
   appUrl?: string;
 }
@@ -84,7 +78,6 @@ export interface LeaderboardFirstPlacePayload {
 }
 
 export type EmailJobPayload =
-  | WaitlistWelcomePayload
   | EmptyEmailPayload
   | FirstClimbCompletedPayload
   | FirstAscentClaimedPayload
@@ -104,7 +97,7 @@ export interface EmailJobDocument {
   recipientEmail: string;
   recipientHash: string;
   // Present only for emails addressed to a signed-in user. Drives the
-  // per-recipient unsubscribe link; null for waitlist and admin mail.
+  // per-recipient unsubscribe link; null for admin mail.
   recipientUid: string | null;
   scheduledFor: admin.firestore.Timestamp;
   sentAt: admin.firestore.Timestamp | null;
@@ -124,22 +117,4 @@ export interface FeedbackAdminNotifyPayload {
   type: string;
   userEmail: string;
   userId: string;
-}
-
-export interface EmailRateLimitDocument {
-  createdAt: admin.firestore.Timestamp;
-  ipHash: string;
-  longWindowCount: number;
-  longWindowStartedAt: admin.firestore.Timestamp;
-  shortWindowCount: number;
-  shortWindowStartedAt: admin.firestore.Timestamp;
-  updatedAt: admin.firestore.Timestamp;
-}
-
-export interface EmailRateLimitState {
-  ipHash: string;
-  longWindowCount: number;
-  longWindowStartedAtMs: number;
-  shortWindowCount: number;
-  shortWindowStartedAtMs: number;
 }

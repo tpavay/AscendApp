@@ -14,13 +14,16 @@ import FirebaseAuth
 actor PhotoService {
     private let repo: any PhotoRepositoryProtocol
     private let deletionConfig: PhotoDeletionConfig
+    private let diagnostics: any AppDiagnosticsRecording
 
     init(
         repo: any PhotoRepositoryProtocol = FirebasePhotoRepository(),
-        deletionConfig: PhotoDeletionConfig = .default
+        deletionConfig: PhotoDeletionConfig = .default,
+        diagnostics: any AppDiagnosticsRecording = AppDiagnosticsRecorder.shared
     ) {
         self.repo = repo
         self.deletionConfig = deletionConfig
+        self.diagnostics = diagnostics
     }
 
     func uploadPhotos(_ items: [PhotosPickerItem]) async throws -> [Photo] {
@@ -156,8 +159,25 @@ actor PhotoService {
         let repo = self.repo
         let config = self.deletionConfig
 
+        // Media at a closed root prefix is unreachable by design. Attempting it
+        // would fail every retry and block the owner from deleting their own
+        // workout, so it counts as nothing left to delete.
+        let (unreachable, deletable) = photos.partitionedByClosedLegacyPath()
+
+        if !unreachable.isEmpty {
+            diagnostics.record(
+                "media_delete_skipped_closed_legacy_path",
+                level: .warning,
+                details: [
+                    "skipped_count": String(unreachable.count),
+                    "requested_count": String(photos.count)
+                ],
+                mirrorToCrashlytics: true
+            )
+        }
+
         return await withTaskGroup(of: (Photo, (any Error)?).self) { group in
-            for photo in photos {
+            for photo in deletable {
                 group.addTask {
                     do {
                         try await self.deletePhotoWithRetry(photo, repo: repo, config: config)
@@ -168,7 +188,7 @@ actor PhotoService {
                 }
             }
 
-            var successful: [Photo] = []
+            var successful: [Photo] = unreachable
             var failed: [(Photo, any Error)] = []
 
             for await (photo, error) in group {

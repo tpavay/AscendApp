@@ -8,10 +8,9 @@ import SwiftUI
 /// the canvas via closures so this view stays focused on one sticker.
 struct ShareStickerView: View {
     @Binding var instance: ShareStickerInstance
-    /// Resolved metrics (one for a single sticker, several for a composite).
-    let stats: [ResolvedShareStat]
-    /// Structured split rows for split stickers.
-    let splits: ResolvedShareSplits?
+    /// The card tree and pre-resolved data, built by the view model. Nothing is
+    /// derived here, so a gesture frame does no work beyond laying out.
+    let content: ShareStickerContent
     let climb: Climb?
     let canvasSize: CGSize
     /// Proportional scale (canvasWidth / reference 390) so stickers render at the
@@ -64,12 +63,22 @@ struct ShareStickerView: View {
         let displayCenter = snapCenter(rawCenter)
         // Live rotation snap to 0/90/180/270 so the user can feel alignment.
         let displayRotation = snappedAngle(instance.rotationRadians + gestureRotation.radians)
+        let renderScale = instance.scale * gestureScale * canvasScale
 
-        ShareStickerVisual(instance: instance, stats: stats, splits: splits, climb: climb)
-            .padding(editingHitSlop)
+        ShareStickerVisual(instance: instance, content: content, climb: climb)
+            // The slop is divided by the scale it is about to be multiplied by,
+            // so the grab margin stays 22pt on screen at any sticker size.
+            // Applied before `scaleEffect` (which does not change layout size), a
+            // flat 22 became up to 130pt on a large sticker — a huge invisible
+            // region that stole touches from its neighbours — and shrank to 7pt
+            // on a small one, which was then hard to grab at all.
+            .padding(editingHitSlop / max(renderScale, 0.01))
             .contentShape(Rectangle())
-            .scaleEffect(instance.scale * gestureScale * canvasScale * (isOverTrash ? 0.35 : 1))
+            .scaleEffect(renderScale * (isOverTrash ? 0.35 : 1))
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isOverTrash)
+            // Content changes (a metric added, the arrangement or label position
+            // switched) reflow from the sticker's centre instead of jumping.
+            .animation(ShareComposerAnimation.content, value: content)
             .rotationEffect(.radians(displayRotation))
             .position(displayCenter)
             .highPriorityGesture(combinedGesture)

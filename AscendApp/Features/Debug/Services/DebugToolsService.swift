@@ -13,21 +13,10 @@ import SwiftData
 final class DebugToolsService {
     static let shared = DebugToolsService()
     
-    private let leaderboardSeeder = LeaderboardTestDataSeeder()
     private let workoutSeeder = WorkoutTestDataSeeder()
     
     private init() {}
     
-    // MARK: - Leaderboard Operations
-    
-    func seedLeaderboardData() async throws {
-        try await leaderboardSeeder.seedTestData()
-    }
-    
-    func clearLeaderboardData() async throws {
-        try await leaderboardSeeder.clearTestData()
-    }
-
     // MARK: - Workout Operations
 
     func seedWorkoutData(

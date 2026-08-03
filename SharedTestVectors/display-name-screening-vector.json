@@ -1,0 +1,37 @@
+{
+  "description": "Canonical display-name screening cases. isAllowedDisplayName in functions/src/publicIdentity.ts and in scripts/seed/lib/public-identity-contract.mjs must both agree with every case, so the seeding tools and the server cannot drift apart.",
+  "allowed": [
+    "Maya Chen",
+    "Climber2000",
+    "Runner000",
+    "Team111",
+    "Level333",
+    "Route555",
+    "Step777",
+    "Kaʻiulani",
+    "Oʼahu Climber",
+    "Climber QRN9QT",
+    "José",
+    "Марія",
+    "Scunthorpe",
+    "Nazim"
+  ],
+  "rejected": [
+    "",
+    "   ",
+    "asshole",
+    "fuuuck",
+    "fuсk",
+    "fυck",
+    "fucκ",
+    "fսck",
+    "ｆｕｃｋ",
+    "ｎｉｇｇｅｒ",
+    "Cliiimber",
+    "Climberʰ",
+    "Anonymous Climber",
+    "Anonymousʻ Climber",
+    "AnonymousʼClimber",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ]
+}

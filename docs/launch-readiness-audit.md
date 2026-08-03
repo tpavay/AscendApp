@@ -8,7 +8,7 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 | Area | Verdict |
 |---|---|
 | Live Climb hero loop | **Ship-ready** — wired end-to-end, zero TODO/fatalError on the critical path |
-| Monetization | **Plumbing wired; commerce configuration pending** |
+| Monetization | **Plumbing wired; App Store product submission and final paywall publish pending** |
 | Auth & account lifecycle | ~~Two App Review blockers in account deletion~~ - **both fixed** (see blockers 1-2) |
 | Environments & release pipeline | **Solid** — one bundling verification + secrets checklist |
 
@@ -18,21 +18,23 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 
 1. ~~**Account deletion leaves public mirrors behind.**~~ **Fixed** (issue #197). Mirrors are deleted before `user.delete()`, and the server-owned remainder is swept by the `cleanupDeletedUserData` Cloud Function.
 2. ~~**No Sign in with Apple token revocation on account deletion.**~~ **Fixed** (issue #197). The `authorizationCode` is captured during Apple re-auth and revoked before the account goes away.
-3. **Verify `PrivacyInfo.xcprivacy` lands in the Release bundle.** The manifest exists and is comprehensive (12 collected data types; UserDefaults CA92.1, FileTimestamp C617.1, DiskSpace E174.1, SystemBootTime 35F9.1; `NSPrivacyTracking=false`) but is **not referenced in project.pbxproj**. Build Release and `find` the file in the built .app; if absent, add to Copy Bundle Resources.
+3. **Verify `PrivacyInfo.xcprivacy` lands in the Release bundle.** The manifest exists and is comprehensive - `AscendApp/PrivacyInfo.xcprivacy` owns the declared data types and required-reason codes, and `AscendAppTests/PrivacyManifestTests.swift` pins both. It carries no explicit `project.pbxproj` entry by design: `AscendApp/` is a `PBXFileSystemSynchronizedRootGroup` for the `AscendApp` target whose only membership exception is `Info.plist`, so the manifest is bundled automatically. Confirm once by building Release and `find`ing the file in the built .app.
 
-> Blockers 1-2 are resolved. The deletion ordering contract, the revocation rules, and what deliberately outlives an account are owned by **CLAUDE.md → Account Deletion (Apple 5.1.1(v))**; the ordering itself is locked in by `AscendAppTests/AccountDeletionServiceTests.swift`. Consult those rather than this dated snapshot.
+> Blockers 1-2 are resolved. The deletion ordering contract, the revocation rules, and what deliberately outlives an account are owned by **`.claude/skills/ascend-firebase-data` → Account deletion (Apple 5.1.1(v))**; the ordering itself is locked in by `AscendAppTests/AccountDeletionServiceTests.swift`. Consult those rather than this dated snapshot.
 
 ## 🟡 Commerce configuration (dashboards — not auditable from code)
 
-4. **App Store Connect:** create IAPs — yearly $49.99 w/ 7-day trial, monthly $9.99.
-5. **RevenueCat:** products attached to entitlement `app_access`, offering `default` (the exact IDs the code expects — `MonetizationConfiguration.swift:43-44`).
-6. **Superwall:** attach the imported paywall to a campaign on the app's placements — `onboarding_paywall` / app-access gate — and publish. Dashboard currently shows only "Example Campaign" and Revenue Tracking: Missing (RevenueCat→Superwall forwarding not set up).
+4. **App Store Connect:** verified through RevenueCat's linked App Store integration on July 27, 2026 - `ascend_yearly` is $49.99/year with a seven-day trial and `ascend_monthly` is $9.99/month with no trial.
+5. **RevenueCat:** verified on July 27, 2026 - both products are attached to entitlement `app_access`, and offering `default` is current.
+6. **Superwall:** application `47442`, campaign `91861`, placement `app_access_gate`, and paywall `232372` were verified on July 27, 2026.
+   The aligned revision defaults to Annual, switches every trial-sensitive surface for Monthly, and replaces the unsupported personalized-plan claim with `Compete on global leaderboards`.
+   The retired discount paywall `232373` is archived.
+   Publication is blocked because Superwall reports both App Store products as `Incomplete` while App Store Connect reports them as `READY_TO_SUBMIT`; complete the required App Store submission step, then publish the already verified revision without bypassing the warning.
 7. **Sandbox test on device:** purchase → entitlement unlocks → restore works.
 
 ## 🟠 Promise vs. reality
 
-8. **Paywall overclaims removed.** Repo-controlled paywall and onboarding copy now use the exact 75-landmark catalog count and make no climb-earned trial promise.
-   Verify the same copy in the Superwall dashboard before launch.
+8. **Paywall overclaims removed.** Repo-controlled and Superwall paywalls use the exact 75-landmark catalog count, advertise implemented global leaderboard competition, make no personalized-plan claim, and make no climb-earned trial promise.
 9. **No paywall-priming stage** in `PostAuthOnboardingStage` (stages: displayName, gender, age, weight, location, notifications, planLoading, firstClimb). Flow hits the hard gate cold after onboarding. Conversion polish, not a blocker.
 10. ~~**No fallback UI** on `AppAccessPaywallPlaceholderView` if Superwall config fails — users would see "unavailable" with no purchase path.~~ **Fixed.** Dismissal without purchase, `onSkip`, configuration failure, and `onError` all route back to the visible placeholder with retry/restore actions via `AppAccessPaywallPresentationState`; locked in by `AscendAppTests/AppAccessPaywallPresentationStateTests.swift` and `MonetizationManagerPaywallTests.swift`.
 
@@ -44,9 +46,9 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 ## Secondary findings (lower priority, don't lose these)
 
 **Monetization**
-- Debug/Staging/Release all inject the **production** RevenueCat API key; an `AscendRevenueCatTestAPIKey` placeholder exists but isn't differentiated. Decide whether Debug should use a sandbox/test key.
+- ~~Debug/Staging/Release all inject the **production** RevenueCat API key.~~ **Fixed.** RevenueCat and Superwall are now split per build configuration; Release carries the configured production publishable client keys, Staging carries its own staging publishable client keys, and Debug is intentionally unset. The split, the per-environment vendor references, and the archive/launch gates are owned by `docs/superwall-paywall-setup.md`.
 - No StoreKit configuration file → can't test purchases in Simulator without sandbox. Optional QoL.
-- Monetization test coverage now spans placement registration, paywall outcome routing, and fallback state transitions (`MonetizationManagerPaywallTests`, `AppAccessPaywallPresentationStateTests`) on top of `MonetizationConfigurationTests`; entitlement transitions and restore remain untested.
+- Monetization test coverage now spans access routing with and without `app_access`, placement registration, paywall outcome routing, and fallback state transitions (`MonetizationManagerPaywallTests`, `AppAccessPaywallPresentationStateTests`) on top of `MonetizationConfigurationTests`; the access-routing tests assert a fixed entitlement state, so entitlement expiry and restore remain untested. Identity transitions - sign-out, sign-in, superseded and failed identity resolution, and customer-info observation - are covered by `RevenueCatEntitlementServiceTests` and `MonetizationIdentityTransitionStateTests` (contract: `docs/quality/contracts/returning-subscriber.md`).
 - Superwall placements defined in code: `.onboardingPaywall`, `.appLaunchHardGate`, `.appAccessGate` (`SuperwallPaywallPresenter.swift:38-44`).
 
 **Live Climbs**
@@ -67,7 +69,7 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 
 ## Confirmed good (no action)
 
-- Hard paywall gating is real in Release (`AppRootRoute.swift:45-63`; `allowsUnentitledAppAccess` compiles to false outside DEBUG/STAGING) with no runtime bypass.
+- Hard paywall gating is real in Staging and Release (`AppRootRoute.swift:45-63`; `ASCEND_ALLOWS_UNENTITLED_APP_ACCESS = NO`) with no runtime bypass.
 - Restore purchases wired end-to-end (RootView → MonetizationManager → `Purchases.shared.restorePurchases()`).
 - Post-auth onboarding properly blocks until profile completion; resolver handles first-time/returning/interrupted.
 - Privacy boundaries enforced: other-user reads go through public mirrors; Storage prefixes owner-only.

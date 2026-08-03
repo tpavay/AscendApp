@@ -53,8 +53,13 @@ class AuthenticationViewModel {
 
     private var authenticationService = AuthenticationService()
     private let accountSessionStore = AccountSessionStore.shared
+    private let monetizationIdentityManager: any MonetizationIdentityManaging
 
-    init() {
+    init(
+        monetizationIdentityManager: any MonetizationIdentityManaging = MonetizationManager.shared,
+        observesFirebaseAuth: Bool = true
+    ) {
+        self.monetizationIdentityManager = monetizationIdentityManager
         lastUsedProvider = accountSessionStore.lastUsedProvider
 
         // Load cached display name immediately for UI responsiveness
@@ -65,13 +70,15 @@ class AuthenticationViewModel {
             customProfilePictureURL = URL(string: cachedURLString)
         }
 
-        if let currentUser = Auth.auth().currentUser {
+        if observesFirebaseAuth, let currentUser = Auth.auth().currentUser {
             user = currentUser
             photoURL = currentUser.photoURL
             authenticationState = .restoringSession
         }
-        
-        registerAuthStateHandler()
+
+        if observesFirebaseAuth {
+            registerAuthStateHandler()
+        }
     }
     private var authStateHandle: AuthStateDidChangeListenerHandle?
 
@@ -85,9 +92,6 @@ class AuthenticationViewModel {
                     // Set telemetry user ID and log session restored
                     TelemetryManager.shared.setUserId(user.uid)
                     TelemetryManager.shared.log(.authSessionRestored)
-                    Task {
-                        await MonetizationManager.shared.identify(userId: user.uid)
-                    }
 
                     // Check if we're in an interactive sign-in flow (already showing progress)
                     let isInteractiveSignIn = self.authenticationState == .authenticatingWithGoogle ||
@@ -101,17 +105,22 @@ class AuthenticationViewModel {
 
                     // If we have a cached name, we can show authenticated immediately
                     // Otherwise, show restoring session while we fetch from Firestore
+                    let initialAuthenticationState: AuthenticationState
                     if !cachedDisplayName.isEmpty {
                         self.isProfileLoaded = true
-                        self.authenticationState = .authenticated
+                        initialAuthenticationState = .authenticated
                     } else if isInteractiveSignIn {
                         // Interactive sign-in: set authenticated immediately even without display name
-                        self.authenticationState = .authenticated
+                        initialAuthenticationState = .authenticated
                     } else {
                         // Cold launch without cached name: show restoring session
                         self.isProfileLoaded = false
-                        self.authenticationState = .restoringSession
+                        initialAuthenticationState = .restoringSession
                     }
+                    self.beginAuthenticatedSession(
+                        userID: user.uid,
+                        initialState: initialAuthenticationState
+                    )
 
                     // Handle Firestore operations in background
                     Task {
@@ -151,11 +160,15 @@ class AuthenticationViewModel {
                         }
                     }
                 } else {
+                    let monetizationTransition = self.monetizationIdentityManager.prepareIdentityReset()
+
                     // User signed out - reset all state
                     TelemetryManager.shared.log(.authSignOut)
                     TelemetryManager.shared.clearUserId()
                     Task {
-                        await MonetizationManager.shared.resetIdentity()
+                        await self.monetizationIdentityManager.resetIdentity(
+                            transition: monetizationTransition
+                        )
                     }
 
                     self.displayName = ""
@@ -167,6 +180,25 @@ class AuthenticationViewModel {
                 }
             })
         }
+    }
+
+    /// Claims the new RevenueCat identity *before* publishing an authenticated state, so routing
+    /// never evaluates access against the previous identity's stale answer. The entitlement state
+    /// is `.unknown` the moment the app is authenticated, which routes to a wait, not the paywall.
+    func beginAuthenticatedSession(
+        userID: String,
+        initialState: AuthenticationState
+    ) {
+        let monetizationTransition = monetizationIdentityManager.prepareIdentity(
+            userId: userID
+        )
+        Task {
+            await monetizationIdentityManager.identify(
+                userId: userID,
+                transition: monetizationTransition
+            )
+        }
+        authenticationState = initialState
     }
 }
 
@@ -322,11 +354,16 @@ extension AuthenticationViewModel {
     func setDisplayName(firstName: String, lastName: String) async {
         do {
             let fullDisplayName = "\(firstName) \(lastName)"
-            try await authenticationService.updateUserDisplayName(displayName: fullDisplayName)
-            displayName = fullDisplayName
+            let validatedDisplayName = try DisplayNamePolicy.validated(
+                fullDisplayName
+            )
+            try await authenticationService.updateUserDisplayName(
+                displayName: validatedDisplayName
+            )
+            displayName = validatedDisplayName
             
             // Cache display name for immediate UI updates
-            UserDataRepository.shared.cacheDisplayName(fullDisplayName)
+            UserDataRepository.shared.cacheDisplayName(validatedDisplayName)
             
             // Save updated user info to Firestore with individual names
             if let user = user {
@@ -335,7 +372,7 @@ extension AuthenticationViewModel {
                     email: user.email,
                     firstName: firstName,
                     lastName: lastName,
-                    displayName: fullDisplayName
+                    displayName: validatedDisplayName
                 )
                 hasRemoteDisplayName = true
             }
@@ -388,8 +425,10 @@ extension AuthenticationViewModel {
             errorMessage = "User not authenticated"
             return
         }
-        
+
         do {
+            try ProfilePublicationError.requireConnection()
+
             guard let imageData = try await photoPickerItem.loadTransferable(type: Data.self) else {
                 errorMessage = "Failed to upload photo"
                 return
@@ -406,20 +445,12 @@ extension AuthenticationViewModel {
             
             // Update the local state
             customProfilePictureURL = uploadedURL
-            
-            // Update all leaderboard entries with the new photo URL
-            do {
-                try await LeaderboardService.shared.updateProfilePictureURL(
-                    userId: user.uid,
-                    photoURL: uploadedURL
-                )
-            } catch {
-                // Don't fail the whole operation if leaderboard update fails
-                debugLog("Warning: Failed to update leaderboard photo URL: \(error)")
-            }
-            
+
         } catch {
-            errorMessage = "Failed to update profile picture: \(error.localizedDescription)"
+            errorMessage = profileUpdateFailureMessage(
+                error,
+                fallback: "Failed to update profile picture"
+            )
         }
     }
     
@@ -432,6 +463,8 @@ extension AuthenticationViewModel {
         }
         
         do {
+            try ProfilePublicationError.requireConnection()
+
             // Upload the photo data directly
             let filename = "users/\(user.uid)/profile_pictures/\(UUID().uuidString).jpg"
             let photoRepo = FirebasePhotoRepository()
@@ -445,23 +478,25 @@ extension AuthenticationViewModel {
             
             // Update the local state
             customProfilePictureURL = uploadedURL
-            
-            // Update all leaderboard entries with the new photo URL
-            do {
-                try await LeaderboardService.shared.updateProfilePictureURL(
-                    userId: user.uid,
-                    photoURL: uploadedURL
-                )
-            } catch {
-                // Don't fail the whole operation if leaderboard update fails
-                debugLog("Warning: Failed to update leaderboard photo URL: \(error)")
-            }
-            
+
         } catch {
-            errorMessage = "Failed to update profile picture: \(error.localizedDescription)"
+            errorMessage = profileUpdateFailureMessage(
+                error,
+                fallback: "Failed to update profile picture"
+            )
         }
     }
     
+    private func profileUpdateFailureMessage(
+        _ error: Error,
+        fallback: String
+    ) -> String {
+        if let publicationError = error as? ProfilePublicationError {
+            return publicationError.errorDescription ?? fallback
+        }
+        return "\(fallback): \(error.localizedDescription)"
+    }
+
     var displayPhotoURL: URL? {
         // Prioritize custom profile picture, then fall back to OAuth provider photo
         return customProfilePictureURL ?? photoURL
@@ -476,45 +511,36 @@ extension AuthenticationViewModel {
             return false
         }
         
-        let trimmedName = newDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        guard !trimmedName.isEmpty else {
-            errorMessage = "Display name cannot be empty"
-            return false
-        }
-        
         let previousDisplayName = displayName
 
         do {
-            // Update local state immediately for responsive UI
-            displayName = trimmedName
+            let validatedDisplayName = try DisplayNamePolicy.validated(
+                newDisplayName
+            )
 
-            try await authenticationService.updateUserDisplayName(displayName: trimmedName)
+            // Update local state immediately for responsive UI
+            displayName = validatedDisplayName
+
+            try await authenticationService.updateUserDisplayName(
+                displayName: validatedDisplayName
+            )
             
             // Save to Firestore user document
             try await UserDataRepository.shared.updateDisplayName(
                 userId: user.uid,
                 email: user.email,
-                displayName: trimmedName
+                displayName: validatedDisplayName
             )
             hasRemoteDisplayName = true
-            
-            // Update all leaderboard entries with the new display name
-            do {
-                try await LeaderboardService.shared.updateDisplayName(
-                    userId: user.uid,
-                    displayName: trimmedName
-                )
-            } catch {
-                // Don't fail the whole operation if leaderboard update fails
-                debugLog("Warning: Failed to update leaderboard display name: \(error)")
-            }
 
             return true
             
         } catch {
             displayName = previousDisplayName
-            errorMessage = "Failed to update display name: \(error.localizedDescription)"
+            errorMessage = profileUpdateFailureMessage(
+                error,
+                fallback: "Failed to update display name"
+            )
             return false
         }
     }
@@ -528,13 +554,6 @@ extension AuthenticationViewModel {
             return false
         }
 
-        let trimmedName = newDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !trimmedName.isEmpty else {
-            errorMessage = "Display name cannot be empty"
-            return false
-        }
-
         guard (13...120).contains(age) else {
             errorMessage = "Enter an age from 13 to 120"
             return false
@@ -543,32 +562,31 @@ extension AuthenticationViewModel {
         let previousDisplayName = displayName
 
         do {
-            displayName = trimmedName
+            let validatedDisplayName = try DisplayNamePolicy.validated(
+                newDisplayName
+            )
+            displayName = validatedDisplayName
 
-            try await authenticationService.updateUserDisplayName(displayName: trimmedName)
+            try await authenticationService.updateUserDisplayName(
+                displayName: validatedDisplayName
+            )
 
             try await UserDataRepository.shared.updateOnboardingProfile(
                 userId: user.uid,
                 email: user.email,
-                displayName: trimmedName,
+                displayName: validatedDisplayName,
                 age: age,
                 gender: gender
             )
             hasRemoteDisplayName = true
 
-            do {
-                try await LeaderboardService.shared.updateDisplayName(
-                    userId: user.uid,
-                    displayName: trimmedName
-                )
-            } catch {
-                debugLog("Warning: Failed to update leaderboard display name: \(error)")
-            }
-
             return true
         } catch {
             displayName = previousDisplayName
-            errorMessage = "Failed to update profile: \(error.localizedDescription)"
+            errorMessage = profileUpdateFailureMessage(
+                error,
+                fallback: "Failed to update profile"
+            )
             return false
         }
     }
@@ -645,14 +663,6 @@ extension AuthenticationViewModel {
                 displayName: displayName,
                 weightKg: weightKg
             )
-            do {
-                try await LeaderboardService.shared.updateBodyWeight(
-                    userId: user.uid,
-                    weightKg: weightKg
-                )
-            } catch {
-                debugLog("Warning: Failed to update leaderboard body weight: \(error)")
-            }
             return true
         } catch {
             errorMessage = "Failed to update profile: \(error.localizedDescription)"
@@ -687,14 +697,6 @@ extension AuthenticationViewModel {
                 weightKg: weightKg,
                 heightCm: heightCm
             )
-            do {
-                try await LeaderboardService.shared.updateBodyWeight(
-                    userId: user.uid,
-                    weightKg: weightKg
-                )
-            } catch {
-                debugLog("Warning: Failed to update leaderboard body weight: \(error)")
-            }
             return true
         } catch {
             errorMessage = "Failed to update profile: \(error.localizedDescription)"

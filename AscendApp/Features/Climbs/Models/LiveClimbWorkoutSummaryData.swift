@@ -42,6 +42,57 @@ enum LiveClimbWorkoutSummaryData {
         return try? ClimbService.shared.climb(for: climbId)
     }
 
+    /// The step scale a finished session's summary is drawn against: the recorder's
+    /// own target, never below what the session actually logged.
+    static func summaryTargetSteps(metadata: HeadphoneMotionWorkoutMetadata, workout: Workout) -> Int {
+        max(metadata.targetStepCount ?? workout.steps, workout.steps, 1)
+    }
+
+    /// Which leaderboard a finished in-app session ranks on.
+    ///
+    /// `trackingMode` was added after the first Live Climbs shipped, so a workout saved before it
+    /// decodes with a `nil` mode while still carrying its `climbId`. The climb id is the durable
+    /// signal and is read first; the mode only disambiguates a session that has no climb. Reading
+    /// the mode alone stranded those early workouts with no leaderboard context at all, which is
+    /// what left a status word standing in for their rank.
+    static func leaderboardContext(
+        metadata: HeadphoneMotionWorkoutMetadata?,
+        resolvedClimbId: String?,
+        climbTargetSteps: Int?,
+        workoutSteps: Int
+    ) -> LiveReplayLeaderboardContext? {
+        guard let metadata else { return nil }
+
+        if metadata.trackingMode == .routine {
+            guard let templateId = metadata.routineTemplateId,
+                  !templateId.isEmpty else {
+                return nil
+            }
+
+            return .routineTemplate(
+                templateId: templateId,
+                targetSteps: max(metadata.targetStepCount ?? workoutSteps, workoutSteps, 1)
+            )
+        }
+
+        if metadata.climbId != nil || metadata.trackingMode == .liveClimb {
+            guard let resolvedClimbId, let climbTargetSteps else { return nil }
+            return .liveClimb(
+                climbId: resolvedClimbId,
+                targetSteps: climbTargetSteps
+            )
+        }
+
+        return .justClimbGlobal(
+            targetSteps: max(
+                metadata.targetStepCount ?? JustClimbGoal.defaultOpenStepScale,
+                JustClimbGoal.defaultOpenStepScale,
+                workoutSteps,
+                1
+            )
+        )
+    }
+
     static func progressPoints(for workout: Workout, targetSteps: Int) -> [LiveClimbProgressPoint] {
         normalizedProgressPoints(for: workout, targetSteps: targetSteps)
     }
@@ -136,6 +187,8 @@ enum LiveClimbWorkoutSummaryData {
             points = []
         }
 
+        // Workout progress at elapsed zero is zero, whatever a recovered or legacy curve stored.
+        points.removeAll { $0.elapsedSeconds == 0 }
         points.insert(LiveClimbProgressPoint(elapsedSeconds: 0, steps: 0), at: 0)
 
         if points.last?.elapsedSeconds != durationSeconds || points.last?.steps != workout.steps {
@@ -154,21 +207,25 @@ enum LiveClimbWorkoutSummaryData {
         max(elapsedSeconds, 0) / max(intervalSeconds, 1)
     }
 
+    /// A bucket is interpreted at the end of its window, not its start - see
+    /// `LiveReplaySplitCurve` for the anchoring contract this places points against.
     private static func splitElapsedSeconds(
         forBucketIndex index: Int,
         intervalSeconds: Int,
         finalDurationSeconds: Int,
         finalBucketIndex: Int
     ) -> Int {
-        let bucketStartSeconds = max(index, 0) * max(intervalSeconds, 1)
-        if index == finalBucketIndex {
-            return max(finalDurationSeconds, 1)
-        }
+        let safeDurationSeconds = max(finalDurationSeconds, 1)
+        guard index < finalBucketIndex else { return safeDurationSeconds }
 
-        return min(bucketStartSeconds, max(finalDurationSeconds, 1))
+        let bucketEndSeconds = (max(index, 0) + 1) * max(intervalSeconds, 1)
+        return min(bucketEndSeconds, safeDurationSeconds)
     }
 
-    private static func normalizedSplitSteps(
+    /// Twin of the server's `normalizeReplaySplitSteps`. Both sides are pinned to the same
+    /// end-anchored bucket contract by `SharedTestVectors/live-replay-split-normalization-vector.json`,
+    /// so this stays module-visible for that parity test rather than private.
+    static func normalizedSplitSteps(
         _ splitSteps: [Int],
         intervalSeconds: Int,
         finalDurationSeconds: Int,
@@ -266,7 +323,9 @@ enum LiveClimbWorkoutSummaryData {
         var lastStep = 0
 
         for index in 0..<bucketCount {
-            let elapsedSeconds = index * intervalSeconds
+            // Bucket `index` is read at the end of its window, so it projects the
+            // progress reached by `(index + 1) * intervalSeconds`.
+            let elapsedSeconds = (index + 1) * intervalSeconds
             let progress = min(Double(elapsedSeconds) / Double(safeDurationSeconds), 1)
             let projectedStep = elapsedSeconds >= safeDurationSeconds
                 ? finalSteps

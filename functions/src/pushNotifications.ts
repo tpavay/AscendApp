@@ -165,7 +165,12 @@ export const unregisterPushDevice = onCall(async (request) => {
   const now = admin.firestore.Timestamp.now();
 
   if (fcmToken) {
-    await deactivateToken(uid, hashToken(fcmToken), now);
+    await deactivateToken(
+      admin.firestore(),
+      uid,
+      hashToken(fcmToken),
+      now
+    );
   } else {
     await deactivateActiveUserTokens(uid, now);
   }
@@ -433,34 +438,57 @@ async function updateActiveDevicePreference(
 
 /**
  * Deactivates one token for a user.
+ *
+ * Only existing records are touched. A merging write would otherwise create
+ * notification_devices/{tokenHash} for a token that was never registered
+ * (push denied, or registration failed), and that document carries no `uid`,
+ * so the account-deletion sweep - which queries by `uid` - could never reach
+ * it. A record owned by another uid is left alone: the caller only proves it
+ * knows a token, not that the token is theirs.
+ * @param {admin.firestore.Firestore} firestore Firestore instance.
  * @param {string} uid User ID.
  * @param {string} tokenHash Token hash document ID.
  * @param {admin.firestore.Timestamp} now Server timestamp.
  * @return {Promise<void>} Resolves when token is deactivated.
  */
 async function deactivateToken(
+  firestore: admin.firestore.Firestore,
   uid: string,
   tokenHash: string,
   now: admin.firestore.Timestamp
 ) {
-  const firestore = admin.firestore();
-  await Promise.all([
-    firestore.collection("notification_devices").doc(tokenHash).set({
-      active: false,
-      disabledAt: now,
-      updatedAt: now,
-    }, {merge: true}),
-    firestore
-      .collection("users")
-      .doc(uid)
-      .collection("notification_devices")
-      .doc(tokenHash)
-      .set({
-        active: false,
-        disabledAt: now,
-        updatedAt: now,
-      }, {merge: true}),
+  const deviceRef = firestore
+    .collection("notification_devices")
+    .doc(tokenHash);
+  const mirrorRef = firestore
+    .collection("users")
+    .doc(uid)
+    .collection("notification_devices")
+    .doc(tokenHash);
+  const [deviceSnapshot, mirrorSnapshot] = await Promise.all([
+    deviceRef.get(),
+    mirrorRef.get(),
   ]);
+
+  if (deviceSnapshot.exists && deviceSnapshot.data()?.uid !== uid) {
+    return;
+  }
+
+  const deactivation = {
+    active: false,
+    disabledAt: now,
+    updatedAt: now,
+  };
+  const writes: Promise<unknown>[] = [];
+
+  if (deviceSnapshot.exists) {
+    writes.push(deviceRef.set(deactivation, {merge: true}));
+  }
+  if (mirrorSnapshot.exists) {
+    writes.push(mirrorRef.set(deactivation, {merge: true}));
+  }
+
+  await Promise.all(writes);
 }
 
 /**
@@ -473,12 +501,13 @@ async function deactivateActiveUserTokens(
   uid: string,
   now: admin.firestore.Timestamp
 ) {
-  const snapshot = await admin.firestore().collection("notification_devices")
+  const firestore = admin.firestore();
+  const snapshot = await firestore.collection("notification_devices")
     .where("uid", "==", uid)
     .where("active", "==", true)
     .get();
   await Promise.all(
-    snapshot.docs.map((doc) => deactivateToken(uid, doc.id, now))
+    snapshot.docs.map((doc) => deactivateToken(firestore, uid, doc.id, now))
   );
 }
 
@@ -503,7 +532,7 @@ async function deactivateInvalidTokens(tokenHashes: string[]) {
     if (typeof uid !== "string" || uid.length === 0) {
       return;
     }
-    await deactivateToken(uid, tokenHash, now);
+    await deactivateToken(firestore, uid, tokenHash, now);
   }));
 }
 
@@ -714,6 +743,7 @@ function invalidArgument(message: string) {
 
 export const pushNotificationTestHooks = {
   chunkArray,
+  deactivateToken,
   hashToken,
   normalizeRegisterPushDevicePayload,
   normalizeSendClimbDropPayload,

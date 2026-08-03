@@ -104,15 +104,6 @@ struct ClimbPreviewCardView: View {
                     .font(.montserratSemiBold(size: 12))
                     .foregroundStyle(.white.opacity(0.88))
             }
-
-            Text("Finish in one live attempt")
-                .font(.montserratMedium(size: 10))
-                .italic()
-                .foregroundStyle(.white.opacity(0.32))
-                .lineLimit(2)
-                .lineSpacing(1)
-                .fixedSize(horizontal: false, vertical: true)
-                .layoutPriority(1)
         }
     }
 

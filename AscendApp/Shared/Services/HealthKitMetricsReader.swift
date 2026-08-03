@@ -95,13 +95,19 @@ final class HealthKitMetricsReader: HealthKitMetricsReading {
         }
 
         let heartRateData = await fetchHeartRateData(during: dateRange)
-        metrics.avgHeartRate = heartRateData.average
-        metrics.maxHeartRate = heartRateData.maximum
-        metrics.heartRateTimeSeries = await fetchHeartRateTimeSeries(
-            for: workout,
-            during: dateRange,
-            summary: heartRateData
+        let heartRateSeries = WorkoutHeartRatePlausibility.normalized(
+            samples: await fetchHeartRateTimeSeries(
+                for: workout,
+                during: dateRange,
+                summary: heartRateData
+            ),
+            average: heartRateData.average,
+            maximum: heartRateData.maximum,
+            sourceWorkoutId: workout?.uuid.uuidString
         )
+        metrics.avgHeartRate = heartRateSeries.average
+        metrics.maxHeartRate = heartRateSeries.maximum
+        metrics.heartRateTimeSeries = heartRateSeries.samples
 
         if let avgMetsQuantity = workout?.metadata?["HKAverageMETs"] as? HKQuantity {
             let metsUnit = HKUnit.kilocalorie().unitDivided(

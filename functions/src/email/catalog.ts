@@ -6,7 +6,6 @@ import {
   renderOnboardingAbandonedBeforePaywallEmailFromPayload,
   renderRatingNegativeFeedbackEmailFromPayload,
   renderRatingPositiveFollowupEmailFromPayload,
-  renderWaitlistWelcomeEmailFromPayload,
 } from "./templates";
 import type {
   EmailJobDocument,
@@ -33,11 +32,6 @@ const standardRetryDelaysMs = [
 ];
 
 export const emailTypeConfigs: Record<EmailType, EmailTypeDefinition> = {
-  waitlist_welcome: {
-    render: renderWaitlistWelcomeEmailFromPayload,
-    retryDelaysMs: standardRetryDelaysMs,
-    sendPolicy: "send_now",
-  },
   rating_positive_followup: {
     render: renderRatingPositiveFollowupEmailFromPayload,
     retryDelaysMs: standardRetryDelaysMs,
@@ -77,6 +71,11 @@ export const emailTypeConfigs: Record<EmailType, EmailTypeDefinition> = {
 
 /**
  * Renders email content for a queued job using the type config map.
+ *
+ * A job already in Firestore can name a type this build no longer ships, so
+ * the lookup is checked rather than assumed. Naming the retired type is what
+ * makes the resulting `invalid_payload` failure readable; an unchecked lookup
+ * would surface as a property access on undefined.
  * @param {EmailJobDocument} job - Queued email job
  * @param {EmailRenderContext} context - Per-recipient render context
  * @return {TransactionalEmailRenderResult} Subject and rendered bodies
@@ -85,5 +84,10 @@ export function renderEmailContentForJob(
   job: EmailJobDocument,
   context: EmailRenderContext = {}
 ): TransactionalEmailRenderResult {
-  return emailTypeConfigs[job.type].render(job.payload, context);
+  const typeConfig = emailTypeConfigs[job.type];
+  if (!typeConfig) {
+    throw new Error(`unsupported_email_type:${job.type}`);
+  }
+
+  return typeConfig.render(job.payload, context);
 }

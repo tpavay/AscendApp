@@ -40,8 +40,15 @@
     "backfill:live-replay-best-per-user:staging": "node backfill-live-replay-best-per-user.mjs --project staging --dry-run",
     "backfill:legacy-replay-completions": "node backfill-legacy-live-replay-completions.mjs --env dev",
     "backfill:legacy-replay-completions:staging": "node backfill-legacy-live-replay-completions.mjs --env staging",
+    "backfill:workout-climb-ids": "node backfill-workout-climb-ids.mjs --env dev",
+    "backfill:workout-climb-ids:staging": "node backfill-workout-climb-ids.mjs --env staging",
+    "backfill:workout-climb-ids:production": "node backfill-workout-climb-ids.mjs --env prod --confirm-production ascend-prod-9c8f2",
     "cleanup:case-variant-workout-ids": "node cleanup-case-variant-workout-ids.mjs --env dev",
     "cleanup:case-variant-workout-ids:staging": "node cleanup-case-variant-workout-ids.mjs --env staging",
+    "restore:public-identities": "node restore-public-identities.mjs --env dev",
+    "restore:public-identities:staging": "node restore-public-identities.mjs --env staging",
+    "restore:public-identities:verify": "node restore-public-identities.mjs --env dev --verify",
+    "restore:public-identities:verify:staging": "node restore-public-identities.mjs --env staging --verify",
     "clear:live-replay": "node seed-live-replay-leaderboards.mjs clear --project dev",
     "clear:live-replay:staging": "node seed-live-replay-leaderboards.mjs clear --project staging",
     "seed:routine-templates": "node seed-routine-templates.mjs seed --project dev",
@@ -57,7 +64,16 @@
     "images:audit:production": "node sync-climb-images.mjs audit --project production",
     "images:diff:staging-to-production": "node sync-climb-images.mjs diff --from staging --to production",
     "images:sync:staging-to-dev": "node sync-climb-images.mjs sync --from staging --to dev",
-    "images:sync:staging-to-production": "node sync-climb-images.mjs sync --from staging --to production --confirm-production"
+    "images:sync:staging-to-production": "node sync-climb-images.mjs sync --from staging --to production --confirm-production",
+    "remoteconfig:deploy": "node deploy-remote-config.mjs --env dev",
+    "remoteconfig:deploy:staging": "node deploy-remote-config.mjs --env staging",
+    "remoteconfig:deploy:production": "node deploy-remote-config.mjs --env prod --confirm-production ascend-prod-9c8f2",
+    "remoteconfig:publish-new": "node publish-new-kill-switches.mjs dev",
+    "remoteconfig:publish-new:staging": "node publish-new-kill-switches.mjs staging",
+    "remoteconfig:publish-new:production": "node publish-new-kill-switches.mjs prod --confirm-production ascend-prod-9c8f2",
+    "remoteconfig:drift": "node ci/report-remote-config-drift.mjs dev staging prod",
+    "phased-release:status": "node appstore-phased-release.mjs status",
+    "phased-release:pause": "node appstore-phased-release.mjs pause --confirm"
   },
   "engines": {
     "node": ">=20"

@@ -224,7 +224,8 @@ Welcome:
 - Wordmark near top.
 - H1 in upper third or lower third depending on image read.
 - CTA at bottom.
-- Login link below CTA.
+- Sign-in link below CTA.
+- Both bottom actions share one bottom safe-area inset so they cannot collide at large Dynamic Type; the sign-in row drops its `Already have an account?` prefix at accessibility sizes.
 
 Value screens:
 - Top 52-58 percent visual.
@@ -294,7 +295,7 @@ Copy:
 - Headline: `Race the world up real landmarks.`
 - Subhead: `From your stair stepper.`
 - CTA: `GET STARTED`
-- Secondary: `Already have an account? Log in`
+- Secondary: `Already have an account? Sign in`, routing to `SignUpView` (it serves both sign-up and sign-in)
 
 Visual:
 - Use `OnboardingWelcomeBackground`.
@@ -623,12 +624,12 @@ Recommended paywall structure:
    - `Track records and trends`
    - `Sync and protect your climb history`
 4. Plan selector:
-   - Yearly highlighted: `Best value`
-   - Trial copy: `Start with a free trial.`
-   - Monthly: `Pay as you go`
+   - Yearly highlighted and selected by default: `$49.99/year`
+   - Yearly trial copy: `7 days free, then $49.99/year`
+   - Monthly: `$9.99/month, charged immediately`
 5. CTA:
-   - Trial available: `Start Free Trial`
-   - No trial: `Start Climbing`
+   - Yearly selected: `Try 7 Days Free`
+   - Monthly selected: `Subscribe for $9.99/month`
 6. Footer:
    - `Restore Purchase`
    - `Terms`
@@ -637,7 +638,9 @@ Recommended paywall structure:
 Pricing display:
 - Show yearly as the default selected plan.
 - Show monthly as the comparison plan.
-- Avoid weekly in V1 unless the pricing strategy is locked.
+- Show trial language only while yearly is selected.
+- Switch the headline, CTA, price, and legal disclosure to immediate monthly billing when monthly is selected.
+- Do not offer a weekly plan.
 
 ## App Workflow Map
 
@@ -752,11 +755,11 @@ State and data:
 - Summary metrics come from the local workout immediately.
 - Rank-at-completion comes from the server snapshot and should not be faked locally.
 - The per-climb leaderboard is dynamic and can change as new attempts publish.
-- The user's finisher order is permanent; its denominator grows as more users complete the climb.
+- The user's finisher order is permanent, and so is the completion summary's rank and its denominator once the server has ranked the workout; the climb's live finisher count is the number that keeps growing. See `ascend-live-climbs` for the rules that keep those two apart on screen.
 - Sync status is shared by workout id so retrying from one surface updates the others.
 
 Success condition:
-- The user never sees contradictory rank/count numbers between summary, climb card, and leaderboard.
+- The user never sees a rank paired with a denominator from a different population, and wherever the app can name what a figure counted it labels it, so summary, climb card, and leaderboard never read as contradicting each other.
 
 Design principle:
 - Treat publication failure as recoverable state. Show the saved workout, make rank status clear, and offer a small underlined `Retry sync` action only where it matters.
@@ -1048,8 +1051,7 @@ CTA copy:
 - `Build My Field`
 - `View Climb`
 - `Turn On Notifications`
-- `Start Free Trial`
-- `Start Climbing`
+- Paywall CTAs switch with the selected plan - see `### 24. Paywall`.
 
 Do not use arrow icons on CTAs.
 

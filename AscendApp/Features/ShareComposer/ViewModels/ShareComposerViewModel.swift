@@ -34,15 +34,15 @@ final class ShareComposerViewModel {
     var selectedID: UUID?
     /// User-chosen display name for the climb (stat values stay the truth; only
     /// the climb's title is renameable). `nil` = use the catalog name.
-    var climbNameOverride: String?
+    private(set) var climbNameOverride: String?
 
     /// The workout's Best Efforts, injected from the Best Effort cache by the
     /// view (the resolver can't compute them from the Workout alone). Each has a
     /// unique `label` used as the sticker's `injectedStatKey`.
-    var bestEffortStats: [ResolvedShareStat] = []
+    private(set) var bestEffortStats: [ResolvedShareStat] = []
     /// This-week aggregate stats (steps, workouts, time, vertical), injected from
     /// the full workout history. Each has a unique `label` used as the key.
-    var weeklyTotalStats: [ResolvedShareStat] = []
+    private(set) var weeklyTotalStats: [ResolvedShareStat] = []
 
     // Transient drag feedback (driven by ShareStickerView callbacks)
     var draggingID: UUID?
@@ -83,9 +83,24 @@ final class ShareComposerViewModel {
     }
 
     // MARK: - Stat resolution
+    //
+    // Everything here is memoized behind `@ObservationIgnored`, because it used
+    // to run in the render path: the canvas resolved every sticker's stats inside
+    // `body`, and `body` re-runs on every frame of every drag. Resolving splits
+    // filters the whole heart-rate series once per split, so that was unbounded
+    // O(samples × splits) work per sticker per frame. Reading a cache does not
+    // register an observation dependency, so a gesture frame is a dictionary
+    // lookup and the cache never triggers a re-render of its own.
+
+    @ObservationIgnored private var cachedResolver: ShareStatResolver?
+    @ObservationIgnored private var statCache: [ShareStatRef: ResolvedShareStat?] = [:]
+    @ObservationIgnored private var splitsCache: ResolvedShareSplits??
+    @ObservationIgnored private var availableStatsCache: [ResolvedShareStat]?
+    @ObservationIgnored private var stickerContentCache: [UUID: ShareStickerContent] = [:]
 
     private var resolver: ShareStatResolver {
-        ShareStatResolver(
+        if let cachedResolver { return cachedResolver }
+        let resolver = ShareStatResolver(
             workout: workout,
             measurementSystem: measurementSystem,
             stepHeight: stepHeight,
@@ -94,6 +109,18 @@ final class ShareComposerViewModel {
             climbRankTotal: climbRankTotal,
             splitTargetSteps: climb?.referenceStepCount
         )
+        cachedResolver = resolver
+        return resolver
+    }
+
+    /// Drops every derived value. Called when the inputs behind them change —
+    /// the climb rename and the injected stat lists — and nowhere else.
+    private func invalidateResolvedData() {
+        cachedResolver = nil
+        statCache.removeAll()
+        splitsCache = nil
+        availableStatsCache = nil
+        stickerContentCache.removeAll()
     }
 
     var isClimb: Bool { climbName != nil }
@@ -101,29 +128,41 @@ final class ShareComposerViewModel {
     /// This-climb / this-workout stats that have a value, resolved for display.
     /// Best Efforts and Totals are surfaced as their own sections, not here.
     func climbStats() -> [ResolvedShareStat] {
-        resolver.availableKinds().compactMap { resolver.resolve($0) }
+        if let availableStatsCache { return availableStatsCache }
+        let stats = resolver.availableKinds().compactMap { resolved(ShareStatRef(kind: $0)) }
+        availableStatsCache = stats
+        return stats
     }
 
     /// Resolve a single stat reference. Injected kinds (`.bestEffort`, `.totals`)
     /// look up their value by key; everything else resolves from the workout.
     func resolved(_ ref: ShareStatRef) -> ResolvedShareStat? {
+        if let cached = statCache[ref] { return cached }
+        let resolved: ResolvedShareStat?
         switch ref.kind {
-        case .bestEffort: return injected(ref.injectedStatKey, in: bestEffortStats)
-        case .totals: return injected(ref.injectedStatKey, in: weeklyTotalStats)
-        default: return resolver.resolve(ref.kind)
+        case .bestEffort: resolved = injected(ref.injectedStatKey, in: bestEffortStats)
+        case .totals: resolved = injected(ref.injectedStatKey, in: weeklyTotalStats)
+        case .splits: resolved = splits().map {
+            ResolvedShareStat(kind: .splits, label: $0.label, value: $0.value, detail: $0.subtitle)
         }
+        default: resolved = resolver.resolve(ref.kind)
+        }
+        statCache[ref] = resolved
+        return resolved
     }
 
-    /// All resolved metrics for a sticker (one for a single sticker, several for
-    /// a composite). Unresolvable refs are dropped.
-    func resolvedStats(for instance: ShareStickerInstance) -> [ResolvedShareStat] {
-        instance.statRefs.compactMap { resolved($0) }
+    /// The workout's split timeline, resolved at most once.
+    func splits() -> ResolvedShareSplits? {
+        if let splitsCache { return splitsCache }
+        let splits = resolver.resolveSplits()
+        splitsCache = .some(splits)
+        return splits
     }
 
     /// Structured split payload for the split sticker.
     func resolvedSplits(for instance: ShareStickerInstance) -> ResolvedShareSplits? {
-        guard instance.kind == .splits, instance.extraStats.isEmpty else { return nil }
-        return resolver.resolveSplits()
+        guard instance.isStructured else { return nil }
+        return splits()
     }
 
     /// The sticker's primary resolved value (used for the font-preview sheet).
@@ -136,11 +175,53 @@ final class ShareComposerViewModel {
         return list.first
     }
 
+    // MARK: - Card content
+
+    /// The card tree and pre-resolved data for one sticker.
+    ///
+    /// Memoized on the parts of the sticker that affect what is drawn, so pan,
+    /// pinch and rotate — which change only the transform — never rebuild it.
+    func content(for instance: ShareStickerInstance) -> ShareStickerContent {
+        if let cached = stickerContentCache[instance.id], cached.matches(instance) {
+            return cached
+        }
+
+        let refs = instance.statRefs
+        let resolvedPairs = refs.compactMap { ref in resolved(ref).map { (ref, $0) } }
+        let splits = resolvedSplits(for: instance)
+        let context = ShareCardRenderContext(
+            stats: Dictionary(resolvedPairs, uniquingKeysWith: { first, _ in first }),
+            splits: splits,
+            font: instance.font,
+            valueColor: instance.color,
+            labelColor: instance.color.isWhite ? .lime : instance.color
+        )
+        let content = ShareStickerContent(
+            node: ShareStickerCardBuilder.node(for: instance, resolvedRefs: resolvedPairs.map(\.0)),
+            context: context,
+            signature: ShareStickerContentSignature(instance)
+        )
+        stickerContentCache[instance.id] = content
+        return content
+    }
+
     // MARK: - Structure (composite stickers)
 
     func setLayout(_ layout: ShareStatLayout, for id: UUID) {
         guard let i = stickers.firstIndex(where: { $0.id == id }) else { return }
         stickers[i].layout = layout
+    }
+
+    /// Moves every label on a sticker. The sticker owns this, so it survives
+    /// adding a metric and switching arrangement — the defect this fixes.
+    func setLabelPlacement(_ placement: ShareCardLabelPlacement, for id: UUID) {
+        guard let i = stickers.firstIndex(where: { $0.id == id }) else { return }
+        stickers[i].labelPlacement = placement
+    }
+
+    func cycleLabelPlacement(for id: UUID) {
+        guard let i = stickers.firstIndex(where: { $0.id == id }) else { return }
+        stickers[i].labelPlacement = stickers[i].labelPlacement.next()
     }
 
     /// Metrics offered for a sticker's structure sheet — same family as the
@@ -179,21 +260,30 @@ final class ShareComposerViewModel {
         stickers[i] = sticker
     }
 
+    // MARK: - Injected stat lists
+
+    /// Best Efforts read from the Best Effort cache by the view.
+    func setBestEffortStats(_ stats: [ResolvedShareStat]) {
+        bestEffortStats = stats
+        invalidateResolvedData()
+    }
+
     // MARK: - Climb rename
 
     func setClimbName(_ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         climbNameOverride = trimmed.isEmpty ? nil : trimmed
+        invalidateResolvedData()
     }
 
     // MARK: - Sticker mutations
 
-    func addSticker(kind: ShareStatStickerKind, style: ShareStickerStyle = .display) {
+    func addSticker(kind: ShareStatStickerKind, labelPlacement: ShareCardLabelPlacement = .below) {
         // Stagger new stickers slightly so stacking is visible.
         let offset = CGFloat(stickers.count % 5) * 0.04
         let instance = ShareStickerInstance(
             kind: kind,
-            style: style,
+            labelPlacement: labelPlacement,
             position: CGPoint(x: 0.5, y: 0.42 + offset)
         )
         stickers.append(instance)
@@ -209,13 +299,6 @@ final class ShareComposerViewModel {
         )
         stickers.append(instance)
         selectedID = instance.id
-    }
-
-    /// Curated stats for the recap card's stat row (duration · steps · calories,
-    /// dropping any that don't resolve for this workout).
-    func recapStats() -> [ResolvedShareStat] {
-        [ShareStatStickerKind.duration, .steps, .calories]
-            .compactMap { resolved(ShareStatRef(kind: $0, injectedStatKey: nil)) }
     }
 
     /// Add an injected stat (Best Effort or Totals) as a sticker, keyed so it
@@ -235,6 +318,7 @@ final class ShareComposerViewModel {
     /// resetting the filter + transform so the user starts the new canvas clean.
     func resetForNewBackground(_ source: ShareBackgroundSource) {
         stickers.removeAll()
+        stickerContentCache.removeAll()
         selectedID = nil
         backgroundFilter = .original
         backgroundScale = 1
@@ -306,8 +390,37 @@ final class ShareComposerViewModel {
         backgroundOffset = .zero
     }
 
+    func sticker(_ id: UUID) -> ShareStickerInstance? {
+        stickers.first { $0.id == id }
+    }
+
+    /// Writes a whole sticker back by id. Paired with `sticker(_:)` this is how
+    /// the canvas binds without an index: an index binding into an array that
+    /// shrinks mid-drag traps when a child view still holds the stale subscript,
+    /// and this canvas deletes stickers mid-drag by design.
+    func update(_ instance: ShareStickerInstance) {
+        guard let index = stickers.firstIndex(where: { $0.id == instance.id }) else { return }
+        stickers[index] = instance
+    }
+
+    func setFont(_ font: ShareStickerFont, for id: UUID) {
+        guard let i = stickers.firstIndex(where: { $0.id == id }) else { return }
+        stickers[i].font = font
+    }
+
+    func setColor(_ color: RGBAColor, for id: UUID) {
+        guard let i = stickers.firstIndex(where: { $0.id == id }) else { return }
+        stickers[i].color = color
+    }
+
+    func cycleTextBackground(for id: UUID) {
+        guard let i = stickers.firstIndex(where: { $0.id == id }) else { return }
+        stickers[i].textBackground = stickers[i].textBackground.next()
+    }
+
     func deleteSticker(_ id: UUID) {
         stickers.removeAll { $0.id == id }
+        stickerContentCache[id] = nil
         if selectedID == id { selectedID = nil }
     }
 
@@ -363,11 +476,13 @@ final class ShareComposerViewModel {
         return CGPoint(x: x, y: y)
     }
 
-    func handleDragEnded(id: UUID, center: CGPoint, canvasSize: CGSize) {
-        if trashRect(in: canvasSize).contains(center) {
-            deleteSticker(id)
-        }
+    /// True when the drag released over the trash, so the canvas can animate the
+    /// removal. The view owns the animation; this type stays SwiftUI-free.
+    func handleDragEnded(id: UUID, center: CGPoint, canvasSize: CGSize) -> Bool {
+        let deletes = trashRect(in: canvasSize).contains(center)
+        if deletes { deleteSticker(id) }
         cancelDragFeedback()
+        return deletes
     }
 
     func cancelDragFeedback() {
@@ -382,6 +497,8 @@ final class ShareComposerViewModel {
     /// Compute this-week aggregates (Monday-based, local week) from the full
     /// workout history and publish them as Totals stat stickers.
     func injectWeeklyTotals(from workouts: [Workout], now: Date = Date()) {
+        defer { invalidateResolvedData() }
+
         let calendar = WeekConfiguration.calendar()
         guard let week = calendar.dateInterval(of: .weekOfYear, for: now) else {
             weeklyTotalStats = []

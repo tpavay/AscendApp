@@ -12,12 +12,12 @@ final class LeaderboardViewModel {
     var selectedBodyWeightFilter: LeaderboardBodyWeightFilter = .all
     var selectedLocationFilter: LeaderboardLocationFilter = .all
     var leaderboardEntries: [LeaderboardEntry] = []
-    var userEntry: LeaderboardEntry?
+    var userStanding: LeaderboardUserStanding?
     var isLoading = false
     var errorMessage: String?
     var isOffline = false
 
-    private let service = LeaderboardService.shared
+    private let service: LeaderboardService
     private let repository = LeaderboardRepository.shared
     private let sessionCache: LeaderboardSessionCache
     private let pageSize = 25
@@ -26,16 +26,28 @@ final class LeaderboardViewModel {
     private let demographicFilterFetchLimit = 1_000
     private(set) var visibleEntryLimit = 25
     private var currentUserId: String?
+    private var currentUserPhotoURL: URL?
     private var currentUserProfile: LeaderboardProfileSnapshot?
     private var rawLeaderboardStats: [FirestoreLeaderboardStats] = []
 
-    init(sessionCache: LeaderboardSessionCache = .shared) {
+    init(
+        sessionCache: LeaderboardSessionCache = .shared,
+        service: LeaderboardService = .shared
+    ) {
         self.sessionCache = sessionCache
+        self.service = service
     }
 
     func configure(userId: String, modelContext: ModelContext) {
         currentUserId = userId
         service.configure(modelContext: modelContext)
+    }
+
+    /// The window the selected board covers. Surfaced so the board can name it: weekly
+    /// and monthly windows do not nest, so an unlabelled pair reads as a contradiction on
+    /// any day a week straddles a month boundary.
+    var selectedPeriod: LeaderboardPeriod {
+        selectedTimeFrame.currentPeriod()
     }
 
     var displayedEntries: [LeaderboardEntry] {
@@ -87,68 +99,21 @@ final class LeaderboardViewModel {
 
     func refreshLeaderboard(
         userId: String,
-        displayName: String,
-        photoURL: URL?,
         isNetworkConnected: Bool
     ) async {
         isLoading = true
         errorMessage = nil
         isOffline = false
-        var syncError: Error?
 
-        if isNetworkConnected == false {
-            syncError = URLError(.notConnectedToInternet)
-        } else {
-            do {
-                try await withLeaderboardTimeout(seconds: networkTimeoutSeconds) {
-                    try await LeaderboardSyncCoordinator.shared.flushNow(
-                        userId: userId,
-                        displayName: displayName,
-                        photoURL: photoURL
-                    )
-                }
-            } catch {
-                syncError = error
-            }
-        }
-
-        let refreshIssue = syncError.map(LeaderboardNetworkIssue.classify)
-        let shouldForceRemoteRefresh: Bool = {
-            guard let refreshIssue else { return true }
-            switch refreshIssue {
-            case .offline, .slowConnection:
-                return false
-            case .other:
-                return true
-            }
-        }()
-
+        // Refresh publishes nothing. The server derives standings from the workouts
+        // the app already backs up, so pulling to refresh is a re-read - and the
+        // climber's own numbers are already on screen from the local display cache
+        // (LeaderboardCurrentUserReconciler) whether or not the read succeeds.
         await loadLeaderboard(
             userId: userId,
-            forceRefresh: shouldForceRemoteRefresh,
+            forceRefresh: isNetworkConnected,
             isNetworkConnected: isNetworkConnected
         )
-
-        guard let syncError else { return }
-        let loadFailedWithoutEntries = errorMessage != nil && leaderboardEntries.isEmpty
-        guard loadFailedWithoutEntries == false else { return }
-
-        let hasUnsyncedActivity = hasUnsyncedActivityForSelectedBoard(userId: userId)
-        switch LeaderboardNetworkIssue.classify(syncError) {
-        case .offline:
-            isOffline = true
-            errorMessage = nil
-        case .slowConnection:
-            guard hasUnsyncedActivity else { return }
-            isOffline = false
-            errorMessage = "Latest changes may take a moment to appear."
-        case .other:
-            guard hasUnsyncedActivity else { return }
-            isOffline = false
-            errorMessage = leaderboardEntries.isEmpty
-                ? "Couldn’t publish your latest leaderboard stats yet."
-                : "Latest changes haven’t synced yet."
-        }
     }
 
     func loadLeaderboard(
@@ -172,8 +137,14 @@ final class LeaderboardViewModel {
                 minimumLimit: fetchLimit
            ) {
             apply(stats: reconcileCurrentUserStats(cachedStats, userId: userId), userId: userId)
-            errorMessage = nil
-            isOffline = false
+            if isNetworkConnected == false {
+                // A warm session cache is still stale data with no connection behind it.
+                // Serving it silently tells the climber the board is current when it is not.
+                handleCachedFallbackError(URLError(.notConnectedToInternet))
+            } else {
+                errorMessage = nil
+                isOffline = false
+            }
             isLoading = false
             return
         }
@@ -195,7 +166,7 @@ final class LeaderboardViewModel {
                 )
                 if cacheStats.isEmpty {
                     leaderboardEntries = []
-                    userEntry = try? placeholderEntry(for: userId)
+                    userStanding = unrankedStanding(for: userId)
                     handleError(URLError(.notConnectedToInternet), context: "load")
                 } else {
                     apply(stats: reconciledStats, userId: userId)
@@ -205,7 +176,7 @@ final class LeaderboardViewModel {
                 return
             } catch {
                 leaderboardEntries = []
-                userEntry = try? placeholderEntry(for: userId)
+                userStanding = unrankedStanding(for: userId)
                 handleError(URLError(.notConnectedToInternet), context: "load")
                 isLoading = false
                 return
@@ -241,7 +212,7 @@ final class LeaderboardViewModel {
                 let reconciledStats = reconcileCurrentUserStats(cachedStats, userId: userId)
                 if cachedStats.isEmpty {
                     leaderboardEntries = []
-                    userEntry = try? placeholderEntry(for: userId)
+                    userStanding = unrankedStanding(for: userId)
                     handleError(error, context: "load")
                 } else {
                     apply(stats: reconciledStats, userId: userId)
@@ -267,7 +238,7 @@ final class LeaderboardViewModel {
                 )
                 if cacheStats.isEmpty {
                     leaderboardEntries = []
-                    userEntry = try? placeholderEntry(for: userId)
+                    userStanding = unrankedStanding(for: userId)
                     handleError(error, context: "load")
                 } else {
                     apply(stats: reconciledStats, userId: userId)
@@ -275,7 +246,7 @@ final class LeaderboardViewModel {
                 }
             } catch {
                 leaderboardEntries = []
-                userEntry = try? placeholderEntry(for: userId)
+                userStanding = unrankedStanding(for: userId)
                 handleError(error, context: "load")
             }
         }
@@ -283,8 +254,8 @@ final class LeaderboardViewModel {
         isLoading = false
     }
 
-    func loadMoreEntriesIfNeeded(currentEntry entry: LeaderboardEntry) {
-        guard let lastVisible = displayedEntries.last, lastVisible.id == entry.id else { return }
+    func loadMoreEntriesIfNeeded(currentEntryID: String) {
+        guard let lastVisible = displayedEntries.last, lastVisible.id == currentEntryID else { return }
         guard visibleEntryLimit < leaderboardEntries.count else { return }
         visibleEntryLimit = min(visibleEntryLimit + pageSize, leaderboardEntries.count)
     }
@@ -331,27 +302,19 @@ final class LeaderboardViewModel {
         reapplyCurrentStats()
     }
 
-    func updateCurrentUserProfile(userId: String?, displayName: String, photoURL: URL?) {
+    func updateCurrentUserProfile(userId: String?, photoURL: URL?) {
         guard let userId else { return }
+        currentUserPhotoURL = photoURL
 
         if let index = leaderboardEntries.firstIndex(where: { $0.userId == userId }) {
             leaderboardEntries[index] = leaderboardEntries[index].withProfile(
-                displayName: displayName,
+                displayName: "You",
                 photoURL: photoURL
             )
         }
 
-        if let entry = userEntry, entry.userId == userId {
-            userEntry = entry.withProfile(displayName: displayName, photoURL: photoURL)
-        }
-
-        let sessionCache = sessionCache
-        Task {
-            await sessionCache.updateCurrentUserProfile(
-                userId: userId,
-                displayName: displayName,
-                photoURL: photoURL
-            )
+        if let entry = userStanding?.rankedEntry, entry.userId == userId {
+            userStanding = .ranked(entry.withProfile(displayName: "You", photoURL: photoURL))
         }
     }
 
@@ -372,21 +335,20 @@ final class LeaderboardViewModel {
         let tieFlags = CompetitionRanking.tieFlags(for: ranks)
         let entries = filteredStats.enumerated().map { index, stat in
             let value = stat.value(for: metric)
-            return LeaderboardEntry(
-                userId: stat.userId,
-                displayName: stat.displayName,
-                photoURL: stat.photoURL.flatMap(URL.init(string:)),
+            return CrossUserIdentityAdapter.leaderboardEntry(
+                from: stat,
                 rank: ranks[index],
                 value: value,
                 formattedValue: formatValue(value, for: metric),
-                isCurrentUser: stat.userId == userId,
-                isTied: tieFlags[index]
+                isTied: tieFlags[index],
+                currentUserId: userId,
+                currentUserPhotoURL: currentUserPhotoURL
             )
         }
 
         leaderboardEntries = entries
-        userEntry = entries.first(where: { $0.userId == userId }) ??
-            (hasActiveDemographicFilters ? nil : (try? placeholderEntry(for: userId)))
+        userStanding = entries.first(where: { $0.userId == userId }).map(LeaderboardUserStanding.ranked) ??
+            (hasActiveDemographicFilters ? nil : unrankedStanding(for: userId))
         resetPagination()
     }
 
@@ -412,21 +374,20 @@ final class LeaderboardViewModel {
         }
     }
 
-    private func placeholderEntry(for userId: String) throws -> LeaderboardEntry? {
-        guard let localStats = try service.getLocalStats(for: userId, timeFrame: selectedTimeFrame) else {
+    /// The climber's standing when they are not among the ranked entries.
+    ///
+    /// They are not there because `LeaderboardCurrentUserReconciler` drops a climber with
+    /// no activity in the window - so by construction this is the zero-activity case, and
+    /// the honest answer is that they hold no rank. This must never synthesise one from
+    /// list position: that is what put a "rank 2, 0 steps" row directly under a podium
+    /// whose second plinth read `OPEN`.
+    private func unrankedStanding(for userId: String) -> LeaderboardUserStanding? {
+        guard let localStats = try? service.getLocalStats(for: userId, timeFrame: selectedTimeFrame) else {
             return nil
         }
 
         let value = localStats.value(for: selectedMetric)
-        return LeaderboardEntry(
-            userId: userId,
-            displayName: "You",
-            photoURL: nil,
-            rank: leaderboardEntries.count + 1,
-            value: value,
-            formattedValue: formatValue(value, for: selectedMetric),
-            isCurrentUser: true
-        )
+        return .unranked(value: value, formattedValue: formatValue(value, for: selectedMetric))
     }
 
     private func resetPagination() {
@@ -445,9 +406,7 @@ final class LeaderboardViewModel {
             stats,
             metric: selectedMetric,
             userId: userId,
-            localStats: localStats,
-            displayName: userEntry?.displayName ?? "You",
-            photoURL: userEntry?.photoURL
+            localStats: localStats
         )
         return applyCurrentUserProfile(to: reconciled, userId: userId)
     }
@@ -463,8 +422,9 @@ final class LeaderboardViewModel {
 
             return FirestoreLeaderboardStats(
                 userId: stat.userId,
-                displayName: stat.displayName,
-                photoURL: stat.photoURL,
+                unresolvedIdentity: stat.unresolvedIdentity,
+                identityPolicyVersion: stat.identityPolicyVersion,
+                identityChangedAt: stat.identityChangedAt,
                 timeFrame: stat.timeFrame,
                 schemaVersion: stat.schemaVersion,
                 periodKey: stat.periodKey,
@@ -521,14 +481,6 @@ final class LeaderboardViewModel {
         if !selectedLocationFilter.isAvailable(currentUserProfile: currentUserProfile) {
             selectedLocationFilter = .all
         }
-    }
-
-    private func hasUnsyncedActivityForSelectedBoard(userId: String) -> Bool {
-        guard let localStats = try? service.getLocalStats(for: userId, timeFrame: selectedTimeFrame) else {
-            return false
-        }
-
-        return localStats.needsSync && localStats.hasActivity
     }
 
     private func formatValue(_ value: Double, for metric: LeaderboardMetric) -> String {

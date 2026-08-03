@@ -6,7 +6,7 @@ This file is the always-on core. Domain detail lives in `.claude/skills/` - see 
 
 Ascend is a competitive stair stepper companion for iOS. It's built for people who already use the stair stepper (or are about to start) and want their work to count. Users race the world up real landmarks, top per-climb leaderboards, log every session, and watch their progress compound over time. The leaderboard is the conversation.
 
-**Solo dev + AI assisted** (Tyler Pavay). Planned monetization (not yet built): hard paywall, no freemium tier. Two subscription paths - a yearly plan (discounted, includes a free trial) and a shorter recurring plan (monthly or weekly - TBD).
+**Solo dev + AI assisted** (Tyler Pavay). Launch monetization is a hard paywall with no freemium tier: `$49.99/year` with a seven-day free trial, or `$9.99/month` charged immediately with no trial. Both unlock RevenueCat entitlement `app_access`; there is no weekly or separate launch-discount product.
 
 ## What Ascend Is NOT
 
@@ -36,11 +36,11 @@ Full playbook: `ascend-brand-voice`. Design patterns: `product-design-playbook`.
 
 - **iOS 26.0+**, Swift 6, SwiftUI
 - **Data**: Local-first with cloud sync - SwiftData on device, Firebase Firestore for backup/sync/sharing
-- **Backend**: Firebase (Auth, Firestore, Storage, Cloud Functions, Hosting, Analytics, Crashlytics)
+- **Backend**: Firebase (Auth, Firestore, Storage, Cloud Functions, Hosting, Analytics, Crashlytics, Remote Config)
 - **Subscriptions / Paywall**: RevenueCat for subscription management and entitlements; SuperWall for paywall presentation and onboarding/conversion analytics
 - **Analytics / Diagnostics**: Firebase Analytics, Mixpanel, Sentry
 - **Integrations**: Apple HealthKit, Hevy
-- **Cloud Functions** (TypeScript): Beehiiv-backed waitlist signup endpoint with dedupe, transactional email for server-owned notifications
+- **Cloud Functions** (TypeScript): transactional email for server-owned notifications, plus server-derived leaderboard, achievement, and identity projections
 - **Web**: Astro site in `web/`, built to `web/dist/`
 
 ## Project Structure
@@ -51,12 +51,14 @@ Organized by **features**, not file types. One type per file.
 AscendApp/
 ├── App/                # Entry point, Firebase init, env plists, deep links
 ├── Features/           # Account · Authentication · Celebration · Climbs · Debug · Home
-│                       # Integrations · Leaderboards · Monetization · Onboarding · Profile
-│                       # Progress · Routines · ShareComposer · Workouts
+│                       # Integrations · Leaderboards · Moderation · Monetization · Onboarding
+│                       # Profile · Progress · Routines · ShareComposer · Workouts
 └── Shared/             # Components · Extensions · Managers · Models · Repositories · Services · Views
 AscendAppTests/         # Swift Testing suite
 AscendLiveActivityWidgets/  # Live Activity / Dynamic Island extension
 .claude/skills/         # Project skills (see Skill Router)
+AppStoreAssets/         # Shipped en-US iPhone screenshot set and its renderer
+data/ascend-support-page-and-product-page-package/  # Durable en-US App Store product copy
 docs/                   # Reference material - link to it, never duplicate it
 functions/src/          # Cloud Functions (TypeScript)
 scripts/                # Dev/staging DB, seeding, icon tooling
@@ -68,7 +70,7 @@ web/                    # Website source
 
 ## Build, Test, Run
 
-`GoogleService-Info*.plist` files are gitignored. `AscendApp/App/Firebase/` needs the plist for the environment you're building; see the README there. CI decodes them from base64 secrets.
+`AscendApp/App/Firebase/` needs the plist for the environment you're building - the Dev plist is committed, Staging and Production are gitignored and linked in locally; see the README there. CI decodes them from base64 secrets.
 
 ```bash
 # iOS tests (mirrors CI - .github/workflows/ci.yml)
@@ -87,7 +89,8 @@ cd functions && npm run lint && npm test   # Cloud Functions
 cd web && npm run build                    # Website -> web/dist/
 
 # Deploy (aliases in .firebaserc: dev · staging · production)
-npx -y firebase-tools@latest deploy --project staging \
+# Pinned CLI - see docs/dependency-security.md before changing the version
+npx -y firebase-tools@15.22.1 deploy --project staging \
   --only functions,firestore:rules,firestore:indexes,storage,hosting
 ```
 
@@ -144,13 +147,22 @@ Baseline for every change. If a loaded skill prescribes something more specific,
 Rules that fire from contexts that don't look like their own domain. Each names the skill with the full version.
 
 - **Adding/renaming/removing a Firestore field requires a matching `firestore.rules` update, rules first** - strict `hasOnly`/`hasAll` means the server rejects unlisted fields. Fires while editing Swift. -> `ascend-firebase-data`
+- **Bumping a `schemaVersion` constant is a Swift-only change; never re-pin the rule to it.** `firestore.rules` accepts a bounded range, because an exact pin locks stored documents and un-updated clients out the day the number moves. Fires while editing a `currentSchemaVersion`. -> `ascend-firebase-data`
 - **Collecting a new data type, calling a required-reason API, or adding an SDK requires updating `AscendApp/PrivacyInfo.xcprivacy` in the same PR** - and the privacy policy, App Store questionnaire, and `Info.plist` strings must agree. Fires while adding a Firestore field or a HealthKit read. -> `ascend-privacy-manifest`
 - **User media goes only under `users/{uid}/...` Storage prefixes**, never shared root paths. Fires while writing an upload path. -> `ascend-firebase-data`
+- **A number the server awards from is a number the server must derive.** Validating a client-written document's shape and identity is not validating its evidence: `leaderboard_stats` passed both and still let one HTTPS request mint permanent achievements (#307). Any collection a scheduled job, a counter, or an award reads is server-write-only, derived from the canonical records. Fires while adding a public projection, a ranked field, or a job that reads one. -> `ascend-firebase-data`
+- **Account-authored identity (displayName/photo) is public, so it may only be published through the validated write path and only rendered through the shared moderation resolver.** Views take `Moderated*` render models, never raw identity; public writes screen the name and bound the photo URL. Fires while writing any public projection - leaderboards, mirrors, functions, seeds - or any new surface showing another climber. -> `ascend-profile`
 - **Connectivity has one app-wide source of truth.** Never add feature-local offline detection or a second network-retry pattern. Fires when you're about to write the duplicate. -> `ascend-firebase-data`
 - **Live Climb and routine completions come only from their live sensor flows.** Manual entries and imports can never complete or progress one. Fires when wiring any new workout origin. -> `ascend-workout-model`
 - **A chest strap always outranks an Apple Watch as the live heart-rate source.** Every live session type samples through the one shared recorder; never grow a second capture path. Fires while wiring any heart-rate source or new live session. -> `LiveHeartRateSourceKind.selectionPriority`, `LiveHeartRateRecorder`
 - **No third-party frameworks without asking first.** Avoid UIKit unless requested. Fires at `import` time.
 - **SwiftData + CloudKit**: never use `@Attribute(.unique)`; properties need defaults or must be optional; all relationships must be optional. Fires while writing an `@Model`.
+- **"Pre-launch" means PRODUCTION data is free, not dev, staging, or TestFlight stores.** Any change to an `@Model`'s persisted shape - including moving an enum to a raw value - needs a new `VersionedSchema` and a stage in `AscendMigrationPlan`, or lightweight migration silently defaults every existing row. Ascend has had both since the `Workout.source` move; do not re-derive that it has none. Fires while editing an `@Model`, which is exactly where the reasoning goes wrong. -> `ascend-data-migration`, `swiftdata-pro`
+- **A default value is only ever consulted when a property is NEW**, so a required property that already exists is not a defect and needs no sweep. Adding one that is non-optional with no default is, because existing rows have nothing to write: make it optional, give it a default if a single blanket value is honest, or write a custom stage that computes it per record. Deleting a model is silent and permanent. Fires while adding a property to an `@Model`. -> `ascend-data-migration`
+- **Anything that must cover the *whole* local store reads `AscendLocalStore`, never its own list of `@Model` types.** Account deletion kept a hand-written list, it drifted behind the container, and one climber's climbs and in-progress session stayed on the device for the next account to publish (#348). A sweep, a row count, an export or a wipe that names types is already stale. Fires while adding a model, or while writing anything phrased as "all local data". -> `AscendApp/Shared/Models/AscendLocalStore.swift`, `ascend-data-migration`
+- **Store an `@Model` enum as a raw value if anything will ever filter on it.** `#Predicate` rejects a captured Codable enum (`unsupportedPredicate`) and *hard-crashes* on `array.contains(optional ?? "")`; `[String?].contains(optionalProperty)` is the working optional form. A non-filterable column is why a query becomes a whole-store scan. Fires while writing an `@Model` property, long before anyone writes the query. -> `swiftdata-pro`
+- **Nothing on a screen's `.task` may run a store query whose cost grows with the user's history.** Home blocked for 182s answering a one-UUID question with `fetch(FetchDescriptor<Workout>())` (ASCEND-IOS-1K). Use the bounded queries in `Shared/Repositories/`; `Workout` carries its heart-rate series inline, so a full fetch is never cheap. Fires while writing a view's `.task` or a coordinator's `configure`. -> `ascend-workout-import`
+- **A new code path that writes or reshapes persisted data needs a Remote Config kill switch in front of it** - an iOS binary cannot be rolled back, so a shipped data-corrupting write has no other undo. Gate at the choke point that can *defer* the work (pending state survives untouched), never at the raw Firestore call. The one thing a switch cannot reach is a SwiftData schema migration: it runs inside `ModelContainer.init` before Remote Config has fetched anything. **Merging to `develop` publishes a new flag to dev and staging automatically, additively; production stays a publish by hand** (`scripts/publish-new-kill-switches.mjs`, and `scripts/deploy-remote-config.mjs` for a full replace). No automated path may change or re-enable an existing switch - it refuses while any switch is off - and the staging and production archives still fail when a flag the build reads is missing from the live backend. Fires while adding a repository write, a sync coordinator, or a backfill. -> `docs/remote-config-kill-switches.md`, `AscendApp/Shared/Services/RemoteConfig/`, `ascend-data-migration`
 - **Never commit API keys, secrets, or QA credentials**, and never bundle them into production builds.
 
 ## Ascend-Specific Overrides
@@ -168,17 +180,18 @@ Ascend domains - load before touching the area:
 | Live Climbs, attempts, replay, globe, catalog | `ascend-live-climbs`, `live-climb-content` |
 | Leaderboards, ranking, ties, week windows | `ascend-leaderboards` |
 | Workout model, durability, sync, measurement | `ascend-workout-model` |
+| `@Model` shape changes, schema versions, migration stages, backfills | `ascend-data-migration` |
 | Imports, Apple Health, enrichment | `ascend-workout-import` |
 | Best Efforts, Progress, trends | `ascend-best-efforts` |
 | Routines, intervals | `ascend-routines` |
-| Profile, demographics, public mirrors | `ascend-profile` |
+| Profile, demographics, public mirrors, block/report moderation | `ascend-profile` |
 | Onboarding, auth routing, paywall priming | `ascend-onboarding` |
 | Analytics, telemetry, events | `ascend-analytics` |
 | Sharing, stickers, export | `ascend-share-composer` |
 | Firestore, Storage, rules, connectivity | `ascend-firebase-data` |
 | Privacy manifest, App Store data declarations | `ascend-privacy-manifest` |
 | CI, release, TestFlight, fastlane | `ascend-deploy` |
-| Web, email, Cloud Functions, waitlist | `ascend-web-email` |
+| Web, email, Cloud Functions | `ascend-web-email` |
 | Seeding, fixtures, debug tools, QA sign-in | `ascend-dev-fixtures` |
 | UI conventions, branding, icons | `ascend-design-system`, `icon-workflow` |
 | Copy, empty states, tone | `ascend-brand-voice` |
@@ -206,9 +219,10 @@ Resolve work to a GitHub issue before implementing:
 - `.firebaserc` - project aliases (dev, staging, prod)
 - `firebase.json` - hosting, functions, firestore config
 - `firestore.rules`, `storage.rules`, `firestore.indexes.json` - security rules and indexes
-- `.github/workflows/ci.yml` - PR validation
+- `.github/workflows/ci.yml` - PR validation; `ci-required-check-fallback.yml` routes the required checks for PRs that change no CI-relevant path (`ascend-deploy`)
 - `.github/workflows/deploy-staging.yml`, `deploy-production.yml` - deploy pipelines (prod gated)
 - `Gemfile`, `fastlane/Appfile`, `fastlane/Fastfile`, `fastlane/Matchfile` - build/signing/TestFlight
+- `remoteconfig.template.json` - the kill-switch parameters; CI publishes new ones additively to dev and staging only, full replaces stay manual via `scripts/deploy-remote-config.mjs` (`docs/remote-config-kill-switches.md`)
 - `docs/dependency-security.md` - deliberate dependency pins and overrides; read before bumping any npm dependency
 
 ## Project Context File (All AI Providers)
@@ -226,3 +240,4 @@ This file is the always-on core, loaded on every turn of every session. Keep it 
 - **`paths:` makes a skill conditional** - it stays out of the skill listing until a matching file is touched. So a skill named by a **tripwire** must have no `paths:` globs, or it won't be loadable from the context where its tripwire fires. Give those skills a `description` that names their real trigger contexts instead.
 - Add a **tripwire** only for a rule that fires from a context that doesn't look like its own domain - the agent would violate it before thinking to load the skill. One line, pointing at the skill with the full version.
 - Prefer a pointer to the authoritative file, command, or doc over copying detail that will drift. Never hand-maintain an index of code (component lists, file inventories) - it rots on the next commit.
+- **Skills never share a reference file.** A skill may carry `references/*.md` for detail too long for its `SKILL.md`, but those belong to that skill alone. Knowledge two skills need is stated once - in whichever skill owns it, or in `docs/` when it outgrows a skill - and the other links to it in one line. Two copies of a rule become two different rules.

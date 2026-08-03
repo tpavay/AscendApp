@@ -49,23 +49,11 @@ final class WorkoutMutationHandler {
 
             guard didUpdateLeaderboard else { return }
 
-            let cachedDisplayName = UserDataRepository.shared.getCachedDisplayName()?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let displayName = cachedDisplayName?.isEmpty == false ? cachedDisplayName! : (currentUser.displayName ?? "You")
-            let cachedPhotoURL = UserDataRepository.shared.getCachedProfilePictureURL().flatMap(URL.init(string:))
-            let photoURL = cachedPhotoURL ?? currentUser.photoURL
-
             Task { @MainActor in
                 await LeaderboardSessionCache.shared.invalidateAll()
-                await LeaderboardSyncCoordinator.shared.enqueueSync(
-                    userId: userId,
-                    displayName: displayName,
-                    photoURL: photoURL
-                )
                 await ProfilePublicationService.publishCurrentUserProfile(
                     modelContext: modelContext,
                     userId: userId,
-                    displayName: displayName,
-                    photoURL: photoURL,
                     joinedAt: currentUser.metadata.creationDate
                 )
             }

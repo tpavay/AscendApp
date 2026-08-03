@@ -252,8 +252,8 @@ final class ClimbDetailViewModel {
         isLeaderboardLoading = false
     }
 
-    func loadMoreCompletionLeaderboardIfNeeded(currentRow: LiveReplayLeaderboardRow) {
-        guard shouldLoadMoreCompletionLeaderboard(afterAppearing: currentRow),
+    func loadMoreCompletionLeaderboardIfNeeded(currentRowID: String) {
+        guard shouldLoadMoreCompletionLeaderboard(afterAppearingRowID: currentRowID),
               let cursor = completionLeaderboard.nextCursor else {
             return
         }
@@ -297,12 +297,12 @@ final class ClimbDetailViewModel {
     }
 
     private func shouldLoadMoreCompletionLeaderboard(
-        afterAppearing row: LiveReplayLeaderboardRow
+        afterAppearingRowID rowID: String
     ) -> Bool {
         guard !isLeaderboardLoading,
               !isLoadingMoreCompletionRows,
               hasMoreCompletionLeaderboardRows,
-              let rowIndex = completionLeaderboardRows.firstIndex(where: { $0.id == row.id }) else {
+              let rowIndex = completionLeaderboardRows.firstIndex(where: { $0.id == rowID }) else {
             return false
         }
 

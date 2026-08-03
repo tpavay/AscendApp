@@ -5,6 +5,60 @@ enum LiveReplayLeaderboardContextType: String, Codable, Sendable {
     case justClimb = "just_climb"
     case routineTemplate = "routine_template"
     case routine = "routine"
+
+    /// Mirrors `rankingMetric` in `functions/src/liveReplayLeaderboard.ts` so a
+    /// client-displayed rank never contradicts the rank the server published.
+    var rankingMetric: LiveReplayRankingMetric {
+        switch self {
+        case .liveClimb, .justClimb:
+            return .fastestCompletion
+        case .routineTemplate, .routine:
+            return .mostSteps
+        }
+    }
+}
+
+/// How a replay context decides who is winning.
+///
+/// A climb fixes the step target and lets the clock vary, so the fastest run wins.
+/// A routine inverts that: its intervals fix the clock, so every finisher spends the
+/// same time and only the steps taken inside that window separate them. Ranking a
+/// routine on duration would rank tracking jitter and reward the shortest session.
+enum LiveReplayRankingMetric: Sendable {
+    case fastestCompletion
+    case mostSteps
+
+    /// The entry field this metric orders on.
+    var field: String {
+        switch self {
+        case .fastestCompletion:
+            return "completionDurationSeconds"
+        case .mostSteps:
+            return "finalSteps"
+        }
+    }
+
+    /// Whether a higher stored value ranks better.
+    var ranksHighestFirst: Bool {
+        self == .mostSteps
+    }
+
+    /// The primary number a row leads with on a static completion board.
+    var rowEmphasis: LiveReplayRowEmphasis {
+        switch self {
+        case .fastestCompletion:
+            return .duration
+        case .mostSteps:
+            return .steps
+        }
+    }
+}
+
+/// Which of a completion row's two numbers earns the headline slot. A board must lead
+/// with the number it ranked on, or the ordering reads as broken.
+enum LiveReplayRowEmphasis: Sendable {
+    case duration
+    case steps
 }
 
 struct LiveReplayLeaderboardContext: Hashable, Codable, Sendable {

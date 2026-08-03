@@ -61,12 +61,44 @@ final class ProfileRepository: Sendable {
     }
 
     func upsertPublicIdentity(_ identity: ProfileUserIdentity) async throws {
+        let document = publicProfileDocument(userId: identity.userId)
+        _ = try await db.runTransaction { transaction, errorPointer -> Any? in
+            do {
+                let publication = try ProfileIdentityPersistenceAdapter
+                    .validatedFields(for: identity)
+                let snapshot = try transaction.getDocument(document)
+                let data = Self.publicIdentityPayload(
+                    identity,
+                    publication: publication,
+                    advancesIdentityVersion: Self.publicIdentityNeedsVersionAdvance(
+                        publication: publication,
+                        existingData: snapshot.data()
+                    )
+                )
+                transaction.setData(data, forDocument: document, merge: true)
+                return nil
+            } catch let error as NSError {
+                errorPointer?.pointee = error
+                return nil
+            }
+        }
+    }
+
+    static func publicIdentityPayload(
+        _ identity: ProfileUserIdentity,
+        publication: PublicIdentityPublication,
+        advancesIdentityVersion: Bool
+    ) -> [String: Any] {
         var data: [String: Any] = [
             "userId": identity.userId,
-            "displayName": identity.displayName,
-            "photoURL": identity.photoURL?.absoluteString ?? "",
+            "displayName": publication.displayName,
+            "photoURL": publication.photoURL?.absoluteString ?? "",
+            "identityPolicyVersion": PublicClimberIdentity.policyVersion,
             "lastUpdated": FieldValue.serverTimestamp()
         ]
+        if advancesIdentityVersion {
+            data["identityChangedAt"] = FieldValue.serverTimestamp()
+        }
 
         if let age = identity.age {
             data["age"] = age
@@ -93,34 +125,25 @@ final class ProfileRepository: Sendable {
             data["joined_at"] = Timestamp(date: joinedAt)
         }
 
-        try await publicProfileDocument(userId: identity.userId).setData(data, merge: true)
+        return data
     }
 
-    func updatePublicIdentityFields(
-        userId: String,
-        displayName: String? = nil,
-        photoURL: URL? = nil
-    ) async throws {
-        let document = publicProfileDocument(userId: userId)
-        let exists = (try? await document.getDocument().exists) ?? false
-        var data: [String: Any] = [
-            "userId": userId,
-            "lastUpdated": FieldValue.serverTimestamp()
-        ]
+    static func publicIdentityNeedsVersionAdvance(
+        publication: PublicIdentityPublication,
+        existingData: [String: Any]?
+    ) -> Bool {
+        guard let existingData else {
+            return true
+        }
+        let policyVersion = (existingData["identityPolicyVersion"] as? Int) ??
+            (existingData["identityPolicyVersion"] as? NSNumber)?.intValue
+        let hasIdentityTimestamp = existingData["identityChangedAt"] is Timestamp
 
-        if !exists {
-            let fallbackDisplayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            data["displayName"] = fallbackDisplayName.isEmpty ? "Climber" : fallbackDisplayName
-            data["photoURL"] = photoURL?.absoluteString ?? ""
-        }
-
-        if let displayName {
-            data["displayName"] = displayName
-        }
-        if let photoURL {
-            data["photoURL"] = photoURL.absoluteString
-        }
-        try await document.setData(data, merge: true)
+        return existingData["displayName"] as? String != publication.displayName ||
+            existingData["photoURL"] as? String !=
+                (publication.photoURL?.absoluteString ?? "") ||
+            policyVersion != PublicClimberIdentity.policyVersion ||
+            !hasIdentityTimestamp
     }
 
     func upsertStats(userId: String, stats: ProfileStatsSnapshot) async throws {
@@ -190,11 +213,22 @@ final class ProfileRepository: Sendable {
             .document("current")
     }
 
-    private func parseIdentity(userId: String, data: [String: Any]) -> ProfileUserIdentity {
-        ProfileUserIdentity(
-            userId: stringValue(for: "userId", in: data) ?? userId,
-            displayName: stringValue(for: "displayName", in: data) ?? "Climber",
-            photoURL: stringValue(for: "photoURL", in: data).flatMap(URL.init(string:)),
+    private func parseIdentity(userId: String, data: [String: Any]) -> ProfileUserIdentity? {
+        guard intValue(for: "identityPolicyVersion", in: data) == PublicClimberIdentity.policyVersion,
+              timestampValue(for: "identityChangedAt", in: data) != nil else {
+            return nil
+        }
+        let resolvedUserId = stringValue(for: "userId", in: data) ?? userId
+        let identity = PublicClimberIdentity.resolve(
+            userId: resolvedUserId,
+            storedDisplayName: stringValue(for: "displayName", in: data),
+            storedPhotoURL: stringValue(for: "photoURL", in: data).flatMap(URL.init(string:))
+        )
+
+        return ProfileUserIdentity(
+            userId: resolvedUserId,
+            displayName: identity.displayName,
+            photoURL: identity.photoURL,
             age: intValue(for: "age", in: data),
             gender: stringValue(for: "gender", in: data).flatMap(ProfileGender.init(rawValue:)),
             weightKg: doubleValue(for: "weight_kg", in: data),

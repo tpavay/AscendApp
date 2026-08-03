@@ -131,6 +131,7 @@ Writes to production require `--confirm-production`. Sync copies only missing/ch
 6. Update `updatedAt` in `web/public/climbs/manifest.json` to a UTC ISO timestamp.
 7. Update `featuredClimbId` only if the user asked to feature the new climb.
 8. If dev replay fixtures should include the climb, add it to `ACTIVE_CLIMBS` or `WARM_CLIMBS` in `scripts/seed-live-replay-leaderboards.mjs`.
+   To seed the climb with an open First Ascent slot instead of synthetic traffic, use `FIRST_ASCENT_OPEN_CLIMBS` in the same file and follow the constraints documented on that list.
 9. Validate JSON and schema by decoding both catalog files.
 10. Build web before deploying hosted catalog content.
 
@@ -165,10 +166,12 @@ xcodebuild -scheme AscendApp -configuration Debug -destination 'generic/platform
 Deploy only the intended environment.
 
 ```bash
-npx -y firebase-tools@latest deploy --only hosting --project dev
-npx -y firebase-tools@latest deploy --only hosting --project staging
-npx -y firebase-tools@latest deploy --only hosting --project production
+npx -y firebase-tools@15.22.1 deploy --only hosting --project dev
+npx -y firebase-tools@15.22.1 deploy --only hosting --project staging
+npx -y firebase-tools@15.22.1 deploy --only hosting --project production
 ```
+
+The CLI version is pinned repo-wide; see `docs/dependency-security.md` before changing it.
 
 For ordinary catalog additions, do not change Firestore rules, Storage rules, PrivacyInfo, or app code.
 

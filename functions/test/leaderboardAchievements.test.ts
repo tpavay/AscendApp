@@ -1,11 +1,33 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+import {join} from "node:path";
 import {
   leaderboardAchievementsTestHooks,
 } from "../src/leaderboardAchievements.js";
 
-const {achievementType, profileStatsIncrement} =
+const {achievementType, profileStatsIncrement, previousPeriod} =
   leaderboardAchievementsTestHooks;
+
+interface PeriodKeyCase {
+  name: string;
+  date: string;
+  weekly: string;
+  monthly: string;
+  yearly: string;
+}
+
+// Compiled output is CommonJS (see tsconfig NodeNext + no package "type"), so
+// __dirname is the compiled lib/test directory; walk up to the repo root.
+const periodKeyVector = JSON.parse(
+  readFileSync(
+    join(
+      __dirname,
+      "../../../SharedTestVectors/leaderboard-period-key-vector.json"
+    ),
+    "utf8"
+  )
+) as {cases: PeriodKeyCase[]};
 
 /**
  * Lists the profile band counters a finish at the given rank increments.
@@ -55,6 +77,61 @@ test("profile stat counters never write the misnamed _weeks fields", () => {
     const written = Object.keys(profileStatsIncrement(rank));
     const misnamed = written.filter((key) => key.endsWith("_weeks"));
     assert.deepEqual(misnamed, [], `rank ${rank} wrote ${misnamed.join(", ")}`);
+  }
+});
+
+/**
+ * Reads a vector date as the UTC noon instant inside the window it names.
+ * @param {string} date A YYYY-MM-DD date from the shared vector.
+ * @return {Date} Noon UTC on that date.
+ */
+function vectorInstant(date: string): Date {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day, 12));
+}
+
+// The finalizer closes the period *before* the run instant, so each vector date
+// is reached by running it one period later. That exercises the real
+// previousPeriod -- and through it weekInfoUTC -- rather than a restatement of
+// it: this is the derivation that decides which periodKey the achievement rows
+// are written under, and it must spell the key exactly as the client reads it.
+test("the finalizer derives the same period keys as the shared vector", () => {
+  assert.ok(periodKeyVector.cases.length >= 9, "vector carries every shape");
+
+  for (const testCase of periodKeyVector.cases) {
+    const instant = vectorInstant(testCase.date);
+
+    const oneWeekLater = new Date(instant.getTime());
+    oneWeekLater.setUTCDate(oneWeekLater.getUTCDate() + 7);
+    const weekly = previousPeriod("weekly", oneWeekLater);
+    assert.equal(
+      weekly.key,
+      testCase.weekly,
+      `weekly key for ${testCase.date} - ${testCase.name}`
+    );
+    assert.equal(weekly.startAt.getUTCDay(), 1, "weeks open on Monday UTC");
+    assert.ok(
+      weekly.startAt <= instant && instant < weekly.endAt,
+      `${testCase.date} should fall inside its own weekly window`
+    );
+
+    const nextMonth = new Date(
+      Date.UTC(instant.getUTCFullYear(), instant.getUTCMonth() + 1, 15, 12)
+    );
+    assert.equal(
+      previousPeriod("monthly", nextMonth).key,
+      testCase.monthly,
+      `monthly key for ${testCase.date} - ${testCase.name}`
+    );
+
+    const nextYear = new Date(
+      Date.UTC(instant.getUTCFullYear() + 1, 5, 15, 12)
+    );
+    assert.equal(
+      previousPeriod("yearly", nextYear).key,
+      testCase.yearly,
+      `yearly key for ${testCase.date} - ${testCase.name}`
+    );
   }
 });
 

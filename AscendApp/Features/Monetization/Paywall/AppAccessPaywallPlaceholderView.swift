@@ -4,66 +4,103 @@ struct AppAccessPaywallPlaceholderView: View {
     @Environment(MonetizationManager.self) private var monetizationManager
 
     @State private var hasAttemptedAutomaticPresentation = false
-    @State private var presentationState = AppAccessPaywallPresentationState.ready
-    @State private var restoreState: RestoreState?
+    @State private var presentationState: AppAccessPaywallPresentationState
+    @State private var restoreState = AppAccessRestoreState.idle
 
-    private enum RestoreState: Equatable {
-        case restoring
-        case restored
-        case failed
+    init(initialPresentationState: AppAccessPaywallPresentationState = .presenting) {
+        _presentationState = State(initialValue: initialPresentationState)
     }
 
     var body: some View {
+        Group {
+            if presentationState.showsRecoveryActions {
+                recoveryContent
+            } else {
+                loadingContent
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .themedBackground()
+        .onAppear {
+            presentPaywallAutomaticallyIfNeeded()
+        }
+    }
+
+    /// The cold-start hand-off to Superwall. It is a wait, not a wall - no lock, no access-denied
+    /// headline, and no visible control the user cannot press.
+    private var loadingContent: some View {
+        VStack(spacing: 20) {
+            Image("AppIconInternalAccent")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 68, height: 68)
+                .accessibilityHidden(true)
+
+            VStack(spacing: 8) {
+                Text("Preparing your climb field")
+                    .font(.montserratBold(size: 24))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                Text("Checking your access...")
+                    .font(.montserratMedium(size: 15))
+                    .foregroundStyle(.white.opacity(0.68))
+                    .multilineTextAlignment(.center)
+            }
+
+            AscendLoadingIndicator(isPaused: presentationState.pausesLoadingAnimation)
+        }
+        .padding(.horizontal, 28)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Preparing your climb field. Checking your access.")
+        .accessibilityIdentifier("appAccessPaywallLoading")
+    }
+
+    private var recoveryContent: some View {
         VStack(alignment: .leading, spacing: 24) {
             Spacer()
 
             VStack(alignment: .leading, spacing: 14) {
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(Color.ascendAccent)
+                Image("AppIconInternalAccent")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 52, height: 52)
                     .accessibilityHidden(true)
 
-                Text("Access Required")
-                    .font(.montserratBold(size: 34))
+                Text("Open subscription options")
+                    .font(.montserratBold(size: 32))
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .minimumScaleFactor(0.82)
 
-                Text("Ascend is built for climbers who show up. Start a subscription or restore access to keep climbing.")
-                    .font(.montserratMedium(size: 16))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .lineSpacing(4)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(
+                    presentationState.statusMessage
+                        ?? "Choose a plan or restore your subscription to keep climbing."
+                )
+                .font(.montserratMedium(size: 16))
+                .foregroundStyle(.white.opacity(0.7))
+                .lineSpacing(4)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("appAccessPaywallStatus")
             }
 
             VStack(spacing: 12) {
                 Button(action: presentPaywall) {
                     Text(presentationState.primaryButtonTitle)
                         .font(.montserratBold(size: 16))
-                        .foregroundStyle(.black.opacity(presentationState.isPrimaryButtonEnabled ? 0.9 : 0.48))
+                        .foregroundStyle(.black.opacity(0.9))
                         .frame(maxWidth: .infinity)
                         .frame(height: 54)
                         .background(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(Color.ascendAccent.opacity(presentationState.isPrimaryButtonEnabled ? 1 : 0.52))
+                                .fill(Color.ascendAccent)
                         )
                 }
                 .buttonStyle(.plain)
-                .disabled(!presentationState.isPrimaryButtonEnabled)
                 .accessibilityHint("Presents the Ascend subscription paywall.")
 
-                if let statusMessage = presentationState.statusMessage {
-                    Text(statusMessage)
-                        .font(.montserratMedium(size: 13))
-                        .foregroundStyle(.white.opacity(0.68))
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityIdentifier("appAccessPaywallStatus")
-                }
-
                 Button(action: restorePurchases) {
-                    Text(restoreButtonTitle)
+                    Text(restoreState.buttonTitle(isRevenueCatConfigured: monetizationManager.isRevenueCatConfigured))
                         .font(.montserratSemiBold(size: 15))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
@@ -74,7 +111,7 @@ struct AppAccessPaywallPlaceholderView: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .disabled(restoreState == .restoring || !monetizationManager.isRevenueCatConfigured)
+                .disabled(!restoreState.isButtonEnabled(isRevenueCatConfigured: monetizationManager.isRevenueCatConfigured))
 
                 #if DEBUG
                 if monetizationManager.debugForcesAppAccessPaywall {
@@ -94,43 +131,28 @@ struct AppAccessPaywallPlaceholderView: View {
             Spacer()
         }
         .padding(.horizontal, 28)
-        .themedBackground()
-        .onAppear {
-            presentPaywallAutomaticallyIfNeeded()
-        }
     }
 
+    /// Only the cold-start hand-off opens the paywall by itself. A gate that is already sitting on a
+    /// presentation outcome has nothing to hand off, so it waits for the user's Try Again.
     private func presentPaywallAutomaticallyIfNeeded() {
         guard !hasAttemptedAutomaticPresentation else { return }
         hasAttemptedAutomaticPresentation = true
+
+        guard presentationState == .presenting else { return }
         presentPaywall()
     }
 
     private func presentPaywall() {
-        let source = presentationState == .ready ? "app_access_gate" : "paywall_placeholder_retry"
+        let source = hasAttemptedAutomaticPresentation && presentationState != .presenting
+            ? "paywall_placeholder_retry"
+            : "app_access_gate"
         presentationState.beginPresentation()
         monetizationManager.presentPaywall(
             .appAccessGate,
             params: ["source": source]
         ) { outcome in
             presentationState.handle(outcome)
-        }
-    }
-
-    private var restoreButtonTitle: String {
-        guard monetizationManager.isRevenueCatConfigured else {
-            return "Restore Unavailable"
-        }
-
-        switch restoreState {
-        case .restoring:
-            return "Restoring..."
-        case .restored:
-            return "Restored"
-        case .failed:
-            return "Restore Failed"
-        case nil:
-            return "Restore Purchases"
         }
     }
 

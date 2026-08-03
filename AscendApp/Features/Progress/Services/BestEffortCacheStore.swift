@@ -11,7 +11,8 @@ import SwiftData
 
 @MainActor
 enum BestEffortCacheStore {
-    static let currentVersion = 1
+    // v2: split-curve buckets are anchored to their window end, so cached timeline efforts are stale.
+    static let currentVersion = 2
     private static let metadataID = "best-effort-cache"
 
     static func rebuildIfNeeded(

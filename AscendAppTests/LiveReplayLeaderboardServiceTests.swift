@@ -4,6 +4,58 @@ import Testing
 
 struct LiveReplayLeaderboardServiceTests {
     @Test
+    func replayAdapterExposesAuthoredIdentityForRealAndSyntheticClimbers() {
+        let privatePhoto = URL(string: "https://example.com/private.jpg")
+        let realRow = LiveReplayLeaderboardRow(
+            id: "real",
+            rank: 1,
+            displayName: "Private Name",
+            avatarToken: "PN",
+            photoURL: privatePhoto,
+            stepsAtBucket: 100,
+            finalSteps: 200,
+            deltaFromUser: 10,
+            isCurrentUser: false,
+            isPersonalBest: false,
+            completionDurationSeconds: 300,
+            userId: "user-123"
+        )
+        let syntheticRow = LiveReplayLeaderboardRow(
+            id: "synthetic",
+            rank: 2,
+            displayName: "Maya C.",
+            avatarToken: "MC",
+            photoURL: privatePhoto,
+            stepsAtBucket: 90,
+            finalSteps: 190,
+            deltaFromUser: 0,
+            isCurrentUser: false,
+            isPersonalBest: false,
+            completionDurationSeconds: 320,
+            userId: "seeded:pack:everest:0",
+            isSynthetic: true
+        )
+
+        let realIdentity = CrossUserIdentityAdapter.replayRow(
+            realRow,
+            blockedUserIds: [],
+            isBlockListHydrated: true
+        ).identity
+        let syntheticIdentity = CrossUserIdentityAdapter.replayRow(
+            syntheticRow,
+            blockedUserIds: [],
+            isBlockListHydrated: true
+        ).identity
+
+        #expect(realIdentity.displayName == "Private Name")
+        #expect(realIdentity.photoURL == privatePhoto)
+        #expect(realIdentity.avatarToken == "PN")
+        #expect(syntheticIdentity.displayName == "Maya C.")
+        #expect(syntheticIdentity.photoURL == privatePhoto)
+        #expect(syntheticIdentity.avatarToken == "MC")
+    }
+
+    @Test
     func refreshesOnBucketChangeButRateLimitsSameBucket() async throws {
         let repository = MockLiveReplayLeaderboardRepository()
         let fixedDate = Date(timeIntervalSince1970: 1_777_777_777)
@@ -237,7 +289,8 @@ private actor MockLiveReplayLeaderboardRepository: LiveReplayLeaderboardReposito
 
     func fetchCompletionRank(
         context: LiveReplayLeaderboardContext,
-        completionDurationSeconds: TimeInterval
+        completionDurationSeconds: TimeInterval,
+        finalSteps: Int
     ) async throws -> LiveReplayCompletionRank {
         LiveReplayCompletionRank(
             rank: 12,

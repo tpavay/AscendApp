@@ -5,6 +5,7 @@ struct OtherUserProfileView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(ModerationStore.self) private var moderationStore
     @Query(sort: \Workout.date, order: .reverse) private var viewerWorkouts: [Workout]
     @Query(sort: \ClimbAttempt.startedAt, order: .reverse) private var viewerClimbAttempts: [ClimbAttempt]
     @Query(sort: \BestEffortCacheEntry.sortKey) private var viewerBestEffortCacheEntries: [BestEffortCacheEntry]
@@ -14,14 +15,19 @@ struct OtherUserProfileView: View {
     @State private var catalogRevision = 0
     @State private var selectedTab: ProfileComparisonTab = .bio
 
-    let userId: String
-    let seedDisplayName: String
-    let seedPhotoURL: URL?
+    let initialIdentity: ResolvedUserIdentity
+    let moderationSource: ModerationSource
 
-    init(userId: String, seedDisplayName: String, seedPhotoURL: URL? = nil) {
-        self.userId = userId
-        self.seedDisplayName = seedDisplayName
-        self.seedPhotoURL = seedPhotoURL
+    init(
+        identity: ResolvedUserIdentity,
+        moderationSource: ModerationSource = .profile
+    ) {
+        self.initialIdentity = identity
+        self.moderationSource = moderationSource
+    }
+
+    private var userId: String {
+        initialIdentity.userId ?? ""
     }
 
     private var climbs: [Climb] {
@@ -29,39 +35,21 @@ struct OtherUserProfileView: View {
         return (try? ClimbService.shared.loadVisibleClimbs()) ?? []
     }
 
-    private var seedIdentity: ProfileUserIdentity {
-        ProfileUserIdentity(
-            userId: userId,
-            displayName: seedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Climber" : seedDisplayName,
-            photoURL: seedPhotoURL
+    private var viewerDisplayName: String {
+        let trimmed = authVM.displayName.trimmingCharacters(
+            in: .whitespacesAndNewlines
         )
-    }
-
-    private var viewerIdentity: ProfileUserIdentity {
-        if var ownIdentity = viewModel.ownIdentity {
-            if ownIdentity.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                ownIdentity.displayName = authVM.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "You" : authVM.displayName
-            }
-            if ownIdentity.photoURL == nil {
-                ownIdentity.photoURL = authVM.displayPhotoURL
-            }
-            if ownIdentity.joinedAt == nil {
-                ownIdentity.joinedAt = authVM.user?.metadata.creationDate
-            }
-            return ownIdentity
-        }
-
-        return ProfileUserIdentity(
-            userId: authVM.user?.uid ?? "viewer",
-            displayName: authVM.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "You" : authVM.displayName,
-            photoURL: authVM.displayPhotoURL,
-            joinedAt: authVM.user?.metadata.creationDate
-        )
+        return trimmed.isEmpty ? "You" : trimmed
     }
 
     private var viewerSnapshot: ProfileSnapshot {
         ProfileSnapshotBuilder.makeOwnSnapshot(
-            identity: viewerIdentity,
+            demographics: viewModel.ownDemographics(
+                userId: authVM.user?.uid ?? "viewer",
+                displayName: viewerDisplayName,
+                photoURL: authVM.displayPhotoURL,
+                joinedAt: authVM.user?.metadata.creationDate
+            ),
             workouts: viewerWorkouts,
             climbAttempts: viewerClimbAttempts,
             bestEffortCacheEntries: viewerBestEffortCacheEntries,
@@ -75,7 +63,7 @@ struct OtherUserProfileView: View {
 
     private var loadingSnapshot: ProfileSnapshot {
         ProfileSnapshotBuilder.makeRemoteSnapshot(
-            identity: seedIdentity,
+            demographics: viewModel.otherUserDemographics(userId: userId),
             stats: .empty,
             achievements: .zero,
             achievementRecords: [],
@@ -93,11 +81,16 @@ struct OtherUserProfileView: View {
         return "\(userId)-\(viewerWorkouts.count)-\(viewerClimbAttempts.count)-\(latestWorkout)-\(latestAttempt)-\(catalogRevision)"
     }
 
+    private var otherSnapshot: ProfileSnapshot {
+        viewModel.otherUserSnapshot ?? loadingSnapshot
+    }
+
     var body: some View {
         let viewer = viewerSnapshot
-        let other = viewModel.otherUserSnapshot ?? loadingSnapshot
+        let other = otherSnapshot
         let isInitialRemoteLoad = viewModel.otherUserSnapshot == nil
-        let isInitialViewerIdentityLoad = authVM.user != nil && viewModel.ownIdentity == nil
+        let isInitialViewerIdentityLoad =
+            authVM.user != nil && !viewModel.hasLoadedOwnIdentity
         let comparison = viewModel.comparison ?? ProfileSnapshotBuilder.comparison(viewer: viewer, otherUser: other)
         let headToHeadResults = ProfileSnapshotBuilder.headToHeadResults(
             viewer: viewer,
@@ -108,8 +101,17 @@ struct OtherUserProfileView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ProfileComparisonHeader(
-                    viewerIdentity: viewer.identity,
-                    otherIdentity: other.identity,
+                    viewerIdentity: viewModel.resolvedOwnIdentity(
+                        using: moderationStore,
+                        userId: authVM.user?.uid ?? "viewer",
+                        displayName: viewerDisplayName,
+                        photoURL: authVM.displayPhotoURL,
+                        joinedAt: authVM.user?.metadata.creationDate
+                    ),
+                    otherIdentity: viewModel.resolvedOtherIdentity(
+                        using: moderationStore,
+                        fallback: initialIdentity
+                    ),
                     isViewerLoading: isInitialViewerIdentityLoad,
                     isOtherLoading: isInitialRemoteLoad
                 )
@@ -142,7 +144,10 @@ struct OtherUserProfileView: View {
         }
         .scrollIndicators(.hidden)
         .safeAreaInset(edge: .top, spacing: 0) {
-            ProfileComparisonTopBar {
+            ProfileComparisonTopBar(
+                reportedUserId: userId,
+                moderationSource: moderationSource
+            ) {
                 HapticsManager.shared.trigger(.lightImpact)
                 dismiss()
             }
@@ -164,7 +169,7 @@ struct OtherUserProfileView: View {
 
             await viewModel.loadOtherUser(
                 userId: userId,
-                seedIdentity: seedIdentity,
+                initialIdentity: initialIdentity,
                 viewerSnapshot: viewerSnapshot,
                 climbs: climbs,
                 taskKey: taskKey
@@ -174,6 +179,7 @@ struct OtherUserProfileView: View {
             catalogRevision += 1
         }
     }
+
 }
 
 private enum ProfileComparisonTab: String, CaseIterable, Identifiable {
@@ -184,6 +190,8 @@ private enum ProfileComparisonTab: String, CaseIterable, Identifiable {
 }
 
 private struct ProfileComparisonTopBar: View {
+    let reportedUserId: String
+    let moderationSource: ModerationSource
     let onBack: () -> Void
 
     var body: some View {
@@ -198,6 +206,7 @@ private struct ProfileComparisonTopBar: View {
                     .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 1))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Back")
 
             Spacer()
 
@@ -210,11 +219,13 @@ private struct ProfileComparisonTopBar: View {
 
             Spacer()
 
-            Image(systemName: "square.and.arrow.up")
+            ProfileModerationMenu(
+                reportedUserId: reportedUserId,
+                source: moderationSource
+            )
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(ProfileVisualStyle.secondaryText)
                 .frame(width: 44, height: 44)
-                .opacity(0.72)
         }
         .padding(.horizontal, 20)
         .padding(.top, 2)
@@ -224,8 +235,8 @@ private struct ProfileComparisonTopBar: View {
 }
 
 private struct ProfileComparisonHeader: View {
-    let viewerIdentity: ProfileUserIdentity
-    let otherIdentity: ProfileUserIdentity
+    let viewerIdentity: ResolvedUserIdentity
+    let otherIdentity: ResolvedUserIdentity
     let isViewerLoading: Bool
     let isOtherLoading: Bool
 
@@ -255,23 +266,23 @@ private struct ProfileComparisonHeader: View {
     }
 
     private func competitor(
-        identity: ProfileUserIdentity,
+        identity: ResolvedUserIdentity,
         tint: Color,
         fallbackName: String,
         isLoading: Bool
     ) -> some View {
         VStack(spacing: 12) {
             if isLoading {
-                ProfileComparisonSkeletonCircle(size: 76, tint: tint)
+                AscendSkeletonCircle(size: 76, tint: tint)
             } else {
                 ProfileAvatarImageView(photoURL: identity.photoURL, size: 76)
                     .overlay(Circle().stroke(tint, lineWidth: 2))
             }
 
             if isLoading {
-                ProfileComparisonSkeletonText(width: 78, height: 18)
+                AscendSkeletonText(width: 78, height: 18)
             } else {
-                Text(shortName(identity.displayName, fallback: fallbackName))
+                Text(resolvedName(identity.displayName, fallback: fallbackName))
                     .font(.montserratBold(size: 18))
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -281,10 +292,10 @@ private struct ProfileComparisonHeader: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func shortName(_ name: String, fallback: String) -> String {
+    private func resolvedName(_ name: String, fallback: String) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return fallback }
-        return trimmed.split(separator: " ").first.map(String.init) ?? trimmed
+        return trimmed
     }
 }
 
@@ -336,22 +347,22 @@ private struct ProfileComparisonBioTab: View {
                 VStack(spacing: 0) {
                     comparisonInfoRow(
                         label: "Age",
-                        viewerValue: valueOrDash(viewer.identity.age.map { "\($0)" }),
-                        otherValue: valueOrDash(otherUser.identity.age.map { "\($0)" }),
+                        viewerValue: valueOrDash(viewer.demographics.age.map { "\($0)" }),
+                        otherValue: valueOrDash(otherUser.demographics.age.map { "\($0)" }),
                         isViewerLoading: isViewerLoading,
                         isOtherLoading: isOtherLoading
                     )
                     comparisonInfoRow(
                         label: "Height",
-                        viewerValue: formatHeight(viewer.identity.heightCm),
-                        otherValue: formatHeight(otherUser.identity.heightCm),
+                        viewerValue: formatHeight(viewer.demographics.heightCm),
+                        otherValue: formatHeight(otherUser.demographics.heightCm),
                         isViewerLoading: isViewerLoading,
                         isOtherLoading: isOtherLoading
                     )
                     comparisonInfoRow(
                         label: "Weight",
-                        viewerValue: formatWeight(viewer.identity.weightKg),
-                        otherValue: formatWeight(otherUser.identity.weightKg),
+                        viewerValue: formatWeight(viewer.demographics.weightKg),
+                        otherValue: formatWeight(otherUser.demographics.weightKg),
                         isViewerLoading: isViewerLoading,
                         isOtherLoading: isOtherLoading
                     )
@@ -418,7 +429,7 @@ private struct ProfileComparisonBioTab: View {
             HStack(alignment: .firstTextBaseline) {
                 Group {
                     if isViewerLoading {
-                        ProfileComparisonSkeletonText(width: 64, height: 17)
+                        AscendSkeletonText(width: 64, height: 17)
                     } else {
                         Text(viewerValue)
                             .font(.montserratBold(size: 16))
@@ -438,7 +449,7 @@ private struct ProfileComparisonBioTab: View {
 
                 Group {
                     if isOtherLoading {
-                        ProfileComparisonSkeletonText(width: 64, height: 17)
+                        AscendSkeletonText(width: 64, height: 17)
                     } else {
                         Text(otherValue)
                             .font(.montserratBold(size: 16))
@@ -533,7 +544,7 @@ private struct ProfileComparisonStatRow: View {
 
                 Group {
                     if isOtherLoading {
-                        ProfileComparisonSkeletonText(width: 78, height: 18)
+                        AscendSkeletonText(width: 78, height: 18)
                     } else {
                         Text(otherValueText)
                             .font(.montserratBold(size: 17))
@@ -586,7 +597,7 @@ private struct ProfileComparisonStatBar: View {
                 if isLoadingOtherValue {
                     Rectangle()
                         .fill(ProfileVisualStyle.skeletonFill)
-                        .profileComparisonSkeletonShimmer()
+                        .ascendSkeletonShimmer()
                 } else {
                     Rectangle()
                         .fill(ProfileVisualStyle.opponentBlue)
@@ -610,7 +621,7 @@ private struct ProfileComparisonHeadToHeadTab: View {
                 VStack(spacing: 16) {
                     HStack(alignment: .firstTextBaseline, spacing: 14) {
                         if isLoading {
-                            ProfileComparisonSkeletonText(width: 44, height: 42)
+                            AscendSkeletonText(width: 44, height: 42)
                         } else {
                             Text("\(comparison.viewerWins)")
                                 .font(.montserratBold(size: 40))
@@ -622,7 +633,7 @@ private struct ProfileComparisonHeadToHeadTab: View {
                             .foregroundStyle(ProfileVisualStyle.tertiaryText)
 
                         if isLoading {
-                            ProfileComparisonSkeletonText(width: 44, height: 42)
+                            AscendSkeletonText(width: 44, height: 42)
                         } else {
                             Text("\(comparison.otherUserWins)")
                                 .font(.montserratBold(size: 40))
@@ -638,7 +649,7 @@ private struct ProfileComparisonHeadToHeadTab: View {
                     )
 
                     if isLoading {
-                        ProfileComparisonSkeletonText(width: 58, height: 12)
+                        AscendSkeletonText(width: 58, height: 12)
                             .frame(maxWidth: .infinity, alignment: .center)
                     } else if comparison.ties > 0 {
                         Text("\(comparison.ties) tied")
@@ -708,16 +719,16 @@ private struct ProfileHeadToHeadLoadingRow: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
-                ProfileComparisonSkeletonText(width: 58, height: 16)
+                AscendSkeletonText(width: 58, height: 16)
                     .frame(width: 72, alignment: .leading)
 
                 VStack(spacing: 6) {
-                    ProfileComparisonSkeletonText(width: 144, height: 15)
-                    ProfileComparisonSkeletonText(width: 72, height: 11)
+                    AscendSkeletonText(width: 144, height: 15)
+                    AscendSkeletonText(width: 72, height: 11)
                 }
                 .frame(maxWidth: .infinity)
 
-                ProfileComparisonSkeletonText(width: 58, height: 16)
+                AscendSkeletonText(width: 58, height: 16)
                     .frame(width: 72, alignment: .trailing)
             }
             .padding(.vertical, 16)
@@ -768,81 +779,5 @@ private struct ProfileHeadToHeadClimbRow: View {
                 .fill(ProfileVisualStyle.cardStroke)
                 .frame(height: 1)
         }
-    }
-}
-
-private struct ProfileComparisonSkeletonText: View {
-    let width: CGFloat
-    let height: CGFloat
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: min(height / 2, 6), style: .continuous)
-            .fill(ProfileVisualStyle.skeletonFill)
-            .frame(width: width, height: height)
-            .profileComparisonSkeletonShimmer()
-            .accessibilityHidden(true)
-    }
-}
-
-private struct ProfileComparisonSkeletonCircle: View {
-    let size: CGFloat
-    let tint: Color
-
-    var body: some View {
-        Circle()
-            .fill(ProfileVisualStyle.skeletonFill)
-            .frame(width: size, height: size)
-            .profileComparisonSkeletonShimmer()
-            .overlay(Circle().stroke(tint.opacity(0.45), lineWidth: 2))
-            .accessibilityHidden(true)
-    }
-}
-
-private struct ProfileComparisonSkeletonShimmer: ViewModifier {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isActive = false
-
-    func body(content: Content) -> some View {
-        content
-            .overlay {
-                if !reduceMotion {
-                    GeometryReader { proxy in
-                        let width = max(proxy.size.width, 1)
-                        let height = max(proxy.size.height, 1)
-
-                        LinearGradient(
-                            colors: [
-                                .clear,
-                                .white.opacity(0.22),
-                                .clear
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: width * 0.72, height: height * 2.2)
-                        .rotationEffect(.degrees(18))
-                        .offset(
-                            x: isActive ? width * 1.35 : -width * 0.95,
-                            y: -height * 0.58
-                        )
-                    }
-                    .blendMode(.plusLighter)
-                    .mask(content)
-                    .allowsHitTesting(false)
-                }
-            }
-            .onAppear {
-                guard !reduceMotion else { return }
-                isActive = false
-                withAnimation(.linear(duration: 1.15).repeatForever(autoreverses: false)) {
-                    isActive = true
-                }
-            }
-    }
-}
-
-private extension View {
-    func profileComparisonSkeletonShimmer() -> some View {
-        modifier(ProfileComparisonSkeletonShimmer())
     }
 }

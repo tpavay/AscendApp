@@ -57,33 +57,54 @@ final class HealthKitBackgroundSyncManager {
         }
     }
 
+    /// HealthKit does not guarantee these completion handlers ever fire - on a simulator with no
+    /// Health authorization, `disableBackgroundDelivery` reliably does not. An unbounded
+    /// continuation there is not a slow call, it is a permanent one: it suspends the shared
+    /// refresh task forever, `WorkoutImportCoordinator.refreshTask` is never cleared, and every
+    /// later refresh coalesces onto a task that can never finish. Cancellation cannot rescue it
+    /// either, because a continuation is not a cancellation point. Bounding it is what keeps the
+    /// import system's completion and cancellation guarantees true.
+    private static let backgroundDeliveryTimeout: Duration = .seconds(10)
+
     private func enableBackgroundDelivery() async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        try await withBoundedCompletion { [healthStore] completion in
             healthStore.enableBackgroundDelivery(
                 for: HKObjectType.workoutType(),
-                frequency: .immediate
-            ) { success, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else if success {
-                    continuation.resume()
-                } else {
-                    continuation.resume(throwing: BackgroundDeliveryError.enableFailed)
-                }
-            }
+                frequency: .immediate,
+                withCompletion: completion
+            )
         }
     }
 
     private func disableBackgroundDelivery() async throws {
+        try await withBoundedCompletion { [healthStore] completion in
+            healthStore.disableBackgroundDelivery(
+                for: HKObjectType.workoutType(),
+                withCompletion: completion
+            )
+        }
+    }
+
+    private func withBoundedCompletion(
+        _ request: (@escaping @Sendable (Bool, (any Error)?) -> Void) -> Void
+    ) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            healthStore.disableBackgroundDelivery(for: HKObjectType.workoutType()) { success, error in
+            let resumer = HealthKitOneShotResumer(continuation)
+
+            let timeout = Task.detached {
+                try await Task.sleep(for: Self.backgroundDeliveryTimeout)
+                resumer.resume(throwing: BackgroundDeliveryError.timedOut)
+            }
+
+            request { success, error in
                 if let error {
-                    continuation.resume(throwing: error)
+                    resumer.resume(throwing: error)
                 } else if success {
-                    continuation.resume()
+                    resumer.resume()
                 } else {
-                    continuation.resume(throwing: BackgroundDeliveryError.disableFailed)
+                    resumer.resume(throwing: BackgroundDeliveryError.requestFailed)
                 }
+                timeout.cancel()
             }
         }
     }
@@ -91,8 +112,35 @@ final class HealthKitBackgroundSyncManager {
 
 private extension HealthKitBackgroundSyncManager {
     enum BackgroundDeliveryError: Error {
-        case enableFailed
-        case disableFailed
+        case requestFailed
+        case timedOut
+    }
+}
+
+/// Resumes a continuation exactly once, whichever of the HealthKit callback and the timeout wins.
+private final class HealthKitOneShotResumer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Error>?
+
+    init(_ continuation: CheckedContinuation<Void, Error>) {
+        self.continuation = continuation
+    }
+
+    func resume() {
+        take()?.resume()
+    }
+
+    func resume(throwing error: any Error) {
+        take()?.resume(throwing: error)
+    }
+
+    private func take() -> CheckedContinuation<Void, Error>? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let continuation = self.continuation
+        self.continuation = nil
+        return continuation
     }
 }
 

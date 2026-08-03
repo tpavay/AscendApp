@@ -42,6 +42,26 @@ def match_cert_name(bundle_identifier)
   ENV["sigh_#{bundle_identifier}_appstore_certificate-name"]
 end
 
+def upload_sentry_dsyms(archive_path)
+  dsym_path = File.join(archive_path, "dSYMs")
+  script_path = File.expand_path("../scripts/upload-sentry-dsyms.sh", __dir__)
+
+  UI.user_error!("Sentry dSYM upload script not found at #{script_path}") unless File.executable?(script_path)
+
+  local_tokenless_build = ENV["CI"].to_s != "true" && ENV["SENTRY_AUTH_TOKEN"].to_s.empty?
+
+  unless Dir.exist?(dsym_path)
+    if local_tokenless_build
+      UI.important("Sentry dSYM upload skipped: no dSYMs directory in #{archive_path}.")
+      return
+    end
+
+    UI.user_error!("Archive dSYM directory not found at #{dsym_path}")
+  end
+
+  sh("#{script_path.shellescape} #{dsym_path.shellescape}")
+end
+
 # Write an export options plist for xcodebuild -exportArchive.
 # We call xcodebuild directly (not through gym) so we can use
 # "app-store-connect" (which gym 2.230 doesn't support) and avoid
@@ -92,7 +112,8 @@ platform :ios do
     staging_widget_bundle_identifier = ENV.fetch("IOS_STAGING_WIDGET_BUNDLE_ID", "com.TylerPavay.AscendApp.staging.LiveClimbWidgets")
     staging_widget_profile_specifier = ENV.fetch("IOS_STAGING_WIDGET_PROVISIONING_PROFILE_SPECIFIER", "match AppStore com.TylerPavay.AscendApp.staging.LiveClimbWidgets")
 
-    # Auto-increment build number on CI using the workflow run number
+    # BUILD_NUMBER is derived pre-archive from this app's uploaded builds in
+    # App Store Connect, not from a workflow-local counter.
     build_number = ENV["BUILD_NUMBER"]
     if build_number
       increment_build_number(
@@ -130,6 +151,8 @@ platform :ios do
       skip_package_ipa: true,
       archive_path: archive_path
     )
+
+    upload_sentry_dsyms(archive_path)
 
     # Diagnostic: verify entitlements embedded in the archive
     archive_app = File.join(archive_path, "Products", "Applications", "AscendApp.app")
@@ -174,7 +197,8 @@ platform :ios do
     production_widget_bundle_identifier = ENV.fetch("IOS_PRODUCTION_WIDGET_BUNDLE_ID", "com.TylerPavay.AscendApp.LiveClimbWidgets")
     production_widget_profile_specifier = ENV.fetch("IOS_PRODUCTION_WIDGET_PROVISIONING_PROFILE_SPECIFIER", "match AppStore com.TylerPavay.AscendApp.LiveClimbWidgets")
 
-    # Auto-increment build number on CI using the workflow run number
+    # BUILD_NUMBER is derived pre-archive from this app's uploaded builds in
+    # App Store Connect, not from a workflow-local counter.
     build_number = ENV["BUILD_NUMBER"]
     if build_number
       increment_build_number(
@@ -209,6 +233,8 @@ platform :ios do
       skip_package_ipa: true,
       archive_path: archive_path
     )
+
+    upload_sentry_dsyms(archive_path)
 
     # Step 2: Export the archive to IPA
     export_plist = write_export_plist(
@@ -246,6 +272,8 @@ platform :ios do
     upload_to_testflight(
       ipa: ENV.fetch("IPA_PATH"),
       api_key: api_key,
+      app_identifier: ENV.fetch("APP_STORE_CONNECT_BUNDLE_ID"),
+      apple_id: ENV.fetch("APP_STORE_CONNECT_APP_ID"),
       skip_waiting_for_build_processing: true
     )
   end

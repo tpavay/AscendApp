@@ -331,6 +331,7 @@ struct LegacyRestoreHardeningTests {
             Workout.self,
             WorkoutSourceLink.self,
             WorkoutParticipation.self,
+            PendingWorkoutDeletion.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
         return ModelContext(container)

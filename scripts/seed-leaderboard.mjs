@@ -27,6 +27,8 @@ import {
   expectedLeaderboardDocIds,
   legacyLeaderboardDocIds,
   PROFILE_SEED_PERSONAS,
+  publicIdentityMismatchFields,
+  publishedPublicIdentity,
 } from "./seed/fixtures/profile-fixtures.mjs";
 
 const COLLECTION = "leaderboard_stats";
@@ -97,43 +99,53 @@ async function main() {
     return;
   }
 
+  const publicIdentities = await readPublicIdentities(db);
   const writes = buildLeaderboardSeedWrites({
     db,
     catalog: loadCatalog(),
     Timestamp,
     FieldValue,
-    avatarURLs: await loadSeededProfilePhotoURLs(db),
+    publicIdentities,
   });
   console.log(`Prepared ${writes.length} leaderboard documents.`);
   console.log("Note: run the profiles target first when seeding an empty environment.");
   if (args.dryRun) return;
 
-  await commitDeletes(db, await leaderboardRefsToClear(db));
   await commitWrites(db, writes);
+  const writtenPaths = new Set(writes.map((writeItem) => writeItem.ref.path));
+  const obsoleteRefs = (await leaderboardRefsToClear(db))
+    .filter((reference) => !writtenPaths.has(reference.path));
+  await commitDeletes(db, obsoleteRefs);
   console.log(`Seeded ${writes.length} documents into "${COLLECTION}".`);
+}
+
+async function readPublicIdentities(db) {
+  const snapshots = await Promise.all(
+    PROFILE_SEED_PERSONAS.map((persona) =>
+      db
+        .collection("users")
+        .doc(persona.id)
+        .collection("public_profile")
+        .doc("current")
+        .get()
+    )
+  );
+
+  return new Map(snapshots.map((snapshot, index) => {
+    const userId = PROFILE_SEED_PERSONAS[index].id;
+    if (!snapshot.exists) {
+      throw new Error(
+        `users/${userId}/public_profile/current must exist before leaderboard seeding`
+      );
+    }
+    return [userId, publishedPublicIdentity(userId, snapshot.data())];
+  }));
 }
 
 function loadCatalog() {
   const raw = JSON.parse(readFileSync(resolve(REPO_ROOT, "web/public/climbs/catalog-v1.json"), "utf-8"));
   const climbs = Array.isArray(raw) ? raw : raw.climbs;
   return new Map(climbs.map((climb) => [climb.id, climb]));
-}
-
-async function loadSeededProfilePhotoURLs(db) {
-  const avatarURLs = new Map();
-  for (const persona of PROFILE_SEED_PERSONAS) {
-    const snapshot = await db
-      .collection("users")
-      .doc(persona.id)
-      .collection("public_profile")
-      .doc("current")
-      .get();
-    const photoURL = snapshot.data()?.photoURL;
-    if (typeof photoURL === "string" && photoURL.length > 0) {
-      avatarURLs.set(persona.id, photoURL);
-    }
-  }
-  return avatarURLs;
 }
 
 async function leaderboardRefsToClear(db) {
@@ -169,11 +181,50 @@ function uniqueRefs(refs) {
 
 async function commitWrites(db, writes) {
   for (let index = 0; index < writes.length; index += BATCH_LIMIT) {
-    const batch = db.batch();
-    for (const {ref, data} of writes.slice(index, index + BATCH_LIMIT)) {
-      batch.set(ref, data);
-    }
-    await batch.commit();
+    const page = writes.slice(index, index + BATCH_LIMIT);
+    await db.runTransaction(async (transaction) => {
+      const userIds = [...new Set(page.map((writeItem) =>
+        writeItem.data.userId
+      ))];
+      const profileReferences = userIds.map((userId) =>
+        db
+          .collection("users")
+          .doc(userId)
+          .collection("public_profile")
+          .doc("current")
+      );
+      const profileSnapshots = await Promise.all(
+        profileReferences.map((reference) => transaction.get(reference))
+      );
+      const currentIdentities = new Map(
+        profileSnapshots.map((snapshot, profileIndex) => {
+          const userId = userIds[profileIndex];
+          if (!snapshot.exists) {
+            throw new Error(
+              `users/${userId}/public_profile/current disappeared during seeding`
+            );
+          }
+          return [
+            userId,
+            publishedPublicIdentity(userId, snapshot.data()),
+          ];
+        })
+      );
+
+      for (const {ref, data} of page) {
+        const mismatches = publicIdentityMismatchFields(
+          data,
+          currentIdentities.get(data.userId)
+        );
+        if (mismatches.length > 0) {
+          throw new Error(
+            `${ref.path} identity became stale during seeding: ` +
+            mismatches.join(", ")
+          );
+        }
+        transaction.set(ref, data);
+      }
+    });
   }
 }
 

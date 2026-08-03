@@ -16,6 +16,11 @@ struct MediaUploadBanner: View {
     // Observe manager via environment for proper SwiftUI reactivity
     @Environment(MediaUploadManager.self) private var uploadManager
 
+    // Mirrored into view state because the flag store is lock-guarded rather than observable, so
+    // reading it in the body alone would leave a thrown switch invisible until something else
+    // re-rendered this banner.
+    @State private var isUploadQueueActive = true
+
     var body: some View {
         let status = uploadManager.uploadStatus(for: workoutId)
 
@@ -55,6 +60,10 @@ struct MediaUploadBanner: View {
 
     @ViewBuilder
     private func failedBanner(count: Int) -> some View {
+        // The retry affordance disappears while the media queue's kill switch is thrown, because
+        // the retry path is gated too and a control that cannot act is a promise the app breaks.
+        let canRetry = isUploadQueueActive
+
         Button(action: onRetry) {
             HStack(spacing: 12) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -65,21 +74,32 @@ struct MediaUploadBanner: View {
                         .font(.subheadline)
                         .fontWeight(.medium)
 
-                    Text("Tap to retry")
-                        .font(.caption)
-                        .opacity(0.9)
+                    if canRetry {
+                        Text("Tap to retry")
+                            .font(.caption)
+                            .opacity(0.9)
+                    }
                 }
 
                 Spacer()
 
-                Image(systemName: "arrow.clockwise")
-                    .font(.body)
+                if canRetry {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.body)
+                }
             }
         }
+        .disabled(!canRetry)
         .padding()
         .background(Color.orange)
         .foregroundStyle(.white)
         .clipShape(.rect(cornerRadius: 12))
+        .onAppear {
+            isUploadQueueActive = uploadManager.isUploadQueueActive
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .remoteFeatureFlagsDidChange)) { _ in
+            isUploadQueueActive = uploadManager.isUploadQueueActive
+        }
     }
 }
 

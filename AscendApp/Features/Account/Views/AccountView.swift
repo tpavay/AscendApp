@@ -132,6 +132,11 @@ struct AccountView: View {
                 icon: .settingsNotifications,
                 title: "Notifications",
                 destination: NotificationSettingsView()
+            ),
+            SettingsOption(
+                icon: .settingsBlockedClimbers,
+                title: "Blocked climbers",
+                destination: BlockedClimbersView()
             )
         ]
     }
@@ -147,6 +152,18 @@ struct AccountView: View {
                 title: "Debug Tools",
                 iconColor: .orange,
                 destination: DebugToolsView()
+            )
+        )
+        #elseif STAGING
+        // QA runs on Staging TestFlight, where the rest of Debug Tools is compiled out. Remote Flags
+        // still ships here on its own so a thrown kill switch can be watched landing on the build
+        // under test - a switch nobody can verify is the failure this branch exists to prevent.
+        options.append(
+            SettingsOption(
+                icon: .settingsDebugTools,
+                title: "Remote Flags",
+                iconColor: .orange,
+                destination: RemoteFeatureFlagsView()
             )
         )
         #endif

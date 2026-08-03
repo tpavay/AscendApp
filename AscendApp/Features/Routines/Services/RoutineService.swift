@@ -1,18 +1,30 @@
+import FirebaseAuth
 import Foundation
 import SwiftData
 
-/// Service for managing routine CRUD operations
+/// Service for managing routine CRUD operations.
+///
+/// Every mutation here is also the entry point to the cloud backup: it marks
+/// the record pending and kicks `RoutineSyncCoordinator`. Nothing in this file
+/// talks to Firestore directly, which is what lets an upload survive being
+/// interrupted - the pending state is on disk before the network is touched.
 @MainActor
 final class RoutineService {
     private let modelContext: ModelContext
     private let templateRepository: RoutineTemplateRepository
+    private let syncCoordinator: RoutineSyncCoordinator
+    private let currentUserId: () -> String?
 
     init(
         modelContext: ModelContext,
-        templateRepository: RoutineTemplateRepository = FirestoreRoutineTemplateRepository.shared
+        templateRepository: RoutineTemplateRepository = FirestoreRoutineTemplateRepository.shared,
+        syncCoordinator: RoutineSyncCoordinator = .shared,
+        currentUserId: @escaping () -> String? = { Auth.auth().currentUser?.uid }
     ) {
         self.modelContext = modelContext
         self.templateRepository = templateRepository
+        self.syncCoordinator = syncCoordinator
+        self.currentUserId = currentUserId
     }
 
     // MARK: - Fetch Operations
@@ -85,14 +97,33 @@ final class RoutineService {
             defaultWeightConfiguration: defaultWeightConfiguration
         )
         modelContext.insert(routine)
+        markPendingBackup(routine)
         try modelContext.save()
+        kickBackup()
         return routine
     }
 
     /// Updates an existing routine
     func updateRoutine(_ routine: Routine) throws {
         routine.updatedAt = Date()
+        markPendingBackup(routine, modifiedAt: routine.updatedAt)
         try modelContext.save()
+        kickBackup()
+    }
+
+    /// Records that the climber finished a session of this routine.
+    ///
+    /// Whether a session counts as a completion is the live session's call, not
+    /// this one's. What this owns is the write: the counters are backed-up
+    /// document fields, so a completion has to mark the routine pending like any
+    /// other edit. Writing them straight onto the model leaves a routine that is
+    /// completed for years and restores with a count of zero.
+    func recordCompletion(for routine: Routine, completedAt: Date = Date()) throws {
+        routine.completionCount += 1
+        routine.lastCompletedAt = completedAt
+        markPendingBackup(routine, modifiedAt: completedAt)
+        try modelContext.save()
+        kickBackup()
     }
 
     /// Creates a user copy of a built-in routine
@@ -100,7 +131,9 @@ final class RoutineService {
     func copyBuiltInRoutine(_ routine: Routine) throws -> Routine {
         let copy = routine.createUserCopy()
         modelContext.insert(copy)
+        markPendingBackup(copy)
         try modelContext.save()
+        kickBackup()
         return copy
     }
 
@@ -133,16 +166,134 @@ final class RoutineService {
     // MARK: - Delete Operations
 
     /// Archives a routine (soft delete)
+    ///
+    /// The backup is updated rather than removed: archiving is a content
+    /// change, and a restore has to bring the routine back archived rather than
+    /// resurrecting it into the climber's list.
     func archiveRoutine(_ routine: Routine) throws {
         routine.isArchived = true
         routine.updatedAt = Date()
+        markPendingBackup(routine, modifiedAt: routine.updatedAt)
         try modelContext.save()
+        kickBackup()
     }
 
-    /// Permanently deletes a routine
+    /// Permanently deletes a routine, locally and in the cloud backup.
+    ///
+    /// The tombstone is written in the same transaction as the local delete.
+    /// Doing it the other way round - delete now, remember later - is how a
+    /// crash between the two leaves a routine that comes back on the next
+    /// restore.
     func deleteRoutine(_ routine: Routine) throws {
+        try syncCoordinator.enqueuePendingDeletion(
+            recordId: routine.id,
+            kind: .routine,
+            ownerUserId: routine.ownerUserId ?? currentUserId(),
+            modelContext: modelContext
+        )
         modelContext.delete(routine)
         try modelContext.save()
+        kickBackup()
+    }
+
+    // MARK: - Folder Operations
+
+    @discardableResult
+    func createFolder(
+        name: String,
+        colorHex: String? = nil,
+        order: Int = 0
+    ) throws -> RoutineFolder {
+        let folder = RoutineFolder(name: name, colorHex: colorHex, order: order)
+        modelContext.insert(folder)
+        markPendingBackup(folder)
+        try modelContext.save()
+        kickBackup()
+        return folder
+    }
+
+    func updateFolder(_ folder: RoutineFolder) throws {
+        let modifiedAt = Date()
+        folder.updatedAt = modifiedAt
+        markPendingBackup(folder, modifiedAt: modifiedAt)
+        try modelContext.save()
+        kickBackup()
+    }
+
+    /// Deletes a folder and detaches the routines it held.
+    ///
+    /// The routines survive - only their `folderId` goes. Leaving the pointer
+    /// behind would strand every one of them on an id that names nothing, and
+    /// because an untouched routine stays `synced` that dangling pointer is what
+    /// the cloud backup already holds and what a restore hands back. Detaching,
+    /// the tombstone and the local delete all land in one save, so a crash
+    /// between them cannot leave half of it done.
+    func deleteFolder(_ folder: RoutineFolder) throws {
+        let detachedAt = Date()
+
+        for routine in try routines(inFolder: folder.id) {
+            routine.folderId = nil
+            routine.updatedAt = detachedAt
+            markPendingBackup(routine, modifiedAt: detachedAt)
+        }
+
+        try syncCoordinator.enqueuePendingDeletion(
+            recordId: folder.id,
+            kind: .folder,
+            ownerUserId: folder.ownerUserId ?? currentUserId(),
+            modelContext: modelContext
+        )
+        modelContext.delete(folder)
+        try modelContext.save()
+        kickBackup()
+    }
+
+    private func routines(inFolder folderId: UUID) throws -> [Routine] {
+        let target: UUID? = folderId
+        let descriptor = FetchDescriptor<Routine>(
+            predicate: #Predicate<Routine> { $0.folderId == target }
+        )
+        return try modelContext.fetch(descriptor)
+    }
+
+    func getAllFolders() throws -> [RoutineFolder] {
+        try modelContext.fetch(
+            FetchDescriptor<RoutineFolder>(sortBy: [SortDescriptor(\.order), SortDescriptor(\.name)])
+        )
+    }
+
+    // MARK: - Cloud Backup
+
+    /// Flags a routine for upload. Templates are skipped: they are server-owned
+    /// catalog content, and `firestore.rules` refuses to store one under a
+    /// climber's uid.
+    private func markPendingBackup(_ routine: Routine, modifiedAt: Date = Date()) {
+        guard routine.isUserAuthored, let userId = routine.ownerUserId ?? currentUserId() else {
+            return
+        }
+
+        routine.markPendingRemoteUpsert(ownerUserId: userId, modifiedAt: modifiedAt)
+    }
+
+    private func markPendingBackup(_ folder: RoutineFolder, modifiedAt: Date = Date()) {
+        guard let userId = folder.ownerUserId ?? currentUserId() else { return }
+
+        folder.markPendingRemoteUpsert(ownerUserId: userId, modifiedAt: modifiedAt)
+    }
+
+    /// Backup is mutation-driven, not deferred to the next launch, so a routine
+    /// the climber just built is safe before they close the app.
+    private func kickBackup() {
+        guard let userId = currentUserId() else { return }
+
+        let modelContext = modelContext
+        let syncCoordinator = syncCoordinator
+        Task { @MainActor in
+            await syncCoordinator.processPendingRoutines(
+                modelContext: modelContext,
+                currentUserId: userId
+            )
+        }
     }
 
     // MARK: - Built-in Template Initialization

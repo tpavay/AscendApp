@@ -321,6 +321,7 @@ struct MainTabView: View {
         if newValue {
             showOfflineHighlight = false
             showBackOnlineBanner = true
+            retryHeartRateHydration()
             onlineBannerTask = Task { @MainActor in
                 try? await Task.sleep(for: .seconds(3))
                 showBackOnlineBanner = false
@@ -334,6 +335,17 @@ struct MainTabView: View {
                     showOfflineHighlight = false
                 }
             }
+        }
+    }
+
+    private func retryHeartRateHydration() {
+        guard let userId = authVM.user?.uid else { return }
+
+        Task { @MainActor in
+            _ = try? await WorkoutHydrationService.hydrateIfNeeded(
+                modelContext: modelContext,
+                currentUserId: userId
+            )
         }
     }
 

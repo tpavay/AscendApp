@@ -1,0 +1,74 @@
+name: CI Required Check Fallback
+
+on:
+  pull_request:
+    branches: [develop, main]
+
+concurrency:
+  group: ci-required-check-fallback-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  route:
+    name: Detect CI-Relevant Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      fallback_eligible: ${{ steps.classify.outputs.fallback_eligible }}
+      required_contexts: ${{ steps.required-contexts.outputs.required_contexts || '[]' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # The real CI workflow owns the context names. Deriving the matrix from
+      # those jobs keeps a future required iOS check from needing a second,
+      # easy-to-miss update in this fallback workflow.
+      - name: Read required check contexts
+        id: required-contexts
+        run: node scripts/ci/list-required-check-contexts.mjs .github/workflows/ci.yml
+
+      # The classifier is an allowlist over the whole diff, which dorny cannot
+      # express: it ORs its rules per file, so a negated rule reads as "any file
+      # that is not this" rather than as an exclusion. Every failure here leaves
+      # the job unsuccessful, and the fallback jobs below refuse to claim the
+      # required names unless this job succeeded.
+      - name: Classify changed paths
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/pulls/${PULL_REQUEST_NUMBER}/files" \
+            > pull-request-files.json
+
+          changed_files="$(
+            gh api "repos/${GITHUB_REPOSITORY}/pulls/${PULL_REQUEST_NUMBER}" \
+              --jq '.changed_files'
+          )"
+
+          node scripts/ci/classify-required-check-route.mjs \
+            pull-request-files.json "$changed_files"
+
+  fallback:
+    needs: route
+    name: ${{ needs.route.result == 'success' && needs.route.outputs.fallback_eligible == 'true' && matrix.context || 'iOS Verify Fallback (Not Required)' }}
+    if: needs.route.result == 'success' && needs.route.outputs.fallback_eligible == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        context: ${{ fromJSON(needs.route.outputs.required_contexts) }}
+
+    steps:
+      - name: Satisfy required check for non-CI changes
+        run: echo "Every changed path is verification-irrelevant. The required iOS verification checks are satisfied by the fallback."

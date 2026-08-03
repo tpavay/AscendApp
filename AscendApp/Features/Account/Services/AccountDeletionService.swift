@@ -125,31 +125,35 @@ final class AccountDeletionService {
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 3: Delete any legacy flat-path files referenced by local records
-        updateProgress("Cleaning up legacy media...")
-        try await deleteLegacyFlatPathMedia(modelContext: modelContext)
-        completedSteps += 1
-        try Task.checkCancellation()
-
-        // Step 4: Delete Firestore leaderboard stats
-        updateProgress("Deleting leaderboard data...")
-        try await deleteLeaderboardStats(userId: userId)
-        completedSteps += 1
-        try Task.checkCancellation()
-
-        // Step 5: Delete Firestore rate-limit metadata
-        updateProgress("Deleting feedback metadata...")
-        try await deleteFeedbackRateLimitDocument(userId: userId)
-        completedSteps += 1
-        try Task.checkCancellation()
-
-        // Step 6: Delete Firestore workout backup documents
+        // Step 3: Delete Firestore workout backup documents.
+        //
+        // This also retires the account's global standings: they are derived from
+        // these documents (functions/src/leaderboardStats.ts), and the server sweep
+        // triggered by the user-document delete below removes whatever is left.
+        // The client cannot delete them itself - leaderboard_stats is server-owned.
         updateProgress("Deleting workout backups...")
         try await deleteWorkoutBackups(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 7: Delete the publicly readable profile mirrors.
+        // Step 4: Delete the climber's backed-up routines and folders.
+        //
+        // The local store sweep below never reaches these: users/{uid}/routines and
+        // users/{uid}/routine_folders are Firestore documents, and firestore.rules gates
+        // their deletion on isOwner(userId), so once the auth account is gone no client
+        // can ever remove them.
+        updateProgress("Deleting saved routines...")
+        try await deleteRoutineBackups(userId: userId)
+        completedSteps += 1
+        try Task.checkCancellation()
+
+        // Step 5: Delete the user's personal block list.
+        updateProgress("Deleting blocked climbers...")
+        try await deleteBlockedClimbers(userId: userId)
+        completedSteps += 1
+        try Task.checkCancellation()
+
+        // Step 6: Delete the publicly readable profile mirrors.
         //
         // This MUST happen before the auth account goes away (step 10):
         // firestore.rules gates these deletes on isOwner(userId), so once the
@@ -158,6 +162,14 @@ final class AccountDeletionService {
         // user visible on leaderboards and profiles.
         updateProgress("Deleting public profile...")
         try await deletePublicProfileMirrors(userId: userId)
+        completedSteps += 1
+        try Task.checkCancellation()
+
+        // Step 7: Deactivate push delivery while the callable can still
+        // authenticate and while users/{uid} still exists. The Cloud Function
+        // sweep remains authoritative if this best-effort request fails.
+        updateProgress("Disabling notifications...")
+        await gateway.unregisterPushDevice()
         completedSteps += 1
         try Task.checkCancellation()
 
@@ -283,38 +295,21 @@ final class AccountDeletionService {
         }
     }
 
-    /// Deletes legacy flat-path files that predate the user-scoped migration.
-    /// Falls back to SwiftData records because the old paths (e.g. `photos/uuid.jpg`)
-    /// have no user ID — we can only identify them through the stored download URLs.
-    private func deleteLegacyFlatPathMedia(modelContext: ModelContext) async throws {
-        let urls: [URL]
-
-        do {
-            let workouts = try modelContext.fetch(FetchDescriptor<Workout>())
-            urls = workouts.flatMap(\.photos).map(\.url)
-        } catch {
-            throw DeletionError.storageDeletionFailed(error.localizedDescription)
-        }
-
-        guard !urls.isEmpty else { return }
-        await gateway.deleteLegacyMedia(at: urls)
-    }
-
-    private func deleteLeaderboardStats(userId: String) async throws {
-        try await runFirestoreDeletion {
-            try await gateway.deleteLeaderboardStats(userId: userId)
-        }
-    }
-
-    private func deleteFeedbackRateLimitDocument(userId: String) async throws {
-        try await runFirestoreDeletion {
-            try await gateway.deleteFeedbackRateLimitDocument(userId: userId)
-        }
-    }
-
     private func deleteWorkoutBackups(userId: String) async throws {
         try await runFirestoreDeletion {
             try await gateway.deleteWorkoutBackups(userId: userId)
+        }
+    }
+
+    private func deleteRoutineBackups(userId: String) async throws {
+        try await runFirestoreDeletion {
+            try await gateway.deleteRoutineBackups(userId: userId)
+        }
+    }
+
+    private func deleteBlockedClimbers(userId: String) async throws {
+        try await runFirestoreDeletion {
+            try await gateway.deleteBlockedClimbers(userId: userId)
         }
     }
 
@@ -344,43 +339,21 @@ final class AccountDeletionService {
 
     // MARK: - Local Deletion
 
-    /// Stages local data deletion without saving (allows rollback on failure)
+    /// Empties the local store without saving, so the whole sweep can still be rolled back.
+    ///
+    /// Driven by `AscendLocalStore` rather than by a list of types written out here. The
+    /// hand-written version stopped covering the store every time a model was added and said
+    /// nothing about it: `ClimbAttempt`, both Best Effort cache models and the in-progress session
+    /// draft were all in the container and none of them were being deleted, so the next account to
+    /// sign in on the device inherited them (#348). Deletion means the store is empty, not that a
+    /// remembered set of types is.
+    ///
+    /// Cascade children go first so the rollback below stays survivable - see
+    /// `AscendLocalStore.modelsInCascadeSafeDeletionOrder`.
     private func stageLocalDataDeletion(modelContext: ModelContext) throws {
         do {
-            let workoutDescriptor = FetchDescriptor<Workout>()
-            let workouts = try modelContext.fetch(workoutDescriptor)
-            for workout in workouts {
-                modelContext.delete(workout)
-            }
-
-            let statsDescriptor = FetchDescriptor<LeaderboardStats>()
-            let stats = try modelContext.fetch(statsDescriptor)
-            for stat in stats {
-                modelContext.delete(stat)
-            }
-
-            let routineDescriptor = FetchDescriptor<Routine>()
-            let routines = try modelContext.fetch(routineDescriptor)
-            for routine in routines {
-                modelContext.delete(routine)
-            }
-
-            let folderDescriptor = FetchDescriptor<RoutineFolder>()
-            let folders = try modelContext.fetch(folderDescriptor)
-            for folder in folders {
-                modelContext.delete(folder)
-            }
-
-            let pendingUploadDescriptor = FetchDescriptor<PendingMediaUpload>()
-            let pendingUploads = try modelContext.fetch(pendingUploadDescriptor)
-            for upload in pendingUploads {
-                modelContext.delete(upload)
-            }
-
-            let pendingWorkoutDeletionDescriptor = FetchDescriptor<PendingWorkoutDeletion>()
-            let pendingWorkoutDeletions = try modelContext.fetch(pendingWorkoutDeletionDescriptor)
-            for pendingDeletion in pendingWorkoutDeletions {
-                modelContext.delete(pendingDeletion)
+            for model in AscendLocalStore.modelsInCascadeSafeDeletionOrder {
+                try model.stageDeletionOfAll(in: modelContext)
             }
         } catch {
             throw DeletionError.localDataDeletionFailed(error.localizedDescription)

@@ -25,6 +25,51 @@ struct AccountDeletionServiceTests {
     }
 
     @Test
+    func sweepsOnlyOwnerScopedStorageAndNeverTheLegacyFlatPaths() async throws {
+        let gateway = RecordingAccountDeletionGateway()
+        gateway.reauthenticationResult = .success(
+            ReauthenticationResult(appleAuthorizationCode: "apple-auth-code")
+        )
+        let service = AccountDeletionService(gateway: gateway, localCleanup: StubLocalCleanup())
+
+        try await service.deleteAccount(modelContext: try makeModelContext())
+
+        // The root photos/ and videos/ prefixes carry no owner segment, so
+        // storage.rules closes them to every client. A sweep aimed there could
+        // only ever fail, and reaching for another climber's media is exactly
+        // what the closed rules exist to prevent.
+        #expect(gateway.steps == [
+            .reauthenticate,
+            .revokeAppleToken,
+            .deleteAllUserStorage,
+            .deleteWorkoutBackups,
+            .deleteRoutineBackups,
+            .deleteBlockedClimbers,
+            .deletePublicProfileMirrors,
+            .unregisterPushDevice,
+            .deleteUserDocument,
+            .deleteAuthAccount,
+        ])
+    }
+
+    @Test
+    func reportsFullProgressOnceEveryStepHasRun() async throws {
+        let gateway = RecordingAccountDeletionGateway()
+        let service = AccountDeletionService(gateway: gateway, localCleanup: StubLocalCleanup())
+
+        // totalSteps is hand-maintained, so a step added or removed without
+        // updating it leaves the progress bar permanently short or early.
+        var lastProgress: AccountDeletionService.DeletionProgress?
+        try await service.deleteAccount(modelContext: try makeModelContext()) { progress in
+            lastProgress = progress
+        }
+
+        let progress = try #require(lastProgress)
+        #expect(progress.completedSteps == progress.totalSteps)
+        #expect(progress.progressPercentage == 1.0)
+    }
+
+    @Test
     func deletesEveryRemoteRecordBeforeTheAuthAccount() async throws {
         let gateway = RecordingAccountDeletionGateway()
         let service = AccountDeletionService(gateway: gateway, localCleanup: StubLocalCleanup())
@@ -34,9 +79,9 @@ struct AccountDeletionServiceTests {
         let authIndex = try #require(gateway.steps.firstIndex(of: .deleteAuthAccount))
         let ownerGatedSteps: [RecordingAccountDeletionGateway.Step] = [
             .deleteAllUserStorage,
-            .deleteLeaderboardStats,
-            .deleteFeedbackRateLimitDocument,
             .deleteWorkoutBackups,
+            .deleteRoutineBackups,
+            .deleteBlockedClimbers,
             .deletePublicProfileMirrors,
             .deleteUserDocument,
         ]
@@ -48,6 +93,21 @@ struct AccountDeletionServiceTests {
             )
             #expect(index < authIndex, "Expected \(step) to run before the auth account is deleted.")
         }
+    }
+
+    @Test("Unregisters push delivery before deleting the user", .bug(id: 197))
+    func unregistersPushDeviceBeforeDeletingTheUser() async throws {
+        let gateway = RecordingAccountDeletionGateway()
+        let service = AccountDeletionService(gateway: gateway, localCleanup: StubLocalCleanup())
+
+        try await service.deleteAccount(modelContext: try makeModelContext())
+
+        let unregisterIndex = try #require(gateway.steps.firstIndex(of: .unregisterPushDevice))
+        let userDocumentIndex = try #require(gateway.steps.firstIndex(of: .deleteUserDocument))
+        let authIndex = try #require(gateway.steps.firstIndex(of: .deleteAuthAccount))
+
+        #expect(unregisterIndex < userDocumentIndex)
+        #expect(unregisterIndex < authIndex)
     }
 
     @Test
@@ -105,6 +165,110 @@ struct AccountDeletionServiceTests {
 
         let routines = try modelContext.fetch(FetchDescriptor<Routine>())
         #expect(routines.count == 1, "Expected staged local deletion to roll back.")
+    }
+
+    // MARK: - Local store sweep
+
+    @Test("Empties every model in the live schema", .bug(id: 348))
+    func deletesEveryModelInTheLiveSchema() async throws {
+        let gateway = RecordingAccountDeletionGateway()
+        let service = AccountDeletionService(gateway: gateway, localCleanup: StubLocalCleanup())
+        let modelContext = try makeModelContext()
+
+        let insertedCounts = try AscendLocalStoreFixture.insertOneOfEach(into: modelContext)
+        for (modelName, count) in insertedCounts {
+            #expect(count > 0, "Fixture inserted nothing for \(modelName); the sweep would pass vacuously.")
+        }
+
+        try await service.deleteAccount(modelContext: modelContext)
+
+        let remainingCounts = try AscendLocalStoreFixture.storedCountsByModelName(in: modelContext)
+        for (modelName, count) in remainingCounts {
+            #expect(count == 0, "Account deletion left \(count) \(modelName) row(s) on the device.")
+        }
+    }
+
+    @Test("Empties the derived caches the ownership gate ignores", .bug(id: 348))
+    func deletesTheDerivedCachesTheOwnershipGateDoesNotCount() async throws {
+        let gateway = RecordingAccountDeletionGateway()
+        let service = AccountDeletionService(gateway: gateway, localCleanup: StubLocalCleanup())
+        let modelContext = try makeModelContext()
+
+        try AscendLocalStoreFixture.insertOneOfEach(into: modelContext)
+
+        try await service.deleteAccount(modelContext: modelContext)
+
+        // The gate skips these because a recomputable row is nobody's data. The sweep must not:
+        // the two are separate properties, and "delete my account" means the store is empty.
+        #expect(!AscendLocalStore.derivedCacheModels.isEmpty)
+        for model in AscendLocalStore.derivedCacheModels {
+            let modelName = String(describing: model)
+            #expect(
+                try model.storedCount(in: modelContext) == 0,
+                "Account deletion left \(modelName) row(s) on the device."
+            )
+        }
+    }
+
+    @Test("Covers every model in the live schema with a fixture", .bug(id: 348))
+    func hasAFixtureForEveryModelInTheLiveSchema() throws {
+        // The guard that makes the sweep test stay honest. A model added to the schema with no
+        // fixture would leave `deletesEveryModelInTheLiveSchema` asserting 0 == 0 for it forever,
+        // which is how four models ended up surviving account deletion unnoticed.
+        let uncovered = AscendLocalStoreFixture.liveModelNames
+            .subtracting(AscendLocalStoreFixture.coveredModelNames)
+            .sorted()
+
+        #expect(
+            uncovered.isEmpty,
+            """
+            \(uncovered.joined(separator: ", ")) is in the live schema with no fixture row. \
+            Add one to AscendLocalStoreFixture so deletion is actually proven to remove it.
+            """
+        )
+    }
+
+    @Test("Rolls the whole schema sweep back when the auth deletion fails", .bug(id: 348))
+    func rollsBackEveryModelInTheLiveSchemaWhenTheAuthDeletionFails() async throws {
+        let gateway = RecordingAccountDeletionGateway()
+        gateway.authDeletionError = TestError.remoteFailure
+        let service = AccountDeletionService(gateway: gateway, localCleanup: StubLocalCleanup())
+        let modelContext = try makeModelContext()
+
+        let insertedCounts = try AscendLocalStoreFixture.insertOneOfEach(into: modelContext)
+
+        await #expect(throws: AccountDeletionService.DeletionError.self) {
+            try await service.deleteAccount(modelContext: modelContext)
+        }
+
+        // Widening the sweep must not widen what an aborted deletion destroys.
+        let remainingCounts = try AscendLocalStoreFixture.storedCountsByModelName(in: modelContext)
+        #expect(remainingCounts == insertedCounts)
+    }
+
+    // MARK: - What the next account on this device sees
+
+    @Test("Leaves no completed climbs or resumable session for the next account", .bug(id: 348))
+    func leavesNothingForTheNextAccountToClaim() async throws {
+        let gateway = RecordingAccountDeletionGateway()
+        let service = AccountDeletionService(gateway: gateway, localCleanup: StubLocalCleanup())
+        let modelContext = try makeModelContext()
+
+        try AscendLocalStoreFixture.insertOneOfEach(into: modelContext)
+
+        // The deleted account's record, read exactly the way the surfaces that publish it do.
+        #expect(ClimbCompletionRepository.completedClimbSet(modelContext: modelContext).completedCount == 1)
+
+        try await service.deleteAccount(modelContext: modelContext)
+
+        // A second account signs in on this device. Deletion cleared the UserDefaults pointer, so
+        // the draft store falls back to "most recent draft" - which is only safe because there is
+        // no longer a draft to find.
+        let nextAccountDefaults = try makeUserDefaults()
+        let draftStore = ActiveHeadphoneWorkoutDraftStore(userDefaults: nextAccountDefaults)
+
+        #expect(ClimbCompletionRepository.completedClimbSet(modelContext: modelContext).completedCount == 0)
+        #expect(try draftStore.activeDraft(in: modelContext) == nil)
     }
 
     // MARK: - Sign in with Apple token revocation
@@ -204,22 +368,17 @@ struct AccountDeletionServiceTests {
 
     // MARK: - Helpers
 
+    /// Over the live schema, not a hand-listed subset. The subset this replaced was missing
+    /// `ActiveHeadphoneWorkoutDraft`, so no test here could have seen the draft survive deletion.
     private func makeModelContext() throws -> ModelContext {
-        let container = try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            PendingWorkoutDeletion.self,
-            LeaderboardStats.self,
-            Routine.self,
-            RoutineFolder.self,
-            ClimbAttempt.self,
-            PendingMediaUpload.self,
-            BestEffortCacheEntry.self,
-            BestEffortCacheMetadata.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
-        return ModelContext(container)
+        try AscendLocalStoreFixture.makeModelContext()
+    }
+
+    private func makeUserDefaults() throws -> UserDefaults {
+        let suiteName = "AccountDeletionServiceTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
     }
 }
 
@@ -243,11 +402,11 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
     enum Step: Equatable {
         case reauthenticate
         case deleteAllUserStorage
-        case deleteLegacyMedia
-        case deleteLeaderboardStats
-        case deleteFeedbackRateLimitDocument
         case deleteWorkoutBackups
+        case deleteRoutineBackups
+        case deleteBlockedClimbers
         case deletePublicProfileMirrors
+        case unregisterPushDevice
         case deleteUserDocument
         case revokeAppleToken
         case deleteAuthAccount
@@ -271,24 +430,24 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
         steps.append(.deleteAllUserStorage)
     }
 
-    func deleteLegacyMedia(at urls: [URL]) async {
-        steps.append(.deleteLegacyMedia)
-    }
-
-    func deleteLeaderboardStats(userId: String) async throws {
-        steps.append(.deleteLeaderboardStats)
-    }
-
-    func deleteFeedbackRateLimitDocument(userId: String) async throws {
-        steps.append(.deleteFeedbackRateLimitDocument)
-    }
-
     func deleteWorkoutBackups(userId: String) async throws {
         steps.append(.deleteWorkoutBackups)
     }
 
+    func deleteRoutineBackups(userId: String) async throws {
+        steps.append(.deleteRoutineBackups)
+    }
+
+    func deleteBlockedClimbers(userId: String) async throws {
+        steps.append(.deleteBlockedClimbers)
+    }
+
     func deletePublicProfileMirrors(userId: String) async throws {
         steps.append(.deletePublicProfileMirrors)
+    }
+
+    func unregisterPushDevice() async {
+        steps.append(.unregisterPushDevice)
     }
 
     func deleteUserDocument(userId: String) async throws {

@@ -1,7 +1,7 @@
 /**
  * Cloud Functions for AscendApp
  *
- * - Email: Background transactional waitlist email processing
+ * - Email: Background transactional email processing
  */
 
 import {setGlobalOptions} from "firebase-functions/v2";
@@ -17,13 +17,20 @@ export {unsubscribeFromEmails} from "./email/unsubscribe";
 export {onFeedbackCreated} from "./feedback";
 export {recordLifecycleEvent} from "./lifecycle";
 export {finalizeLeaderboardAchievements} from "./leaderboardAchievements";
+export {
+  onUserDemographicsWrittenLeaderboardStats,
+  onWorkoutWrittenLeaderboardStats,
+} from "./leaderboardStats";
 export {onWorkoutReplaySplitsWritten} from "./liveReplayLeaderboard";
+export {
+  onPublicIdentityPropagationJobWritten,
+  onPublicProfileIdentityWritten,
+} from "./publicIdentityPropagation";
 export {
   registerPushDevice,
   sendClimbDropNotification,
   unregisterPushDevice,
   updatePushNotificationPreferences,
 } from "./pushNotifications";
-export {joinWaitlist} from "./waitlist";
 
 setGlobalOptions({maxInstances: 10});

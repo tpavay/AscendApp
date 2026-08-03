@@ -720,8 +720,11 @@ struct EditWorkoutView: View {
             workout.date = workoutDate
             workout.duration = totalDuration
             workout.notes = notes
-            workout.avgHeartRate = avgHR
-            workout.maxHeartRate = maxHR
+            WorkoutHeartRateEditPolicy.applyManualSummary(
+                averageHeartRate: avgHR,
+                maximumHeartRate: maxHR,
+                to: workout
+            )
             workout.caloriesBurned = calories
             workout.effortRating = effortRating
 

@@ -67,8 +67,15 @@ final class MediaUploadManager {
 
     // MARK: - Initialization
 
-    private init(photoRepo: any PhotoRepositoryProtocol = FirebasePhotoRepository()) {
+    /// Server-controlled off switch for the background queue below.
+    private let featureFlags: RemoteFeatureFlagStore
+
+    init(
+        photoRepo: any PhotoRepositoryProtocol = FirebasePhotoRepository(),
+        featureFlags: RemoteFeatureFlagStore = .shared
+    ) {
         self.photoRepo = photoRepo
+        self.featureFlags = featureFlags
     }
 
     // MARK: - Public API
@@ -76,6 +83,28 @@ final class MediaUploadManager {
     /// Get the upload status for a specific workout
     func uploadStatus(for workoutId: UUID) -> MediaUploadStatus {
         uploadStatuses[workoutId] ?? .none
+    }
+
+    /// Whether the queue may run right now. Read by the UI so a thrown kill switch neither claims
+    /// an upload is in progress nor offers a retry that cannot happen.
+    var isUploadQueueActive: Bool {
+        featureFlags.isEnabled(.workoutMediaUploads)
+    }
+
+    /// Pure derivation of what the banner should say, so the rule that a held queue never reports
+    /// itself as uploading is testable without a picker item.
+    static func resolvedStatus(
+        pendingCount: Int,
+        failedCount: Int,
+        isQueueActive: Bool
+    ) -> MediaUploadStatus {
+        if failedCount > 0 {
+            return .failed(count: failedCount)
+        }
+        guard isQueueActive, pendingCount > 0 else {
+            return .none
+        }
+        return .uploading(current: 1, total: pendingCount)
     }
 
     /// Queue new uploads for a workout.
@@ -148,6 +177,10 @@ final class MediaUploadManager {
 
     /// Retry all failed uploads for a workout
     func retryFailedUploads(for workoutId: UUID, modelContext: ModelContext) async {
+        // Checked before the rows are touched, not just before the upload: a reset to `pending`
+        // would be a status change on work the switch says must sit exactly as it is.
+        guard mediaUploadsAllowed(path: "MediaUploadManager.retryFailedUploads") else { return }
+
         // Reset failed uploads to pending
         let descriptor = FetchDescriptor<PendingMediaUpload>(
             predicate: #Predicate { $0.workoutId == workoutId && $0.status == "failed" }
@@ -169,6 +202,10 @@ final class MediaUploadManager {
 
     /// Process all pending uploads (called on app launch/foreground)
     func processPendingUploads(modelContext: ModelContext) async {
+        // Also gated here, above `processUploadsForWorkout`, because the orphaned-file cleanup at
+        // the end of this sweep is local deletion the switch is meant to stop as well.
+        guard mediaUploadsAllowed(path: "MediaUploadManager.processPendingUploads") else { return }
+
         let descriptor = FetchDescriptor<PendingMediaUpload>(
             predicate: #Predicate { $0.status == "pending" || $0.status == "uploading" }
         )
@@ -221,8 +258,20 @@ final class MediaUploadManager {
 
     // MARK: - Private Methods
 
+    /// Whether the media queue may run. The switch exists for the upload's second half - deleting
+    /// the local original once Cloud Storage is believed to have it - so every path that can reach
+    /// that deletion asks here.
+    private func mediaUploadsAllowed(path: String) -> Bool {
+        RemoteFeatureGate.allows(.workoutMediaUploads, path: path, store: featureFlags)
+    }
+
     /// Process uploads for a specific workout
     private func processUploadsForWorkout(workoutId: UUID, modelContext: ModelContext) async {
+        // The single choke point every entry point funnels through, so a save-triggered enqueue
+        // cannot upload and delete a local original behind a thrown switch. The
+        // `PendingMediaUpload` rows are left exactly as they are and drain when the flag returns.
+        guard mediaUploadsAllowed(path: "MediaUploadManager.processUploadsForWorkout") else { return }
+
         guard !processingWorkoutIds.contains(workoutId) else { return }
         processingWorkoutIds.insert(workoutId)
 
@@ -253,6 +302,14 @@ final class MediaUploadManager {
         var didUploadAnyMedia = false
 
         for (currentIndex, upload) in pendingUploads.enumerated() {
+            // Re-read per item so a switch thrown mid-batch halts here rather than deleting local
+            // originals for the minutes the remaining retries would take. The item already in
+            // flight is left to finish: tearing it down risks a deleted original with no uploaded
+            // copy, which is the loss the switch exists to prevent.
+            guard mediaUploadsAllowed(path: "MediaUploadManager.processUploadsForWorkout.item") else {
+                break
+            }
+
             // Update status to show progress
             let total = pendingUploads.count
             uploadStatuses[workoutId] = .uploading(current: currentIndex + 1, total: total)
@@ -432,16 +489,12 @@ final class MediaUploadManager {
         }
 
         let failedCount = uploads.filter { $0.status == PendingUploadStatus.failed.rawValue }.count
+        let pendingCount = uploads.filter { $0.status == PendingUploadStatus.pending.rawValue || $0.status == PendingUploadStatus.uploading.rawValue }.count
 
-        if failedCount > 0 {
-            uploadStatuses[workoutId] = .failed(count: failedCount)
-        } else {
-            let pendingCount = uploads.filter { $0.status == PendingUploadStatus.pending.rawValue || $0.status == PendingUploadStatus.uploading.rawValue }.count
-            if pendingCount > 0 {
-                uploadStatuses[workoutId] = .uploading(current: 1, total: pendingCount)
-            } else {
-                uploadStatuses[workoutId] = MediaUploadStatus.none
-            }
-        }
+        uploadStatuses[workoutId] = Self.resolvedStatus(
+            pendingCount: pendingCount,
+            failedCount: failedCount,
+            isQueueActive: isUploadQueueActive
+        )
     }
 }

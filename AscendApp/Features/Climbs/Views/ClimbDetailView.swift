@@ -101,6 +101,7 @@ struct ClimbDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(ModerationStore.self) private var moderationStore
     @State private var themeManager = ThemeManager.shared
     @State private var viewModel: ClimbDetailViewModel
     @State private var resultSyncStore = LiveClimbPublicResultSyncStore.shared
@@ -920,7 +921,12 @@ struct ClimbDetailView: View {
 
     private var leaderboardPage: some View {
         VStack(alignment: .leading, spacing: 18) {
-            if let firstAscent = viewModel.leaderboardSummary.firstAscent {
+            if let firstAscent = viewModel.leaderboardSummary.firstAscent.map({
+                moderationStore.moderate(
+                    $0,
+                    currentUserId: Auth.auth().currentUser?.uid
+                )
+            }) {
                 firstAscentSummary(firstAscent)
             }
 
@@ -936,10 +942,10 @@ struct ClimbDetailView: View {
                 leaderboardLoadingState
             } else if viewModel.hasCompletionLeaderboardRows {
                 VStack(spacing: 8) {
-                    ForEach(viewModel.completionLeaderboardRows) { row in
-                        leaderboardRow(for: row)
+                    ForEach(moderatedCompletionLeaderboardRows) { row in
+                        completionLeaderboardRowLink(for: row)
                             .onAppear {
-                                viewModel.loadMoreCompletionLeaderboardIfNeeded(currentRow: row)
+                                viewModel.loadMoreCompletionLeaderboardIfNeeded(currentRowID: row.id)
                             }
                     }
 
@@ -963,19 +969,78 @@ struct ClimbDetailView: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
-    private func firstAscentSummary(_ firstAscent: LiveReplayFirstAscent) -> some View {
+    @ViewBuilder
+    private func firstAscentSummary(
+        _ firstAscent: ModeratedReplayFirstAscent
+    ) -> some View {
+        if firstAscent.identity.userId != nil,
+           firstAscent.identity.userId != Auth.auth().currentUser?.uid {
+            NavigationLink {
+                OtherUserProfileView(
+                    identity: firstAscent.identity,
+                    moderationSource: .firstAscent
+                )
+            } label: {
+                firstAscentSummaryContent(
+                    identity: firstAscent.identity,
+                    completedAt: firstAscent.completedAt
+                )
+            }
+            .buttonStyle(.plain)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        } else {
+            firstAscentSummaryContent(
+                identity: firstAscent.identity,
+                completedAt: firstAscent.completedAt
+            )
+        }
+    }
+
+    private func firstAscentSummaryContent(
+        identity: ResolvedUserIdentity,
+        completedAt: Date
+    ) -> some View {
         HStack(alignment: .center, spacing: 8) {
             Image(systemName: "flag.fill")
                 .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(leaderboardGold)
 
-            Text("First Ascent: \(firstAscent.displayName) · \(firstAscentDateText(for: firstAscent.completedAt))")
+            Text(
+                "First Ascent: \(identity.displayName) · " +
+                    firstAscentDateText(for: completedAt)
+            )
                 .font(.montserratSemiBold(size: 12))
                 .foregroundStyle(leaderboardGold)
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)
         }
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private func completionLeaderboardRowLink(
+        for row: ModeratedReplayLeaderboardRow
+    ) -> some View {
+        if !row.isCurrentUser, row.userId != nil {
+            NavigationLink {
+                OtherUserProfileView(
+                    identity: row.identity,
+                    moderationSource: .completionLeaderboard
+                )
+            } label: {
+                leaderboardRow(for: row)
+            }
+            .buttonStyle(.plain)
+        } else {
+            leaderboardRow(for: row)
+        }
+    }
+
+    private var moderatedCompletionLeaderboardRows: [ModeratedReplayLeaderboardRow] {
+        moderationStore.moderate(viewModel.completionLeaderboardRows)
     }
 
     private var leaderboardLoadingState: some View {
@@ -1069,7 +1134,9 @@ struct ClimbDetailView: View {
         }
     }
 
-    private func leaderboardRow(for row: LiveReplayLeaderboardRow) -> some View {
+    private func leaderboardRow(
+        for row: ModeratedReplayLeaderboardRow
+    ) -> some View {
         let rank = row.rank
         let isPodium = isPodiumRank(rank)
         let isFirst = rank == 1
@@ -1086,7 +1153,7 @@ struct ClimbDetailView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 7) {
-                    Text(row.isCurrentUser ? "You" : row.displayName)
+                    Text(row.isCurrentUser ? "You" : row.identity.displayName)
                         .font(.montserratBold(size: 15))
                         .foregroundStyle(leaderboardPrimaryTextColor)
                         .lineLimit(1)
@@ -1155,7 +1222,9 @@ struct ClimbDetailView: View {
     }
 
     @ViewBuilder
-    private func leaderboardRankView(for row: LiveReplayLeaderboardRow) -> some View {
+    private func leaderboardRankView(
+        for row: ModeratedReplayLeaderboardRow
+    ) -> some View {
         let rank = row.rank
 
         if rank == 1 {
@@ -1187,7 +1256,9 @@ struct ClimbDetailView: View {
     }
 
     @ViewBuilder
-    private func leaderboardRowBackground(for row: LiveReplayLeaderboardRow) -> some View {
+    private func leaderboardRowBackground(
+        for row: ModeratedReplayLeaderboardRow
+    ) -> some View {
         let rank = row.rank
         let rowAccent = leaderboardAccentColor(for: rank)
 
@@ -1220,7 +1291,9 @@ struct ClimbDetailView: View {
         }
     }
 
-    private func leaderboardDurationText(for row: LiveReplayLeaderboardRow) -> String {
+    private func leaderboardDurationText(
+        for row: ModeratedReplayLeaderboardRow
+    ) -> String {
         guard let completionDurationSeconds = row.completionDurationSeconds else {
             return "--"
         }
@@ -1230,13 +1303,15 @@ struct ClimbDetailView: View {
 
     @ViewBuilder
     private func leaderboardAvatar(
-        for row: LiveReplayLeaderboardRow,
+        for row: ModeratedReplayLeaderboardRow,
         size: CGFloat = 42,
         borderColor: Color? = nil
     ) -> some View {
         let resolvedBorderColor = borderColor ?? (row.isCurrentUser ? Color.accent : .white.opacity(0.14))
 
-        if let photoURL = row.isCurrentUser ? (row.photoURL ?? currentUserPhotoURL) : row.photoURL {
+        if let photoURL = row.isCurrentUser ?
+            (row.identity.photoURL ?? currentUserPhotoURL) :
+            row.identity.photoURL {
             AsyncImage(
                 url: photoURL,
                 transaction: Transaction(animation: .easeInOut(duration: 0.2))
@@ -1265,13 +1340,24 @@ struct ClimbDetailView: View {
     }
 
     private func leaderboardAvatarToken(
-        for row: LiveReplayLeaderboardRow,
+        for row: ModeratedReplayLeaderboardRow,
         size: CGFloat = 42,
         borderColor: Color? = nil
     ) -> some View {
-        Text(row.isCurrentUser ? currentUserAvatar.token : row.avatarToken)
-            .font(.montserratBold(size: 13))
-            .foregroundStyle(.white)
+        let avatarToken = row.isCurrentUser ?
+            currentUserAvatar.identity.avatarToken :
+            row.identity.avatarToken
+        return Group {
+            if avatarToken.isEmpty {
+                Image(systemName: PublicClimberIdentity.genericAvatarSystemName)
+                    .font(.system(size: 16, weight: .semibold))
+                    .accessibilityHidden(true)
+            } else {
+                Text(avatarToken)
+                    .font(.montserratBold(size: 13))
+            }
+        }
+            .foregroundStyle(row.isCurrentUser ? .black : .white)
             .lineLimit(1)
             .minimumScaleFactor(0.72)
             .frame(width: size, height: size)
@@ -1352,19 +1438,16 @@ struct ClimbDetailView: View {
         }
         .frame(minHeight: 44)
         .padding(.vertical, 4)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(communityAccessibilityLabel)
     }
 
     @ViewBuilder
     private var communityAvatarStack: some View {
         if !visibleCommunityAvatars.isEmpty {
+            // The overlap is the treatment. Each avatar is already 44x44, so it
+            // is its own tap target without flattening the pile.
             HStack(spacing: -10) {
                 ForEach(visibleCommunityAvatars) { avatar in
-                    ClimbCommunityAvatarView(
-                        avatar: avatar,
-                        effectiveColorScheme: effectiveColorScheme
-                    )
+                    communityAvatarLink(avatar)
                 }
             }
             .frame(height: 44)
@@ -1395,13 +1478,6 @@ struct ClimbDetailView: View {
                 .minimumScaleFactor(0.78)
             }
         }
-    }
-
-    private var communityAccessibilityLabel: String {
-        if viewModel.communityCompletedCount == 0 {
-            return "First Ascent open. The first finisher claims it forever."
-        }
-        return "\(viewModel.communityCompletedCount) completed"
     }
 
     private func publicResultSyncStatusRow(
@@ -1506,8 +1582,6 @@ struct ClimbDetailView: View {
 
         let currentState = currentUserCommunityState
         let remoteLimit = currentState == nil ? 3 : 2
-        let currentToken = currentUserAvatar.token
-        let currentDisplayName = currentUserDisplayName
         let currentUserId = Auth.auth().currentUser?.uid
         var avatars: [ClimbCommunityAvatar] = []
 
@@ -1521,9 +1595,7 @@ struct ClimbDetailView: View {
                 if let currentUserId, row.userId == currentUserId {
                     return false
                 }
-                let displayNamesMatch = !currentDisplayName.isEmpty &&
-                    row.displayName.compare(currentDisplayName, options: .caseInsensitive) == .orderedSame
-                return row.avatarToken != currentToken && !displayNamesMatch
+                return true
             }
             .prefix(remoteLimit)
             .map(communityAvatar)
@@ -1540,12 +1612,13 @@ struct ClimbDetailView: View {
         return nil
     }
 
-    private var completedCommunityRows: [LiveReplayLeaderboardRow] {
-        let rows = viewModel.completionLeaderboardRows.isEmpty
+    private var completedCommunityRows: [ModeratedReplayLeaderboardRow] {
+        let rawRows = viewModel.completionLeaderboardRows.isEmpty
             ? viewModel.leaderboardPreviewRows
             : viewModel.completionLeaderboardRows
+        let rows = moderationStore.moderate(rawRows)
         var seenKeys: Set<String> = []
-        var uniqueRows: [LiveReplayLeaderboardRow] = []
+        var uniqueRows: [ModeratedReplayLeaderboardRow] = []
 
         for row in rows {
             let key = communityIdentityKey(for: row)
@@ -1556,21 +1629,13 @@ struct ClimbDetailView: View {
         return uniqueRows
     }
 
-    private func communityIdentityKey(for row: LiveReplayLeaderboardRow) -> String {
+    private func communityIdentityKey(for row: ModeratedReplayLeaderboardRow) -> String {
         if let userId = row.userId?.trimmingCharacters(in: .whitespacesAndNewlines),
            !userId.isEmpty {
             return "user:\(userId)"
         }
 
-        if let photoURL = row.photoURL?.absoluteString,
-           !photoURL.isEmpty {
-            return "photo:\(photoURL)"
-        }
-
-        return [
-            row.displayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-            row.avatarToken.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        ].joined(separator: "|")
+        return "row:\(row.id)"
     }
 
     private var currentUserAvatar: ClimbCommunityAvatar {
@@ -1580,10 +1645,18 @@ struct ClimbDetailView: View {
     private func currentUserAvatar(style: ClimbCommunityAvatar.Style) -> ClimbCommunityAvatar {
         ClimbCommunityAvatar(
             id: "current-user",
-            token: Self.avatarToken(for: currentUserDisplayName),
-            photoURL: currentUserPhotoURL,
+            identity: CrossUserIdentityResolver.resolve(
+                userId: Auth.auth().currentUser?.uid ?? "current-user",
+                displayName: currentUserDisplayName,
+                photoURL: currentUserPhotoURL,
+                isCurrentUser: true,
+                blockedUserIds: [],
+                isBlockListHydrated: true
+            ),
             backgroundColor: Color(red: 0.22, green: 0.72, blue: 0.68),
-            style: style
+            usesGenericAvatar: currentUserPhotoURL == nil,
+            style: style,
+            isCurrentUser: true
         )
     }
 
@@ -1612,14 +1685,45 @@ struct ClimbDetailView: View {
         return Auth.auth().currentUser?.photoURL
     }
 
-    private func communityAvatar(for row: LiveReplayLeaderboardRow) -> ClimbCommunityAvatar {
-        ClimbCommunityAvatar(
+    private func communityAvatar(for row: ModeratedReplayLeaderboardRow) -> ClimbCommunityAvatar {
+        return ClimbCommunityAvatar(
             id: row.id,
-            token: row.avatarToken,
-            photoURL: row.photoURL,
+            identity: row.identity,
             backgroundColor: communityAvatarColor(for: row.id),
-            style: .regular
+            usesGenericAvatar: row.identity.photoURL == nil && row.identity.avatarToken.isEmpty,
+            style: .regular,
+            isCurrentUser: row.isCurrentUser
         )
+    }
+
+    @ViewBuilder
+    private func communityAvatarLink(
+        _ avatar: ClimbCommunityAvatar
+    ) -> some View {
+        if !avatar.isCurrentUser, avatar.identity.userId != nil {
+            NavigationLink {
+                OtherUserProfileView(
+                    identity: avatar.identity,
+                    moderationSource: .communityAvatars
+                )
+            } label: {
+                ClimbCommunityAvatarView(
+                    avatar: avatar,
+                    effectiveColorScheme: effectiveColorScheme
+                )
+            }
+            .buttonStyle(.plain)
+            .contentShape(Circle())
+            .accessibilityLabel("View \(avatar.identity.displayName) profile")
+        } else {
+            ClimbCommunityAvatarView(
+                avatar: avatar,
+                effectiveColorScheme: effectiveColorScheme
+            )
+            .accessibilityLabel(
+                avatar.isCurrentUser ? "You" : avatar.identity.displayName
+            )
+        }
     }
 
     private func communityAvatarColor(for id: String) -> Color {
@@ -1960,10 +2064,11 @@ private struct ClimbCommunityAvatar: Identifiable {
     }
 
     let id: String
-    let token: String
-    let photoURL: URL?
+    let identity: ResolvedUserIdentity
     let backgroundColor: Color
+    let usesGenericAvatar: Bool
     let style: Style
+    let isCurrentUser: Bool
 }
 
 private struct HistoryMetric: Identifiable {
@@ -1993,7 +2098,7 @@ private struct ClimbCommunityAvatarView: View {
 
     @ViewBuilder
     private var avatarContent: some View {
-        if let photoURL = avatar.photoURL {
+        if let photoURL = avatar.identity.photoURL {
             AsyncImage(
                 url: photoURL,
                 transaction: Transaction(animation: .easeInOut(duration: 0.2))
@@ -2014,14 +2119,25 @@ private struct ClimbCommunityAvatarView: View {
         }
     }
 
+    @ViewBuilder
     private var tokenContent: some View {
-        Text(avatar.token)
-            .font(.montserratBold(size: 13))
-            .foregroundStyle(.white)
-            .lineLimit(1)
-            .minimumScaleFactor(0.72)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Circle().fill(avatar.backgroundColor))
+        ZStack {
+            Circle()
+                .fill(avatar.backgroundColor.opacity(avatar.usesGenericAvatar ? 0.28 : 1))
+
+            if avatar.usesGenericAvatar {
+                Image(systemName: PublicClimberIdentity.genericAvatarSystemName)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.62))
+            } else {
+                Text(avatar.identity.avatarToken)
+                    .font(.montserratBold(size: 13))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
@@ -2060,5 +2176,6 @@ private struct ClimbCommunityAvatarView: View {
     NavigationStack {
         ClimbDetailView(climb: .preview, showsBrowseBackButton: true)
     }
+    .environment(ModerationStore.shared)
     .preferredColorScheme(.dark)
 }

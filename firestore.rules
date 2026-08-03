@@ -13,27 +13,196 @@ service cloud.firestore {
       return (value is int || value is float) && value >= 0;
     }
 
+    // A schema version is metadata, not a trust boundary - every field of every
+    // versioned document is validated by type and domain independently of this
+    // number, so narrowing it buys no safety and costs availability. Pinning it
+    // to one exact value locks documents and clients out in both directions the
+    // day the number moves: stored documents at the old version stop being
+    // updatable by an updated client, and clients still on the old build stop
+    // being able to write at all. Rules deploy globally and instantly while app
+    // rollout is gradual, so the two can never be ordered to avoid that. The
+    // floor is 1 because no shipped client ever emitted a lower number; the
+    // ceiling is only a garbage guard, matching contextVersion / rulesVersion.
+    function isSupportedSchemaVersion(version) {
+      return version is int &&
+        version >= 1 &&
+        version <= 1000;
+    }
+
     function isValidLocationProfileText(value) {
       return value is string &&
         value.size() > 0 &&
         value.size() <= 120;
     }
 
-    function isValidTimeFrame(timeFrame) {
-      return timeFrame in ["daily", "weekly", "monthly", "yearly", "all_time"];
+    // Case, diacritic, and confusable-letter folding only. Digits stay digits
+    // so the repeated-character check cannot invent a letter run out of an
+    // ordinary numeric name like "Climber2000".
+    function foldedDisplayName(value) {
+      return value
+        .replace("[ªÀÁÂÃÄÅàáâãäåĀāĂăĄąǍǎǞǟǠǡǺǻȀȁȂȃȦȧᴬᵃḀḁẚẠạẢảẤấẦầẨẩẪẫẬậẮắẰằẲẳẴẵẶặₐÅＡａ𝐀𝐚𝐴𝑎𝑨𝒂𝒜𝒶𝓐𝓪𝔄𝔞𝔸𝕒𝕬𝖆𝖠𝖺𝗔𝗮𝘈𝘢𝘼𝙖𝙰𝚊]", "a")
+        .replace("[ᴮᵇḂḃḄḅḆḇℬＢｂ𝐁𝐛𝐵𝑏𝑩𝒃𝒷𝓑𝓫𝔅𝔟𝔹𝕓𝕭𝖇𝖡𝖻𝗕𝗯𝘉𝘣𝘽𝙗𝙱𝚋]", "b")
+        .replace("[ÇçĆćĈĉĊċČčᶜḈḉℂℭꟲＣｃ𝐂𝐜𝐶𝑐𝑪𝒄𝒞𝒸𝓒𝓬𝔠𝕔𝕮𝖈𝖢𝖼𝗖𝗰𝘊𝘤𝘾𝙘𝙲𝚌]", "c")
+        .replace("[ĎďᴰᵈḊḋḌḍḎḏḐḑḒḓⅅⅆＤｄ𝐃𝐝𝐷𝑑𝑫𝒅𝒟𝒹𝓓𝓭𝔇𝔡𝔻𝕕𝕯𝖉𝖣𝖽𝗗𝗱𝘋𝘥𝘿𝙙𝙳𝚍]", "d")
+        .replace("[ÈÉÊËèéêëĒēĔĕĖėĘęĚěȄȅȆȇȨȩᴱᵉḔḕḖḗḘḙḚḛḜḝẸẹẺẻẼẽẾếỀềỂểỄễỆệₑℯℰⅇＥｅ𝐄𝐞𝐸𝑒𝑬𝒆𝓔𝓮𝔈𝔢𝔼𝕖𝕰𝖊𝖤𝖾𝗘𝗲𝘌𝘦𝙀𝙚𝙴𝚎]", "e")
+        .replace("[ᶠḞḟℱꟳＦｆ𝐅𝐟𝐹𝑓𝑭𝒇𝒻𝓕𝓯𝔉𝔣𝔽𝕗𝕱𝖋𝖥𝖿𝗙𝗳𝘍𝘧𝙁𝙛𝙵𝚏]", "f")
+        .replace("[ĜĝĞğĠġĢģǦǧǴǵᴳᵍḠḡℊＧｇ𝐆𝐠𝐺𝑔𝑮𝒈𝒢𝓖𝓰𝔊𝔤𝔾𝕘𝕲𝖌𝖦𝗀𝗚𝗴𝘎𝘨𝙂𝙜𝙶𝚐]", "g")
+        .replace("[ĤĥȞȟʰᴴḢḣḤḥḦḧḨḩḪḫẖₕℋℌℍℎＨｈ𝐇𝐡𝐻𝑯𝒉𝒽𝓗𝓱𝔥𝕙𝕳𝖍𝖧𝗁𝗛𝗵𝘏𝘩𝙃𝙝𝙷𝚑]", "h")
+        .replace("[ÌÍÎÏìíîïĨĩĪīĬĭĮįİǏǐȈȉȊȋᴵᵢḬḭḮḯỈỉỊịⁱℐℑℹⅈＩｉ𝐈𝐢𝐼𝑖𝑰𝒊𝒾𝓘𝓲𝔦𝕀𝕚𝕴𝖎𝖨𝗂𝗜𝗶𝘐𝘪𝙄𝙞𝙸𝚒]", "i")
+        .replace("[ĴĵǰʲᴶⅉⱼＪｊ𝐉𝐣𝐽𝑗𝑱𝒋𝒥𝒿𝓙𝓳𝔍𝔧𝕁𝕛𝕵𝖏𝖩𝗃𝗝𝗷𝘑𝘫𝙅𝙟𝙹𝚓]", "j")
+        .replace("[ĶķǨǩᴷᵏḰḱḲḳḴḵₖＫｋ𝐊𝐤𝐾𝑘𝑲𝒌𝒦𝓀𝓚𝓴𝔎𝔨𝕂𝕜𝕶𝖐𝖪𝗄𝗞𝗸𝘒𝘬𝙆𝙠𝙺𝚔]", "k")
+        .replace("[ĹĺĻļĽľĿŀˡᴸḶḷḸḹḺḻḼḽₗℒℓＬｌ𝐋𝐥𝐿𝑙𝑳𝒍𝓁𝓛𝓵𝔏𝔩𝕃𝕝𝕷𝖑𝖫𝗅𝗟𝗹𝘓𝘭𝙇𝙡𝙻𝚕]", "l")
+        .replace("[ᴹᵐḾḿṀṁṂṃₘℳＭｍ𝐌𝐦𝑀𝑚𝑴𝒎𝓂𝓜𝓶𝔐𝔪𝕄𝕞𝕸𝖒𝖬𝗆𝗠𝗺𝘔𝘮𝙈𝙢𝙼𝚖]", "m")
+        .replace("[ÑñŃńŅņŇňŉǸǹᴺṄṅṆṇṈṉṊṋⁿₙℕＮｎ𝐍𝐧𝑁𝑛𝑵𝒏𝒩𝓃𝓝𝓷𝔑𝔫𝕟𝕹𝖓𝖭𝗇𝗡𝗻𝘕𝘯𝙉𝙣𝙽𝚗]", "n")
+        .replace("[ºÒÓÔÕÖòóôõöŌōŎŏŐőƠơǑǒǪǫǬǭȌȍȎȏȪȫȬȭȮȯȰȱᴼᵒṌṍṎṏṐṑṒṓỌọỎỏỐốỒồỔổỖỗỘộỚớỜờỞởỠỡỢợₒℴＯｏ𝐎𝐨𝑂𝑜𝑶𝒐𝒪𝓞𝓸𝔒𝔬𝕆𝕠𝕺𝖔𝖮𝗈𝗢𝗼𝘖𝘰𝙊𝙤𝙾𝚘]", "o")
+        .replace("[ᴾᵖṔṕṖṗₚℙＰｐ𝐏𝐩𝑃𝑝𝑷𝒑𝒫𝓅𝓟𝓹𝔓𝔭𝕡𝕻𝖕𝖯𝗉𝗣𝗽𝘗𝘱𝙋𝙥𝙿𝚙]", "p")
+        .replace("[ℚꟴＱｑ𐞥𝐐𝐪𝑄𝑞𝑸𝒒𝒬𝓆𝓠𝓺𝔔𝔮𝕢𝕼𝖖𝖰𝗊𝗤𝗾𝘘𝘲𝙌𝙦𝚀𝚚]", "q")
+        .replace("[ŔŕŖŗŘřȐȑȒȓʳᴿᵣṘṙṚṛṜṝṞṟℛℜℝＲｒ𝐑𝐫𝑅𝑟𝑹𝒓𝓇𝓡𝓻𝔯𝕣𝕽𝖗𝖱𝗋𝗥𝗿𝘙𝘳𝙍𝙧𝚁𝚛]", "r")
+        .replace("[ŚśŜŝŞşŠšſȘșˢṠṡṢṣṤṥṦṧṨṩẛₛ꟱Ｓｓ𝐒𝐬𝑆𝑠𝑺𝒔𝒮𝓈𝓢𝓼𝔖𝔰𝕊𝕤𝕾𝖘𝖲𝗌𝗦𝘀𝘚𝘴𝙎𝙨𝚂𝚜]", "s")
+        .replace("[ŢţŤťȚțᵀᵗṪṫṬṭṮṯṰṱẗₜＴｔ𝐓𝐭𝑇𝑡𝑻𝒕𝒯𝓉𝓣𝓽𝔗𝔱𝕋𝕥𝕿𝖙𝖳𝗍𝗧𝘁𝘛𝘵𝙏𝙩𝚃𝚝]", "t")
+        .replace("[ÙÚÛÜùúûüŨũŪūŬŭŮůŰűŲųƯưǓǔǕǖǗǘǙǚǛǜȔȕȖȗᵁᵘᵤṲṳṴṵṶṷṸṹṺṻỤụỦủỨứỪừỬửỮữỰựＵｕ𝐔𝐮𝑈𝑢𝑼𝒖𝒰𝓊𝓤𝓾𝔘𝔲𝕌𝕦𝖀𝖚𝖴𝗎𝗨𝘂𝘜𝘶𝙐𝙪𝚄𝚞]", "u")
+        .replace("[ᵛᵥṼṽṾṿⱽＶｖ𝐕𝐯𝑉𝑣𝑽𝒗𝒱𝓋𝓥𝓿𝔙𝔳𝕍𝕧𝖁𝖛𝖵𝗏𝗩𝘃𝘝𝘷𝙑𝙫𝚅𝚟]", "v")
+        .replace("[ŴŵʷᵂẀẁẂẃẄẅẆẇẈẉẘＷｗ𝐖𝐰𝑊𝑤𝑾𝒘𝒲𝓌𝓦𝔀𝔚𝔴𝕎𝕨𝖂𝖜𝖶𝗐𝗪𝘄𝘞𝘸𝙒𝙬𝚆𝚠]", "w")
+        .replace("[ˣẊẋẌẍₓＸｘ𝐗𝐱𝑋𝑥𝑿𝒙𝒳𝓍𝓧𝔁𝔛𝔵𝕏𝕩𝖃𝖝𝖷𝗑𝗫𝘅𝘟𝘹𝙓𝙭𝚇𝚡]", "x")
+        .replace("[ÝýÿŶŷŸȲȳʸẎẏẙỲỳỴỵỶỷỸỹＹｙ𝐘𝐲𝑌𝑦𝒀𝒚𝒴𝓎𝓨𝔂𝔜𝔶𝕐𝕪𝖄𝖞𝖸𝗒𝗬𝘆𝘠𝘺𝙔𝙮𝚈𝚢]", "y")
+        .replace("[ŹźŻżŽžᶻẐẑẒẓẔẕℤℨＺｚ𝐙𝐳𝑍𝑧𝒁𝒛𝒵𝓏𝓩𝔃𝔷𝕫𝖅𝖟𝖹𝗓𝗭𝘇𝘡𝘻𝙕𝙯𝚉𝚣]", "z")
+        .replace("[Ĳĳ]", "ij")
+        .replace("[ǄǅǆǱǲǳ]", "dz")
+        .replace("[Ǉǈǉ]", "lj")
+        .replace("[Ǌǋǌ]", "nj")
+        .replace("ﬀ", "ff")
+        .replace("ﬁ", "fi")
+        .replace("ﬂ", "fl")
+        .replace("ﬃ", "ffi")
+        .replace("ﬄ", "ffl")
+        .replace("[ﬅﬆ]", "st")
+        .lower()
+        .replace("[аɑα]", "a")
+        .replace("β", "b")
+        .replace("[еёε]", "e")
+        .replace("[іӏι]", "i")
+        .replace("κ", "k")
+        .replace("[оο]", "o")
+        .replace("[рρ]", "p")
+        .replace("с", "c")
+        .replace("τ", "t")
+        .replace("υ", "u")
+        .replace("[хχ]", "x")
+        .replace("у", "y")
+        .replace("ս", "u");
     }
 
-    function isValidPeriodKey(timeFrame, periodKey) {
-      return
-        (timeFrame == "daily" &&
-          periodKey.matches("^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$")) ||
-        (timeFrame == "weekly" &&
-          periodKey.matches("^\\d{4}-W(0[1-9]|[1-4][0-9]|5[0-3])$")) ||
-        (timeFrame == "monthly" &&
-          periodKey.matches("^\\d{4}-M(0[1-9]|1[0-2])$")) ||
-        (timeFrame == "yearly" &&
-          periodKey.matches("^\\d{4}$")) ||
-        (timeFrame == "all_time" && periodKey == "all");
+    // Leetspeak folding, applied only to the blocked-term checks.
+    function digitSubstitutedDisplayName(folded) {
+      return folded
+        .replace("0", "o")
+        .replace("1", "i")
+        .replace("3", "e")
+        .replace("4", "a")
+        .replace("5", "s")
+        .replace("7", "t")
+        .replace("@", "a")
+        .replace("\\$", "s")
+        .replace("!", "i");
+    }
+
+    // Every viewer's device fetches this URL. Constrain it to a Firebase
+    // Storage download URL so a modified client cannot point the whole
+    // leaderboard at a host it controls. Mirrors validPhotoURL in
+    // functions/src/publicIdentity.ts. The optional :443 is the default port
+    // the Firebase iOS SDK leaves in every download URL it emits.
+    function isValidPublicPhotoURL(value) {
+      return value is string &&
+        value.size() <= 2048 &&
+        (value == "" ||
+          value.matches(
+            "^https://firebasestorage\\.googleapis\\.com(:443)?/v0/b/" +
+            "[a-zA-Z0-9][a-zA-Z0-9._-]*/o/[^/]+$"
+          ));
+    }
+
+    function hasVisibleDisplayName(value) {
+      return value is string &&
+        value.trim().size() > 0 &&
+        !value.matches("^[\\s]*$");
+    }
+
+    function hasUnsupportedCompatibilityDisplayNameGlyph(value) {
+      return value.matches(
+        ".*[ʰ-ʺʽ-˿ᴀ-ᵿ⁰-₟℀-↏①-⓿㈀-㏿ﬀ-ﬆ︐-﹫＀-￯𝐀-𝟿🄀-🋿].*"
+      );
+    }
+
+    function isAllowedDisplayName(value) {
+      let folded = foldedDisplayName(value);
+      let normalized = digitSubstitutedDisplayName(folded);
+      return value is string &&
+        value.size() <= 80 &&
+        (value.size() == 0 || hasVisibleDisplayName(value)) &&
+        !hasUnsupportedCompatibilityDisplayNameGlyph(value) &&
+        !normalized.matches(
+          "^[^a-z]*a[^a-z]*n[^a-z]*o[^a-z]*n[^a-z]*y[^a-z]*m[^a-z]*o[^a-z]*u[^a-z]*s" +
+          "[^a-z]*c[^a-z]*l[^a-z]*i[^a-z]*m[^a-z]*b[^a-z]*e[^a-z]*r[^a-z]*$"
+        ) &&
+        !folded.matches(
+          ".*(" +
+          "a{3,}|b{3,}|c{3,}|d{3,}|e{3,}|f{3,}|g{3,}|" +
+          "h{3,}|i{3,}|j{3,}|k{3,}|l{3,}|m{3,}|n{3,}|" +
+          "o{3,}|p{3,}|q{3,}|r{3,}|s{3,}|t{3,}|u{3,}|" +
+          "v{3,}|w{3,}|x{3,}|y{3,}|z{3,}" +
+          ").*"
+        ) &&
+        !normalized.matches(
+          "(^|.*[^a-z])(" +
+          "a[^a-z]*s[^a-z]*s[^a-z]*h[^a-z]*o[^a-z]*l[^a-z]*e|" +
+          "b[^a-z]*a[^a-z]*s[^a-z]*t[^a-z]*a[^a-z]*r[^a-z]*d|" +
+          "b[^a-z]*i[^a-z]*t[^a-z]*c[^a-z]*h|" +
+          "b[^a-z]*l[^a-z]*o[^a-z]*w[^a-z]*j[^a-z]*o[^a-z]*b|" +
+          "c[^a-z]*h[^a-z]*i[^a-z]*n[^a-z]*k|" +
+          "c[^a-z]*o[^a-z]*c[^a-z]*k|" +
+          "c[^a-z]*u[^a-z]*n[^a-z]*t|" +
+          "d[^a-z]*i[^a-z]*c[^a-z]*k|" +
+          "d[^a-z]*o[^a-z]*u[^a-z]*c[^a-z]*h[^a-z]*e[^a-z]*b[^a-z]*a[^a-z]*g|" +
+          "d[^a-z]*y[^a-z]*k[^a-z]*e|" +
+          "f[^a-z]*a[^a-z]*g|" +
+          "f[^a-z]*a[^a-z]*g[^a-z]*g[^a-z]*o[^a-z]*t|" +
+          "f[^a-z]*u[^a-z]*c[^a-z]*k|" +
+          "f[^a-z]*u[^a-z]*c[^a-z]*k[^a-z]*e[^a-z]*r|" +
+          "f[^a-z]*u[^a-z]*c[^a-z]*k[^a-z]*i[^a-z]*n[^a-z]*g|" +
+          "h[^a-z]*e[^a-z]*i[^a-z]*l[^a-z]*h[^a-z]*i[^a-z]*t[^a-z]*l[^a-z]*e[^a-z]*r|" +
+          "h[^a-z]*i[^a-z]*t[^a-z]*l[^a-z]*e[^a-z]*r|" +
+          "j[^a-z]*a[^a-z]*c[^a-z]*k[^a-z]*a[^a-z]*s[^a-z]*s|" +
+          "k[^a-z]*i[^a-z]*k[^a-z]*e|" +
+          "k[^a-z]*i[^a-z]*l[^a-z]*l[^a-z]*y[^a-z]*o[^a-z]*u[^a-z]*r[^a-z]*s[^a-z]*e[^a-z]*l[^a-z]*f|" +
+          "m[^a-z]*o[^a-z]*t[^a-z]*h[^a-z]*e[^a-z]*r[^a-z]*f[^a-z]*u[^a-z]*c[^a-z]*k[^a-z]*e[^a-z]*r|" +
+          "n[^a-z]*a[^a-z]*z[^a-z]*i|" +
+          "n[^a-z]*i[^a-z]*g[^a-z]*g[^a-z]*a|" +
+          "n[^a-z]*i[^a-z]*g[^a-z]*g[^a-z]*e[^a-z]*r|" +
+          "p[^a-z]*e[^a-z]*d[^a-z]*o|" +
+          "p[^a-z]*e[^a-z]*d[^a-z]*o[^a-z]*p[^a-z]*h[^a-z]*i[^a-z]*l[^a-z]*e|" +
+          "p[^a-z]*i[^a-z]*s[^a-z]*s|" +
+          "p[^a-z]*u[^a-z]*s[^a-z]*s[^a-z]*y|" +
+          "r[^a-z]*a[^a-z]*p[^a-z]*e|" +
+          "r[^a-z]*a[^a-z]*p[^a-z]*i[^a-z]*s[^a-z]*t|" +
+          "r[^a-z]*e[^a-z]*t[^a-z]*a[^a-z]*r[^a-z]*d|" +
+          "r[^a-z]*e[^a-z]*t[^a-z]*a[^a-z]*r[^a-z]*d[^a-z]*e[^a-z]*d|" +
+          "s[^a-z]*h[^a-z]*i[^a-z]*t|" +
+          "s[^a-z]*l[^a-z]*u[^a-z]*t|" +
+          "s[^a-z]*p[^a-z]*i[^a-z]*c|" +
+          "w[^a-z]*e[^a-z]*t[^a-z]*b[^a-z]*a[^a-z]*c[^a-z]*k|" +
+          "w[^a-z]*h[^a-z]*o[^a-z]*r[^a-z]*e|" +
+          "w[^a-z]*h[^a-z]*i[^a-z]*t[^a-z]*e[^a-z]*p[^a-z]*o[^a-z]*w[^a-z]*e[^a-z]*r" +
+          ")([^a-z].*|$)"
+        ) &&
+        !normalized.matches(
+          ".*(" +
+          "f[^a-z]*a[^a-z]*g[^a-z]*g[^a-z]*o[^a-z]*t|" +
+          "f[^a-z]*u[^a-z]*c[^a-z]*k|" +
+          "f[^a-z]*u[^a-z]*c[^a-z]*k[^a-z]*e[^a-z]*r|" +
+          "n[^a-z]*i[^a-z]*g[^a-z]*g[^a-z]*e[^a-z]*r|" +
+          "p[^a-z]*e[^a-z]*d[^a-z]*o[^a-z]*p[^a-z]*h[^a-z]*i[^a-z]*l[^a-z]*e" +
+          ").*"
+        );
     }
 
     function isValidUserDocument() {
@@ -69,8 +238,7 @@ service cloud.firestore {
         request.resource.data.firstName.size() <= 80 &&
         request.resource.data.lastName is string &&
         request.resource.data.lastName.size() <= 80 &&
-        request.resource.data.displayName is string &&
-        request.resource.data.displayName.size() <= 80 &&
+        isAllowedDisplayName(request.resource.data.displayName) &&
         (!request.resource.data.keys().hasAny(["profilePictureURL"]) ||
           (request.resource.data.profilePictureURL is string &&
             request.resource.data.profilePictureURL.size() <= 2048)) &&
@@ -128,6 +296,8 @@ service cloud.firestore {
           "userId",
           "displayName",
           "photoURL",
+          "identityPolicyVersion",
+          "identityChangedAt",
           "age",
           "gender",
           "weight_kg",
@@ -142,14 +312,15 @@ service cloud.firestore {
           "userId",
           "displayName",
           "photoURL",
+          "identityPolicyVersion",
+          "identityChangedAt",
           "lastUpdated"
         ]) &&
         request.resource.data.userId == userId &&
-        request.resource.data.displayName is string &&
-        request.resource.data.displayName.size() > 0 &&
-        request.resource.data.displayName.size() <= 80 &&
-        request.resource.data.photoURL is string &&
-        request.resource.data.photoURL.size() <= 2048 &&
+        hasVisibleDisplayName(request.resource.data.displayName) &&
+        isAllowedDisplayName(request.resource.data.displayName) &&
+        isValidPublicPhotoURL(request.resource.data.photoURL) &&
+        isValidIdentityPolicyMetadata() &&
         (!request.resource.data.keys().hasAny(["age"]) ||
           (request.resource.data.age is int &&
             request.resource.data.age >= 13 &&
@@ -179,6 +350,73 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(["joined_at"]) ||
           request.resource.data.joined_at is timestamp) &&
         request.resource.data.lastUpdated is timestamp;
+    }
+
+    function currentIdentityPolicyVersion() {
+      return 1;
+    }
+
+    // Unlike a schemaVersion (see isSupportedSchemaVersion), this one is pinned
+    // to an exact value on purpose: it asserts which moderation policy screened
+    // the display name, so accepting an older value would accept weaker
+    // screening. It is a trust boundary, not metadata - do not widen it.
+    function isValidIdentityPolicyMetadata() {
+      return request.resource.data.identityPolicyVersion is int &&
+        request.resource.data.identityPolicyVersion ==
+          currentIdentityPolicyVersion() &&
+        request.resource.data.identityChangedAt is timestamp;
+    }
+
+    function isValidIdentityPolicyCreate() {
+      return isValidIdentityPolicyMetadata() &&
+        request.resource.data.identityChangedAt == request.time;
+    }
+
+    function isValidIdentityPolicyUpdate() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let identityChanged = changed.hasAny(["displayName", "photoURL"]);
+      let metadataChanged = changed.hasAny([
+        "identityPolicyVersion",
+        "identityChangedAt"
+      ]);
+      return isValidIdentityPolicyMetadata() &&
+        (
+          (
+            identityChanged &&
+            request.resource.data.identityChangedAt == request.time &&
+            (
+              !resource.data.keys().hasAll([
+                "identityPolicyVersion",
+                "identityChangedAt"
+              ]) ||
+              (
+                resource.data.identityChangedAt is timestamp &&
+                request.resource.data.identityChangedAt >
+                  resource.data.identityChangedAt
+              )
+            )
+          ) ||
+          (
+            !identityChanged &&
+            (
+              !metadataChanged ||
+              (
+                request.resource.data.identityChangedAt == request.time &&
+                (
+                  !resource.data.keys().hasAll([
+                    "identityPolicyVersion",
+                    "identityChangedAt"
+                  ]) ||
+                  (
+                    resource.data.identityChangedAt is timestamp &&
+                    request.resource.data.identityChangedAt >
+                      resource.data.identityChangedAt
+                  )
+                )
+              )
+            )
+          )
+        );
     }
 
     function isValidProfileStatsDocument() {
@@ -281,101 +519,18 @@ service cloud.firestore {
         isNonNegativeNumber(request.resource.data.durationSeconds) &&
         request.resource.data.steps is int &&
         request.resource.data.steps >= 0 &&
-        request.resource.data.source is string &&
         isValidWorkoutSource(request.resource.data.source) &&
         (!request.resource.data.keys().hasAny(["climbId"]) ||
           (request.resource.data.climbId is string &&
             request.resource.data.climbId.size() > 0 &&
             request.resource.data.climbId.size() <= 160)) &&
         (!request.resource.data.keys().hasAny(["climbTier"]) ||
-          (request.resource.data.climbTier is string &&
-            isValidClimbTier(request.resource.data.climbTier))) &&
+          isValidClimbTier(request.resource.data.climbTier)) &&
         (!request.resource.data.keys().hasAny(["climbCompletionStatus"]) ||
-          (request.resource.data.climbCompletionStatus is string &&
-            isValidClimbAttemptStatus(request.resource.data.climbCompletionStatus))) &&
+          isValidClimbAttemptStatus(request.resource.data.climbCompletionStatus)) &&
         (!request.resource.data.keys().hasAny(["climbCompletionDurationSeconds"]) ||
           (request.resource.data.climbCompletionDurationSeconds is int &&
             request.resource.data.climbCompletionDurationSeconds >= 0)) &&
-        request.resource.data.lastUpdated is timestamp;
-    }
-
-    function isValidLeaderboardDocument(docId) {
-      return request.resource.data.keys().hasOnly([
-          "userId",
-          "displayName",
-          "photoURL",
-          "timeFrame",
-          "schemaVersion",
-          "periodKey",
-          "periodStartAt",
-          "totalSteps",
-          "totalFloors",
-          "totalWorkouts",
-          "totalDuration",
-          "stepsPerMinute",
-          "age",
-          "weight_kg",
-          "location_city",
-          "location_country",
-          "location_region",
-          "lastUpdated"
-        ]) &&
-        request.resource.data.keys().hasAll([
-          "userId",
-          "displayName",
-          "photoURL",
-          "timeFrame",
-          "schemaVersion",
-          "periodKey",
-          "periodStartAt",
-          "totalSteps",
-          "totalFloors",
-          "totalWorkouts",
-          "totalDuration",
-          "stepsPerMinute",
-          "lastUpdated"
-        ]) &&
-        request.resource.data.userId == request.auth.uid &&
-        request.resource.data.displayName is string &&
-        request.resource.data.displayName.size() <= 80 &&
-        request.resource.data.photoURL is string &&
-        request.resource.data.photoURL.size() <= 2048 &&
-        request.resource.data.timeFrame is string &&
-        isValidTimeFrame(request.resource.data.timeFrame) &&
-        request.resource.data.schemaVersion is int &&
-        request.resource.data.schemaVersion == 2 &&
-        request.resource.data.periodKey is string &&
-        isValidPeriodKey(
-          request.resource.data.timeFrame,
-          request.resource.data.periodKey
-        ) &&
-        request.resource.data.periodStartAt is timestamp &&
-        docId ==
-          request.resource.data.timeFrame + "_" +
-          request.resource.data.periodKey + "_" +
-          request.auth.uid &&
-        request.resource.data.totalSteps is int &&
-        request.resource.data.totalSteps >= 0 &&
-        request.resource.data.totalFloors is int &&
-        request.resource.data.totalFloors >= 0 &&
-        request.resource.data.totalWorkouts is int &&
-        request.resource.data.totalWorkouts >= 0 &&
-        isNonNegativeNumber(request.resource.data.totalDuration) &&
-        isNonNegativeNumber(request.resource.data.stepsPerMinute) &&
-        (!request.resource.data.keys().hasAny(["age"]) ||
-          (request.resource.data.age is int &&
-            request.resource.data.age >= 13 &&
-            request.resource.data.age <= 120)) &&
-        (!request.resource.data.keys().hasAny(["weight_kg"]) ||
-          (isNonNegativeNumber(request.resource.data.weight_kg) &&
-            request.resource.data.weight_kg <= 400)) &&
-        (!request.resource.data.keys().hasAny(["location_city"]) ||
-          isValidLocationProfileText(request.resource.data.location_city)) &&
-        (!request.resource.data.keys().hasAny(["location_country"]) ||
-          (request.resource.data.location_country is string &&
-            request.resource.data.location_country.matches("^[A-Z]{2}$"))) &&
-        (!request.resource.data.keys().hasAny(["location_region"]) ||
-          isValidLocationProfileText(request.resource.data.location_region)) &&
         request.resource.data.lastUpdated is timestamp;
     }
 
@@ -383,6 +538,9 @@ service cloud.firestore {
       return type in ["feature_request", "bug_report", "get_help"];
     }
 
+    // Enum validators take the value untyped: membership in a list of string
+    // literals already excludes every non-string, so a preceding `is string`
+    // check is a no-op the workout write rule has no expression budget for.
     function isValidWorkoutSource(source) {
       return source in [
         "manual",
@@ -451,7 +609,6 @@ service cloud.firestore {
         item.url.size() > 0 &&
         item.url.size() <= 2048 &&
         item.uploadedAt is timestamp &&
-        item.type is string &&
         isValidWorkoutMediaType(item.type) &&
         (!item.keys().hasAny(["durationSeconds"]) ||
           (isNonNegativeNumber(item.durationSeconds) &&
@@ -478,12 +635,7 @@ service cloud.firestore {
 
     function isValidWorkoutWeightEntry(entry) {
       return entry is map &&
-        entry.keys().hasOnly([
-          "id",
-          "equipmentType",
-          "weightValue",
-          "isEnabled"
-        ]) &&
+        entry.keys().size() == 4 &&
         entry.keys().hasAll([
           "id",
           "equipmentType",
@@ -492,7 +644,6 @@ service cloud.firestore {
         ]) &&
         entry.id is string &&
         isValidWorkoutId(entry.id) &&
-        entry.equipmentType is string &&
         isValidWorkoutWeightEquipmentType(entry.equipmentType) &&
         isNonNegativeNumber(entry.weightValue) &&
         entry.isEnabled is bool;
@@ -525,7 +676,7 @@ service cloud.firestore {
 
     function isValidWorkoutWeightConfiguration(config) {
       return config is map &&
-        config.keys().hasOnly(["entries"]) &&
+        config.keys().size() == 1 &&
         config.keys().hasAll(["entries"]) &&
         isValidWorkoutWeightEntryList(config.entries);
     }
@@ -537,7 +688,10 @@ service cloud.firestore {
           "encoding",
           "sampleCount",
           "seriesStartAt",
-          "seriesEndAt"
+          "seriesEndAt",
+          "objectSchemaVersion",
+          "compressedByteCount",
+          "sha256"
         ]) &&
         reference.keys().hasAll([
           "storagePath",
@@ -553,6 +707,9 @@ service cloud.firestore {
         reference.encoding == "json+gzip" &&
         reference.sampleCount is int &&
         reference.sampleCount > 0 &&
+        reference.get("sha256", "").matches("^([0-9a-f]{64})?$") &&
+        isSupportedSchemaVersion(reference.get("objectSchemaVersion", 1)) &&
+        reference.get("compressedByteCount", 1) is int &&
         reference.seriesStartAt is timestamp &&
         reference.seriesEndAt is timestamp &&
         reference.seriesEndAt >= reference.seriesStartAt;
@@ -580,13 +737,7 @@ service cloud.firestore {
 
     function isValidWorkoutParticipationMetricsSnapshot(snapshot) {
       return snapshot is map &&
-        snapshot.keys().hasOnly([
-          "startedAt",
-          "durationSeconds",
-          "steps",
-          "floors",
-          "stepsPerMinute"
-        ]) &&
+        snapshot.keys().size() == 5 &&
         snapshot.keys().hasAll([
           "startedAt",
           "durationSeconds",
@@ -605,20 +756,7 @@ service cloud.firestore {
 
     function isValidWorkoutParticipationItem(userId, workoutId, item, workoutSource) {
       return item is map &&
-        item.keys().hasOnly([
-          "id",
-          "workoutId",
-          "userId",
-          "contextType",
-          "contextId",
-          "contextVersion",
-          "rulesVersion",
-          "role",
-          "leaderboardEligible",
-          "verificationTier",
-          "metricsSnapshot",
-          "createdAt"
-        ]) &&
+        item.keys().size() == 12 &&
         item.keys().hasAll([
           "id",
           "workoutId",
@@ -637,7 +775,6 @@ service cloud.firestore {
         isValidWorkoutId(item.id) &&
         item.workoutId == workoutId &&
         item.userId == userId &&
-        item.contextType is string &&
         isValidWorkoutParticipationContextType(item.contextType) &&
         item.contextId is string &&
         item.contextId.size() > 0 &&
@@ -648,10 +785,8 @@ service cloud.firestore {
         item.rulesVersion is int &&
         item.rulesVersion > 0 &&
         item.rulesVersion <= 1000 &&
-        item.role is string &&
         isValidWorkoutParticipationRole(item.role) &&
         item.leaderboardEligible is bool &&
-        item.verificationTier is string &&
         isValidWorkoutParticipationVerificationTier(item.verificationTier) &&
         isValidWorkoutParticipationMetricsSnapshot(item.metricsSnapshot) &&
         item.createdAt is timestamp &&
@@ -686,15 +821,6 @@ service cloud.firestore {
           isValidWorkoutParticipationItem(userId, workoutId, participations[7], workoutSource));
     }
 
-    function currentWorkoutSchemaVersion() {
-      return 1;
-    }
-
-    function isSupportedWorkoutSchemaVersion(version) {
-      return version is int &&
-        version == currentWorkoutSchemaVersion();
-    }
-
     function isValidWorkoutDocument(userId, workoutId) {
       return isCanonicalWorkoutId(workoutId) &&
         request.resource.data.keys().hasOnly([
@@ -708,6 +834,7 @@ service cloud.firestore {
           "stepsPerFloor",
           "notes",
           "source",
+          "climbId",
           "integrityLevel",
           "createdAt",
           "updatedAt",
@@ -742,7 +869,7 @@ service cloud.firestore {
           "updatedAt"
         ]) &&
         request.resource.data.userId == userId &&
-        isSupportedWorkoutSchemaVersion(request.resource.data.schemaVersion) &&
+        isSupportedSchemaVersion(request.resource.data.schemaVersion) &&
         request.resource.data.name is string &&
         request.resource.data.name.size() > 0 &&
         request.resource.data.name.size() <= 120 &&
@@ -757,9 +884,12 @@ service cloud.firestore {
         request.resource.data.stepsPerFloor <= 100 &&
         request.resource.data.notes is string &&
         request.resource.data.notes.size() <= 5000 &&
-        request.resource.data.source is string &&
         isValidWorkoutSource(request.resource.data.source) &&
-        request.resource.data.integrityLevel is string &&
+        (!request.resource.data.keys().hasAny(["climbId"]) ||
+          (request.resource.data.source == "headphone_motion" &&
+            request.resource.data.climbId is string &&
+            request.resource.data.climbId.size() > 0 &&
+            request.resource.data.climbId.size() <= 160)) &&
         isValidIntegrityLevel(request.resource.data.integrityLevel) &&
         request.resource.data.createdAt is timestamp &&
         request.resource.data.updatedAt is timestamp &&
@@ -820,12 +950,179 @@ service cloud.firestore {
           ));
     }
 
+    // A user-authored routine or folder lives at one document id spelling: the
+    // uppercase UUID Swift's `UUID.uuidString` already produces. Accepting any
+    // other casing would fork one routine into two documents, which is exactly
+    // the restore-time collision workouts had to be repaired for.
+    function isCanonicalRecordId(recordId) {
+      return recordId.matches("^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$");
+    }
+
+    // Only routines the climber authored are backed up. Catalog templates
+    // (`builtin`, `remoteTemplate`) are server-owned content re-derived on every
+    // device from routine_templates, so a client that tried to upload one would
+    // be writing our content back to us under their own uid.
+    function isValidUserRoutineSource(source) {
+      return source in ["userCreated", "copiedFromBuiltin"];
+    }
+
+    // How many intervals one routine may back up.
+    //
+    // 40 covers twenty work/rest rounds, which is past anything the shipped
+    // catalog does (it averages five intervals, longest nine) and past any
+    // interval session a stair stepper realistically holds.
+    function maxRoutineIntervals() {
+      return 40;
+    }
+
+    // Intervals are bounded and typed as a list, and deliberately NOT validated
+    // element by element. That is a measurement, not an oversight.
+    //
+    // A rule evaluation aborts at 1000 expressions, and rules functions inline
+    // their arguments, so every `item.<field>` re-evaluates the whole
+    // `request.resource.data.intervals[i]` chain. Measured against the emulator
+    // with this document: a full per-element validator (hasOnly/hasAll plus the
+    // ten interval fields) fits exactly TWO intervals before the write starts
+    // failing with a bare PERMISSION_DENIED; a validator narrowed to four typed
+    // fields fits eleven; `item is map` alone fits twenty-four. Every one of
+    // those ceilings is below a normal interval routine, and a routine that
+    // silently stops backing up at interval eleven is a worse outcome than an
+    // unvalidated interval body. This is the same wall the workout rule hit in
+    // issue #295.
+    //
+    // What makes the trade acceptable here and not there: a workout's
+    // `participations` are read and trusted by Cloud Functions that publish
+    // leaderboard rows, so their contents are a real trust boundary. A user
+    // routine is private to one climber - no other client reads it, and no
+    // server code derives anything from it - so the boundary that matters is
+    // ownership plus the strict `hasOnly`/`hasAll` on the document itself, both
+    // of which are enforced above. Interval bodies are validated where they can
+    // be validated for free: `RoutineRemoteSyncMapper` writes them and
+    // `FirestoreUserRoutineDocument` decodes them, dropping any interval it
+    // cannot read rather than restoring a corrupt one.
+    //
+    // Before adding any check here, re-measure. Do not assume there is room.
+    function isValidRoutineIntervalList(intervals) {
+      return intervals is list &&
+        intervals.size() <= maxRoutineIntervals();
+    }
+
+    function isValidUserRoutineDocument(userId, routineId) {
+      return isCanonicalRecordId(routineId) &&
+        request.resource.data.keys().hasOnly([
+          "userId",
+          "schemaVersion",
+          "name",
+          "description",
+          "source",
+          "intervals",
+          "folderId",
+          "isArchived",
+          "order",
+          "templateId",
+          "templateVersion",
+          "difficulty",
+          "estimatedCalories",
+          "defaultWeightConfiguration",
+          "completionCount",
+          "lastCompletedAt",
+          "createdAt",
+          "updatedAt"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "userId",
+          "schemaVersion",
+          "name",
+          "description",
+          "source",
+          "intervals",
+          "isArchived",
+          "order",
+          "completionCount",
+          "createdAt",
+          "updatedAt"
+        ]) &&
+        request.resource.data.userId == userId &&
+        isSupportedSchemaVersion(request.resource.data.schemaVersion) &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() > 0 &&
+        request.resource.data.name.size() <= 120 &&
+        request.resource.data.description is string &&
+        request.resource.data.description.size() <= 2000 &&
+        isValidUserRoutineSource(request.resource.data.source) &&
+        isValidRoutineIntervalList(request.resource.data.intervals) &&
+        (!request.resource.data.keys().hasAny(["folderId"]) ||
+          (request.resource.data.folderId is string &&
+            isCanonicalRecordId(request.resource.data.folderId))) &&
+        request.resource.data.isArchived is bool &&
+        request.resource.data.order is int &&
+        request.resource.data.order >= 0 &&
+        (!request.resource.data.keys().hasAny(["templateId"]) ||
+          (request.resource.data.templateId is string &&
+            request.resource.data.templateId.size() > 0 &&
+            request.resource.data.templateId.size() <= 160)) &&
+        (!request.resource.data.keys().hasAny(["templateVersion"]) ||
+          (request.resource.data.templateVersion is int &&
+            request.resource.data.templateVersion >= 0)) &&
+        (!request.resource.data.keys().hasAny(["difficulty"]) ||
+          (request.resource.data.difficulty is int &&
+            request.resource.data.difficulty >= 0 &&
+            request.resource.data.difficulty <= 25)) &&
+        (!request.resource.data.keys().hasAny(["estimatedCalories"]) ||
+          (request.resource.data.estimatedCalories is int &&
+            request.resource.data.estimatedCalories >= 0)) &&
+        (!request.resource.data.keys().hasAny(["defaultWeightConfiguration"]) ||
+          isValidWorkoutWeightConfiguration(
+            request.resource.data.defaultWeightConfiguration
+          )) &&
+        request.resource.data.completionCount is int &&
+        request.resource.data.completionCount >= 0 &&
+        (!request.resource.data.keys().hasAny(["lastCompletedAt"]) ||
+          request.resource.data.lastCompletedAt is timestamp) &&
+        request.resource.data.createdAt is timestamp &&
+        request.resource.data.updatedAt is timestamp;
+    }
+
+    function isValidRoutineFolderDocument(userId, folderId) {
+      return isCanonicalRecordId(folderId) &&
+        request.resource.data.keys().hasOnly([
+          "userId",
+          "schemaVersion",
+          "name",
+          "colorHex",
+          "order",
+          "createdAt",
+          "updatedAt"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "userId",
+          "schemaVersion",
+          "name",
+          "order",
+          "createdAt",
+          "updatedAt"
+        ]) &&
+        request.resource.data.userId == userId &&
+        isSupportedSchemaVersion(request.resource.data.schemaVersion) &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() > 0 &&
+        request.resource.data.name.size() <= 80 &&
+        (!request.resource.data.keys().hasAny(["colorHex"]) ||
+          (request.resource.data.colorHex is string &&
+            request.resource.data.colorHex.matches("^#[0-9a-fA-F]{6}$"))) &&
+        request.resource.data.order is int &&
+        request.resource.data.order >= 0 &&
+        request.resource.data.createdAt is timestamp &&
+        request.resource.data.updatedAt is timestamp;
+    }
+
     function userRateLimitDocPath() {
       return /databases/$(database)/documents/userRateLimits/$(request.auth.uid);
     }
 
     function feedbackCooldownPassed() {
       return !exists(userRateLimitDocPath()) ||
+        !get(userRateLimitDocPath()).data.keys().hasAny(["lastFeedback"]) ||
         (
           get(userRateLimitDocPath()).data.lastFeedback is timestamp &&
           request.time >
@@ -879,9 +1176,146 @@ service cloud.firestore {
         request.resource.data.status == "new";
     }
 
-    function isValidUserRateLimitDocument() {
-      return request.resource.data.keys().hasOnly(["lastFeedback"]) &&
-        request.resource.data.lastFeedback is timestamp;
+    function moderationReportCooldownPassed() {
+      return !exists(userRateLimitDocPath()) ||
+        !get(userRateLimitDocPath()).data.keys()
+          .hasAny(["lastModerationReport"]) ||
+        (
+          get(userRateLimitDocPath()).data.lastModerationReport is timestamp &&
+          request.time >
+            get(userRateLimitDocPath()).data.lastModerationReport +
+              duration.value(60, "s")
+        );
+    }
+
+    function moderationRateLimitAdvanced(reportId) {
+      return getAfter(userRateLimitDocPath())
+          .data.lastModerationReport == request.time &&
+        getAfter(userRateLimitDocPath())
+          .data.lastModerationReportId == reportId;
+    }
+
+    function hasValidRateLimitSchema() {
+      return request.resource.data.keys().hasOnly([
+          "lastFeedback",
+          "lastModerationReport",
+          "lastModerationReportId"
+        ]) &&
+        request.resource.data.keys().hasAny([
+          "lastFeedback",
+          "lastModerationReport"
+        ]) &&
+        (!request.resource.data.keys().hasAny(["lastFeedback"]) ||
+          request.resource.data.lastFeedback is timestamp) &&
+        (!request.resource.data.keys().hasAny(["lastModerationReport"]) ||
+          request.resource.data.lastModerationReport is timestamp) &&
+        (
+          request.resource.data.keys().hasAny(["lastModerationReport"]) ==
+            request.resource.data.keys().hasAny(["lastModerationReportId"])
+        ) &&
+        (!request.resource.data.keys().hasAny(["lastModerationReportId"]) ||
+          (request.resource.data.lastModerationReportId is string &&
+            request.resource.data.lastModerationReportId.size() > 0 &&
+            request.resource.data.lastModerationReportId.size() <= 128));
+    }
+
+    function isValidUserRateLimitCreate() {
+      return hasValidRateLimitSchema() &&
+        (!request.resource.data.keys().hasAny(["lastFeedback"]) ||
+          request.resource.data.lastFeedback == request.time) &&
+        (!request.resource.data.keys().hasAny(["lastModerationReport"]) ||
+          request.resource.data.lastModerationReport == request.time);
+    }
+
+    function isValidUserRateLimitUpdate() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return hasValidRateLimitSchema() &&
+        changed.hasAny([
+          "lastFeedback",
+          "lastModerationReport",
+          "lastModerationReportId"
+        ]) &&
+        changed.hasOnly([
+          "lastFeedback",
+          "lastModerationReport",
+          "lastModerationReportId"
+        ]) &&
+        (!changed.hasAny(["lastFeedback"]) ||
+          request.resource.data.lastFeedback == request.time) &&
+        (
+          !changed.hasAny([
+            "lastModerationReport",
+            "lastModerationReportId"
+          ]) ||
+          (
+            changed.hasAll([
+              "lastModerationReport",
+              "lastModerationReportId"
+            ]) &&
+            request.resource.data.lastModerationReport == request.time
+          )
+        );
+    }
+
+    function isValidBlockedClimberDocument(blockedUserId) {
+      return request.resource.data.keys().hasOnly([
+          "blockedUid",
+          "createdAt"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "blockedUid",
+          "createdAt"
+        ]) &&
+        request.resource.data.blockedUid is string &&
+        request.resource.data.blockedUid == blockedUserId &&
+        request.resource.data.blockedUid != request.auth.uid &&
+        request.resource.data.blockedUid.size() > 0 &&
+        request.resource.data.blockedUid.size() <= 128 &&
+        request.resource.data.createdAt is timestamp &&
+        request.resource.data.createdAt == request.time;
+    }
+
+    function isValidModerationReportDocument() {
+      return request.resource.data.keys().hasOnly([
+          "reportedUserId",
+          "reporterUserId",
+          "reason",
+          "source",
+          "createdAt"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "reportedUserId",
+          "reporterUserId",
+          "reason",
+          "source",
+          "createdAt"
+        ]) &&
+        request.resource.data.reporterUserId == request.auth.uid &&
+        request.resource.data.reportedUserId is string &&
+        request.resource.data.reportedUserId != request.auth.uid &&
+        request.resource.data.reportedUserId.size() > 0 &&
+        request.resource.data.reportedUserId.size() <= 128 &&
+        request.resource.data.reason is string &&
+        request.resource.data.reason in [
+          "harassment",
+          "hate_speech",
+          "inappropriate_name",
+          "inappropriate_photo",
+          "impersonation",
+          "spam",
+          "other"
+        ] &&
+        request.resource.data.source is string &&
+        request.resource.data.source in [
+          "global_leaderboard",
+          "live_replay",
+          "completion_leaderboard",
+          "community_avatars",
+          "first_ascent",
+          "profile"
+        ] &&
+        request.resource.data.createdAt is timestamp &&
+        request.resource.data.createdAt == request.time;
     }
 
     match /users/{userId} {
@@ -924,10 +1358,48 @@ service cloud.firestore {
         allow read: if isOwner(userId);
         allow create: if isOwner(userId) &&
           isValidWorkoutDocument(userId, workoutId);
+        // The stored schema version may only move forward. Equality would make
+        // every stored document un-updatable the day the number is bumped, since
+        // an updated client always emits the new number. Writes are whole-document
+        // `setData`, so allowing it to move backward would instead let an older
+        // build drop the fields a newer schema added.
         allow update: if isOwner(userId) &&
           isValidWorkoutDocument(userId, workoutId) &&
           request.resource.data.userId == resource.data.userId &&
-          request.resource.data.schemaVersion == resource.data.schemaVersion &&
+          request.resource.data.schemaVersion >= resource.data.schemaVersion &&
+          request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if isOwner(userId);
+      }
+
+      // Routines the climber built themselves, and the folders they organise
+      // them into. Private backup only: nobody but the owner reads or writes
+      // them, and no server code derives anything from them. Deliberately kept
+      // away from the top-level `routine_templates`, which is server-owned
+      // published content and must stay read-only to every client.
+      match /routines/{routineId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidUserRoutineDocument(userId, routineId);
+        // Same forward-only schema version rule as workouts, and for the same
+        // reason: writes are whole-document `setData`, so letting the stored
+        // version move backward would let an older build drop the fields a
+        // newer schema added.
+        allow update: if isOwner(userId) &&
+          isValidUserRoutineDocument(userId, routineId) &&
+          request.resource.data.userId == resource.data.userId &&
+          request.resource.data.schemaVersion >= resource.data.schemaVersion &&
+          request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if isOwner(userId);
+      }
+
+      match /routine_folders/{folderId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidRoutineFolderDocument(userId, folderId);
+        allow update: if isOwner(userId) &&
+          isValidRoutineFolderDocument(userId, folderId) &&
+          request.resource.data.userId == resource.data.userId &&
+          request.resource.data.schemaVersion >= resource.data.schemaVersion &&
           request.resource.data.createdAt == resource.data.createdAt;
         allow delete: if isOwner(userId);
       }
@@ -949,9 +1421,14 @@ service cloud.firestore {
 
       match /public_profile/{docId} {
         allow read: if isSignedIn() && docId == "current";
-        allow create, update: if isOwner(userId) &&
+        allow create: if isOwner(userId) &&
           docId == "current" &&
-          isValidPublicProfileDocument(userId);
+          isValidPublicProfileDocument(userId) &&
+          isValidIdentityPolicyCreate();
+        allow update: if isOwner(userId) &&
+          docId == "current" &&
+          isValidPublicProfileDocument(userId) &&
+          isValidIdentityPolicyUpdate();
         allow delete: if isOwner(userId) && docId == "current";
       }
 
@@ -975,16 +1452,28 @@ service cloud.firestore {
         allow read: if isSignedIn();
         allow write: if false;
       }
+
+      // A block is private to its owner. It never changes leaderboard data or
+      // exposes one user's safety choices to another user.
+      match /blocked/{blockedUserId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidBlockedClimberDocument(blockedUserId);
+        allow update: if false;
+        allow delete: if isOwner(userId);
+      }
     }
 
+    // Global standings are server-derived. functions/src/leaderboardStats.ts
+    // recomputes them from the canonical private workouts and writes them with
+    // the Admin SDK, which bypasses these rules. Nothing a client sends can
+    // reach this collection: the totals here are what the nightly finalizer
+    // freezes into permanent achievements, and validating a client-authored
+    // aggregate's shape is not validating its evidence (issue #307). Reads stay
+    // open to every signed-in climber - the board is the conversation.
     match /leaderboard_stats/{docId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && isValidLeaderboardDocument(docId);
-      allow update: if isSignedIn() &&
-        isValidLeaderboardDocument(docId) &&
-        request.resource.data.userId == resource.data.userId &&
-        request.resource.data.timeFrame == resource.data.timeFrame;
-      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow write: if false;
     }
 
     match /leaderboard_periods/{docId} {
@@ -1044,10 +1533,24 @@ service cloud.firestore {
       allow read, update, delete: if false;
     }
 
+    // Reports are a write-only moderation queue for clients. Review and
+    // resolution happen through trusted Admin SDK or console access.
+    match /moderation_reports/{reportId} {
+      allow create: if isSignedIn() &&
+        isValidModerationReportDocument() &&
+        exists(
+          /databases/$(database)/documents/users/$(request.resource.data.reportedUserId)
+        ) &&
+        moderationReportCooldownPassed() &&
+        moderationRateLimitAdvanced(reportId);
+      allow read, update, delete: if false;
+    }
+
     match /userRateLimits/{userId} {
       allow read: if isOwner(userId);
-      allow create, update: if isOwner(userId) && isValidUserRateLimitDocument();
-      allow delete: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUserRateLimitCreate();
+      allow update: if isOwner(userId) && isValidUserRateLimitUpdate();
+      allow delete: if false;
     }
 
     // Remote share-card template manifest is read-only for authenticated users.
@@ -1061,12 +1564,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    match /email_rate_limits/{docId} {
+    match /_public_identity_propagation_jobs/{userId} {
       allow read, write: if false;
-    }
 
-    match /waitlist/{docId} {
-      allow read, write: if false;
+      match /kinds/{kind} {
+        allow read, write: if false;
+      }
     }
 
   }

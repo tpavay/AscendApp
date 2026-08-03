@@ -18,6 +18,14 @@ struct WorkoutAutoImportReviewStateStore {
         self.key = key
     }
 
+    /// The recorded workout ID regardless of whether it has been handled.
+    ///
+    /// `latestUnseenWorkoutID()` hides an already-handled ID; pruning needs the raw one so a
+    /// handled-then-deleted workout still gets cleared out of the snapshot.
+    func recordedWorkoutID() -> UUID? {
+        loadSnapshot().latestWorkoutID
+    }
+
     func latestUnseenWorkoutID() -> UUID? {
         let snapshot = loadSnapshot()
         guard let latestWorkoutID = snapshot.latestWorkoutID,

@@ -169,6 +169,22 @@ struct WorkoutParticipationServiceTests {
         #expect(participation.verificationTier == WorkoutParticipationVerificationTier.sensorVerified.rawValue)
     }
 
+    @Test
+    func remoteSyncSnapshotPromotesClimbIdForFirestoreQueries() throws {
+        let workout = makeWorkout(source: .headphoneMotion)
+        workout.sourceMetadata = HeadphoneMotionWorkoutMetadata(
+            sampleCount: 500,
+            climbId: "gateway-arch",
+            targetStepCount: 1_200,
+            stopReason: .targetReached
+        ).jsonString
+        workout.markPendingRemoteUpsert(ownerUserId: "user-123")
+
+        let snapshot = try WorkoutRemoteSyncMapper.snapshot(from: workout)
+
+        #expect(snapshot.document.climbId == "gateway-arch")
+    }
+
     private func makeModelContext() throws -> ModelContext {
         let container = try ModelContainer(
             for: Workout.self,

@@ -1,0 +1,69 @@
+{
+  "parameters": {
+    "workout_cloud_backup_writes_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops uploading workout documents and heart-rate sidecars; workouts stay queued locally and flush when it returns."
+    },
+    "workout_remote_deletes_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops deleting remote workout documents and sidecars; tombstones stay queued locally and replay when it returns."
+    },
+    "workout_cloud_restore_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops decoding cloud backups into local storage on sign-in and reinstall."
+    },
+    "workout_media_uploads_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops the background media upload queue and the sweep that deletes local originals; queued uploads stay queued."
+    },
+    "routine_cloud_backup_writes_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops uploading user-authored routines and folders; they stay queued locally and flush when it returns."
+    },
+    "routine_remote_deletes_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops deleting remote routine and folder documents; tombstones stay queued locally and replay when it returns."
+    },
+    "routine_cloud_restore_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops decoding routine backups into local storage on sign-in and reinstall."
+    },
+    "local_data_migrations_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops one-shot local backfills that rewrite stored workouts in bulk; they run on the next launch after it returns."
+    },
+    "public_profile_publishing_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops publishing the public profile mirror, stats, and workout summaries."
+    }
+  },
+  "parameterGroups": {},
+  "conditions": []
+}

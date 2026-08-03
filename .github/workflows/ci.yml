@@ -4,16 +4,36 @@ on:
   pull_request:
     branches: [develop, main]
     paths:
+      # required-check-paths:start
       - "AscendApp/**"
       - "AscendAppTests/**"
+      - "AscendLiveActivityWidgets/**"
       - "AscendApp.xcodeproj/**"
       - "functions/**"
+      - "firestore.rules"
+      - "storage.rules"
+      - "firestore.indexes.json"
+      - "firebase.json"
+      - "remoteconfig.template.json"
+      - ".firebaserc"
+      - "tests/firebase-rules/**"
       - "scripts/**"
       - "web/**"
       - "package.json"
       - "package-lock.json"
+      - "Gemfile"
+      - "Gemfile.lock"
+      - ".ruby-version"
+      - "fastlane/**"
       - "SharedTestVectors/**"
+      - "docs/superwall-paywall-setup.md"
+      - "docs/onboarding-design-guide.md"
+      - "docs/app-store-brief.md"
+      - "docs/launch-readiness-audit.md"
+      - "CLAUDE.md"
+      - "AGENTS.md"
       - ".github/workflows/**"
+      # required-check-paths:end
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -34,6 +54,10 @@ jobs:
       scripts: ${{ steps.filter.outputs.scripts }}
       web: ${{ steps.filter.outputs.web }}
       root_npm: ${{ steps.filter.outputs.root_npm }}
+      firebase: ${{ steps.filter.outputs.firebase }}
+      ruby: ${{ steps.filter.outputs.ruby }}
+      swiftdata_schema: ${{ steps.filter.outputs.swiftdata_schema }}
+      remote_config: ${{ steps.filter.outputs.remote_config }}
 
     steps:
       - name: Checkout repository
@@ -47,15 +71,50 @@ jobs:
             ios:
               - "AscendApp/**"
               - "AscendAppTests/**"
+              - "AscendLiveActivityWidgets/**"
               - "AscendApp.xcodeproj/**"
+              # The Swift halves of the shared cross-language vectors assert
+              # against these files directly, so a vector-only edit must run them.
+              - "SharedTestVectors/**"
               - ".github/workflows/**"
             functions:
               - "functions/**"
+              - "firestore.indexes.json"
               - "SharedTestVectors/**"
               - ".github/workflows/**"
             scripts:
               - "scripts/**"
               - "SharedTestVectors/**"
+              # The monetization build-configuration suite reads all three, so a
+              # key, Info.plist, or placeholder-contract edit must run it.
+              - "AscendApp.xcodeproj/**"
+              - "AscendApp/Info.plist"
+              - "AscendApp/Features/Monetization/**"
+              # The Firebase configuration suite validates all three directly.
+              - "firebase.json"
+              - ".firebaserc"
+              - "firestore.indexes.json"
+              # The Remote Config suite asserts the kill-switch template matches
+              # RemoteFeatureFlag.swift, so an edit to either must run it.
+              - "remoteconfig.template.json"
+              - "AscendApp/Shared/Services/RemoteConfig/**"
+              # Share card templates are data: the validator reads the renderer's
+              # vocabulary out of the Swift sources, so a template edit or a
+              # renderer edit must run it. A typo'd stat name would otherwise
+              # reach a user as a card with a cell missing.
+              - "AscendApp/Features/ShareComposer/**"
+              # The launch-offer suite reads the hosted paywall, public copy,
+              # legal terms, and authoritative commerce guidance.
+              - "web/public/superwall/**"
+              - "web/src/pages/index.astro"
+              - "web/src/pages/terms.astro"
+              - "docs/superwall-paywall-setup.md"
+              - "docs/onboarding-design-guide.md"
+              - "docs/app-store-brief.md"
+              - "docs/launch-readiness-audit.md"
+              # AGENTS.md is a symlink to CLAUDE.md, so it gates identically.
+              - "CLAUDE.md"
+              - "AGENTS.md"
               - ".github/workflows/**"
             web:
               - "web/**"
@@ -63,6 +122,42 @@ jobs:
             root_npm:
               - "package.json"
               - "package-lock.json"
+              - ".github/workflows/**"
+            firebase:
+              - "firestore.rules"
+              - "storage.rules"
+              - "firestore.indexes.json"
+              - "firebase.json"
+              - ".firebaserc"
+              - "tests/firebase-rules/**"
+              - "package.json"
+              - "package-lock.json"
+              - ".github/workflows/**"
+            ruby:
+              - "Gemfile"
+              - "Gemfile.lock"
+              - ".ruby-version"
+              - "fastlane/**"
+              - ".github/workflows/**"
+            remote_config:
+              # A kill switch is added in two files that have to agree, and the
+              # only check that can see whether one was ever published talks to a
+              # live backend - which cannot help on a pull request, where the flag
+              # is by definition not published yet. So this gate is the offline
+              # half, and it runs whenever either declaration moves.
+              - "remoteconfig.template.json"
+              - "AscendApp/Shared/Services/RemoteConfig/**"
+              - "scripts/lib/remote-config-template.mjs"
+              - "scripts/ci/report-kill-switch-changes.mjs"
+              - ".github/workflows/**"
+            swiftdata_schema:
+              # The SwiftData schema check reads every Swift file looking for
+              # @Model declarations, and an @Model can be added anywhere. A shipped
+              # schema mistake silently defaults every existing row and an iOS
+              # binary cannot be rolled back, so this stays the whole app tree and
+              # is never narrowed to the folders models happen to live in today.
+              - "AscendApp/**"
+              - "SharedTestVectors/**"
               - ".github/workflows/**"
 
   functions-verify:
@@ -83,6 +178,14 @@ jobs:
           cache: npm
           cache-dependency-path: functions/package-lock.json
 
+      # The Firestore emulator is a JVM process, and the pinned firebase-tools
+      # refuses to start it on a JDK older than 21.
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
       - name: Install dependencies
         run: npm --prefix functions ci
 
@@ -91,6 +194,12 @@ jobs:
 
       - name: Run tests
         run: npm --prefix functions test
+
+      # The unit suite injects a store, so it never exercises the Admin adapter
+      # that actually writes the world-readable leaderboard. This runs the
+      # production adapter against a real Firestore.
+      - name: Run emulator-backed integration tests
+        run: npm --prefix functions run test:emulator
 
       # Audits run last so a newly published advisory fails the job without
       # hiding the lint and test results that prove the code itself.
@@ -112,10 +221,21 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
 
-      # The migration-discipline libraries and the shared vector-pinned
-      # predicate/derivation are pure Node with no external deps at test time,
-      # so the suite runs without installing firebase-admin.
+      # The public-identity contract suite spawns dev-db.mjs itself to prove the
+      # hydrate-user argument and identity checks run before Firebase is touched,
+      # so the scripts package - firebase-admin included - has to be installed.
+      - name: Install dependencies
+        run: npm --prefix scripts ci
+
+      # sentry-cli is required, not optional: the dSYM upload suite asserts the
+      # flags the release script passes against this exact pinned CLI's help.
+      # Keep this version identical to the deploy workflows.
+      - name: Install Sentry CLI
+        run: npm install --global @sentry/cli@3.6.0
+
       - name: Run tests
         run: node --test scripts/test/*.test.mjs
 
@@ -123,6 +243,56 @@ jobs:
       # hiding the test results that prove the code itself.
       - name: Audit dependencies
         run: npm --prefix scripts audit --package-lock-only --audit-level=low
+
+  # Its own job, deliberately dependency-free. The check imports nothing but Node
+  # builtins and local .mjs files, so it installs nothing and audits nothing: a
+  # Swift-only pull request must never be blocked by an advisory against a
+  # scripts-only Node dependency, or the gate that guards a user's data becomes
+  # the thing people learn to route around.
+  swiftdata-schema-verify:
+    name: SwiftData Schema Verify
+    needs: changes
+    if: needs.changes.outputs.swiftdata_schema == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Check the persisted SwiftData shape
+        run: node scripts/check-swiftdata-schema.mjs
+
+  # Dependency-free for the same reason as the SwiftData gate above: it imports
+  # nothing but Node builtins and local .mjs files, so a pull request that adds a
+  # kill switch is never blocked by an advisory against an unrelated dependency.
+  remote-config-verify:
+    name: Remote Config Verify
+    needs: changes
+    if: needs.changes.outputs.remote_config == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # The base commit has to be present for the added/removed comparison; the
+      # check still asserts app-to-template parity without it.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Report what this change does to the kill switches
+        run: node scripts/ci/report-kill-switch-changes.mjs --base-ref "${{ github.event.pull_request.base.sha }}"
 
   web-verify:
     name: Web Verify
@@ -170,6 +340,77 @@ jobs:
       - name: Audit dependencies
         run: npm audit --package-lock-only --audit-level=low
 
+  firebase-verify:
+    name: Firebase Verify
+    needs: changes
+    if: needs.changes.outputs.firebase == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      # The Firestore and Storage emulators are JVM processes, and the pinned
+      # firebase-tools refuses to start them on a JDK older than 21. The runner
+      # image's default JDK is older than that, so pin one the CLI accepts.
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Validate Firebase configuration
+        run: node scripts/ci/validate-firebase-config.mjs
+
+      # The emulators load firestore.rules and storage.rules before executing
+      # the suite, so invalid syntax fails the job before any unit test runs.
+      #
+      # The npm script pins `--test-concurrency=1` and must keep it. Firestore
+      # rulesets are per project, but the Storage emulator holds exactly one
+      # global ruleset: every `initializeTestEnvironment({storage})` tears the
+      # loaded ruleset down and rebuilds it, and while that is in flight the
+      # emulator denies every Storage request - including the admin `owner`
+      # token `clearStorage()` uses. Two rules files that both configure Storage
+      # therefore knock each other out when node runs test files in parallel.
+      - name: Validate rules and run emulator tests
+        run: npm run test:firebase-rules
+
+  # Verifies the bundle under the Ruby the deploy workflows pin, not the local
+  # .ruby-version, so the gate resolves the Gemfile the way releases do.
+  ruby-verify:
+    name: Ruby and Fastlane Verify
+    needs: changes
+    if: needs.changes.outputs.ruby == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.1"
+
+      - name: Install dependencies in deployment mode
+        run: bundle install --deployment --jobs 4 --retry 3
+
+      - name: Validate Fastlane lanes
+        run: bundle exec fastlane lanes
+
+# required-check-contexts:start
   ios-verify:
     name: iOS Verify (Staging)
     needs: changes
@@ -440,6 +681,54 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build 2>&1 | tee build-logs/xcodebuild-release.log
 
+      # Its own step, not a tail on the build: the build step's status has to
+      # stay the `xcodebuild` pipeline's status, and `Summarize failure` must
+      # never be handed the log of a build that actually succeeded.
+      #
+      # `ProcessInfoPlistFile` runs independently of compilation, so reading the
+      # source plist would prove nothing about what ships. This reads the
+      # processed bundle plist and requires the boolean - App Store Connect does
+      # not reliably accept a string-typed `false`, which is why the type is
+      # asserted alongside the value.
+      - name: Verify Release bundle export compliance
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          built_info_plist="$(
+            xcodebuild \
+              -project AscendApp.xcodeproj \
+              -scheme "AscendApp" \
+              -configuration Release \
+              -sdk iphoneos \
+              -destination "generic/platform=iOS" \
+              CODE_SIGNING_ALLOWED=NO \
+              -showBuildSettings -json |
+              jq -er '
+                (map(select(.target == "AscendApp")) | first
+                  // error("no AscendApp target in -showBuildSettings output"))
+                | .buildSettings
+                | (.TARGET_BUILD_DIR // error("TARGET_BUILD_DIR is unset for the AscendApp target"))
+                  + "/"
+                  + (.INFOPLIST_PATH // error("INFOPLIST_PATH is unset for the AscendApp target"))
+              '
+          )"
+
+          if [ ! -f "$built_info_plist" ]; then
+            echo "::error file=AscendApp/Info.plist::Release build produced no processed Info.plist at ${built_info_plist}."
+            exit 1
+          fi
+
+          if ! encryption_value="$(plutil -extract ITSAppUsesNonExemptEncryption raw -expect bool -o - "$built_info_plist" 2>&1)"; then
+            echo "::error file=AscendApp/Info.plist::Release bundle must declare ITSAppUsesNonExemptEncryption as boolean false, or uploads park in Missing Compliance. Reading ${built_info_plist} failed: ${encryption_value//$'\n'/ }"
+            exit 1
+          fi
+
+          if [ "$encryption_value" != "false" ]; then
+            echo "::error file=AscendApp/Info.plist::Release bundle declares ITSAppUsesNonExemptEncryption=${encryption_value}; it must be boolean false. Built plist: ${built_info_plist}"
+            exit 1
+          fi
+
       # A step killed by timeout-minutes reports `cancelled`, not `failure`, and
       # that is exactly the hung-runner case these logs exist to explain. An
       # empty outcome means xcodebuild never ran, so there is no log to read.
@@ -456,3 +745,4 @@ jobs:
           path: build-logs/
           retention-days: 7
           if-no-files-found: warn
+# required-check-contexts:end

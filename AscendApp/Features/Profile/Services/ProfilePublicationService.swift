@@ -6,25 +6,43 @@ enum ProfilePublicationService {
     static func publishCurrentUserProfile(
         modelContext: ModelContext,
         userId: String,
-        displayName: String,
-        photoURL: URL?,
         joinedAt: Date?,
-        repository: ProfileRepository = .shared
+        repository: ProfileRepository = .shared,
+        featureFlags: RemoteFeatureFlagStore = .shared
     ) async {
+        // Killed: nothing local depends on the mirror having been written, so the next bootstrap
+        // after the flag returns republishes from the same local state.
+        guard RemoteFeatureGate.allows(
+            .publicProfilePublishing,
+            path: "ProfilePublicationService.publishCurrentUserProfile",
+            store: featureFlags
+        ) else {
+            return
+        }
+
         do {
-            let storedProfile = try? await UserDataRepository.shared.getUserFromFirestore(userId: userId)
+            let storedProfile = try await UserDataRepository.shared.getUserFromFirestore(
+                userId: userId
+            )
+            let storedPhotoURL = storedProfile.profilePictureURL.flatMap(URL.init(string:))
+            let publicIdentity = PublicClimberIdentity.resolve(
+                userId: userId,
+                storedDisplayName: storedProfile.displayName,
+                storedPhotoURL: storedPhotoURL
+            )
+            let displayName = try DisplayNamePolicy.validated(publicIdentity.displayName)
             let identity = ProfileUserIdentity(
                 userId: userId,
-                displayName: displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Climber" : displayName,
-                photoURL: photoURL,
-                age: storedProfile?.age,
-                gender: storedProfile?.gender.flatMap(ProfileGender.init(rawValue:)),
-                weightKg: storedProfile?.weightKg,
-                heightCm: storedProfile?.heightCm,
-                locationCity: storedProfile?.locationCity,
-                locationCountryCode: storedProfile?.locationCountry,
-                locationRegionCode: storedProfile?.locationRegion,
-                joinedAt: storedProfile?.joinedAt ?? joinedAt
+                displayName: displayName,
+                photoURL: publicIdentity.photoURL,
+                age: storedProfile.age,
+                gender: storedProfile.gender.flatMap(ProfileGender.init(rawValue:)),
+                weightKg: storedProfile.weightKg,
+                heightCm: storedProfile.heightCm,
+                locationCity: storedProfile.locationCity,
+                locationCountryCode: storedProfile.locationCountry,
+                locationRegionCode: storedProfile.locationRegion,
+                joinedAt: storedProfile.joinedAt ?? joinedAt
             )
             let workouts = try modelContext.fetch(
                 FetchDescriptor<Workout>(
@@ -48,7 +66,7 @@ enum ProfilePublicationService {
             let achievements = (try? await repository.fetchAchievements(userId: userId)) ?? []
             let achievementCounts = ProfileAchievementCounts(records: achievements)
             let snapshot = ProfileSnapshotBuilder.makeOwnSnapshot(
-                identity: identity,
+                demographics: identity.demographicsSnapshot,
                 workouts: workouts,
                 climbAttempts: attempts,
                 bestEffortCacheEntries: cacheEntries,

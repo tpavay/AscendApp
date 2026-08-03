@@ -19,53 +19,10 @@ final class LeaderboardRepository: Sendable {
         documentID(userId: userId, timeFrame: timeFrame, period: timeFrame.currentPeriod())
     }
 
-    func upsertStats(_ payload: LeaderboardSyncPayload) async throws {
-        let docRef = db.collection("leaderboard_stats")
-            .document(documentID(userId: payload.userId, timeFrame: payload.timeFrame, periodKey: payload.periodKey))
-
-        var data: [String: Any] = [
-            "userId": payload.userId,
-            "displayName": payload.displayName,
-            "photoURL": payload.photoURL?.absoluteString ?? "",
-            "timeFrame": payload.timeFrame.rawValue,
-            "schemaVersion": payload.schemaVersion,
-            "periodKey": payload.periodKey,
-            "periodStartAt": Timestamp(date: payload.periodStartAt),
-            "totalSteps": payload.totalSteps,
-            "totalFloors": payload.totalFloors,
-            "totalWorkouts": payload.totalWorkouts,
-            "totalDuration": payload.totalDuration,
-            "stepsPerMinute": payload.stepsPerMinute,
-            "lastUpdated": FieldValue.serverTimestamp()
-        ]
-
-        if let profile = payload.profile {
-            setOptional(profile.age, for: "age", in: &data)
-            setOptional(profile.weightKg, for: "weight_kg", in: &data)
-            setOptional(profile.locationCity, for: "location_city", in: &data)
-            setOptional(profile.locationCountry, for: "location_country", in: &data)
-            setOptional(profile.locationRegion, for: "location_region", in: &data)
-        }
-
-        try await docRef.setData(data, merge: true)
-    }
-
-    func deleteStats(userId: String, timeFrame: LeaderboardTimeFrame, periodKey: String) async throws {
-        let docRef = db.collection("leaderboard_stats")
-            .document(documentID(userId: userId, timeFrame: timeFrame, periodKey: periodKey))
-        try await docRef.delete()
-    }
-
-    func deleteLegacyStats(userId: String) async throws {
-        let snapshot = try await db.collection("leaderboard_stats")
-            .whereField("userId", isEqualTo: userId)
-            .getDocuments()
-
-        let legacyDocumentIDs = Set(LeaderboardTimeFrame.allCases.map { "\(userId)_\($0.rawValue)" })
-        for document in snapshot.documents where legacyDocumentIDs.contains(document.documentID) {
-            try await document.reference.delete()
-        }
-    }
+    // Standings are server-derived and this collection is read-only to clients
+    // (firestore.rules, functions/src/leaderboardStats.ts). There is deliberately
+    // no write here: a device that could publish its own totals is the whole of
+    // issue #307.
 
     func fetchLeaderboard(
         metric: LeaderboardMetric,
@@ -155,52 +112,21 @@ final class LeaderboardRepository: Sendable {
         return (rank: rank, total: allStats.count)
     }
 
-    func updateProfilePictureURL(userId: String, photoURL: String) async throws {
-        let snapshot = try await db.collection("leaderboard_stats")
-            .whereField("userId", isEqualTo: userId)
-            .getDocuments()
-
-        for document in snapshot.documents {
-            try await document.reference.updateData([
-                "photoURL": photoURL,
-                "lastUpdated": FieldValue.serverTimestamp()
-            ])
-        }
-    }
-
-    func updateDisplayName(userId: String, displayName: String) async throws {
-        let snapshot = try await db.collection("leaderboard_stats")
-            .whereField("userId", isEqualTo: userId)
-            .getDocuments()
-
-        for document in snapshot.documents {
-            try await document.reference.updateData([
-                "displayName": displayName,
-                "lastUpdated": FieldValue.serverTimestamp()
-            ])
-        }
-    }
-
-    func updateBodyWeight(userId: String, weightKg: Double) async throws {
-        let snapshot = try await db.collection("leaderboard_stats")
-            .whereField("userId", isEqualTo: userId)
-            .getDocuments()
-
-        for document in snapshot.documents {
-            try await document.reference.updateData([
-                "weight_kg": weightKg,
-                "lastUpdated": FieldValue.serverTimestamp()
-            ])
-        }
-    }
-
-    private func parseStat(_ data: [String: Any]) -> FirestoreLeaderboardStats? {
+    func parseStat(_ data: [String: Any]) -> FirestoreLeaderboardStats? {
         guard let userId = data["userId"] as? String,
-              let displayName = data["displayName"] as? String,
+              let identityPolicyVersion = intValue(for: "identityPolicyVersion", in: data),
+              identityPolicyVersion == PublicClimberIdentity.policyVersion,
+              let identityState = data["identityState"] as? String,
+              ["published", "pending_public_profile", "deleted"].contains(identityState),
               let timeFrame = data["timeFrame"] as? String,
               let periodKey = data["periodKey"] as? String,
               let periodStartAt = timestampValue(for: "periodStartAt", in: data),
               let lastUpdated = timestampValue(for: "lastUpdated", in: data) else {
+            return nil
+        }
+
+        let identityChangedAt = timestampValue(for: "identityChangedAt", in: data)
+        guard identityState != "published" || identityChangedAt != nil else {
             return nil
         }
 
@@ -210,6 +136,19 @@ final class LeaderboardRepository: Sendable {
         let totalWorkouts = intValue(for: "totalWorkouts", in: data) ?? 0
         let totalDuration = doubleValue(for: "totalDuration", in: data) ?? 0
         let stepsPerMinute = doubleValue(for: "stepsPerMinute", in: data) ?? 0
+        let identity = if identityState == "published" {
+            PublicClimberIdentity.resolve(
+                userId: userId,
+                storedDisplayName: data["displayName"] as? String,
+                storedPhotoURL: (data["photoURL"] as? String).flatMap(URL.init(string:))
+            )
+        } else {
+            PublicClimberIdentity.resolve(
+                userId: userId,
+                storedDisplayName: PublicClimberIdentity.anonymousDisplayName,
+                storedPhotoURL: nil
+            )
+        }
 
         guard totalWorkouts > 0 || totalSteps > 0 || totalFloors > 0 || totalDuration > 0 else {
             return nil
@@ -217,8 +156,10 @@ final class LeaderboardRepository: Sendable {
 
         return FirestoreLeaderboardStats(
             userId: userId,
-            displayName: displayName,
-            photoURL: data["photoURL"] as? String,
+            displayName: identity.displayName,
+            photoURL: identity.photoURL?.absoluteString,
+            identityPolicyVersion: identityPolicyVersion,
+            identityChangedAt: identityChangedAt ?? .distantPast,
             timeFrame: timeFrame,
             schemaVersion: schemaVersion,
             periodKey: periodKey,
@@ -235,14 +176,6 @@ final class LeaderboardRepository: Sendable {
             locationCountry: data["location_country"] as? String,
             locationRegion: data["location_region"] as? String
         )
-    }
-
-    private func setOptional(_ value: Any?, for key: String, in data: inout [String: Any]) {
-        if let value {
-            data[key] = value
-        } else {
-            data[key] = FieldValue.delete()
-        }
     }
 
     private func intValue(for key: String, in data: [String: Any]) -> Int? {

@@ -90,3 +90,6 @@ web/.astro/
 # Bundler local artifacts
 .bundle/
 vendor/bundle/
+
+# Captain-private App Store Connect App Privacy checklist - must never be committed
+data/asc-app-privacy-answers.md

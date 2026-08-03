@@ -135,7 +135,7 @@ struct HeartRateMonitorManageSheet: View {
                 Text(device.name)
                     .font(.montserratSemiBold(size: 16))
                     .foregroundStyle(.white)
-                Text(monitor.connectionState == .connecting ? "Connecting..." : "Paired · not in range")
+                Text(rememberedDeviceStatusText)
                     .font(.montserratMedium(size: 12))
                     .foregroundStyle(.white.opacity(0.55))
             }
@@ -151,6 +151,17 @@ struct HeartRateMonitorManageSheet: View {
         }
         .padding(16)
         .appSheetCardStyle(tone: .standard)
+    }
+
+    private var rememberedDeviceStatusText: String {
+        switch monitor.connectionState {
+        case .connecting:
+            return "Connecting..."
+        case .reconnecting:
+            return "Reconnecting..."
+        case .disconnected, .scanning, .connected, .failed:
+            return "Paired · not in range"
+        }
     }
 
     private var liveReadout: some View {

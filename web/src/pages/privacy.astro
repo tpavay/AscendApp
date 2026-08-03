@@ -92,7 +92,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
   <div class="privacy-page">
     <main>
       <h1>Privacy Policy</h1>
-      <p class="last-updated">Last updated: July 17, 2026</p>
+      <p class="last-updated">Last updated: August 3, 2026</p>
 
       <h2>Introduction</h2>
       <p>Ascend ("we", "our", or "us") is a stair-stepper workout app for tracking climbs, workouts, leaderboards, achievements, and progress. This Privacy Policy explains what information we collect, how we use it, how we share it, and the choices you have.</p>
@@ -103,8 +103,10 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         <li><strong>Account information:</strong> Your email address, authentication provider, user ID, display name, profile photo, joined date, and account settings.</li>
         <li><strong>Profile and onboarding information:</strong> Display name, declared age, gender or division, body height, body weight, city, region, country, stair-stepper experience, exercise baseline, goals, motivation, notification preference, and first-climb recommendation.</li>
         <li><strong>Workout and fitness data:</strong> Steps, floors, duration, cadence, heart rate, calories, workout dates, Live Climb attempt state, climb completion state, personal records, leaderboard entries, achievements, and related workout metrics.</li>
+        <li><strong>Routines you create:</strong> The name, description, interval plan, folder organization, and completion history of routines you build yourself. These are backed up to your account so they survive a reinstall and appear on your other devices. They are private to you and are never shown to other users.</li>
         <li><strong>Apple Health data:</strong> With your permission, Ascend reads supported workout and health data from Apple HealthKit, such as workouts, steps, heart rate, and active energy, to import or enrich your workout history.</li>
         <li><strong>Photos, videos, notes, and feedback:</strong> Media and notes you attach to workouts, profile photos you upload, and feedback or support messages you send us.</li>
+        <li><strong>Safety and moderation information:</strong> The user IDs on your personal block list and profile reports you submit, including the reported user ID, selected reason, originating app surface, and submission time.</li>
         <li><strong>Purchase and subscription information:</strong> Trial, subscription, entitlement, restore-purchase, paywall interaction, and purchase-status information processed through Apple, RevenueCat, and Superwall.</li>
         <li><strong>Product usage analytics:</strong> Screen views, onboarding funnel events, feature interactions, paywall events, and other first-party product analytics collected through Firebase Analytics and Mixpanel in non-debug builds.</li>
         <li><strong>Notification data:</strong> Notification preferences, iOS notification permission state, and APNs/FCM push registration tokens used to send opted-in app notifications such as climb-drop alerts.</li>
@@ -123,14 +125,16 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         <li>Process subscriptions, trials, entitlements, paywalls, and restore-purchase flows.</li>
         <li>Analyze onboarding conversion, product usage, app quality, and crash trends.</li>
         <li>Respond to support requests and investigate bugs or abuse.</li>
+        <li>Hide identities you block and review profile reports for safety and moderation.</li>
         <li>Comply with legal, security, and App Store obligations.</li>
       </ul>
 
       <h2>Public and Shared Surfaces</h2>
-      <p>Ascend is built around competitive stair-stepper context. Some information may be visible to other users on profiles, leaderboards, climb history, and achievement surfaces. This may include your display name, profile photo, public profile statistics, city-level profile location, joined date, achievements, climb completions, leaderboard rankings, and public workout summaries. Your email address, authentication provider details, private account fields, and private workout backups are not meant for public display.</p>
+      <p>Ascend is built around competitive stair-stepper context. Some information may be visible to other users on profiles, leaderboards, climb history, and achievement surfaces. This may include your display name, profile photo, public profile statistics, city-level profile location, joined date, achievements, climb completions, leaderboard rankings, and public workout summaries. Your email address, authentication provider details, personal block list, submitted reports, private account fields, and private workout backups are not meant for public display.</p>
 
       <h2>Apple HealthKit</h2>
       <p>Ascend uses Apple HealthKit only with your permission. HealthKit data is used to provide workout import, workout enrichment, and related app functionality.</p>
+      <p>When HealthKit data is imported into or used to enrich an Ascend workout, the resulting workout record, including workout metrics and associated heart-rate samples, may sync to Firebase under your Ascend account for backup, restore, and cross-device access.</p>
       <ul>
         <li>We do not use HealthKit data for advertising, marketing, or cross-app tracking.</li>
         <li>We do not sell HealthKit data.</li>
@@ -141,6 +145,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 
       <h2>Analytics, Tracking, and Advertising</h2>
       <p>Ascend uses first-party analytics to understand whether onboarding, subscriptions, workouts, leaderboards, and core features are working. We use Firebase Analytics and Mixpanel for product analytics, Firebase Crashlytics and Sentry for crash reporting and diagnostics, and Superwall and RevenueCat for subscription and paywall analytics.</p>
+      <p>When you are signed in, Ascend sends your Ascend account user ID to Firebase Analytics, Mixpanel, Firebase Crashlytics, and Sentry so product usage and diagnostic events can be associated with your account. Firebase Analytics and Mixpanel collect app-specific device identifiers for analytics. Ascend sends the same account user ID to RevenueCat and Superwall so they can link subscription status and purchase history to your account across sessions and devices. Superwall also collects an app-specific vendor identifier for paywall analytics. Ascend also attaches profile demographics to Firebase Analytics and Mixpanel as account-level user properties: your gender or division (profile_gender), your age group (profile_age_group), your body-weight group (profile_weight_group), and your country (profile_country). Your onboarding fitness answers - stair-stepper experience (stair_stepper_exp), exercise level (exercise_level), motivation (motivation), planned weekly frequency (planned_frequency), and your selected goals (goal_*) - are attached as user properties as well. Your body-height group (profile_height_group) is sent to the same two providers as a parameter on the onboarding analytics event that records your body metrics, and the age-group and body-weight bands you choose as leaderboard filters (age_group, body_weight_filter) are sent as parameters on leaderboard filter events. When a paywall is skipped or fails to present, Ascend sends the paywall placement together with the paywall SDK's own skip reason (reason) or error description (error) to Firebase Analytics and Mixpanel as diagnostic parameters.</p>
       <p>Ascend does <strong>not</strong> sell personal information, does <strong>not</strong> use advertising networks, does <strong>not</strong> use the iOS advertising identifier (IDFA), and does <strong>not</strong> track you across other companies' apps or websites for targeted advertising. Because we do not perform App Tracking Transparency-style tracking, Ascend does not show the ATT prompt.</p>
 
       <h2>Third-Party Services</h2>
@@ -154,7 +159,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         <li><strong>Mixpanel:</strong> First-party product analytics and onboarding funnel measurement.</li>
         <li><strong>Sentry:</strong> Crash reporting, non-fatal error diagnostics, performance diagnostics, breadcrumbs, and release health investigation.</li>
         <li><strong>Resend:</strong> Email delivery. Resend receives the recipient email address and the contents of the message we send. When you send feedback or a support message, your email address is also used as the reply-to address on the notification sent to us.</li>
-        <li><strong>Beehiiv:</strong> Waitlist and newsletter subscription management. Beehiiv receives the email address you submit on the Ascend website, along with the signup source and campaign information for that submission.</li>
+        <li><strong>Beehiiv:</strong> Newsletter subscription management. Beehiiv holds the email addresses submitted through the Ascend website before waitlist signup was retired, along with the signup source and campaign information for those submissions.</li>
       </ul>
 
       <h2>Data Storage and Security</h2>
@@ -167,6 +172,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       <ul>
         <li><strong>Account data:</strong> You can update profile information in the app where supported.</li>
         <li><strong>Account deletion:</strong> You can delete your account in the app. You may also contact us if you need help.</li>
+        <li><strong>Blocking and reporting:</strong> You can block or report another profile from that profile's actions menu. You can reverse blocks in Ascend's Settings under Blocked climbers.</li>
         <li><strong>HealthKit:</strong> You can grant or revoke HealthKit permissions in iOS Settings or the Health app.</li>
         <li><strong>Notifications:</strong> You can enable or disable notification categories in Ascend where supported, and you can turn all notifications off in iOS Settings.</li>
         <li><strong>Emails:</strong> Climb and progress emails include an unsubscribe link, and you can change the same preference in Ascend's Settings under Notifications. Opting out stops climb and progress emails, including any already queued to send. Account, security, and other transactional messages still come through. If you joined the Ascend waitlist or newsletter, that is a separate subscription with its own unsubscribe link.</li>

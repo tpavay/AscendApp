@@ -1,5 +1,4 @@
 import {
-  getBetaInviteUrl,
   getMarketingWebsiteUrl,
   getTransactionalReplyToEmail,
 } from "./config";
@@ -13,7 +12,6 @@ import type {
   FirstClimbCompletedPayload,
   LeaderboardFirstPlacePayload,
   TransactionalEmailRenderResult,
-  WaitlistWelcomePayload,
 } from "./types";
 
 const BRAND_ACCENT_COLOR = "#86D30A";
@@ -177,7 +175,6 @@ function renderBrandedEmail(
   ].join("\n");
 
   const bodyHtml = escapedBody.map((paragraph) => [
-    // eslint-disable-next-line max-len
     "<p style=\"margin:0 0 18px;font-size:17px;line-height:1.65;color:#4b5563;max-width:500px;\">",
     paragraph,
     "</p>",
@@ -190,7 +187,6 @@ function renderBrandedEmail(
     ...(unsubscribeUrl ? [
       "<span style=\"color:#9ca3af;\"> &middot; </span><a href=\"",
       escapeHtml(unsubscribeUrl),
-      // eslint-disable-next-line max-len
       "\" style=\"color:#6b7280;text-decoration:underline;\">Unsubscribe</a>",
     ] : []),
   ].join("");
@@ -198,7 +194,6 @@ function renderBrandedEmail(
   const ctaHtml = [
     "<a href=\"",
     escapedCtaUrl,
-    // eslint-disable-next-line max-len
     "\" style=\"display:inline-block;padding:18px 24px;border-radius:16px;background:",
     BRAND_ACCENT_COLOR,
     ";color:#111111;font-size:16px;line-height:1;font-weight:800;",
@@ -212,29 +207,21 @@ function renderBrandedEmail(
     text,
     html: [
       "<!doctype html>",
-      // eslint-disable-next-line max-len
       "<html lang=\"en\" xmlns=\"http://www.w3.org/1999/xhtml\"><body style=\"margin:0;padding:0;background:#f4f2eb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#111111;\">",
-      // eslint-disable-next-line max-len
       "<div style=\"display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;\">",
       escapeHtml(content.preheader),
       "</div>",
-      // eslint-disable-next-line max-len
       "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"background:#f4f2eb;padding:24px 12px;\"><tr><td align=\"center\">",
-      // eslint-disable-next-line max-len
       "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"max-width:620px;background:#ffffff;border:1px solid rgba(17,17,17,0.08);border-radius:28px;overflow:hidden;\">",
-      // eslint-disable-next-line max-len
       "<tr><td style=\"background:#111111;padding:24px 30px;\"><table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\"><tr><td valign=\"middle\" style=\"padding-right:12px;\"><img src=\"",
       escapedIconUrl,
-      // eslint-disable-next-line max-len
       "\" width=\"38\" height=\"38\" alt=\"Ascend icon\" style=\"display:block;width:38px;height:38px;border:0;border-radius:9px;\" /></td><td valign=\"middle\" style=\"font-size:15px;line-height:1;color:#ffffff;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;\">Ascend</td></tr></table></td></tr>",
       "<tr><td style=\"padding:36px 30px 26px;\">",
-      // eslint-disable-next-line max-len
       "<p style=\"margin:0 0 16px;font-size:12px;line-height:1.3;color:",
       BRAND_ACCENT_COLOR,
       ";font-weight:700;letter-spacing:0.22em;text-transform:uppercase;\">",
       escapeHtml(content.eyebrow),
       "</p>",
-      // eslint-disable-next-line max-len
       "<h1 style=\"margin:0 0 20px;font-size:42px;line-height:1.02;font-weight:900;letter-spacing:-0.03em;color:#111111;\">",
       escapeHtml(content.headline),
       "</h1>",
@@ -242,161 +229,14 @@ function renderBrandedEmail(
       "<div style=\"padding-top:10px;text-align:center;\">",
       ctaHtml,
       "</div></td></tr>",
-      // eslint-disable-next-line max-len
       "<tr><td style=\"padding:0 30px 34px;\"><div style=\"border-top:1px solid rgba(17,17,17,0.08);padding-top:22px;text-align:center;\"><p style=\"margin:0 0 10px;font-size:13px;line-height:1.6;color:#9ca3af;\">",
       escapeHtml(content.whyReceived),
-      // eslint-disable-next-line max-len
       "</p><p style=\"margin:0 0 10px;font-size:13px;line-height:1.6;color:#9ca3af;\">Need help? Reply to this email.</p><p style=\"margin:0;font-size:13px;line-height:1.6;\">",
       footerLinksHtml,
       "</p></div></td></tr>",
       "</table></td></tr></table></body></html>",
     ].join(""),
   };
-}
-
-/**
- * Validates the payload for a waitlist welcome email.
- * @param {EmailJobPayload} payload - Stored job payload
- * @return {WaitlistWelcomePayload} Validated payload
- */
-function parseWaitlistWelcomePayload(
-  payload: EmailJobPayload
-): WaitlistWelcomePayload {
-  if (
-    !isPlainObject(payload) ||
-    typeof payload.source !== "string"
-  ) {
-    throw new Error("invalid_waitlist_welcome_payload");
-  }
-
-  return {
-    source: payload.source,
-  };
-}
-
-/**
- * Renders the waitlist welcome email content.
- * @param {WaitlistWelcomePayload} payload - Template payload
- * @return {TransactionalEmailRenderResult} Subject and rendered bodies
- */
-export function renderWaitlistWelcomeEmail(
-  payload: WaitlistWelcomePayload
-): TransactionalEmailRenderResult {
-  void payload;
-
-  const betaInviteUrl = getBetaInviteUrl();
-  const websiteUrl = getMarketingWebsiteUrl();
-  const iconUrl = `${websiteUrl}/images/ascend-a-icon.png`;
-  const privacyPolicyUrl = `${websiteUrl}/privacy`;
-  const primaryCtaUrl = betaInviteUrl ?? websiteUrl;
-  const primaryCtaLabel = betaInviteUrl ?
-    "Join the beta on TestFlight" :
-    "Visit ascendstepper.com";
-  const subject = betaInviteUrl ?
-    "You're in. Start testing Ascend on TestFlight" :
-    "You're on the Ascend waitlist";
-  const eyebrow = betaInviteUrl ? "Signup Confirmed" : "Waitlist Confirmed";
-  const headlineLeading = betaInviteUrl ? "START TESTING" : "YOU'RE ON";
-  const headlineAccent = betaInviteUrl ? "TODAY." : "THE LIST.";
-  const bodyCopy = betaInviteUrl ?
-    [
-      "Thanks for signing up for Ascend. We're currently in beta,",
-      "so you can start testing right away. No waiting required.",
-    ].join(" ") :
-    [
-      "Thanks for signing up for Ascend.",
-      "We'll email you when early access and launch details are ready.",
-    ].join(" ");
-  const helperCopy = betaInviteUrl ?
-    "You'll need Apple's TestFlight app installed." :
-    "We'll keep you posted when beta access opens.";
-  const escapedBetaInviteUrl = betaInviteUrl ? escapeHtml(betaInviteUrl) : null;
-  const escapedIconUrl = escapeHtml(iconUrl);
-  const escapedPrimaryCtaUrl = escapeHtml(primaryCtaUrl);
-  const escapedPrivacyPolicyUrl = escapeHtml(privacyPolicyUrl);
-
-  return {
-    subject,
-    text: [
-      betaInviteUrl ? "Start testing today." : "You're on the list.",
-      "",
-      bodyCopy,
-      helperCopy,
-      "",
-      `${primaryCtaLabel}: ${primaryCtaUrl}`,
-      "",
-      "Talk soon,",
-      "Tyler",
-      "Ascend",
-      "",
-      "Need help? Reply to this email.",
-      `Privacy Policy: ${privacyPolicyUrl}`,
-    ].join("\n"),
-    html: [
-      "<!doctype html>",
-      // eslint-disable-next-line max-len
-      "<html lang=\"en\" xmlns=\"http://www.w3.org/1999/xhtml\"><body style=\"margin:0;padding:0;background:#f4f2eb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#111111;\">",
-      // eslint-disable-next-line max-len
-      "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"background:#f4f2eb;padding:24px 12px;\"><tr><td align=\"center\">",
-      // eslint-disable-next-line max-len
-      "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"max-width:620px;background:#ffffff;border:1px solid rgba(17,17,17,0.08);border-radius:32px;overflow:hidden;\">",
-      // eslint-disable-next-line max-len
-      "<tr><td style=\"background:#111111;padding:28px 32px;\"><table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\"><tr><td valign=\"middle\" style=\"padding-right:14px;\"><img src=\"",
-      escapedIconUrl,
-      // eslint-disable-next-line max-len
-      "\" width=\"42\" height=\"42\" alt=\"Ascend icon\" style=\"display:block;width:42px;height:42px;border:0;border-radius:10px;\" /></td><td valign=\"middle\" style=\"font-size:16px;line-height:1;color:#ffffff;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;\">Ascend</td></tr></table></td></tr>",
-      // eslint-disable-next-line max-len
-      "<tr><td style=\"padding:40px 32px 24px;\"><p style=\"margin:0 0 18px;font-size:12px;line-height:1.3;color:",
-      BRAND_ACCENT_COLOR,
-      ";font-weight:700;letter-spacing:0.28em;text-transform:uppercase;\">",
-      eyebrow,
-      "</p>",
-      // eslint-disable-next-line max-len
-      "<h1 style=\"margin:0 0 20px;font-size:58px;line-height:0.94;font-weight:900;letter-spacing:-0.04em;color:#111111;\">",
-      headlineLeading,
-      "<br /><span style=\"color:",
-      BRAND_ACCENT_COLOR,
-      ";\">",
-      headlineAccent,
-      "</span></h1>",
-      // eslint-disable-next-line max-len
-      "<p style=\"margin:0 0 28px;font-size:18px;line-height:1.65;color:#4b5563;max-width:470px;\">",
-      bodyCopy.replace(/'/g, "&#39;").replace(/—/g, "&mdash;"),
-      "</p>",
-      // eslint-disable-next-line max-len
-      "<p style=\"margin:0 0 28px;font-size:15px;line-height:1.6;color:#9ca3af;text-align:center;\">",
-      helperCopy.replace(/'/g, "&#39;"),
-      "</p>",
-      "<div style=\"text-align:center;\">",
-      // eslint-disable-next-line max-len
-      "<a href=\"",
-      betaInviteUrl ? escapedBetaInviteUrl : escapedPrimaryCtaUrl,
-      // eslint-disable-next-line max-len
-      "\" style=\"display:inline-block;padding:20px 28px;border-radius:18px;background:",
-      BRAND_ACCENT_COLOR,
-      ";color:#111111;font-size:18px;line-height:1;font-weight:800;",
-      "text-decoration:none;text-transform:uppercase;letter-spacing:0.04em;\">",
-      primaryCtaLabel,
-      "</a></div></td></tr>",
-      // eslint-disable-next-line max-len
-      "<tr><td style=\"padding:0 32px 36px;\"><div style=\"border-top:1px solid rgba(17,17,17,0.08);padding-top:24px;text-align:center;\"><p style=\"margin:0 0 10px;font-size:14px;line-height:1.6;color:#9ca3af;\">You received this because you signed up at ascendstepper.com.</p><p style=\"margin:0 0 10px;font-size:14px;line-height:1.6;color:#9ca3af;\">Need help? Reply to this email.</p><p style=\"margin:0;font-size:14px;line-height:1.6;\"><a href=\"",
-      escapedPrivacyPolicyUrl,
-      // eslint-disable-next-line max-len
-      "\" style=\"color:#6b7280;text-decoration:underline;\">Privacy Policy</a></p></div></td></tr>",
-      "</table></td></tr></table></body></html>",
-    ].join(""),
-  };
-}
-
-/**
- * Validates and renders a waitlist welcome email from a generic payload.
- * @param {EmailJobPayload} payload - Stored job payload
- * @return {TransactionalEmailRenderResult} Subject and rendered bodies
- */
-export function renderWaitlistWelcomeEmailFromPayload(
-  payload: EmailJobPayload
-): TransactionalEmailRenderResult {
-  return renderWaitlistWelcomeEmail(parseWaitlistWelcomePayload(payload));
 }
 
 // =============================================================================
@@ -892,51 +732,39 @@ export function renderFeedbackAdminNotifyEmail(
     `Feedback ID: ${payload.feedbackId}`,
   ].join("\n");
 
-  // eslint-disable-next-line max-len
   const metaRow = (labelText: string, value: string): string => `<tr><td style="padding:6px 12px 6px 0;font-size:13px;color:#9ca3af;white-space:nowrap;vertical-align:top;">${labelText}</td><td style="padding:6px 0;font-size:13px;color:#374151;">${value}</td></tr>`;
 
   const html = [
     "<!doctype html>",
-    // eslint-disable-next-line max-len
     "<html lang=\"en\"><body style=\"margin:0;padding:0;background:#f4f2eb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#111111;\">",
-    // eslint-disable-next-line max-len
     "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"background:#f4f2eb;padding:24px 12px;\"><tr><td align=\"center\">",
-    // eslint-disable-next-line max-len
     "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"max-width:620px;background:#ffffff;border:1px solid rgba(17,17,17,0.08);border-radius:24px;overflow:hidden;\">",
 
     // Header
-    // eslint-disable-next-line max-len
     "<tr><td style=\"background:#111111;padding:20px 28px;\"><span style=\"font-size:14px;color:#ffffff;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;\">Ascend Feedback</span></td></tr>",
 
     // Type badge + user
     "<tr><td style=\"padding:28px 28px 0;\">",
-    // eslint-disable-next-line max-len
     `<span style="display:inline-block;padding:6px 14px;border-radius:8px;background:${color};color:#ffffff;font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;">${escapedLabel}</span>`,
-    // eslint-disable-next-line max-len
     `<p style="margin:14px 0 0;font-size:14px;color:#6b7280;">From <strong style="color:#111111;">${escapedEmail}</strong></p>`,
     "</td></tr>",
 
     // Message
     "<tr><td style=\"padding:20px 28px;\">",
-    // eslint-disable-next-line max-len
     `<div style="padding:16px 20px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;font-size:15px;line-height:1.65;color:#374151;white-space:pre-wrap;">${escapedMessage}</div>`,
     "</td></tr>",
 
     // Metadata
     "<tr><td style=\"padding:0 28px 28px;\">",
-    // eslint-disable-next-line max-len
     "<table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"width:100%;\">",
     metaRow("User ID", escapedUserId),
-    // eslint-disable-next-line max-len
     metaRow("Device", `${escapedDevice}, iOS ${escapedOs}`),
-    // eslint-disable-next-line max-len
     metaRow("App Version", `v${escapedAppVersion} (${escapedBuild})`),
     metaRow("Feedback ID", escapedFeedbackId),
     "</table>",
     "</td></tr>",
 
     // Footer
-    // eslint-disable-next-line max-len
     "<tr><td style=\"padding:0 28px 24px;\"><div style=\"border-top:1px solid rgba(17,17,17,0.08);padding-top:16px;text-align:center;\"><p style=\"margin:0;font-size:12px;color:#9ca3af;\">Reply to this email to respond directly to the user.</p></div></td></tr>",
 
     "</table></td></tr></table></body></html>",

@@ -28,6 +28,11 @@ import {
   seededReplayCompletedCount,
   staleWorkoutDocumentIds,
 } from "./lib/workout-document-id.mjs";
+import {currentPeriod, utcDate} from "./lib/leaderboard-period.mjs";
+import {
+  PUBLIC_IDENTITY_STATE_PUBLISHED,
+  firstAscentSeedFields,
+} from "./seed/lib/live-replay-first-ascent.mjs";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
@@ -291,7 +296,7 @@ async function main() {
     `Seeded demo account ${seedPlan.user.uid} with ` +
       `${seedPlan.workouts.length} workouts, ` +
       `${seedPlan.liveContexts.length} replay context(s), and ` +
-      `${TIME_FRAMES.length} leaderboard stat rows.`
+      `${seedPlan.leaderboardRowCount} leaderboard stat rows.`
   );
 }
 
@@ -396,13 +401,22 @@ async function buildSeedPlan(db, catalog, authUser, args) {
     ]);
   }
 
+  let leaderboardRowCount = 0;
   for (const timeFrame of TIME_FRAMES) {
     const totals = leaderboardTotals(workouts, timeFrame);
     const period = currentPeriod(timeFrame, now);
-    writes.push([
-      db.collection("leaderboard_stats").doc(leaderboardDocId(user.uid, timeFrame, period.key)),
-      leaderboardStatsData(user, timeFrame, period, totals),
-    ]);
+    const statsRef = db
+      .collection("leaderboard_stats")
+      .doc(leaderboardDocId(user.uid, timeFrame, period.key));
+    // The server derivation publishes no row for a period with no eligible
+    // workouts and removes any it finds, so seeding one here would be undone on
+    // the next trigger.
+    if (totals.totalWorkouts === 0) {
+      deletes.push(statsRef);
+      continue;
+    }
+    writes.push([statsRef, leaderboardStatsData(user, timeFrame, period, totals)]);
+    leaderboardRowCount += 1;
   }
 
   await addReplayWrites(db, writes, deletes, user, liveContexts, args);
@@ -423,7 +437,19 @@ async function buildSeedPlan(db, catalog, authUser, args) {
     workouts,
     liveContexts,
     stats,
+    leaderboardRowCount,
   };
+}
+
+/**
+ * Document ids an earlier seed run wrote for the same fixture entity before ids were
+ * canonicalized to uppercase. Re-seeding must remove them or every consumer keyed by
+ * document id keeps a ghost row alongside the canonical one.
+ * @param {string} canonicalId Uppercase canonical UUID document id.
+ * @return {string[]} Stale ids to delete, empty when none can exist.
+ */
+function staleDocumentIds(canonicalId) {
+  return [canonicalId.toLowerCase()].filter((id) => id !== canonicalId);
 }
 
 function userSnapshot(authUser, args) {
@@ -475,6 +501,8 @@ function publicProfileData(user, args, joinedAt) {
     userId: user.uid,
     displayName: user.displayName,
     photoURL: user.photoURL,
+    identityPolicyVersion: 1,
+    identityChangedAt: FieldValue.serverTimestamp(),
     age: args.age,
     gender: args.gender,
     weight_kg: roundTo(args.weightKg, 1),
@@ -730,14 +758,17 @@ async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
     };
 
     if (forceFirstAscent) {
-      Object.assign(summaryData, {
-        firstAscentAvatarToken: user.avatarToken,
-        firstAscentCompletedAt: Timestamp.fromDate(context.completedAt),
-        firstAscentDisplayName: user.displayName,
-        firstAscentPhotoURL: user.photoURL,
-        firstAscentUserId: user.uid,
-        firstAscentWorkoutId: context.workoutId,
-      });
+      Object.assign(summaryData, firstAscentSeedFields(
+        {
+          avatarToken: user.avatarToken,
+          displayName: user.displayName,
+          id: context.workoutId,
+          photoURL: user.photoURL,
+          userId: user.uid,
+        },
+        Timestamp.fromDate(context.completedAt),
+        {isSynthetic: false}
+      ));
     }
 
     writes.push([leaderboardRef, summaryData]);
@@ -751,6 +782,8 @@ async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
         firstCompletedAt: Timestamp.fromDate(context.completedAt),
         firstWorkoutId: context.workoutId,
         globalCompletionOrder: finisherOrder,
+        identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
+        isSynthetic: false,
         photoURL: user.photoURL,
         schemaVersion: REPLAY_SCHEMA_VERSION,
         updatedAt: FieldValue.serverTimestamp(),
@@ -781,7 +814,9 @@ async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
           displayName: user.displayName,
           finalSteps: context.finalSteps,
           ...bestForUserField(context),
+          identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
           isPersonalBest: true,
+          isSynthetic: false,
           photoURL: user.photoURL,
           schemaVersion: REPLAY_SCHEMA_VERSION,
           splitBucketCount: context.splitSteps.length,
@@ -987,6 +1022,12 @@ function achievementPeriod(type, periodKey, earnedAt) {
   };
 }
 
+// Mirrors aggregateForPeriod in functions/src/leaderboardStats.ts. The demo user
+// has real seeded workouts, so the server derivation owns this row and rebuilds
+// it from them on the next trigger. Any total this seed asserts that those
+// workouts do not support - the step floors this used to apply - survives only
+// until then, and a seeded standing its own evidence contradicts is exactly the
+// shape issue #307 exists to stop.
 function leaderboardTotals(workouts, timeFrame) {
   const now = new Date();
   const period = currentPeriod(timeFrame, now);
@@ -998,24 +1039,14 @@ function leaderboardTotals(workouts, timeFrame) {
   const totalFloors = included.reduce((sum, workout) => sum + workout.floors, 0);
   const totalWorkouts = included.length;
   const totalDuration = included.reduce((sum, workout) => sum + workout.durationSeconds, 0);
-
-  const minimumStepsByTimeFrame = {
-    daily: 2096,
-    weekly: 48000,
-    monthly: 145000,
-    yearly: 640000,
-    all_time: 720000,
-  };
-  const resolvedSteps = Math.max(totalSteps, minimumStepsByTimeFrame[timeFrame] ?? totalSteps);
-  const durationScale = totalSteps > 0 ? resolvedSteps / totalSteps : 1;
-  const resolvedDuration = Math.max(totalDuration * durationScale, resolvedSteps / 92 * 60);
+  const minutes = totalDuration / 60;
 
   return {
-    totalSteps: Math.round(resolvedSteps),
-    totalFloors: Math.round(resolvedSteps / STEPS_PER_FLOOR),
-    totalWorkouts: Math.max(totalWorkouts, timeFrame === "daily" ? 1 : 3),
-    totalDuration: Math.round(resolvedDuration),
-    stepsPerMinute: stepsPerMinute(resolvedSteps, resolvedDuration),
+    totalSteps,
+    totalFloors,
+    totalWorkouts,
+    totalDuration,
+    stepsPerMinute: minutes > 0 ? totalSteps / minutes : 0,
   };
 }
 
@@ -1024,6 +1055,9 @@ function leaderboardStatsData(user, timeFrame, period, totals) {
     userId: user.uid,
     displayName: user.displayName,
     photoURL: user.photoURL,
+    identityPolicyVersion: 1,
+    identityChangedAt: FieldValue.serverTimestamp(),
+    identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
     timeFrame,
     schemaVersion: LEADERBOARD_SCHEMA_VERSION,
     periodKey: period.key,
@@ -1039,80 +1073,6 @@ function leaderboardStatsData(user, timeFrame, period, totals) {
 
 function leaderboardDocId(userId, timeFrame, periodKey) {
   return `${timeFrame}_${periodKey}_${userId}`;
-}
-
-function currentPeriod(timeFrame, date = new Date()) {
-  switch (timeFrame) {
-    case "daily": {
-      const startAt = utcDate(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-      return {
-        key: `${startAt.getUTCFullYear()}-${String(startAt.getUTCMonth() + 1).padStart(2, "0")}-${String(startAt.getUTCDate()).padStart(2, "0")}`,
-        startAt,
-      };
-    }
-    case "weekly": {
-      const startAt = startOfWeekUTC(date);
-      const {year, week} = weekInfoUTC(date);
-      return {
-        key: `${year}-W${String(week).padStart(2, "0")}`,
-        startAt,
-      };
-    }
-    case "monthly": {
-      const startAt = utcDate(date.getUTCFullYear(), date.getUTCMonth(), 1);
-      return {
-        key: `${startAt.getUTCFullYear()}-M${String(startAt.getUTCMonth() + 1).padStart(2, "0")}`,
-        startAt,
-      };
-    }
-    case "yearly": {
-      const startAt = utcDate(date.getUTCFullYear(), 0, 1);
-      return {
-        key: `${startAt.getUTCFullYear()}`,
-        startAt,
-      };
-    }
-    case "all_time":
-      return {
-        key: "all",
-        startAt: new Date(0),
-      };
-    default:
-      throw new Error(`Unsupported time frame ${timeFrame}`);
-  }
-}
-
-function utcDate(year, month, day) {
-  return new Date(Date.UTC(year, month, day));
-}
-
-function startOfWeekUTC(date) {
-  const start = utcDate(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-  const daysSinceMonday = (start.getUTCDay() + 6) % 7;
-  start.setUTCDate(start.getUTCDate() - daysSinceMonday);
-  return start;
-}
-
-function weekInfoUTC(date) {
-  const normalizedDate = utcDate(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-  const weekStart = startOfWeekUTC(normalizedDate);
-  const calendarYear = normalizedDate.getUTCFullYear();
-  const firstWeekStart = startOfWeekUTC(utcDate(calendarYear, 0, 1));
-
-  if (weekStart < firstWeekStart) {
-    return weekInfoUTC(utcDate(calendarYear - 1, 11, 31));
-  }
-
-  const nextYearFirstWeekStart = startOfWeekUTC(utcDate(calendarYear + 1, 0, 1));
-  if (weekStart >= nextYearFirstWeekStart) {
-    return {year: calendarYear + 1, week: 1};
-  }
-
-  const diffDays = Math.round((weekStart.getTime() - firstWeekStart.getTime()) / (1000 * 60 * 60 * 24));
-  return {
-    year: calendarYear,
-    week: Math.floor(diffDays / 7) + 1,
-  };
 }
 
 function loadCatalog() {

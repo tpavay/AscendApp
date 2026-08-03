@@ -10,13 +10,13 @@ import Foundation
 /// Keying pedestals by rank instead would silently drop climbers: competition ranking
 /// repeats ranks, so a tie collapses two climbers onto one pedestal and only the last
 /// one survives.
-struct LeaderboardPodiumLayout: Equatable {
+struct ModeratedLeaderboardPodiumLayout: Equatable {
     static let slotCount = 3
 
     struct Slot: Identifiable, Equatable {
         /// 1 is the centre pedestal, 2 the left, 3 the right.
         let position: Int
-        let entry: LeaderboardEntry?
+        let entry: ModeratedLeaderboardEntry?
 
         var id: Int { position }
 
@@ -34,7 +34,7 @@ struct LeaderboardPodiumLayout: Equatable {
     /// Pedestals in display order: left, centre, right.
     let slots: [Slot]
 
-    init(entries: [LeaderboardEntry]) {
+    init(entries: [ModeratedLeaderboardEntry]) {
         let ordered = Self.podiumEntries(from: entries)
 
         slots = [2, 1, 3].map { position in
@@ -50,13 +50,17 @@ struct LeaderboardPodiumLayout: Equatable {
     /// Splitting on `rank <= 3` instead would drop any climber past the third pedestal
     /// who still holds a top-three rank (four climbers tied for 2nd, say) from the
     /// podium and the list at once.
-    static func podiumEntries(from entries: [LeaderboardEntry]) -> [LeaderboardEntry] {
+    static func podiumEntries(
+        from entries: [ModeratedLeaderboardEntry]
+    ) -> [ModeratedLeaderboardEntry] {
         Array(entries.prefix(slotCount))
     }
 
     /// Everyone below the podium. Together with `podiumEntries` this covers every entry
     /// exactly once.
-    static func listEntries(from entries: [LeaderboardEntry]) -> [LeaderboardEntry] {
+    static func listEntries(
+        from entries: [ModeratedLeaderboardEntry]
+    ) -> [ModeratedLeaderboardEntry] {
         Array(entries.dropFirst(slotCount))
     }
 }

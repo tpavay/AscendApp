@@ -29,9 +29,10 @@ struct WorkoutDetailView: View {
     @State private var isDeleting = false
     @State private var isCancelling = false
     @State private var deleteTask: Task<Void, Never>? = nil
+    @State private var appleHealthRetryTask: Task<Void, Never>? = nil
+    @State private var appleHealthFetchTask: Task<Void, Never>? = nil
+    @State private var copyConfirmationTask: Task<Void, Never>? = nil
     @State private var showingLiveClimbSummaryPreview = false
-    @State private var liveClimbCompletionRank: LiveReplayCompletionRank?
-    @State private var isLoadingLiveClimbRank = false
     @State private var copyConfirmationText: String?
     @State private var isFetchingAppleHealthHeartRate = false
     @State private var appleHealthHeartRateMessage: String?
@@ -45,7 +46,18 @@ struct WorkoutDetailView: View {
 
     // Scroll tracking for traditional layout nav bar title
     @State private var scrolledPastTitle = false
-    @State private var scrollContentOffset: CGFloat = 0
+
+    /// Scroll distance at which the inline title has passed behind the header and
+    /// the nav bar takes over showing it.
+    static let navigationTitleRevealOffset: CGFloat = 100
+
+    /// Whether the nav bar should show the title, as a pure function of how far the
+    /// content has scrolled. Keeping the rule here rather than inline in the scroll
+    /// handler is what lets a test feed it a whole scroll trace and count how many
+    /// times the answer - and therefore the state write - actually changes.
+    static func revealsNavigationTitle(scrolledDistance: CGFloat) -> Bool {
+        scrolledDistance > navigationTitleRevealOffset
+    }
 
     init(workout: Workout, embedsInNavigationStack: Bool = true) {
         self.workout = workout
@@ -75,19 +87,24 @@ struct WorkoutDetailView: View {
     }
 
     private var content: some View {
-        ZStack {
+        // Resolved once here and threaded down, so a render pass decodes the
+        // headphone-motion metadata and the heart-rate blob once apiece instead of
+        // once per reader. See `WorkoutDetailDerivedContent`.
+        let derived = WorkoutDetailDerivedContent(workout: workout)
+
+        return ZStack {
             (effectiveColorScheme == .dark ? Color.black : Color.white)
                 .ignoresSafeArea()
 
             if hasMedia {
-                workoutMediaLayout
+                workoutMediaLayout(derived)
             } else {
-                traditionalLayout
+                traditionalLayout(derived)
             }
         }
         .navigationBarHidden(true)
         .overlay(alignment: .top) {
-            adaptiveHeader
+            adaptiveHeader(derived)
         }
         .sheet(isPresented: $showingEditWorkout) {
             EditWorkoutView(
@@ -101,20 +118,19 @@ struct WorkoutDetailView: View {
         }
         .fullScreenCover(isPresented: $showingLiveClimbSummaryPreview) {
             if liveClimbSummaryMetadata?.climbId == nil || liveClimbDetailClimb != nil {
+                // The summary owns rank resolution: it reads the frozen server snapshot once and
+                // reuses it. Fetching a rank here too would be the second, disagreeing source the
+                // leaderboard audit flagged, and would refetch on every open.
                 LiveClimbCompletionSummaryView(
                     climb: liveClimbDetailClimb,
                     workout: workout,
-                    leaderboardRank: liveClimbCompletionRank?.rank,
-                    leaderboardTotal: liveClimbCompletionRank?.completedCount,
+                    leaderboardRank: nil,
+                    leaderboardTotal: nil,
+                    leaderboardRankBasis: .current,
                     allowsRatingPrompt: false,
                     leaderboardContext: liveClimbSummaryLeaderboardContext,
                     rankingLabelOverride: liveClimbSummaryRankingLabelOverride,
-                    completedDetailOverride: liveClimbSummaryCompletedDetailText,
-                    unrankedValueText: liveClimbSummaryLeaderboardContext == nil ? "Complete" : "Checking",
-                    unrankedDetailText: liveClimbSummaryLeaderboardContext == nil ?
-                        liveClimbSummaryCompletedDetailText :
-                        "LOOKING FOR YOUR RANK",
-                    showsPendingRankingState: liveClimbSummaryLeaderboardContext != nil,
+                    ranksOnLeaderboard: liveClimbSummaryLeaderboardContext != nil,
                     onDone: {
                         showingLiveClimbSummaryPreview = false
                     }
@@ -132,13 +148,24 @@ struct WorkoutDetailView: View {
         }
         .task(id: workout.id) {
             refreshAppleHealthHeartRateStatus()
-            await loadLiveClimbCompletionRankIfNeeded()
             await retryAppleHealthEnrichmentIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            Task {
+            appleHealthRetryTask?.cancel()
+            appleHealthRetryTask = Task {
                 await retryAppleHealthEnrichmentIfNeeded()
             }
+        }
+        .onDisappear {
+            // Everything this screen started goes away with it. `.task(id:)` cancels
+            // itself; these are unstructured and would otherwise outlive the screen,
+            // still holding the workout and still writing to state nobody reads.
+            appleHealthRetryTask?.cancel()
+            appleHealthRetryTask = nil
+            appleHealthFetchTask?.cancel()
+            appleHealthFetchTask = nil
+            copyConfirmationTask?.cancel()
+            copyConfirmationTask = nil
         }
         .onChange(of: showingEditWorkout) { _, isShowing in
             if !isShowing && hasMedia {
@@ -187,7 +214,7 @@ struct WorkoutDetailView: View {
     // MARK: - Media Layout
 
     @ViewBuilder
-    private var workoutMediaLayout: some View {
+    private func workoutMediaLayout(_ derived: WorkoutDetailDerivedContent) -> some View {
         GeometryReader { geometry in
             ZStack(alignment: .top) {
                 let heroHeight = sheetOffset > 0 ? sheetOffset : sheetPosition.photoHeight(in: geometry)
@@ -213,13 +240,13 @@ struct WorkoutDetailView: View {
                 .animation(.spring(response: 0.35, dampingFraction: 0.8), value: sheetPosition)
 
                 DraggableDetailSheet(position: $sheetPosition, currentOffset: $sheetOffset) {
-                    sheetDetailContent(in: geometry)
+                    sheetDetailContent(derived)
                 }
             }
         }
     }
 
-    private func sheetDetailContent(in geometry: GeometryProxy) -> some View {
+    private func sheetDetailContent(_ derived: WorkoutDetailDerivedContent) -> some View {
         ScrollableDetailContent(sheetPosition: $sheetPosition) {
             VStack(spacing: 24) {
                 MediaUploadBanner(workoutId: workout.id) {
@@ -231,7 +258,7 @@ struct WorkoutDetailView: View {
                     }
                 }
 
-                workoutContentSections
+                workoutContentSections(derived)
             }
             .padding(.horizontal, 20)
             .padding(.top, sheetPosition == .expanded ? 60 : 8)
@@ -240,10 +267,10 @@ struct WorkoutDetailView: View {
 
     // MARK: - Traditional Layout (No Media)
 
-    private var traditionalLayout: some View {
+    private func traditionalLayout(_ derived: WorkoutDetailDerivedContent) -> some View {
         ScrollView {
             VStack(spacing: 24) {
-                // Title row — scrolls naturally behind the opaque nav bar
+                // Title row - scrolls naturally behind the opaque nav bar
                 WorkoutTitleRow(
                     workoutName: workout.name,
                     dateText: formatWorkoutDateTime(),
@@ -263,7 +290,7 @@ struct WorkoutDetailView: View {
                     }
                 }
 
-                workoutContentSectionsWithoutTitle
+                workoutContentSectionsWithoutTitle(derived)
 
                 // Photos section
                 WorkoutPhotosSection(workout: workout)
@@ -272,32 +299,25 @@ struct WorkoutDetailView: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
-            .overlay(alignment: .top) {
-                // Scroll offset tracker — pinned to top of content
-                GeometryReader { geo in
-                    let minY = geo.frame(in: .global).minY
-                    Color.clear
-                        .onChange(of: minY) { _, newValue in
-                            scrollContentOffset = newValue
-                            // Title text is at ~96pt from content top (16pt padding + 80pt offset).
-                            // When the content top (minY) has scrolled so the title is behind the
-                            // nav bar, show the nav bar title. The safe area top + nav bar ≈ 100pt.
-                            let shouldShow = newValue < -40
-                            if shouldShow != scrolledPastTitle {
-                                scrolledPastTitle = shouldShow
-                            }
-                        }
-                }
-                .frame(height: 0)
-            }
         }
         .scrollIndicators(.hidden)
+        // Reduces the scroll to the one bit the header cares about, so the action
+        // fires on the two threshold crossings rather than on every scroll tick.
+        // The GeometryReader overlay this replaces re-resolved the content's global
+        // frame every frame to store an offset nothing read.
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            Self.revealsNavigationTitle(
+                scrolledDistance: geometry.contentOffset.y + geometry.contentInsets.top
+            )
+        } action: { _, shouldReveal in
+            scrolledPastTitle = shouldReveal
+        }
     }
 
     // MARK: - Shared Content Sections
 
     /// All content sections (used in sheet detail for media layout)
-    private var workoutContentSections: some View {
+    private func workoutContentSections(_ derived: WorkoutDetailDerivedContent) -> some View {
         Group {
             // Hide inline title when sheet is expanded (nav bar shows it instead)
             if sheetPosition != .expanded {
@@ -311,14 +331,14 @@ struct WorkoutDetailView: View {
 
             }
 
-            workoutContentSectionsWithoutTitle
+            workoutContentSectionsWithoutTitle(derived)
 
             Spacer(minLength: 40)
         }
     }
 
     /// Content sections after the title (shared between both layouts)
-    private var workoutContentSectionsWithoutTitle: some View {
+    private func workoutContentSectionsWithoutTitle(_ derived: WorkoutDetailDerivedContent) -> some View {
         Group {
             // Notes (blockquote style)
             if !workout.notes.isEmpty {
@@ -344,7 +364,7 @@ struct WorkoutDetailView: View {
                 )
             }
 
-            if canOpenLiveClimbSummary {
+            if derived.canOpenLiveClimbSummary {
                 LiveClimbSummaryLinkRow(
                     climb: liveClimbDetailClimb,
                     effectiveColorScheme: effectiveColorScheme,
@@ -354,13 +374,11 @@ struct WorkoutDetailView: View {
                 )
             }
 
-            if shouldShowHeartRateSection {
-                heartRateSection
-            }
+            heartRateSectionIfNeeded(derived)
 
-            if shouldShowPaceSplitsSection {
+            if derived.showsPaceSplits {
                 WorkoutPaceSplitsSection(
-                    splits: workoutPaceSplits,
+                    splits: derived.paceSplits,
                     averageStepsPerMinute: workout.stepsPerMinute,
                     effectiveColorScheme: effectiveColorScheme
                 )
@@ -392,7 +410,7 @@ struct WorkoutDetailView: View {
 
     // MARK: - Adaptive Header
 
-    private var adaptiveHeader: some View {
+    private func adaptiveHeader(_ derived: WorkoutDetailDerivedContent) -> some View {
         VStack(spacing: 0) {
             HStack {
                 OnboardingBackButton {
@@ -419,7 +437,7 @@ struct WorkoutDetailView: View {
 
                 // Menu button
                 Menu {
-                    menuContent
+                    menuContent(derived)
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 18, weight: .medium))
@@ -495,7 +513,7 @@ struct WorkoutDetailView: View {
     // MARK: - Menu
 
     @ViewBuilder
-    private var menuContent: some View {
+    private func menuContent(_ derived: WorkoutDetailDerivedContent) -> some View {
         Button(action: {
             showingShareWorkoutView = true
         }) {
@@ -506,7 +524,7 @@ struct WorkoutDetailView: View {
             Label("Copy Workout Text", systemImage: "doc.on.doc")
         }
 
-        if canOpenLiveClimbSummary {
+        if derived.canOpenLiveClimbSummary {
             Button {
                 showingLiveClimbSummaryPreview = true
             } label: {
@@ -531,10 +549,6 @@ struct WorkoutDetailView: View {
         }
     }
 
-    private var canOpenLiveClimbSummary: Bool {
-        liveClimbSummaryMetadata != nil
-    }
-
     @MainActor
     private var liveClimbDetailClimb: Climb? {
         LiveClimbWorkoutSummaryData.climb(for: workout)
@@ -546,75 +560,42 @@ struct WorkoutDetailView: View {
 
     @MainActor
     private var liveClimbSummaryLeaderboardContext: LiveReplayLeaderboardContext? {
-        guard let metadata = liveClimbSummaryMetadata else { return nil }
-
-        switch metadata.trackingMode {
-        case .liveClimb:
-            guard let climb = liveClimbDetailClimb else { return nil }
-            return .liveClimb(
-                climbId: climb.id,
-                targetSteps: climb.referenceStepCount
-            )
-
-        case .justClimb:
-            return .justClimbGlobal(targetSteps: justClimbSummaryTargetSteps(metadata: metadata))
-
-        case .routine:
-            guard let templateId = metadata.routineTemplateId,
-                  !templateId.isEmpty else {
-                return nil
-            }
-
-            return .routineTemplate(
-                templateId: templateId,
-                targetSteps: summaryTargetSteps(metadata: metadata)
-            )
-
-        case nil:
-            guard metadata.climbId == nil else { return nil }
-            return .justClimbGlobal(targetSteps: justClimbSummaryTargetSteps(metadata: metadata))
-        }
-    }
-
-    @MainActor
-    private var liveClimbSummaryRankingLabelOverride: String? {
-        guard liveClimbSummaryMetadata?.trackingMode == .routine else { return nil }
-        return liveClimbSummaryLeaderboardContext == nil ? "ROUTINE" : "ROUTINE RANK"
-    }
-
-    private var liveClimbSummaryCompletedDetailText: String {
-        switch liveClimbSummaryMetadata?.trackingMode {
-        case .routine:
-            return "ROUTINE COMPLETE"
-        case .liveClimb:
-            return "LIVE CLIMB COMPLETE"
-        case .justClimb, nil:
-            return "WORKOUT COMPLETE"
-        }
-    }
-
-    private func summaryTargetSteps(metadata: HeadphoneMotionWorkoutMetadata) -> Int {
-        max(metadata.targetStepCount ?? workout.steps, workout.steps, 1)
-    }
-
-    private func justClimbSummaryTargetSteps(metadata: HeadphoneMotionWorkoutMetadata) -> Int {
-        max(
-            metadata.targetStepCount ?? JustClimbGoal.defaultOpenStepScale,
-            JustClimbGoal.defaultOpenStepScale,
-            workout.steps,
-            1
+        LiveClimbWorkoutSummaryData.leaderboardContext(
+            metadata: liveClimbSummaryMetadata,
+            resolvedClimbId: liveClimbDetailClimb?.id,
+            climbTargetSteps: liveClimbDetailClimb?.referenceStepCount,
+            workoutSteps: workout.steps
         )
     }
 
+    private var liveClimbSummaryRankingLabelOverride: String? {
+        liveClimbSummaryMetadata?.trackingMode == .routine ? "ROUTINE RANK" : nil
+    }
+
+    /// Decodes the stored series exactly once per render pass and hands it to every predicate that
+    /// needs it - the decode is a full JSON pass over the sample array.
     @ViewBuilder
-    private var heartRateSection: some View {
-        if hasHeartRateData {
+    private func heartRateSectionIfNeeded(_ derived: WorkoutDetailDerivedContent) -> some View {
+        if shouldShowHeartRateSection(derived) {
+            heartRateSection(derived)
+        }
+    }
+
+    @ViewBuilder
+    private func heartRateSection(_ derived: WorkoutDetailDerivedContent) -> some View {
+        if derived.heartRateSeries.isEmpty == false {
             HeartRateChartView(
-                heartRateData: workout.heartRateTimeSeries,
+                heartRateData: derived.heartRateSeries,
                 workoutStartTime: workout.date,
                 workoutDuration: workout.duration,
                 averageHeartRateBpm: workout.avgHeartRate,
                 maxHeartRateBpm: workout.maxHeartRate
+            )
+        } else if shouldShowRemoteHeartRateRestore(derived) {
+            WorkoutHeartRateRestoreCard(
+                status: workout.heartRateRestoreStatus,
+                effectiveColorScheme: effectiveColorScheme,
+                onRetry: retryRemoteHeartRateRestore
             )
         } else if shouldShowAppleHealthHeartRateRecovery {
             WorkoutHeartRateRecoveryCard(
@@ -628,14 +609,22 @@ struct WorkoutDetailView: View {
         }
     }
 
-    private var hasHeartRateData: Bool {
-        !workout.heartRateTimeSeries.isEmpty ||
+    private func hasHeartRateData(heartRateSamples: [HeartRateDataPoint]) -> Bool {
+        !heartRateSamples.isEmpty ||
             workout.avgHeartRate != nil ||
             workout.maxHeartRate != nil
     }
 
-    private var shouldShowHeartRateSection: Bool {
-        hasHeartRateData || shouldShowAppleHealthHeartRateRecovery
+    private func shouldShowHeartRateSection(_ derived: WorkoutDetailDerivedContent) -> Bool {
+        hasHeartRateData(heartRateSamples: derived.heartRateSeries) ||
+            shouldShowRemoteHeartRateRestore(derived) ||
+            shouldShowAppleHealthHeartRateRecovery
+    }
+
+    private func shouldShowRemoteHeartRateRestore(_ derived: WorkoutDetailDerivedContent) -> Bool {
+        workout.lastRemoteHeartRateSeriesStoragePath != nil &&
+            derived.heartRateSeries.isEmpty &&
+            workout.heartRateRestoreStatus.treatsLocalAbsenceAsAuthoritative == false
     }
 
     private var shouldShowAppleHealthHeartRateRecovery: Bool {
@@ -644,36 +633,6 @@ struct WorkoutDetailView: View {
             return true
         case .notPending, .complete:
             return false
-        }
-    }
-
-    private var workoutPaceSplits: [LiveClimbPaceSplit] {
-        guard let metadata = liveClimbSummaryMetadata else { return [] }
-
-        return LiveClimbWorkoutSummaryData.paceSplits(
-            for: workout,
-            targetSteps: summaryTargetSteps(metadata: metadata)
-        )
-    }
-
-    private var shouldShowPaceSplitsSection: Bool {
-        workout.isInAppSensorWorkout &&
-            hasRecordedPaceSplitData &&
-            workoutPaceSplits.count > 1
-    }
-
-    private var hasRecordedPaceSplitData: Bool {
-        guard let metadata = liveClimbSummaryMetadata,
-              let intervalSeconds = metadata.splitIntervalSeconds,
-              intervalSeconds > 0,
-              let splitSteps = metadata.splitSteps,
-              splitSteps.count > 2 else {
-            return false
-        }
-
-        let finalSteps = max(workout.steps, 0)
-        return splitSteps.dropLast().contains { step in
-            step > 0 && step < finalSteps
         }
     }
 
@@ -904,38 +863,15 @@ struct WorkoutDetailView: View {
             copyConfirmationText = text
         }
 
-        Task {
+        copyConfirmationTask?.cancel()
+        copyConfirmationTask = Task {
             try? await Task.sleep(for: .milliseconds(1600))
+            guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.3)) {
                 if copyConfirmationText == text {
                     copyConfirmationText = nil
                 }
             }
-        }
-    }
-
-    @MainActor
-    private func loadLiveClimbCompletionRankIfNeeded() async {
-        guard liveClimbCompletionRank == nil,
-              !isLoadingLiveClimbRank,
-              let context = liveClimbSummaryLeaderboardContext else {
-            return
-        }
-
-        isLoadingLiveClimbRank = true
-        defer {
-            isLoadingLiveClimbRank = false
-        }
-
-        do {
-            liveClimbCompletionRank = try await LiveReplayLeaderboardService.shared.fetchCompletionRank(
-                context: context,
-                completionDurationSeconds: workout.duration
-            )
-        } catch {
-#if DEBUG
-            debugLog("Workout detail Live Climb rank fetch failed: \(error.localizedDescription)")
-#endif
         }
     }
 
@@ -963,7 +899,7 @@ struct WorkoutDetailView: View {
     private func fetchAppleHealthHeartRate() {
         guard !isFetchingAppleHealthHeartRate else { return }
 
-        Task { @MainActor in
+        appleHealthFetchTask = Task { @MainActor in
             isFetchingAppleHealthHeartRate = true
             appleHealthHeartRateMessage = nil
             defer {
@@ -992,13 +928,37 @@ struct WorkoutDetailView: View {
 
             refreshAppleHealthHeartRateStatus()
 
-            if hasHeartRateData {
+            if hasHeartRateData(heartRateSamples: workout.heartRateTimeSeries) {
                 appleHealthHeartRateMessage = nil
                 HapticsManager.shared.trigger(.success)
             } else {
                 appleHealthHeartRateMessage = "No matching heart-rate samples found yet. Try again after Apple Watch finishes syncing."
                 HapticsManager.shared.trigger(.warning)
             }
+        }
+    }
+
+    private func retryRemoteHeartRateRestore() {
+        guard let userId = workout.ownerUserId else { return }
+
+        Task { @MainActor in
+            let previousStatus = workout.heartRateRestoreStatus
+            let previousErrorCode = workout.heartRateRestoreErrorCode
+            workout.heartRateRestoreStatus = .pending
+            try? modelContext.save()
+
+            _ = try? await WorkoutHydrationService.hydrateIfNeeded(
+                modelContext: modelContext,
+                currentUserId: userId
+            )
+
+            // Hydration always leaves a terminal status behind. Still `.pending` means it never got
+            // as far as this workout, so the card must not be stranded without a retry affordance.
+            guard workout.heartRateRestoreStatus == .pending else { return }
+
+            workout.heartRateRestoreStatus = previousStatus
+            workout.heartRateRestoreErrorCode = previousErrorCode
+            try? modelContext.save()
         }
     }
 

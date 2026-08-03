@@ -10,6 +10,7 @@ struct ActiveRoutineView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(ModerationStore.self) private var moderationStore
     @State private var viewModel: ActiveRoutineViewModel
     @State private var stepSyncValue = ""
 
@@ -26,25 +27,32 @@ struct ActiveRoutineView: View {
     var body: some View {
         @Bindable var bindableViewModel = viewModel
 
-        ZStack {
-            Color.black.ignoresSafeArea()
+        // The live leaderboard links to a rival's profile, so this screen owns
+        // its navigation stack: it is always presented as a root (full-screen
+        // cover or headphone recovery) and never pushed. Session lifecycle stays
+        // on the stack so pushing a profile cannot restart the running routine.
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
 
-            if let savedWorkout = viewModel.savedWorkout {
-                routineCompletionSummary(workout: savedWorkout)
-            } else {
-                switch viewModel.phase {
-                case .countdown:
-                    LiveSessionCountdownOverlay(value: viewModel.countdownValue)
-                case .active, .complete, .finishing, .saving:
-                    activeWorkoutView
-                case .failed(let message):
-                    failedView(message: message)
-                }
+                if let savedWorkout = viewModel.savedWorkout {
+                    routineCompletionSummary(workout: savedWorkout)
+                } else {
+                    switch viewModel.phase {
+                    case .countdown:
+                        LiveSessionCountdownOverlay(value: viewModel.countdownValue)
+                    case .active, .complete, .finishing, .saving:
+                        activeWorkoutView
+                    case .failed(let message):
+                        failedView(message: message)
+                    }
 
-                if let stepSyncPrompt = viewModel.stepSyncPrompt {
-                    stepSyncOverlay(prompt: stepSyncPrompt)
+                    if let stepSyncPrompt = viewModel.stepSyncPrompt {
+                        stepSyncOverlay(prompt: stepSyncPrompt)
+                    }
                 }
             }
+            .toolbar(.hidden, for: .navigationBar)
         }
         .onAppear {
             viewModel.startSession(modelContext: modelContext)
@@ -238,7 +246,7 @@ struct ActiveRoutineView: View {
 
     private var liveLeaderboardSection: some View {
         LiveReplayLeaderboardPanel(
-            rows: viewModel.leaderboardRows,
+            rows: moderationStore.moderate(viewModel.leaderboardRows),
             progressScaleSteps: viewModel.leaderboardProgressScale,
             targetStepGoal: viewModel.targetStepGoal,
             progress: viewModel.leaderboardCurrentProgressFraction,
@@ -347,13 +355,13 @@ struct ActiveRoutineView: View {
             workout: workout,
             leaderboardRank: viewModel.completionLeaderboardRank,
             leaderboardTotal: viewModel.completionLeaderboardTotal,
+            leaderboardRankBasis: .liveSession,
             allowsRatingPrompt: false,
             leaderboardContext: viewModel.completionLeaderboardContext,
-            rankingLabelOverride: presentation.rankingLabel,
-            completedDetailOverride: presentation.completedDetail,
-            unrankedValueText: presentation.unrankedValueText,
-            unrankedDetailText: presentation.unrankedDetailText,
-            showsPendingRankingState: presentation.showsPendingRankingState,
+            moment: .freshCompletion,
+            rankingLabelOverride: "ROUTINE RANK",
+            completedDetailOverride: "ROUTINE COMPLETE",
+            ranksOnLeaderboard: presentation.ranksOnLeaderboard,
             achievementTitleOverride: presentation.achievementTitleOverride,
             achievementIconNameOverride: presentation.achievementIconNameOverride,
             onDone: {
@@ -526,9 +534,7 @@ struct ActiveRoutineView: View {
 
     private func recordCompletionIfNeeded() {
         guard !viewModel.hasRecordedCompletion else { return }
-        routine.completionCount += 1
-        routine.lastCompletedAt = Date()
-        try? modelContext.save()
+        try? RoutineService(modelContext: modelContext).recordCompletion(for: routine)
         viewModel.markCompletionRecorded()
     }
 
@@ -567,4 +573,5 @@ private enum Layout {
 
 #Preview {
     ActiveRoutineView(routine: BuiltInRoutines.previewTemplates.last!)
+        .environment(ModerationStore.shared)
 }

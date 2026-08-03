@@ -6,47 +6,91 @@ on:
     branches: [main]
     paths:
       - "AscendApp/**"
+      - "AscendLiveActivityWidgets/**"
       - "AscendApp.xcodeproj/**"
       - "fastlane/**"
+      - "scripts/**"
       - "Gemfile"
       - "Gemfile.lock"
       - "functions/**"
       - "web/**"
       - "firebase.json"
       - "firestore.rules"
+      - "firestore.indexes.json"
       - "storage.rules"
       - ".firebaserc"
       - ".github/workflows/deploy-production.yml"
 
+# A production deploy must never be aborted part-way, so an in-flight run is
+# never cancelled. The cost of that choice is that a run which stops moving
+# holds this group indefinitely, and GitHub keeps at most ONE pending run per
+# group - each new run cancels the one it displaces, before that run has
+# created a single job. Between 2026-07-16 and 2026-07-29 that cancelled six
+# runs in silence. `deploy-production-watchdog.yml` is what makes it audible;
+# the single approval gate below is what stops it recurring.
 concurrency:
-  group: deploy-production-${{ github.ref }}
+  group: deploy-production
   cancel-in-progress: false
 
 permissions:
   contents: read
 
+env:
+  APP_STORE_CONNECT_APP_ID: "6757202987"
+  APP_STORE_CONNECT_BUNDLE_ID: com.TylerPavay.AscendApp
+
 jobs:
   production-gate:
     name: Production Gate
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ready: ${{ steps.readiness.outputs.ready }}
     steps:
       - name: Check production readiness
+        id: readiness
         run: |
           if [ "${{ vars.PRODUCTION_READY }}" != "true" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
             echo "Production deploy is disabled."
             echo "Set repository variable PRODUCTION_READY=true after provisioning production Firebase + secrets."
-            echo "Workflow will exit without deploy jobs."
+            echo "Workflow will fail before deploy jobs."
+            exit 1
           else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
             echo "Production deploy is enabled."
           fi
 
+  # The ONLY job that carries `environment: production`, and it does nothing
+  # else. Every protected job opens its own deployment that starts in `waiting`
+  # for the environment's required reviewer, so spreading the environment over
+  # three jobs asked for three separate approvals. On run 29540507247 the third
+  # request (deployment 5481609169) appeared three minutes after the Firebase
+  # deploy had already reported success, was never noticed, and sat `waiting`
+  # for 12 days 18 hours - keeping the run open and the concurrency group held.
+  # One approval, requested before any work starts, or none at all.
+  production-approval:
+    name: Approve Production Deploy
+    if: ${{ needs.production-gate.outputs.ready == 'true' }}
+    needs: production-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+
+    steps:
+      - name: Record approval
+        run: echo "Production deploy approved for ${{ github.sha }}."
+
   build-ios:
     name: Build iOS IPA (Production)
-    if: ${{ vars.PRODUCTION_READY == 'true' }}
-    needs: production-gate
+    if: ${{ needs.production-gate.outputs.ready == 'true' }}
+    needs:
+      - production-gate
+      - production-approval
     runs-on: macos-15
     timeout-minutes: 60
-    environment: production
+    outputs:
+      build-number: ${{ steps.derive-build-number.outputs.build_number }}
 
     steps:
       - name: Checkout repository
@@ -62,6 +106,16 @@ jobs:
         with:
           ruby-version: "3.1"
           bundler-cache: true
+
+      - name: Set up Node.js for Sentry CLI
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Sentry CLI
+        run: |
+          npm install --global @sentry/cli@3.6.0
+          sentry-cli --version
 
       - name: Configure SSH for match repository
         uses: webfactory/ssh-agent@v0.9.0
@@ -119,10 +173,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-spm-
 
-      - name: Validate match secrets
+      - name: Validate build secrets
         env:
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -136,6 +191,45 @@ jobs:
             echo "::error::Required secret MATCH_PASSWORD is missing or empty."
             exit 1
           fi
+
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "::error::Required secret SENTRY_AUTH_TOKEN is missing or empty."
+            exit 1
+          fi
+
+      # A placeholder RevenueCat or Superwall key would archive and upload
+      # cleanly while locking every App Store user behind an unresolvable
+      # paywall, so fail before the archive instead.
+      - name: Verify production monetization keys
+        shell: bash
+        run: node scripts/ci/assert-monetization-keys-configured.mjs Release
+
+      # An App Store binary cannot be rolled back, so these switches are the only
+      # thing that can stop a shipped data-corrupting write. A build whose
+      # parameters were never published to the backend carries no such lever, and
+      # looks identical to one that does. Refuse to archive it.
+      - name: Verify production kill switches are published
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        shell: bash
+        run: node scripts/ci/assert-remote-config-published.mjs prod
+
+      - name: Derive build number
+        id: derive-build-number
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_number="$(scripts/ci/derive-build-number.sh "$APP_STORE_CONNECT_APP_ID" "$APP_STORE_CONNECT_BUNDLE_ID")"
+          if [ -z "$build_number" ]; then
+            echo "::error::Build number derivation exited successfully but produced no value."
+            exit 1
+          fi
+          echo "BUILD_NUMBER=${build_number}" >> "$GITHUB_ENV"
+          echo "build_number=${build_number}" >> "$GITHUB_OUTPUT"
 
       - name: Build production IPA via Fastlane
         env:
@@ -151,7 +245,6 @@ jobs:
           IOS_PRODUCTION_WIDGET_PROVISIONING_PROFILE_SPECIFIER: match AppStore com.TylerPavay.AscendApp.LiveClimbWidgets
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
-          BUILD_NUMBER: ${{ github.run_number }}
         run: bundle exec fastlane build_production
 
       - name: Upload production IPA artifact
@@ -163,13 +256,13 @@ jobs:
 
   deploy-firebase:
     name: Deploy Firebase (Production)
-    if: ${{ vars.PRODUCTION_READY == 'true' }}
+    if: ${{ needs.production-gate.outputs.ready == 'true' }}
     needs:
       - production-gate
+      - production-approval
       - build-ios
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    environment: production
+    timeout-minutes: 90
     permissions:
       contents: read
 
@@ -190,21 +283,134 @@ jobs:
       - name: Build web app
         run: npm --prefix web run build
 
-      - name: Deploy Functions, Rules, Indexes, Storage, and Hosting
+      # Indexes go first because onWorkoutWritten immediately queries workouts
+      # by source + climbId. Functions go before Hosting because both Hosting
+      # rewrites target functions deployed by this job. The binary uploads only
+      # after this entire job succeeds, so its backend is already compatible.
+      - name: Deploy Firestore indexes
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-        run: npx -y firebase-tools@15.22.1 deploy --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --only functions,firestore:rules,firestore:indexes,storage,hosting --non-interactive --force --token "$FIREBASE_TOKEN"
+        run: npx -y firebase-tools@15.22.1 deploy --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --only firestore:indexes --non-interactive --token "$FIREBASE_TOKEN"
+
+      - name: Wait for every declared Firestore index
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          deployed_spec_file="$RUNNER_TEMP/firestore-index-spec.json"
+          operations_file="$RUNNER_TEMP/firestore-operations.json"
+          for attempt in $(seq 1 180); do
+            if ! deployed_indexes="$(npx -y firebase-tools@15.22.1 firestore:indexes --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --pretty --token "$FIREBASE_TOKEN")"; then
+              echo "::warning::firestore:indexes poll attempt ${attempt} of 180 failed; retrying."
+              if [ "$attempt" -lt 180 ]; then
+                sleep 20
+              fi
+              continue
+            fi
+            if ! npx -y firebase-tools@15.22.1 firestore:indexes --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --json --token "$FIREBASE_TOKEN" > "$deployed_spec_file"; then
+              echo "::warning::firestore:indexes JSON poll attempt ${attempt} of 180 failed; retrying."
+              if [ "$attempt" -lt 180 ]; then
+                sleep 20
+              fi
+              continue
+            fi
+            if ! npx -y firebase-tools@15.22.1 firestore:operations:list --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --limit 1000 --json --token "$FIREBASE_TOKEN" > "$operations_file"; then
+              echo "::warning::firestore:operations:list poll attempt ${attempt} of 180 failed; retrying."
+              if [ "$attempt" -lt 180 ]; then
+                sleep 20
+              fi
+              continue
+            fi
+            printf "%s\n" "$deployed_indexes"
+
+            readiness_status=0
+            printf "%s\n" "$deployed_indexes" | node scripts/ci/assert-firestore-indexes-ready.mjs firestore.indexes.json "$operations_file" "$deployed_spec_file" || readiness_status=$?
+
+            if [ "$readiness_status" -eq 0 ]; then
+              exit 0
+            fi
+
+            if [ "$readiness_status" -eq 2 ]; then
+              echo "::error::Index readiness check failed on a structural config or parser error; fix it instead of retrying."
+              exit 2
+            fi
+
+            if [ "$attempt" -lt 180 ]; then
+              sleep 20
+            fi
+          done
+
+          echo "::error::Firestore indexes did not become READY within 60 minutes."
+          exit 1
+
+      - name: Deploy Functions
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx -y firebase-tools@15.22.1 deploy --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --only functions --non-interactive --force --token "$FIREBASE_TOKEN"
+
+      - name: Verify critical Functions are active
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          npx -y firebase-tools@15.22.1 --json functions:list --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --token "$FIREBASE_TOKEN" \
+            | node scripts/ci/assert-firebase-functions-active.mjs \
+                cleanupDeletedUserData \
+                onPublicIdentityPropagationJobWritten \
+                onPublicProfileIdentityWritten \
+                onWorkoutWritten \
+                onWorkoutReplaySplitsWritten \
+                unsubscribeFromEmails
+
+      # The step above proves a curated set of critical functions is healthy.
+      # This one proves the project holds *exactly* what this ref exports - the
+      # property that was missing when production spent two weeks without
+      # cleanupDeletedUserData, onWorkoutWritten and unsubscribeFromEmails
+      # behind a green deploy log. A curated list cannot catch a function nobody
+      # thought to add to it, and cannot catch one deleted from source but still
+      # serving traffic.
+      - name: Verify deployed functions match this ref
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: node scripts/verify-deployed-functions.mjs --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}"
+
+      - name: Deploy Firestore rules
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx -y firebase-tools@15.22.1 deploy --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --only firestore:rules --non-interactive --token "$FIREBASE_TOKEN"
+
+      - name: Deploy Storage rules
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx -y firebase-tools@15.22.1 deploy --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --only storage --non-interactive --token "$FIREBASE_TOKEN"
+
+      - name: Deploy Hosting
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx -y firebase-tools@15.22.1 deploy --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --only hosting --non-interactive --token "$FIREBASE_TOKEN"
+
+      - name: Verify Hosting serves the climb manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 5 --retry-all-errors \
+            "https://${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}.web.app/climbs/manifest.json" \
+            --output /dev/null
 
   upload-testflight:
     name: Upload to TestFlight (Production)
-    if: ${{ vars.PRODUCTION_READY == 'true' }}
+    if: ${{ needs.production-gate.outputs.ready == 'true' }}
     needs:
       - production-gate
+      - production-approval
       - build-ios
       - deploy-firebase
     runs-on: macos-15
-    timeout-minutes: 30
-    environment: production
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -215,6 +421,11 @@ jobs:
         with:
           ruby-version: "3.1"
           bundler-cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
 
       - name: Download production IPA artifact
         uses: actions/download-artifact@v4
@@ -229,3 +440,66 @@ jobs:
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
         run: bundle exec fastlane upload_testflight
+
+      # The upload lane returns before App Store Connect lists the build, and the
+      # allocator's only sequence state is that listing. `deploy-status` runs after
+      # this job but holds no App Store Connect dependency, so this step is the last
+      # point at which the group can be held until the record actually exists.
+      - name: Wait for the uploaded build to be visible in App Store Connect
+        env:
+          BUILD_NUMBER: ${{ needs.build-ios.outputs.build-number }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$BUILD_NUMBER" ]; then
+            echo "::error::The build job published no derived build number to wait on."
+            exit 1
+          fi
+          node scripts/ci/await-build-visible.mjs "$APP_STORE_CONNECT_APP_ID" "$APP_STORE_CONNECT_BUNDLE_ID" "$BUILD_NUMBER"
+
+  # A production deploy either succeeds or fails. This job is what makes a run
+  # that quietly deployed *nothing* conclude `failure` instead of `success` -
+  # most importantly a stage reporting `skipped` because an upstream job was
+  # skipped, which GitHub would otherwise roll up into a green run. That case
+  # does send the failure email.
+  #
+  # What it does NOT do is rescue a cancelled run. Measured on throwaway run
+  # 30676439255: the run was cancelled mid-flight, the `always()` status job
+  # ran and concluded `failure`, and the RUN still concluded `cancelled` -
+  # GitHub's run-conclusion precedence puts cancellation above a failed job, so
+  # no email fires. Cancellation is carried entirely by
+  # `deploy-production-watchdog.yml`, which observes the run from outside.
+  #
+  # `always()` still earns its place: it is what lets this job run at all when
+  # an upstream job was skipped or failed.
+  deploy-status:
+    name: Deploy Status
+    if: ${{ always() }}
+    needs:
+      - production-gate
+      - production-approval
+      - build-ios
+      - deploy-firebase
+      - upload-testflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Assert the run reached a real outcome
+        env:
+          DEPLOY_COMMIT: ${{ github.sha }}
+        shell: bash
+        run: |
+          bash scripts/ci/assert-deploy-outcome.sh \
+            "${{ needs.production-gate.result }}" \
+            "${{ needs.production-gate.outputs.ready }}" \
+            "production-approval=${{ needs.production-approval.result }}" \
+            "build-ios=${{ needs.build-ios.result }}" \
+            "deploy-firebase=${{ needs.deploy-firebase.result }}" \
+            "upload-testflight=${{ needs.upload-testflight.result }}"

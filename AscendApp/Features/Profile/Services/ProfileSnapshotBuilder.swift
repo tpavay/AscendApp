@@ -3,7 +3,7 @@ import Foundation
 @MainActor
 enum ProfileSnapshotBuilder {
     static func makeOwnSnapshot(
-        identity: ProfileUserIdentity,
+        demographics: ProfileDemographicsSnapshot,
         workouts: [Workout],
         climbAttempts: [ClimbAttempt],
         completedClimbSet: CompletedClimbSet? = nil,
@@ -42,7 +42,7 @@ enum ProfileSnapshotBuilder {
         )
 
         return ProfileSnapshot(
-            identity: identity,
+            demographics: demographics,
             stats: stats,
             standings: standings,
             activityWorkouts: summaries,
@@ -65,7 +65,7 @@ enum ProfileSnapshotBuilder {
     }
 
     static func makeRemoteSnapshot(
-        identity: ProfileUserIdentity,
+        demographics: ProfileDemographicsSnapshot,
         stats: ProfileStatsSnapshot,
         achievements: ProfileAchievementCounts,
         achievementRecords: [ProfileAchievementRecord] = [],
@@ -79,7 +79,7 @@ enum ProfileSnapshotBuilder {
     ) -> ProfileSnapshot {
         let sortedWorkouts = workoutSummaries.sorted { $0.startedAt > $1.startedAt }
         return ProfileSnapshot(
-            identity: identity,
+            demographics: demographics,
             stats: stats,
             standings: standings,
             activityWorkouts: sortedWorkouts,

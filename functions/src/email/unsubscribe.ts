@@ -49,19 +49,14 @@ export function renderUnsubscribePage(
   return [
     "<!doctype html>",
     "<html lang=\"en\"><head><meta charset=\"utf-8\" />",
-    // eslint-disable-next-line max-len
     "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />",
     "<meta name=\"robots\" content=\"noindex\" />",
     "<title>Ascend Emails</title></head>",
-    // eslint-disable-next-line max-len
     "<body style=\"margin:0;padding:48px 20px;background:#f4f2eb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#111111;\">",
-    // eslint-disable-next-line max-len
     "<main style=\"max-width:520px;margin:0 auto;background:#ffffff;border:1px solid rgba(17,17,17,0.08);border-radius:28px;padding:40px 32px;text-align:center;\">",
-    // eslint-disable-next-line max-len
     "<h1 style=\"margin:0 0 16px;font-size:32px;line-height:1.05;font-weight:900;letter-spacing:-0.03em;\">",
     escapeHtml(heading),
     "</h1>",
-    // eslint-disable-next-line max-len
     "<p style=\"margin:0;font-size:17px;line-height:1.6;color:#4b5563;\">",
     escapeHtml(body),
     "</p>",

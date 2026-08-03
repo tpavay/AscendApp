@@ -10,10 +10,15 @@ import {
 
 interface FakePortOptions {
   subcollections?: string[];
+  notificationDevices?: number;
   leaderboardEntries?: number;
+  identityPropagationJobs?: number;
+  replayEntries?: number;
   replayFinisherStatuses?: number;
   firstAscents?: number;
   feedbackDocuments?: number;
+  moderationReports?: number;
+  incomingBlockDocuments?: number;
   lifecycleEmailJobs?: number;
   failOn?: string[];
   failListing?: boolean;
@@ -46,12 +51,36 @@ function makeFakePort(options: FakePortOptions = {}): {
       deleted.push(collectionId);
     },
 
+    async deleteNotificationDevices() {
+      if (failOn.has("notification_devices_root")) {
+        throw new Error("cannot delete notification_devices");
+      }
+      deleted.push("notification_devices_root");
+      return options.notificationDevices ?? 0;
+    },
+
     async deleteLeaderboardStats() {
       if (failOn.has("leaderboard_stats")) {
         throw new Error("cannot delete leaderboard_stats");
       }
       deleted.push("leaderboard_stats");
       return options.leaderboardEntries ?? 0;
+    },
+
+    async deleteIdentityPropagationJobs() {
+      if (failOn.has("identity_propagation_jobs")) {
+        throw new Error("cannot delete identity_propagation_jobs");
+      }
+      deleted.push("identity_propagation_jobs");
+      return options.identityPropagationJobs ?? 0;
+    },
+
+    async anonymizeReplayEntries() {
+      if (failOn.has("live_replay_entries")) {
+        throw new Error("cannot anonymize live_replay_entries");
+      }
+      deleted.push("live_replay_entries");
+      return options.replayEntries ?? 0;
     },
 
     async deleteReplayFinisherStatuses() {
@@ -76,6 +105,22 @@ function makeFakePort(options: FakePortOptions = {}): {
       }
       deleted.push("feedback");
       return options.feedbackDocuments ?? 0;
+    },
+
+    async deleteModerationReports() {
+      if (failOn.has("moderation_reports")) {
+        throw new Error("cannot delete moderation_reports");
+      }
+      deleted.push("moderation_reports");
+      return options.moderationReports ?? 0;
+    },
+
+    async deleteIncomingBlockDocuments() {
+      if (failOn.has("incoming_blocks")) {
+        throw new Error("cannot delete incoming_blocks");
+      }
+      deleted.push("incoming_blocks");
+      return options.incomingBlockDocuments ?? 0;
     },
 
     async deleteLifecycleEmailJobs() {
@@ -153,6 +198,100 @@ function makeLeaderboardFirestore(
 }
 
 /**
+ * Builds a collection-group stand-in for replay-entry anonymization.
+ * @param {number} failingUpdates Number of BulkWriter updates to reject.
+ * @return {object} Firestore stand-in, records, and observed query fields.
+ */
+function makeReplayEntriesFirestore(failingUpdates = 0) {
+  const entries = [
+    {
+      avatarToken: "MC",
+      displayName: "Maya Chen",
+      elapsedTime: 1_234,
+      finalSteps: 4_567,
+      identityState: "published",
+      isSynthetic: false,
+      photoURL: "https://example.com/maya.jpg",
+      rank: 2,
+      stepsAtBucket: 3_000,
+      userId: "user-a",
+    },
+    {
+      avatarToken: "MA",
+      displayName: "Maya Again",
+      elapsedTime: 2_345,
+      finalSteps: 5_678,
+      identityState: "published",
+      isSynthetic: false,
+      photoURL: "https://example.com/maya-again.jpg",
+      rank: 1,
+      stepsAtBucket: 4_000,
+      userId: "user-a",
+    },
+    {
+      avatarToken: "OB",
+      displayName: "Other",
+      elapsedTime: 3_456,
+      finalSteps: 6_789,
+      identityState: "published",
+      isSynthetic: false,
+      photoURL: "https://example.com/other.jpg",
+      rank: 3,
+      stepsAtBucket: 5_000,
+      userId: "user-b",
+    },
+  ];
+  let queriedCollectionGroup: string | null = null;
+  let queriedField: string | null = null;
+  let updateCount = 0;
+
+  const firestore = {
+    bulkWriter() {
+      return {
+        async update(
+          ref: {record: Record<string, unknown>},
+          fields: Record<string, unknown>
+        ) {
+          updateCount += 1;
+          if (updateCount <= failingUpdates) {
+            throw new Error("7 PERMISSION_DENIED");
+          }
+          Object.assign(ref.record, fields);
+        },
+        async close() {},
+      };
+    },
+    collectionGroup(collectionGroup: string) {
+      queriedCollectionGroup = collectionGroup;
+      return {
+        where(field: string, _operator: string, userId: string) {
+          queriedField = field;
+          const docs = entries
+            .filter((entry) => entry.userId === userId)
+            .map((entry) => ({ref: {record: entry}}));
+          return {
+            async get() {
+              return {
+                docs,
+                empty: docs.length === 0,
+                size: docs.length,
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  return {
+    entries,
+    firestore: firestore as unknown as admin.firestore.Firestore,
+    queriedCollectionGroup: () => queriedCollectionGroup,
+    queriedField: () => queriedField,
+  };
+}
+
+/**
  * Builds a Firestore stand-in holding one replay context whose First Ascent is
  * held by `holderId`, and records the merge the sweep applies to it.
  * @param {string} holderId Uid stored in firstAscentUserId.
@@ -203,6 +342,51 @@ function makeFirstAscentFirestore(holderId: string): {
     context,
     firestore: firestore as unknown as admin.firestore.Firestore,
     queriedField: () => queriedField,
+  };
+}
+
+/**
+ * Builds a collection-group stand-in for blocks held by other users.
+ * @param {string[]} blockedUserIds Values stored in blockedUid.
+ * @return {object} Firestore stand-in and the deleted values.
+ */
+function makeIncomingBlocksFirestore(
+  blockedUserIds: string[]
+): {
+  firestore: admin.firestore.Firestore;
+  deletedUserIds: string[];
+} {
+  const deletedUserIds: string[] = [];
+  const firestore = {
+    collectionGroup(collectionId: string) {
+      assert.equal(collectionId, "blocked");
+      return {
+        where(field: string, operation: string, value: string) {
+          assert.equal(field, "blockedUid");
+          assert.equal(operation, "==");
+          const matches = blockedUserIds.filter((userId) => userId === value);
+          return {
+            async get() {
+              return {
+                docs: matches.map((userId) => ({
+                  ref: {
+                    async delete() {
+                      deletedUserIds.push(userId);
+                    },
+                  },
+                })),
+                size: matches.length,
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  return {
+    deletedUserIds,
+    firestore: firestore as unknown as admin.firestore.Firestore,
   };
 }
 
@@ -266,6 +450,236 @@ test("removes leaderboard entries so deleted users stop ranking", async () => {
   assert.ok(deleted.includes("leaderboard_stats"));
 });
 
+test("removes all external identity propagation checkpoints", async () => {
+  const {deleted, port} = makeFakePort({identityPropagationJobs: 4});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedIdentityPropagationJobs, 4);
+  assert.ok(deleted.includes("identity_propagation_jobs"));
+});
+
+test("Admin cleanup deletes each persisted propagation kind", async () => {
+  const deletedKinds: string[] = [];
+  const kinds = ["leaderboard", "replayEntry", "replayFinisher", "firstAscent"];
+  const firestore = {
+    collection(collectionId: string) {
+      assert.equal(collectionId, "_public_identity_propagation_jobs");
+      return {
+        doc(userId: string) {
+          assert.equal(userId, "user-a");
+          return {
+            collection(subcollectionId: string) {
+              assert.equal(subcollectionId, "kinds");
+              return {
+                async get() {
+                  return {
+                    docs: kinds.map((kind) => ({
+                      ref: {
+                        async delete() {
+                          deletedKinds.push(kind);
+                        },
+                      },
+                    })),
+                    size: kinds.length,
+                  };
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  } as unknown as admin.firestore.Firestore;
+
+  const count = await makeAdminPort(firestore)
+    .deleteIdentityPropagationJobs("user-a");
+
+  assert.equal(count, 4);
+  assert.deepEqual(deletedKinds, kinds);
+});
+
+test("a failing checkpoint sweep is reported without abandoning cleanup", async () => {
+  const {deleted, port} = makeFakePort({
+    failOn: ["identity_propagation_jobs"],
+  });
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedIdentityPropagationJobs, 0);
+  assert.match(
+    summary.failures.join(" "),
+    /identity_propagation_jobs: cannot delete identity_propagation_jobs/
+  );
+  assert.ok(deleted.includes("live_replay_finishers"));
+  assert.ok(deleted.includes("userRateLimits"));
+});
+
+test("anonymizes replay entries that can outlive the user root", async () => {
+  const {deleted, port} = makeFakePort({replayEntries: 3});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.anonymizedReplayEntries, 3);
+  assert.ok(deleted.includes("live_replay_entries"));
+});
+
+test("Admin replay cleanup preserves every competitive field", async () => {
+  const store = makeReplayEntriesFirestore();
+
+  const count = await makeAdminPort(store.firestore)
+    .anonymizeReplayEntries("user-a");
+
+  assert.equal(count, 2);
+  assert.equal(store.queriedCollectionGroup(), "entries");
+  assert.equal(store.queriedField(), "userId");
+  for (const [index, entry] of store.entries.slice(0, 2).entries()) {
+    assert.deepEqual({
+      avatarToken: entry.avatarToken,
+      displayName: entry.displayName,
+      identityState: entry.identityState,
+      isSynthetic: entry.isSynthetic,
+      photoURL: entry.photoURL,
+    }, {
+      avatarToken: "",
+      displayName: ANONYMIZED_FIRST_ASCENT_NAME,
+      identityState: "deleted",
+      isSynthetic: false,
+      photoURL: "",
+    });
+    assert.equal(entry.elapsedTime, 1_234 + (index * 1_111));
+    assert.equal(entry.finalSteps, 4_567 + (index * 1_111));
+    assert.equal(entry.rank, 2 - index);
+    assert.equal(entry.stepsAtBucket, 3_000 + (index * 1_000));
+  }
+  assert.equal(store.entries[2].displayName, "Other");
+  assert.equal(store.entries[2].photoURL, "https://example.com/other.jpg");
+});
+
+test("a failing replay-entry sweep is reported without abandoning cleanup", async () => {
+  const {deleted, port} = makeFakePort({
+    failOn: ["live_replay_entries"],
+  });
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.anonymizedReplayEntries, 0);
+  assert.match(
+    summary.failures.join(" "),
+    /live_replay_entries: cannot anonymize live_replay_entries/
+  );
+  assert.ok(deleted.includes("live_replay_finishers"));
+  assert.ok(deleted.includes("userRateLimits"));
+});
+
+test("a permanently failed replay-entry update lands in failures", async () => {
+  const {port} = makeFakePort();
+  const adminPort = makeAdminPort(makeReplayEntriesFirestore(1).firestore);
+  port.anonymizeReplayEntries = adminPort.anonymizeReplayEntries;
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.anonymizedReplayEntries, 0);
+  assert.match(
+    summary.failures.join(" "),
+    /live_replay_entries: 1 of 2 updates failed: 7 PERMISSION_DENIED/
+  );
+});
+
+/**
+ * Builds a Firestore stand-in holding notification device records for two
+ * users, recording which collection and field the sweep queried.
+ * @return {object} The stand-in, the surviving document ids, and the query.
+ */
+function makeNotificationDeviceFirestore() {
+  const devices = new Map<string, string>([
+    ["hash-1", "user-a"],
+    ["hash-2", "user-a"],
+    ["hash-3", "user-b"],
+  ]);
+  let queriedCollection: string | null = null;
+  let queriedField: string | null = null;
+
+  const firestore = {
+    collection(collectionId: string) {
+      queriedCollection = collectionId;
+      return {
+        where(field: string, _op: string, value: string) {
+          queriedField = field;
+          const docs = [...devices.entries()]
+            .filter(([, uid]) => uid === value)
+            .map(([id]) => ({
+              ref: {
+                delete() {
+                  devices.delete(id);
+                  return Promise.resolve({});
+                },
+              },
+            }));
+          return {
+            get() {
+              return Promise.resolve({
+                docs,
+                empty: docs.length === 0,
+                size: docs.length,
+              });
+            },
+          };
+        },
+      };
+    },
+  };
+
+  return {
+    firestore: firestore as unknown as admin.firestore.Firestore,
+    queriedCollection: () => queriedCollection,
+    queriedField: () => queriedField,
+    remaining: () => [...devices.keys()],
+  };
+}
+
+test("deletes every device record the top-level uid field owns", async () => {
+  const store = makeNotificationDeviceFirestore();
+
+  // notification_devices keys its owner under `uid`, while the sibling
+  // leaderboard_stats sweep keys it under `userId`. Mixing the two silently
+  // leaves every delivery record behind.
+  const port = makeAdminPort(store.firestore);
+
+  assert.equal(await port.deleteNotificationDevices("user-a"), 2);
+
+  assert.equal(store.queriedCollection(), "notification_devices");
+  assert.equal(store.queriedField(), "uid");
+  assert.deepEqual(store.remaining(), ["hash-3"]);
+});
+
+test("removes top-level notification delivery records", async () => {
+  const {deleted, port} = makeFakePort({notificationDevices: 2});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  // The callable writes delivery records at notification_devices/{tokenHash},
+  // outside the users/{uid} subtree discovered by listCollections().
+  assert.equal(summary.deletedNotificationDevices, 2);
+  assert.ok(deleted.includes("notification_devices_root"));
+});
+
+test("a failing notification device sweep is reported for retry", async () => {
+  const {deleted, port} = makeFakePort({
+    failOn: ["notification_devices_root"],
+  });
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedNotificationDevices, 0);
+  assert.equal(summary.failures.length, 1);
+  assert.match(
+    summary.failures[0],
+    /notification_devices: cannot delete notification_devices/
+  );
+  assert.ok(deleted.includes("leaderboard_stats"));
+});
+
 test("removes replay finishers living outside users/{uid}", async () => {
   const {deleted, port} = makeFakePort({replayFinisherStatuses: 2});
 
@@ -288,6 +702,8 @@ test("de-identifies a First Ascent the deleted user holds", async () => {
   assert.equal(context.firstAscentDisplayName, ANONYMIZED_FIRST_ASCENT_NAME);
   assert.equal(context.firstAscentPhotoURL, "");
   assert.equal(context.firstAscentAvatarToken, "");
+  assert.equal(context.firstAscentIdentityState, "deleted");
+  assert.equal(context.firstAscentIsSynthetic, false);
 });
 
 test("a de-identified First Ascent keeps its slot and date", async () => {
@@ -349,6 +765,69 @@ test("removes feedback carrying the user's email and message", async () => {
   assert.ok(deleted.includes("feedback"));
 });
 
+test("removes moderation reports submitted by or about the user", async () => {
+  const {deleted, port} = makeFakePort({moderationReports: 3});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedModerationReports, 3);
+  assert.ok(deleted.includes("moderation_reports"));
+});
+
+test(
+  "removes the deleted user's own block list as a discovered subtree",
+  async () => {
+    const {port} = makeFakePort({subcollections: ["blocked"]});
+
+    const summary = await cleanupDeletedUser("user-a", port);
+
+    assert.deepEqual(summary.deletedSubcollections, ["blocked"]);
+  }
+);
+
+test(
+  "removes blocks of the deleted user held in other users' lists",
+  async () => {
+    const {deleted, port} = makeFakePort({incomingBlockDocuments: 3});
+
+    const summary = await cleanupDeletedUser("user-a", port);
+
+    assert.equal(summary.deletedIncomingBlockDocuments, 3);
+    assert.ok(deleted.includes("incoming_blocks"));
+  }
+);
+
+test(
+  "Admin cleanup finds incoming blocks with a collection-group query",
+  async () => {
+    const {deletedUserIds, firestore} = makeIncomingBlocksFirestore([
+      "user-a",
+      "user-b",
+      "user-a",
+    ]);
+
+    const count = await makeAdminPort(firestore)
+      .deleteIncomingBlockDocuments("user-a");
+
+    assert.equal(count, 2);
+    assert.deepEqual(deletedUserIds, ["user-a", "user-a"]);
+  }
+);
+
+test("a failing moderation report sweep is reported for retry", async () => {
+  const {deleted, port} = makeFakePort({failOn: ["moderation_reports"]});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedModerationReports, 0);
+  assert.match(
+    summary.failures.join(" "),
+    /moderation_reports: cannot delete moderation_reports/
+  );
+  assert.ok(deleted.includes("email_jobs"));
+  assert.ok(deleted.includes("userRateLimits"));
+});
+
 test("removes queued lifecycle email jobs holding a raw email", async () => {
   const {deleted, port} = makeFakePort({lifecycleEmailJobs: 1});
 
@@ -375,6 +854,7 @@ test("one failing subcollection does not abandon other PII", async () => {
   assert.ok(deleted.includes("leaderboard_stats"));
   assert.ok(deleted.includes("live_replay_finishers"));
   assert.ok(deleted.includes("feedback"));
+  assert.ok(deleted.includes("moderation_reports"));
   assert.ok(deleted.includes("email_jobs"));
   assert.ok(deleted.includes("userRateLimits"));
 });

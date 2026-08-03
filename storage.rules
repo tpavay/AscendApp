@@ -80,29 +80,27 @@ service firebase.storage {
       allow delete: if isOwner(userId) && validFileName(fileName);
     }
 
-    // ── Legacy flat-path rules (pre-migration) ──────────────────────
-    // Files uploaded before the user-scoped path migration live at
-    // root-level photos/, videos/, and profile_pictures/ prefixes.
-    // These rules grant read + delete so the app can still display
-    // them and account deletion / migration can clean them up.
-    // No new writes are allowed. Remove once migration is complete.
+    // ── Legacy flat-path prefixes (pre-migration), closed ───────────
+    // Objects uploaded before the user-scoped path migration still sit at the
+    // root photos/, videos/, and profile_pictures/ prefixes. A flat path has no
+    // owner segment, so no rule here can tell one climber's media from
+    // another's: any rule permissive enough to let an owner in lets every
+    // signed-in account in. These prefixes are therefore closed to all client
+    // access. Nothing shipped depends on them - uploads have written
+    // user-scoped paths since the migration, and in-app display fetches the
+    // tokenized download URL over plain HTTPS, which never consults these
+    // rules. Whatever objects remain are reachable only by the backend.
 
     match /photos/{fileName} {
-      allow read: if isSignedIn() && validFileName(fileName);
-      allow delete: if isSignedIn() && validFileName(fileName);
-      allow create, update: if false;
+      allow read, write: if false;
     }
 
     match /videos/{fileName} {
-      allow read: if isSignedIn() && validFileName(fileName);
-      allow delete: if isSignedIn() && validFileName(fileName);
-      allow create, update: if false;
+      allow read, write: if false;
     }
 
     match /profile_pictures/{fileName} {
-      allow read: if isSignedIn() && validFileName(fileName);
-      allow delete: if isSignedIn() && validFileName(fileName);
-      allow create, update: if false;
+      allow read, write: if false;
     }
 
     // Remote share-card template assets are read-only from the app.

@@ -28,13 +28,18 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
 
     func fetchCompletionRank(
         context: LiveReplayLeaderboardContext,
-        completionDurationSeconds: TimeInterval
+        completionDurationSeconds: TimeInterval,
+        finalSteps: Int
     ) async throws -> LiveReplayCompletionRank {
-        let resolvedDuration = max(completionDurationSeconds, 0)
-
-        async let fasterCompletionCount = countRowsFasterThan(
+        let resolvedRankingValue = rankingValue(
             context: context,
-            completionDurationSeconds: resolvedDuration
+            completionDurationSeconds: completionDurationSeconds,
+            finalSteps: finalSteps
+        )
+
+        async let betterCompletionCount = countRowsBetterThan(
+            context: context,
+            rankingValue: resolvedRankingValue
         )
         async let publishedCompletionCount = countRows(
             context: context,
@@ -44,17 +49,17 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             context: context
         )
 
-        let fasterCount = try await fasterCompletionCount
+        let betterCount = try await betterCompletionCount
         let publishedCount = try await publishedCompletionCount
         let hasPublishedCurrentUser = try await currentUserIsPublished
         let localCompletionAdjustment = hasPublishedCurrentUser ? 0 : 1
         let completedCount = max(
             publishedCount + localCompletionAdjustment,
-            fasterCount + 1
+            betterCount + 1
         )
 
         return LiveReplayCompletionRank(
-            rank: min(fasterCount + 1, completedCount),
+            rank: min(betterCount + 1, completedCount),
             completedCount: completedCount,
             updatedAt: nil
         )
@@ -148,14 +153,17 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         let snapshot = try await entriesCollection(context: context, bucketIndex: 0)
             .whereField("userId", isEqualTo: uid)
             .getDocuments(source: .server)
+        let metric = context.type.rankingMetric
 
+        // Ties on the metric resolve on document ID, which is the immutable workout ID,
+        // so every recompute picks the same winner instead of jittering between them.
         let bestDocument = snapshot.documents.min { lhs, rhs in
-            let lhsDuration = doubleValue(for: "completionDurationSeconds", in: lhs.data()) ?? .greatestFiniteMagnitude
-            let rhsDuration = doubleValue(for: "completionDurationSeconds", in: rhs.data()) ?? .greatestFiniteMagnitude
-            if lhsDuration == rhsDuration {
+            let lhsValue = rankingValue(for: metric, in: lhs.data())
+            let rhsValue = rankingValue(for: metric, in: rhs.data())
+            if lhsValue == rhsValue {
                 return lhs.documentID < rhs.documentID
             }
-            return lhsDuration < rhsDuration
+            return metric.ranksHighestFirst ? lhsValue > rhsValue : lhsValue < rhsValue
         }
 
         guard let bestDocument,
@@ -166,31 +174,33 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             return nil
         }
 
-        async let fasterCompletionCount = countRowsFasterThan(
+        let bestRankingValue = rankingValue(for: metric, in: bestDocument.data())
+
+        async let betterCompletionCount = countRowsBetterThan(
             context: context,
-            completionDurationSeconds: completionDurationSeconds
+            rankingValue: bestRankingValue
         )
         async let publishedCompletionCount = countRows(
             context: context,
             bucketIndex: 0
         )
-        async let sameDurationCompletionCount = countRowsMatching(
+        async let tiedCompletionCount = countRowsMatching(
             context: context,
-            completionDurationSeconds: completionDurationSeconds
+            rankingValue: bestRankingValue
         )
 
-        let fasterCount = try await fasterCompletionCount
+        let betterCount = try await betterCompletionCount
         let publishedCount = try await publishedCompletionCount
-        let sameDurationCount = try await sameDurationCompletionCount
-        let completedCount = max(publishedCount, fasterCount + 1)
+        let tiedCount = try await tiedCompletionCount
+        let completedCount = max(publishedCount, betterCount + 1)
 
         return LiveReplayCurrentUserCompletion(
-            rank: min(fasterCount + 1, completedCount),
+            rank: min(betterCount + 1, completedCount),
             completedCount: completedCount,
             completionDurationSeconds: completionDurationSeconds,
             workoutId: stringValue(for: "workoutId", in: bestDocument.data()) ?? bestDocument.documentID,
             updatedAt: timestampValue(for: "updatedAt", in: bestDocument.data()),
-            isTied: sameDurationCount > 1
+            isTied: tiedCount > 1
         )
     }
 
@@ -223,13 +233,16 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         forceRefresh: Bool
     ) async throws -> LiveReplayCompletionLeaderboard {
         let resolvedLimit = max(limit, 1)
+        let metric = context.type.rankingMetric
+        // Document ID is the immutable workout ID, so it is the deterministic tiebreak
+        // that keeps rows tied on the metric in one stable order across every fetch.
         var query: Query = entriesCollection(context: context, bucketIndex: 0)
-            .order(by: "completionDurationSeconds", descending: false)
+            .order(by: metric.field, descending: metric.ranksHighestFirst)
             .order(by: FieldPath.documentID(), descending: false)
 
         if let cursor {
             query = query.start(after: [
-                cursor.completionDurationSeconds,
+                cursor.sortKey,
                 cursor.rowID
             ])
         }
@@ -252,28 +265,28 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         let snapshot = try await rowSnapshot
         let currentUserId = Auth.auth().currentUser?.uid
 
-        // Rank on the raw duration, matching the server's strict `<` count in
+        // Rank on the raw metric value, matching the server's strict better-than count in
         // functions/src/liveReplayLeaderboard.ts (completionRankForPayload) — and so
-        // matching the pinned row, which derives its rank from countRowsFasterThan.
+        // matching the pinned row, which derives its rank from countRowsBetterThan.
         let rankable = snapshot.documents.compactMap { document -> RankableCompletion? in
-            guard let durationSeconds = doubleValue(
+            guard doubleValue(
                 for: "completionDurationSeconds",
                 in: document.data()
-            ) else {
+            ) != nil else {
                 return nil
             }
 
             return RankableCompletion(
                 id: document.documentID,
                 data: document.data(),
-                durationSeconds: durationSeconds
+                rankingValue: rankingValue(for: metric, in: document.data())
             )
         }
 
         let ranks = CompetitionRanking.ranks(
             for: rankable,
             continuing: cursor?.rankingContinuation,
-            key: \.durationSeconds
+            key: \.rankingValue
         )
         let rows = zip(rankable, ranks).compactMap { completion, rank in
             parseCompletionRow(
@@ -294,6 +307,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             updatedAt: resolvedSummary.updatedAt,
             nextCursor: nextCompletionLeaderboardCursor(
                 documents: snapshot.documents,
+                metric: metric,
                 rows: rows,
                 rankedCount: (cursor?.rankedCount ?? 0) + rows.count,
                 completedCount: completedCount,
@@ -305,7 +319,33 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     private struct RankableCompletion {
         let id: String
         let data: [String: Any]
-        let durationSeconds: TimeInterval
+        /// The value this row is ranked on, in the context's own metric.
+        let rankingValue: Double
+    }
+
+    /// Reads a stored entry's value for one metric, or nil when the ranking field is
+    /// absent. Used as a pagination position, where a sentinel would encode an empty
+    /// start-after page and silently truncate the board.
+    private func optionalRankingValue(
+        for metric: LiveReplayRankingMetric,
+        in data: [String: Any]
+    ) -> Double? {
+        switch metric {
+        case .fastestCompletion:
+            return doubleValue(for: "completionDurationSeconds", in: data)
+        case .mostSteps:
+            return intValue(for: "finalSteps", in: data).map(Double.init)
+        }
+    }
+
+    /// Reads a stored entry's value for one metric. A missing value sorts last in either
+    /// direction so a malformed row can never outrank a real completion.
+    private func rankingValue(
+        for metric: LiveReplayRankingMetric,
+        in data: [String: Any]
+    ) -> Double {
+        optionalRankingValue(for: metric, in: data)
+            ?? (metric.ranksHighestFirst ? -1 : .greatestFiniteMagnitude)
     }
 
     func fetchWindow(
@@ -445,12 +485,36 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         return snapshot.count.intValue
     }
 
-    private func countRowsFasterThan(
+    /// The value a completion is ranked on in this context, read from whichever of its
+    /// two numbers the context's metric ranks.
+    private func rankingValue(
         context: LiveReplayLeaderboardContext,
-        completionDurationSeconds: TimeInterval
+        completionDurationSeconds: TimeInterval,
+        finalSteps: Int
+    ) -> Double {
+        switch context.type.rankingMetric {
+        case .fastestCompletion:
+            return max(completionDurationSeconds, 0)
+        case .mostSteps:
+            return Double(max(finalSteps, 0))
+        }
+    }
+
+    /// Counts completions strictly better than `rankingValue` on this context's metric.
+    ///
+    /// Strictly better, never "better or equal", is what makes the rank competition
+    /// style: everyone tied on the metric counts the same rivals ahead of them and so
+    /// shares one rank. That matters most on a routine board, where steps are coarse
+    /// integers and ties are common. It mirrors the server's `completionRankForPayload`.
+    private func countRowsBetterThan(
+        context: LiveReplayLeaderboardContext,
+        rankingValue: Double
     ) async throws -> Int {
-        let query = entriesCollection(context: context, bucketIndex: 0)
-            .whereField("completionDurationSeconds", isLessThan: max(completionDurationSeconds, 0))
+        let metric = context.type.rankingMetric
+        let entries = entriesCollection(context: context, bucketIndex: 0)
+        let query = metric.ranksHighestFirst
+            ? entries.whereField(metric.field, isGreaterThan: rankingValue)
+            : entries.whereField(metric.field, isLessThan: rankingValue)
 
         let snapshot = try await query.count.getAggregation(source: .server)
         return snapshot.count.intValue
@@ -458,10 +522,10 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
 
     private func countRowsMatching(
         context: LiveReplayLeaderboardContext,
-        completionDurationSeconds: TimeInterval
+        rankingValue: Double
     ) async throws -> Int {
         let query = entriesCollection(context: context, bucketIndex: 0)
-            .whereField("completionDurationSeconds", isEqualTo: max(completionDurationSeconds, 0))
+            .whereField(context.type.rankingMetric.field, isEqualTo: rankingValue)
 
         let snapshot = try await query.count.getAggregation(source: .server)
         return snapshot.count.intValue
@@ -520,19 +584,24 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             return nil
         }
 
-        let displayName = (data["displayName"] as? String)
-            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
-            ?? "Climber"
         let userId = (data["userId"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty
+        let isSynthetic = isTrustedSyntheticRecord(data)
+        let identity = PublicClimberIdentity.resolve(
+            userId: userId,
+            storedDisplayName: data["displayName"] as? String,
+            storedPhotoURL: photoURLValue(for: "photoURL", in: data),
+            storedAvatarToken: data["avatarToken"] as? String,
+            isSynthetic: isSynthetic
+        )
 
         return LiveReplayLeaderboardRow(
             id: id,
             rank: intValue(for: "rank", in: data),
-            displayName: displayName,
-            avatarToken: (data["avatarToken"] as? String) ?? Self.avatarToken(for: displayName),
-            photoURL: photoURLValue(for: "photoURL", in: data),
+            displayName: identity.displayName,
+            avatarToken: identity.avatarToken,
+            photoURL: identity.photoURL,
             stepsAtBucket: stepsAtBucket,
             finalSteps: intValue(for: "finalSteps", in: data) ?? stepsAtBucket,
             deltaFromUser: stepsAtBucket - currentSteps,
@@ -540,6 +609,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             isPersonalBest: (data["isPersonalBest"] as? Bool) ?? false,
             completionDurationSeconds: doubleValue(for: "completionDurationSeconds", in: data),
             userId: userId,
+            isSynthetic: isSynthetic,
             gender: stringValue(for: "gender", in: data),
             age: intValue(for: "age", in: data),
             locationCity: stringValue(for: "locationCity", in: data)
@@ -559,27 +629,35 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             return nil
         }
 
-        let displayName = (data["displayName"] as? String)
-            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
-            ?? "Climber"
         let userId = (data["userId"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty
+        let isCurrentUser = userId == currentUserId
+        let isSynthetic = isTrustedSyntheticRecord(data)
+        let identity = PublicClimberIdentity.resolve(
+            userId: userId,
+            storedDisplayName: data["displayName"] as? String,
+            storedPhotoURL: photoURLValue(for: "photoURL", in: data),
+            storedAvatarToken: data["avatarToken"] as? String,
+            isSynthetic: isSynthetic,
+            isCurrentUser: isCurrentUser
+        )
         let stepsAtBucket = intValue(for: "stepsAtBucket", in: data) ?? 0
 
         return LiveReplayLeaderboardRow(
             id: id,
             rank: max(rank, 1),
-            displayName: displayName,
-            avatarToken: (data["avatarToken"] as? String) ?? Self.avatarToken(for: displayName),
-            photoURL: photoURLValue(for: "photoURL", in: data),
+            displayName: identity.displayName,
+            avatarToken: identity.avatarToken,
+            photoURL: identity.photoURL,
             stepsAtBucket: stepsAtBucket,
             finalSteps: intValue(for: "finalSteps", in: data) ?? stepsAtBucket,
             deltaFromUser: 0,
-            isCurrentUser: userId == currentUserId,
-            isPersonalBest: userId == currentUserId,
+            isCurrentUser: isCurrentUser,
+            isPersonalBest: isCurrentUser,
             completionDurationSeconds: completionDurationSeconds,
             userId: userId,
+            isSynthetic: isSynthetic,
             gender: stringValue(for: "gender", in: data),
             age: intValue(for: "age", in: data),
             locationCity: stringValue(for: "locationCity", in: data)
@@ -614,27 +692,14 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         _ row: LiveReplayLeaderboardRow,
         rank: Int
     ) -> LiveReplayLeaderboardRow {
-        LiveReplayLeaderboardRow(
-            id: row.id,
-            rank: row.rank ?? max(rank, 1),
-            displayName: row.displayName,
-            avatarToken: row.avatarToken,
-            photoURL: row.photoURL,
-            stepsAtBucket: row.stepsAtBucket,
-            finalSteps: row.finalSteps,
-            deltaFromUser: row.deltaFromUser,
-            isCurrentUser: row.isCurrentUser,
-            isPersonalBest: row.isPersonalBest,
-            completionDurationSeconds: row.completionDurationSeconds,
-            userId: row.userId,
-            gender: row.gender,
-            age: row.age,
-            locationCity: row.locationCity
+        row.updating(
+            rank: row.rank ?? max(rank, 1)
         )
     }
 
     private func nextCompletionLeaderboardCursor(
         documents: [QueryDocumentSnapshot],
+        metric: LiveReplayRankingMetric,
         rows: [LiveReplayLeaderboardRow],
         rankedCount: Int,
         completedCount: Int,
@@ -643,17 +708,17 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         guard documents.count >= pageSize,
               !rows.isEmpty,
               let lastDocument = documents.last,
-              let durationSeconds = doubleValue(
-                for: "completionDurationSeconds",
-                in: lastDocument.data()
-              ) ?? rows.last?.completionDurationSeconds,
               let lastRank = rows.last?.rank,
-              rankedCount < completedCount else {
+              rankedCount < completedCount,
+              let sortKey = optionalRankingValue(
+                for: metric,
+                in: lastDocument.data()
+              ) else {
             return nil
         }
 
         return LiveReplayCompletionLeaderboardCursor(
-            completionDurationSeconds: durationSeconds,
+            sortKey: sortKey,
             rowID: lastDocument.documentID,
             lastRank: lastRank,
             rankedCount: rankedCount
@@ -699,14 +764,16 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
 
     /// Whether a context collapses a climber's repeat completions into one row.
     ///
-    /// Only per-climb contexts do: every completion there reaches the same step
-    /// target, so the fastest attempt is genuinely that climber's best. An open
-    /// Just Climb session has no target, so its shortest attempt is the one the
-    /// climber quit earliest rather than their best.
+    /// Per-climb and per-routine-template contexts do: a climb board reaches the
+    /// same step target every time, so the fastest attempt is genuinely that
+    /// climber's best; a routine board fixes the clock, so the highest-steps
+    /// attempt is theirs. An open Just Climb session has no target, so its
+    /// shortest attempt is the one the climber quit earliest rather than their
+    /// best.
     private func collapsesRepeatFinishers(
         _ context: LiveReplayLeaderboardContext
     ) -> Bool {
-        context.type == .liveClimb
+        context.type == .liveClimb || context.type == .routineTemplate
     }
 
     private func finisherDocument(
@@ -781,15 +848,21 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             return nil
         }
 
-        let displayName = stringValue(for: "firstAscentDisplayName", in: data) ?? "Climber"
-        let avatarToken = stringValue(for: "firstAscentAvatarToken", in: data) ??
-            Self.avatarToken(for: displayName)
+        let isSynthetic = (data["firstAscentIsSynthetic"] as? Bool) == true
+        let identity = PublicClimberIdentity.resolve(
+            userId: stringValue(for: "firstAscentUserId", in: data),
+            storedDisplayName: stringValue(for: "firstAscentDisplayName", in: data),
+            storedPhotoURL: photoURLValue(for: "firstAscentPhotoURL", in: data),
+            storedAvatarToken: stringValue(for: "firstAscentAvatarToken", in: data),
+            isSynthetic: isSynthetic
+        )
 
         return LiveReplayFirstAscent(
             userId: stringValue(for: "firstAscentUserId", in: data),
-            displayName: displayName,
-            avatarToken: avatarToken,
-            photoURL: photoURLValue(for: "firstAscentPhotoURL", in: data),
+            displayName: identity.displayName,
+            avatarToken: identity.avatarToken,
+            photoURL: identity.photoURL,
+            isSynthetic: isSynthetic,
             completedAt: completedAt
         )
     }
@@ -800,14 +873,9 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             .nilIfEmpty
     }
 
-    private static func avatarToken(for displayName: String) -> String {
-        let initials = displayName
-            .split(separator: " ")
-            .prefix(2)
-            .compactMap(\.first)
-
-        let token = String(initials).uppercased()
-        return token.isEmpty ? "A" : token
+    private func isTrustedSyntheticRecord(_ data: [String: Any]) -> Bool {
+        (data["isSynthetic"] as? Bool) == true ||
+            stringValue(for: "source", in: data) == "synthetic"
     }
 }
 

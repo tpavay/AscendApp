@@ -13,6 +13,7 @@ struct RootView: View {
     @Environment(MonetizationManager.self) private var monetizationManager
     @Environment(\.modelContext) private var modelContext
     @Environment(MediaUploadManager.self) private var uploadManager
+    @Environment(ModerationStore.self) private var moderationStore
     @State private var importCoordinator = WorkoutImportCoordinator.shared
     @State private var postAuthOnboardingCoordinator = PostAuthOnboardingCoordinator()
     @State private var tabRouter = TabRouter()
@@ -62,6 +63,11 @@ struct RootView: View {
                 "app_will_enter_foreground",
                 details: ["route": rootRoute.diagnosticName]
             )
+            // Backstop for a real-time connection dropped while suspended. Deliberately not
+            // awaited: the bootstrap below runs on the already-resolved values rather than waiting
+            // out a network fetch, and a switch flipped while the app slept lands moments later or
+            // on the next pass.
+            RemoteFeatureFlagService.shared.refresh()
             // Retry pending uploads when app comes to foreground (network may have restored)
             Task {
                 importCoordinator.configure(modelContext: modelContext)
@@ -85,6 +91,7 @@ struct RootView: View {
             )
         }
         .onChange(of: authVM.user?.uid) { _, _ in
+            moderationStore.clear()
             AppDiagnosticsRecorder.shared.record(
                 "auth_user_changed",
                 details: [
@@ -152,8 +159,7 @@ struct RootView: View {
                 ProgressView("Restoring Session...")
                     .themedBackground()
             case .resolving:
-                ProgressView("Setting Up...")
-                    .themedBackground()
+                AppAccessResolvingView(onSignOut: authVM.signOut)
 
             case .onboarding(let stage):
                 PostAuthOnboardingFlowView(
@@ -175,11 +181,14 @@ struct RootView: View {
     private func bootstrapAuthenticatedLocalState() async {
         guard let user = authVM.user else {
             accountDataConflict = nil
+            moderationStore.clear()
             return
         }
         let currentUserId = user.uid
 
         do {
+            await moderationStore.hydrate(for: currentUserId)
+
             switch try AccountDataOwnershipService.evaluateAccess(
                 modelContext: modelContext,
                 signedInUserId: currentUserId
@@ -197,6 +206,11 @@ struct RootView: View {
             )
             AccountDataOwnershipService.recordAuthorizedOwner(signedInUserId: currentUserId)
 
+            try RoutineRemoteSyncAdoptionService.runIfNeeded(
+                modelContext: modelContext,
+                currentUserId: currentUserId
+            )
+
             do {
                 _ = try await WorkoutHydrationService.hydrateIfNeeded(
                     modelContext: modelContext,
@@ -204,6 +218,17 @@ struct RootView: View {
                 )
             } catch {
                 debugLog("Workout hydration failed: \(error)")
+            }
+
+            // Restoring routines is independent of workouts, so a failure on
+            // either side must not take the other down with it.
+            do {
+                _ = try await RoutineHydrationService.hydrateIfNeeded(
+                    modelContext: modelContext,
+                    currentUserId: currentUserId
+                )
+            } catch {
+                debugLog("Routine hydration failed: \(error)")
             }
 
             // Pull the server-derived completed-climb projection into the cache
@@ -216,6 +241,11 @@ struct RootView: View {
             )
 
             await WorkoutSyncCoordinator.shared.processPendingWorkouts(
+                modelContext: modelContext,
+                currentUserId: currentUserId
+            )
+
+            await RoutineSyncCoordinator.shared.processPendingRoutines(
                 modelContext: modelContext,
                 currentUserId: currentUserId
             )
@@ -237,28 +267,12 @@ struct RootView: View {
             )
 
             if didRebuild {
-                try await leaderboardService.deleteLegacyRemoteStats(userId: currentUserId)
                 await LeaderboardSessionCache.shared.invalidateAll()
             }
-
-            let cachedDisplayName = UserDataRepository.shared.getCachedDisplayName()?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let displayName = cachedDisplayName?.isEmpty == false ? cachedDisplayName! : authVM.displayName
-            let photoURL = UserDataRepository.shared.getCachedProfilePictureURL().flatMap(URL.init(string:)) ?? authVM.displayPhotoURL
-            guard !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return
-            }
-
-            await LeaderboardSyncCoordinator.shared.enqueueSync(
-                userId: currentUserId,
-                displayName: displayName,
-                photoURL: photoURL
-            )
 
             await ProfilePublicationService.publishCurrentUserProfile(
                 modelContext: modelContext,
                 userId: currentUserId,
-                displayName: displayName,
-                photoURL: photoURL,
                 joinedAt: user.metadata.creationDate
             )
         } catch {

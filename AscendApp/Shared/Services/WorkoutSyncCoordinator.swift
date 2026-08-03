@@ -8,6 +8,7 @@ final class WorkoutSyncCoordinator {
 
     private let remoteRepository: any WorkoutRemoteRepositoryProtocol
     private let heartRateStorageRepository: any WorkoutHeartRateStorageRepositoryProtocol
+    private let featureFlags: RemoteFeatureFlagStore
     private let operationTimeoutSeconds: Double
     private var isProcessingPendingWorkouts = false
     private var shouldProcessPendingWorkoutsAgain = false
@@ -15,10 +16,12 @@ final class WorkoutSyncCoordinator {
     init(
         remoteRepository: any WorkoutRemoteRepositoryProtocol = WorkoutRemoteRepository.shared,
         heartRateStorageRepository: any WorkoutHeartRateStorageRepositoryProtocol = WorkoutHeartRateStorageRepository.shared,
+        featureFlags: RemoteFeatureFlagStore = .shared,
         operationTimeoutSeconds: Double = 15.0
     ) {
         self.remoteRepository = remoteRepository
         self.heartRateStorageRepository = heartRateStorageRepository
+        self.featureFlags = featureFlags
         self.operationTimeoutSeconds = operationTimeoutSeconds
     }
 
@@ -81,20 +84,24 @@ final class WorkoutSyncCoordinator {
                     currentUserId: currentUserId
                 )
 
-                let snapshots = try loadPendingSnapshots(
-                    modelContext: modelContext,
-                    currentUserId: currentUserId,
-                    excludedWorkoutIds: deletedWorkoutIds
-                )
+                // Killed: the workouts stay flagged for upsert in SwiftData and go up on the
+                // next pass after the flag returns. Nothing is marked synced or failed.
+                let snapshots = backupsAreEnabled
+                    ? try loadPendingSnapshots(
+                        modelContext: modelContext,
+                        currentUserId: currentUserId,
+                        excludedWorkoutIds: deletedWorkoutIds
+                    )
+                    : []
 
                 for snapshot in snapshots {
                     do {
-                        let heartRateSeriesStoragePath = try await sync(snapshot)
+                        let heartRateSeries = try await sync(snapshot)
                         try markSynced(
                             workoutId: snapshot.workoutId,
                             userId: snapshot.userId,
                             expectedModifiedAt: snapshot.lastModifiedAt,
-                            heartRateSeriesStoragePath: heartRateSeriesStoragePath,
+                            heartRateSeries: heartRateSeries,
                             modelContext: modelContext
                         )
                     } catch {
@@ -123,12 +130,14 @@ private extension WorkoutSyncCoordinator {
         let ownerUserId: String
     }
 
-    func sync(_ snapshot: WorkoutRemoteSyncSnapshot) async throws -> String? {
+    func sync(
+        _ snapshot: WorkoutRemoteSyncSnapshot
+    ) async throws -> FirestoreWorkoutHeartRateSeriesReference? {
         let baseDocument = snapshot.document
         let finalDocument: FirestoreWorkoutDocument
 
         if let heartRateBlob = snapshot.heartRateBlob {
-            let heartRateSeries = try await withWorkoutSyncTimeout(seconds: operationTimeoutSeconds) {
+            let heartRateSeries = try await withRemoteSyncTimeout(seconds: operationTimeoutSeconds) {
                 try await self.heartRateStorageRepository.uploadHeartRateSeries(
                     userId: snapshot.userId,
                     workoutId: snapshot.workoutId,
@@ -136,36 +145,10 @@ private extension WorkoutSyncCoordinator {
                 )
             }
 
-            finalDocument = FirestoreWorkoutDocument(
-                userId: baseDocument.userId,
-                schemaVersion: baseDocument.schemaVersion,
-                name: baseDocument.name,
-                startedAt: baseDocument.startedAt,
-                durationSeconds: baseDocument.durationSeconds,
-                steps: baseDocument.steps,
-                floors: baseDocument.floors,
-                stepsPerFloor: baseDocument.stepsPerFloor,
-                notes: baseDocument.notes,
-                source: baseDocument.source,
-                integrityLevel: baseDocument.integrityLevel,
-                createdAt: baseDocument.createdAt,
-                updatedAt: baseDocument.updatedAt,
-                avgHeartRateBpm: baseDocument.avgHeartRateBpm,
-                maxHeartRateBpm: baseDocument.maxHeartRateBpm,
-                caloriesBurned: baseDocument.caloriesBurned,
-                effortRating: baseDocument.effortRating,
-                averageMETs: baseDocument.averageMETs,
-                deviceModel: baseDocument.deviceModel,
-                sourceMetadata: baseDocument.sourceMetadata,
-                healthKitUUID: baseDocument.healthKitUUID,
-                hevyWorkoutId: baseDocument.hevyWorkoutId,
-                media: baseDocument.media,
-                highlightedMediaId: baseDocument.highlightedMediaId,
-                weightConfiguration: baseDocument.weightConfiguration,
-                heartRateSeries: heartRateSeries
-            )
-        } else if snapshot.previousHeartRateSeriesStoragePath != nil {
-            try await withWorkoutSyncTimeout(seconds: operationTimeoutSeconds) {
+            finalDocument = baseDocument.replacingHeartRateSeries(heartRateSeries)
+        } else if baseDocument.heartRateSeries == nil,
+                  snapshot.previousHeartRateSeriesStoragePath != nil {
+            try await withRemoteSyncTimeout(seconds: operationTimeoutSeconds) {
                 try await self.heartRateStorageRepository.deleteHeartRateSeriesIfPresent(
                     userId: snapshot.userId,
                     workoutId: snapshot.workoutId
@@ -176,7 +159,7 @@ private extension WorkoutSyncCoordinator {
             finalDocument = baseDocument
         }
 
-        try await withWorkoutSyncTimeout(seconds: operationTimeoutSeconds) {
+        try await withRemoteSyncTimeout(seconds: operationTimeoutSeconds) {
             try await self.remoteRepository.upsertWorkout(
                 userId: snapshot.userId,
                 workoutId: snapshot.workoutId,
@@ -184,13 +167,32 @@ private extension WorkoutSyncCoordinator {
             )
         }
 
-        return finalDocument.heartRateSeries?.storagePath
+        return finalDocument.heartRateSeries
+    }
+
+    var backupsAreEnabled: Bool {
+        RemoteFeatureGate.allows(
+            .workoutCloudBackupWrites,
+            path: "WorkoutSyncCoordinator.processPendingWorkouts",
+            store: featureFlags
+        )
     }
 
     func processPendingDeletions(
         modelContext: ModelContext,
         currentUserId: String
     ) async throws -> Set<UUID> {
+        // Killed: the `PendingWorkoutDeletion` rows survive untouched and replay once the flag is
+        // back on. Returning no deleted ids is safe because `loadPendingSnapshots` reads those same
+        // rows itself, so a workout awaiting deletion is still excluded from the upsert pass.
+        guard RemoteFeatureGate.allows(
+            .workoutRemoteDeletes,
+            path: "WorkoutSyncCoordinator.processPendingDeletions",
+            store: featureFlags
+        ) else {
+            return []
+        }
+
         let pendingDeletions = try loadPendingDeletions(
             modelContext: modelContext,
             currentUserId: currentUserId
@@ -219,14 +221,17 @@ private extension WorkoutSyncCoordinator {
         let userId = pendingDeletion.ownerUserId
         let workoutId = pendingDeletion.workoutId
 
-        try await withWorkoutSyncTimeout(seconds: operationTimeoutSeconds) {
+        // Sidecar-first deletion removes active HR access before deleting the workout envelope.
+        // Preventing stale devices from recreating either record still depends on the planned
+        // revisioned tombstone and grace-period durability slice.
+        try await withRemoteSyncTimeout(seconds: operationTimeoutSeconds) {
             try await self.heartRateStorageRepository.deleteHeartRateSeriesIfPresent(
                 userId: userId,
                 workoutId: workoutId
             )
         }
 
-        try await withWorkoutSyncTimeout(seconds: operationTimeoutSeconds) {
+        try await withRemoteSyncTimeout(seconds: operationTimeoutSeconds) {
             try await self.remoteRepository.deleteWorkout(
                 userId: userId,
                 workoutId: workoutId
@@ -294,7 +299,7 @@ private extension WorkoutSyncCoordinator {
         workoutId: UUID,
         userId: String,
         expectedModifiedAt: Date,
-        heartRateSeriesStoragePath: String?,
+        heartRateSeries: FirestoreWorkoutHeartRateSeriesReference?,
         modelContext: ModelContext
     ) throws {
         guard let workout = try Self.fetchWorkout(
@@ -306,7 +311,7 @@ private extension WorkoutSyncCoordinator {
         guard workout.lastModifiedAt <= expectedModifiedAt else { return }
 
         workout.markRemoteSyncSucceeded(
-            heartRateSeriesStoragePath: heartRateSeriesStoragePath
+            heartRateSeries: heartRateSeries
         )
         try modelContext.save()
     }
@@ -350,7 +355,7 @@ private extension WorkoutSyncCoordinator {
 
         switch error {
         case is WorkoutSyncError,
-             is WorkoutSyncTimeoutError:
+             is RemoteSyncTimeoutError:
             context = .firestore
             code = "workout_sync_failed"
         case is GzipCodec.Error:

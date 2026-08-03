@@ -1,11 +1,13 @@
 import Foundation
 
 enum ProfileIdentityFormatter {
-    static func locationLine(for identity: ProfileUserIdentity) -> String? {
+    static func locationLine(
+        for demographics: ProfileDemographicsSnapshot
+    ) -> String? {
         locationText(
-            city: identity.locationCity,
-            countryCode: identity.locationCountryCode,
-            regionCode: identity.locationRegionCode
+            city: demographics.locationCity,
+            countryCode: demographics.locationCountryCode,
+            regionCode: demographics.locationRegionCode
         )
     }
 

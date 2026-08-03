@@ -24,15 +24,17 @@ protocol AccountDeletionGateway {
 
     func deleteAllUserStorage(userId: String) async throws
 
-    /// Best-effort deletion of legacy flat-path media identified by download URL.
-    func deleteLegacyMedia(at urls: [URL]) async
-
-    func deleteLeaderboardStats(userId: String) async throws
-    func deleteFeedbackRateLimitDocument(userId: String) async throws
     func deleteWorkoutBackups(userId: String) async throws
+
+    /// Deletes the climber's backed-up routines and routine folders.
+    func deleteRoutineBackups(userId: String) async throws
+    func deleteBlockedClimbers(userId: String) async throws
 
     /// Deletes the publicly readable mirrors of the user's profile.
     func deletePublicProfileMirrors(userId: String) async throws
+
+    /// Best-effort deactivation of the user's push delivery records.
+    func unregisterPushDevice() async
 
     func deleteUserDocument(userId: String) async throws
     func revokeAppleToken(authorizationCode: String) async throws
@@ -110,6 +112,10 @@ struct FirebaseAccountDeletionGateway: AccountDeletionGateway {
         try await authService.revokeAppleToken(authorizationCode: authorizationCode)
     }
 
+    func unregisterPushDevice() async {
+        await PushNotificationService.shared.unregisterCurrentDevice()
+    }
+
     func deleteAuthAccount() async throws {
         guard let user = Auth.auth().currentUser else {
             throw AccountDeletionGatewayError.notAuthenticated
@@ -120,17 +126,13 @@ struct FirebaseAccountDeletionGateway: AccountDeletionGateway {
     // MARK: - Storage
 
     // StorageReference is not Sendable, so every reference is created and
-    // consumed inside these nonisolated helpers. Only Sendable values (the uid,
-    // the legacy URLs) cross the actor boundary.
+    // consumed inside these nonisolated helpers. Only Sendable values (the uid)
+    // cross the actor boundary.
 
     /// Sweeps all user-scoped Storage prefixes and deletes every file.
     /// This is independent of SwiftData — it catches orphaned files too.
     func deleteAllUserStorage(userId: String) async throws {
         try await Self.sweepUserStorage(userId: userId)
-    }
-
-    func deleteLegacyMedia(at urls: [URL]) async {
-        await Self.sweepLegacyMedia(at: urls)
     }
 
     private nonisolated static func sweepUserStorage(userId: String) async throws {
@@ -147,22 +149,6 @@ struct FirebaseAccountDeletionGateway: AccountDeletionGateway {
 
         for prefix in prefixes {
             try await deleteAllFiles(under: prefix)
-        }
-    }
-
-    private nonisolated static func sweepLegacyMedia(at urls: [URL]) async {
-        let storage = Storage.storage()
-
-        for url in urls {
-            if Task.isCancelled { return }
-            do {
-                let ref = try storage.reference(for: url)
-                try await ref.delete()
-            } catch {
-                // Best-effort: these predate user-scoped paths and may already
-                // be gone via the prefix sweep. Never block deletion on them.
-                continue
-            }
         }
     }
 
@@ -195,22 +181,19 @@ struct FirebaseAccountDeletionGateway: AccountDeletionGateway {
 
     // MARK: - Firestore
 
-    func deleteLeaderboardStats(userId: String) async throws {
-        let snapshot = try await db.collection("leaderboard_stats")
-            .whereField("userId", isEqualTo: userId)
-            .getDocuments()
-
-        for document in snapshot.documents {
-            try await document.reference.delete()
-        }
-    }
-
-    func deleteFeedbackRateLimitDocument(userId: String) async throws {
-        try await db.collection("userRateLimits").document(userId).delete()
-    }
-
     func deleteWorkoutBackups(userId: String) async throws {
         try await deleteAllDocuments(in: userDocument(userId).collection("workouts"))
+    }
+
+    func deleteRoutineBackups(userId: String) async throws {
+        let userDocument = userDocument(userId)
+
+        try await deleteAllDocuments(in: userDocument.collection("routines"))
+        try await deleteAllDocuments(in: userDocument.collection("routine_folders"))
+    }
+
+    func deleteBlockedClimbers(userId: String) async throws {
+        try await deleteAllDocuments(in: userDocument(userId).collection("blocked"))
     }
 
     /// Deletes the publicly readable mirrors of the user's profile.

@@ -109,7 +109,7 @@ struct ProfileCollectionSummaryTests {
 
     private func snapshot(attempts: [ClimbAttempt], climbs: [Climb]) -> ProfileSnapshot {
         ProfileSnapshotBuilder.makeOwnSnapshot(
-            identity: ProfileUserIdentity(userId: "test-user", displayName: "Test User"),
+            demographics: ProfileDemographicsSnapshot(userId: "test-user"),
             workouts: [],
             climbAttempts: attempts,
             bestEffortCacheEntries: [],
