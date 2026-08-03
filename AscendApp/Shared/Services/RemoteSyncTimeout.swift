@@ -1,17 +1,23 @@
 import Foundation
 
-enum WorkoutSyncTimeoutError: LocalizedError {
+enum RemoteSyncTimeoutError: LocalizedError {
     case operationTimedOut
 
     var errorDescription: String? {
         switch self {
         case .operationTimedOut:
-            return "The workout sync request timed out."
+            return "The cloud backup request timed out."
         }
     }
 }
 
-func withWorkoutSyncTimeout<T: Sendable>(
+/// Bounds one remote backup call.
+///
+/// Shared by every sync coordinator rather than reimplemented per feature: a
+/// second timeout policy is a second set of numbers to keep in step, and the
+/// one thing every one of these calls has in common is that it must not hold
+/// the queue open forever.
+func withRemoteSyncTimeout<T: Sendable>(
     seconds: Double,
     operation: @escaping @Sendable () async throws -> T
 ) async throws -> T {
@@ -22,7 +28,7 @@ func withWorkoutSyncTimeout<T: Sendable>(
 
         group.addTask {
             try await Task.sleep(for: .seconds(seconds))
-            throw WorkoutSyncTimeoutError.operationTimedOut
+            throw RemoteSyncTimeoutError.operationTimedOut
         }
 
         let result = try await group.next()!

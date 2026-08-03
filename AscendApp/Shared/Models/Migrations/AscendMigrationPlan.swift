@@ -15,12 +15,29 @@ import SwiftData
 /// workout - no enrichment, no Live Climb attempt, while `integrityLevel` still claims verified.
 enum AscendMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [AscendSchemaV1.self, AscendSchemaV2.self]
+        [AscendSchemaV1.self, AscendSchemaV2.self, AscendSchemaV3.self]
     }
 
     static var stages: [MigrationStage] {
-        [migrateV1toV2]
+        [migrateV1toV2, migrateV2toV3]
     }
+
+    /// Adds cloud-backup state to `Routine` and `RoutineFolder`, and the
+    /// `PendingRoutineDeletion` tombstone queue.
+    ///
+    /// Lightweight, and it has to be: this runs inside `ModelContainer.init` on
+    /// the launch path where no kill switch reaches it, so the only safe work
+    /// here is work with nothing to interpret. Every added column is optional
+    /// or takes a default that is true of every existing row - a routine
+    /// written before this build really does still owe its first upload - so
+    /// there is nothing to compute per record. The interpretive half, claiming
+    /// those routines for the signed-in climber, is deliberately a post-launch
+    /// pass in `RoutineRemoteSyncAdoptionService`, where
+    /// `local_data_migrations_enabled` can defer it.
+    static let migrateV2toV3 = MigrationStage.lightweight(
+        fromVersion: AscendSchemaV2.self,
+        toVersion: AscendSchemaV3.self
+    )
 
     /// Copies the Codable `source` column into `sourceRawValue`.
     ///

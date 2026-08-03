@@ -422,8 +422,16 @@ struct CompletedClimbRankSummaryEvidenceTests {
         }
     }
 
+    /// Waits for UIKit to finish the appearance transition, with a deadline generous enough that a
+    /// busy runner cannot be mistaken for a broken one.
+    ///
+    /// Five seconds was not: a full parallel run on a contended machine took this suite past it once
+    /// in six, and the resulting red says "the summary never appeared" about a machine that was
+    /// merely slow. The deadline exists to stop a genuinely stuck transition from hanging the run,
+    /// so it only has to be shorter than a person's patience - it buys nothing by being tight, and
+    /// a passing run still leaves it the instant `viewDidAppear` lands.
     private func waitUntilAppeared(_ host: AppearanceTrackingHostingController) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(60))
         while host.hasAppeared == false, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(5))
         }

@@ -19,7 +19,6 @@ struct WorkoutSourceSchemaMigrationTests {
     @Test
     func migrationCarriesEveryRecordedSourceForward() throws {
         let storeURL = Self.makeStoreURL()
-        defer { Self.removeStore(at: storeURL) }
         let stashScope = Self.IsolatedStash()
         defer { stashScope.tearDown() }
 
@@ -77,7 +76,6 @@ struct WorkoutSourceSchemaMigrationTests {
     @Test
     func migratedInAppSensorWorkoutsStayEnrichable() throws {
         let storeURL = Self.makeStoreURL()
-        defer { Self.removeStore(at: storeURL) }
         let stashScope = Self.IsolatedStash()
         defer { stashScope.tearDown() }
 
@@ -125,7 +123,6 @@ struct WorkoutSourceSchemaMigrationTests {
     @Test
     func migrationLeavesTheRestOfTheWorkoutIntact() throws {
         let storeURL = Self.makeStoreURL()
-        defer { Self.removeStore(at: storeURL) }
         let stashScope = Self.IsolatedStash()
         defer { stashScope.tearDown() }
 
@@ -163,7 +160,6 @@ struct WorkoutSourceSchemaMigrationTests {
     @Test
     func aFreshStoreOpensStraightOntoTheCurrentSchema() throws {
         let storeURL = Self.makeStoreURL()
-        defer { Self.removeStore(at: storeURL) }
         let stashScope = Self.IsolatedStash()
         defer { stashScope.tearDown() }
 
@@ -191,7 +187,6 @@ struct WorkoutSourceSchemaMigrationTests {
     @Test
     func aMigrationThatFailsPartwayIsFinishedOnTheNextLaunch() throws {
         let storeURL = Self.makeStoreURL()
-        defer { Self.removeStore(at: storeURL) }
         let stashScope = Self.IsolatedStash()
         defer { stashScope.tearDown() }
 
@@ -327,7 +322,6 @@ struct WorkoutSourceSchemaMigrationTests {
     @Test
     func aRepairThatKeepsFailingIsGivenUpOnRatherThanRetriedForever() throws {
         let storeURL = Self.makeStoreURL()
-        defer { Self.removeStore(at: storeURL) }
         let stashScope = Self.IsolatedStash()
         defer { stashScope.tearDown() }
 
@@ -349,6 +343,7 @@ struct WorkoutSourceSchemaMigrationTests {
         #expect(throws: (any Error).self) {
             _ = try Self.openStore(at: storeURL, migrationPlan: FailingWorkoutSourceMigrationPlan.self)
         }
+        try Self.advanceToCurrentSchema(at: storeURL)
 
         // A store that refuses writes fails the sweep for real, at `context.save()`, so the
         // counter is driven by actual failures rather than primed by hand - the give-up branch
@@ -392,7 +387,6 @@ struct WorkoutSourceSchemaMigrationTests {
     @Test
     func aReadPassThatCannotStashStopsRefusingToOpenTheStore() throws {
         let storeURL = Self.makeStoreURL()
-        defer { Self.removeStore(at: storeURL) }
         let stashScope = Self.IsolatedStash(unwritable: true)
         defer { stashScope.tearDown() }
 
@@ -434,7 +428,6 @@ struct WorkoutSourceSchemaMigrationTests {
         // The read pass giving up and proceeding with what it has.
         try Self.withUnrepairableStore { _, _ in }
         let readStoreURL = Self.makeStoreURL()
-        defer { Self.removeStore(at: readStoreURL) }
         let unwritableStash = Self.IsolatedStash(unwritable: true)
         defer { unwritableStash.tearDown() }
 
@@ -657,7 +650,7 @@ struct WorkoutSourceSchemaMigrationTests {
     /// out - a container has no close, so the only safe moment to unlink is before anything opens.
     private static func freshStoreDirectory(named name: String) -> URL {
         let directory = URL.temporaryDirectory
-            .appending(path: "ascend-migration-paging/\(name)-\(UUID().uuidString)")
+            .appending(path: "ascend-migration-stores/\(name)-\(UUID().uuidString)")
         try? FileManager.default.removeItem(at: directory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
@@ -676,7 +669,6 @@ struct WorkoutSourceSchemaMigrationTests {
         _ body: (URL, IsolatedStash) throws -> Void
     ) throws {
         let storeURL = makeStoreURL()
-        defer { removeStore(at: storeURL) }
         let stashScope = IsolatedStash()
         defer { stashScope.tearDown() }
 
@@ -697,6 +689,7 @@ struct WorkoutSourceSchemaMigrationTests {
         #expect(throws: (any Error).self) {
             _ = try openStore(at: storeURL, migrationPlan: FailingWorkoutSourceMigrationPlan.self)
         }
+        try advanceToCurrentSchema(at: storeURL)
 
         try body(storeURL, stashScope)
     }
@@ -738,14 +731,16 @@ struct WorkoutSourceSchemaMigrationTests {
         }
     }
 
+    /// A store path nothing has opened yet, and that nothing unlinks afterwards.
+    ///
+    /// The same rule `freshStoreDirectory` keeps, and for the same reason - it just took longer to
+    /// find here, because the damage lands somewhere else. These tests used to unlink the store on
+    /// the way out while a `ModelContainer` still held it open. SQLite calls that an API violation
+    /// ("vnode unlinked while in use"), invalidates the descriptor, and Core Data recovers by
+    /// re-adding the store read only, after which every save against it fails. A container has no
+    /// close, so the only safe moment to unlink is before anything opens.
     private static func makeStoreURL() -> URL {
-        URL.temporaryDirectory.appending(path: "ascend-migration-\(UUID().uuidString).store")
-    }
-
-    private static func removeStore(at url: URL) {
-        for candidate in [url, url.appendingPathExtension("shm"), url.appendingPathExtension("wal")] {
-            try? FileManager.default.removeItem(at: candidate)
-        }
+        freshStoreDirectory(named: "store").appending(path: "migration.store")
     }
 
     /// Writes a store in the shape older installs left behind, then closes it.
@@ -779,22 +774,51 @@ struct WorkoutSourceSchemaMigrationTests {
         return try body(ModelContext(container))
     }
 
+    /// Opens the store the way a launch does: the real plan, carried all the way to the schema the
+    /// build ships, rather than stopping at the version this suite happens to be about.
+    ///
+    /// Stopping at V2 is what made the routine backup suites flake (#304). `AscendSchemaV2.Routine`
+    /// is a frozen copy of the pre-cloud-backup shape, and SwiftData registers it under the same
+    /// Core Data entity name as the live `Routine`. While a container built on it is alive, a write
+    /// to one of the four columns only the live shape carries - `ownerUserId`, `lastRemoteSyncAt`,
+    /// `lastRemoteSyncError`, `remoteSyncStatusRawValue` - is dropped by *any* `ModelContext` in the
+    /// process, with no error and nothing thrown from `save()`. The contexts opened here are held
+    /// for the length of a test, so in a parallel run that window lands on whatever else is writing.
+    /// Nothing in this suite reads a routine, so stopping at the frozen shape bought it nothing.
     private static func openMigratedStore(at url: URL, allowsSave: Bool = true) throws -> ModelContext {
-        ModelContext(
-            try openStore(at: url, migrationPlan: AscendMigrationPlan.self, allowsSave: allowsSave)
+        let schema = Schema(versionedSchema: AscendSchemaV3.self)
+        return ModelContext(
+            try ModelContainer(
+                for: schema,
+                migrationPlan: AscendMigrationPlan.self,
+                configurations: ModelConfiguration(schema: schema, url: url, allowsSave: allowsSave)
+            )
         )
     }
 
+    /// Carries a store that a deliberately-failing plan left stamped at V2 up to the current
+    /// version, so the read-only probes that follow have nothing left to migrate.
+    ///
+    /// A store opened `allowsSave: false` cannot run a stage, and every open here now targets the
+    /// live schema - see `openMigratedStore`. The V2 -> V3 step adds routine columns and nothing
+    /// else, so it leaves the workout half, the stash, and the interrupted sweep exactly as found.
+    private static func advanceToCurrentSchema(at url: URL) throws {
+        _ = try openMigratedStore(at: url)
+    }
+
+    /// The one open that still has to stop at V2: a plan whose only stage ends there.
+    ///
+    /// Every call is wrapped in `#expect(throws:)` - the container never finishes building, so the
+    /// frozen routine shape it registers is not held open across the assertions that follow.
     private static func openStore(
         at url: URL,
-        migrationPlan: (any SchemaMigrationPlan.Type)?,
-        allowsSave: Bool = true
+        migrationPlan: (any SchemaMigrationPlan.Type)?
     ) throws -> ModelContainer {
         let schema = Schema(versionedSchema: AscendSchemaV2.self)
         return try ModelContainer(
             for: schema,
             migrationPlan: migrationPlan,
-            configurations: ModelConfiguration(schema: schema, url: url, allowsSave: allowsSave)
+            configurations: ModelConfiguration(schema: schema, url: url)
         )
     }
 

@@ -206,6 +206,11 @@ struct RootView: View {
             )
             AccountDataOwnershipService.recordAuthorizedOwner(signedInUserId: currentUserId)
 
+            try RoutineRemoteSyncAdoptionService.runIfNeeded(
+                modelContext: modelContext,
+                currentUserId: currentUserId
+            )
+
             do {
                 _ = try await WorkoutHydrationService.hydrateIfNeeded(
                     modelContext: modelContext,
@@ -213,6 +218,17 @@ struct RootView: View {
                 )
             } catch {
                 debugLog("Workout hydration failed: \(error)")
+            }
+
+            // Restoring routines is independent of workouts, so a failure on
+            // either side must not take the other down with it.
+            do {
+                _ = try await RoutineHydrationService.hydrateIfNeeded(
+                    modelContext: modelContext,
+                    currentUserId: currentUserId
+                )
+            } catch {
+                debugLog("Routine hydration failed: \(error)")
             }
 
             // Pull the server-derived completed-climb projection into the cache
@@ -225,6 +241,11 @@ struct RootView: View {
             )
 
             await WorkoutSyncCoordinator.shared.processPendingWorkouts(
+                modelContext: modelContext,
+                currentUserId: currentUserId
+            )
+
+            await RoutineSyncCoordinator.shared.processPendingRoutines(
                 modelContext: modelContext,
                 currentUserId: currentUserId
             )

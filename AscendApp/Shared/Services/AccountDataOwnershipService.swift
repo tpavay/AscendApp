@@ -116,6 +116,18 @@ enum AccountDataOwnershipService {
         let leaderboardStats = try modelContext.fetch(FetchDescriptor<LeaderboardStats>())
         ownerIds.formUnion(leaderboardStats.compactMap { normalizedOwnerId($0.userId) })
 
+        // Routines and folders now carry an owner, so they belong in the gate.
+        // A model that records whose data it is and is not consulted here is a
+        // model a second account can sign in on top of.
+        let routines = try modelContext.fetch(FetchDescriptor<Routine>())
+        ownerIds.formUnion(routines.compactMap { normalizedOwnerId($0.ownerUserId) })
+
+        let routineFolders = try modelContext.fetch(FetchDescriptor<RoutineFolder>())
+        ownerIds.formUnion(routineFolders.compactMap { normalizedOwnerId($0.ownerUserId) })
+
+        let pendingRoutineDeletions = try modelContext.fetch(FetchDescriptor<PendingRoutineDeletion>())
+        ownerIds.formUnion(pendingRoutineDeletions.compactMap { normalizedOwnerId($0.ownerUserId) })
+
         return ownerIds.sorted()
     }
 

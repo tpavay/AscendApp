@@ -28,6 +28,16 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// once they are believed uploaded.
     case workoutMediaUploads = "workout_media_uploads_enabled"
 
+    /// Uploading user-authored routines and routine folders to the cloud backup.
+    case routineCloudBackupWrites = "routine_cloud_backup_writes_enabled"
+
+    /// Deleting remote routine and routine folder documents. Destructive and
+    /// irreversible, so it is separable from the upload path.
+    case routineRemoteDeletes = "routine_remote_deletes_enabled"
+
+    /// Decoding routine backups back into local SwiftData on sign-in and reinstall.
+    case routineCloudRestore = "routine_cloud_restore_enabled"
+
     /// One-shot local backfills that rewrite existing SwiftData rows in bulk.
     case localDataMigrations = "local_data_migrations_enabled"
 
@@ -59,6 +69,12 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Restores cloud backups into local storage on sign-in and reinstall."
         case .workoutMediaUploads:
             return "Uploads queued workout photos and videos, and sweeps local originals."
+        case .routineCloudBackupWrites:
+            return "Uploads user-authored routines and folders to cloud backup."
+        case .routineRemoteDeletes:
+            return "Deletes remote routine and routine folder documents."
+        case .routineCloudRestore:
+            return "Restores routine backups into local storage on sign-in and reinstall."
         case .localDataMigrations:
             return "Runs one-shot local backfills that rewrite stored workouts."
         case .publicProfilePublishing:

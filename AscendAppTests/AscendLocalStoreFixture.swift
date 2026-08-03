@@ -78,6 +78,13 @@ enum AscendLocalStoreFixture {
             inserter(PendingWorkoutDeletion.self) {
                 PendingWorkoutDeletion(workoutId: UUID(), ownerUserId: "fixture-user")
             },
+            inserter(PendingRoutineDeletion.self) {
+                PendingRoutineDeletion(
+                    recordId: UUID(),
+                    kind: .routine,
+                    ownerUserId: "fixture-user"
+                )
+            },
             inserter(BestEffortCacheEntry.self) {
                 BestEffortCacheEntry(
                     kind: .ranked,

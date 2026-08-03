@@ -17,18 +17,20 @@ Start from what is actually here.
 
 | Thing | Where |
 |---|---|
-| The shape older installs wrote, frozen | `AscendApp/Shared/Models/Migrations/AscendSchemaV1.swift` |
-| The shape the app writes now | `AscendApp/Shared/Models/Migrations/AscendSchemaV2.swift` |
-| The plan that carries V1 forward to V2 | `AscendApp/Shared/Models/Migrations/AscendMigrationPlan.swift` |
+| The shapes older installs wrote, frozen | `AscendApp/Shared/Models/Migrations/AscendSchemaV1.swift`, `AscendSchemaV2.swift` |
+| The shape the app writes now | `AscendApp/Shared/Models/Migrations/AscendSchemaV3.swift` |
+| The plan that carries V1 forward to V3 | `AscendApp/Shared/Models/Migrations/AscendMigrationPlan.swift` |
 | The one declaration of which schema is live, read by everything that must cover the whole store | `AscendApp/Shared/Models/AscendLocalStore.swift` (`currentSchema`) |
 | Where the container is opened, and the interrupted-migration retry | `AscendApp/App/AscendApp.swift` (`createModelContainer`, `finishInterruptedMigrationIfNeeded`) |
 | Proof it works against a real V1 store | `AscendAppTests/WorkoutSourceSchemaMigrationTests.swift` |
+| Proof it works against a real V2 store | `AscendAppTests/RoutineBackupSchemaMigrationTests.swift` |
 | A gated post-launch backfill, for contrast | `AscendApp/Shared/Services/WorkoutSourceMigrationService.swift` |
 
 `AscendSchemaV1` is `Schema.Version(1, 0, 0)` and is frozen.
-It declares its own copies of `Workout`, `WorkoutSourceLink` and `WorkoutParticipation` so the migration can *read* what is on disk.
-`AscendSchemaV2` is `Schema.Version(2, 0, 0)` and lists the twelve live models.
-`AscendMigrationPlan.stages` holds exactly one stage, `migrateV1toV2`, and it is a `.custom` stage.
+It declares its own copies of `Workout`, `WorkoutSourceLink`, `WorkoutParticipation`, `Routine` and `RoutineFolder` so the migration can *read* what is on disk.
+`AscendSchemaV2` is `Schema.Version(2, 0, 0)` and is frozen too; it carries its own `Routine` and `RoutineFolder`, unchanged from V1, because those two gained columns in V3.
+`AscendSchemaV3` is `Schema.Version(3, 0, 0)` and lists the thirteen live models.
+`AscendMigrationPlan.stages` holds two stages: `migrateV1toV2`, a `.custom` stage, and `migrateV2toV3`, a lightweight one.
 
 **Read `migrateV1toV2` before you write a migration of your own.**
 It is the worked example of the hardest case in the decision procedure below, and it is real code in this repository rather than a paraphrase of Apple's documentation.
@@ -134,7 +136,7 @@ Firestore is an operation you perform and can perform again.
 
 `node scripts/check-swiftdata-schema.mjs` reads the Swift sources and fails on the two mistakes that are otherwise invisible in a diff:
 
-1. **The model list and the current versioned schema disagree.** A model declared but absent from `AscendSchemaV2.models` is never migrated and never opened with the store. The check also catches a plan or a container left pointing at a stale schema.
+1. **The model list and the current versioned schema disagree.** A model declared but absent from `AscendLocalStore.currentSchema`'s `models` is never migrated and never opened with the store. The check also catches a plan or a container left pointing at a stale schema.
 2. **A schema change adds a required property with no default and no stage, or changes a stored property's type.** The first fires only on properties that are *new* or newly non-optional, and only on models that already have rows - a brand-new model is exempt because it has none. The second fires on any existing column whose type changed, because lightweight migration drops the old column and takes the new one's default. It also fails a change to a shipped `VersionedSchema`, and a shape change with no new schema version.
 
 Either one is excused only by a stage `AscendMigrationPlan.stages` actually runs **plus** a hand-written `customStageColumns` entry naming the column it covers, so a second unrelated column cannot ride in on the first one's stage.

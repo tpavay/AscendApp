@@ -146,10 +146,17 @@
         </dict>
 
         <!--
-          Fitness - workout metrics, Live Climb completion and rank state, plus the
-          onboarding fitness answers sent to Firebase Analytics and Mixpanel as user
-          properties: `stair_stepper_exp`, `exercise_level`, `motivation`,
+          Fitness - workout metrics, Live Climb completion and rank state, the
+          user-authored routines and routine folders backed up to
+          users/{uid}/routines and users/{uid}/routine_folders (name, description,
+          interval plan, completion count), plus the onboarding fitness answers
+          sent to Firebase Analytics and Mixpanel as user properties:
+          `stair_stepper_exp`, `exercise_level`, `motivation`,
           `planned_frequency`, and the `goal_*` selections.
+
+          The routine backup is private to its owner - readable only by the
+          signed-in climber, never published to any surface another user can see
+          - so it adds no purpose beyond App Functionality.
         -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>

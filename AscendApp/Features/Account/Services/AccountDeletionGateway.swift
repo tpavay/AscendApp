@@ -25,6 +25,9 @@ protocol AccountDeletionGateway {
     func deleteAllUserStorage(userId: String) async throws
 
     func deleteWorkoutBackups(userId: String) async throws
+
+    /// Deletes the climber's backed-up routines and routine folders.
+    func deleteRoutineBackups(userId: String) async throws
     func deleteBlockedClimbers(userId: String) async throws
 
     /// Deletes the publicly readable mirrors of the user's profile.
@@ -180,6 +183,13 @@ struct FirebaseAccountDeletionGateway: AccountDeletionGateway {
 
     func deleteWorkoutBackups(userId: String) async throws {
         try await deleteAllDocuments(in: userDocument(userId).collection("workouts"))
+    }
+
+    func deleteRoutineBackups(userId: String) async throws {
+        let userDocument = userDocument(userId)
+
+        try await deleteAllDocuments(in: userDocument.collection("routines"))
+        try await deleteAllDocuments(in: userDocument.collection("routine_folders"))
     }
 
     func deleteBlockedClimbers(userId: String) async throws {
