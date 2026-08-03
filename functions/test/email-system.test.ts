@@ -107,6 +107,18 @@ test("a job naming a retired email type fails by name", () => {
   );
 });
 
+// The two guards diverge on purpose. The render path throws so the job is
+// marked invalid_payload and stops; the retry path returns null because a
+// missing retry schedule means there is no next delay, and the caller already
+// treats null as exhausted, so the job ends as a terminal failure rather than
+// crashing the worker mid-batch.
+test("the retry schedule for a retired email type is exhausted, not fatal", () => {
+  const retiredType = "waitlist_welcome" as EmailType;
+
+  assert.equal(getNextRetryDelayMs(retiredType, 1), null);
+  assert.equal(getNextRetryDelayMs(retiredType, 5), null);
+});
+
 test("resend status classification distinguishes retryable failures", () => {
   assert.deepEqual(classifyResendStatus(429), {
     code: "resend_rate_limited",
