@@ -17,13 +17,7 @@ struct RoutineIntensityBarChart: View {
     @Environment(\.colorScheme) private var colorScheme
 
     private var chartSegments: [RoutineIntensityChartSegment] {
-        let resolvedIntervals = intervals.map { interval in
-            RoutineIntensityChartSegment(interval: interval, isGhost: false)
-        }
-
-        guard let ghostInterval else { return resolvedIntervals }
-
-        return resolvedIntervals + [RoutineIntensityChartSegment(interval: ghostInterval, isGhost: true)]
+        RoutineIntensityChartSegment.segments(intervals: intervals, ghostInterval: ghostInterval)
     }
 
     var body: some View {
@@ -103,15 +97,6 @@ struct RoutineIntensityBarChart: View {
                 availableWidth * CGFloat(segment.interval.duration / totalDuration)
             }
         }
-    }
-}
-
-private struct RoutineIntensityChartSegment: Identifiable {
-    let interval: RoutineInterval
-    let isGhost: Bool
-
-    var id: UUID {
-        interval.id
     }
 }
 
