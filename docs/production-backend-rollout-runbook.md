@@ -113,7 +113,9 @@ The workflow performs the following order automatically:
 12. Deploy Hosting.
 13. Verify Hosting serves `/climbs/manifest.json` successfully.
 14. Upload the already-built IPA to TestFlight only after every backend step succeeds.
-15. Assert the run reached a real outcome, so a run that deployed nothing fails instead of reporting green.
+15. Hold the upload job until App Store Connect actually lists the uploaded build, so the next run's build number is derived from post-upload state.
+    This step can add up to 15 minutes after a successful upload, and it fails the run when the build never appears; `scripts/ci/await-build-visible.mjs` owns why releasing the deploy concurrency group early would mint a duplicate build number.
+16. Assert the run reached a real outcome, so a run that deployed nothing fails instead of reporting green.
 
 This ordering makes indexes available before `onWorkoutWritten` can execute its `source + climbId` query.
 It makes Functions available before Hosting publishes the rewrite to `unsubscribeFromEmails`.
