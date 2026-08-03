@@ -32,6 +32,11 @@ The same `firestore.rules` file must be deployed to all environments (dev, stagi
 Verify with `npm run test:firebase-rules` (emulator-backed rules tests under `tests/firebase-rules/`).
 CI runs the same command on any PR touching rules, indexes, or Firebase config - see `ascend-deploy` for that job.
 
+That command pins `--test-concurrency=1`, and the files must keep running one at a time.
+The Storage emulator holds exactly one global ruleset - `PUT /internal/setRules` takes no project - so each file's `initializeTestEnvironment` replaces the ruleset every other file is using.
+While the swap is in flight the emulator answers *every* storage request with a blanket 403 that skips the auth check entirely, so a parallel run both fails owner-only setup like `clearStorage()` and turns `assertFails` assertions green for the wrong reason.
+Giving each file its own `projectId` does not help; the buckets are separate but the ruleset is not.
+
 ## Schema versions are ranges in the rules, never equalities
 
 `schemaVersion` and `objectSchemaVersion` go through `isSupportedSchemaVersion`, which accepts a bounded range rather than one exact number.
