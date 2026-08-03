@@ -37,6 +37,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  APP_STORE_CONNECT_APP_ID: "6759919365"
+  APP_STORE_CONNECT_BUNDLE_ID: com.TylerPavay.AscendApp.staging
+
 jobs:
   # Its own job, and `build-ios` waits on it, because the obvious home for this -
   # a step in `deploy-firebase` beside the rules and indexes - does not actually
@@ -217,10 +221,14 @@ jobs:
         run: node scripts/ci/assert-remote-config-published.mjs staging
 
       - name: Derive build number
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
         shell: bash
         run: |
           set -euo pipefail
-          build_number="$(scripts/ci/derive-build-number.sh 0)"
+          build_number="$(scripts/ci/derive-build-number.sh "$APP_STORE_CONNECT_APP_ID" "$APP_STORE_CONNECT_BUNDLE_ID")"
           echo "BUILD_NUMBER=${build_number}" >> "$GITHUB_ENV"
 
       - name: Build staging IPA via Fastlane

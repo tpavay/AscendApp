@@ -35,6 +35,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  APP_STORE_CONNECT_APP_ID: "6757202987"
+  APP_STORE_CONNECT_BUNDLE_ID: com.TylerPavay.AscendApp
+
 jobs:
   production-gate:
     name: Production Gate
@@ -209,10 +213,14 @@ jobs:
         run: node scripts/ci/assert-remote-config-published.mjs prod
 
       - name: Derive build number
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
         shell: bash
         run: |
           set -euo pipefail
-          build_number="$(scripts/ci/derive-build-number.sh 1)"
+          build_number="$(scripts/ci/derive-build-number.sh "$APP_STORE_CONNECT_APP_ID" "$APP_STORE_CONNECT_BUNDLE_ID")"
           echo "BUILD_NUMBER=${build_number}" >> "$GITHUB_ENV"
 
       - name: Build production IPA via Fastlane

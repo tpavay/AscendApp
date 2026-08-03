@@ -62,8 +62,8 @@ const deriveScript = `${repositoryRoot}scripts/ci/derive-build-number.sh`;
 const workflowsDirectory = `${repositoryRoot}.github/workflows`;
 
 // A workflow can put a build on TestFlight if it drives a signed archive lane
-// or the upload lane. Every such workflow shares the one TestFlight app and so
-// must serialize on a fixed concurrency group and own a distinct allocator slot.
+// or the upload lane. Every such workflow must serialize for its own App Store
+// Connect app and name that app explicitly for allocation and upload.
 function isUploadableWorkflow(workflow) {
   return /bundle exec fastlane build_(staging|production)\b/.test(workflow)
     || /\bupload_to_testflight\b/.test(workflow)
@@ -74,9 +74,11 @@ function concurrencyGroup(workflow) {
   return workflow.match(/\nconcurrency:\n[ \t]+group:[ \t]*(.+)/)?.[1]?.trim() ?? null;
 }
 
-function buildNumberSlot(workflow) {
-  const slot = workflow.match(/derive-build-number\.sh[ \t]+(\d+)\b/)?.[1];
-  return slot === undefined ? null : Number(slot);
+function appStoreTarget(workflow) {
+  return {
+    appId: workflow.match(/^  APP_STORE_CONNECT_APP_ID: "?(\d+)"?$/m)?.[1] ?? null,
+    bundleId: workflow.match(/^  APP_STORE_CONNECT_BUNDLE_ID: ([^\s]+)$/m)?.[1] ?? null,
+  };
 }
 
 async function uploadableWorkflows() {
@@ -87,21 +89,21 @@ async function uploadableWorkflows() {
     const workflow = await readWorkflow(name);
     if (!isUploadableWorkflow(workflow)) continue;
 
-    uploadable.push({name, workflow, group: concurrencyGroup(workflow), slot: buildNumberSlot(workflow)});
+    uploadable.push({name, workflow, group: concurrencyGroup(workflow), target: appStoreTarget(workflow)});
   }
 
   return uploadable;
 }
 
-test("every uploadable workflow serializes on a fixed group and owns a unique build-number slot", async () => {
-  const slotCount = await scriptConstant("WORKFLOW_SLOT_COUNT");
+test("every uploadable workflow serializes on a fixed group and owns a distinct App Store app", async () => {
   const uploadable = await uploadableWorkflows();
   const names = uploadable.map(({name}) => name);
 
   assert.deepEqual(names, ["deploy-production.yml", "deploy-staging.yml"], `unexpected uploadable workflow set: ${names}`);
 
-  const slots = [];
-  for (const {name, workflow, group, slot} of uploadable) {
+  const appIds = [];
+  const bundleIds = [];
+  for (const {name, workflow, group, target} of uploadable) {
     assert.ok(group, `${name} must declare a concurrency group so its runs serialize`);
     assert.doesNotMatch(group, /\$\{\{/, `${name} concurrency group must be fixed, not ref-scoped: "${group}"`);
 
@@ -112,53 +114,72 @@ test("every uploadable workflow serializes on a fixed group and owns a unique bu
       assert.ok(deriveIndex < buildIndex, `${name} must derive the build number before archiving`);
     }
 
-    assert.ok(Number.isInteger(slot) && slot >= 0, `${name} must pass a numeric allocator slot`);
-    assert.ok(slot < slotCount, `${name} slot ${slot} is outside the allocator range [0, ${slotCount})`);
-    slots.push(slot);
+    assert.match(target.appId ?? "", /^\d+$/, `${name} must name its App Store Connect app ID`);
+    assert.match(target.bundleId ?? "", /^com\./, `${name} must name its App Store bundle ID`);
+    appIds.push(target.appId);
+    bundleIds.push(target.bundleId);
   }
 
-  assert.equal(new Set(slots).size, slots.length, `uploadable workflows must use unique slots, got ${slots}`);
+  assert.deepEqual(appIds.sort(), ["6757202987", "6759919365"]);
+  assert.deepEqual(bundleIds.sort(), [
+    "com.TylerPavay.AscendApp",
+    "com.TylerPavay.AscendApp.staging",
+  ]);
+  assert.equal(new Set(appIds).size, appIds.length);
+  assert.equal(new Set(bundleIds).size, bundleIds.length);
+  assert.deepEqual(
+    Object.fromEntries(uploadable.map(({name, target}) => [name, target])),
+    {
+      "deploy-production.yml": {
+        appId: "6757202987",
+        bundleId: "com.TylerPavay.AscendApp",
+      },
+      "deploy-staging.yml": {
+        appId: "6759919365",
+        bundleId: "com.TylerPavay.AscendApp.staging",
+      },
+    },
+  );
 });
 
-function deriveBuildNumber(slot, timestamp) {
-  const argumentList = timestamp === undefined ? [String(slot)] : [String(slot), String(timestamp)];
-
-  return spawnSync(deriveScript, argumentList, {encoding: "utf8", env: {PATH: "/usr/bin:/bin"}});
-}
-
-function derivedValue(slot, timestamp) {
-  const result = deriveBuildNumber(slot, timestamp);
-
-  assert.equal(result.status, 0, result.stderr);
-  return Number(result.stdout.trim());
-}
-
-async function scriptConstant(name) {
-  const source = await readFile(deriveScript, "utf8");
-  const value = source.match(new RegExp(`^${name}=(\\d+)$`, "m"))?.[1];
-
-  assert.ok(value, `Missing constant ${name}`);
-  return Number(value);
+function deriveStep(workflow) {
+  return sectionBetween(workflow, "      - name: Derive build number\n", "\n      - name: ");
 }
 
 function deriveStepScript(workflow) {
-  const step = sectionBetween(workflow, "      - name: Derive build number\n", "\n      - name: ");
+  const step = deriveStep(workflow);
   const body = step.slice(step.indexOf("        run: |\n") + "        run: |\n".length);
 
   return body.replace(/^ {10}/gm, "");
 }
 
-test("deploy build numbers come from the shared derivation, before the archive", async () => {
-  for (const {name, workflow, slot} of await uploadableWorkflows()) {
+test("deploy build numbers come from remote app truth before the archive", async () => {
+  for (const {name, workflow} of await uploadableWorkflows()) {
     const deriveIndex = workflow.indexOf("scripts/ci/derive-build-number.sh");
     const buildIndex = workflow.indexOf("bundle exec fastlane build_");
+    const step = deriveStep(workflow);
+    const stepScript = deriveStepScript(workflow);
 
     assert.notEqual(deriveIndex, -1, name);
     assert.ok(deriveIndex < buildIndex, `${name} must derive the build number before archiving`);
-    assert.match(deriveStepScript(workflow), new RegExp(`derive-build-number\\.sh ${slot}\\b`), name);
+    assert.match(
+      stepScript,
+      /derive-build-number\.sh "\$APP_STORE_CONNECT_APP_ID" "\$APP_STORE_CONNECT_BUNDLE_ID"/,
+      name,
+    );
+    assert.match(step, /APP_STORE_CONNECT_API_KEY_ID:/, name);
+    assert.match(step, /APP_STORE_CONNECT_API_ISSUER_ID:/, name);
+    assert.match(step, /APP_STORE_CONNECT_API_KEY:/, name);
     assert.doesNotMatch(workflow, /BUILD_NUMBER: \$\{\{ github\.run_number \}\}/, name);
     assert.doesNotMatch(workflow, /BUILD_NUMBER: \$\{\{ github\.run_id \}\}/, name);
   }
+});
+
+test("the TestFlight lane uploads to the same explicit app used by the allocator", async () => {
+  const fastfile = await readFile(`${repositoryRoot}/fastlane/Fastfile`, "utf8");
+
+  assert.match(fastfile, /app_identifier: ENV\.fetch\("APP_STORE_CONNECT_BUNDLE_ID"\)/);
+  assert.match(fastfile, /apple_id: ENV\.fetch\("APP_STORE_CONNECT_APP_ID"\)/);
 });
 
 test("a failed derivation stops the deploy instead of exporting an empty build number", async () => {
@@ -175,7 +196,12 @@ test("a failed derivation stops the deploy instead of exporting an empty build n
     const failed = spawnSync("bash", ["-c", stepScript], {
       cwd: root,
       encoding: "utf8",
-      env: {PATH: "/usr/bin:/bin", GITHUB_ENV: environmentFile},
+      env: {
+        PATH: "/usr/bin:/bin",
+        GITHUB_ENV: environmentFile,
+        APP_STORE_CONNECT_APP_ID: "1234567890",
+        APP_STORE_CONNECT_BUNDLE_ID: "com.example.App",
+      },
     });
 
     assert.notEqual(failed.status, 0, `${name} must fail when derivation fails`);
@@ -186,71 +212,15 @@ test("a failed derivation stops the deploy instead of exporting an empty build n
     const succeeded = spawnSync("bash", ["-c", stepScript], {
       cwd: root,
       encoding: "utf8",
-      env: {PATH: "/usr/bin:/bin", GITHUB_ENV: environmentFile},
+      env: {
+        PATH: "/usr/bin:/bin",
+        GITHUB_ENV: environmentFile,
+        APP_STORE_CONNECT_APP_ID: "1234567890",
+        APP_STORE_CONNECT_BUNDLE_ID: "com.example.App",
+      },
     });
 
     assert.equal(succeeded.status, 0, succeeded.stderr);
     assert.match(readFileSync(environmentFile, "utf8"), /^BUILD_NUMBER=4321$/m, name);
-  }
-});
-
-test("staging and production never collide, even deriving in the same second", async () => {
-  const epoch = await scriptConstant("BUILD_NUMBER_EPOCH_SECONDS");
-  const sameSecond = epoch + 20_000_000;
-  const staging = derivedValue(0, sameSecond);
-  const production = derivedValue(1, sameSecond);
-
-  assert.notEqual(staging, production);
-  assert.equal(production, staging + 1);
-});
-
-test("later seconds outrank earlier ones regardless of workflow slot", async () => {
-  const epoch = await scriptConstant("BUILD_NUMBER_EPOCH_SECONDS");
-  const second = epoch + 20_000_000;
-
-  assert.ok(derivedValue(0, second + 1) > derivedValue(1, second));
-  assert.ok(derivedValue(0, second + 2) > derivedValue(1, second + 1));
-});
-
-test("derived build numbers clear the last build number uploaded from run_number", async () => {
-  const floor = await scriptConstant("PREVIOUS_BUILD_NUMBER_FLOOR");
-  const epoch = await scriptConstant("BUILD_NUMBER_EPOCH_SECONDS");
-
-  assert.equal(epoch, Date.parse("2026-01-01T00:00:00Z") / 1000);
-
-  for (const slot of [0, 1]) {
-    assert.ok(derivedValue(slot) > floor, `slot ${slot} must clear the previous build number floor`);
-  }
-
-  const atFloor = deriveBuildNumber(0, epoch + Math.floor(floor / 2));
-  assert.notEqual(atFloor.status, 0);
-  assert.match(atFloor.stderr, /not above the last uploaded build number/);
-});
-
-test("invalid and out-of-range inputs fail the build instead of wrapping", async () => {
-  const epoch = await scriptConstant("BUILD_NUMBER_EPOCH_SECONDS");
-  const max = await scriptConstant("MAX_BUILD_NUMBER");
-
-  assert.equal(max, 4_294_967_295);
-  assert.equal(derivedValue(1, epoch + (max - 1) / 2), max);
-
-  const overLimit = deriveBuildNumber(0, epoch + (max + 1) / 2);
-  assert.notEqual(overLimit.status, 0);
-  assert.match(overLimit.stderr, /exceeds the App Store limit/);
-
-  const beforeEpoch = deriveBuildNumber(0, epoch - 1);
-  assert.notEqual(beforeEpoch.status, 0);
-  assert.match(beforeEpoch.stderr, /predates the build-number epoch/);
-
-  for (const slot of ["", "2", "-1", "0x1"]) {
-    const badSlot = deriveBuildNumber(slot, epoch + 20_000_000);
-    assert.notEqual(badSlot.status, 0, `slot '${slot}' must be rejected`);
-    assert.match(badSlot.stderr, /Workflow slot must be 0 \(staging\) or 1 \(production\)/);
-  }
-
-  for (const timestamp of ["not-a-number", "1767225600.5"]) {
-    const badTimestamp = deriveBuildNumber(0, timestamp);
-    assert.notEqual(badTimestamp.status, 0, `timestamp '${timestamp}' must be rejected`);
-    assert.match(badTimestamp.stderr, /UTC timestamp must be a non-negative integer/);
   }
 });

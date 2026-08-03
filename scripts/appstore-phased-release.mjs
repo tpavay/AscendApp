@@ -27,13 +27,14 @@
  *   APP_STORE_CONNECT_API_KEY (base64-encoded .p8)
  */
 
-import {createSign} from "node:crypto";
-
+import {
+  appStoreConnectRequest,
+  makeAppStoreConnectToken,
+  readAppStoreConnectCredentials,
+} from "./lib/app-store-connect-client.mjs";
 import {newestCandidate, selectVersion} from "./lib/phased-release-selection.mjs";
 
 const BUNDLE_ID = "com.TylerPavay.AscendApp";
-const API_ROOT = "https://api.appstoreconnect.apple.com/v1";
-const TOKEN_LIFETIME_SECONDS = 900;
 const VERSION_PAGE_LIMIT = 50;
 const MAX_VERSION_PAGES = 10;
 
@@ -46,86 +47,8 @@ const STATE_FOR_COMMAND = {
   "release-to-all": "COMPLETE",
 };
 
-function base64url(input) {
-  return Buffer.from(input).toString("base64url");
-}
-
-/**
- * App Store Connect wants an ES256 JWT. Node's crypto signs P-256 ECDSA natively; the only
- * subtlety is that JWT requires the raw r||s encoding rather than the DER default.
- */
-function makeToken({keyId, issuerId, privateKey}) {
-  const now = Math.floor(Date.now() / 1000);
-  const header = base64url(JSON.stringify({alg: "ES256", kid: keyId, typ: "JWT"}));
-  const payload = base64url(
-    JSON.stringify({
-      iss: issuerId,
-      iat: now,
-      exp: now + TOKEN_LIFETIME_SECONDS,
-      aud: "appstoreconnect-v1",
-    }),
-  );
-
-  const signer = createSign("SHA256");
-  signer.update(`${header}.${payload}`);
-  const signature = signer.sign({key: privateKey, dsaEncoding: "ieee-p1363"});
-
-  return `${header}.${payload}.${signature.toString("base64url")}`;
-}
-
-function readCredentials() {
-  const keyId = process.env.APP_STORE_CONNECT_API_KEY_ID;
-  const issuerId = process.env.APP_STORE_CONNECT_API_ISSUER_ID;
-  const encodedKey = process.env.APP_STORE_CONNECT_API_KEY;
-
-  const missing = [
-    ["APP_STORE_CONNECT_API_KEY_ID", keyId],
-    ["APP_STORE_CONNECT_API_ISSUER_ID", issuerId],
-    ["APP_STORE_CONNECT_API_KEY", encodedKey],
-  ]
-    .filter(([, value]) => !value)
-    .map(([name]) => name);
-
-  if (missing.length > 0) {
-    throw new Error(`Missing environment variable(s): ${missing.join(", ")}`);
-  }
-
-  return {
-    keyId,
-    issuerId,
-    privateKey: Buffer.from(encodedKey, "base64").toString("utf8"),
-  };
-}
-
 async function callApi(token, path, options) {
-  return requestJson(token, `${API_ROOT}${path}`, path, options);
-}
-
-async function requestJson(token, url, path, {method = "GET", body} = {}) {
-  const response = await fetch(url, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(body ? {"Content-Type": "application/json"} : {}),
-    },
-    ...(body ? {body: JSON.stringify(body)} : {}),
-  });
-
-  if (response.status === 204) return null;
-
-  const text = await response.text();
-  const parsed = text ? JSON.parse(text) : null;
-
-  if (!response.ok) {
-    const detail = parsed?.errors
-      ?.map((error) => `${error.title}: ${error.detail}`)
-      .join("; ");
-    throw new Error(
-      `App Store Connect ${method} ${path} failed (${response.status}): ${detail ?? text}`,
-    );
-  }
-
-  return parsed;
+  return appStoreConnectRequest(token, path, options);
 }
 
 async function findApp(token) {
@@ -150,11 +73,11 @@ async function findApp(token) {
 async function fetchVersionCandidates(token, appId) {
   const candidates = [];
   let url =
-    `${API_ROOT}/apps/${appId}/appStoreVersions?filter[platform]=IOS` +
+    `https://api.appstoreconnect.apple.com/v1/apps/${appId}/appStoreVersions?filter[platform]=IOS` +
     `&limit=${VERSION_PAGE_LIMIT}&include=appStoreVersionPhasedRelease`;
 
   for (let page = 0; page < MAX_VERSION_PAGES && url; page += 1) {
-    const result = await requestJson(token, url, `/apps/${appId}/appStoreVersions`);
+    const result = await appStoreConnectRequest(token, url);
 
     for (const version of result?.data ?? []) {
       const phasedReleaseId = version.relationships?.appStoreVersionPhasedRelease?.data?.id;
@@ -258,7 +181,7 @@ async function main() {
     throw new Error("`--version` needs a version string, for example `--version 1.0.1`.");
   }
 
-  const token = makeToken(readCredentials());
+  const token = makeAppStoreConnectToken(readAppStoreConnectCredentials());
   const app = await findApp(token);
   const candidates = await fetchVersionCandidates(token, app.id);
   const state = selectVersion(candidates, {command, requestedVersionString});
