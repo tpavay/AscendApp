@@ -13,15 +13,13 @@ async function readWorkflow(name) {
   return readFile(`${repositoryRoot}/.github/workflows/${name}`, "utf8");
 }
 
+const requiredCheckStartMarker = "# required-check-contexts:start\n";
+const requiredCheckEndMarker = "# required-check-contexts:end";
+const jobNamePattern = /^ {4}name:\s+(?<name>.+?)\s*$/gm;
+
 function requiredCheckContexts(ciWorkflow) {
-  const block = sectionBetween(
-    ciWorkflow,
-    "# required-check-contexts:start\n",
-    "# required-check-contexts:end",
-  );
-  const contexts = [...block.matchAll(/^ {4}name:\s+(?<name>.+?)\s*$/gm)].map(
-    (match) => match.groups.name,
-  );
+  const block = sectionBetween(ciWorkflow, requiredCheckStartMarker, requiredCheckEndMarker);
+  const contexts = [...block.matchAll(jobNamePattern)].map((match) => match.groups.name);
 
   assert.ok(contexts.length > 0, "CI must declare at least one required check context");
   assert.equal(
@@ -51,7 +49,7 @@ test("the eligible fallback publishes every required iOS verification context", 
   assert.deepEqual(contexts, ["iOS Verify (Staging)", "iOS Verify (Release)"]);
   assert.match(
     fallbackWorkflow,
-    /required_contexts: \$\{\{ steps\.required-contexts\.outputs\.required_contexts \}\}/,
+    /required_contexts: \$\{\{ steps\.required-contexts\.outputs\.required_contexts \|\| '\[\]' \}\}/,
   );
   assert.match(
     fallbackWorkflow,
@@ -99,21 +97,64 @@ test("the eligible fallback publishes every required iOS verification context", 
 
 test("an ineligible fallback cannot publish a required verification context", async () => {
   const fallbackWorkflow = await readWorkflow("ci-required-check-fallback.yml");
+  const contexts = requiredCheckContexts(await readWorkflow("ci.yml"));
   const safeRoute =
     "needs.route.result == 'success' && needs.route.outputs.fallback_eligible == 'true'";
 
   assert.ok(fallbackWorkflow.includes(`if: ${safeRoute}`));
-  assert.ok(
-    fallbackWorkflow.includes(
-      `name: \${{ ${safeRoute} && matrix.context || 'iOS Verify Fallback (Not Required)' }}`,
-    ),
-  );
   assert.doesNotMatch(fallbackWorkflow, /^\s+paths(?:-ignore)?:/m);
 
-  for (const context of ["iOS Verify (Staging)", "iOS Verify (Release)"]) {
-    assert.notEqual("iOS Verify Fallback (Not Required)", context);
-  }
+  const inertName = fallbackWorkflow.match(
+    new RegExp(
+      `^ {4}name: \\$\\{\\{ ${escapeForRegExp(safeRoute)} && matrix\\.context \\|\\| '(?<inert>[^']+)' \\}\\}$`,
+      "m",
+    ),
+  )?.groups?.inert;
+
+  assert.ok(inertName, "the fallback job must fall back to a static non-verification name");
+  assert.ok(
+    !contexts.includes(inertName),
+    `the ineligible fallback name "${inertName}" must not be a required check context`,
+  );
 });
+
+// The marker block is a positional contract. A required iOS job declared outside
+// it is invisible to the derived matrix, so branch protection would demand a
+// context the eligible fallback never publishes - the exact defect this routing
+// exists to prevent.
+test("every required iOS verification job lives inside the marker block", async () => {
+  const ciWorkflow = await readWorkflow("ci.yml");
+  const startIndex = ciWorkflow.indexOf(requiredCheckStartMarker);
+  const endIndex = ciWorkflow.indexOf(requiredCheckEndMarker, startIndex + requiredCheckStartMarker.length);
+
+  assert.notEqual(startIndex, -1, "ci.yml must declare the required-check marker block");
+  assert.notEqual(endIndex, -1, "ci.yml must close the required-check marker block");
+
+  const iosJobNames = [];
+  for (const match of ciWorkflow.matchAll(jobNamePattern)) {
+    const inside = match.index > startIndex && match.index < endIndex;
+    const name = match.groups.name;
+
+    if (name.startsWith("iOS Verify")) {
+      assert.ok(
+        inside,
+        `"${name}" must sit inside the required-check-contexts marker block to reach the fallback matrix`,
+      );
+      iosJobNames.push(name);
+    } else {
+      assert.ok(
+        !inside,
+        `"${name}" is inside the required-check-contexts marker block but is not a required iOS verification job`,
+      );
+    }
+  }
+
+  assert.deepEqual(iosJobNames, requiredCheckContexts(ciWorkflow));
+});
+
+function escapeForRegExp(source) {
+  return source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 test("CI watches every iOS source and Firebase index definition", async () => {
   const workflow = await readWorkflow("ci.yml");

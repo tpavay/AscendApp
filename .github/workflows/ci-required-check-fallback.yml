@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       fallback_eligible: ${{ steps.classify.outputs.fallback_eligible }}
-      required_contexts: ${{ steps.required-contexts.outputs.required_contexts }}
+      required_contexts: ${{ steps.required-contexts.outputs.required_contexts || '[]' }}
 
     steps:
       - name: Checkout repository
