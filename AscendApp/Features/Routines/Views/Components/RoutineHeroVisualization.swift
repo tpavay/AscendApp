@@ -146,20 +146,11 @@ struct RoutineHeroVisualization: View {
             return Color(red: 0.706, green: 0.8, blue: 0)
         }
 
-        let weightedScore = intervals.reduce(0.0) { total, interval in
-            total + interval.intensityTier.heatMapScore * max(interval.duration, 0)
-        }
-        let measuredDuration = intervals.reduce(0.0) { $0 + max($1.duration, 0) }
-        let averageScore = measuredDuration > 0 ? weightedScore / measuredDuration : 0.5
-
-        return Color.heatMapColor(for: averageScore, colorScheme: colorScheme)
+        return RoutineIntervalScale.averageColor(of: intervals, colorScheme: colorScheme)
     }
 
     private func segmentColor(for slice: RoutineHeroColorSlice) -> Color {
-        Color.heatMapColor(
-            for: slice.interval.intensityTier.heatMapScore,
-            colorScheme: colorScheme
-        )
+        RoutineIntervalScale.color(of: slice.interval, colorScheme: colorScheme)
     }
 
     private func areaGradient(for slice: RoutineHeroColorSlice) -> LinearGradient {
@@ -236,7 +227,7 @@ private struct TopographicSilhouetteShape: Shape {
         var ridgePoints: [CGPoint] = []
 
         // Start anchor at left edge, height = first interval's height
-        let firstY = baseline - CGFloat(intervals[0].intensityTier.heroHeightMultiplier) * availableHeight
+        let firstY = baseline - CGFloat(RoutineIntervalScale.heightFraction(of: intervals[0])) * availableHeight
         ridgePoints.append(CGPoint(x: 0, y: firstY))
 
         // Center point of each interval
@@ -245,13 +236,13 @@ private struct TopographicSilhouetteShape: Shape {
             let centerTime = cumulativeTime + interval.duration / 2
             let xRatio = centerTime / totalDuration
             let centerX = CGFloat(xRatio) * rect.width
-            let y = baseline - CGFloat(interval.intensityTier.heroHeightMultiplier) * availableHeight
+            let y = baseline - CGFloat(RoutineIntervalScale.heightFraction(of: interval)) * availableHeight
             ridgePoints.append(CGPoint(x: centerX, y: y))
             cumulativeTime += interval.duration
         }
 
         // End anchor at right edge, height = last interval's height
-        let lastY = baseline - CGFloat(intervals.last!.intensityTier.heroHeightMultiplier) * availableHeight
+        let lastY = baseline - CGFloat(RoutineIntervalScale.heightFraction(of: intervals[intervals.count - 1])) * availableHeight
         ridgePoints.append(CGPoint(x: rect.width, y: lastY))
 
         // Draw the ridge — smooth cubic bezier curves between consecutive points
@@ -283,25 +274,6 @@ private struct TopographicSilhouetteShape: Shape {
         }
 
         return path
-    }
-}
-
-private extension IntensityTier {
-    /// Height profile for the topographic silhouette. Slightly compressed at the
-    /// low end so even "minimal" intervals have visible ground presence.
-    var heroHeightMultiplier: Double {
-        switch self {
-        case .minimal:
-            return 0.22
-        case .light:
-            return 0.40
-        case .moderate:
-            return 0.60
-        case .high:
-            return 0.80
-        case .maximum:
-            return 1.0
-        }
     }
 }
 

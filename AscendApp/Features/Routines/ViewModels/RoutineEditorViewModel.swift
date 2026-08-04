@@ -10,14 +10,12 @@ final class RoutineEditorViewModel {
 
     var name: String = ""
     var routineDescription: String = ""
-    var intervals: [RoutineInterval] = []
+    /// Always sorted by `order`, and `order` is always the index. Every mutation restamps it.
+    private(set) var intervals: [RoutineInterval] = []
     var defaultWeightConfiguration: WeightConfiguration = .empty
     var folderId: UUID?
 
-    var draftLevel: Int = SettingsManager.shared.effectiveBaseLevel
-    var draftDuration: TimeInterval = 120
-    var draftStepType: RoutineStepTypeOption = .standard
-    var editingIntervalId: UUID?
+    var selectedIntervalId: UUID?
     var isAdvancedExpanded = false
 
     var isSaving = false
@@ -35,52 +33,23 @@ final class RoutineEditorViewModel {
         isEditingRoutine ? "Edit Routine" : "New Routine"
     }
 
-    var totalDuration: TimeInterval {
-        intervals.reduce(0) { $0 + $1.duration }
+    var stats: RoutineEditorStats {
+        RoutineEditorStats(intervals: intervals)
     }
 
-    var totalDurationFormatted: String {
-        let totalMinutes = Int(totalDuration.rounded()) / 60
-        return "\(totalMinutes) min"
-    }
-
-    var isEditingInterval: Bool {
-        editingIntervalId != nil
-    }
-
-    var displayedIntervals: [RoutineInterval] {
-        intervals.sorted { $0.order < $1.order }
-    }
-
-    var previewIntervals: [RoutineInterval] {
-        guard let editingIntervalId else { return displayedIntervals }
-        return displayedIntervals.filter { $0.id != editingIntervalId }
-    }
-
-    var previewGhostInterval: RoutineInterval? {
-        draftInterval
+    var selectedIndex: Int? {
+        guard let selectedIntervalId else { return nil }
+        return intervals.firstIndex { $0.id == selectedIntervalId }
     }
 
     var selectedInterval: RoutineInterval? {
-        guard let editingIntervalId else { return nil }
-        return displayedIntervals.first { $0.id == editingIntervalId }
+        guard let selectedIndex else { return nil }
+        return intervals[selectedIndex]
     }
 
-    var draftInterval: RoutineInterval? {
-        guard draftDuration > 0 else { return nil }
-
-        return RoutineInterval(
-            duration: draftDuration,
-            intensityType: .level,
-            intensityValue: draftLevel,
-            modifiers: draftStepType.modifiers,
-            order: editingIndex ?? displayedIntervals.count
-        )
-    }
-
-    private var editingIndex: Int? {
-        guard let editingIntervalId else { return nil }
-        return displayedIntervals.firstIndex { $0.id == editingIntervalId }
+    var selectedStepType: RoutineStepTypeOption {
+        guard let selectedInterval else { return .standard }
+        return RoutineStepTypeOption.from(modifiers: selectedInterval.modifiers)
     }
 
     func configure(modelContext: ModelContext, routine: Routine? = nil, folderId: UUID? = nil) {
@@ -90,67 +59,124 @@ final class RoutineEditorViewModel {
         routineService = RoutineService(modelContext: modelContext)
         self.folderId = folderId
 
-        if let routine {
-            existingRoutine = routine
-            name = routine.name
-            routineDescription = routine.routineDescription
-            intervals = routine.intervals.sorted { $0.order < $1.order }
-            defaultWeightConfiguration = routine.defaultWeightConfiguration ?? .empty
-            self.folderId = routine.folderId
-            seedDraft(from: intervals.last)
-            isAdvancedExpanded = !routineDescription.isEmpty || !defaultWeightConfiguration.isEmpty
-        } else {
-            seedDraft(from: nil)
-        }
+        guard let routine else { return }
+
+        existingRoutine = routine
+        name = routine.name
+        routineDescription = routine.routineDescription
+        intervals = routine.intervals.sorted { $0.order < $1.order }
+        defaultWeightConfiguration = routine.defaultWeightConfiguration ?? .empty
+        self.folderId = routine.folderId
+        isAdvancedExpanded = !routineDescription.isEmpty || !defaultWeightConfiguration.isEmpty
+        restampOrder()
+        selectedIntervalId = intervals.first?.id
     }
 
-    func selectInterval(_ interval: RoutineInterval) {
-        editingIntervalId = interval.id
-        draftLevel = interval.resolvedLevel
-        draftDuration = interval.duration
-        draftStepType = RoutineStepTypeOption.from(modifiers: interval.modifiers)
+    // MARK: - Authoring
+
+    func select(intervalWithId id: UUID?) {
+        selectedIntervalId = id
     }
 
-    func cancelEditingInterval() {
-        editingIntervalId = nil
-        seedDraft(from: intervals.last)
+    /// Tapping + lands a Standard block at level 1, ready to drag. There is no creator sheet.
+    func addInterval() {
+        let interval = RoutineInterval(
+            duration: 120,
+            intensityType: .level,
+            intensityValue: RoutineIntervalScale.levelRange.lowerBound,
+            modifiers: RoutineStepTypeOption.standard.modifiers,
+            order: intervals.count
+        )
+
+        intervals.append(interval)
+        restampOrder()
+        selectedIntervalId = interval.id
     }
 
-    func commitDraftInterval() {
-        guard var draftInterval else { return }
+    func setLevel(_ level: Int, forIntervalWithId id: UUID) {
+        guard let index = intervals.firstIndex(where: { $0.id == id }) else { return }
 
-        if let editingIndex {
-            draftInterval.id = displayedIntervals[editingIndex].id
-            draftInterval.order = editingIndex
-            intervals[editingIndex] = draftInterval
-            editingIntervalId = nil
-        } else {
-            draftInterval.order = displayedIntervals.count
-            intervals.append(draftInterval)
-        }
-
-        reorderIntervals()
-    }
-
-    func deleteSelectedInterval() {
-        guard let editingIndex else { return }
-        intervals.remove(at: editingIndex)
-        editingIntervalId = nil
-        reorderIntervals()
-        seedDraft(from: intervals.last)
-    }
-
-    func moveInterval(withId draggedId: UUID, before targetId: UUID) {
-        guard draggedId != targetId,
-              let sourceIndex = intervals.firstIndex(where: { $0.id == draggedId }),
-              let destinationIndex = intervals.firstIndex(where: { $0.id == targetId }) else {
+        let clamped = SPMMappingService.clampedLevel(level)
+        guard intervals[index].intensityValue != clamped || intervals[index].intensityType != .level else {
             return
         }
 
-        let destination = sourceIndex < destinationIndex ? destinationIndex + 1 : destinationIndex
-        intervals.move(fromOffsets: IndexSet(integer: sourceIndex), toOffset: destination)
-        reorderIntervals()
+        intervals[index].intensityType = .level
+        intervals[index].intensityValue = clamped
     }
+
+    func adjustLevel(by delta: Int, forIntervalWithId id: UUID) {
+        guard let interval = intervals.first(where: { $0.id == id }) else { return }
+        setLevel(interval.resolvedLevel + delta, forIntervalWithId: id)
+    }
+
+    func setDuration(_ duration: TimeInterval, forIntervalWithId id: UUID) {
+        guard let index = intervals.firstIndex(where: { $0.id == id }) else { return }
+
+        let snapped = RoutineIntervalScale.snappedDuration(duration)
+        guard intervals[index].duration != snapped else { return }
+
+        intervals[index].duration = snapped
+    }
+
+    func adjustDuration(bySteps steps: Int, forIntervalWithId id: UUID) {
+        guard let interval = intervals.first(where: { $0.id == id }) else { return }
+        let delta = Double(steps) * RoutineIntervalScale.durationStep
+        setDuration(interval.duration + delta, forIntervalWithId: id)
+    }
+
+    func setStepType(_ stepType: RoutineStepTypeOption, forIntervalWithId id: UUID) {
+        guard let index = intervals.firstIndex(where: { $0.id == id }) else { return }
+        intervals[index].modifiers = stepType.modifiers
+    }
+
+    /// VoiceOver reaches the step type through a rotor action rather than the menu below the
+    /// timeline, so it steps through the five options in order.
+    func cycleStepType(forIntervalWithId id: UUID) {
+        guard let interval = intervals.first(where: { $0.id == id }) else { return }
+
+        let options = RoutineStepTypeOption.allCases
+        let current = RoutineStepTypeOption.from(modifiers: interval.modifiers)
+        let currentIndex = options.firstIndex(of: current) ?? 0
+        let next = options[(currentIndex + 1) % options.count]
+
+        setStepType(next, forIntervalWithId: id)
+    }
+
+    func deleteInterval(withId id: UUID) {
+        guard let index = intervals.firstIndex(where: { $0.id == id }) else { return }
+
+        intervals.remove(at: index)
+        restampOrder()
+
+        guard !intervals.isEmpty else {
+            selectedIntervalId = nil
+            return
+        }
+
+        // Selection lands on the neighbour that took the deleted block's place.
+        selectedIntervalId = intervals[min(index, intervals.count - 1)].id
+    }
+
+    /// `destinationIndex` is an index into the list with the moved interval already removed,
+    /// which is what the timeline's hit testing produces.
+    func moveInterval(fromIndex sourceIndex: Int, toIndex destinationIndex: Int) {
+        guard intervals.indices.contains(sourceIndex) else { return }
+
+        let clampedDestination = min(max(destinationIndex, 0), intervals.count - 1)
+        guard clampedDestination != sourceIndex else { return }
+
+        let interval = intervals.remove(at: sourceIndex)
+        intervals.insert(interval, at: clampedDestination)
+        restampOrder()
+    }
+
+    func moveSelectedInterval(by offset: Int) {
+        guard let selectedIndex else { return }
+        moveInterval(fromIndex: selectedIndex, toIndex: selectedIndex + offset)
+    }
+
+    // MARK: - Saving
 
     func save() throws -> Routine {
         guard let routineService, canSave else {
@@ -169,7 +195,7 @@ final class RoutineEditorViewModel {
         if let existingRoutine {
             existingRoutine.name = trimmedName
             existingRoutine.routineDescription = trimmedDescription
-            existingRoutine.intervals = intervals.sorted { $0.order < $1.order }
+            existingRoutine.intervals = intervals
             existingRoutine.difficulty = nil
             existingRoutine.defaultWeightConfiguration = weightConfiguration
             try routineService.updateRoutine(existingRoutine)
@@ -179,28 +205,16 @@ final class RoutineEditorViewModel {
         return try routineService.createRoutine(
             name: trimmedName,
             description: trimmedDescription,
-            intervals: intervals.sorted { $0.order < $1.order },
+            intervals: intervals,
             folderId: folderId,
             difficulty: nil,
             defaultWeightConfiguration: weightConfiguration
         )
     }
 
-    private func reorderIntervals() {
+    private func restampOrder() {
         for index in intervals.indices {
             intervals[index].order = index
-        }
-    }
-
-    private func seedDraft(from interval: RoutineInterval?) {
-        if let interval {
-            draftLevel = interval.resolvedLevel
-            draftDuration = interval.duration
-            draftStepType = RoutineStepTypeOption.from(modifiers: interval.modifiers)
-        } else {
-            draftLevel = SettingsManager.shared.effectiveBaseLevel
-            draftDuration = 120
-            draftStepType = .standard
         }
     }
 }

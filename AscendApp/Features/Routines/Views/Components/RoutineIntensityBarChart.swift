@@ -12,18 +12,15 @@ struct RoutineIntensityBarChart: View {
     var segmentGap: CGFloat = 2
     var outerCornerRadius: CGFloat = 2
     var widthMode: RoutineIntensityBarChartWidthMode = .equalSegments
+    /// Draws an in-progress interval dashed at its own `order`. No caller passes it since the
+    /// timeline builder replaced the editor's preview card; it is kept, with its tests, so the
+    /// splice fix behind it is not silently reverted the day a preview needs a ghost again.
     var ghostInterval: RoutineInterval? = nil
 
     @Environment(\.colorScheme) private var colorScheme
 
     private var chartSegments: [RoutineIntensityChartSegment] {
-        let resolvedIntervals = intervals.map { interval in
-            RoutineIntensityChartSegment(interval: interval, isGhost: false)
-        }
-
-        guard let ghostInterval else { return resolvedIntervals }
-
-        return resolvedIntervals + [RoutineIntensityChartSegment(interval: ghostInterval, isGhost: true)]
+        RoutineIntensityChartSegment.segments(intervals: intervals, ghostInterval: ghostInterval)
     }
 
     var body: some View {
@@ -70,15 +67,14 @@ struct RoutineIntensityBarChart: View {
         return segment.isGhost ? baseColor.opacity(0.12) : baseColor
     }
 
+    /// By level rather than by tier, so the shape a climber drags in the builder is the shape
+    /// they see everywhere else - level 16 and level 20 are no longer the same bar.
     private func segmentColor(for interval: RoutineInterval) -> Color {
-        Color.heatMapColor(
-            for: interval.intensityTier.heatMapScore,
-            colorScheme: colorScheme
-        )
+        RoutineIntervalScale.color(of: interval, colorScheme: colorScheme)
     }
 
     private func segmentHeight(for interval: RoutineInterval) -> CGFloat {
-        max(minimumBarHeight, height * interval.intensityTier.chartHeightMultiplier)
+        max(minimumBarHeight, height * RoutineIntervalScale.heightFraction(of: interval))
     }
 
     private func resolvedWidths(totalWidth: CGFloat) -> [CGFloat] {
@@ -102,32 +98,6 @@ struct RoutineIntensityBarChart: View {
             return chartSegments.map { segment in
                 availableWidth * CGFloat(segment.interval.duration / totalDuration)
             }
-        }
-    }
-}
-
-private struct RoutineIntensityChartSegment: Identifiable {
-    let interval: RoutineInterval
-    let isGhost: Bool
-
-    var id: UUID {
-        interval.id
-    }
-}
-
-private extension IntensityTier {
-    var chartHeightMultiplier: CGFloat {
-        switch self {
-        case .minimal:
-            return 0.2
-        case .light:
-            return 0.4
-        case .moderate:
-            return 0.6
-        case .high:
-            return 0.8
-        case .maximum:
-            return 1.0
         }
     }
 }
