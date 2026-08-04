@@ -102,19 +102,6 @@ final class Routine {
         intervals.count
     }
 
-    var averageIntensityTier: IntensityTier {
-        guard !intervals.isEmpty else { return .minimal }
-
-        let weightedLevels = intervals.reduce(into: (total: 0.0, duration: 0.0)) { result, interval in
-            result.total += Double(interval.resolvedLevel) * interval.duration
-            result.duration += interval.duration
-        }
-
-        guard weightedLevels.duration > 0 else { return .minimal }
-        let averageLevel = Int((weightedLevels.total / weightedLevels.duration).rounded())
-        return IntensityTier.from(level: averageLevel)
-    }
-
     var levelRange: ClosedRange<Int>? {
         let levels = intervals.map(\.resolvedLevel)
         guard let minimum = levels.min(),

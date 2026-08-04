@@ -80,10 +80,7 @@ struct RoutineThumbnailCard: View {
     }
 
     private var accentColor: Color {
-        Color.heatMapColor(
-            for: routine.averageIntensityTier.heatMapScore,
-            colorScheme: colorScheme
-        )
+        RoutineIntervalScale.averageColor(of: routine.intervals, colorScheme: colorScheme)
     }
 
     private var cardBackground: Color {

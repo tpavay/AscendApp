@@ -35,19 +35,13 @@ struct RoutineEditorStats: Equatable {
             return
         }
 
-        let totals = intervals.reduce(into: (weightedLevel: 0.0, duration: 0.0)) { result, interval in
-            result.weightedLevel += Double(interval.resolvedLevel) * interval.duration
-            result.duration += interval.duration
-        }
-
         // Weighted by duration: five minutes at level 20 should move the average more than
-        // thirty seconds at level 4.
-        let average = totals.duration > 0 ? (totals.weightedLevel / totals.duration).rounded() : 0
-
+        // thirty seconds at level 4. The rule lives in `RoutineIntervalScale`, so the header
+        // here, the card stripes and the hero cannot drift apart.
         self.init(
-            totalDuration: totals.duration,
+            totalDuration: intervals.reduce(0) { $0 + $1.duration },
             intervalCount: intervals.count,
-            averageLevel: Int(average),
+            averageLevel: RoutineIntervalScale.roundedAverageLevel(of: intervals),
             peakLevel: intervals.map(\.resolvedLevel).max() ?? 0
         )
     }

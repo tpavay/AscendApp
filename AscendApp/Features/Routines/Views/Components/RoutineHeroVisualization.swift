@@ -146,10 +146,7 @@ struct RoutineHeroVisualization: View {
             return Color(red: 0.706, green: 0.8, blue: 0)
         }
 
-        return RoutineIntervalScale.color(
-            forNormalizedLevel: RoutineIntervalScale.normalizedAverageLevel(of: intervals),
-            colorScheme: colorScheme
-        )
+        return RoutineIntervalScale.averageColor(of: intervals, colorScheme: colorScheme)
     }
 
     private func segmentColor(for slice: RoutineHeroColorSlice) -> Color {

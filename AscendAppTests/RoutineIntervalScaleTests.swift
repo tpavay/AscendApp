@@ -99,6 +99,60 @@ struct RoutineIntervalScaleTests {
     @Test
     func aRoutineWithNoIntervalsAveragesToTheFloorInsteadOfDividingByZero() {
         #expect(RoutineIntervalScale.normalizedAverageLevel(of: []) == 0)
+        #expect(RoutineIntervalScale.averageLevel(of: []) == 1)
+    }
+
+    /// One weighting rule, read three ways. A card stripe, the builder header and the hero all
+    /// come off this, so a routine cannot be one level here and another there.
+    @Test
+    func theNormalizedAndRoundedAveragesAreTheSameWeightingReadTwoWays() {
+        let routines: [[RoutineInterval]] = [
+            [
+                RoutineInterval(duration: 180, intensityValue: 16, order: 0),
+                RoutineInterval(duration: 240, intensityValue: 7, order: 1),
+                RoutineInterval(duration: 240, intensityValue: 6, order: 2),
+                RoutineInterval(duration: 180, intensityValue: 20, order: 3),
+                RoutineInterval(duration: 240, intensityValue: 4, order: 4)
+            ],
+            [RoutineInterval(duration: 1_500, intensityValue: 20, order: 0)],
+            [
+                RoutineInterval(duration: 600, intensityValue: 5, order: 0),
+                RoutineInterval(duration: 30, intensityValue: 25, order: 1)
+            ]
+        ]
+
+        for intervals in routines {
+            let average = RoutineIntervalScale.averageLevel(of: intervals)
+
+            #expect(RoutineIntervalScale.roundedAverageLevel(of: intervals) == Int(average.rounded()))
+            #expect(
+                abs(
+                    RoutineIntervalScale.normalizedAverageLevel(of: intervals)
+                        - RoutineIntervalScale.normalized(level: average)
+                ) < 0.000_001
+            )
+            #expect(RoutineEditorStats(intervals: intervals).averageLevel == Int(average.rounded()))
+        }
+    }
+
+    /// A routine held entirely at one level averages to exactly that level, whatever the
+    /// durations are - the guard against a weighting that quietly drifts off its own scale.
+    @Test
+    func aRoutineHeldAtOneLevelAveragesToThatLevel() {
+        for level in RoutineIntervalScale.levelRange {
+            let intervals = [
+                RoutineInterval(duration: 30, intensityValue: level, order: 0),
+                RoutineInterval(duration: 1_800, intensityValue: level, order: 1)
+            ]
+
+            #expect(RoutineIntervalScale.roundedAverageLevel(of: intervals) == level)
+            #expect(
+                abs(
+                    RoutineIntervalScale.normalizedAverageLevel(of: intervals)
+                        - RoutineIntervalScale.normalizedLevel(level)
+                ) < 0.000_001
+            )
+        }
     }
 
     // MARK: - Duration grid

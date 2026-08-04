@@ -46,6 +46,7 @@ Both have their own browse, detail, live, and leaderboard surfaces. Don't fold o
 - Each routine's interval sequence has an intrinsic **shape** (a pyramid, a plateau, alternating spikes, etc.) that visually encodes what the workout feels like. Treat that shape as the routine's primary visual identity - a hero-sized stylized rendering of the interval bars on the detail screen, not a generic data viz widget tucked in a corner.
 - Don't require per-routine illustrations or category icons. The interval shape itself differentiates one routine from another and works automatically for user-created routines without needing a designer in the loop.
 - **A block's height and colour both come off its level on 25 steps, and `RoutineIntervalScale` is the only place that says so.** Five `IntensityTier` steps used to drive bar height, which drew level 16 and level 20 identically - unreadable once the timeline became the authoring surface. Anything rendering an interval bar reads that type, so the shape a climber drags in the builder is the shape the list card and the thumbnail show.
+- **A routine's own hue - a card accent stripe, the hero's ambient light - is `RoutineIntervalScale.averageColor`, and its average level is `RoutineIntervalScale.averageLevel`, duration-weighted.** The stripes once carried a second averaging rule bucketed through `IntensityTier`, so a card drew one hue beside bars drawn in another. Never re-derive a routine's level or colour locally; a second copy of the weighting is how the palettes diverged.
 
 ## Authoring a routine
 
