@@ -184,32 +184,14 @@ struct RoutineTimelineEditor: View {
         let isGrabbed = reorderSession?.id == interval.id
         let cornerRadius: CGFloat = isSelected || isGrabbed ? 4 : 3
 
-        return ZStack(alignment: .top) {
-            UnevenRoundedRectangle(
-                topLeadingRadius: cornerRadius,
-                bottomLeadingRadius: isSelected || isGrabbed ? cornerRadius : 0,
-                bottomTrailingRadius: isSelected || isGrabbed ? cornerRadius : 0,
-                topTrailingRadius: cornerRadius,
-                style: .continuous
-            )
-            .fill(blockColor(forLevel: level))
-
-            blockLabel(interval: interval, width: width)
-
-            if let movementLabel = movementLabel(for: interval),
-               RoutineTimelineLayout.showsMovementLabel(blockWidth: width, blockHeight: height) {
-                Text(movementLabel)
-                    .font(.montserratBold(size: 8))
-                    .foregroundStyle(.black.opacity(0.58))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    .padding(.bottom, 6)
-            }
-
-            if isSelected, !isGrabbed {
-                grip
-            }
-        }
+        return blockFace(
+            interval: interval,
+            width: width,
+            height: height,
+            cornerRadius: cornerRadius,
+            isSelected: isSelected,
+            isGrabbed: isGrabbed
+        )
         .frame(width: width, height: height)
         .overlay {
             if isSelected || isGrabbed {
@@ -276,6 +258,81 @@ struct RoutineTimelineEditor: View {
         }
         .accessibilityAction(named: Text(RoutineIntervalVoiceOver.Action.delete)) {
             onDelete(interval.id)
+        }
+    }
+
+    /// Everything the block draws. Under Reduce Motion the whole face is replaced whenever the
+    /// level, the time or the step type changes, so the two states crossfade in place while the
+    /// frame around it has already taken its new size.
+    @ViewBuilder
+    private func blockFace(
+        interval: RoutineInterval,
+        width: CGFloat,
+        height: CGFloat,
+        cornerRadius: CGFloat,
+        isSelected: Bool,
+        isGrabbed: Bool
+    ) -> some View {
+        let face = blockFaceContent(
+            interval: interval,
+            width: width,
+            height: height,
+            cornerRadius: cornerRadius,
+            isSelected: isSelected,
+            isGrabbed: isGrabbed
+        )
+
+        if RoutineTimelineMotion.resizeCrossfade(reduceMotion: reduceMotion) != nil {
+            let state = BlockFaceState(
+                level: interval.resolvedLevel,
+                duration: interval.duration,
+                movementLabel: movementLabel(for: interval)
+            )
+
+            ZStack {
+                face
+                    .id(state)
+                    .transition(.opacity)
+            }
+            .animation(crossfadeAnimation, value: state)
+        } else {
+            face
+        }
+    }
+
+    private func blockFaceContent(
+        interval: RoutineInterval,
+        width: CGFloat,
+        height: CGFloat,
+        cornerRadius: CGFloat,
+        isSelected: Bool,
+        isGrabbed: Bool
+    ) -> some View {
+        ZStack(alignment: .top) {
+            UnevenRoundedRectangle(
+                topLeadingRadius: cornerRadius,
+                bottomLeadingRadius: isSelected || isGrabbed ? cornerRadius : 0,
+                bottomTrailingRadius: isSelected || isGrabbed ? cornerRadius : 0,
+                topTrailingRadius: cornerRadius,
+                style: .continuous
+            )
+            .fill(blockColor(forLevel: interval.resolvedLevel))
+
+            blockLabel(interval: interval, width: width)
+
+            if let movementLabel = movementLabel(for: interval),
+               RoutineTimelineLayout.showsMovementLabel(blockWidth: width, blockHeight: height) {
+                Text(movementLabel)
+                    .font(.montserratBold(size: 8))
+                    .foregroundStyle(.black.opacity(0.58))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .padding(.bottom, 6)
+            }
+
+            if isSelected, !isGrabbed {
+                grip
+            }
         }
     }
 
@@ -523,6 +580,12 @@ struct RoutineTimelineEditor: View {
         adjustSession == nil ? RoutineTimelineMotion.resize(reduceMotion: reduceMotion) : nil
     }
 
+    /// The block under the finger has to keep up with it, so the crossfade waits for the drag
+    /// to end the same way the spring does.
+    private var crossfadeAnimation: Animation? {
+        adjustSession == nil ? RoutineTimelineMotion.resizeCrossfade(reduceMotion: reduceMotion) : nil
+    }
+
     private func blockColor(forLevel level: Int) -> Color {
         RoutineIntervalScale.color(forLevel: level, colorScheme: colorScheme)
     }
@@ -552,6 +615,14 @@ struct RoutineTimelineEditor: View {
     private struct GhostBar: Hashable {
         let width: Double
         let height: Double
+    }
+
+    /// The block's drawn state. Everything a resize can change about the face is in here, so a
+    /// change of identity is exactly a change the crossfade should carry.
+    private struct BlockFaceState: Hashable {
+        let level: Int
+        let duration: TimeInterval
+        let movementLabel: String?
     }
 
     private struct AdjustSession: Equatable {
