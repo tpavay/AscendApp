@@ -126,19 +126,26 @@ enum RoutineTimelineWindow {
 
     /// Which way a lifted block held past the end of the window walks it, if at all. Without
     /// this a long routine could only ever be reordered inside one window's neighbourhood.
+    ///
+    /// The advance zone begins exactly where the strip ends - the trailing edge of the last
+    /// visible block, and the leading edge of the first. The end slots' drop targets resolve off
+    /// those same blocks' *centres*, so the two zones are disjoint: a block can be carried to
+    /// either end slot and dropped there, and the window only starts walking once the block's
+    /// centre has left the strip altogether.
     static func edgeAdvance(
         draggedCenterX: CGFloat,
         widths: [CGFloat],
         range: Range<Int>,
         intervalCount: Int
     ) -> Int {
-        guard let firstWidth = widths.first, let lastWidth = widths.last else { return 0 }
+        guard let lastWidth = widths.last else { return 0 }
 
-        let lastCenter = RoutineTimelineLayout.blockOriginX(at: widths.count - 1, widths: widths)
-            + lastWidth / 2
+        let trailingEdge = RoutineTimelineLayout.blockOriginX(at: widths.count - 1, widths: widths)
+            + lastWidth
+        let leadingEdge = RoutineTimelineLayout.blockOriginX(at: 0, widths: widths)
 
-        if draggedCenterX > lastCenter, range.upperBound < intervalCount { return 1 }
-        if draggedCenterX < firstWidth / 2, range.lowerBound > 0 { return -1 }
+        if draggedCenterX > trailingEdge, range.upperBound < intervalCount { return 1 }
+        if draggedCenterX < leadingEdge, range.lowerBound > 0 { return -1 }
         return 0
     }
 }

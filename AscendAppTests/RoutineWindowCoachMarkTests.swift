@@ -1,5 +1,7 @@
 import Foundation
+import SwiftUI
 import Testing
+import UIKit
 @testable import AscendApp
 
 struct RoutineWindowCoachMarkTests {
@@ -125,5 +127,94 @@ struct RoutineWindowCoachMarkTests {
 
         #expect(!walkthroughTargets.contains(.overview))
         #expect(Set(walkthroughTargets).count == walkthroughTargets.count)
+    }
+}
+
+/// The spotlight is only a spotlight if the overlay can still find the thing it points at. The
+/// overview's target is the one that is not a sibling of the others - it is emitted *inside*
+/// the subtree the walkthrough's timeline target wraps - so this renders the real nesting and
+/// reads the resolved anchors back, which a hardcoded `targetRect` cannot do.
+@MainActor
+struct RoutineBuilderCoachMarkAnchorTests {
+    @Test
+    func aTargetNestedInsideAnotherOneStillResolves() throws {
+        let resolved = try Self.resolveTargets {
+            VStack(spacing: 0) {
+                Color.clear
+                    .frame(width: 300, height: 44)
+                    .routineCoachMarkTarget(.overview)
+
+                Color.clear
+                    .frame(width: 300, height: 200)
+            }
+            .routineCoachMarkTarget(.timeline)
+        }
+
+        let overview = try #require(
+            resolved[.overview],
+            "The nested overview target was dropped - the window coach mark would draw with no spotlight"
+        )
+        let timeline = try #require(resolved[.timeline], "The wrapping timeline target was dropped")
+
+        #expect(overview.height == 44)
+        #expect(timeline.height == 244)
+        // The overview is inside the timeline, so the timeline's bounds have to contain it.
+        #expect(timeline.contains(overview))
+    }
+
+    /// The three walkthrough targets are siblings, and they still all arrive - the merge that
+    /// keeps the nested one must not have cost the flat ones.
+    @Test
+    func siblingTargetsAllStillArrive() throws {
+        let resolved = try Self.resolveTargets {
+            VStack(spacing: 0) {
+                Color.clear.frame(width: 300, height: 200).routineCoachMarkTarget(.timeline)
+                Color.clear.frame(width: 300, height: 44).routineCoachMarkTarget(.stepControl)
+                Color.clear.frame(width: 300, height: 44).routineCoachMarkTarget(.add)
+            }
+        }
+
+        #expect(Set(resolved.keys) == [.timeline, .stepControl, .add])
+    }
+
+    /// Renders the probe through the same `ImageRenderer` the evidence tests use, which runs a
+    /// real layout pass, and reports what `overlayPreferenceValue` actually received.
+    private static func resolveTargets(
+        @ViewBuilder content: () -> some View
+    ) throws -> [RoutineBuilderCoachMarkTarget: CGRect] {
+        let recorder = AnchorRecorder()
+
+        let probe = content()
+            .overlayPreferenceValue(RoutineBuilderCoachMarkAnchorKey.self) { anchors in
+                GeometryReader { proxy in
+                    AnchorReporter(
+                        recorder: recorder,
+                        rects: anchors.mapValues { proxy[$0] }
+                    )
+                }
+            }
+            .frame(width: 402, height: 874)
+
+        let renderer = ImageRenderer(content: probe)
+        _ = try #require(renderer.uiImage, "ImageRenderer produced no image")
+
+        return try #require(recorder.rects, "The coach mark overlay was never handed any anchors")
+    }
+}
+
+@MainActor
+private final class AnchorRecorder {
+    var rects: [RoutineBuilderCoachMarkTarget: CGRect]?
+}
+
+/// Reports from `body`, because `ImageRenderer` evaluates bodies but runs no lifecycle.
+@MainActor
+private struct AnchorReporter: View {
+    let recorder: AnchorRecorder
+    let rects: [RoutineBuilderCoachMarkTarget: CGRect]
+
+    var body: some View {
+        let _ = { recorder.rects = rects }()
+        Color.clear
     }
 }

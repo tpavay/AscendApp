@@ -18,6 +18,13 @@ struct RoutineTimelineOverview: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var dragOriginFraction: Double?
 
+    // SwiftUI resets gesture state when a gesture ends *or* is cancelled, and a cancelled
+    // gesture is the one that never calls `onEnded`. Watching this flag fall is the only report
+    // of a cancellation the overview gets - and a scrub left latched on would keep
+    // swipe-to-dismiss disabled for the rest of the sheet, then rebase the next drag off a
+    // stale origin.
+    @GestureState private var isScrubGestureActive = false
+
     /// Tall enough to be a control in its own right, which is the whole point of the window.
     static let ridgeHeight: CGFloat = RoutineTimelineWindow.minimumTapTarget
 
@@ -39,9 +46,15 @@ struct RoutineTimelineOverview: View {
                     window(availableWidth: proxy.size.width)
                 }
                 .contentShape(.rect)
-                .highPriorityGesture(scrubGesture(availableWidth: proxy.size.width))
+                // Simultaneous rather than high priority: the overview has no vertical meaning,
+                // so a mostly-vertical swipe has to stay the enclosing scroll view's to handle.
+                .simultaneousGesture(scrubGesture(availableWidth: proxy.size.width))
             }
             .frame(height: Self.ridgeHeight)
+            .onChange(of: isScrubGestureActive) { _, isActive in
+                guard !isActive else { return }
+                endScrub()
+            }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(RoutineIntervalVoiceOver.overviewLabel)
@@ -112,12 +125,18 @@ struct RoutineTimelineOverview: View {
 
     private func scrubGesture(availableWidth: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 4)
+            .updating($isScrubGestureActive) { _, isActive, _ in isActive = true }
             .onChanged { value in
                 guard availableWidth > 0 else { return }
 
                 let travelled = Double(value.translation.width / availableWidth)
 
                 if dragOriginFraction == nil {
+                    // The window moves sideways and nothing else, so a swipe that is mostly
+                    // vertical is a scroll and never opens a scrub - which is also what keeps
+                    // it from disabling the sheet's swipe to dismiss.
+                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
+
                     // The gesture only opens after a few points of travel. Discounting them
                     // means the window starts from where it already was rather than jumping.
                     dragOriginFraction = RoutineTimelineWindow.span(
@@ -127,12 +146,23 @@ struct RoutineTimelineOverview: View {
                     onScrubbingChange(true)
                 }
 
-                onScrub((dragOriginFraction ?? 0) + travelled)
+                guard let dragOriginFraction else { return }
+                onScrub(dragOriginFraction + travelled)
             }
             .onEnded { _ in
-                dragOriginFraction = nil
-                onScrubbingChange(false)
+                endScrub()
             }
+    }
+
+    /// The one path back to rest. A gesture the system cancels - the sheet moving, the editor
+    /// going away - never delivers `onEnded`, and a scrub left latched on would both keep
+    /// swipe-to-dismiss disabled and rebase the next drag off an origin that no longer means
+    /// anything.
+    private func endScrub() {
+        guard dragOriginFraction != nil else { return }
+
+        dragOriginFraction = nil
+        onScrubbingChange(false)
     }
 
     // MARK: - Derived

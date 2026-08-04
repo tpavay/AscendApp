@@ -13,9 +13,17 @@ struct RoutineBuilderCoachMarkAnchorKey: PreferenceKey {
 
 extension View {
     /// Marks this view as the thing a coach mark spotlights.
+    ///
+    /// Transforming rather than setting, because the targets are not all siblings: the window
+    /// mark's overview sits *inside* the subtree the walkthrough's timeline target wraps, and a
+    /// modifier that writes the key outright would drop everything the subtree published - the
+    /// nested mark would then draw a full dim with no spotlight at all.
     func routineCoachMarkTarget(_ target: RoutineBuilderCoachMarkTarget) -> some View {
-        anchorPreference(key: RoutineBuilderCoachMarkAnchorKey.self, value: .bounds) { anchor in
-            [target: anchor]
+        transformAnchorPreference(
+            key: RoutineBuilderCoachMarkAnchorKey.self,
+            value: .bounds
+        ) { targets, anchor in
+            targets[target] = anchor
         }
     }
 }

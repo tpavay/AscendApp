@@ -434,6 +434,90 @@ struct RoutineTimelineWindowTests {
         }
     }
 
+    /// The end slots have to stay reachable. A block carried to the last slot of the window is
+    /// past the *centre* of the block already sitting there - which is how the drop resolves -
+    /// but still inside the strip, so nothing walks and a climber who holds still drops where
+    /// they aimed instead of riding the window to the end of the routine.
+    @Test
+    func aBlockCarriedToTheLastSlotDropsThereRatherThanWalkingTheWindow() {
+        let widths = sevenEqualWidths
+        let lastLocalIndex = widths.count - 1
+        let lastCenter = RoutineTimelineLayout.blockOriginX(at: lastLocalIndex, widths: widths)
+            + widths[lastLocalIndex] / 2
+        let trailingEdge = RoutineTimelineLayout.blockOriginX(at: lastLocalIndex, widths: widths)
+            + widths[lastLocalIndex]
+        let overTheLastSlot = (lastCenter + trailingEdge) / 2
+
+        #expect(
+            RoutineTimelineLayout.reorderDestinationIndex(
+                draggedIndex: 2,
+                draggedCenterX: overTheLastSlot,
+                widths: widths
+            ) == lastLocalIndex
+        )
+        #expect(
+            RoutineTimelineWindow.edgeAdvance(
+                draggedCenterX: overTheLastSlot,
+                widths: widths,
+                range: 0..<7,
+                intervalCount: 12
+            ) == 0
+        )
+    }
+
+    /// The mirror: the first slot resolves below the first block's centre, and the window still
+    /// only walks back once the block has left the strip entirely.
+    @Test
+    func aBlockCarriedToTheFirstSlotDropsThereRatherThanWalkingTheWindow() {
+        let widths = sevenEqualWidths
+        let overTheFirstSlot = widths[0] / 4
+
+        #expect(
+            RoutineTimelineLayout.reorderDestinationIndex(
+                draggedIndex: 4,
+                draggedCenterX: overTheFirstSlot,
+                widths: widths
+            ) == 0
+        )
+        #expect(
+            RoutineTimelineWindow.edgeAdvance(
+                draggedCenterX: overTheFirstSlot,
+                widths: widths,
+                range: 5..<12,
+                intervalCount: 12
+            ) == 0
+        )
+    }
+
+    /// Stated as the invariant it is: nowhere on the strip is both a drop target and an advance,
+    /// at either end, for any block a climber might have lifted.
+    @Test
+    func nothingOnTheStripIsBothADropTargetAndAnAdvance() {
+        let widths = sevenEqualWidths
+        let trailingEdge = RoutineTimelineLayout.blockOriginX(at: widths.count - 1, widths: widths)
+            + widths[widths.count - 1]
+
+        for draggedIndex in widths.indices {
+            for step in 0...100 {
+                let centerX = trailingEdge * CGFloat(step) / 100
+
+                let destination = RoutineTimelineLayout.reorderDestinationIndex(
+                    draggedIndex: draggedIndex,
+                    draggedCenterX: centerX,
+                    widths: widths
+                )
+                let advance = RoutineTimelineWindow.edgeAdvance(
+                    draggedCenterX: centerX,
+                    widths: widths,
+                    range: 5..<12,
+                    intervalCount: 20
+                )
+
+                #expect(advance == 0, "The window walks at \(centerX), where the drop lands on slot \(destination)")
+            }
+        }
+    }
+
     @Test
     func anUnmeasuredStripWalksNothing() {
         #expect(

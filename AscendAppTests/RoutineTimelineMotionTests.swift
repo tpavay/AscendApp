@@ -151,11 +151,43 @@ struct RoutineTimelineMotionTests {
     /// animations; these two must also still be reading the one place Reduce Motion lives.
     private static let motionOwners = ["RoutineEditorView.swift", "RoutineTimelineEditor.swift"]
 
-    /// The builder's screen and every timeline or walkthrough component under it, discovered
-    /// rather than listed - a list goes stale the moment a component is added, which is exactly
-    /// when a raw animation gets written. `RoutineTimelineMotion` is excluded because it is the
-    /// one file whose whole job is to name animations.
+    /// The routine views that are *not* the builder: the reading and browsing surfaces, the
+    /// live session, and `RoutineTimelineMotion` itself - the one file whose whole job is to
+    /// name animations. Those may legitimately spell an animation out.
+    ///
+    /// Excluding by name rather than including by name is the whole point: a builder component
+    /// added tomorrow is swept without anyone remembering to widen a list, and a naming
+    /// convention nobody predicted cannot make it disappear from the guard in silence.
+    private static let nonBuilderSources: Set<String> = [
+        "ActiveRoutineView.swift",
+        "BookmarkButton.swift",
+        "DifficultyIndicator.swift",
+        "LiveWorkoutControlButton.swift",
+        "PracticeView.swift",
+        "RoutineCard.swift",
+        "RoutineCardSurface.swift",
+        "RoutineDetailView.swift",
+        "RoutineGhostCard.swift",
+        "RoutineHeroVisualization.swift",
+        "RoutineHorizontalRail.swift",
+        "RoutineIntensityBarChart.swift",
+        "RoutineIntervalDetailRow.swift",
+        "RoutineListCard.swift",
+        "RoutineThumbnailCard.swift",
+        "RoutineTimelineMotion.swift",
+        "RoutinesView.swift",
+        "SegmentedProgressBar.swift",
+        "WorkoutCompleteView.swift"
+    ]
+
+    /// Every view under the routines feature except those, discovered rather than listed.
     private static var builderSources: [(name: String, url: URL)] {
+        get throws {
+            try routineViewSources.filter { !nonBuilderSources.contains($0.name) }
+        }
+    }
+
+    private static var routineViewSources: [(name: String, url: URL)] {
         get throws {
             let views = URL(filePath: #filePath)
                 .deletingLastPathComponent()
@@ -167,12 +199,19 @@ struct RoutineTimelineMotionTests {
                 .filter { $0.hasSuffix(".swift") }
                 .sorted()
                 .map { (name: URL(filePath: $0).lastPathComponent, url: views.appending(path: $0)) }
-                .filter { source in
-                    guard source.name != "RoutineTimelineMotion.swift" else { return false }
-                    return source.name == "RoutineEditorView.swift"
-                        || source.name.hasPrefix("RoutineTimeline")
-                        || source.name.hasPrefix("RoutineBuilder")
-                }
         }
+    }
+
+    /// An exclusion list rots the other way round: a file renamed or deleted leaves a name
+    /// behind that would quietly excuse a future file that happens to take it.
+    @Test
+    func theExclusionListNamesNothingThatHasGoneAway() throws {
+        let present = Set(try Self.routineViewSources.map(\.name))
+        let stale = Self.nonBuilderSources.subtracting(present).sorted()
+
+        #expect(
+            stale.isEmpty,
+            "These are excluded from the Reduce Motion sweep but no longer exist: \(stale.joined(separator: ", "))"
+        )
     }
 }
