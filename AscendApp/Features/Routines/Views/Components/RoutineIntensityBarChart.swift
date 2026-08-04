@@ -12,6 +12,9 @@ struct RoutineIntensityBarChart: View {
     var segmentGap: CGFloat = 2
     var outerCornerRadius: CGFloat = 2
     var widthMode: RoutineIntensityBarChartWidthMode = .equalSegments
+    /// Draws an in-progress interval dashed at its own `order`. No caller passes it since the
+    /// timeline builder replaced the editor's preview card; it is kept, with its tests, so the
+    /// splice fix behind it is not silently reverted the day a preview needs a ghost again.
     var ghostInterval: RoutineInterval? = nil
 
     @Environment(\.colorScheme) private var colorScheme
