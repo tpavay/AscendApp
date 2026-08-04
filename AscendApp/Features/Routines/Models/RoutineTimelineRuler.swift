@@ -1,14 +1,18 @@
 import Foundation
 
-/// The scale under the timeline. Ticks land on round minutes and the last label is always
-/// the routine's real length, so the ruler tells the truth even where the width floor has
+/// The scale under the timeline. Ticks land on round minutes and the last label is always the
+/// real time the strip ends at, so the ruler tells the truth even where the width floor has
 /// overstated a short block.
+///
+/// It describes whatever the strip above it is drawing. That is the whole routine while the
+/// intervals still fit, and the working window's slice of the routine's clock once they do not -
+/// a window that opens at six minutes is labelled from six, never from zero.
 enum RoutineTimelineRuler {
     private static let candidateStepsInMinutes = [1, 2, 5, 10, 15, 30, 60, 120, 240]
     private static let maximumGaps = 5
 
-    /// A tick and where it belongs along the strip, as a fraction of the routine's length.
-    /// The label has to sit over the minute it names, so the position travels with the text.
+    /// A tick and where it belongs along the strip, as a fraction of the strip's span. The label
+    /// has to sit over the minute it names, so the position travels with the text.
     struct Tick: Equatable, Identifiable {
         let text: String
         let fraction: Double
@@ -16,27 +20,31 @@ enum RoutineTimelineRuler {
         var id: Double { fraction }
     }
 
-    static func ticks(totalDuration: TimeInterval) -> [Tick] {
-        guard totalDuration > 0 else { return [] }
+    static func ticks(startTime: TimeInterval, endTime: TimeInterval) -> [Tick] {
+        let span = endTime - startTime
+        guard span > 0 else { return [] }
 
-        let totalMinutes = totalDuration / 60
-        let step = Double(stepInMinutes(totalMinutes: totalMinutes))
+        let startMinutes = startTime / 60
+        let endMinutes = endTime / 60
+        let step = Double(stepInMinutes(totalMinutes: span / 60))
 
         var ticks: [Tick] = []
-        var minute = 0.0
+        var minute = startMinutes
 
         // Stop before the end label so the two never collide.
-        while minute < totalMinutes - step / 2 {
-            ticks.append(Tick(text: "\(Int(minute))", fraction: minute / totalMinutes))
+        while minute < endMinutes - step / 2 {
+            ticks.append(
+                Tick(text: minuteLabel(minute), fraction: (minute - startMinutes) / (endMinutes - startMinutes))
+            )
             minute += step
         }
 
-        ticks.append(Tick(text: endLabel(totalMinutes: totalMinutes), fraction: 1))
+        ticks.append(Tick(text: endLabel(totalMinutes: endMinutes), fraction: 1))
         return ticks
     }
 
-    static func labels(totalDuration: TimeInterval) -> [String] {
-        ticks(totalDuration: totalDuration).map(\.text)
+    static func labels(startTime: TimeInterval, endTime: TimeInterval) -> [String] {
+        ticks(startTime: startTime, endTime: endTime).map(\.text)
     }
 
     private static func stepInMinutes(totalMinutes: Double) -> Int {
@@ -44,11 +52,13 @@ enum RoutineTimelineRuler {
             ?? candidateStepsInMinutes[candidateStepsInMinutes.count - 1]
     }
 
+    private static func minuteLabel(_ minutes: Double) -> String {
+        guard minutes != minutes.rounded(.down) else { return "\(Int(minutes))" }
+        return "\(Int(minutes)).5"
+    }
+
     private static func endLabel(totalMinutes: Double) -> String {
         // Durations sit on a 30-second grid, so a half minute is the only fraction possible.
-        guard totalMinutes != totalMinutes.rounded(.down) else {
-            return "\(Int(totalMinutes)) MIN"
-        }
-        return "\(Int(totalMinutes)).5 MIN"
+        "\(minuteLabel(totalMinutes)) MIN"
     }
 }

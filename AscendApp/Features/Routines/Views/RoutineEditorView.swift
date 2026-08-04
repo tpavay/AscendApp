@@ -17,8 +17,10 @@ struct RoutineEditorView: View {
     @State private var viewModel = RoutineEditorViewModel()
     @State private var showSaveError = false
     @State private var interactionBaseline: RoutineEditorStats?
-    @State private var coachMark: RoutineBuilderCoachMark?
+    @State private var coachMark: PresentedCoachMark?
+    @State private var isWindowEngaged = false
     @AppStorage(RoutineBuilderCoachMark.seenStorageKey) private var hasSeenCoachMarks = false
+    @AppStorage(RoutineWindowCoachMark.seenStorageKey) private var hasSeenWindowCoachMark = false
     @FocusState private var focusedField: RoutineEditorField?
 
     let routine: Routine?
@@ -100,8 +102,8 @@ struct RoutineEditorView: View {
             GeometryReader { proxy in
                 if let coachMark {
                     RoutineBuilderCoachMarkOverlay(
-                        mark: coachMark,
-                        targetRect: anchors[coachMark].map { proxy[$0] },
+                        presentation: coachMark.presentation,
+                        targetRect: anchors[coachMark.target].map { proxy[$0] },
                         containerSize: proxy.size,
                         onNext: advanceCoachMarks,
                         onSkip: finishCoachMarks
@@ -121,6 +123,9 @@ struct RoutineEditorView: View {
         .onChange(of: viewModel.intervals.count) {
             startCoachMarksIfNeeded()
         }
+        .onChange(of: isWindowEngaged) {
+            startCoachMarksIfNeeded()
+        }
         .onDisappear {
             isInteractingWithTimeline = false
         }
@@ -133,6 +138,7 @@ struct RoutineEditorView: View {
         RoutineTimelineEditor(
             intervals: viewModel.intervals,
             selectedIntervalId: viewModel.selectedIntervalId,
+            onWindowEngagedChange: { isWindowEngaged = $0 },
             onSelect: { viewModel.select(intervalWithId: $0) },
             onSetLevel: { viewModel.setLevel($1, forIntervalWithId: $0) },
             onSetDuration: { viewModel.setDuration($1, forIntervalWithId: $0) },
@@ -187,31 +193,78 @@ struct RoutineEditorView: View {
 
     // MARK: - Coach marks
 
+    /// The first-open walkthrough, or the one-off window mark. Never both at once: opening a
+    /// twelve-interval routine for the first time is the one place they can both come due.
+    private enum PresentedCoachMark: Equatable {
+        case walkthrough(RoutineBuilderCoachMark)
+        case window
+
+        var target: RoutineBuilderCoachMarkTarget {
+            switch self {
+            case .walkthrough(let mark):
+                return mark.target
+            case .window:
+                return .overview
+            }
+        }
+
+        var presentation: RoutineCoachMarkPresentation {
+            switch self {
+            case .walkthrough(let mark):
+                return mark.presentation
+            case .window:
+                return RoutineWindowCoachMark.presentation
+            }
+        }
+    }
+
     /// The walkthrough waits until there is a timeline worth pointing at, so the first
-    /// spotlight never lands on an empty plot.
+    /// spotlight never lands on an empty plot. The window mark queues behind it and fires the
+    /// first time a routine outgrows the screen.
     private func startCoachMarksIfNeeded() {
-        guard !hasSeenCoachMarks, coachMark == nil, !viewModel.intervals.isEmpty else { return }
+        if !hasSeenCoachMarks, coachMark == nil, !viewModel.intervals.isEmpty {
+            withAnimation(RoutineTimelineMotion.coachMark(reduceMotion: reduceMotion)) {
+                coachMark = .walkthrough(.timeline)
+            }
+            return
+        }
+
+        guard RoutineWindowCoachMark.shouldPresent(
+            isWindowEngaged: isWindowEngaged,
+            hasSeen: hasSeenWindowCoachMark,
+            isCoachMarkOnScreen: coachMark != nil
+        ) else { return }
+
         withAnimation(RoutineTimelineMotion.coachMark(reduceMotion: reduceMotion)) {
-            coachMark = .timeline
+            coachMark = .window
         }
     }
 
     private func advanceCoachMarks() {
-        guard let next = coachMark?.next else {
+        guard case .walkthrough(let mark) = coachMark, let next = mark.next else {
             finishCoachMarks()
             return
         }
 
         withAnimation(RoutineTimelineMotion.coachMark(reduceMotion: reduceMotion)) {
-            coachMark = next
+            coachMark = .walkthrough(next)
         }
     }
 
     private func finishCoachMarks() {
-        hasSeenCoachMarks = true
+        switch coachMark {
+        case .walkthrough:
+            hasSeenCoachMarks = true
+        case .window:
+            hasSeenWindowCoachMark = true
+        case nil:
+            break
+        }
+
         withAnimation(RoutineTimelineMotion.coachMark(reduceMotion: reduceMotion)) {
             coachMark = nil
         }
+        startCoachMarksIfNeeded()
     }
 }
 

@@ -40,6 +40,29 @@ struct RoutineTimelineEditorSnapshotTests {
         ]
     }
 
+    /// The shipped, featured HIIT Sprint: 1:00 warm-up, ten 0:30 bursts, 1:00 down.
+    private var hiitSprint: [RoutineInterval] {
+        let levels = [6, 22, 8, 22, 8, 18, 8, 22, 8, 18, 8, 6]
+        return levels.enumerated().map { index, level in
+            RoutineInterval(
+                duration: index == 0 || index == levels.count - 1 ? 60 : 30,
+                intensityValue: level,
+                order: index
+            )
+        }
+    }
+
+    /// A twenty-interval pyramid: no two neighbours alike, so nothing about it collapses.
+    private var pyramid: [RoutineInterval] {
+        (0..<20).map { index in
+            RoutineInterval(
+                duration: 120,
+                intensityValue: index < 10 ? 5 + index * 2 : 23 - (index - 10) * 2,
+                order: index
+            )
+        }
+    }
+
     @Test
     func theEditorRendersAsTheBoardDrawsIt() throws {
         try renderEvidence(
@@ -78,8 +101,56 @@ struct RoutineTimelineEditorSnapshotTests {
                 EditorSurface(intervals: boardRoutine, selectedIndex: 0)
 
                 RoutineBuilderCoachMarkOverlay(
-                    mark: .timeline,
+                    presentation: RoutineBuilderCoachMark.timeline.presentation,
                     targetRect: CGRect(x: 20, y: 78, width: 362, height: 262),
+                    containerSize: device,
+                    onNext: {},
+                    onSkip: {}
+                )
+            }
+            .frame(width: device.width, height: device.height)
+        )
+    }
+
+    /// The routine this work exists for: twelve intervals, shipped and featured, which the
+    /// unwindowed timeline drew as twelve identical 25pt blocks.
+    @Test
+    func theShippedHIITSprintIsUsable() throws {
+        try renderEvidence(
+            named: "routine-builder-long-routine",
+            content: EditorSurface(intervals: hiitSprint, selectedIndex: 0)
+        )
+    }
+
+    /// The whole routine above and the window below, on the routine the captain named: a
+    /// twenty-interval pyramid, where nothing groups and every interval differs from its
+    /// neighbour.
+    @Test
+    func aTwentyIntervalPyramidKeepsItsWholeShapeOnScreen() throws {
+        try renderEvidence(
+            named: "routine-builder-pyramid-window",
+            content: EditorSurface(intervals: pyramid, selectedIndex: 9)
+        )
+    }
+
+    /// The one-off mark, spotlighting the overview rather than the timeline, with a single
+    /// dot and a single Got it.
+    @Test
+    func theWindowCoachMarkSpotlightsTheOverview() throws {
+        let device = CGSize(width: 402, height: 874)
+
+        try renderEvidence(
+            named: "routine-builder-window-coach-mark",
+            content: ZStack(alignment: .top) {
+                Color.black
+
+                EditorSurface(intervals: hiitSprint, selectedIndex: 0)
+
+                RoutineBuilderCoachMarkOverlay(
+                    presentation: RoutineWindowCoachMark.presentation,
+                    // The overview's own bounds on this surface: the card's content inset, and
+                    // the label plus the ridge it labels.
+                    targetRect: CGRect(x: 34, y: 88, width: 334, height: 58),
                     containerSize: device,
                     onNext: {},
                     onSkip: {}

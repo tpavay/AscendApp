@@ -1,11 +1,11 @@
 import SwiftUI
 
 struct RoutineBuilderCoachMarkAnchorKey: PreferenceKey {
-    static let defaultValue: [RoutineBuilderCoachMark: Anchor<CGRect>] = [:]
+    static let defaultValue: [RoutineBuilderCoachMarkTarget: Anchor<CGRect>] = [:]
 
     static func reduce(
-        value: inout [RoutineBuilderCoachMark: Anchor<CGRect>],
-        nextValue: () -> [RoutineBuilderCoachMark: Anchor<CGRect>]
+        value: inout [RoutineBuilderCoachMarkTarget: Anchor<CGRect>],
+        nextValue: () -> [RoutineBuilderCoachMarkTarget: Anchor<CGRect>]
     ) {
         value.merge(nextValue()) { _, latest in latest }
     }
@@ -13,9 +13,9 @@ struct RoutineBuilderCoachMarkAnchorKey: PreferenceKey {
 
 extension View {
     /// Marks this view as the thing a coach mark spotlights.
-    func routineCoachMarkTarget(_ mark: RoutineBuilderCoachMark) -> some View {
+    func routineCoachMarkTarget(_ target: RoutineBuilderCoachMarkTarget) -> some View {
         anchorPreference(key: RoutineBuilderCoachMarkAnchorKey.self, value: .bounds) { anchor in
-            [mark: anchor]
+            [target: anchor]
         }
     }
 }
@@ -23,7 +23,7 @@ extension View {
 /// One spotlight and one card. The dim is punched out over the target so the control being
 /// described stays legible underneath.
 struct RoutineBuilderCoachMarkOverlay: View {
-    let mark: RoutineBuilderCoachMark
+    let presentation: RoutineCoachMarkPresentation
     let targetRect: CGRect?
     let containerSize: CGSize
     let onNext: () -> Void
@@ -87,12 +87,12 @@ struct RoutineBuilderCoachMarkOverlay: View {
 
     private var card: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(mark.title)
+            Text(presentation.title)
                 .font(.montserratBold(size: 17))
                 .foregroundStyle(.white)
                 .padding(.bottom, 6)
 
-            Text(mark.message)
+            Text(presentation.message)
                 .font(.montserratMedium(size: 13.5))
                 .foregroundStyle(.white.opacity(0.55))
                 .lineSpacing(4)
@@ -101,21 +101,23 @@ struct RoutineBuilderCoachMarkOverlay: View {
 
             HStack(spacing: 16) {
                 HStack(spacing: 6) {
-                    ForEach(RoutineBuilderCoachMark.allCases) { step in
+                    ForEach(0..<presentation.stepCount, id: \.self) { step in
                         Circle()
-                            .fill(step == mark ? Color.accent : .white.opacity(0.22))
+                            .fill(step == presentation.stepIndex ? Color.accent : .white.opacity(0.22))
                             .frame(width: 6, height: 6)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityHidden(true)
 
-                Button("Skip", action: onSkip)
-                    .font(.montserratMedium(size: 13))
-                    .foregroundStyle(.white.opacity(0.35))
-                    .buttonStyle(.plain)
+                if presentation.showsSkip {
+                    Button("Skip", action: onSkip)
+                        .font(.montserratMedium(size: 13))
+                        .foregroundStyle(.white.opacity(0.35))
+                        .buttonStyle(.plain)
+                }
 
-                Button(mark.isLast ? "Done" : "Next", action: onNext)
+                Button(presentation.primaryActionTitle, action: onNext)
                     .font(.montserratBold(size: 14))
                     .foregroundStyle(Color.accent)
                     .buttonStyle(.plain)
@@ -133,12 +135,27 @@ struct RoutineBuilderCoachMarkOverlay: View {
     }
 }
 
-#Preview {
+#Preview("Walkthrough") {
     ZStack {
         Color.black
         RoutineBuilderCoachMarkOverlay(
-            mark: .timeline,
+            presentation: RoutineBuilderCoachMark.timeline.presentation,
             targetRect: CGRect(x: 20, y: 240, width: 362, height: 212),
+            containerSize: CGSize(width: 402, height: 874),
+            onNext: {},
+            onSkip: {}
+        )
+    }
+    .frame(width: 402, height: 874)
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Window") {
+    ZStack {
+        Color.black
+        RoutineBuilderCoachMarkOverlay(
+            presentation: RoutineWindowCoachMark.presentation,
+            targetRect: CGRect(x: 34, y: 240, width: 334, height: 62),
             containerSize: CGSize(width: 402, height: 874),
             onNext: {},
             onSkip: {}

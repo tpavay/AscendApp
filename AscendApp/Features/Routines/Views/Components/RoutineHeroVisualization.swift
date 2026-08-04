@@ -61,7 +61,7 @@ struct RoutineHeroVisualization: View {
     private var silhouetteLayer: some View {
         ZStack {
             ForEach(intervalColorSlices) { slice in
-                TopographicSilhouetteShape(intervals: intervals, totalDuration: totalDuration)
+                RoutineRidgeShape(intervals: intervals, totalDuration: totalDuration)
                     .fill(areaGradient(for: slice))
                     .clipShape(
                         RoutineHeroIntervalClipShape(
@@ -73,7 +73,7 @@ struct RoutineHeroVisualization: View {
             }
 
             ForEach(intervalColorSlices) { slice in
-                TopographicSilhouetteShape(intervals: intervals, totalDuration: totalDuration, strokeOnly: true)
+                RoutineRidgeShape(intervals: intervals, totalDuration: totalDuration, strokeOnly: true)
                     .stroke(segmentColor(for: slice).opacity(0.96), lineWidth: 1.7)
                     .clipShape(
                         RoutineHeroIntervalClipShape(
@@ -202,77 +202,6 @@ private struct RoutineHeroIntervalClipShape: Shape {
                 height: rect.height
             )
         )
-        return path
-    }
-}
-
-// MARK: - Topographic silhouette shape
-
-/// Renders a smooth ridge profile through the center of each interval, with
-/// curved transitions between peaks and valleys. Optionally renders only the
-/// top ridge line (no closed bottom) for stroking on top of the filled shape.
-private struct TopographicSilhouetteShape: Shape {
-    let intervals: [RoutineInterval]
-    let totalDuration: TimeInterval
-    var strokeOnly: Bool = false
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        guard !intervals.isEmpty, totalDuration > 0 else { return path }
-
-        let baseline = rect.maxY
-        let availableHeight = rect.height
-
-        // Build ridge points: one per interval, plus boundary points at left/right edges
-        var ridgePoints: [CGPoint] = []
-
-        // Start anchor at left edge, height = first interval's height
-        let firstY = baseline - CGFloat(RoutineIntervalScale.heightFraction(of: intervals[0])) * availableHeight
-        ridgePoints.append(CGPoint(x: 0, y: firstY))
-
-        // Center point of each interval
-        var cumulativeTime: TimeInterval = 0
-        for interval in intervals {
-            let centerTime = cumulativeTime + interval.duration / 2
-            let xRatio = centerTime / totalDuration
-            let centerX = CGFloat(xRatio) * rect.width
-            let y = baseline - CGFloat(RoutineIntervalScale.heightFraction(of: interval)) * availableHeight
-            ridgePoints.append(CGPoint(x: centerX, y: y))
-            cumulativeTime += interval.duration
-        }
-
-        // End anchor at right edge, height = last interval's height
-        let lastY = baseline - CGFloat(RoutineIntervalScale.heightFraction(of: intervals[intervals.count - 1])) * availableHeight
-        ridgePoints.append(CGPoint(x: rect.width, y: lastY))
-
-        // Draw the ridge — smooth cubic bezier curves between consecutive points
-        if strokeOnly {
-            path.move(to: ridgePoints[0])
-        } else {
-            // Filled version starts at bottom-left, goes up to ridge start
-            path.move(to: CGPoint(x: 0, y: baseline))
-            path.addLine(to: ridgePoints[0])
-        }
-
-        for i in 0..<ridgePoints.count - 1 {
-            let current = ridgePoints[i]
-            let next = ridgePoints[i + 1]
-            // Horizontal-tangent control points create smooth flowing curves
-            // (control points level with each endpoint pull the curve into smooth horizontal-feeling transitions)
-            let midX = (current.x + next.x) / 2
-            path.addCurve(
-                to: next,
-                control1: CGPoint(x: midX, y: current.y),
-                control2: CGPoint(x: midX, y: next.y)
-            )
-        }
-
-        if !strokeOnly {
-            // Close back to the baseline
-            path.addLine(to: CGPoint(x: rect.width, y: baseline))
-            path.closeSubpath()
-        }
-
         return path
     }
 }

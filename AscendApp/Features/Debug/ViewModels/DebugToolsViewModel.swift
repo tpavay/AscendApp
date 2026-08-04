@@ -221,6 +221,7 @@ class DebugToolsViewModel {
 
             case ActionTitle.resetRoutineBuilderWalkthrough:
                 UserDefaults.standard.removeObject(forKey: RoutineBuilderCoachMark.seenStorageKey)
+                UserDefaults.standard.removeObject(forKey: RoutineWindowCoachMark.seenStorageKey)
                 successMessage = "Routine builder walkthrough will play again on this device."
 
             case ActionTitle.replayPostAuthOnboarding:

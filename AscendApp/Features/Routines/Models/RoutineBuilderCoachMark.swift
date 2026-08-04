@@ -37,6 +37,28 @@ enum RoutineBuilderCoachMark: Int, CaseIterable, Identifiable {
         }
     }
 
+    var target: RoutineBuilderCoachMarkTarget {
+        switch self {
+        case .timeline:
+            return .timeline
+        case .stepControl:
+            return .stepControl
+        case .add:
+            return .add
+        }
+    }
+
+    var presentation: RoutineCoachMarkPresentation {
+        RoutineCoachMarkPresentation(
+            title: title,
+            message: message,
+            stepCount: RoutineBuilderCoachMark.allCases.count,
+            stepIndex: rawValue,
+            primaryActionTitle: isLast ? "Done" : "Next",
+            showsSkip: true
+        )
+    }
+
     var next: RoutineBuilderCoachMark? {
         RoutineBuilderCoachMark(rawValue: rawValue + 1)
     }
