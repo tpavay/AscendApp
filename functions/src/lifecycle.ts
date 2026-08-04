@@ -1,6 +1,9 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import {buildNextCommunicationPreferences} from "./email/preferences";
+import {
+  buildNextCommunicationPreferences,
+  isAppLifecycleEmailConsentSource,
+} from "./email/preferences";
 
 type LifecycleEventType =
   | "rating_prompt_answered"
@@ -509,6 +512,19 @@ function normalizeCommunicationPreferencesUpdated(
     throw invalidArgument(
       "At least one communication preference must be provided."
     );
+  }
+
+  // Where the climber answered, kept only when there is an answer to attach it
+  // to. A source with no decision behind it is not a record of anything.
+  const source = payload.lifecycleEmailsSource;
+  if (source !== undefined) {
+    if (
+      typeof normalized.lifecycleEmailsEnabled !== "boolean" ||
+      !isAppLifecycleEmailConsentSource(source)
+    ) {
+      throw invalidArgument("Unsupported lifecycle email consent source.");
+    }
+    normalized.lifecycleEmailsSource = source;
   }
 
   return {

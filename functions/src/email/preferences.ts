@@ -8,10 +8,41 @@ export type CommunicationPreferencesReader = (
 ) => Promise<StoredCommunicationPreferences>;
 
 /**
+ * Where an email consent decision can have been made inside the app.
+ *
+ * The unsubscribe endpoint records "email_link" server-side; it is not in this
+ * set because no client may claim to be it.
+ */
+const appLifecycleEmailConsentSources = new Set([
+  "onboarding",
+  "settings",
+]);
+
+/**
+ * Whether an untrusted value names a consent source the app can produce.
+ *
+ * The source is evidence, so it is an allowlist rather than free text: a client
+ * may not write an arbitrary string into a record Ascend intends to rely on.
+ * @param {unknown} value Candidate source from a callable payload.
+ * @return {boolean} True when the value is a supported app consent source.
+ */
+export function isAppLifecycleEmailConsentSource(
+  value: unknown
+): value is string {
+  return typeof value === "string" &&
+    appLifecycleEmailConsentSources.has(value);
+}
+
+/**
  * Builds the next communication preferences document from the stored one.
  *
  * The document is shared by every writer of communication_preferences, so only
  * the keys in the payload change and unrelated stored keys are carried forward.
+ *
+ * A write that carries the lifecycle email flag is a consent decision, so it is
+ * stamped with the server's own time. beehiiv can ask for the timestamp and
+ * method behind any address it is asked to mail, and `updatedAt` cannot answer
+ * that: any other writer of this shared document moves it.
  * @param {CommunicationPreferences} existing Stored preferences document.
  * @param {CommunicationPreferences} payload Validated preference payload.
  * @param {admin.firestore.Timestamp} now Server timestamp for this write.
@@ -22,24 +53,34 @@ export function buildNextCommunicationPreferences(
   payload: CommunicationPreferences,
   now: admin.firestore.Timestamp
 ): CommunicationPreferences {
-  return {
+  const next: CommunicationPreferences = {
     ...existing,
     ...payload,
     createdAt: existing.createdAt ?? now,
     schemaVersion: 1,
     updatedAt: now,
   };
+
+  if (typeof payload.lifecycleEmailsEnabled === "boolean") {
+    next.lifecycleEmailsDecidedAt = now;
+  }
+
+  return next;
 }
 
 /**
  * Determines whether lifecycle emails are currently allowed.
+ *
+ * Only a recorded yes qualifies. A missing flag means the climber has never
+ * answered, and an unanswered question is not consent: Ascend could not
+ * evidence it if beehiiv asked, so nothing is sent on the strength of it.
  * @param {StoredCommunicationPreferences} preferences Stored preferences.
- * @return {boolean} True unless lifecycle emails were explicitly disabled.
+ * @return {boolean} True only when lifecycle emails were explicitly enabled.
  */
 export function isLifecycleEmailAllowed(
   preferences: StoredCommunicationPreferences
 ): boolean {
-  return preferences?.lifecycleEmailsEnabled !== false;
+  return preferences?.lifecycleEmailsEnabled === true;
 }
 
 /**

@@ -2,12 +2,13 @@ import Foundation
 @preconcurrency import FirebaseAuth
 @preconcurrency import FirebaseFirestore
 
-/// Server-backed email preferences for the signed-in user.
+/// Server-backed email consent for the signed-in user.
 ///
 /// Reads come straight from the owner-readable preferences document; writes go
-/// through the lifecycle callable so the server stays the only writer.
+/// through the lifecycle callable so the server stays the only writer and the
+/// only source of the decision timestamp.
 struct EmailPreferencesService: EmailPreferencesProviding {
-    func loadLifecycleEmailsEnabled() async throws -> Bool {
+    func loadConsent() async throws -> LifecycleEmailConsent {
         guard let uid = Auth.auth().currentUser?.uid else {
             throw LifecycleEventRecorderError.signedOut
         }
@@ -19,18 +20,19 @@ struct EmailPreferencesService: EmailPreferencesProviding {
             .document("current")
             .getDocument()
 
-        // No stored preference means the user has never opted out.
-        guard let isEnabled = snapshot
-            .data()?["lifecycleEmailsEnabled"] as? Bool else {
-            return true
-        }
-
-        return isEnabled
+        // An absent flag is an unanswered question, not a yes.
+        return LifecycleEmailConsent(
+            storedFlag: snapshot.data()?["lifecycleEmailsEnabled"] as? Bool
+        )
     }
 
-    func setLifecycleEmailsEnabled(_ isEnabled: Bool) async throws {
+    func recordConsent(
+        isGranted: Bool,
+        source: LifecycleEmailConsentSource
+    ) async throws {
         try await LifecycleEventRecorder.shared.recordCommunicationPreferences(
-            lifecycleEmailsEnabled: isEnabled
+            lifecycleEmailsEnabled: isGranted,
+            lifecycleEmailsSource: source
         )
     }
 }

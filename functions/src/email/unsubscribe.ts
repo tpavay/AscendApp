@@ -98,6 +98,9 @@ export async function disableLifecycleEmails(
         existing,
         {
           lifecycleEmailsEnabled: false,
+          // Same shape every other decision is recorded in, so one field
+          // answers "where did this answer come from" wherever it was made.
+          lifecycleEmailsSource: "email_link",
           unsubscribedAt: now,
           unsubscribedVia: "email_link",
         },
