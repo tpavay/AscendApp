@@ -146,8 +146,11 @@ FIREBASE_TOOLS_ROOT="$firebase_tools_root" \
     firestore.indexes.json ascend-prod-9c8f2 "(default)"
 ```
 
-This command calls the Firestore Admin API directly rather than through the CLI's option parsing, so its second argument is the literal project ID and a `.firebaserc` alias such as `production` does not resolve.
-It authenticates with `FIREBASE_TOKEN` when that is exported, and otherwise falls back to the refresh token of the logged-in Firebase CLI account, so a captain running it by hand needs an active `firebase login` session.
+This command calls the Firestore Admin API directly rather than through the CLI's option parsing, so its second argument must be the literal project ID.
+Passing a `.firebaserc` alias such as `production` is refused before any Firestore call, with the alias named and the project ID it maps to quoted back so the correct argument is in the failure itself.
+The alias is never resolved for you, because a stale mapping would point the production readiness check at the wrong project.
+The same refusal fires when `.firebaserc` is unreadable or declares no `projects` map, since the argument cannot be proven literal without it.
+The command authenticates with `FIREBASE_TOKEN` when that is exported, and otherwise falls back to the refresh token of the logged-in Firebase CLI account, so a captain running it by hand needs an active `firebase login` session.
 
 Do not proceed while this command exits nonzero.
 The gate reads the current serving state for every composite index and every scope inside each field override directly from the Firestore Admin API.

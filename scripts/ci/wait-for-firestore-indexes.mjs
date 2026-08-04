@@ -2,7 +2,7 @@
 
 import {realpathSync} from "node:fs";
 import {readFile} from "node:fs/promises";
-import {resolve} from "node:path";
+import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
 import {
@@ -56,6 +56,58 @@ export function resolveStructuralGraceMs(
   }
 
   return parsed;
+}
+
+// This gate reaches the Firestore Admin API directly, so it never runs the
+// CLI's .firebaserc alias resolution: `production` would travel to the API as
+// a literal project ID and come back as a permission or not-found rejection,
+// which classifies as deterministic and reads like a broken credential. Refuse
+// the alias by name instead of resolving it, because a stale mapping would
+// silently point the production readiness check at the wrong project.
+export function assertLiteralFirebaseProjectId(projectId, firebasercText) {
+  let parsed;
+  try {
+    parsed = JSON.parse(firebasercText);
+  } catch (error) {
+    throw new Error(
+      `.firebaserc is not valid JSON, so "${projectId}" cannot be proven to ` +
+        `be a literal project ID rather than a project alias: ${error.message}`
+    );
+  }
+
+  const aliases = parsed?.projects;
+  if (
+    aliases === null || typeof aliases !== "object" || Array.isArray(aliases)
+  ) {
+    throw new Error(
+      `.firebaserc declares no "projects" alias map, so "${projectId}" ` +
+        "cannot be proven to be a literal project ID rather than a project " +
+        "alias"
+    );
+  }
+
+  if (!Object.hasOwn(aliases, projectId)) {
+    return;
+  }
+
+  // An alias may legitimately be named after the project it points at; that
+  // argument is already the literal project ID.
+  const mappedProjectId = aliases[projectId];
+  if (mappedProjectId === projectId) {
+    return;
+  }
+
+  const correction =
+    typeof mappedProjectId === "string" && mappedProjectId.length > 0 ?
+      `Pass the literal project ID it maps to: ${mappedProjectId}` :
+      ".firebaserc does not map it to a project ID, so pass the literal " +
+        "project ID from the Firebase console";
+  throw new Error(
+    `"${projectId}" is a .firebaserc project alias, not a Firebase project ` +
+      "ID. This gate calls the Firestore Admin API directly and never " +
+      "resolves aliases, because a stale mapping would verify the wrong " +
+      `project. ${correction}`
+  );
 }
 
 export async function waitForFirestoreIndexes({
@@ -230,6 +282,18 @@ async function runCommandLine() {
     throw new Error("FIREBASE_TOOLS_ROOT is required");
   }
 
+  const firebasercPath = repositoryFilePath(".firebaserc");
+  let firebasercText;
+  try {
+    firebasercText = await readFile(firebasercPath, "utf8");
+  } catch (error) {
+    throw new Error(
+      `Cannot read ${firebasercPath}, so "${projectId}" cannot be proven to ` +
+        `be a literal project ID rather than a project alias: ${error.message}`
+    );
+  }
+  assertLiteralFirebaseProjectId(projectId, firebasercText);
+
   const structuralGraceMs = resolveStructuralGraceMs(
     process.env[STRUCTURAL_GRACE_ENV_VAR]
   );
@@ -251,6 +315,19 @@ async function runCommandLine() {
   }
   process.exitCode = result.status === "timeout" ? 1 :
     STRUCTURAL_ERROR_EXIT_CODE;
+}
+
+// Resolved through the real module path so a symlinked invocation still finds
+// this repository's .firebaserc rather than one beside the link.
+function repositoryFilePath(relativePath) {
+  const modulePath = fileURLToPath(import.meta.url);
+  let resolvedModulePath = modulePath;
+  try {
+    resolvedModulePath = realpathSync(modulePath);
+  } catch {
+    // Keep the unresolved path; the caller's read reports the real problem.
+  }
+  return resolve(dirname(resolvedModulePath), "../..", relativePath);
 }
 
 function defaultSleep(milliseconds) {

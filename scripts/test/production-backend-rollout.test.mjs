@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -15,6 +16,7 @@ import {fileURLToPath, pathToFileURL} from "node:url";
 import {
   DEFAULT_STRUCTURAL_GRACE_MS,
   STRUCTURAL_GRACE_ENV_VAR,
+  assertLiteralFirebaseProjectId,
   isCommandLineEntryPoint,
   resolveStructuralGraceMs,
   waitForFirestoreIndexes,
@@ -981,6 +983,87 @@ test("index wait runs through a symlinked, space-bearing invocation path", () =>
   assert.match(invoked.stderr, /Firebase project ID as the second argument/);
 });
 
+test("the index gate refuses a .firebaserc alias before reading any state", () => {
+  const aliases = JSON.parse(
+    readFileSync(join(repositoryRoot, ".firebaserc"), "utf8")
+  ).projects;
+  assert.equal(aliases.production, "ascend-prod-9c8f2");
+
+  const {directory, contactLogPath} = contactRecordingFirebaseToolsStub();
+  const invoked = spawnSync(
+    process.execPath,
+    [
+      join(repositoryRoot, "scripts/ci/wait-for-firestore-indexes.mjs"),
+      "firestore.indexes.json",
+      "production",
+      "(default)",
+    ],
+    {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        FIREBASE_TOOLS_ROOT: directory,
+        FIREBASE_TOKEN: "ci-refresh-token",
+      },
+    }
+  );
+
+  assert.equal(
+    invoked.status,
+    2,
+    `Expected a structural configuration failure, got ${invoked.status}: ` +
+      `${invoked.stdout}${invoked.stderr}`
+  );
+  assert.match(invoked.stderr, /"production" is a \.firebaserc project alias/);
+  assert.match(invoked.stderr, /never\s+resolves aliases/);
+  assert.match(invoked.stderr, /ascend-prod-9c8f2/);
+  assert.equal(
+    existsSync(contactLogPath),
+    false,
+    "The gate contacted Firestore with an unresolved project alias"
+  );
+});
+
+test("the index gate accepts a literal project ID and fails closed otherwise", () => {
+  const firebaserc = readFileSync(join(repositoryRoot, ".firebaserc"), "utf8");
+
+  assert.doesNotThrow(
+    () => assertLiteralFirebaseProjectId("ascend-prod-9c8f2", firebaserc)
+  );
+  assert.doesNotThrow(
+    () => assertLiteralFirebaseProjectId("ascend-staging-fa7d5", firebaserc)
+  );
+  assert.doesNotThrow(() => assertLiteralFirebaseProjectId(
+    "ascend-prod-9c8f2",
+    JSON.stringify({projects: {"ascend-prod-9c8f2": "ascend-prod-9c8f2"}})
+  ));
+
+  assert.throws(
+    () => assertLiteralFirebaseProjectId("staging", firebaserc),
+    /"staging" is a \.firebaserc project alias[\s\S]*ascend-staging-fa7d5/
+  );
+  assert.throws(
+    () => assertLiteralFirebaseProjectId("default", firebaserc),
+    /ascend-f2e4f/
+  );
+  assert.throws(
+    () => assertLiteralFirebaseProjectId(
+      "production",
+      JSON.stringify({projects: {production: null}})
+    ),
+    /does not map it to a project ID/
+  );
+  assert.throws(
+    () => assertLiteralFirebaseProjectId("production", "{ not json"),
+    /\.firebaserc is not valid JSON/
+  );
+  assert.throws(
+    () => assertLiteralFirebaseProjectId("production", JSON.stringify({})),
+    /declares no "projects" alias map/
+  );
+});
+
 test("production release documentation orders identity backend ahead of the binary", () => {
   const runbook = readFileSync(
     join(repositoryRoot, "docs/production-backend-rollout-runbook.md"),
@@ -1050,6 +1133,52 @@ function pinnedFirebaseToolsStub() {
   );
 
   return directory;
+}
+
+// Records every touch of the pinned CLI's private modules, so a test can prove
+// the gate refused its argument before any Firestore contact rather than after.
+function contactRecordingFirebaseToolsStub() {
+  const directory = mkdtempSync(join(tmpdir(), "ascend-index-alias-"));
+  const firestoreDirectory = join(directory, "lib/firestore");
+  mkdirSync(firestoreDirectory, {recursive: true});
+
+  const contactLogPath = join(directory, "firestore-contact.log");
+  const record = (event) =>
+    `require("node:fs").appendFileSync(` +
+      `${JSON.stringify(contactLogPath)}, ${JSON.stringify(`${event}\n`)});`;
+
+  writeFileSync(
+    join(directory, "package.json"),
+    JSON.stringify({
+      name: "firebase-tools",
+      version: PINNED_FIREBASE_TOOLS_VERSION,
+    })
+  );
+  writeFileSync(
+    join(directory, "lib/auth.js"),
+    [
+      record("auth-loaded"),
+      "exports.setRefreshToken = () => {};",
+      "exports.getGlobalDefaultAccount = () => ({",
+      "  tokens: {refresh_token: \"local-refresh-token\"},",
+      "});",
+    ].join("\n")
+  );
+  writeFileSync(
+    join(firestoreDirectory, "api.js"),
+    [
+      record("api-loaded"),
+      "exports.FirestoreApi = class {",
+      `  async listIndexes() { ${record("listIndexes")} return []; }`,
+      "  async listFieldOverrides() {",
+      `    ${record("listFieldOverrides")}`,
+      "    return [];",
+      "  }",
+      "};",
+    ].join("\n")
+  );
+
+  return {directory, contactLogPath};
 }
 
 function escapeRegExp(value) {
