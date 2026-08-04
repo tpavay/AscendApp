@@ -1,16 +1,21 @@
 import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
-import {mkdtempSync, readFileSync, writeFileSync} from "node:fs";
+import {mkdirSync, mkdtempSync, readFileSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import test from "node:test";
 import {fileURLToPath} from "node:url";
 
+import {waitForFirestoreIndexes} from
+  "../ci/wait-for-firestore-indexes.mjs";
+import {
+  evaluateFirestoreIndexReadiness,
+  formatFirestoreIndexIssues,
+} from "../lib/firestore-index-readiness.mjs";
+import {createFirestoreIndexStateReader} from
+  "../lib/firestore-index-state-reader.mjs";
+
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
-const indexReadinessScript = join(
-  repositoryRoot,
-  "scripts/ci/assert-firestore-indexes-ready.mjs"
-);
 const functionReadinessScript = join(
   repositoryRoot,
   "scripts/ci/assert-firebase-functions-active.mjs"
@@ -97,357 +102,245 @@ test("declares every cleanup and propagation collection-group field index", () =
   ]);
 });
 
-test("index readiness requires every declared index to report READY", () => {
-  const directory = mkdtempSync(join(tmpdir(), "ascend-index-readiness-"));
-  const configPath = join(directory, "firestore.indexes.json");
-  const deployedSpecPath = join(directory, "deployed-index-spec.json");
-  const operationsPath = join(directory, "firestore-operations.json");
-  writeFileSync(
-    configPath,
-    JSON.stringify({
-      indexes: [
-        {
-          collectionGroup: "entries",
-          queryScope: "COLLECTION",
-          fields: [
-            {fieldPath: "isBestForUser", order: "ASCENDING"},
-            {fieldPath: "stepsAtBucket", order: "ASCENDING"},
-          ],
-        },
-        {
-          collectionGroup: "entries",
-          queryScope: "COLLECTION",
-          fields: [
-            {fieldPath: "finalSteps", order: "DESCENDING"},
-            {fieldPath: "__name__", order: "ASCENDING"},
-          ],
-        },
-      ],
-      fieldOverrides: [
-        {
-          collectionGroup: "entries",
-          fieldPath: "userId",
-          indexes: [
-            {order: "ASCENDING", queryScope: "COLLECTION_GROUP"},
-          ],
-        },
-      ],
-    })
-  );
-  writeFileSync(
-    operationsPath,
-    JSON.stringify({status: "success", result: []})
-  );
-  writeFileSync(
-    deployedSpecPath,
-    JSON.stringify({
-      status: "success",
-      result: {
-        fieldOverrides: [{
-          collectionGroup: "entries",
-          fieldPath: "userId",
-          indexes: [
-            {order: "ASCENDING", queryScope: "COLLECTION_GROUP"},
-          ],
-        }],
-        indexes: [],
-      },
-    })
-  );
-
-  const building = runNode(
-    indexReadinessScript,
-    [configPath, operationsPath, deployedSpecPath],
-    "[READY] (entries) -- (isBestForUser,ASCENDING) " +
-      "(stepsAtBucket,ASCENDING) (ignored,ASCENDING)\n" +
-      "[CREATING] (entries) -- (finalSteps,DESCENDING)\n" +
-      "[entries.userId] -- (ASCENDING)\n"
-  );
-  assert.equal(building.status, 1);
-  assert.match(building.stderr, /finalSteps/);
-
-  const leadingSuperset = runNode(
-    indexReadinessScript,
-    [configPath, operationsPath, deployedSpecPath],
-    "[READY] (entries) -- (other,ASCENDING) (isBestForUser,ASCENDING) " +
-      "(stepsAtBucket,ASCENDING)\n" +
-      "[CREATING] (entries) -- (isBestForUser,ASCENDING) " +
-      "(stepsAtBucket,ASCENDING)\n" +
-      "[READY] (entries) -- (finalSteps,DESCENDING)\n" +
-      "[entries.userId] -- (ASCENDING)\n"
-  );
-  assert.equal(leadingSuperset.status, 1);
-  assert.match(leadingSuperset.stderr, /isBestForUser/);
-
-  const ready = runNode(
-    indexReadinessScript,
-    [configPath, operationsPath, deployedSpecPath],
-    "[READY] (entries) -- (isBestForUser,ASCENDING) " +
-      "(stepsAtBucket,ASCENDING)\n" +
-      "[READY] (entries) -- (finalSteps,DESCENDING)\n" +
-      "[entries.userId] -- (ASCENDING)\n"
-  );
-  assert.equal(ready.status, 0, ready.stderr);
-  assert.match(ready.stdout, /All 3 declared Firestore indexes are READY/);
-
-  writeFileSync(
-    deployedSpecPath,
-    JSON.stringify({
-      status: "success",
-      result: {
-        fieldOverrides: [{
-          collectionGroup: "entries",
-          fieldPath: "userId",
-          indexes: [
-            {order: "ASCENDING", queryScope: "COLLECTION"},
-          ],
-        }],
-      },
-    })
-  );
-  const wrongScopeFieldOverride = runNode(
-    indexReadinessScript,
-    [configPath, operationsPath, deployedSpecPath],
-    "[READY] (entries) -- (isBestForUser,ASCENDING) " +
-      "(stepsAtBucket,ASCENDING)\n" +
-      "[READY] (entries) -- (finalSteps,DESCENDING)\n" +
-      "[entries.userId] -- (ASCENDING)\n"
-  );
-  assert.equal(wrongScopeFieldOverride.status, 1);
-  assert.match(wrongScopeFieldOverride.stderr, /entries\.userId/);
-
-  writeFileSync(
-    deployedSpecPath,
-    JSON.stringify({
-      status: "success",
-      result: {
-        fieldOverrides: [{
-          collectionGroup: "entries",
-          fieldPath: "userId",
-          indexes: [
-            {order: "ASCENDING", queryScope: "COLLECTION_GROUP"},
-          ],
-        }],
-      },
-    })
-  );
-
-  writeFileSync(
-    operationsPath,
-    JSON.stringify({
-      status: "success",
-      result: [{
-        done: false,
-        metadata: {
-          "@type": "type.googleapis.com/" +
-            "google.firestore.admin.v1.FieldOperationMetadata",
-          field: "projects/ascend/databases/(default)/" +
-            "collectionGroups/entries/fields/userId",
-          state: "PROCESSING",
-        },
-        name: "projects/ascend/databases/(default)/operations/field-userId",
-      }],
-    })
-  );
-  const backfillingFieldOverride = runNode(
-    indexReadinessScript,
-    [configPath, operationsPath, deployedSpecPath],
-    "[READY] (entries) -- (isBestForUser,ASCENDING) " +
-      "(stepsAtBucket,ASCENDING)\n" +
-      "[READY] (entries) -- (finalSteps,DESCENDING)\n" +
-      "[entries.userId] -- (ASCENDING)\n"
-  );
-  assert.equal(backfillingFieldOverride.status, 1);
-  assert.match(backfillingFieldOverride.stderr, /pending field-index operation/);
-
-  writeFileSync(
-    operationsPath,
-    JSON.stringify({
-      status: "success",
-      result: [{
-        done: true,
-        error: {code: 9, message: "index entry limit exceeded"},
-        metadata: {
-          "@type": "type.googleapis.com/" +
-            "google.firestore.admin.v1.FieldOperationMetadata",
-          field: "projects/ascend/databases/(default)/" +
-            "collectionGroups/entries/fields/userId",
-          state: "FAILED",
-        },
-      }],
-    })
-  );
-  const failedFieldOverride = runNode(
-    indexReadinessScript,
-    [configPath, operationsPath, deployedSpecPath],
-    "[READY] (entries) -- (isBestForUser,ASCENDING) " +
-      "(stepsAtBucket,ASCENDING)\n" +
-      "[READY] (entries) -- (finalSteps,DESCENDING)\n" +
-      "[entries.userId] -- (ASCENDING)\n"
-  );
-  assert.equal(failedFieldOverride.status, 1);
+test("index readiness reports each exact non-READY serving state", () => {
+  const config = readinessConfig();
+  const deployedState = deployedReadinessState({finalStepsState: "CREATING"});
+  deployedState.fieldOverrides[0].indexes.push({
+    queryScope: "COLLECTION",
+    arrayConfig: "CONTAINS",
+    state: "READY",
+  });
+  delete deployedState.indexes[0].state;
+  const building = evaluateFirestoreIndexReadiness(config, deployedState);
+  const buildingIssues = formatFirestoreIndexIssues(building.issues);
+  assert.equal(building.ready, false);
   assert.match(
-    failedFieldOverride.stderr,
-    /failed \(index entry limit exceeded\) field-index operation/
+    buildingIssues,
+    /composite \(entries\).*finalSteps,DESCENDING.*: CREATING/
   );
-
-  writeFileSync(
-    operationsPath,
-    JSON.stringify({
-      status: "success",
-      result: [{
-        done: true,
-        metadata: {
-          "@type": "type.googleapis.com/" +
-            "google.firestore.admin.v1.FieldOperationMetadata",
-          field: "projects/ascend/databases/(default)/" +
-            "collectionGroups/entries/fields/userId",
-          state: "CANCELLED",
-        },
-      }],
-    })
-  );
-  const cancelledFieldOverride = runNode(
-    indexReadinessScript,
-    [configPath, operationsPath, deployedSpecPath],
-    "[READY] (entries) -- (isBestForUser,ASCENDING) " +
-      "(stepsAtBucket,ASCENDING)\n" +
-      "[READY] (entries) -- (finalSteps,DESCENDING)\n" +
-      "[entries.userId] -- (ASCENDING)\n"
-  );
-  assert.equal(cancelledFieldOverride.status, 1);
   assert.match(
-    cancelledFieldOverride.stderr,
-    /terminal-CANCELLED field-index operation/
+    buildingIssues,
+    /field override \[entries\.userId\].*CONTAINS,COLLECTION\): UNEXPECTED \(READY\)/
+  );
+  assert.match(
+    buildingIssues,
+    /isBestForUser,ASCENDING.*: STATE_UNSPECIFIED/
   );
 
-  writeFileSync(
-    operationsPath,
-    JSON.stringify({
-      status: "success",
-      result: [
-        {
-          done: true,
-          error: {code: 9, message: "older failed attempt"},
-          metadata: {
-            "@type": "type.googleapis.com/" +
-              "google.firestore.admin.v1.FieldOperationMetadata",
-            field: "projects/ascend/databases/(default)/" +
-              "collectionGroups/entries/fields/userId",
-            startTime: "2026-07-29T10:00:00Z",
-            state: "FAILED",
-          },
-        },
-        {
-          done: true,
-          metadata: {
-            "@type": "type.googleapis.com/" +
-              "google.firestore.admin.v1.FieldOperationMetadata",
-            field: "projects/ascend/databases/(default)/" +
-              "collectionGroups/entries/fields/userId",
-            startTime: "2026-07-29T11:00:00Z",
-            state: "SUCCESSFUL",
-          },
-        },
-      ],
-    })
+  deployedState.indexes[1].fields.at(-1).order = "DESCENDING";
+  deployedState.fieldOverrides = [];
+  const wrongDefinitions = evaluateFirestoreIndexReadiness(
+    config,
+    deployedState
   );
-  const completedFieldOverride = runNode(
-    indexReadinessScript,
-    [configPath, operationsPath, deployedSpecPath],
-    "[READY] (entries) -- (isBestForUser,ASCENDING) " +
-      "(stepsAtBucket,ASCENDING)\n" +
-      "[READY] (entries) -- (finalSteps,DESCENDING)\n" +
-      "[entries.userId] -- (ASCENDING)\n"
+  const wrongDefinitionIssues = formatFirestoreIndexIssues(
+    wrongDefinitions.issues
   );
-  assert.equal(completedFieldOverride.status, 0, completedFieldOverride.stderr);
+  assert.equal(wrongDefinitions.ready, false);
+  assert.match(
+    wrongDefinitionIssues,
+    /composite \(entries\).*finalSteps,DESCENDING.*: MISSING/
+  );
+  assert.match(
+    wrongDefinitionIssues,
+    /field override \[entries\.userId\].*COLLECTION_GROUP\): MISSING/
+  );
+});
 
-  // A field override replaces the field's whole index configuration, so a
-  // deployed override that lost the collection-scoped single-field indexes is
-  // not ready even though the collection-group one is present.
-  const mixedScopePath = join(directory, "mixed-scope.indexes.json");
-  const mixedScopeIndexes = [
-    {order: "ASCENDING", queryScope: "COLLECTION"},
-    {order: "DESCENDING", queryScope: "COLLECTION"},
-    {order: "ASCENDING", queryScope: "COLLECTION_GROUP"},
-  ];
-  writeFileSync(
-    mixedScopePath,
-    JSON.stringify({
-      indexes: [],
-      fieldOverrides: [
-        {
-          collectionGroup: "entries",
-          fieldPath: "userId",
-          indexes: mixedScopeIndexes,
-        },
-      ],
-    })
+test("index readiness passes only when all current serving states are READY", () => {
+  const ready = evaluateFirestoreIndexReadiness(
+    readinessConfig(),
+    deployedReadinessState()
   );
-  const droppedScopePath = join(directory, "dropped-collection-scope.json");
+
+  assert.equal(ready.ready, true);
+  assert.equal(ready.compositeCount, 2);
+  assert.equal(ready.fieldOverrideCount, 1);
+});
+
+test("index state reader installs explicit or local auth before reading", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "ascend-index-reader-"));
+  const firestoreDirectory = join(directory, "lib/firestore");
+  mkdirSync(firestoreDirectory, {recursive: true});
   writeFileSync(
-    droppedScopePath,
-    JSON.stringify({
-      status: "success",
-      result: {
-        fieldOverrides: [{
-          collectionGroup: "entries",
-          fieldPath: "userId",
-          indexes: [{order: "ASCENDING", queryScope: "COLLECTION_GROUP"}],
-        }],
+    join(directory, "lib/auth.js"),
+    [
+      "exports.setRefreshToken = (token) => {",
+      "  global.__ascendFirestoreTestToken = token;",
+      "};",
+      "exports.getGlobalDefaultAccount = () => ({",
+      "  tokens: {refresh_token: \"local-refresh-token\"},",
+      "});",
+    ].join("\n")
+  );
+  writeFileSync(
+    join(firestoreDirectory, "api.js"),
+    [
+      "exports.FirestoreApi = class {",
+      "  async listIndexes(projectId, databaseId) {",
+      "    const accepted = [\"ci-refresh-token\", \"local-refresh-token\"];",
+      "    if (!accepted.includes(global.__ascendFirestoreTestToken)) {",
+      "      throw new Error(\"refresh token was not installed\");",
+      "    }",
+      "    return [{",
+      "      name: `projects/${projectId}/databases/${databaseId}/` +",
+      "        \"collectionGroups/entries/indexes/index-1\",",
+      "      queryScope: \"COLLECTION\",",
+      "      fields: [{fieldPath: \"finalSteps\", order: \"DESCENDING\"}],",
+      "      state: \"READY\",",
+      "    }];",
+      "  }",
+      "  async listFieldOverrides(projectId, databaseId) {",
+      "    return [{",
+      "      name: `projects/${projectId}/databases/${databaseId}/` +",
+      "        \"collectionGroups/entries/fields/userId\",",
+      "      indexConfig: {indexes: [{",
+      "        queryScope: \"COLLECTION_GROUP\",",
+      "        fields: [{fieldPath: \"userId\", order: \"ASCENDING\"}],",
+      "        state: \"READY\",",
+      "      }]},",
+      "    }];",
+      "  }",
+      "};",
+    ].join("\n")
+  );
+
+  const readState = createFirestoreIndexStateReader({
+    firebaseToolsRoot: directory,
+    refreshToken: "ci-refresh-token",
+    projectId: "ascend-production",
+  });
+  const state = await readState();
+
+  assert.deepEqual(state, {
+    indexes: [{
+      collectionGroup: "entries",
+      queryScope: "COLLECTION",
+      fields: [{fieldPath: "finalSteps", order: "DESCENDING"}],
+      state: "READY",
+    }],
+    fieldOverrides: [{
+      collectionGroup: "entries",
+      fieldPath: "userId",
+      indexes: [{
+        queryScope: "COLLECTION_GROUP",
+        order: "ASCENDING",
+        state: "READY",
+      }],
+    }],
+  });
+
+  const readWithLocalSession = createFirestoreIndexStateReader({
+    firebaseToolsRoot: directory,
+    projectId: "ascend-production",
+  });
+  assert.deepEqual(await readWithLocalSession(), state);
+});
+
+test("index wait retries building states and exits when all are READY", async () => {
+  let currentTime = 0;
+  let readCount = 0;
+  const log = memoryLog();
+  const result = await waitForFirestoreIndexes({
+    config: readinessConfig(),
+    readState: async () => {
+      readCount += 1;
+      return deployedReadinessState({
+        finalStepsState: readCount === 1 ? "CREATING" : "READY",
+      });
+    },
+    timeoutMs: 60,
+    intervalMs: 20,
+    now: () => currentTime,
+    sleep: async (milliseconds) => {
+      currentTime += milliseconds;
+    },
+    log,
+  });
+
+  assert.equal(result.status, "ready");
+  assert.equal(readCount, 2);
+  assert.match(log.errors.join("\n"), /finalSteps,DESCENDING.*: CREATING/);
+  assert.match(log.messages.join("\n"), /2 composite indexes.*1 field overrides/);
+});
+
+test("index wait timeout repeats the exact indexes and states still pending", async () => {
+  let currentTime = 0;
+  let readCount = 0;
+  const log = memoryLog();
+  const result = await waitForFirestoreIndexes({
+    config: readinessConfig(),
+    readState: async () => {
+      readCount += 1;
+      return deployedReadinessState({finalStepsState: "CREATING"});
+    },
+    timeoutMs: 40,
+    intervalMs: 20,
+    now: () => currentTime,
+    sleep: async (milliseconds) => {
+      currentTime += milliseconds;
+    },
+    log,
+  });
+
+  assert.equal(result.status, "timeout");
+  assert.equal(readCount, 3);
+  const errors = log.errors.join("\n");
+  assert.match(errors, /did not become READY within 40 milliseconds/);
+  assert.match(errors, /Still waiting for:/);
+  assert.match(
+    errors,
+    /composite \(entries\).*finalSteps,DESCENDING.*: CREATING/
+  );
+});
+
+test("index wait fails as verification error after repeated state-read failures", async () => {
+  let currentTime = 0;
+  let readCount = 0;
+  const log = memoryLog();
+  const result = await waitForFirestoreIndexes({
+    config: readinessConfig(),
+    readState: async () => {
+      readCount += 1;
+      throw new Error("authentication hook missing");
+    },
+    timeoutMs: 60 * 60 * 1000,
+    intervalMs: 20,
+    maxConsecutiveReadFailures: 3,
+    now: () => currentTime,
+    sleep: async (milliseconds) => {
+      currentTime += milliseconds;
+    },
+    log,
+  });
+
+  assert.equal(result.status, "read-failed");
+  assert.equal(readCount, 3);
+  assert.equal(currentTime, 40);
+  assert.match(
+    log.errors.join("\n"),
+    /serving-state API could not be read/
+  );
+});
+
+test("index wait rejects structural state errors without retrying", async () => {
+  let readCount = 0;
+
+  await assert.rejects(
+    waitForFirestoreIndexes({
+      config: readinessConfig(),
+      readState: async () => {
+        readCount += 1;
+        return {indexes: []};
       },
-    })
-  );
-  const droppedCollectionScope = runNode(
-    indexReadinessScript,
-    [mixedScopePath, operationsPath, droppedScopePath],
-    ""
-  );
-  assert.equal(droppedCollectionScope.status, 1);
-  assert.match(droppedCollectionScope.stderr, /ASCENDING,COLLECTION\)/);
-
-  const mixedScopeDeployedPath = join(directory, "mixed-scope-deployed.json");
-  writeFileSync(
-    mixedScopeDeployedPath,
-    JSON.stringify({
-      status: "success",
-      result: {
-        fieldOverrides: [{
-          collectionGroup: "entries",
-          fieldPath: "userId",
-          indexes: mixedScopeIndexes,
-        }],
+      sleep: async () => {
+        assert.fail("structural errors must not sleep or retry");
       },
-    })
+      log: memoryLog(),
+    }),
+    /does not contain a fieldOverrides array/
   );
-  const mixedScopeReady = runNode(
-    indexReadinessScript,
-    [mixedScopePath, operationsPath, mixedScopeDeployedPath],
-    ""
-  );
-  assert.equal(mixedScopeReady.status, 0, mixedScopeReady.stderr);
-
-  const unsupportedScopePath = join(directory, "collection-group.indexes.json");
-  writeFileSync(
-    unsupportedScopePath,
-    JSON.stringify({
-      indexes: [
-        {
-          collectionGroup: "entries",
-          queryScope: "COLLECTION_GROUP",
-          fields: [{fieldPath: "finalSteps", order: "DESCENDING"}],
-        },
-      ],
-      fieldOverrides: [],
-    })
-  );
-  const structural = runNode(
-    indexReadinessScript,
-    [unsupportedScopePath],
-    "[READY] (entries) -- (finalSteps,DESCENDING)\n"
-  );
-  assert.equal(structural.status, 2);
-  assert.match(structural.stderr, /COLLECTION indexes/);
+  assert.equal(readCount, 1);
 });
 
 test("function readiness rejects missing and inactive critical functions", () => {
@@ -516,11 +409,12 @@ test("production deploy waits for indexes and rolls the backend out in dependenc
     /--only functions,firestore:rules,firestore:indexes,storage,hosting/
   );
   assert.match(workflow, /onPublicIdentityPropagationJobWritten/);
-  assert.match(workflow, /firestore:operations:list/);
+  assert.doesNotMatch(workflow, /firestore:operations:list/);
   assert.match(
     workflow,
-    /assert-firestore-indexes-ready\.mjs firestore\.indexes\.json "\$operations_file" "\$deployed_spec_file"/
+    /FIREBASE_TOOLS_ROOT="\$firebase_tools_root"[\s\\]*node scripts\/ci\/wait-for-firestore-indexes\.mjs/
   );
+  assert.match(workflow, /firebase-tools@15\.22\.1 -- which firebase/);
 });
 
 test("production release documentation orders identity backend ahead of the binary", () => {
@@ -542,4 +436,90 @@ function runNode(script, argumentsList, input) {
     encoding: "utf8",
     input,
   });
+}
+
+function readinessConfig() {
+  return {
+    indexes: [
+      {
+        collectionGroup: "entries",
+        queryScope: "COLLECTION",
+        fields: [
+          {fieldPath: "isBestForUser", order: "ASCENDING"},
+          {fieldPath: "stepsAtBucket", order: "ASCENDING"},
+        ],
+      },
+      {
+        collectionGroup: "entries",
+        queryScope: "COLLECTION",
+        fields: [
+          {fieldPath: "finalSteps", order: "DESCENDING"},
+          {fieldPath: "__name__", order: "ASCENDING"},
+        ],
+      },
+    ],
+    fieldOverrides: [
+      {
+        collectionGroup: "entries",
+        fieldPath: "userId",
+        indexes: [
+          {order: "ASCENDING", queryScope: "COLLECTION"},
+          {order: "DESCENDING", queryScope: "COLLECTION"},
+          {order: "ASCENDING", queryScope: "COLLECTION_GROUP"},
+        ],
+      },
+    ],
+  };
+}
+
+function deployedReadinessState({finalStepsState = "READY"} = {}) {
+  return {
+    indexes: [
+      {
+        collectionGroup: "entries",
+        queryScope: "COLLECTION",
+        fields: [
+          {fieldPath: "isBestForUser", order: "ASCENDING"},
+          {fieldPath: "stepsAtBucket", order: "ASCENDING"},
+          {fieldPath: "__name__", order: "ASCENDING"},
+        ],
+        state: "READY",
+      },
+      {
+        collectionGroup: "entries",
+        queryScope: "COLLECTION",
+        fields: [
+          {fieldPath: "finalSteps", order: "DESCENDING"},
+          {fieldPath: "__name__", order: "ASCENDING"},
+        ],
+        state: finalStepsState,
+      },
+    ],
+    fieldOverrides: [
+      {
+        collectionGroup: "entries",
+        fieldPath: "userId",
+        indexes: [
+          {order: "ASCENDING", queryScope: "COLLECTION", state: "READY"},
+          {order: "DESCENDING", queryScope: "COLLECTION", state: "READY"},
+          {
+            order: "ASCENDING",
+            queryScope: "COLLECTION_GROUP",
+            state: "READY",
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function memoryLog() {
+  const messages = [];
+  const errors = [];
+  return {
+    messages,
+    errors,
+    log: (message) => messages.push(message),
+    error: (message) => errors.push(message),
+  };
 }

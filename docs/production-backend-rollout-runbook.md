@@ -139,23 +139,22 @@ Verify the deployment does not request deletion of an unexpected index.
 Then wait for every declared index, including both `isBestForUser + stepsAtBucket` directions and all three field overrides, to become usable:
 
 ```sh
-deployed_spec_file="$(mktemp)"
-operations_file="$(mktemp)"
-npx -y firebase-tools@15.22.1 firestore:indexes \
-  --project production --json > "$deployed_spec_file"
-npx -y firebase-tools@15.22.1 firestore:operations:list \
-  --project production --limit 1000 --json > "$operations_file"
-npx -y firebase-tools@15.22.1 firestore:indexes \
-  --project production --pretty \
-  | node scripts/ci/assert-firestore-indexes-ready.mjs \
-      firestore.indexes.json "$operations_file" "$deployed_spec_file"
+firebase_bin="$(npm exec --yes --package=firebase-tools@15.22.1 -- which firebase)"
+firebase_tools_root="$(cd "$(dirname "$firebase_bin")/../firebase-tools" && pwd -P)"
+FIREBASE_TOOLS_ROOT="$firebase_tools_root" \
+  node scripts/ci/wait-for-firestore-indexes.mjs \
+    firestore.indexes.json production "(default)"
 ```
 
 Do not proceed while this command exits nonzero.
-The pretty field-override listing omits query scope and serving state.
-The gate therefore matches every declared field override against the deployed JSON spec scope by scope, `COLLECTION` and `COLLECTION_GROUP` alike, and accepts it only when the deployed index set matches the declaration exactly.
-It separately requires the latest relevant `FieldOperationMetadata` backfill for every declared field override to finish in `SUCCESSFUL` state.
-A pending, failed, cancelled, or error-bearing terminal operation blocks Functions deployment.
+The gate reads the current serving state for every composite index and every scope inside each field override directly from the Firestore Admin API.
+It matches the deployed definitions to `firestore.indexes.json` exactly and proceeds only when every match reports `READY`.
+A missing, creating, repair-needed, unspecified, or unexpected configuration blocks Functions deployment and is named with its current state.
+The command retries transient state-read failures three times, then fails as a verification error instead of spending the full readiness window on a poll that cannot authenticate.
+
+Do not replace this command with `firebase firestore:operations:list --token` while Firebase CLI 15.22.1 is pinned.
+That command omits the CLI authentication hook, so `--token` is ignored on a clean runner even though adjacent index commands authenticate successfully.
+The direct state reader installs the workflow refresh token into the pinned CLI client explicitly and checks the state that determines whether an index can serve queries.
 
 Rollback: do not delete a newly created additive index during an incident.
 An unused composite index does not change query results, and deleting it adds risk while providing no immediate recovery benefit.
