@@ -18,8 +18,44 @@ import {
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_INTERVAL_MS = 20 * 1000;
 const DEFAULT_MAX_READ_FAILURES = 15;
-const DEFAULT_STRUCTURAL_GRACE_MS = 2 * 60 * 1000;
 const STRUCTURAL_ERROR_EXIT_CODE = 2;
+
+// Two minutes is an estimate, not a measurement: a cold field override only
+// becomes visible to listFieldOverrides once Firestore flips
+// indexConfig.usesAncestorConfig, and that window cannot be measured without
+// writing to a project. STRUCTURAL_GRACE_ENV_VAR lets an operator raise it
+// during an incident without shipping code.
+export const DEFAULT_STRUCTURAL_GRACE_MS = 2 * 60 * 1000;
+export const STRUCTURAL_GRACE_ENV_VAR =
+  "FIRESTORE_INDEX_STRUCTURAL_GRACE_MS";
+
+export function resolveStructuralGraceMs(
+  rawValue,
+  {timeoutMs = DEFAULT_TIMEOUT_MS} = {}
+) {
+  if (rawValue === undefined || rawValue === null ||
+    String(rawValue).trim().length === 0) {
+    return DEFAULT_STRUCTURAL_GRACE_MS;
+  }
+
+  const trimmed = String(rawValue).trim();
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(
+      `${STRUCTURAL_GRACE_ENV_VAR} must be a finite, strictly positive number ` +
+        `of milliseconds, got "${trimmed}"`
+    );
+  }
+  if (parsed >= timeoutMs) {
+    throw new Error(
+      `${STRUCTURAL_GRACE_ENV_VAR} of ${parsed} ms must stay below the ` +
+        `${timeoutMs} ms readiness window, or a structural failure could ` +
+        "never be reported before the wait times out"
+    );
+  }
+
+  return parsed;
+}
 
 export async function waitForFirestoreIndexes({
   config,
@@ -33,6 +69,13 @@ export async function waitForFirestoreIndexes({
   sleep = defaultSleep,
   log = console,
 }) {
+  if (!Number.isFinite(structuralGraceMs) || structuralGraceMs <= 0) {
+    throw new Error(
+      `structuralGraceMs must be a finite, strictly positive number of ` +
+        `milliseconds, got ${structuralGraceMs}`
+    );
+  }
+
   const startedAt = now();
   const deadline = startedAt + timeoutMs;
   let consecutiveReadFailures = 0;
@@ -155,6 +198,9 @@ async function runCommandLine() {
     throw new Error("FIREBASE_TOOLS_ROOT is required");
   }
 
+  const structuralGraceMs = resolveStructuralGraceMs(
+    process.env[STRUCTURAL_GRACE_ENV_VAR]
+  );
   const config = JSON.parse(await readFile(configPath, "utf8"));
   const readState = createFirestoreIndexStateReader({
     firebaseToolsRoot,
@@ -162,7 +208,11 @@ async function runCommandLine() {
     projectId,
     databaseId,
   });
-  const result = await waitForFirestoreIndexes({config, readState});
+  const result = await waitForFirestoreIndexes({
+    config,
+    readState,
+    structuralGraceMs,
+  });
 
   if (result.status === "ready") {
     return;

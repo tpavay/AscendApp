@@ -156,8 +156,24 @@ A freshly deployed index appears as `CREATING`, never as absent, so anything sti
 The command fails those as verification errors and names every one of them with its state.
 A declared field override must exist as a Firestore resource even when it declares no indexes, so an override that was never applied cannot pass vacuously.
 
+That two-minute structural grace is an estimate, not a measurement.
+Composite indexes are well understood here, but a cold field override only becomes visible to `listFieldOverrides` once Firestore flips `indexConfig.usesAncestorConfig` to false, and that window has never been measured because measuring it requires writing to a project.
+If a production deploy ever aborts with a definition-mismatch verdict on an override that was in fact still being created, raise the grace instead of editing code:
+
+```sh
+FIRESTORE_INDEX_STRUCTURAL_GRACE_MS=300000 \
+FIREBASE_TOOLS_ROOT="$firebase_tools_root" \
+  node scripts/ci/wait-for-firestore-indexes.mjs \
+    firestore.indexes.json production "(default)"
+```
+
+In CI the same knob is the `FIRESTORE_INDEX_STRUCTURAL_GRACE_MS` repository variable, read by the `Wait for every declared Firestore index` step.
+Leaving it unset keeps the two-minute default.
+The value is milliseconds and must be finite, strictly positive, and below the 60-minute readiness window; anything else fails the step closed rather than falling back to a default, because a grace at or above the window would silently restore the hour-long burn this gate exists to prevent.
+
 The command separates deterministic read failures from transient ones.
 An authentication, credential, or permission rejection fails on the first poll, because every later poll fails identically and retrying only converts a visible error into a spent hour.
+That includes an expired or revoked `FIREBASE_TOKEN`: the pinned CLI reports it as `Authentication Error: Your credentials are no longer valid` with no HTTP status attached, so the classifier matches the CLI's own wording rather than a status code.
 A transport, DNS, throttling, or 5xx failure is retried up to fifteen consecutive polls - five minutes - before the run fails as a verification error rather than a false readiness timeout.
 
 Do not replace this command with `firebase firestore:operations:list --token` while Firebase CLI 15.22.1 is pinned.

@@ -295,6 +295,9 @@ jobs:
       - name: Wait for every declared Firestore index
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          # Unset leaves the 2-minute default; set the repository variable to
+          # raise it during an incident without shipping code.
+          FIRESTORE_INDEX_STRUCTURAL_GRACE_MS: ${{ vars.FIRESTORE_INDEX_STRUCTURAL_GRACE_MS }}
         shell: bash
         run: |
           set -euo pipefail

@@ -13,7 +13,10 @@ import test from "node:test";
 import {fileURLToPath, pathToFileURL} from "node:url";
 
 import {
+  DEFAULT_STRUCTURAL_GRACE_MS,
+  STRUCTURAL_GRACE_ENV_VAR,
   isCommandLineEntryPoint,
+  resolveStructuralGraceMs,
   waitForFirestoreIndexes,
 } from "../ci/wait-for-firestore-indexes.mjs";
 import {
@@ -373,6 +376,182 @@ test("index wait fails immediately on deterministic auth and permission errors",
     classifyFirestoreReadError(new Error("socket hang up")),
     "transient"
   );
+});
+
+test("expired and revoked pinned-CLI credentials fail fast, not after five minutes", async () => {
+  const bold = (value) => `\u001B[1m${value}\u001B[22m`;
+  // Quoted from firebase-tools 15.22.1 lib/auth.js. None of these carry an
+  // HTTP status, so FirebaseError's default 500 would read as transient.
+  const pinnedCliCredentialErrors = [
+    "Authentication Error: Your credentials are no longer valid. Please run " +
+      `${bold("firebase login --reauth")}\n\nFor CI servers and headless ` +
+      `environments, generate a new token with ${bold("firebase login:ci")}`,
+    "Authentication Error.",
+    "Unable to getAccessToken",
+    "This command requires new authorization scopes not granted to your " +
+      `current session. Please run ${bold("firebase login --reauth")}`,
+    "Unable to refresh auth: not yet authenticated.",
+  ];
+
+  for (const message of pinnedCliCredentialErrors) {
+    const error = new Error(message);
+    error.status = 500;
+    assert.equal(
+      classifyFirestoreReadError(error),
+      "deterministic",
+      `Expected a deterministic classification for: ${message}`
+    );
+
+    let readCount = 0;
+    const result = await waitForFirestoreIndexes({
+      config: readinessConfig(),
+      readState: async () => {
+        readCount += 1;
+        throw error;
+      },
+      timeoutMs: 60 * 60 * 1000,
+      intervalMs: 20,
+      maxConsecutiveReadFailures: 15,
+      now: () => 0,
+      sleep: async () => {
+        assert.fail(`expired credentials must not be retried: ${message}`);
+      },
+      log: memoryLog(),
+    });
+
+    assert.equal(result.status, "read-failed");
+    assert.equal(result.classification, "deterministic");
+    assert.equal(readCount, 1);
+  }
+
+  const wrapped = new Error("Failed to make request");
+  wrapped.status = 500;
+  wrapped.original = new Error(
+    "Authentication Error: Your credentials are no longer valid."
+  );
+  assert.equal(classifyFirestoreReadError(wrapped), "deterministic");
+
+  // The approved retry behaviour for genuine transport failures is unchanged.
+  for (const transient of [
+    firebaseHttpError(503, "backend unavailable"),
+    firebaseHttpError(500, "internal"),
+    firebaseHttpError(429, "quota exceeded"),
+    Object.assign(new Error("Failed to make request"), {code: "ENOTFOUND"}),
+    new Error("socket hang up"),
+  ]) {
+    assert.equal(
+      classifyFirestoreReadError(transient),
+      "transient",
+      `Expected a transient classification for: ${transient.message}`
+    );
+  }
+});
+
+test("structural grace is operator-configurable and fails closed when invalid", async () => {
+  assert.equal(DEFAULT_STRUCTURAL_GRACE_MS, 2 * 60 * 1000);
+  assert.equal(STRUCTURAL_GRACE_ENV_VAR, "FIRESTORE_INDEX_STRUCTURAL_GRACE_MS");
+
+  for (const unset of [undefined, null, "", "   "]) {
+    assert.equal(resolveStructuralGraceMs(unset), DEFAULT_STRUCTURAL_GRACE_MS);
+  }
+
+  assert.equal(resolveStructuralGraceMs("300000"), 300000);
+  assert.equal(resolveStructuralGraceMs(" 300000 "), 300000);
+
+  for (const invalid of ["0", "-1", "abc", "NaN", "Infinity", "5m", "1e999"]) {
+    assert.throws(
+      () => resolveStructuralGraceMs(invalid),
+      new RegExp(
+        `${STRUCTURAL_GRACE_ENV_VAR} must be a finite, strictly positive`
+      ),
+      `Expected ${invalid} to fail closed`
+    );
+  }
+
+  for (const disabling of [60 * 60 * 1000, 60 * 60 * 1000 + 1]) {
+    assert.throws(
+      () => resolveStructuralGraceMs(String(disabling)),
+      /must stay below the 3600000 ms readiness window/
+    );
+  }
+
+  await assert.rejects(
+    waitForFirestoreIndexes({
+      config: readinessConfig(),
+      readState: async () => deployedReadinessState(),
+      structuralGraceMs: 0,
+      log: memoryLog(),
+    }),
+    /structuralGraceMs must be a finite, strictly positive/
+  );
+
+  const workflow = readFileSync(
+    join(repositoryRoot, ".github/workflows/deploy-production.yml"),
+    "utf8"
+  );
+  assert.match(
+    workflow,
+    new RegExp(
+      `${STRUCTURAL_GRACE_ENV_VAR}: \\$\\{\\{ vars\\.` +
+        `${STRUCTURAL_GRACE_ENV_VAR} \\}\\}`
+    )
+  );
+
+  const runbook = readFileSync(
+    join(repositoryRoot, "docs/production-backend-rollout-runbook.md"),
+    "utf8"
+  );
+  assert.match(runbook, new RegExp(`${STRUCTURAL_GRACE_ENV_VAR}=300000`));
+  assert.match(runbook, /estimate, not a measurement/);
+});
+
+test("a raised structural grace keeps waiting where the default would fail", async () => {
+  const missingCompositeState = () => {
+    const state = deployedReadinessState({finalStepsState: "CREATING"});
+    state.indexes.splice(0, 1);
+    return state;
+  };
+
+  let currentTime = 0;
+  let readCount = 0;
+  const recovered = await waitForFirestoreIndexes({
+    config: readinessConfig(),
+    readState: async () => {
+      readCount += 1;
+      return readCount < 5 ? missingCompositeState() : deployedReadinessState();
+    },
+    timeoutMs: 60 * 60 * 1000,
+    intervalMs: 20,
+    structuralGraceMs: 200,
+    now: () => currentTime,
+    sleep: async (milliseconds) => {
+      currentTime += milliseconds;
+    },
+    log: memoryLog(),
+  });
+
+  assert.equal(recovered.status, "ready");
+  assert.equal(readCount, 5);
+
+  currentTime = 0;
+  readCount = 0;
+  const aborted = await waitForFirestoreIndexes({
+    config: readinessConfig(),
+    readState: async () => {
+      readCount += 1;
+      return readCount < 5 ? missingCompositeState() : deployedReadinessState();
+    },
+    timeoutMs: 60 * 60 * 1000,
+    intervalMs: 20,
+    structuralGraceMs: 40,
+    now: () => currentTime,
+    sleep: async (milliseconds) => {
+      currentTime += milliseconds;
+    },
+    log: memoryLog(),
+  });
+
+  assert.equal(aborted.status, "structural");
 });
 
 test("index wait fails a still-MISSING composite as a verification error after the grace period", async () => {

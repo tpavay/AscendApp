@@ -83,8 +83,38 @@ function assertPinnedFirebaseTools(require, firebaseToolsRoot) {
 
 // firebase-tools throws FirebaseError with a default status of 500 even for
 // authentication failures, so the message is checked before any status code.
-const DETERMINISTIC_MESSAGE_PATTERN =
-  /not yet authenticated|unauthenticated|unauthorized|invalid[_ -]?grant|invalid[_ -]?credential|credentials? (?:are |is )?(?:missing|invalid|expired)|permission[_ ]?denied|insufficient permission|access denied|forbidden|failed to authenticate|caller does not have permission|has not been used in project|is not enabled/i;
+// The first group is quoted from the pinned CLI's own lib/auth.js: an expired
+// or revoked refresh token surfaces as invalidCredentialError(), never as a
+// 401, so matching only generic wording leaves the likeliest CI credential
+// failure looking transient.
+const DETERMINISTIC_MESSAGE_PATTERN = new RegExp([
+  "authentication error",
+  "credentials are no longer valid",
+  "login --reauth",
+  "login:ci",
+  "unable to getaccesstoken",
+  "unable to refresh (?:auth|token)",
+  "requires new authorization scopes",
+  "not yet authenticated",
+  "unauthenticated",
+  "unauthorized",
+  "invalid[_ -]?grant",
+  "invalid[_ -]?scope",
+  "invalid[_ -]?credential",
+  "credentials? (?:are |is )?(?:missing|invalid|expired|revoked)",
+  "permission[_ ]?denied",
+  "insufficient permission",
+  "access denied",
+  "forbidden",
+  "failed to authenticate",
+  "caller does not have permission",
+  "has not been used in project",
+  "is not enabled",
+].join("|"), "i");
+
+// clc.bold wraps command names in those messages, so the pattern is matched
+// against text with the escape sequences removed.
+const ANSI_ESCAPE_PATTERN = new RegExp("\\u001B\\[[0-9;]*m", "g");
 
 const TRANSIENT_STATUS_CODES = new Set([408, 425, 429]);
 
@@ -106,7 +136,12 @@ const TRANSIENT_ERROR_CODES = new Set([
 export function classifyFirestoreReadError(error) {
   const message = typeof error?.message === "string" ? error.message :
     String(error);
-  if (DETERMINISTIC_MESSAGE_PATTERN.test(message)) {
+  const originalMessage = typeof error?.original?.message === "string" ?
+    error.original.message : "";
+  const plainText =
+    `${message}\n${originalMessage}`.replaceAll(ANSI_ESCAPE_PATTERN, "");
+
+  if (DETERMINISTIC_MESSAGE_PATTERN.test(plainText)) {
     return "deterministic";
   }
 
