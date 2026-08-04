@@ -7,23 +7,36 @@ enum RoutineTimelineRuler {
     private static let candidateStepsInMinutes = [1, 2, 5, 10, 15, 30, 60, 120, 240]
     private static let maximumGaps = 5
 
-    static func labels(totalDuration: TimeInterval) -> [String] {
+    /// A tick and where it belongs along the strip, as a fraction of the routine's length.
+    /// The label has to sit over the minute it names, so the position travels with the text.
+    struct Tick: Equatable, Identifiable {
+        let text: String
+        let fraction: Double
+
+        var id: Double { fraction }
+    }
+
+    static func ticks(totalDuration: TimeInterval) -> [Tick] {
         guard totalDuration > 0 else { return [] }
 
         let totalMinutes = totalDuration / 60
         let step = Double(stepInMinutes(totalMinutes: totalMinutes))
 
-        var labels: [String] = []
-        var tick = 0.0
+        var ticks: [Tick] = []
+        var minute = 0.0
 
         // Stop before the end label so the two never collide.
-        while tick < totalMinutes - step / 2 {
-            labels.append("\(Int(tick))")
-            tick += step
+        while minute < totalMinutes - step / 2 {
+            ticks.append(Tick(text: "\(Int(minute))", fraction: minute / totalMinutes))
+            minute += step
         }
 
-        labels.append(endLabel(totalMinutes: totalMinutes))
-        return labels
+        ticks.append(Tick(text: endLabel(totalMinutes: totalMinutes), fraction: 1))
+        return ticks
+    }
+
+    static func labels(totalDuration: TimeInterval) -> [String] {
+        ticks(totalDuration: totalDuration).map(\.text)
     }
 
     private static func stepInMinutes(totalMinutes: Double) -> Int {
@@ -36,6 +49,6 @@ enum RoutineTimelineRuler {
         guard totalMinutes != totalMinutes.rounded(.down) else {
             return "\(Int(totalMinutes)) MIN"
         }
-        return "\(Int(totalMinutes)).5"
+        return "\(Int(totalMinutes)).5 MIN"
     }
 }

@@ -219,6 +219,39 @@ struct RoutineTimelineLayoutTests {
         )
     }
 
+    // MARK: - What a block has room to say
+
+    /// The movement caption is bottom-aligned and the level and clock are drawn from the top,
+    /// so a short block has to drop the caption rather than draw it over the clock. A level-1
+    /// block on the 210pt plot is 42pt tall; the collision only clears around level 4.
+    @Test
+    func aShortBlockDropsItsMovementCaptionRatherThanDrawingItOverTheClock() {
+        let plotHeight: CGFloat = 210
+        let height = { (level: Int) in plotHeight * RoutineIntervalScale.heightFraction(forLevel: level) }
+
+        #expect(!RoutineTimelineLayout.showsMovementLabel(blockWidth: 120, blockHeight: height(1)))
+        #expect(!RoutineTimelineLayout.showsMovementLabel(blockWidth: 120, blockHeight: height(2)))
+        #expect(!RoutineTimelineLayout.showsMovementLabel(blockWidth: 120, blockHeight: height(3)))
+        #expect(RoutineTimelineLayout.showsMovementLabel(blockWidth: 120, blockHeight: height(4)))
+        #expect(RoutineTimelineLayout.showsMovementLabel(blockWidth: 120, blockHeight: height(25)))
+    }
+
+    @Test
+    func aNarrowBlockDropsItsMovementCaptionHoweverTallItIs() {
+        #expect(!RoutineTimelineLayout.showsMovementLabel(blockWidth: 28, blockHeight: 210))
+        #expect(!RoutineTimelineLayout.showsMovementLabel(blockWidth: 55, blockHeight: 210))
+        #expect(RoutineTimelineLayout.showsMovementLabel(blockWidth: 56, blockHeight: 210))
+    }
+
+    /// Anything wide enough for the caption is already wide enough for the clock, so the two
+    /// gates can never disagree about which labels a block is drawing.
+    @Test
+    func theClockIsAlwaysDrawnOnABlockWideEnoughForItsMovementCaption() {
+        #expect(!RoutineTimelineLayout.showsDurationClock(blockWidth: RoutineTimelineLayout.minimumBlockWidth))
+        #expect(RoutineTimelineLayout.showsDurationClock(blockWidth: RoutineTimelineLayout.minimumMovementLabelWidth))
+        #expect(RoutineTimelineLayout.minimumClockWidth <= RoutineTimelineLayout.minimumMovementLabelWidth)
+    }
+
     @Test
     func blockOriginsAccountForTheGapsBetweenThem() {
         let widths: [CGFloat] = [40, 50, 60]

@@ -159,32 +159,12 @@ private struct EditorSurface: View {
                 }
             }
 
-            AddIntervalButtonAppearance()
+            RoutineAddIntervalLabel()
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 18)
         .frame(width: 402)
         .background(Color.black)
         .environment(\.colorScheme, .dark)
-    }
-}
-
-/// The dashed + row, drawn exactly as `RoutineEditorView.addIntervalButton` draws it.
-private struct AddIntervalButtonAppearance: View {
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "plus")
-                .font(.system(size: 15, weight: .semibold))
-
-            Text("Add Interval")
-                .font(.montserratSemiBold(size: 16))
-        }
-        .foregroundStyle(Color.accent)
-        .frame(maxWidth: .infinity)
-        .frame(height: 56)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.accent.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
-        )
     }
 }

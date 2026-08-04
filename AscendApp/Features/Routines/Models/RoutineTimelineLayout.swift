@@ -14,6 +14,22 @@ enum RoutineTimelineLayout {
     /// routine would be a couple of points of travel, so one thumb-width would buy minutes.
     static let minimumPointsPerDurationStep: CGFloat = 8
 
+    /// A block widened to the floor has room for its level but not its clock.
+    static let minimumClockWidth: CGFloat = 38
+
+    /// The movement caption sits on the block's floor, under a label stack that already draws
+    /// the level and the clock from the top. Both have to fit or the two collide.
+    static let minimumMovementLabelWidth: CGFloat = 56
+    static let minimumMovementLabelHeight: CGFloat = 58
+
+    static func showsDurationClock(blockWidth: CGFloat) -> Bool {
+        blockWidth >= minimumClockWidth
+    }
+
+    static func showsMovementLabel(blockWidth: CGFloat, blockHeight: CGFloat) -> Bool {
+        blockWidth >= minimumMovementLabelWidth && blockHeight >= minimumMovementLabelHeight
+    }
+
     /// Fit to width: every block is its share of the routine, except that a block too short
     /// to hold its own label is widened to the floor and the rest give up the difference.
     static func blockWidths(durations: [TimeInterval], availableWidth: CGFloat) -> [CGFloat] {

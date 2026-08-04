@@ -20,6 +20,7 @@ struct RoutineTimelineEditor: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var adjustSession: AdjustSession?
     @State private var reorderSession: ReorderSession?
@@ -50,6 +51,13 @@ struct RoutineTimelineEditor: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(RoutineIntervalVoiceOver.timelineLabel)
+        .onChange(of: scenePhase) { _, phase in
+            guard phase != .active else { return }
+            resetInteraction()
+        }
+        .onDisappear {
+            resetInteraction()
+        }
     }
 
     // MARK: - Plot
@@ -121,20 +129,28 @@ struct RoutineTimelineEditor: View {
     }
 
     private var ruler: some View {
-        HStack(spacing: 0) {
-            let labels = RoutineTimelineRuler.labels(totalDuration: totalDuration)
+        let ticks = RoutineTimelineRuler.ticks(totalDuration: totalDuration)
 
-            ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
-                if index > 0 {
-                    Spacer(minLength: 4)
+        return GeometryReader { proxy in
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(ticks.enumerated()), id: \.element.id) { index, tick in
+                    Text(tick.text)
+                        .font(.montserratSemiBold(size: 9))
+                        .tracking(0.6)
+                        .foregroundStyle(.white.opacity(0.28))
+                        .fixedSize()
+                        // The label indexes the blocks above it, so it is placed at its own
+                        // fraction of the strip. The guide moves the label's anchor point onto
+                        // that fraction: the first tick hangs off its leading edge and the last
+                        // off its trailing one, so neither end runs outside the plot.
+                        .alignmentGuide(.leading) { dimensions in
+                            dimensions.width * tickAnchor(index: index, count: ticks.count)
+                                - proxy.size.width * tick.fraction
+                        }
                 }
-
-                Text(label)
-                    .font(.montserratSemiBold(size: 9))
-                    .tracking(0.6)
-                    .foregroundStyle(.white.opacity(0.28))
             }
         }
+        .frame(height: 12)
         .padding(.top, 6)
         .overlay(alignment: .top) {
             Rectangle()
@@ -154,6 +170,7 @@ struct RoutineTimelineEditor: View {
         widths: [CGFloat]
     ) -> some View {
         let level = interval.resolvedLevel
+        let height = plotHeight * RoutineIntervalScale.heightFraction(forLevel: level)
         let isSelected = interval.id == selectedIntervalId
         let isGrabbed = reorderSession?.id == interval.id
         let cornerRadius: CGFloat = isSelected || isGrabbed ? 4 : 3
@@ -170,7 +187,8 @@ struct RoutineTimelineEditor: View {
 
             blockLabel(interval: interval, width: width)
 
-            if let movementLabel = movementLabel(for: interval), width >= 56 {
+            if let movementLabel = movementLabel(for: interval),
+               RoutineTimelineLayout.showsMovementLabel(blockWidth: width, blockHeight: height) {
                 Text(movementLabel)
                     .font(.montserratBold(size: 8))
                     .foregroundStyle(.black.opacity(0.58))
@@ -183,10 +201,7 @@ struct RoutineTimelineEditor: View {
                 grip
             }
         }
-        .frame(
-            width: width,
-            height: plotHeight * RoutineIntervalScale.heightFraction(forLevel: level)
-        )
+        .frame(width: width, height: height)
         .overlay {
             if isSelected || isGrabbed {
                 // Offset by 1pt into a 3pt gap, so the outline never crosses the neighbour it
@@ -259,8 +274,7 @@ struct RoutineTimelineEditor: View {
                 .tracking(-0.3)
                 .foregroundStyle(.black.opacity(0.80))
 
-            // A block widened to the floor has room for its level but not its clock.
-            if width >= 38 {
+            if RoutineTimelineLayout.showsDurationClock(blockWidth: width) {
                 Text(interval.durationClockLabel)
                     .font(.montserratSemiBold(size: 10))
                     .foregroundStyle(.black.opacity(0.52))
@@ -295,7 +309,10 @@ struct RoutineTimelineEditor: View {
             .onChanged { value in
                 guard case .second(_, let drag) = value else { return }
 
-                if reorderSession == nil {
+                // A cancelled gesture never delivers `onEnded`, so a session can outlive the
+                // finger that opened it. Keying on the block being touched means the next drag
+                // re-opens its own session instead of writing to whichever block was last held.
+                if reorderSession?.id != interval.id {
                     beginReorder(interval: interval, index: index)
                 }
 
@@ -308,7 +325,7 @@ struct RoutineTimelineEditor: View {
 
         let adjust = DragGesture(minimumDistance: 6, coordinateSpace: .named(Self.plotCoordinateSpace))
             .onChanged { value in
-                if adjustSession == nil {
+                if adjustSession?.id != interval.id {
                     beginAdjust(interval: interval, index: index)
                 }
                 updateAdjust(translation: value.translation)
@@ -321,6 +338,7 @@ struct RoutineTimelineEditor: View {
     }
 
     private func beginReorder(interval: RoutineInterval, index: Int) {
+        adjustSession = nil
         withAnimation(RoutineTimelineMotion.selection(reduceMotion: reduceMotion)) {
             onSelect(interval.id)
             reorderSession = ReorderSession(
@@ -370,6 +388,7 @@ struct RoutineTimelineEditor: View {
     }
 
     private func beginAdjust(interval: RoutineInterval, index: Int) {
+        reorderSession = nil
         // The step is measured against the routine as it was when the finger landed, so the
         // mapping cannot drift under the drag it is driving.
         adjustSession = AdjustSession(
@@ -441,6 +460,17 @@ struct RoutineTimelineEditor: View {
         onInteractingChange(false)
     }
 
+    /// The one path back to rest. A gesture the system cancels - the sheet moving, the app
+    /// backgrounding, the editor going away - never delivers `onEnded`, and an interaction
+    /// left latched on would keep swipe-to-dismiss disabled for the rest of the sheet.
+    private func resetInteraction() {
+        withAnimation(RoutineTimelineMotion.resize(reduceMotion: reduceMotion)) {
+            adjustSession = nil
+            reorderSession = nil
+        }
+        onInteractingChange(false)
+    }
+
     // MARK: - Derived
 
     private var totalDuration: TimeInterval {
@@ -477,10 +507,15 @@ struct RoutineTimelineEditor: View {
     }
 
     private func blockColor(forLevel level: Int) -> Color {
-        Color.heatMapColor(
-            for: RoutineIntervalScale.normalizedLevel(level),
-            colorScheme: colorScheme
-        )
+        RoutineIntervalScale.color(forLevel: level, colorScheme: colorScheme)
+    }
+
+    /// The first tick hangs off its leading edge and the last off its trailing one; everything
+    /// between is centred on the minute it names.
+    private func tickAnchor(index: Int, count: Int) -> Double {
+        if index == 0 { return 0 }
+        if index == count - 1 { return 1 }
+        return 0.5
     }
 
     private func movementLabel(for interval: RoutineInterval) -> String? {

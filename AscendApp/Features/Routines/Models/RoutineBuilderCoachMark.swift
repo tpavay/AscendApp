@@ -2,10 +2,12 @@ import Foundation
 
 /// The first-open walkthrough. Three spotlights, because dragging bars on a timeline is an
 /// invented interaction and nothing on the screen announces itself as draggable.
+/// The order is the screen's order - timeline, then the step row, then the + button - so the
+/// spotlight only ever travels down.
 enum RoutineBuilderCoachMark: Int, CaseIterable, Identifiable {
     case timeline
-    case add
     case stepControl
+    case add
 
     /// Device-local, so the walkthrough costs no schema and no rules change. Debug Tools
     /// clears it so the run can be watched more than once.

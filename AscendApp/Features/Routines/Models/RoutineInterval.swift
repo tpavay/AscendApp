@@ -98,10 +98,6 @@ struct RoutineInterval: Codable, Identifiable, Equatable {
         }
     }
 
-    var intensityTier: IntensityTier {
-        IntensityTier.from(level: resolvedLevel)
-    }
-
     var mappedStepsPerMinute: Int {
         switch intensityType {
         case .level:
