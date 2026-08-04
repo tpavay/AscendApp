@@ -28,7 +28,7 @@ Current `develop` declares 13 composite indexes because later work also added th
 It also declares three field overrides, for `blocked.blockedUid`, `entries.userId`, and `finishers.userId`.
 All three carry a `COLLECTION_GROUP` scope, and `entries.userId` additionally restates its ascending and descending `COLLECTION`-scoped single-field indexes.
 That restatement is required because a field override replaces the field's entire index configuration, and the server's best-entry reconciliation still queries `entries` by `userId` inside a single leaderboard.
-The production workflow waits until every composite index reports `READY`, verifies that every field override is deployed with every declared scope, and requires each relevant field-index backfill operation to finish before Functions deploy.
+The production workflow waits until every composite index and every scope inside every field override reports `READY` before Functions deploy.
 
 The `cleanupDeletedUserData` function is implemented in `functions/src/accountCleanup.ts` and exported from `functions/src/index.ts`.
 It is retry-enabled, discovers all `users/{uid}` subcollections, continues independent cleanup steps after a partial failure, and throws when any cleanup step fails so Cloud Functions retries it.
@@ -104,7 +104,7 @@ The workflow performs the following order automatically:
 3. Build and retain the signed production IPA.
 4. Build the Functions and Hosting artifacts.
 5. Deploy Firestore indexes.
-6. Poll until all 13 composite indexes report `READY`, all three field overrides are deployed with every declared query scope, and their relevant Firestore admin operations are complete.
+6. Poll the Firestore Admin API until all 13 composite indexes and every declared query scope inside all three field overrides report `READY`.
 7. Deploy Functions.
 8. Verify `cleanupDeletedUserData`, `onPublicIdentityPropagationJobWritten`, `onPublicProfileIdentityWritten`, `onWorkoutWritten`, `onWorkoutReplaySplitsWritten`, and `unsubscribeFromEmails` report `ACTIVE`.
 9. Reconcile the whole deployed function set against this ref's `functions/src/index.ts` exports, failing on any missing, orphaned, or non-`ACTIVE` function.
@@ -139,23 +139,60 @@ Verify the deployment does not request deletion of an unexpected index.
 Then wait for every declared index, including both `isBestForUser + stepsAtBucket` directions and all three field overrides, to become usable:
 
 ```sh
-deployed_spec_file="$(mktemp)"
-operations_file="$(mktemp)"
-npx -y firebase-tools@15.22.1 firestore:indexes \
-  --project production --json > "$deployed_spec_file"
-npx -y firebase-tools@15.22.1 firestore:operations:list \
-  --project production --limit 1000 --json > "$operations_file"
-npx -y firebase-tools@15.22.1 firestore:indexes \
-  --project production --pretty \
-  | node scripts/ci/assert-firestore-indexes-ready.mjs \
-      firestore.indexes.json "$operations_file" "$deployed_spec_file"
+firebase_bin="$(npm exec --yes --package=firebase-tools@15.22.1 -- which firebase)"
+firebase_tools_root="$(cd "$(dirname "$firebase_bin")/../firebase-tools" && pwd -P)"
+FIREBASE_TOOLS_ROOT="$firebase_tools_root" \
+  node scripts/ci/wait-for-firestore-indexes.mjs \
+    firestore.indexes.json ascend-prod-9c8f2 "(default)"
 ```
 
+This command calls the Firestore Admin API directly rather than through the CLI's option parsing, so its second argument must be the literal project ID.
+Passing a `.firebaserc` alias such as `production` is refused before any Firestore call, with the alias named and the project ID it maps to quoted back so the correct argument is in the failure itself.
+The alias is never resolved for you, because a stale mapping would point the production readiness check at the wrong project.
+The same refusal fires when `.firebaserc` is unreadable or declares no `projects` map, since the argument cannot be proven literal without it.
+The command authenticates with `FIREBASE_TOKEN` when that is exported, and otherwise falls back to the refresh token of the logged-in Firebase CLI account, so a captain running it by hand needs an active `firebase login` session.
+
 Do not proceed while this command exits nonzero.
-The pretty field-override listing omits query scope and serving state.
-The gate therefore matches every declared field override against the deployed JSON spec scope by scope, `COLLECTION` and `COLLECTION_GROUP` alike, and accepts it only when the deployed index set matches the declaration exactly.
-It separately requires the latest relevant `FieldOperationMetadata` backfill for every declared field override to finish in `SUCCESSFUL` state.
-A pending, failed, cancelled, or error-bearing terminal operation blocks Functions deployment.
+The gate reads the current serving state for every composite index and every scope inside each field override directly from the Firestore Admin API.
+It matches the deployed definitions to `firestore.indexes.json` exactly and proceeds only when every match reports `READY`.
+A missing, creating, repair-needed, unspecified, or unexpected configuration blocks Functions deployment and is named with its current state.
+
+Only `CREATING` is worth waiting on, so only `CREATING` gets the full 60-minute window.
+A freshly deployed index appears as `CREATING`, never as absent, so anything still missing or unexpected two minutes in is a definition mismatch that no amount of waiting resolves.
+The command fails those as verification errors and names every one of them with its state.
+A declared field override must exist as a Firestore resource even when it declares no indexes, so an override that was never applied cannot pass vacuously.
+
+That two-minute structural grace is an estimate, not a measurement.
+Composite indexes are well understood here, but a cold field override only becomes visible to `listFieldOverrides` once Firestore flips `indexConfig.usesAncestorConfig` to false, and that window has never been measured because measuring it requires writing to a project.
+If a production deploy ever aborts with a definition-mismatch verdict on an override that was in fact still being created, raise the grace instead of editing code:
+
+```sh
+FIRESTORE_INDEX_STRUCTURAL_GRACE_MS=300000 \
+FIREBASE_TOOLS_ROOT="$firebase_tools_root" \
+  node scripts/ci/wait-for-firestore-indexes.mjs \
+    firestore.indexes.json ascend-prod-9c8f2 "(default)"
+```
+
+In CI the same knob is the `FIRESTORE_INDEX_STRUCTURAL_GRACE_MS` repository variable, read by the `Wait for every declared Firestore index` step.
+Leaving it unset keeps the two-minute default.
+The value is milliseconds and must be finite, strictly positive, and below the 60-minute readiness window; anything else fails the step closed rather than falling back to a default, because a grace at or above the window would silently restore the hour-long burn this gate exists to prevent.
+
+The command sorts read failures into three classes.
+A rejection that carries an HTTP 400, 401, or 403, or that names a permission or scope problem outright, fails on the first poll, because every later poll fails identically and retrying only converts a visible error into a spent hour.
+An expired or revoked `FIREBASE_TOKEN` normally lands here: the OAuth refresh returns 400, the pinned CLI passes the stale token through, and Firestore answers `HTTP Error: 401`.
+A transport, DNS, throttling, or 5xx failure is retried up to fifteen consecutive polls - five minutes - before the run fails as a verification error rather than a false readiness timeout.
+
+Between those sits `Authentication Error: Your credentials are no longer valid`, along with `Authentication Error.` and `Unable to getAccessToken`.
+Do not read that wording as proof the token is dead.
+The pinned CLI's `refreshTokens()` collapses several unrelated refresh-layer failures into it: it calls the OAuth endpoint with `resolveOnHTTPError`, so a 5xx returns a body with no `access_token` and raises the same error a DNS or socket failure does, none of them carrying an HTTP status.
+The gate therefore retries that wording across three consecutive polls - about forty seconds - and only then fails, so one OAuth hiccup cannot kill a production release while a genuinely unusable credential still fails quickly.
+When it does fail, check whether the OAuth endpoint was healthy at that moment before rotating the token.
+
+Do not replace this command with `firebase firestore:operations:list --token` while Firebase CLI 15.22.1 is pinned.
+That command omits the CLI authentication hook, so `--token` is ignored on a clean runner even though adjacent index commands authenticate successfully.
+The direct state reader installs the workflow refresh token into the pinned CLI client explicitly and checks the state that determines whether an index can serve queries.
+Because it loads that CLI's private `lib/auth.js` and `lib/firestore/api.js`, it asserts the resolved package is exactly `firebase-tools@15.22.1` and refuses to run against any other tree.
+Bumping the CLI pin therefore requires updating `PINNED_FIREBASE_TOOLS_VERSION` in `scripts/lib/firestore-index-state-reader.mjs` and re-verifying both private modules against the new release.
 
 Rollback: do not delete a newly created additive index during an incident.
 An unused composite index does not change query results, and deleting it adds risk while providing no immediate recovery benefit.
@@ -318,7 +355,7 @@ The workflow must reach green before selecting or distributing the TestFlight bu
 A run that concludes `cancelled` sends no email, so do not read silence as success: an open `deploy-health` issue means production is not running the head of `main`, and it closes itself once a deploy lands.
 Then complete these captain-only checks against production.
 
-1. Confirm all declared Firestore indexes still report `READY` with the index assertion command above.
+1. Confirm all declared Firestore indexes still report `READY` with the index readiness command above.
 2. Confirm the six critical Functions still report `ACTIVE`, and that the deployed set still reconciles against the release ref, with the two function commands above.
 3. Inspect recent cleanup logs with `npx -y firebase-tools@15.22.1 functions:log --project production --only cleanupDeletedUserData --lines 50`.
 4. Create one Google smoke account and one Apple smoke account in a production-signed physical-device build.

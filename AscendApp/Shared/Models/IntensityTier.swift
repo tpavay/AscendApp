@@ -42,21 +42,6 @@ enum IntensityTier: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    static func from(level: Int) -> IntensityTier {
-        switch SPMMappingService.clampedLevel(level) {
-        case 1...5:
-            return .minimal
-        case 6...10:
-            return .light
-        case 11...15:
-            return .moderate
-        case 16...20:
-            return .high
-        default:
-            return .maximum
-        }
-    }
-
     static func from(score: Double) -> IntensityTier {
         switch score {
         case ..<0.2:

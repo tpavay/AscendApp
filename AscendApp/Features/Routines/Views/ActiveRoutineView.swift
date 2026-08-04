@@ -341,10 +341,7 @@ struct ActiveRoutineView: View {
 
     private var currentIntervalColor: Color {
         guard let interval = viewModel.currentInterval else { return .accent }
-        return Color.heatMapColor(
-            for: interval.intensityTier.heatMapScore,
-            colorScheme: colorScheme
-        )
+        return RoutineIntervalScale.color(of: interval, colorScheme: colorScheme)
     }
 
     private func routineCompletionSummary(workout: Workout) -> some View {

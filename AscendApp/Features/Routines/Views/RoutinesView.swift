@@ -18,6 +18,9 @@ struct RoutinesView: View {
     @State private var routineToEdit: Routine?
     @State private var activeRoutine: Routine?
     @State private var showingCreateRoutine = false
+    /// A vertical drag on a timeline block is the level control, so for the length of that
+    /// drag the sheet must not read it as a dismissal. Cancel still dismisses.
+    @State private var isEditingRoutineTimeline = false
     @State private var isShowingSearch = false
     @FocusState private var isSearchFocused: Bool
 
@@ -93,21 +96,23 @@ struct RoutinesView: View {
         }
         .sheet(isPresented: $showingCreateRoutine) {
             RoutineEditorView(
+                isInteractingWithTimeline: $isEditingRoutineTimeline,
                 onSave: { _ in
                     viewModel.loadRoutines()
                 }
             )
-            .appSheetStyle(.large)
+            .appSheetStyle(.large, isInteractiveDismissDisabled: isEditingRoutineTimeline)
         }
         .sheet(item: $routineToEdit) { routine in
             RoutineEditorView(
                 routine: routine,
+                isInteractingWithTimeline: $isEditingRoutineTimeline,
                 onSave: { updatedRoutine in
                     viewModel.refreshRoutine(updatedRoutine.id)
                     viewModel.loadRoutines()
                 }
             )
-            .appSheetStyle(.large)
+            .appSheetStyle(.large, isInteractiveDismissDisabled: isEditingRoutineTimeline)
         }
         .fullScreenCover(item: $activeRoutine) { routine in
             ActiveRoutineView(routine: routine)

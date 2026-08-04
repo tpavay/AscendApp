@@ -90,10 +90,7 @@ struct SegmentedProgressBar: View {
     }
 
     private func segmentColor(for interval: RoutineInterval) -> Color {
-        Color.heatMapColor(
-            for: interval.intensityTier.heatMapScore,
-            colorScheme: colorScheme
-        )
+        RoutineIntervalScale.color(of: interval, colorScheme: colorScheme)
     }
 
     private func segmentPosition(for index: Int) -> SegmentShape.Position {

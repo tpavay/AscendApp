@@ -102,10 +102,7 @@ struct RoutineIntervalDetailRow: View {
     }
 
     private var accentColor: Color {
-        Color.heatMapColor(
-            for: interval.intensityTier.heatMapScore,
-            colorScheme: colorScheme
-        )
+        RoutineIntervalScale.color(of: interval, colorScheme: colorScheme)
     }
 
     private var progressRatio: CGFloat {

@@ -61,7 +61,7 @@ struct RoutineHeroVisualization: View {
     private var silhouetteLayer: some View {
         ZStack {
             ForEach(intervalColorSlices) { slice in
-                TopographicSilhouetteShape(intervals: intervals, totalDuration: totalDuration)
+                RoutineRidgeShape(intervals: intervals, totalDuration: totalDuration)
                     .fill(areaGradient(for: slice))
                     .clipShape(
                         RoutineHeroIntervalClipShape(
@@ -73,7 +73,7 @@ struct RoutineHeroVisualization: View {
             }
 
             ForEach(intervalColorSlices) { slice in
-                TopographicSilhouetteShape(intervals: intervals, totalDuration: totalDuration, strokeOnly: true)
+                RoutineRidgeShape(intervals: intervals, totalDuration: totalDuration, strokeOnly: true)
                     .stroke(segmentColor(for: slice).opacity(0.96), lineWidth: 1.7)
                     .clipShape(
                         RoutineHeroIntervalClipShape(
@@ -146,20 +146,11 @@ struct RoutineHeroVisualization: View {
             return Color(red: 0.706, green: 0.8, blue: 0)
         }
 
-        let weightedScore = intervals.reduce(0.0) { total, interval in
-            total + interval.intensityTier.heatMapScore * max(interval.duration, 0)
-        }
-        let measuredDuration = intervals.reduce(0.0) { $0 + max($1.duration, 0) }
-        let averageScore = measuredDuration > 0 ? weightedScore / measuredDuration : 0.5
-
-        return Color.heatMapColor(for: averageScore, colorScheme: colorScheme)
+        return RoutineIntervalScale.averageColor(of: intervals, colorScheme: colorScheme)
     }
 
     private func segmentColor(for slice: RoutineHeroColorSlice) -> Color {
-        Color.heatMapColor(
-            for: slice.interval.intensityTier.heatMapScore,
-            colorScheme: colorScheme
-        )
+        RoutineIntervalScale.color(of: slice.interval, colorScheme: colorScheme)
     }
 
     private func areaGradient(for slice: RoutineHeroColorSlice) -> LinearGradient {
@@ -212,96 +203,6 @@ private struct RoutineHeroIntervalClipShape: Shape {
             )
         )
         return path
-    }
-}
-
-// MARK: - Topographic silhouette shape
-
-/// Renders a smooth ridge profile through the center of each interval, with
-/// curved transitions between peaks and valleys. Optionally renders only the
-/// top ridge line (no closed bottom) for stroking on top of the filled shape.
-private struct TopographicSilhouetteShape: Shape {
-    let intervals: [RoutineInterval]
-    let totalDuration: TimeInterval
-    var strokeOnly: Bool = false
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        guard !intervals.isEmpty, totalDuration > 0 else { return path }
-
-        let baseline = rect.maxY
-        let availableHeight = rect.height
-
-        // Build ridge points: one per interval, plus boundary points at left/right edges
-        var ridgePoints: [CGPoint] = []
-
-        // Start anchor at left edge, height = first interval's height
-        let firstY = baseline - CGFloat(intervals[0].intensityTier.heroHeightMultiplier) * availableHeight
-        ridgePoints.append(CGPoint(x: 0, y: firstY))
-
-        // Center point of each interval
-        var cumulativeTime: TimeInterval = 0
-        for interval in intervals {
-            let centerTime = cumulativeTime + interval.duration / 2
-            let xRatio = centerTime / totalDuration
-            let centerX = CGFloat(xRatio) * rect.width
-            let y = baseline - CGFloat(interval.intensityTier.heroHeightMultiplier) * availableHeight
-            ridgePoints.append(CGPoint(x: centerX, y: y))
-            cumulativeTime += interval.duration
-        }
-
-        // End anchor at right edge, height = last interval's height
-        let lastY = baseline - CGFloat(intervals.last!.intensityTier.heroHeightMultiplier) * availableHeight
-        ridgePoints.append(CGPoint(x: rect.width, y: lastY))
-
-        // Draw the ridge — smooth cubic bezier curves between consecutive points
-        if strokeOnly {
-            path.move(to: ridgePoints[0])
-        } else {
-            // Filled version starts at bottom-left, goes up to ridge start
-            path.move(to: CGPoint(x: 0, y: baseline))
-            path.addLine(to: ridgePoints[0])
-        }
-
-        for i in 0..<ridgePoints.count - 1 {
-            let current = ridgePoints[i]
-            let next = ridgePoints[i + 1]
-            // Horizontal-tangent control points create smooth flowing curves
-            // (control points level with each endpoint pull the curve into smooth horizontal-feeling transitions)
-            let midX = (current.x + next.x) / 2
-            path.addCurve(
-                to: next,
-                control1: CGPoint(x: midX, y: current.y),
-                control2: CGPoint(x: midX, y: next.y)
-            )
-        }
-
-        if !strokeOnly {
-            // Close back to the baseline
-            path.addLine(to: CGPoint(x: rect.width, y: baseline))
-            path.closeSubpath()
-        }
-
-        return path
-    }
-}
-
-private extension IntensityTier {
-    /// Height profile for the topographic silhouette. Slightly compressed at the
-    /// low end so even "minimal" intervals have visible ground presence.
-    var heroHeightMultiplier: Double {
-        switch self {
-        case .minimal:
-            return 0.22
-        case .light:
-            return 0.40
-        case .moderate:
-            return 0.60
-        case .high:
-            return 0.80
-        case .maximum:
-            return 1.0
-        }
     }
 }
 
