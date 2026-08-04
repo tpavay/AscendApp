@@ -290,10 +290,12 @@ private struct RoutineEditorAdvancedSettingsSection: View {
     let measurementSystem: MeasurementSystem
     var focusedField: FocusState<RoutineEditorField?>.Binding
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(RoutineTimelineMotion.sectionReveal(reduceMotion: reduceMotion)) {
                     isExpanded.toggle()
                 }
             } label: {

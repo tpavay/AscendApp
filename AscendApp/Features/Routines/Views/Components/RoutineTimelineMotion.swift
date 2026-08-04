@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Every animation the timeline editor runs, and the one place its Reduce Motion answer is
+/// Every animation the routine builder runs, and the one place its Reduce Motion answer is
 /// decided. With Reduce Motion on nothing animates: a block takes its new size, its new place
-/// and its new order in a single frame. The editor reads its animations from here and holds
+/// and its new order in a single frame. The builder reads its animations from here and names
 /// none of its own, so no path can reintroduce motion the climber asked not to see.
 enum RoutineTimelineMotion {
     /// Selection and the reorder lift: short, with a little overshoot.
@@ -22,6 +22,11 @@ enum RoutineTimelineMotion {
 
     /// The walkthrough moving from one spotlight to the next.
     static func coachMark(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.2)
+    }
+
+    /// Advanced Settings opening and closing under the timeline.
+    static func sectionReveal(reduceMotion: Bool) -> Animation? {
         reduceMotion ? nil : .easeInOut(duration: 0.2)
     }
 }
