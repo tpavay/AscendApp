@@ -82,17 +82,8 @@ function assertPinnedFirebaseTools(require, firebaseToolsRoot) {
 }
 
 // firebase-tools throws FirebaseError with a default status of 500 even for
-// authentication failures, so the message is checked before any status code.
-// The first group is quoted from the pinned CLI's own lib/auth.js: an expired
-// or revoked refresh token surfaces as invalidCredentialError(), never as a
-// 401, so matching only generic wording leaves the likeliest CI credential
-// failure looking transient.
+// authentication failures, so messages are checked before any status code.
 const DETERMINISTIC_MESSAGE_PATTERN = new RegExp([
-  "authentication error",
-  "credentials are no longer valid",
-  "login --reauth",
-  "login:ci",
-  "unable to getaccesstoken",
   "unable to refresh (?:auth|token)",
   "requires new authorization scopes",
   "not yet authenticated",
@@ -111,6 +102,21 @@ const DETERMINISTIC_MESSAGE_PATTERN = new RegExp([
   "has not been used in project",
   "is not enabled",
 ].join("|"), "i");
+
+// The pinned CLI's refreshTokens() collapses several unrelated refresh-layer
+// failures into invalidCredentialError(): an OAuth 5xx returns a body with no
+// access_token (resolveOnHTTPError is true), and a DNS or socket failure hits
+// the same outer catch. A genuinely revoked token instead takes the OAuth 400
+// early return and surfaces later as a Firestore 401. This wording therefore
+// cannot distinguish a dead credential from one OAuth blip, so the caller
+// retries it a bounded number of times before calling it deterministic.
+const AMBIGUOUS_CREDENTIAL_MESSAGE_PATTERN = new RegExp([
+  "authentication error",
+  "credentials are no longer valid",
+  "unable to getaccesstoken",
+].join("|"), "i");
+
+const DETERMINISTIC_STATUS_CODES = new Set([400, 401, 403]);
 
 // clc.bold wraps command names in those messages, so the pattern is matched
 // against text with the escape sequences removed.
@@ -145,6 +151,15 @@ export function classifyFirestoreReadError(error) {
     return "deterministic";
   }
 
+  const status = readStatusCode(error);
+  if (typeof status === "number" && DETERMINISTIC_STATUS_CODES.has(status)) {
+    return "deterministic";
+  }
+
+  if (AMBIGUOUS_CREDENTIAL_MESSAGE_PATTERN.test(plainText)) {
+    return "ambiguous";
+  }
+
   for (const candidate of [error, error?.original]) {
     if (
       typeof candidate?.code === "string" &&
@@ -154,7 +169,6 @@ export function classifyFirestoreReadError(error) {
     }
   }
 
-  const status = readStatusCode(error);
   if (typeof status === "number") {
     if (TRANSIENT_STATUS_CODES.has(status) || status >= 500) {
       return "transient";

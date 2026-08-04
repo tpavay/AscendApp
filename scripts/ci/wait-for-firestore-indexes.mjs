@@ -18,6 +18,7 @@ import {
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_INTERVAL_MS = 20 * 1000;
 const DEFAULT_MAX_READ_FAILURES = 15;
+const DEFAULT_MAX_AMBIGUOUS_READ_FAILURES = 3;
 const STRUCTURAL_ERROR_EXIT_CODE = 2;
 
 // Two minutes is an estimate, not a measurement: a cold field override only
@@ -63,6 +64,7 @@ export async function waitForFirestoreIndexes({
   timeoutMs = DEFAULT_TIMEOUT_MS,
   intervalMs = DEFAULT_INTERVAL_MS,
   maxConsecutiveReadFailures = DEFAULT_MAX_READ_FAILURES,
+  maxConsecutiveAmbiguousReadFailures = DEFAULT_MAX_AMBIGUOUS_READ_FAILURES,
   structuralGraceMs = DEFAULT_STRUCTURAL_GRACE_MS,
   classifyReadError = classifyFirestoreReadError,
   now = Date.now,
@@ -79,6 +81,7 @@ export async function waitForFirestoreIndexes({
   const startedAt = now();
   const deadline = startedAt + timeoutMs;
   let consecutiveReadFailures = 0;
+  let consecutiveAmbiguousReadFailures = 0;
   let lastReadError;
   let lastReadiness;
 
@@ -89,13 +92,17 @@ export async function waitForFirestoreIndexes({
       deployedState = await readState();
       didReadState = true;
       consecutiveReadFailures = 0;
+      consecutiveAmbiguousReadFailures = 0;
       lastReadError = undefined;
     } catch (error) {
       lastReadError = error instanceof Error ? error : new Error(String(error));
       const classification = classifyReadError(lastReadError);
 
-      // Credentials and permissions fail identically on every later poll, so
-      // retrying one only converts a visible error into a wasted hour.
+      // A refused credential and a denied permission fail identically on every
+      // later poll, so retrying only converts a visible error into a wasted
+      // hour. Ambiguous credential wording is not that: the pinned CLI reports
+      // one OAuth blip with the same message, so it is retried a bounded
+      // number of times before being called dead.
       if (classification === "deterministic") {
         log.error(
           `Firestore index state read was rejected: ${lastReadError.message}`
@@ -109,11 +116,36 @@ export async function waitForFirestoreIndexes({
       }
 
       consecutiveReadFailures += 1;
-      log.error(
-        `Transient Firestore index state read failure ` +
-          `(${consecutiveReadFailures}/${maxConsecutiveReadFailures}): ` +
-          lastReadError.message
-      );
+
+      if (classification === "ambiguous") {
+        consecutiveAmbiguousReadFailures += 1;
+        log.error(
+          `Firebase credential read failure ` +
+            `(${consecutiveAmbiguousReadFailures}/` +
+            `${maxConsecutiveAmbiguousReadFailures}): ${lastReadError.message}`
+        );
+
+        if (
+          consecutiveAmbiguousReadFailures >= maxConsecutiveAmbiguousReadFailures
+        ) {
+          log.error(
+            `Cannot verify Firestore index readiness because the Firebase ` +
+              `credential stayed unusable across ` +
+              `${consecutiveAmbiguousReadFailures} consecutive polls. The ` +
+              "pinned CLI reports a refused refresh and a failed refresh " +
+              "identically, so this is either an expired or revoked " +
+              "FIREBASE_TOKEN or a sustained OAuth outage."
+          );
+          return {status: "read-failed", error: lastReadError, classification};
+        }
+      } else {
+        consecutiveAmbiguousReadFailures = 0;
+        log.error(
+          `Transient Firestore index state read failure ` +
+            `(${consecutiveReadFailures}/${maxConsecutiveReadFailures}): ` +
+            lastReadError.message
+        );
+      }
 
       if (consecutiveReadFailures >= maxConsecutiveReadFailures) {
         log.error(

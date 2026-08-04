@@ -378,28 +378,28 @@ test("index wait fails immediately on deterministic auth and permission errors",
   );
 });
 
-test("expired and revoked pinned-CLI credentials fail fast, not after five minutes", async () => {
+test("unusable Firebase credentials fail without burning the readiness window", async () => {
   const bold = (value) => `\u001B[1m${value}\u001B[22m`;
-  // Quoted from firebase-tools 15.22.1 lib/auth.js. None of these carry an
-  // HTTP status, so FirebaseError's default 500 would read as transient.
-  const pinnedCliCredentialErrors = [
-    "Authentication Error: Your credentials are no longer valid. Please run " +
-      `${bold("firebase login --reauth")}\n\nFor CI servers and headless ` +
-      `environments, generate a new token with ${bold("firebase login:ci")}`,
-    "Authentication Error.",
-    "Unable to getAccessToken",
-    "This command requires new authorization scopes not granted to your " +
-      `current session. Please run ${bold("firebase login --reauth")}`,
-    "Unable to refresh auth: not yet authenticated.",
+
+  // A revoked or expired refresh token takes refreshTokens()' OAuth 400 early
+  // return, so the stale token reaches Firestore and comes back as a 401.
+  // These carry a status and must abort on the first poll.
+  const immediateErrors = [
+    firebaseHttpError(401, "Request had invalid authentication credentials"),
+    firebaseHttpError(403, "The caller does not have permission"),
+    firebaseHttpError(400, "Request contains an invalid argument"),
+    new Error("Unable to refresh auth: not yet authenticated."),
+    new Error(
+      "This command requires new authorization scopes not granted to your " +
+        `current session. Please run ${bold("firebase login --reauth")}`
+    ),
   ];
 
-  for (const message of pinnedCliCredentialErrors) {
-    const error = new Error(message);
-    error.status = 500;
+  for (const error of immediateErrors) {
     assert.equal(
       classifyFirestoreReadError(error),
       "deterministic",
-      `Expected a deterministic classification for: ${message}`
+      `Expected a deterministic classification for: ${error.message}`
     );
 
     let readCount = 0;
@@ -411,10 +411,9 @@ test("expired and revoked pinned-CLI credentials fail fast, not after five minut
       },
       timeoutMs: 60 * 60 * 1000,
       intervalMs: 20,
-      maxConsecutiveReadFailures: 15,
       now: () => 0,
       sleep: async () => {
-        assert.fail(`expired credentials must not be retried: ${message}`);
+        assert.fail(`must not retry a refused credential: ${error.message}`);
       },
       log: memoryLog(),
     });
@@ -424,12 +423,25 @@ test("expired and revoked pinned-CLI credentials fail fast, not after five minut
     assert.equal(readCount, 1);
   }
 
-  const wrapped = new Error("Failed to make request");
-  wrapped.status = 500;
-  wrapped.original = new Error(
-    "Authentication Error: Your credentials are no longer valid."
-  );
-  assert.equal(classifyFirestoreReadError(wrapped), "deterministic");
+  // refreshTokens() raises this identical wording for an OAuth 5xx and for a
+  // DNS or socket failure, so it cannot abort the deploy on poll 1.
+  const ambiguousErrors = [
+    "Authentication Error: Your credentials are no longer valid. Please run " +
+      `${bold("firebase login --reauth")}\n\nFor CI servers and headless ` +
+      `environments, generate a new token with ${bold("firebase login:ci")}`,
+    "Authentication Error.",
+    "Unable to getAccessToken",
+  ];
+
+  for (const message of ambiguousErrors) {
+    const error = new Error(message);
+    error.status = 500;
+    assert.equal(
+      classifyFirestoreReadError(error),
+      "ambiguous",
+      `Expected an ambiguous classification for: ${message}`
+    );
+  }
 
   // The approved retry behaviour for genuine transport failures is unchanged.
   for (const transient of [
@@ -445,6 +457,113 @@ test("expired and revoked pinned-CLI credentials fail fast, not after five minut
       `Expected a transient classification for: ${transient.message}`
     );
   }
+});
+
+test("a one-off OAuth blip recovers instead of killing the deploy", async () => {
+  const oauthBlip = new Error(
+    "Authentication Error: Your credentials are no longer valid."
+  );
+  oauthBlip.status = 500;
+
+  for (const failingPolls of [1, 2]) {
+    let currentTime = 0;
+    let readCount = 0;
+    const log = memoryLog();
+    const result = await waitForFirestoreIndexes({
+      config: readinessConfig(),
+      readState: async () => {
+        readCount += 1;
+        if (readCount <= failingPolls) {
+          throw oauthBlip;
+        }
+        return deployedReadinessState();
+      },
+      timeoutMs: 60 * 60 * 1000,
+      intervalMs: 20,
+      now: () => currentTime,
+      sleep: async (milliseconds) => {
+        currentTime += milliseconds;
+      },
+      log,
+    });
+
+    assert.equal(
+      result.status,
+      "ready",
+      `${failingPolls} ambiguous poll(s) must not abort the deploy`
+    );
+    assert.equal(readCount, failingPolls + 1);
+    assert.match(
+      log.errors.join("\n"),
+      new RegExp(
+        `Firebase credential read failure \\(${failingPolls}/3\\): ` +
+          "Authentication Error"
+      )
+    );
+  }
+});
+
+test("a persistently unusable credential fails after the bounded credential retry", async () => {
+  const revoked = new Error(
+    "Authentication Error: Your credentials are no longer valid."
+  );
+  revoked.status = 500;
+
+  let currentTime = 0;
+  let readCount = 0;
+  const log = memoryLog();
+  const result = await waitForFirestoreIndexes({
+    config: readinessConfig(),
+    readState: async () => {
+      readCount += 1;
+      throw revoked;
+    },
+    timeoutMs: 60 * 60 * 1000,
+    intervalMs: 20,
+    maxConsecutiveReadFailures: 15,
+    now: () => currentTime,
+    sleep: async (milliseconds) => {
+      currentTime += milliseconds;
+    },
+    log,
+  });
+
+  assert.equal(result.status, "read-failed");
+  assert.equal(result.classification, "ambiguous");
+  assert.equal(readCount, 3);
+  assert.equal(currentTime, 40);
+
+  const errors = log.errors.join("\n");
+  assert.match(errors, /credential stayed unusable across 3 consecutive polls/);
+  assert.match(errors, /expired or revoked\s+FIREBASE_TOKEN or a sustained OAuth outage/);
+  assert.match(errors, /Authentication Error: Your credentials are no longer valid/);
+});
+
+test("an intermittent credential blip cannot outlive the overall read-failure bound", async () => {
+  const oauthBlip = new Error("Unable to getAccessToken");
+  oauthBlip.status = 500;
+
+  let currentTime = 0;
+  let readCount = 0;
+  const result = await waitForFirestoreIndexes({
+    config: readinessConfig(),
+    readState: async () => {
+      readCount += 1;
+      throw readCount % 2 === 0 ?
+        firebaseHttpError(503, "backend unavailable") : oauthBlip;
+    },
+    timeoutMs: 60 * 60 * 1000,
+    intervalMs: 20,
+    maxConsecutiveReadFailures: 6,
+    now: () => currentTime,
+    sleep: async (milliseconds) => {
+      currentTime += milliseconds;
+    },
+    log: memoryLog(),
+  });
+
+  assert.equal(result.status, "read-failed");
+  assert.equal(readCount, 6);
 });
 
 test("structural grace is operator-configurable and fails closed when invalid", async () => {

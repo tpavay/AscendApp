@@ -171,10 +171,16 @@ In CI the same knob is the `FIRESTORE_INDEX_STRUCTURAL_GRACE_MS` repository vari
 Leaving it unset keeps the two-minute default.
 The value is milliseconds and must be finite, strictly positive, and below the 60-minute readiness window; anything else fails the step closed rather than falling back to a default, because a grace at or above the window would silently restore the hour-long burn this gate exists to prevent.
 
-The command separates deterministic read failures from transient ones.
-An authentication, credential, or permission rejection fails on the first poll, because every later poll fails identically and retrying only converts a visible error into a spent hour.
-That includes an expired or revoked `FIREBASE_TOKEN`: the pinned CLI reports it as `Authentication Error: Your credentials are no longer valid` with no HTTP status attached, so the classifier matches the CLI's own wording rather than a status code.
+The command sorts read failures into three classes.
+A rejection that carries an HTTP 400, 401, or 403, or that names a permission or scope problem outright, fails on the first poll, because every later poll fails identically and retrying only converts a visible error into a spent hour.
+An expired or revoked `FIREBASE_TOKEN` normally lands here: the OAuth refresh returns 400, the pinned CLI passes the stale token through, and Firestore answers `HTTP Error: 401`.
 A transport, DNS, throttling, or 5xx failure is retried up to fifteen consecutive polls - five minutes - before the run fails as a verification error rather than a false readiness timeout.
+
+Between those sits `Authentication Error: Your credentials are no longer valid`, along with `Authentication Error.` and `Unable to getAccessToken`.
+Do not read that wording as proof the token is dead.
+The pinned CLI's `refreshTokens()` collapses several unrelated refresh-layer failures into it: it calls the OAuth endpoint with `resolveOnHTTPError`, so a 5xx returns a body with no `access_token` and raises the same error a DNS or socket failure does, none of them carrying an HTTP status.
+The gate therefore retries that wording across three consecutive polls - about forty seconds - and only then fails, so one OAuth hiccup cannot kill a production release while a genuinely unusable credential still fails quickly.
+When it does fail, check whether the OAuth endpoint was healthy at that moment before rotating the token.
 
 Do not replace this command with `firebase firestore:operations:list --token` while Firebase CLI 15.22.1 is pinned.
 That command omits the CLI authentication hook, so `--token` is ignored on a clean runner even though adjacent index commands authenticate successfully.
