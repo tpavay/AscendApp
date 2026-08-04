@@ -32,9 +32,8 @@ struct RoutineTimelineMotionTests {
 
     /// The contract above binds the builder only while the builder never names an animation
     /// itself, so this asserts the vocabulary: neither builder file may contain a raw animation
-    /// token at all. Not `.spring(...)`, not a `?? .default` fallback beside a helper call, not
-    /// one hidden behind an intermediate property - the words simply may not appear, whatever
-    /// the surrounding expression looks like.
+    /// identifier at all - `.spring` and `.spring(...)` alike, and a `?? .default` fallback
+    /// beside a helper call.
     ///
     /// What this proves and nothing more: those two files construct no animation of their own,
     /// so the Reduce Motion answer cannot be bypassed by writing one there. It does not observe
@@ -49,7 +48,7 @@ struct RoutineTimelineMotionTests {
             for (offset, rawLine) in text.components(separatedBy: .newlines).enumerated() {
                 let line = rawLine.components(separatedBy: "//")[0]
 
-                for token in Self.rawAnimationTokens(in: line) {
+                for token in try Self.rawAnimationTokens(in: line) {
                     offences.append("\(source.name):\(offset + 1) names \(token) - \(line.trimmingCharacters(in: .whitespaces))")
                 }
             }
@@ -70,36 +69,69 @@ struct RoutineTimelineMotionTests {
         )
     }
 
-    /// Every way SwiftUI spells "make me an animation". A raw one of these in a builder file is
-    /// an animation that Reduce Motion cannot switch off.
-    private static let animationVocabulary = [
-        ".spring(", ".interactiveSpring(", ".easeInOut(", ".easeIn(", ".easeOut(",
-        ".linear(", ".timingCurve(", ".default", ".snappy", ".smooth", ".bouncy", "Animation("
-    ]
+    /// The guard above is only worth its green tick if it actually rejects the things it claims
+    /// to, so this tests the matcher itself against the bypasses that have slipped past earlier
+    /// versions of it - a parenless static value, a coalesced fallback - and against the shapes
+    /// it must not cry wolf over.
+    @Test
+    func theGuardRejectsEveryRawAnimationAndNothingElse() throws {
+        let mustReject = [
+            ".animation(.spring, value: x)",
+            "withAnimation(.easeInOut)",
+            "withAnimation(RoutineTimelineMotion.resize(reduceMotion: r) ?? .default)",
+            ".animation(.interpolatingSpring, value: x)",
+            ".animation(.interactiveSpring, value: x)",
+            "withAnimation(.easeInOut(duration: 0.2)) {",
+            ".animation(.linear, value: x)",
+            ".animation(.timingCurve(0.2, 0, 0.8, 1), value: x)",
+            "withAnimation(.snappy) {",
+            "withAnimation(.smooth) {",
+            "withAnimation(.bouncy) {",
+            "let curve = Animation(MyCustomTiming())",
+            "let held = .spring",
+            "withAnimation(.easeOut) {",
+            "withAnimation(.easeIn) {"
+        ]
 
-    private static func rawAnimationTokens(in line: String) -> [String] {
-        animationVocabulary.filter { token in
-            var searchStart = line.startIndex
-
-            while let found = line.range(of: token, range: searchStart..<line.endIndex) {
-                // `Animation(` also spells the tail of `withAnimation(`, and `.default` the head
-                // of `.defaultWeightConfiguration`. Neither makes an animation.
-                let borrowsAName = !token.hasPrefix(".")
-                    && isIdentifierCharacter(line[safe: line.index(before: found.lowerBound)])
-                let isLongerName = !token.hasSuffix("(")
-                    && isIdentifierCharacter(line[safe: found.upperBound])
-
-                if !borrowsAName, !isLongerName { return true }
-                searchStart = found.upperBound
-            }
-
-            return false
+        for line in mustReject {
+            #expect(
+                try !Self.rawAnimationTokens(in: line).isEmpty,
+                "The guard would let this through: \(line)"
+            )
         }
+
+        let mustAccept = [
+            ".animation(RoutineTimelineMotion.resize(reduceMotion: reduceMotion), value: intervals)",
+            "withAnimation(RoutineTimelineMotion.selection(reduceMotion: reduceMotion)) {",
+            "$viewModel.defaultWeightConfiguration,",
+            ".springLoaded(true)",
+            "Button { } label: { }",
+            "private var resizeAnimation: Animation? {"
+        ]
+
+        for line in mustAccept {
+            #expect(
+                try Self.rawAnimationTokens(in: line).isEmpty,
+                "The guard cries wolf over: \(line)"
+            )
+        }
+
+        // Longest-first, so `.easeInOut` is never reported as `.easeIn`.
+        #expect(try Self.rawAnimationTokens(in: "withAnimation(.easeInOut)") == [".easeInOut"])
+        #expect(try Self.rawAnimationTokens(in: ".animation(.interactiveSpring)") == [".interactiveSpring"])
     }
 
-    private static func isIdentifierCharacter(_ character: Character?) -> Bool {
-        guard let character else { return false }
-        return character.isLetter || character.isNumber || character == "_"
+    /// Every way SwiftUI spells "make me an animation", matched as a whole identifier so both
+    /// `.spring` and `.spring(` are caught while `.springLoaded` is not. `Animation(` needs the
+    /// leading word boundary because it also spells the tail of `withAnimation(`.
+    private static let rawAnimationPattern = """
+        \\.(?:interactiveSpring|interpolatingSpring|easeInOut|easeIn|easeOut|timingCurve\
+        |spring|linear|default|snappy|smooth|bouncy)(?![A-Za-z0-9_])|\\bAnimation\\(
+        """
+
+    private static func rawAnimationTokens(in line: String) throws -> [String] {
+        let regex = try Regex(rawAnimationPattern)
+        return line.matches(of: regex).map { String(line[$0.range]) }
     }
 
     private static var builderSources: [(name: String, url: URL)] {
@@ -115,12 +147,5 @@ struct RoutineTimelineMotionTests {
                 views.appending(path: "Components/RoutineTimelineEditor.swift")
             )
         ]
-    }
-}
-
-private extension String {
-    subscript(safe index: String.Index) -> Character? {
-        guard index >= startIndex, index < endIndex else { return nil }
-        return self[index]
     }
 }
