@@ -13,6 +13,9 @@ import UIKit
 /// drawn result in front of a reviewer.
 @MainActor
 struct RoutineTimelineEditorSnapshotTests {
+    /// The plot inside a 402pt device: 20pt screen padding and 14pt card padding each side.
+    private let plotWidth: CGFloat = 334
+
     /// The routine the design board is drawn with.
     private var boardRoutine: [RoutineInterval] {
         [
@@ -133,6 +136,86 @@ struct RoutineTimelineEditorSnapshotTests {
         )
     }
 
+    /// The threshold, both sides of it in one frame. Seven intervals fit, so the screen carries
+    /// no navigation at all; the eighth brings the overview. Symmetric, as decided: deleting
+    /// back to seven is this same pair read right to left.
+    @Test
+    func theOverviewArrivesWithTheEighthIntervalAndLeavesWithoutIt() throws {
+        let sevenFit = Array(hiitSprint.prefix(7))
+        let eightDoNot = Array(hiitSprint.prefix(8))
+
+        #expect(RoutineTimelineWindow.isEngaged(intervalCount: sevenFit.count, availableWidth: 334) == false)
+        #expect(RoutineTimelineWindow.isEngaged(intervalCount: eightDoNot.count, availableWidth: 334))
+
+        try renderEvidence(
+            named: "routine-builder-threshold",
+            content: HStack(alignment: .top, spacing: 0) {
+                CaptionedSurface(caption: "7 INTERVALS - THEY FIT, NO OVERVIEW", intervals: sevenFit)
+                CaptionedSurface(caption: "8 INTERVALS - THE OVERVIEW ARRIVES", intervals: eightDoNot)
+            }
+            .background(Color.black)
+        )
+    }
+
+    /// The whole interaction, frame by frame: the drag resolves through the same
+    /// `RoutineTimelineWindow.start(forLeadingFraction:)` the overview's gesture calls, so each
+    /// row is the window a climber lands on holding their finger at that point of the ridge.
+    @Test
+    func draggingTheOverviewCarriesTheWindowAcrossTheRoutine() throws {
+        let durations = pyramid.map(\.duration)
+        // The last one is past the end on purpose: the window stops on the final seven rather
+        // than running off it.
+        let fractions: [Double] = [0, 0.25, 0.5, 1]
+
+        let frames = fractions.map { fraction in
+            let start = RoutineTimelineWindow.start(
+                forLeadingFraction: fraction,
+                durations: durations,
+                availableWidth: plotWidth
+            )
+            return (
+                fraction: fraction,
+                range: RoutineTimelineWindow.visibleRange(
+                    startIndex: start,
+                    intervalCount: pyramid.count,
+                    availableWidth: plotWidth
+                )
+            )
+        }
+
+        // The drag has to actually travel, and it has to stop on the last seven rather than
+        // running off the end.
+        #expect(frames.first?.range == 0..<7)
+        #expect(frames.last?.range == 13..<20)
+        #expect(Set(frames.map(\.range.lowerBound)).count == frames.count)
+
+        try renderEvidence(
+            named: "routine-builder-overview-drag",
+            content: VStack(alignment: .leading, spacing: 18) {
+                ForEach(frames, id: \.fraction) { frame in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("FINGER AT \(Int(frame.fraction * 100))% - VIEWING INTERVALS \(frame.range.lowerBound + 1)-\(frame.range.upperBound)")
+                            .font(.montserratSemiBold(size: 10))
+                            .tracking(0.8)
+                            .foregroundStyle(Color.accent)
+
+                        RoutineTimelineOverview(
+                            intervals: pyramid,
+                            visibleRange: frame.range,
+                            onScrub: { _ in },
+                            onStep: { _ in },
+                            onScrubbingChange: { _ in }
+                        )
+                        .frame(width: plotWidth)
+                    }
+                }
+            }
+            .padding(20)
+            .background(Color.black)
+            .environment(\.colorScheme, .dark)
+        )
+    }
+
     /// The one-off mark, spotlighting the overview rather than the timeline, with a single
     /// dot and a single Got it.
     @Test
@@ -188,6 +271,28 @@ struct RoutineTimelineEditorSnapshotTests {
         #expect(image.size.width > 0)
         #expect(image.size.height > 0)
         #expect(png.count > 5_000)
+    }
+}
+
+/// One editor surface with a caption above it, so two of them read as a before and an after.
+private struct CaptionedSurface: View {
+    let caption: String
+    let intervals: [RoutineInterval]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(caption)
+                .font(.montserratSemiBold(size: 11))
+                .tracking(0.8)
+                .foregroundStyle(Color.accent)
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+
+            EditorSurface(intervals: intervals, selectedIndex: 0)
+        }
+        .frame(width: 402)
+        .background(Color.black)
+        .environment(\.colorScheme, .dark)
     }
 }
 
