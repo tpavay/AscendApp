@@ -1,4 +1,5 @@
 const READY_STATE = "READY";
+const CREATING_STATE = "CREATING";
 const MISSING_STATE = "MISSING";
 const UNSPECIFIED_STATE = "STATE_UNSPECIFIED";
 const UNEXPECTED_STATE = "UNEXPECTED";
@@ -21,6 +22,7 @@ export function evaluateFirestoreIndexReadiness(config, deployedState) {
         kind: "composite",
         signature: compositeSignature(required),
         state,
+        pending: state === CREATING_STATE,
       });
     }
   }
@@ -30,6 +32,18 @@ export function evaluateFirestoreIndexReadiness(config, deployedState) {
       candidate.collectionGroup === required.collectionGroup &&
       candidate.fieldPath === required.fieldPath
     );
+
+    // An override that declares no indexes disables single-field indexing, so
+    // its per-index loops below iterate nothing. Without this the whole
+    // override could be absent from Firestore and still report READY.
+    if (deployed === undefined) {
+      issues.push({
+        kind: "fieldOverride",
+        signature: fieldOverrideResourceSignature(required),
+        state: MISSING_STATE,
+        pending: false,
+      });
+    }
 
     for (const requiredIndex of required.indexes) {
       const deployedIndex = deployed?.indexes.find((candidate) =>
@@ -43,6 +57,7 @@ export function evaluateFirestoreIndexReadiness(config, deployedState) {
           kind: "fieldOverride",
           signature: fieldOverrideIndexSignature(required, requiredIndex),
           state,
+          pending: state === CREATING_STATE,
         });
       }
     }
@@ -57,6 +72,7 @@ export function evaluateFirestoreIndexReadiness(config, deployedState) {
           signature: fieldOverrideIndexSignature(required, deployedIndex),
           state: `${UNEXPECTED_STATE} (` +
             `${deployedIndex.state ?? UNSPECIFIED_STATE})`,
+          pending: false,
         });
       }
     }
@@ -72,6 +88,13 @@ export function evaluateFirestoreIndexReadiness(config, deployedState) {
 
 export function formatFirestoreIndexIssues(issues) {
   return issues.map((issue) => `- ${issue.signature}: ${issue.state}`).join("\n");
+}
+
+// Only CREATING resolves on its own. A missing, unexpected, repair-needed or
+// unspecified index is a definition mismatch that outlasts any timeout, so the
+// caller must fail it as a verification error instead of burning the window.
+export function structuralFirestoreIndexIssues(issues) {
+  return issues.filter((issue) => issue.pending !== true);
 }
 
 function validateConfig(config) {
@@ -168,6 +191,11 @@ function compositeSignature(index) {
   return `composite (${index.collectionGroup}) -- ${index.fields
     .map(fieldToken)
     .join(" ")}`;
+}
+
+function fieldOverrideResourceSignature(fieldOverride) {
+  return `field override [${fieldOverride.collectionGroup}.` +
+    `${fieldOverride.fieldPath}] -- resource`;
 }
 
 function fieldOverrideIndexSignature(fieldOverride, index) {

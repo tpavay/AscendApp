@@ -1,6 +1,11 @@
 import {createRequire} from "node:module";
 import {join} from "node:path";
 
+// This reader loads private firebase-tools modules, so it is only correct for
+// the exact pinned version. Keep in sync with docs/dependency-security.md and
+// every `firebase-tools@` pin it lists.
+export const PINNED_FIREBASE_TOOLS_VERSION = "15.22.1";
+
 export function createFirestoreIndexStateReader({
   firebaseToolsRoot,
   refreshToken,
@@ -8,6 +13,7 @@ export function createFirestoreIndexStateReader({
   databaseId = "(default)",
 }) {
   const require = createRequire(import.meta.url);
+  assertPinnedFirebaseTools(require, firebaseToolsRoot);
   const auth = require(join(firebaseToolsRoot, "lib/auth.js"));
   const {FirestoreApi} = require(
     join(firebaseToolsRoot, "lib/firestore/api.js")
@@ -48,6 +54,99 @@ export function createFirestoreIndexStateReader({
       fieldOverrides: fields.map(normalizeFieldOverride),
     };
   };
+}
+
+function assertPinnedFirebaseTools(require, firebaseToolsRoot) {
+  let manifest;
+  try {
+    manifest = require(join(firebaseToolsRoot, "package.json"));
+  } catch {
+    throw new Error(
+      `FIREBASE_TOOLS_ROOT does not hold a package: ${firebaseToolsRoot}`
+    );
+  }
+
+  if (manifest.name !== "firebase-tools") {
+    throw new Error(
+      `FIREBASE_TOOLS_ROOT resolved ${manifest.name}, not firebase-tools: ` +
+        firebaseToolsRoot
+    );
+  }
+  if (manifest.version !== PINNED_FIREBASE_TOOLS_VERSION) {
+    throw new Error(
+      `This reader uses private firebase-tools ` +
+        `${PINNED_FIREBASE_TOOLS_VERSION} internals, but ` +
+        `${firebaseToolsRoot} resolved ${manifest.version}`
+    );
+  }
+}
+
+// firebase-tools throws FirebaseError with a default status of 500 even for
+// authentication failures, so the message is checked before any status code.
+const DETERMINISTIC_MESSAGE_PATTERN =
+  /not yet authenticated|unauthenticated|unauthorized|invalid[_ -]?grant|invalid[_ -]?credential|credentials? (?:are |is )?(?:missing|invalid|expired)|permission[_ ]?denied|insufficient permission|access denied|forbidden|failed to authenticate|caller does not have permission|has not been used in project|is not enabled/i;
+
+const TRANSIENT_STATUS_CODES = new Set([408, 425, 429]);
+
+const TRANSIENT_ERROR_CODES = new Set([
+  "EAI_AGAIN",
+  "ECONNABORTED",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EHOSTUNREACH",
+  "ENETDOWN",
+  "ENETUNREACH",
+  "ENOTFOUND",
+  "EPIPE",
+  "ETIMEDOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
+
+export function classifyFirestoreReadError(error) {
+  const message = typeof error?.message === "string" ? error.message :
+    String(error);
+  if (DETERMINISTIC_MESSAGE_PATTERN.test(message)) {
+    return "deterministic";
+  }
+
+  for (const candidate of [error, error?.original]) {
+    if (
+      typeof candidate?.code === "string" &&
+      TRANSIENT_ERROR_CODES.has(candidate.code)
+    ) {
+      return "transient";
+    }
+  }
+
+  const status = readStatusCode(error);
+  if (typeof status === "number") {
+    if (TRANSIENT_STATUS_CODES.has(status) || status >= 500) {
+      return "transient";
+    }
+    if (status >= 400) {
+      return "deterministic";
+    }
+  }
+
+  return "transient";
+}
+
+function readStatusCode(error) {
+  const candidates = [
+    error?.status,
+    error?.context?.response?.statusCode,
+    error?.context?.response?.status,
+    error?.response?.status,
+    error?.original?.status,
+  ];
+
+  for (const candidate of candidates) {
+    if (Number.isInteger(candidate) && candidate >= 100 && candidate < 600) {
+      return candidate;
+    }
+  }
+  return undefined;
 }
 
 function normalizeCompositeIndex(index) {

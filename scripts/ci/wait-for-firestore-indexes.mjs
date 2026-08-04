@@ -1,17 +1,24 @@
 #!/usr/bin/env node
 
+import {realpathSync} from "node:fs";
 import {readFile} from "node:fs/promises";
+import {resolve} from "node:path";
+import {fileURLToPath} from "node:url";
 
 import {
   evaluateFirestoreIndexReadiness,
   formatFirestoreIndexIssues,
+  structuralFirestoreIndexIssues,
 } from "../lib/firestore-index-readiness.mjs";
-import {createFirestoreIndexStateReader} from
-  "../lib/firestore-index-state-reader.mjs";
+import {
+  classifyFirestoreReadError,
+  createFirestoreIndexStateReader,
+} from "../lib/firestore-index-state-reader.mjs";
 
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_INTERVAL_MS = 20 * 1000;
-const DEFAULT_MAX_READ_FAILURES = 3;
+const DEFAULT_MAX_READ_FAILURES = 15;
+const DEFAULT_STRUCTURAL_GRACE_MS = 2 * 60 * 1000;
 const STRUCTURAL_ERROR_EXIT_CODE = 2;
 
 export async function waitForFirestoreIndexes({
@@ -20,6 +27,8 @@ export async function waitForFirestoreIndexes({
   timeoutMs = DEFAULT_TIMEOUT_MS,
   intervalMs = DEFAULT_INTERVAL_MS,
   maxConsecutiveReadFailures = DEFAULT_MAX_READ_FAILURES,
+  structuralGraceMs = DEFAULT_STRUCTURAL_GRACE_MS,
+  classifyReadError = classifyFirestoreReadError,
   now = Date.now,
   sleep = defaultSleep,
   log = console,
@@ -39,10 +48,26 @@ export async function waitForFirestoreIndexes({
       consecutiveReadFailures = 0;
       lastReadError = undefined;
     } catch (error) {
-      consecutiveReadFailures += 1;
       lastReadError = error instanceof Error ? error : new Error(String(error));
+      const classification = classifyReadError(lastReadError);
+
+      // Credentials and permissions fail identically on every later poll, so
+      // retrying one only converts a visible error into a wasted hour.
+      if (classification === "deterministic") {
+        log.error(
+          `Firestore index state read was rejected: ${lastReadError.message}`
+        );
+        log.error(
+          "Cannot verify Firestore index readiness because the serving-state " +
+            "API could not be read. Retrying cannot resolve an authentication " +
+            "or permission failure."
+        );
+        return {status: "read-failed", error: lastReadError, classification};
+      }
+
+      consecutiveReadFailures += 1;
       log.error(
-        `Firestore index state read failed ` +
+        `Transient Firestore index state read failure ` +
           `(${consecutiveReadFailures}/${maxConsecutiveReadFailures}): ` +
           lastReadError.message
       );
@@ -52,7 +77,7 @@ export async function waitForFirestoreIndexes({
           "Cannot verify Firestore index readiness because the serving-state " +
             "API could not be read."
         );
-        return {status: "read-failed", error: lastReadError};
+        return {status: "read-failed", error: lastReadError, classification};
       }
     }
 
@@ -71,6 +96,26 @@ export async function waitForFirestoreIndexes({
 
       log.error("Firestore indexes are not READY:");
       log.error(formatFirestoreIndexIssues(lastReadiness.issues));
+
+      const structuralIssues = structuralFirestoreIndexIssues(
+        lastReadiness.issues
+      );
+      if (
+        structuralIssues.length > 0 &&
+        now() - startedAt >= structuralGraceMs
+      ) {
+        log.error(
+          `Firestore index configuration is still wrong after ` +
+            `${formatDuration(structuralGraceMs)}. Waiting only resolves ` +
+            "CREATING indexes, so these are verification failures:"
+        );
+        log.error(formatFirestoreIndexIssues(structuralIssues));
+        return {
+          status: "structural",
+          readiness: lastReadiness,
+          issues: structuralIssues,
+        };
+      }
     }
 
     const remainingMs = deadline - now();
@@ -140,10 +185,28 @@ function formatDuration(milliseconds) {
   return `${milliseconds} milliseconds`;
 }
 
-const isCommandLine = process.argv[1] !== undefined &&
-  new URL(import.meta.url).pathname === process.argv[1];
+// A percent-encoded or symlinked invocation path must still run the gate.
+// Comparing the raw URL pathname to argv[1] silently exits 0 in both cases,
+// which reads as a passed readiness check that never contacted Firestore.
+export function isCommandLineEntryPoint(moduleUrl, entryPath) {
+  if (typeof entryPath !== "string" || entryPath.length === 0) {
+    return false;
+  }
 
-if (isCommandLine) {
+  const modulePath = fileURLToPath(moduleUrl);
+  const resolvedEntryPath = resolve(entryPath);
+  if (modulePath === resolvedEntryPath) {
+    return true;
+  }
+
+  try {
+    return realpathSync(modulePath) === realpathSync(resolvedEntryPath);
+  } catch {
+    return false;
+  }
+}
+
+if (isCommandLineEntryPoint(import.meta.url, process.argv[1])) {
   try {
     await runCommandLine();
   } catch (error) {

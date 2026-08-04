@@ -5,6 +5,7 @@ Treat `functions/` as production code because it runs with Firebase Admin creden
 The root package intentionally does not install `firebase-tools`; its rules-test command invokes the CLI directly, so a second pinned CLI tree would be unused and vulnerable between releases.
 It pins `firebase-tools@15.22.1`, and that same pin applies everywhere the CLI runs: CI (`ci.yml`'s `firebase-verify` job), `functions/package.json`'s `test:emulator` script, both deploy workflows, and the human-run Firebase commands documented in `CLAUDE.md`, `docs/production-backend-rollout-runbook.md`, `functions/EMAIL_SETUP.md`, and the `live-climb-content` skill.
 The production index waiter resolves the temporary package root created by `npm exec` and uses that exact pinned CLI's authenticated Firestore client, so it does not justify adding `firebase-tools` to the root dependency tree.
+It loads that CLI's private `lib/auth.js` and `lib/firestore/api.js`, so `PINNED_FIREBASE_TOOLS_VERSION` in `scripts/lib/firestore-index-state-reader.mjs` is one of the pins to bump together, and the reader refuses to run against any other resolved version rather than loading unverified internals.
 Rules have to be validated and shipped by the same CLI, so validation never passes on a version that differs from the one that deploys, and an unpinned `@latest` would let an upstream release turn unrelated required checks red.
 Bump every one of those pins together.
 

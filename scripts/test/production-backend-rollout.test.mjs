@@ -1,19 +1,31 @@
 import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
-import {mkdirSync, mkdtempSync, readFileSync, writeFileSync} from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import test from "node:test";
-import {fileURLToPath} from "node:url";
+import {fileURLToPath, pathToFileURL} from "node:url";
 
-import {waitForFirestoreIndexes} from
-  "../ci/wait-for-firestore-indexes.mjs";
+import {
+  isCommandLineEntryPoint,
+  waitForFirestoreIndexes,
+} from "../ci/wait-for-firestore-indexes.mjs";
 import {
   evaluateFirestoreIndexReadiness,
   formatFirestoreIndexIssues,
+  structuralFirestoreIndexIssues,
 } from "../lib/firestore-index-readiness.mjs";
-import {createFirestoreIndexStateReader} from
-  "../lib/firestore-index-state-reader.mjs";
+import {
+  PINNED_FIREBASE_TOOLS_VERSION,
+  classifyFirestoreReadError,
+  createFirestoreIndexStateReader,
+} from "../lib/firestore-index-state-reader.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 const functionReadinessScript = join(
@@ -159,51 +171,7 @@ test("index readiness passes only when all current serving states are READY", ()
 });
 
 test("index state reader installs explicit or local auth before reading", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "ascend-index-reader-"));
-  const firestoreDirectory = join(directory, "lib/firestore");
-  mkdirSync(firestoreDirectory, {recursive: true});
-  writeFileSync(
-    join(directory, "lib/auth.js"),
-    [
-      "exports.setRefreshToken = (token) => {",
-      "  global.__ascendFirestoreTestToken = token;",
-      "};",
-      "exports.getGlobalDefaultAccount = () => ({",
-      "  tokens: {refresh_token: \"local-refresh-token\"},",
-      "});",
-    ].join("\n")
-  );
-  writeFileSync(
-    join(firestoreDirectory, "api.js"),
-    [
-      "exports.FirestoreApi = class {",
-      "  async listIndexes(projectId, databaseId) {",
-      "    const accepted = [\"ci-refresh-token\", \"local-refresh-token\"];",
-      "    if (!accepted.includes(global.__ascendFirestoreTestToken)) {",
-      "      throw new Error(\"refresh token was not installed\");",
-      "    }",
-      "    return [{",
-      "      name: `projects/${projectId}/databases/${databaseId}/` +",
-      "        \"collectionGroups/entries/indexes/index-1\",",
-      "      queryScope: \"COLLECTION\",",
-      "      fields: [{fieldPath: \"finalSteps\", order: \"DESCENDING\"}],",
-      "      state: \"READY\",",
-      "    }];",
-      "  }",
-      "  async listFieldOverrides(projectId, databaseId) {",
-      "    return [{",
-      "      name: `projects/${projectId}/databases/${databaseId}/` +",
-      "        \"collectionGroups/entries/fields/userId\",",
-      "      indexConfig: {indexes: [{",
-      "        queryScope: \"COLLECTION_GROUP\",",
-      "        fields: [{fieldPath: \"userId\", order: \"ASCENDING\"}],",
-      "        state: \"READY\",",
-      "      }]},",
-      "    }];",
-      "  }",
-      "};",
-    ].join("\n")
-  );
+  const directory = pinnedFirebaseToolsStub();
 
   const readState = createFirestoreIndexStateReader({
     firebaseToolsRoot: directory,
@@ -302,7 +270,7 @@ test("index wait fails as verification error after repeated state-read failures"
     config: readinessConfig(),
     readState: async () => {
       readCount += 1;
-      throw new Error("authentication hook missing");
+      throw firebaseHttpError(503, "backend unavailable");
     },
     timeoutMs: 60 * 60 * 1000,
     intervalMs: 20,
@@ -315,11 +283,206 @@ test("index wait fails as verification error after repeated state-read failures"
   });
 
   assert.equal(result.status, "read-failed");
+  assert.equal(result.classification, "transient");
   assert.equal(readCount, 3);
   assert.equal(currentTime, 40);
   assert.match(
     log.errors.join("\n"),
     /serving-state API could not be read/
+  );
+});
+
+test("index wait retries transient read failures and recovers from a blip", async () => {
+  let currentTime = 0;
+  let readCount = 0;
+  const log = memoryLog();
+  const result = await waitForFirestoreIndexes({
+    config: readinessConfig(),
+    readState: async () => {
+      readCount += 1;
+      if (readCount <= 5) {
+        throw [
+          firebaseHttpError(503, "backend unavailable"),
+          firebaseHttpError(429, "quota exceeded"),
+          firebaseHttpError(500, "internal"),
+          Object.assign(new Error("Failed to make request"), {
+            code: "ENOTFOUND",
+          }),
+          Object.assign(new Error("Failed to make request"), {
+            original: {code: "EAI_AGAIN"},
+          }),
+        ][readCount - 1];
+      }
+      return deployedReadinessState();
+    },
+    timeoutMs: 60 * 60 * 1000,
+    intervalMs: 20,
+    maxConsecutiveReadFailures: 15,
+    now: () => currentTime,
+    sleep: async (milliseconds) => {
+      currentTime += milliseconds;
+    },
+    log,
+  });
+
+  assert.equal(result.status, "ready");
+  assert.equal(readCount, 6);
+  assert.match(log.errors.join("\n"), /Transient .* \(5\/15\)/);
+});
+
+test("index wait fails immediately on deterministic auth and permission errors", async () => {
+  const deterministicErrors = [
+    new Error("Unable to refresh auth: not yet authenticated."),
+    firebaseHttpError(401, "Request had invalid authentication credentials"),
+    firebaseHttpError(403, "The caller does not have permission"),
+    firebaseHttpError(404, "Not Found"),
+  ];
+
+  for (const readError of deterministicErrors) {
+    let readCount = 0;
+    const log = memoryLog();
+    const result = await waitForFirestoreIndexes({
+      config: readinessConfig(),
+      readState: async () => {
+        readCount += 1;
+        throw readError;
+      },
+      timeoutMs: 60 * 60 * 1000,
+      intervalMs: 20,
+      maxConsecutiveReadFailures: 15,
+      now: () => 0,
+      sleep: async () => {
+        assert.fail(`deterministic read errors must not retry: ${readError.message}`);
+      },
+      log,
+    });
+
+    assert.equal(result.status, "read-failed");
+    assert.equal(result.classification, "deterministic");
+    assert.equal(readCount, 1);
+    const errors = log.errors.join("\n");
+    assert.match(errors, new RegExp(escapeRegExp(readError.message)));
+    assert.match(errors, /Retrying cannot resolve an authentication/);
+  }
+
+  assert.equal(
+    classifyFirestoreReadError(firebaseHttpError(503, "unavailable")),
+    "transient"
+  );
+  assert.equal(
+    classifyFirestoreReadError(new Error("socket hang up")),
+    "transient"
+  );
+});
+
+test("index wait fails a still-MISSING composite as a verification error after the grace period", async () => {
+  let currentTime = 0;
+  let readCount = 0;
+  const log = memoryLog();
+  const config = readinessConfig();
+  const result = await waitForFirestoreIndexes({
+    config,
+    readState: async () => {
+      readCount += 1;
+      const state = deployedReadinessState({finalStepsState: "CREATING"});
+      state.indexes.splice(0, 1);
+      return state;
+    },
+    timeoutMs: 60 * 60 * 1000,
+    intervalMs: 20,
+    structuralGraceMs: 60,
+    now: () => currentTime,
+    sleep: async (milliseconds) => {
+      currentTime += milliseconds;
+    },
+    log,
+  });
+
+  assert.equal(result.status, "structural");
+  assert.equal(readCount, 4);
+  assert.equal(currentTime, 60);
+  const errors = log.errors.join("\n");
+  assert.match(errors, /Waiting only resolves\s+CREATING indexes/);
+  assert.match(
+    errors,
+    /composite \(entries\).*isBestForUser,ASCENDING.*stepsAtBucket,ASCENDING\): MISSING/
+  );
+  // The building index keeps the full readiness window, so it must not be
+  // reported as a structural failure alongside the missing one.
+  const structural = formatFirestoreIndexIssues(
+    structuralFirestoreIndexIssues(result.readiness.issues)
+  );
+  assert.doesNotMatch(structural, /CREATING/);
+});
+
+test("index wait preserves the whole window for a CREATING index", async () => {
+  let currentTime = 0;
+  let readCount = 0;
+  const result = await waitForFirestoreIndexes({
+    config: readinessConfig(),
+    readState: async () => {
+      readCount += 1;
+      return deployedReadinessState({
+        finalStepsState: readCount < 10 ? "CREATING" : "READY",
+      });
+    },
+    timeoutMs: 60 * 60 * 1000,
+    intervalMs: 20,
+    structuralGraceMs: 60,
+    now: () => currentTime,
+    sleep: async (milliseconds) => {
+      currentTime += milliseconds;
+    },
+    log: memoryLog(),
+  });
+
+  assert.equal(result.status, "ready");
+  assert.equal(readCount, 10);
+});
+
+test("a declared field override that is absent can never pass vacuously", async () => {
+  const config = readinessConfig();
+  config.fieldOverrides.push({
+    collectionGroup: "finishers",
+    fieldPath: "userId",
+    indexes: [],
+  });
+
+  const absent = evaluateFirestoreIndexReadiness(config, deployedReadinessState());
+  assert.equal(absent.ready, false);
+  assert.match(
+    formatFirestoreIndexIssues(absent.issues),
+    /field override \[finishers\.userId\] -- resource: MISSING/
+  );
+
+  const deployedState = deployedReadinessState();
+  deployedState.fieldOverrides.push({
+    collectionGroup: "finishers",
+    fieldPath: "userId",
+    indexes: [],
+  });
+  const applied = evaluateFirestoreIndexReadiness(config, deployedState);
+  assert.equal(applied.ready, true);
+
+  let currentTime = 0;
+  const log = memoryLog();
+  const result = await waitForFirestoreIndexes({
+    config,
+    readState: async () => deployedReadinessState(),
+    timeoutMs: 60 * 60 * 1000,
+    intervalMs: 20,
+    structuralGraceMs: 40,
+    now: () => currentTime,
+    sleep: async (milliseconds) => {
+      currentTime += milliseconds;
+    },
+    log,
+  });
+
+  assert.equal(result.status, "structural");
+  assert.match(
+    log.errors.join("\n"),
+    /field override \[finishers\.userId\] -- resource: MISSING/
   );
 });
 
@@ -410,11 +573,114 @@ test("production deploy waits for indexes and rolls the backend out in dependenc
   );
   assert.match(workflow, /onPublicIdentityPropagationJobWritten/);
   assert.doesNotMatch(workflow, /firestore:operations:list/);
+  // The gate is only substantive if it polls the production project and the
+  // default database, so both positional arguments are pinned here.
   assert.match(
     workflow,
-    /FIREBASE_TOOLS_ROOT="\$firebase_tools_root"[\s\\]*node scripts\/ci\/wait-for-firestore-indexes\.mjs/
+    /FIREBASE_TOOLS_ROOT="\$firebase_tools_root" \\\n\s*node scripts\/ci\/wait-for-firestore-indexes\.mjs \\\n\s*firestore\.indexes\.json \\\n\s*"\$\{\{ vars\.FIREBASE_PROJECT_ID_PRODUCTION \}\}" \\\n\s*"\(default\)"/
   );
-  assert.match(workflow, /firebase-tools@15\.22\.1 -- which firebase/);
+  assert.match(
+    workflow,
+    new RegExp(
+      `firebase-tools@${PINNED_FIREBASE_TOOLS_VERSION.replaceAll(".", "\\.")}` +
+        " -- which firebase"
+    )
+  );
+});
+
+test("index reader refuses any firebase-tools tree other than the pinned one", () => {
+  const mismatchedVersion = pinnedFirebaseToolsStub();
+  writeFileSync(
+    join(mismatchedVersion, "package.json"),
+    JSON.stringify({name: "firebase-tools", version: "15.23.0"})
+  );
+
+  assert.throws(
+    () => createFirestoreIndexStateReader({
+      firebaseToolsRoot: mismatchedVersion,
+      refreshToken: "ci-refresh-token",
+      projectId: "ascend-production",
+    }),
+    new RegExp(
+      `private firebase-tools ` +
+        `${escapeRegExp(PINNED_FIREBASE_TOOLS_VERSION)} internals` +
+        `[\\s\\S]*resolved 15\\.23\\.0`
+    )
+  );
+
+  const mismatchedPackage = pinnedFirebaseToolsStub();
+  writeFileSync(
+    join(mismatchedPackage, "package.json"),
+    JSON.stringify({
+      name: "some-other-cli",
+      version: PINNED_FIREBASE_TOOLS_VERSION,
+    })
+  );
+  assert.throws(
+    () => createFirestoreIndexStateReader({
+      firebaseToolsRoot: mismatchedPackage,
+      refreshToken: "ci-refresh-token",
+      projectId: "ascend-production",
+    }),
+    /resolved some-other-cli, not firebase-tools/
+  );
+
+  assert.throws(
+    () => createFirestoreIndexStateReader({
+      firebaseToolsRoot: join(mismatchedPackage, "absent"),
+      refreshToken: "ci-refresh-token",
+      projectId: "ascend-production",
+    }),
+    /does not hold a package/
+  );
+});
+
+test("the pinned reader version matches every workflow firebase-tools pin", () => {
+  const workflows = [
+    ".github/workflows/deploy-production.yml",
+    ".github/workflows/deploy-staging.yml",
+  ];
+
+  for (const path of workflows) {
+    const contents = readFileSync(join(repositoryRoot, path), "utf8");
+    const pins = [...contents.matchAll(/firebase-tools@(\d+\.\d+\.\d+)/g)];
+    assert.notEqual(pins.length, 0, `No firebase-tools pin in ${path}`);
+    for (const [, version] of pins) {
+      assert.equal(
+        version,
+        PINNED_FIREBASE_TOOLS_VERSION,
+        `${path} pins firebase-tools ${version} but the index reader loads ` +
+          `${PINNED_FIREBASE_TOOLS_VERSION} internals`
+      );
+    }
+  }
+});
+
+test("index wait runs through a symlinked, space-bearing invocation path", () => {
+  assert.equal(
+    isCommandLineEntryPoint(
+      pathToFileURL(join(repositoryRoot, "scripts/ci/x.mjs")).href,
+      undefined
+    ),
+    false
+  );
+
+  const directory = mkdtempSync(join(tmpdir(), "ascend wait entry "));
+  const linkPath = join(directory, "wait-for-firestore-indexes.mjs");
+  symlinkSync(
+    join(repositoryRoot, "scripts/ci/wait-for-firestore-indexes.mjs"),
+    linkPath
+  );
+
+  const invoked = spawnSync(process.execPath, [linkPath], {encoding: "utf8"});
+
+  assert.equal(
+    invoked.status,
+    2,
+    `Expected the gate to run and reject its arguments, got ` +
+      `${invoked.status}: ${invoked.stdout}${invoked.stderr}`
+  );
+  assert.match(invoked.stderr, /Firebase project ID as the second argument/);
 });
 
 test("production release documentation orders identity backend ahead of the binary", () => {
@@ -430,6 +696,73 @@ test("production release documentation orders identity backend ahead of the bina
   );
   assert.doesNotMatch(runbook, /restore-public-identities/);
 });
+
+function pinnedFirebaseToolsStub() {
+  const directory = mkdtempSync(join(tmpdir(), "ascend-index-reader-"));
+  const firestoreDirectory = join(directory, "lib/firestore");
+  mkdirSync(firestoreDirectory, {recursive: true});
+  writeFileSync(
+    join(directory, "package.json"),
+    JSON.stringify({
+      name: "firebase-tools",
+      version: PINNED_FIREBASE_TOOLS_VERSION,
+    })
+  );
+  writeFileSync(
+    join(directory, "lib/auth.js"),
+    [
+      "exports.setRefreshToken = (token) => {",
+      "  global.__ascendFirestoreTestToken = token;",
+      "};",
+      "exports.getGlobalDefaultAccount = () => ({",
+      "  tokens: {refresh_token: \"local-refresh-token\"},",
+      "});",
+    ].join("\n")
+  );
+  writeFileSync(
+    join(firestoreDirectory, "api.js"),
+    [
+      "exports.FirestoreApi = class {",
+      "  async listIndexes(projectId, databaseId) {",
+      "    const accepted = [\"ci-refresh-token\", \"local-refresh-token\"];",
+      "    if (!accepted.includes(global.__ascendFirestoreTestToken)) {",
+      "      throw new Error(\"refresh token was not installed\");",
+      "    }",
+      "    return [{",
+      "      name: `projects/${projectId}/databases/${databaseId}/` +",
+      "        \"collectionGroups/entries/indexes/index-1\",",
+      "      queryScope: \"COLLECTION\",",
+      "      fields: [{fieldPath: \"finalSteps\", order: \"DESCENDING\"}],",
+      "      state: \"READY\",",
+      "    }];",
+      "  }",
+      "  async listFieldOverrides(projectId, databaseId) {",
+      "    return [{",
+      "      name: `projects/${projectId}/databases/${databaseId}/` +",
+      "        \"collectionGroups/entries/fields/userId\",",
+      "      indexConfig: {indexes: [{",
+      "        queryScope: \"COLLECTION_GROUP\",",
+      "        fields: [{fieldPath: \"userId\", order: \"ASCENDING\"}],",
+      "        state: \"READY\",",
+      "      }]},",
+      "    }];",
+      "  }",
+      "};",
+    ].join("\n")
+  );
+
+  return directory;
+}
+
+function escapeRegExp(value) {
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function firebaseHttpError(statusCode, message) {
+  const error = new Error(`HTTP Error: ${statusCode}, ${message}`);
+  error.status = statusCode;
+  return error;
+}
 
 function runNode(script, argumentsList, input) {
   return spawnSync(process.execPath, [script, ...argumentsList], {

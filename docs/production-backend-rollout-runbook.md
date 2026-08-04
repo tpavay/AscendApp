@@ -150,11 +150,21 @@ Do not proceed while this command exits nonzero.
 The gate reads the current serving state for every composite index and every scope inside each field override directly from the Firestore Admin API.
 It matches the deployed definitions to `firestore.indexes.json` exactly and proceeds only when every match reports `READY`.
 A missing, creating, repair-needed, unspecified, or unexpected configuration blocks Functions deployment and is named with its current state.
-The command retries transient state-read failures three times, then fails as a verification error instead of spending the full readiness window on a poll that cannot authenticate.
+
+Only `CREATING` is worth waiting on, so only `CREATING` gets the full 60-minute window.
+A freshly deployed index appears as `CREATING`, never as absent, so anything still missing or unexpected two minutes in is a definition mismatch that no amount of waiting resolves.
+The command fails those as verification errors and names every one of them with its state.
+A declared field override must exist as a Firestore resource even when it declares no indexes, so an override that was never applied cannot pass vacuously.
+
+The command separates deterministic read failures from transient ones.
+An authentication, credential, or permission rejection fails on the first poll, because every later poll fails identically and retrying only converts a visible error into a spent hour.
+A transport, DNS, throttling, or 5xx failure is retried up to fifteen consecutive polls - five minutes - before the run fails as a verification error rather than a false readiness timeout.
 
 Do not replace this command with `firebase firestore:operations:list --token` while Firebase CLI 15.22.1 is pinned.
 That command omits the CLI authentication hook, so `--token` is ignored on a clean runner even though adjacent index commands authenticate successfully.
 The direct state reader installs the workflow refresh token into the pinned CLI client explicitly and checks the state that determines whether an index can serve queries.
+Because it loads that CLI's private `lib/auth.js` and `lib/firestore/api.js`, it asserts the resolved package is exactly `firebase-tools@15.22.1` and refuses to run against any other tree.
+Bumping the CLI pin therefore requires updating `PINNED_FIREBASE_TOOLS_VERSION` in `scripts/lib/firestore-index-state-reader.mjs` and re-verifying both private modules against the new release.
 
 Rollback: do not delete a newly created additive index during an incident.
 An unused composite index does not change query results, and deleting it adds risk while providing no immediate recovery benefit.
