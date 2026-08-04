@@ -28,7 +28,7 @@ Current `develop` declares 13 composite indexes because later work also added th
 It also declares three field overrides, for `blocked.blockedUid`, `entries.userId`, and `finishers.userId`.
 All three carry a `COLLECTION_GROUP` scope, and `entries.userId` additionally restates its ascending and descending `COLLECTION`-scoped single-field indexes.
 That restatement is required because a field override replaces the field's entire index configuration, and the server's best-entry reconciliation still queries `entries` by `userId` inside a single leaderboard.
-The production workflow waits until every composite index reports `READY`, verifies that every field override is deployed with every declared scope, and requires each relevant field-index backfill operation to finish before Functions deploy.
+The production workflow waits until every composite index and every scope inside every field override reports `READY` before Functions deploy.
 
 The `cleanupDeletedUserData` function is implemented in `functions/src/accountCleanup.ts` and exported from `functions/src/index.ts`.
 It is retry-enabled, discovers all `users/{uid}` subcollections, continues independent cleanup steps after a partial failure, and throws when any cleanup step fails so Cloud Functions retries it.
@@ -104,7 +104,7 @@ The workflow performs the following order automatically:
 3. Build and retain the signed production IPA.
 4. Build the Functions and Hosting artifacts.
 5. Deploy Firestore indexes.
-6. Poll until all 13 composite indexes report `READY`, all three field overrides are deployed with every declared query scope, and their relevant Firestore admin operations are complete.
+6. Poll the Firestore Admin API until all 13 composite indexes and every declared query scope inside all three field overrides report `READY`.
 7. Deploy Functions.
 8. Verify `cleanupDeletedUserData`, `onPublicIdentityPropagationJobWritten`, `onPublicProfileIdentityWritten`, `onWorkoutWritten`, `onWorkoutReplaySplitsWritten`, and `unsubscribeFromEmails` report `ACTIVE`.
 9. Reconcile the whole deployed function set against this ref's `functions/src/index.ts` exports, failing on any missing, orphaned, or non-`ACTIVE` function.
@@ -143,8 +143,11 @@ firebase_bin="$(npm exec --yes --package=firebase-tools@15.22.1 -- which firebas
 firebase_tools_root="$(cd "$(dirname "$firebase_bin")/../firebase-tools" && pwd -P)"
 FIREBASE_TOOLS_ROOT="$firebase_tools_root" \
   node scripts/ci/wait-for-firestore-indexes.mjs \
-    firestore.indexes.json production "(default)"
+    firestore.indexes.json ascend-prod-9c8f2 "(default)"
 ```
+
+This command calls the Firestore Admin API directly rather than through the CLI's option parsing, so its second argument is the literal project ID and a `.firebaserc` alias such as `production` does not resolve.
+It authenticates with `FIREBASE_TOKEN` when that is exported, and otherwise falls back to the refresh token of the logged-in Firebase CLI account, so a captain running it by hand needs an active `firebase login` session.
 
 Do not proceed while this command exits nonzero.
 The gate reads the current serving state for every composite index and every scope inside each field override directly from the Firestore Admin API.
@@ -164,7 +167,7 @@ If a production deploy ever aborts with a definition-mismatch verdict on an over
 FIRESTORE_INDEX_STRUCTURAL_GRACE_MS=300000 \
 FIREBASE_TOOLS_ROOT="$firebase_tools_root" \
   node scripts/ci/wait-for-firestore-indexes.mjs \
-    firestore.indexes.json production "(default)"
+    firestore.indexes.json ascend-prod-9c8f2 "(default)"
 ```
 
 In CI the same knob is the `FIRESTORE_INDEX_STRUCTURAL_GRACE_MS` repository variable, read by the `Wait for every declared Firestore index` step.
@@ -349,7 +352,7 @@ The workflow must reach green before selecting or distributing the TestFlight bu
 A run that concludes `cancelled` sends no email, so do not read silence as success: an open `deploy-health` issue means production is not running the head of `main`, and it closes itself once a deploy lands.
 Then complete these captain-only checks against production.
 
-1. Confirm all declared Firestore indexes still report `READY` with the index assertion command above.
+1. Confirm all declared Firestore indexes still report `READY` with the index readiness command above.
 2. Confirm the six critical Functions still report `ACTIVE`, and that the deployed set still reconciles against the release ref, with the two function commands above.
 3. Inspect recent cleanup logs with `npx -y firebase-tools@15.22.1 functions:log --project production --only cleanupDeletedUserData --lines 50`.
 4. Create one Google smoke account and one Apple smoke account in a production-signed physical-device build.
