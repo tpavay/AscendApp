@@ -26,6 +26,11 @@ struct RoutineTimelineEditor: View {
     @State private var reorderSession: ReorderSession?
     @State private var plotWidth: CGFloat = 0
 
+    // SwiftUI resets gesture state when a gesture ends *or* is cancelled, and a cancelled
+    // gesture is the one that never calls `onEnded`. Watching this flag fall is the only
+    // report of a cancellation the editor gets.
+    @GestureState private var isGestureActive = false
+
     private static let plotCoordinateSpace = "routine-timeline-plot"
 
     var body: some View {
@@ -51,6 +56,10 @@ struct RoutineTimelineEditor: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(RoutineIntervalVoiceOver.timelineLabel)
+        .onChange(of: isGestureActive) { _, isActive in
+            guard !isActive else { return }
+            resetInteraction()
+        }
         .onChange(of: scenePhase) { _, phase in
             guard phase != .active else { return }
             resetInteraction()
@@ -223,6 +232,9 @@ struct RoutineTimelineEditor: View {
         // height is the level now, so a block resting off the baseline would draw a lie.
         .rotationEffect(.degrees(isGrabbed ? -1.5 : 0), anchor: .bottom)
         .offset(x: horizontalOffset(at: index, widths: widths), y: isGrabbed ? -18 : 0)
+        // The block draws at its own height, but it owns its whole column: the empty plot above
+        // a level-1 block is 42pt of nothing, and a finger that lands there means that block.
+        .frame(width: width, height: plotHeight, alignment: .bottom)
         .zIndex(isGrabbed ? 3 : (isSelected ? 2 : 1))
         .contentShape(.rect)
         .onTapGesture {
@@ -311,13 +323,9 @@ struct RoutineTimelineEditor: View {
 
                 if RoutineTimelineGesture.startsNewSession(
                     sessionId: reorderSession?.id,
-                    sessionStartLocation: reorderSession?.startLocation,
-                    intervalId: interval.id,
-                    startLocation: drag?.startLocation
+                    intervalId: interval.id
                 ) {
-                    beginReorder(interval: interval, index: index, startLocation: drag?.startLocation)
-                } else if reorderSession?.startLocation == nil {
-                    reorderSession?.startLocation = drag?.startLocation
+                    beginReorder(interval: interval, index: index)
                 }
 
                 guard let drag else { return }
@@ -331,11 +339,9 @@ struct RoutineTimelineEditor: View {
             .onChanged { value in
                 if RoutineTimelineGesture.startsNewSession(
                     sessionId: adjustSession?.id,
-                    sessionStartLocation: adjustSession?.startLocation,
-                    intervalId: interval.id,
-                    startLocation: value.startLocation
+                    intervalId: interval.id
                 ) {
-                    beginAdjust(interval: interval, index: index, startLocation: value.startLocation)
+                    beginAdjust(interval: interval, index: index)
                 }
                 updateAdjust(translation: value.translation)
             }
@@ -343,16 +349,17 @@ struct RoutineTimelineEditor: View {
                 endAdjust()
             }
 
-        return reorder.exclusively(before: adjust)
+        return reorder
+            .exclusively(before: adjust)
+            .updating($isGestureActive) { _, isActive, _ in isActive = true }
     }
 
-    private func beginReorder(interval: RoutineInterval, index: Int, startLocation: CGPoint?) {
+    private func beginReorder(interval: RoutineInterval, index: Int) {
         adjustSession = nil
         withAnimation(RoutineTimelineMotion.selection(reduceMotion: reduceMotion)) {
             onSelect(interval.id)
             reorderSession = ReorderSession(
                 id: interval.id,
-                startLocation: startLocation,
                 sourceIndex: index,
                 destinationIndex: index,
                 translationX: 0
@@ -397,13 +404,12 @@ struct RoutineTimelineEditor: View {
         onInteractingChange(false)
     }
 
-    private func beginAdjust(interval: RoutineInterval, index: Int, startLocation: CGPoint) {
+    private func beginAdjust(interval: RoutineInterval, index: Int) {
         reorderSession = nil
         // The step is measured against the routine as it was when the finger landed, so the
         // mapping cannot drift under the drag it is driving.
         adjustSession = AdjustSession(
             id: interval.id,
-            startLocation: startLocation,
             axis: nil,
             startLevel: interval.resolvedLevel,
             startDuration: interval.duration,
@@ -550,7 +556,6 @@ struct RoutineTimelineEditor: View {
 
     private struct AdjustSession: Equatable {
         let id: UUID
-        let startLocation: CGPoint
         var axis: Axis?
         let startLevel: Int
         let startDuration: TimeInterval
@@ -561,7 +566,6 @@ struct RoutineTimelineEditor: View {
 
     private struct ReorderSession: Equatable {
         let id: UUID
-        var startLocation: CGPoint?
         let sourceIndex: Int
         var destinationIndex: Int
         var translationX: CGFloat

@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 import Testing
 @testable import AscendApp
@@ -7,85 +6,23 @@ struct RoutineTimelineGestureTests {
     private let block = UUID()
     private let otherBlock = UUID()
 
+    /// Also the cancelled-gesture case: `@GestureState` drops the session the moment the
+    /// gesture stops being active, so the next touch - on the same block, from the same point -
+    /// finds nothing in flight and re-reads the level and duration the block stands at now.
     @Test
-    func theFirstCallbackOfAllOpensASession() {
-        #expect(
-            RoutineTimelineGesture.startsNewSession(
-                sessionId: nil,
-                sessionStartLocation: nil,
-                intervalId: block,
-                startLocation: CGPoint(x: 40, y: 90)
-            )
-        )
+    func aTouchWithNothingInFlightOpensASession() {
+        #expect(RoutineTimelineGesture.startsNewSession(sessionId: nil, intervalId: block))
     }
 
     @Test
-    func aCallbackFromTheSameTouchKeepsTheSessionItIsDriving() {
-        #expect(
-            !RoutineTimelineGesture.startsNewSession(
-                sessionId: block,
-                sessionStartLocation: CGPoint(x: 40, y: 90),
-                intervalId: block,
-                startLocation: CGPoint(x: 40, y: 90)
-            )
-        )
+    func aCallbackFromTheSessionInFlightKeepsDrivingIt() {
+        #expect(!RoutineTimelineGesture.startsNewSession(sessionId: block, intervalId: block))
     }
 
-    /// The cross-block case: a session cancelled on one block must never author the next drag
-    /// on another, or the duration lands on whichever block was last held.
+    /// A session must never author a block it does not name, or a drag lands the duration on
+    /// whichever block was last held.
     @Test
-    func aTouchOnAnotherBlockAlwaysOpensItsOwnSession() {
-        #expect(
-            RoutineTimelineGesture.startsNewSession(
-                sessionId: block,
-                sessionStartLocation: CGPoint(x: 40, y: 90),
-                intervalId: otherBlock,
-                startLocation: CGPoint(x: 40, y: 90)
-            )
-        )
-    }
-
-    /// The same-block case: a cancelled session is stale even when the next touch lands on the
-    /// block that opened it, so a fresh touch re-reads the level the climber left it at.
-    @Test
-    func aSecondTouchOnTheSameBlockOpensAFreshSession() {
-        #expect(
-            RoutineTimelineGesture.startsNewSession(
-                sessionId: block,
-                sessionStartLocation: CGPoint(x: 40, y: 90),
-                intervalId: block,
-                startLocation: CGPoint(x: 41, y: 90)
-            )
-        )
-        #expect(
-            RoutineTimelineGesture.startsNewSession(
-                sessionId: block,
-                sessionStartLocation: CGPoint(x: 40, y: 90),
-                intervalId: block,
-                startLocation: CGPoint(x: 40, y: 91)
-            )
-        )
-    }
-
-    /// A long press reports its session before the drag under it has a location. That is the
-    /// session still opening, not a second touch, so it keeps what it has.
-    @Test
-    func aSessionWaitingOnItsDragLocationIsNotTreatedAsANewTouch() {
-        #expect(
-            !RoutineTimelineGesture.startsNewSession(
-                sessionId: block,
-                sessionStartLocation: nil,
-                intervalId: block,
-                startLocation: CGPoint(x: 40, y: 90)
-            )
-        )
-        #expect(
-            !RoutineTimelineGesture.startsNewSession(
-                sessionId: block,
-                sessionStartLocation: CGPoint(x: 40, y: 90),
-                intervalId: block,
-                startLocation: nil
-            )
-        )
+    func aCallbackNamingAnotherBlockAlwaysOpensItsOwnSession() {
+        #expect(RoutineTimelineGesture.startsNewSession(sessionId: block, intervalId: otherBlock))
     }
 }
