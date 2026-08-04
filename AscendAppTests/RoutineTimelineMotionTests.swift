@@ -31,18 +31,26 @@ struct RoutineTimelineMotionTests {
     // MARK: - Source guard
 
     /// The contract above binds the builder only while the builder never names an animation
-    /// itself, so this asserts the vocabulary: neither builder file may contain a raw animation
+    /// itself, so this asserts the vocabulary: no builder file may contain a raw animation
     /// identifier at all - `.spring` and `.spring(...)` alike, and a `?? .default` fallback
     /// beside a helper call.
     ///
-    /// What this proves and nothing more: those two files construct no animation of their own,
-    /// so the Reduce Motion answer cannot be bypassed by writing one there. It does not observe
-    /// a rendered frame, and it would not catch an animation built somewhere else and handed in.
+    /// It sweeps every view the builder is made of rather than a hand-written list, because a
+    /// list goes stale the moment a component is added - which is exactly when a raw animation
+    /// gets written. The two owners are named separately below, so the sweep cannot silently
+    /// stop reading the files that actually decide the motion.
+    ///
+    /// What this proves and nothing more: those files construct no animation of their own, so
+    /// the Reduce Motion answer cannot be bypassed by writing one there. It does not observe a
+    /// rendered frame, and it would not catch an animation built somewhere else and handed in.
     @Test
-    func neitherBuilderFileNamesAnAnimationOfItsOwn() throws {
+    func noBuilderFileNamesAnAnimationOfItsOwn() throws {
         var offences: [String] = []
+        let sources = try Self.builderSources
 
-        for source in Self.builderSources {
+        #expect(sources.count >= 4, "The builder's views were not found - the guard is reading nothing")
+
+        for source in sources {
             let text = try String(contentsOf: source.url, encoding: .utf8)
 
             for (offset, rawLine) in text.components(separatedBy: .newlines).enumerated() {
@@ -52,10 +60,15 @@ struct RoutineTimelineMotionTests {
                     offences.append("\(source.name):\(offset + 1) names \(token) - \(line.trimmingCharacters(in: .whitespaces))")
                 }
             }
+        }
+
+        for name in Self.motionOwners {
+            let owner = try #require(sources.first { $0.name == name }, "\(name) is no longer in the builder's views")
+            let text = try String(contentsOf: owner.url, encoding: .utf8)
 
             #expect(
                 text.contains("RoutineTimelineMotion."),
-                "\(source.name) no longer reads RoutineTimelineMotion - the guard may be reading the wrong file"
+                "\(name) no longer reads RoutineTimelineMotion - the guard may be reading the wrong file"
             )
         }
 
@@ -134,18 +147,71 @@ struct RoutineTimelineMotionTests {
         return line.matches(of: regex).map { String(line[$0.range]) }
     }
 
-    private static var builderSources: [(name: String, url: URL)] {
-        let views = URL(filePath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(path: "AscendApp/Features/Routines/Views")
+    /// The two files that decide the builder's motion. Everything else is swept for raw
+    /// animations; these two must also still be reading the one place Reduce Motion lives.
+    private static let motionOwners = ["RoutineEditorView.swift", "RoutineTimelineEditor.swift"]
 
-        return [
-            ("RoutineEditorView.swift", views.appending(path: "RoutineEditorView.swift")),
-            (
-                "RoutineTimelineEditor.swift",
-                views.appending(path: "Components/RoutineTimelineEditor.swift")
-            )
-        ]
+    /// The routine views that are *not* the builder: the reading and browsing surfaces, the
+    /// live session, and `RoutineTimelineMotion` itself - the one file whose whole job is to
+    /// name animations. Those may legitimately spell an animation out.
+    ///
+    /// Excluding by name rather than including by name is the whole point: a builder component
+    /// added tomorrow is swept without anyone remembering to widen a list, and a naming
+    /// convention nobody predicted cannot make it disappear from the guard in silence.
+    private static let nonBuilderSources: Set<String> = [
+        "ActiveRoutineView.swift",
+        "BookmarkButton.swift",
+        "DifficultyIndicator.swift",
+        "LiveWorkoutControlButton.swift",
+        "PracticeView.swift",
+        "RoutineCard.swift",
+        "RoutineCardSurface.swift",
+        "RoutineDetailView.swift",
+        "RoutineGhostCard.swift",
+        "RoutineHeroVisualization.swift",
+        "RoutineHorizontalRail.swift",
+        "RoutineIntensityBarChart.swift",
+        "RoutineIntervalDetailRow.swift",
+        "RoutineListCard.swift",
+        "RoutineThumbnailCard.swift",
+        "RoutineTimelineMotion.swift",
+        "RoutinesView.swift",
+        "SegmentedProgressBar.swift",
+        "WorkoutCompleteView.swift"
+    ]
+
+    /// Every view under the routines feature except those, discovered rather than listed.
+    private static var builderSources: [(name: String, url: URL)] {
+        get throws {
+            try routineViewSources.filter { !nonBuilderSources.contains($0.name) }
+        }
+    }
+
+    private static var routineViewSources: [(name: String, url: URL)] {
+        get throws {
+            let views = URL(filePath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appending(path: "AscendApp/Features/Routines/Views")
+
+            return try FileManager.default
+                .subpathsOfDirectory(atPath: views.path(percentEncoded: false))
+                .filter { $0.hasSuffix(".swift") }
+                .sorted()
+                .map { (name: URL(filePath: $0).lastPathComponent, url: views.appending(path: $0)) }
+        }
+    }
+
+    /// An exclusion list rots the other way round: a file renamed or deleted leaves a name
+    /// behind that would quietly excuse a future file that happens to take it.
+    @Test
+    func theExclusionListNamesNothingThatHasGoneAway() throws {
+        let present = Set(try Self.routineViewSources.map(\.name))
+        let stale = Self.nonBuilderSources.subtracting(present).sorted()
+
+        #expect(
+            stale.isEmpty,
+            "These are excluded from the Reduce Motion sweep but no longer exist: \(stale.joined(separator: ", "))"
+        )
     }
 }

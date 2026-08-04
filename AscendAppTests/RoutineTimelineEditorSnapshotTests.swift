@@ -13,6 +13,9 @@ import UIKit
 /// drawn result in front of a reviewer.
 @MainActor
 struct RoutineTimelineEditorSnapshotTests {
+    /// The plot inside a 402pt device: 20pt screen padding and 14pt card padding each side.
+    private let plotWidth: CGFloat = 334
+
     /// The routine the design board is drawn with.
     private var boardRoutine: [RoutineInterval] {
         [
@@ -38,6 +41,29 @@ struct RoutineTimelineEditorSnapshotTests {
             RoutineInterval(duration: 30, intensityValue: 20, order: 3),
             RoutineInterval(duration: 1_140, intensityValue: 6, order: 4)
         ]
+    }
+
+    /// The shipped, featured HIIT Sprint: 1:00 warm-up, ten 0:30 bursts, 1:00 down.
+    private var hiitSprint: [RoutineInterval] {
+        let levels = [6, 22, 8, 22, 8, 18, 8, 22, 8, 18, 8, 6]
+        return levels.enumerated().map { index, level in
+            RoutineInterval(
+                duration: index == 0 || index == levels.count - 1 ? 60 : 30,
+                intensityValue: level,
+                order: index
+            )
+        }
+    }
+
+    /// A twenty-interval pyramid: no two neighbours alike, so nothing about it collapses.
+    private var pyramid: [RoutineInterval] {
+        (0..<20).map { index in
+            RoutineInterval(
+                duration: 120,
+                intensityValue: index < 10 ? 5 + index * 2 : 23 - (index - 10) * 2,
+                order: index
+            )
+        }
     }
 
     @Test
@@ -78,8 +104,136 @@ struct RoutineTimelineEditorSnapshotTests {
                 EditorSurface(intervals: boardRoutine, selectedIndex: 0)
 
                 RoutineBuilderCoachMarkOverlay(
-                    mark: .timeline,
+                    presentation: RoutineBuilderCoachMark.timeline.presentation,
                     targetRect: CGRect(x: 20, y: 78, width: 362, height: 262),
+                    containerSize: device,
+                    onNext: {},
+                    onSkip: {}
+                )
+            }
+            .frame(width: device.width, height: device.height)
+        )
+    }
+
+    /// The routine this work exists for: twelve intervals, shipped and featured, which the
+    /// unwindowed timeline drew as twelve identical 25pt blocks.
+    @Test
+    func theShippedHIITSprintIsUsable() throws {
+        try renderEvidence(
+            named: "routine-builder-long-routine",
+            content: EditorSurface(intervals: hiitSprint, selectedIndex: 0)
+        )
+    }
+
+    /// The whole routine above and the window below, on the routine the captain named: a
+    /// twenty-interval pyramid, where nothing groups and every interval differs from its
+    /// neighbour.
+    @Test
+    func aTwentyIntervalPyramidKeepsItsWholeShapeOnScreen() throws {
+        try renderEvidence(
+            named: "routine-builder-pyramid-window",
+            content: EditorSurface(intervals: pyramid, selectedIndex: 9)
+        )
+    }
+
+    /// The threshold, both sides of it in one frame. Seven intervals fit, so the screen carries
+    /// no navigation at all; the eighth brings the overview. Symmetric, as decided: deleting
+    /// back to seven is this same pair read right to left.
+    @Test
+    func theOverviewArrivesWithTheEighthIntervalAndLeavesWithoutIt() throws {
+        let sevenFit = Array(hiitSprint.prefix(7))
+        let eightDoNot = Array(hiitSprint.prefix(8))
+
+        #expect(RoutineTimelineWindow.isEngaged(intervalCount: sevenFit.count, availableWidth: 334) == false)
+        #expect(RoutineTimelineWindow.isEngaged(intervalCount: eightDoNot.count, availableWidth: 334))
+
+        try renderEvidence(
+            named: "routine-builder-threshold",
+            content: HStack(alignment: .top, spacing: 0) {
+                CaptionedSurface(caption: "7 INTERVALS - THEY FIT, NO OVERVIEW", intervals: sevenFit)
+                CaptionedSurface(caption: "8 INTERVALS - THE OVERVIEW ARRIVES", intervals: eightDoNot)
+            }
+            .background(Color.black)
+        )
+    }
+
+    /// The whole interaction, frame by frame: the drag resolves through the same
+    /// `RoutineTimelineWindow.start(forLeadingFraction:)` the overview's gesture calls, so each
+    /// row is the window a climber lands on holding their finger at that point of the ridge.
+    @Test
+    func draggingTheOverviewCarriesTheWindowAcrossTheRoutine() throws {
+        let durations = pyramid.map(\.duration)
+        // The last one is past the end on purpose: the window stops on the final seven rather
+        // than running off it.
+        let fractions: [Double] = [0, 0.25, 0.5, 1]
+
+        let frames = fractions.map { fraction in
+            let start = RoutineTimelineWindow.start(
+                forLeadingFraction: fraction,
+                durations: durations,
+                availableWidth: plotWidth
+            )
+            return (
+                fraction: fraction,
+                range: RoutineTimelineWindow.visibleRange(
+                    startIndex: start,
+                    intervalCount: pyramid.count,
+                    availableWidth: plotWidth
+                )
+            )
+        }
+
+        // The drag has to actually travel, and it has to stop on the last seven rather than
+        // running off the end.
+        #expect(frames.first?.range == 0..<7)
+        #expect(frames.last?.range == 13..<20)
+        #expect(Set(frames.map(\.range.lowerBound)).count == frames.count)
+
+        try renderEvidence(
+            named: "routine-builder-overview-drag",
+            content: VStack(alignment: .leading, spacing: 18) {
+                ForEach(frames, id: \.fraction) { frame in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("FINGER AT \(Int(frame.fraction * 100))% - VIEWING INTERVALS \(frame.range.lowerBound + 1)-\(frame.range.upperBound)")
+                            .font(.montserratSemiBold(size: 10))
+                            .tracking(0.8)
+                            .foregroundStyle(Color.accent)
+
+                        RoutineTimelineOverview(
+                            intervals: pyramid,
+                            visibleRange: frame.range,
+                            onScrub: { _ in },
+                            onStep: { _ in },
+                            onScrubbingChange: { _ in }
+                        )
+                        .frame(width: plotWidth)
+                    }
+                }
+            }
+            .padding(20)
+            .background(Color.black)
+            .environment(\.colorScheme, .dark)
+        )
+    }
+
+    /// The one-off mark, spotlighting the overview rather than the timeline, with a single
+    /// dot and a single Got it.
+    @Test
+    func theWindowCoachMarkSpotlightsTheOverview() throws {
+        let device = CGSize(width: 402, height: 874)
+
+        try renderEvidence(
+            named: "routine-builder-window-coach-mark",
+            content: ZStack(alignment: .top) {
+                Color.black
+
+                EditorSurface(intervals: hiitSprint, selectedIndex: 0)
+
+                RoutineBuilderCoachMarkOverlay(
+                    presentation: RoutineWindowCoachMark.presentation,
+                    // The overview's own bounds on this surface: the card's content inset, and
+                    // the label plus the ridge it labels.
+                    targetRect: CGRect(x: 34, y: 88, width: 334, height: 58),
                     containerSize: device,
                     onNext: {},
                     onSkip: {}
@@ -117,6 +271,28 @@ struct RoutineTimelineEditorSnapshotTests {
         #expect(image.size.width > 0)
         #expect(image.size.height > 0)
         #expect(png.count > 5_000)
+    }
+}
+
+/// One editor surface with a caption above it, so two of them read as a before and an after.
+private struct CaptionedSurface: View {
+    let caption: String
+    let intervals: [RoutineInterval]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(caption)
+                .font(.montserratSemiBold(size: 11))
+                .tracking(0.8)
+                .foregroundStyle(Color.accent)
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+
+            EditorSurface(intervals: intervals, selectedIndex: 0)
+        }
+        .frame(width: 402)
+        .background(Color.black)
+        .environment(\.colorScheme, .dark)
     }
 }
 

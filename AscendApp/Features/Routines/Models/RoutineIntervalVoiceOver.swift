@@ -7,6 +7,16 @@ enum RoutineIntervalVoiceOver {
     static let levelHint = "Swipe up or down to change the level."
     static let timelineLabel = "Routine timeline"
 
+    /// The overview is a drag, so it needs the same treatment the blocks got: a spoken way to
+    /// move the window one interval at a time.
+    static let overviewLabel = "Routine overview"
+    static let overviewHint = "Swipe up or down to change which intervals you're viewing."
+
+    static func overviewValue(visibleRange: Range<Int>, count: Int) -> String {
+        guard !visibleRange.isEmpty else { return "Showing every interval" }
+        return "Showing intervals \(visibleRange.lowerBound + 1) to \(visibleRange.upperBound) of \(count)"
+    }
+
     /// Rotor actions, in the order the design board lists them.
     enum Action {
         static let addTime = "Add 30 seconds"

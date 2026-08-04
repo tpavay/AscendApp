@@ -3,10 +3,18 @@ import SwiftUI
 /// The routine builder's hero surface. The timeline is the routine: every block carries its
 /// own level and duration, and five gestures author it - tap to select, drag up for the
 /// level, drag sideways for the time, long-press to reorder, and + below to add.
+///
+/// Past the point where the intervals stop fitting, the whole routine moves to an overview
+/// above and the strip below becomes a working window onto it. Fit to width is unchanged; it
+/// applies to the window instead of to the routine, so the interval count can never be what
+/// puts a block under a fingertip.
 struct RoutineTimelineEditor: View {
     let intervals: [RoutineInterval]
     let selectedIntervalId: UUID?
     var plotHeight: CGFloat = 210
+    /// The editor owns the threshold, and the screen around it needs to know when it is crossed
+    /// so the coach mark can fire the first time.
+    var onWindowEngagedChange: (Bool) -> Void = { _ in }
 
     let onSelect: (UUID) -> Void
     let onSetLevel: (UUID, Int) -> Void
@@ -25,6 +33,13 @@ struct RoutineTimelineEditor: View {
     @State private var adjustSession: AdjustSession?
     @State private var reorderSession: ReorderSession?
     @State private var plotWidth: CGFloat = 0
+    /// Where the climber has put the window, once they have moved it. Until then the window is
+    /// derived from the selection, so the strip opens on the right intervals in the pass that
+    /// first draws it rather than being corrected a frame later.
+    @State private var scrubbedWindowStart: Int?
+    /// Non-zero while a lifted block is held past an end of the window, which is the only travel
+    /// left once the finger has run out of screen.
+    @State private var edgeAdvanceDirection = 0
 
     // SwiftUI resets gesture state when a gesture ends *or* is cancelled, and a cancelled
     // gesture is the one that never calls `onEnded`. Watching this flag fall is the only
@@ -39,6 +54,11 @@ struct RoutineTimelineEditor: View {
                 ghostPlot
                 emptyState
             } else {
+                if isWindowEngaged {
+                    overview
+                        .padding(.bottom, 12)
+                }
+
                 plot
                 ruler
             }
@@ -54,6 +74,9 @@ struct RoutineTimelineEditor: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(.white.opacity(0.06), lineWidth: 1)
         )
+        // Keyed on the count, not on engagement: the overview arriving because a climber added
+        // an interval is a change they made, and the first measurement of the strip is not.
+        .animation(RoutineTimelineMotion.resize(reduceMotion: reduceMotion), value: intervals.count)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(RoutineIntervalVoiceOver.timelineLabel)
         .onChange(of: isGestureActive) { _, isActive in
@@ -64,36 +87,73 @@ struct RoutineTimelineEditor: View {
             guard phase != .active else { return }
             resetInteraction()
         }
+        .onChange(of: isWindowEngaged, initial: true) { _, isEngaged in
+            onWindowEngagedChange(isEngaged)
+        }
+        .onChange(of: selectedIntervalId) { _, id in
+            followSelection(id)
+        }
+        .onChange(of: intervals.count) { _, _ in
+            guard scrubbedWindowStart != nil else { return }
+            scrubbedWindowStart = visibleRange.lowerBound
+        }
+        .task(id: edgeAdvanceDirection) {
+            await walkWindowWhileHeldAtTheEdge(direction: edgeAdvanceDirection)
+        }
         .onDisappear {
             resetInteraction()
         }
+    }
+
+    // MARK: - Overview
+
+    /// The whole routine, so choosing what to edit never means losing sight of what you built.
+    private var overview: some View {
+        RoutineTimelineOverview(
+            intervals: intervals,
+            visibleRange: visibleRange,
+            onScrub: scrubWindow(toLeadingFraction:),
+            onStep: stepWindow(by:),
+            onScrubbingChange: onInteractingChange
+        )
+        .routineCoachMarkTarget(.overview)
     }
 
     // MARK: - Plot
 
     private var plot: some View {
         GeometryReader { proxy in
-            // Widths are solved in the same layout pass they are drawn in; `plotWidth` is
-            // only kept so a drag can convert finger travel into 30-second steps.
+            // Widths are solved in the same layout pass they are drawn in, from the same width
+            // the range was solved with, so the strip never renders a slice it has not sized.
+            let range = RoutineTimelineWindow.visibleRange(
+                startIndex: windowStart(availableWidth: proxy.size.width),
+                intervalCount: intervals.count,
+                availableWidth: proxy.size.width
+            )
+            let visible = intervals[range]
             let widths = RoutineTimelineLayout.blockWidths(
-                durations: intervals.map(\.duration),
+                durations: visible.map(\.duration),
                 availableWidth: proxy.size.width
             )
 
             HStack(alignment: .bottom, spacing: RoutineTimelineLayout.blockSpacing) {
-                ForEach(Array(intervals.enumerated()), id: \.element.id) { index, interval in
+                ForEach(Array(visible.enumerated()), id: \.element.id) { localIndex, interval in
                     blockView(
                         interval: interval,
-                        index: index,
-                        width: widths[safe: index] ?? 0,
-                        widths: widths
+                        index: range.lowerBound + localIndex,
+                        localIndex: localIndex,
+                        width: widths[safe: localIndex] ?? 0,
+                        widths: widths,
+                        range: range
                     )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            .onAppear { plotWidth = proxy.size.width }
-            .onChange(of: proxy.size.width) { _, width in plotWidth = width }
         }
+        // Measured during layout rather than on appear, so the strip knows how much it holds
+        // in the pass that draws it - the overview is decided by this, and a renderer that
+        // never runs a lifecycle would otherwise draw a long routine as if it fitted.
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { plotWidth = $0 }
         .frame(height: plotHeight)
         .coordinateSpace(.named(Self.plotCoordinateSpace))
         .animation(resizeAnimation, value: intervals)
@@ -137,10 +197,22 @@ struct RoutineTimelineEditor: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// The ruler describes the strip above it, which is the window once there is one - so a
+    /// window that opens six minutes into the routine is labelled from six.
     private var ruler: some View {
-        let ticks = RoutineTimelineRuler.ticks(totalDuration: totalDuration)
+        GeometryReader { proxy in
+            // Solved from the width that draws it, like the plot above - the two describe the
+            // same strip, so they must never be one pass apart about which slice that is.
+            let range = RoutineTimelineWindow.visibleRange(
+                startIndex: windowStart(availableWidth: proxy.size.width),
+                intervalCount: intervals.count,
+                availableWidth: proxy.size.width
+            )
+            let ticks = RoutineTimelineRuler.ticks(
+                startTime: elapsedTime(before: range.lowerBound),
+                endTime: elapsedTime(before: range.upperBound)
+            )
 
-        return GeometryReader { proxy in
             ZStack(alignment: .topLeading) {
                 ForEach(Array(ticks.enumerated()), id: \.element.id) { index, tick in
                     Text(tick.text)
@@ -175,8 +247,10 @@ struct RoutineTimelineEditor: View {
     private func blockView(
         interval: RoutineInterval,
         index: Int,
+        localIndex: Int,
         width: CGFloat,
-        widths: [CGFloat]
+        widths: [CGFloat],
+        range: Range<Int>
     ) -> some View {
         let level = interval.resolvedLevel
         let height = plotHeight * RoutineIntervalScale.heightFraction(forLevel: level)
@@ -231,7 +305,7 @@ struct RoutineTimelineEditor: View {
         // The lift is the only vertical move a block ever makes, and it is undone on the drop -
         // height is the level now, so a block resting off the baseline would draw a lie.
         .rotationEffect(.degrees(isGrabbed ? -1.5 : 0), anchor: .bottom)
-        .offset(x: horizontalOffset(at: index, widths: widths), y: isGrabbed ? -18 : 0)
+        .offset(x: horizontalOffset(localIndex: localIndex, widths: widths, range: range), y: isGrabbed ? -18 : 0)
         // The block draws at its own height, but it owns its whole column: the empty plot above
         // a level-1 block is 42pt of nothing, and a finger that lands there means that block.
         .frame(width: width, height: plotHeight, alignment: .bottom)
@@ -243,7 +317,9 @@ struct RoutineTimelineEditor: View {
             }
             HapticsManager.shared.trigger(.selection)
         }
-        .highPriorityGesture(blockGesture(interval: interval, index: index, widths: widths))
+        .highPriorityGesture(
+            blockGesture(interval: interval, index: index, localIndex: localIndex, widths: widths, range: range)
+        )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(RoutineIntervalVoiceOver.label(position: index + 1, count: intervals.count))
         .accessibilityValue(RoutineIntervalVoiceOver.value(for: interval))
@@ -312,7 +388,9 @@ struct RoutineTimelineEditor: View {
     private func blockGesture(
         interval: RoutineInterval,
         index: Int,
-        widths: [CGFloat]
+        localIndex: Int,
+        widths: [CGFloat],
+        range: Range<Int>
     ) -> some Gesture {
         // A short hold with almost no travel is the reorder. Anything that moves first is a
         // level or a time edit, so a deliberate one-level nudge never lifts the block.
@@ -328,8 +406,15 @@ struct RoutineTimelineEditor: View {
                     beginReorder(interval: interval, index: index)
                 }
 
+                // The long press lifts the block before any drag exists; the finger's grip on
+                // it is only knowable once one does.
                 guard let drag else { return }
-                updateReorder(translationX: drag.translation.width, widths: widths)
+                updateReorder(
+                    startLocationX: drag.startLocation.x,
+                    locationX: drag.location.x,
+                    widths: widths,
+                    range: range
+                )
             }
             .onEnded { _ in
                 endReorder()
@@ -341,7 +426,7 @@ struct RoutineTimelineEditor: View {
                     sessionId: adjustSession?.id,
                     intervalId: interval.id
                 ) {
-                    beginAdjust(interval: interval, index: index)
+                    beginAdjust(interval: interval, range: range)
                 }
                 updateAdjust(translation: value.translation)
             }
@@ -356,29 +441,44 @@ struct RoutineTimelineEditor: View {
 
     private func beginReorder(interval: RoutineInterval, index: Int) {
         adjustSession = nil
+
         withAnimation(RoutineTimelineMotion.selection(reduceMotion: reduceMotion)) {
             onSelect(interval.id)
             reorderSession = ReorderSession(
                 id: interval.id,
                 sourceIndex: index,
-                destinationIndex: index,
-                translationX: 0
+                destinationIndex: index
             )
         }
         HapticsManager.shared.trigger(.mediumImpact)
         onInteractingChange(true)
     }
 
-    private func updateReorder(translationX: CGFloat, widths: [CGFloat]) {
+    private func updateReorder(
+        startLocationX: CGFloat,
+        locationX: CGFloat,
+        widths: [CGFloat],
+        range: Range<Int>
+    ) {
         guard var session = reorderSession else { return }
 
-        session.translationX = translationX
+        session.locationX = locationX
 
-        let originX = RoutineTimelineLayout.blockOriginX(at: session.sourceIndex, widths: widths)
-        let width = widths[safe: session.sourceIndex] ?? 0
-        let destination = RoutineTimelineLayout.reorderDestinationIndex(
-            draggedIndex: session.sourceIndex,
-            draggedCenterX: originX + width / 2 + translationX,
+        let localSource = session.sourceIndex - range.lowerBound
+        let width = widths[safe: localSource] ?? 0
+
+        // The finger holds the block at the point it grabbed it, so the block stays welded to
+        // it however the strip resequences underneath - including when the window walks along.
+        let grabOffset = session.grabOffset ?? min(
+            max(startLocationX - RoutineTimelineLayout.blockOriginX(at: localSource, widths: widths), 0),
+            width
+        )
+        session.grabOffset = grabOffset
+
+        let centerX = locationX - grabOffset + width / 2
+        let destination = range.lowerBound + RoutineTimelineLayout.reorderDestinationIndex(
+            draggedIndex: localSource,
+            draggedCenterX: centerX,
             widths: widths
         )
 
@@ -391,11 +491,19 @@ struct RoutineTimelineEditor: View {
         } else {
             reorderSession = session
         }
+
+        edgeAdvanceDirection = RoutineTimelineWindow.edgeAdvance(
+            draggedCenterX: centerX,
+            widths: widths,
+            range: range,
+            intervalCount: intervals.count
+        )
     }
 
     private func endReorder() {
         guard let session = reorderSession else { return }
 
+        edgeAdvanceDirection = 0
         withAnimation(RoutineTimelineMotion.reorder(reduceMotion: reduceMotion)) {
             onMove(session.sourceIndex, session.destinationIndex)
             reorderSession = nil
@@ -404,10 +512,54 @@ struct RoutineTimelineEditor: View {
         onInteractingChange(false)
     }
 
-    private func beginAdjust(interval: RoutineInterval, index: Int) {
+    /// A block held past the end of the window carries it along, one interval per beat. Without
+    /// this a long routine could only ever be reordered inside one window's neighbourhood, and
+    /// the finger has no screen left to travel across.
+    @MainActor
+    private func walkWindowWhileHeldAtTheEdge(direction: Int) async {
+        guard direction != 0 else { return }
+
+        while !Task.isCancelled {
+            try? await Task.sleep(for: RoutineTimelineWindow.edgeAdvanceInterval)
+            guard !Task.isCancelled, reorderSession != nil else { return }
+            advanceWindowUnderDrag(direction: direction)
+        }
+    }
+
+    @MainActor
+    private func advanceWindowUnderDrag(direction: Int) {
+        guard var session = reorderSession else { return }
+
+        let range = visibleRange
+        let target = direction > 0 ? range.upperBound : range.lowerBound - 1
+        guard intervals.indices.contains(target) else {
+            edgeAdvanceDirection = 0
+            return
+        }
+
+        withAnimation(RoutineTimelineMotion.reorder(reduceMotion: reduceMotion)) {
+            // The pending drop lands, plus one step past the edge, and the window follows the
+            // block it is carrying - so the block stays in the same slot under the finger.
+            onMove(session.sourceIndex, target)
+            session.sourceIndex = target
+            session.destinationIndex = target
+            reorderSession = session
+            scrubbedWindowStart = RoutineTimelineWindow.start(
+                bringingIntoView: target,
+                from: range.lowerBound,
+                intervalCount: intervals.count,
+                availableWidth: plotWidth
+            )
+        }
+        HapticsManager.shared.trigger(.lightImpact)
+    }
+
+    private func beginAdjust(interval: RoutineInterval, range: Range<Int>) {
         reorderSession = nil
-        // The step is measured against the routine as it was when the finger landed, so the
-        // mapping cannot drift under the drag it is driving.
+        // The step is measured against the strip as it was when the finger landed, so the
+        // mapping cannot drift under the drag it is driving. The strip is the window, so a long
+        // routine's blocks stay as responsive as a short one's.
+        let visibleDurations = intervals[range].map(\.duration)
         adjustSession = AdjustSession(
             id: interval.id,
             axis: nil,
@@ -416,8 +568,8 @@ struct RoutineTimelineEditor: View {
             lastLevel: interval.resolvedLevel,
             lastDuration: interval.duration,
             pointsPerDurationStep: RoutineTimelineLayout.pointsPerDurationStep(
-                contentWidth: plotWidth - RoutineTimelineLayout.blockSpacing * CGFloat(max(intervals.count - 1, 0)),
-                totalDuration: totalDuration
+                contentWidth: plotWidth - RoutineTimelineLayout.blockSpacing * CGFloat(max(range.count - 1, 0)),
+                totalDuration: visibleDurations.reduce(0, +)
             )
         )
 
@@ -481,6 +633,7 @@ struct RoutineTimelineEditor: View {
     /// backgrounding, the editor going away - never delivers `onEnded`, and an interaction
     /// left latched on would keep swipe-to-dismiss disabled for the rest of the sheet.
     private func resetInteraction() {
+        edgeAdvanceDirection = 0
         withAnimation(RoutineTimelineMotion.resize(reduceMotion: reduceMotion)) {
             adjustSession = nil
             reorderSession = nil
@@ -488,31 +641,116 @@ struct RoutineTimelineEditor: View {
         onInteractingChange(false)
     }
 
-    // MARK: - Derived
+    // MARK: - Window
 
-    private var totalDuration: TimeInterval {
-        intervals.reduce(0) { $0 + $1.duration }
+    private var isWindowEngaged: Bool {
+        RoutineTimelineWindow.isEngaged(intervalCount: intervals.count, availableWidth: plotWidth)
     }
+
+    /// Where the window opens: wherever the climber last dragged it to, or - before they have -
+    /// wherever the selected block is.
+    private func windowStart(availableWidth: CGFloat) -> Int {
+        if let scrubbedWindowStart { return scrubbedWindowStart }
+
+        return RoutineTimelineWindow.start(
+            bringingIntoView: selectedIndex ?? 0,
+            from: 0,
+            intervalCount: intervals.count,
+            availableWidth: availableWidth
+        )
+    }
+
+    private var visibleRange: Range<Int> {
+        RoutineTimelineWindow.visibleRange(
+            startIndex: windowStart(availableWidth: plotWidth),
+            intervalCount: intervals.count,
+            availableWidth: plotWidth
+        )
+    }
+
+    private var selectedIndex: Int? {
+        guard let selectedIntervalId else { return nil }
+        return intervals.firstIndex { $0.id == selectedIntervalId }
+    }
+
+    /// Where an interval starts on the routine's clock.
+    private func elapsedTime(before index: Int) -> TimeInterval {
+        intervals[..<min(max(index, 0), intervals.count)].reduce(0) { $0 + $1.duration }
+    }
+
+    /// Dragging the overview is the only way to move the window by hand.
+    private func scrubWindow(toLeadingFraction fraction: Double) {
+        let start = RoutineTimelineWindow.start(
+            forLeadingFraction: fraction,
+            durations: intervals.map(\.duration),
+            availableWidth: plotWidth
+        )
+        guard start != visibleRange.lowerBound else { return }
+
+        scrubbedWindowStart = start
+        HapticsManager.shared.trigger(.selection)
+    }
+
+    private func stepWindow(by offset: Int) {
+        let start = RoutineTimelineWindow.visibleRange(
+            startIndex: visibleRange.lowerBound + offset,
+            intervalCount: intervals.count,
+            availableWidth: plotWidth
+        ).lowerBound
+        guard start != visibleRange.lowerBound else { return }
+
+        withAnimation(RoutineTimelineMotion.resize(reduceMotion: reduceMotion)) {
+            scrubbedWindowStart = start
+        }
+    }
+
+    /// A block that has just been added, or the neighbour a delete left selected, has to be on
+    /// screen: a new block lands Standard at level 1 and exists to be dragged.
+    private func followSelection(_ id: UUID?) {
+        guard reorderSession == nil else { return }
+        guard let id, let index = intervals.firstIndex(where: { $0.id == id }) else { return }
+
+        let current = visibleRange.lowerBound
+        let start = RoutineTimelineWindow.start(
+            bringingIntoView: index,
+            from: current,
+            intervalCount: intervals.count,
+            availableWidth: plotWidth
+        )
+        guard start != current else { return }
+
+        withAnimation(RoutineTimelineMotion.resize(reduceMotion: reduceMotion)) {
+            scrubbedWindowStart = start
+        }
+    }
+
+    // MARK: - Derived
 
     private var isAdjustingDuration: Bool {
         adjustSession?.axis == .horizontal
     }
 
     /// While a block is lifted its neighbours part rather than the list resequencing, so
-    /// nothing renumbers under the finger.
-    private func horizontalOffset(at index: Int, widths: [CGFloat]) -> CGFloat {
+    /// nothing renumbers under the finger. The lifted block itself is drawn where the finger
+    /// is holding it, which is why the window can move out from under it without it moving.
+    private func horizontalOffset(localIndex: Int, widths: [CGFloat], range: Range<Int>) -> CGFloat {
         guard let session = reorderSession else { return 0 }
 
-        if index == session.sourceIndex {
-            return session.translationX
+        let localSource = session.sourceIndex - range.lowerBound
+        let localDestination = session.destinationIndex - range.lowerBound
+
+        if localIndex == localSource {
+            guard let grabOffset = session.grabOffset else { return 0 }
+            let origin = RoutineTimelineLayout.blockOriginX(at: localIndex, widths: widths)
+            return session.locationX - grabOffset - origin
         }
 
-        let slot = (widths[safe: session.sourceIndex] ?? 0) + RoutineTimelineLayout.blockSpacing
+        let slot = (widths[safe: localSource] ?? 0) + RoutineTimelineLayout.blockSpacing
 
-        if session.destinationIndex <= index, index < session.sourceIndex {
+        if localDestination <= localIndex, localIndex < localSource {
             return slot
         }
-        if session.sourceIndex < index, index <= session.destinationIndex {
+        if localSource < localIndex, localIndex <= localDestination {
             return -slot
         }
         return 0
@@ -566,9 +804,13 @@ struct RoutineTimelineEditor: View {
 
     private struct ReorderSession: Equatable {
         let id: UUID
-        let sourceIndex: Int
+        /// Both are indices into the whole routine, not into the window.
+        var sourceIndex: Int
         var destinationIndex: Int
-        var translationX: CGFloat
+        /// The finger in plot coordinates, and where inside the block it landed. Both stay
+        /// unknown between the lift and the first drag, and the block simply rests in place.
+        var locationX: CGFloat = 0
+        var grabOffset: CGFloat?
     }
 }
 
@@ -592,6 +834,37 @@ private extension Array {
     RoutineTimelineEditor(
         intervals: intervals,
         selectedIntervalId: selected ?? intervals[0].id,
+        onSelect: { selected = $0 },
+        onSetLevel: { _, _ in },
+        onSetDuration: { _, _ in },
+        onAdjustLevel: { _, _ in },
+        onAdjustDuration: { _, _ in },
+        onCycleStepType: { _ in },
+        onDelete: { _ in },
+        onMove: { _, _ in },
+        onInteractingChange: { _ in }
+    )
+    .padding(20)
+    .background(Color.black)
+    .preferredColorScheme(.dark)
+}
+
+#Preview("HIIT Sprint - twelve intervals") {
+    @Previewable @State var selected: UUID?
+
+    // The shipped, featured template: 1:00 warm-up, ten 0:30 bursts, 1:00 down.
+    let levels = [6, 22, 8, 22, 8, 18, 8, 22, 8, 18, 8, 6]
+    let intervals = levels.enumerated().map { index, level in
+        RoutineInterval(
+            duration: index == 0 || index == levels.count - 1 ? 60 : 30,
+            intensityValue: level,
+            order: index
+        )
+    }
+
+    RoutineTimelineEditor(
+        intervals: intervals,
+        selectedIntervalId: selected ?? intervals.first?.id,
         onSelect: { selected = $0 },
         onSetLevel: { _, _ in },
         onSetDuration: { _, _ in },
