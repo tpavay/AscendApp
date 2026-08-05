@@ -23,7 +23,10 @@ struct AnalyticsConfiguration: Equatable {
         mixpanelProjectID = Self.normalizedProjectID(infoDictionary[Self.mixpanelProjectIDInfoKey])
     }
 
-    func validatedMixpanelToken(for metadata: TelemetryBuildMetadata) throws -> String? {
+    /// Takes a validated envelope so the environment and build configuration
+    /// have already been proven to agree; this only maps the environment to the
+    /// one Mixpanel project allowed to receive it.
+    func validatedMixpanelToken(for envelope: TelemetryEnvelope) throws -> String? {
         guard mixpanelToken != nil || mixpanelProjectID != nil else {
             return nil
         }
@@ -31,10 +34,10 @@ struct AnalyticsConfiguration: Equatable {
             throw ValidationError.incompleteDestination
         }
 
-        let expectedProjectID: String? = switch (metadata.appEnvironment, metadata.buildConfig) {
-        case ("dev", "debug"): "4032860"
-        case ("staging", "staging"): "4051102"
-        case ("production", "release"): "4051100"
+        let expectedProjectID: String? = switch envelope.appEnvironment {
+        case "dev": "4032860"
+        case "staging": "4051102"
+        case "production": "4051100"
         default: nil
         }
 

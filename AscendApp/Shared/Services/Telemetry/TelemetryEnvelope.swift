@@ -7,6 +7,13 @@ struct TelemetryEnvelope: Sendable, Hashable, Equatable {
         case missingBuildNumber
     }
 
+    static let propertyKeys: Set<String> = [
+        "app_environment",
+        "build_config",
+        "app_version",
+        "build_number"
+    ]
+
     let appEnvironment: String
     let buildConfig: String
     let appVersion: String
@@ -19,6 +26,16 @@ struct TelemetryEnvelope: Sendable, Hashable, Equatable {
             "app_version": .string(appVersion),
             "build_number": .string(buildNumber)
         ]
+    }
+
+    /// Never fails, so a bundle missing a version key still ships a complete
+    /// envelope to Firebase, Crashlytics, and Sentry. Only Mixpanel demands the
+    /// validated envelope, because only Mixpanel routes by environment.
+    init(resolving metadata: TelemetryBuildMetadata) {
+        appEnvironment = metadata.appEnvironment
+        buildConfig = metadata.buildConfig
+        appVersion = metadata.resolvedAppVersion
+        buildNumber = metadata.resolvedBuildNumber
     }
 
     init(validating metadata: TelemetryBuildMetadata) throws {

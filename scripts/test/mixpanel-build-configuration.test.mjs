@@ -41,7 +41,9 @@ test("the Release bundle contract accepts only the production destination", asyn
   assert.deepEqual(
     builtBundleReasons("Release", {
       AscendMixpanelProjectID: release.projectID,
-      AscendMixpanelToken: release.token
+      AscendMixpanelToken: release.token,
+      CFBundleShortVersionString: "1.0",
+      CFBundleVersion: "2"
     }),
     []
   );
@@ -49,6 +51,23 @@ test("the Release bundle contract accepts only the production destination", asyn
   assert.notEqual(release.token, configurations.get("Debug").token);
   assert.notEqual(release.token, configurations.get("Staging").token);
   assert.equal(release.projectID, MIXPANEL_CONFIGURATION_CONTRACTS.get("Release").projectID);
+});
+
+test("the bundle contract rejects an archive whose telemetry envelope cannot validate", async () => {
+  const project = await readFile(projectPath, "utf8");
+  const release = mixpanelConfigurationsFromProject(project).get("Release");
+
+  const reasons = builtBundleReasons("Release", {
+    AscendMixpanelProjectID: release.projectID,
+    AscendMixpanelToken: release.token,
+    CFBundleShortVersionString: " ",
+    CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+  });
+
+  assert.deepEqual(reasons, [
+    "Release bundle has no expanded CFBundleShortVersionString, so its telemetry envelope cannot validate.",
+    "Release bundle has no expanded CFBundleVersion, so its telemetry envelope cannot validate."
+  ]);
 });
 
 test("Info.plist expands both Mixpanel build settings", async () => {

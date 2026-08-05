@@ -103,7 +103,7 @@ private extension DebugTelemetryConsoleEntry {
 
     static func displayParameters(from rawParameters: [String: TelemetryValue]) -> [Parameter] {
         rawParameters
-            .filter { $0.key != "app_environment" }
+            .filter { TelemetryEnvelope.propertyKeys.contains($0.key) == false }
             .sorted { $0.key < $1.key }
             .map {
                 Parameter(
@@ -180,8 +180,6 @@ private extension DebugTelemetryConsoleEntry {
             return "Updated Existing"
         case "failed_count_bucket":
             return "Failed"
-        case "app_environment":
-            return "Environment"
         default:
             return humanizedTitle(rawKey)
         }

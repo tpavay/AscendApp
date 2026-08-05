@@ -30,19 +30,21 @@ struct AnalyticsConfigurationTests {
     }
 
     @Test
-    func destinationMustMatchTheCompiledEnvironment() {
+    func destinationMustMatchTheCompiledEnvironment() throws {
         let configuration = AnalyticsConfiguration(
             infoDictionary: [
                 AnalyticsConfiguration.mixpanelTokenInfoKey: "token",
                 AnalyticsConfiguration.mixpanelProjectIDInfoKey: "4051100"
             ]
         )
-        let staging = TelemetryBuildMetadata(
-            appEnvironment: "staging",
-            buildConfig: "staging",
-            appVersion: "1.2.3",
-            buildNumber: "456",
-            bundleIdentifier: "com.tylerpavay.AscendApp.staging"
+        let staging = try TelemetryEnvelope(
+            validating: TelemetryBuildMetadata(
+                appEnvironment: "staging",
+                buildConfig: "staging",
+                appVersion: "1.2.3",
+                buildNumber: "456",
+                bundleIdentifier: "com.tylerpavay.AscendApp.staging"
+            )
         )
 
         do {
@@ -53,5 +55,18 @@ struct AnalyticsConfigurationTests {
         } catch {
             Issue.record("Unexpected validation error: \(error)")
         }
+    }
+
+    /// The Swift environment-to-project map, the pbxproj build settings, and the
+    /// Node contract are three files that must agree; this proves the compiled
+    /// bundle resolves a destination for the configuration it was compiled as.
+    /// Nothing here reads or reports the token value.
+    @Test
+    func compiledBundleResolvesADestinationForItsOwnEnvironment() throws {
+        let envelope = try TelemetryEnvelope(validating: .current)
+        let resolvedADestination = try AnalyticsConfiguration.live
+            .validatedMixpanelToken(for: envelope) != nil
+
+        #expect(resolvedADestination)
     }
 }

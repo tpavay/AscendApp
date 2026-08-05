@@ -111,6 +111,14 @@ export function builtBundleReasons(configurationName, infoDictionary) {
     reasons.push(`${configurationName} bundle resolved a token that does not belong to its project.`);
   }
 
+  // The telemetry envelope refuses to validate without both version keys, so a
+  // bundle missing one would ship with Mixpanel silently disabled.
+  for (const key of ["CFBundleShortVersionString", "CFBundleVersion"]) {
+    if (!isExpandedValue(infoDictionary[key])) {
+      reasons.push(`${configurationName} bundle has no expanded ${key}, so its telemetry envelope cannot validate.`);
+    }
+  }
+
   return reasons;
 }
 

@@ -594,12 +594,12 @@ jobs:
           echo "Selected simulator ${simulator_id} on ${runtime}."
           echo "id=$simulator_id" >> "$GITHUB_OUTPUT"
 
-      # The device (iphoneos) compile is covered by the ios-verify-release job;
-      # this job proves the simulator build + test suite, so the app compiles
-      # exactly once per job instead of twice.
       - name: Verify Mixpanel build destinations
         run: node scripts/ci/assert-mixpanel-build-settings.mjs
 
+      # The device (iphoneos) compile is covered by the ios-verify-release job;
+      # this job proves the simulator build + test suite, so the app compiles
+      # exactly once per job instead of twice.
       - name: Run tests
         id: tests
         shell: bash
@@ -675,13 +675,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-spm-
 
+      - name: Verify Mixpanel build destinations
+        run: node scripts/ci/assert-mixpanel-build-settings.mjs
+
       # The production deploy pipeline is the first place the Release
       # configuration would otherwise compile. Building it unsigned here means
       # Release-only build errors surface on the PR, not on launch day. This is
       # also the job that proves the device (iphoneos) compile for PRs.
-      - name: Verify Mixpanel build destinations
-        run: node scripts/ci/assert-mixpanel-build-settings.mjs
-
       - name: Build app (Release, unsigned)
         id: build
         shell: bash

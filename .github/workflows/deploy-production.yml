@@ -197,12 +197,12 @@ jobs:
             exit 1
           fi
 
-      # A placeholder RevenueCat or Superwall key would archive and upload
-      # cleanly while locking every App Store user behind an unresolvable
-      # paywall, so fail before the archive instead.
       - name: Verify Mixpanel build destinations
         run: node scripts/ci/assert-mixpanel-build-settings.mjs
 
+      # A placeholder RevenueCat or Superwall key would archive and upload
+      # cleanly while locking every App Store user behind an unresolvable
+      # paywall, so fail before the archive instead.
       - name: Verify production monetization keys
         shell: bash
         run: node scripts/ci/assert-monetization-keys-configured.mjs Release

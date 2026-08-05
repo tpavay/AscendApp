@@ -114,6 +114,64 @@ struct MixpanelTelemetrySinkTests {
         #expect(client.calls == ["register_super_properties", "set_user_property", "register_super_properties"])
         #expect(client.registeredSuperProperties == buildMetadata.properties)
     }
+
+    #if !DEBUG
+    /// Shipping builds must degrade analytics, never terminate: the trap that
+    /// catches destination drift is a DEBUG-only development aid.
+    @Test
+    func aShippingBuildGoesSilentInsteadOfTrappingOnDestinationDrift() throws {
+        let mismatchedClient = RecordingMixpanelClient()
+        let mismatchedDestination = MixpanelTelemetrySink(
+            configuration: AnalyticsConfiguration(
+                infoDictionary: [
+                    AnalyticsConfiguration.mixpanelTokenInfoKey: "token",
+                    AnalyticsConfiguration.mixpanelProjectIDInfoKey: "4051100"
+                ]
+            ),
+            buildMetadata: Self.stagingBuildMetadata,
+            makeClient: { _, _ in mismatchedClient }
+        )
+
+        let unvalidatableClient = RecordingMixpanelClient()
+        let unvalidatableEnvelope = MixpanelTelemetrySink(
+            configuration: AnalyticsConfiguration(
+                infoDictionary: [
+                    AnalyticsConfiguration.mixpanelTokenInfoKey: "token",
+                    AnalyticsConfiguration.mixpanelProjectIDInfoKey: "4051102"
+                ]
+            ),
+            buildMetadata: TelemetryBuildMetadata(
+                appEnvironment: "staging",
+                buildConfig: "staging",
+                appVersion: "",
+                buildNumber: "",
+                bundleIdentifier: "com.tylerpavay.AscendApp.staging"
+            ),
+            makeClient: { _, _ in unvalidatableClient }
+        )
+
+        let record = EnvelopedTelemetryRecord(
+            record: TelemetryRecord(name: "dropped_event"),
+            envelope: try TelemetryEnvelope(validating: Self.stagingBuildMetadata)
+        )
+
+        mismatchedDestination.setCollectionEnabled(true)
+        mismatchedDestination.record(record)
+        unvalidatableEnvelope.setCollectionEnabled(true)
+        unvalidatableEnvelope.record(record)
+
+        #expect(mismatchedClient.calls.isEmpty)
+        #expect(unvalidatableClient.calls.isEmpty)
+    }
+    #endif
+
+    private static let stagingBuildMetadata = TelemetryBuildMetadata(
+        appEnvironment: "staging",
+        buildConfig: "staging",
+        appVersion: "1.2.3",
+        buildNumber: "456",
+        bundleIdentifier: "com.tylerpavay.AscendApp.staging"
+    )
 }
 
 private extension MixpanelTelemetrySinkTests {

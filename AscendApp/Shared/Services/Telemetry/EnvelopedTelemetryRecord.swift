@@ -16,11 +16,19 @@ struct EnvelopedTelemetryRecord: Sendable, Hashable, Equatable {
         self.parameters = parameters
     }
 
+    /// Crashlytics keeps only the last 64 KB of log lines, and the envelope is
+    /// already attached to every report as custom keys, so repeating it on each
+    /// breadcrumb would buy nothing and cost history depth.
     var crashlyticsMessage: String {
         let serializedParameters = parameters
+            .filter { TelemetryEnvelope.propertyKeys.contains($0.key) == false }
             .sorted { $0.key < $1.key }
             .map { "\($0.key)=\($0.value.stringValue)" }
             .joined(separator: " ")
+
+        guard serializedParameters.isEmpty == false else {
+            return name
+        }
 
         return "\(name) \(serializedParameters)"
     }

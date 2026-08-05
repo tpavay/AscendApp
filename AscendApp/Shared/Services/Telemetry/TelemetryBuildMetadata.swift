@@ -13,17 +13,26 @@ struct TelemetryBuildMetadata: Equatable, Sendable {
         [
             "app_environment": appEnvironment,
             "build_config": buildConfig,
-            "app_version": appVersion,
-            "build_number": buildNumber
+            "app_version": resolvedAppVersion,
+            "build_number": resolvedBuildNumber
         ]
     }
 
-    var envelope: TelemetryEnvelope? {
-        try? TelemetryEnvelope(validating: self)
+    var resolvedAppVersion: String {
+        Self.resolved(appVersion)
+    }
+
+    var resolvedBuildNumber: String {
+        Self.resolved(buildNumber)
     }
 
     var releaseName: String {
-        "\(bundleIdentifier)@\(appVersion)+\(buildNumber)"
+        "\(bundleIdentifier)@\(resolvedAppVersion)+\(resolvedBuildNumber)"
+    }
+
+    private static func resolved(_ value: String) -> String {
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedValue.isEmpty ? "unknown" : trimmedValue
     }
 
     init(

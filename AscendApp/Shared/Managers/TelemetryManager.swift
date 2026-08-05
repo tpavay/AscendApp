@@ -17,7 +17,7 @@ final class TelemetryManager: @unchecked Sendable {
     private let sinks: [any TelemetrySink]
     private let crashlyticsReporter: any CrashlyticsReporting
     private let collectionEnabledOverride: Bool?
-    private let envelope: TelemetryEnvelope?
+    private let envelope: TelemetryEnvelope
 
     var isCollectionEnabled: Bool {
         lock.withLock(\.isCollectionEnabled)
@@ -37,7 +37,7 @@ final class TelemetryManager: @unchecked Sendable {
         )
         self.crashlyticsReporter = reporter
         self.collectionEnabledOverride = collectionEnabledOverride
-        self.envelope = Self.makeEnvelope(from: buildMetadata)
+        self.envelope = TelemetryEnvelope(resolving: buildMetadata)
         if let sinks {
             self.sinks = sinks
         } else {
@@ -172,7 +172,7 @@ final class TelemetryManager: @unchecked Sendable {
     }
 
     func track(_ record: TelemetryRecord) {
-        guard isCollectionEnabled, let envelope else { return }
+        guard isCollectionEnabled else { return }
 
         let envelopedRecord = EnvelopedTelemetryRecord(record: record, envelope: envelope)
         sinks
@@ -181,7 +181,7 @@ final class TelemetryManager: @unchecked Sendable {
     }
 
     func track(screen: TelemetryScreen) {
-        guard isCollectionEnabled, let envelope else { return }
+        guard isCollectionEnabled else { return }
 
         let envelopedScreen = EnvelopedTelemetryScreen(screen: screen, envelope: envelope)
         sinks
@@ -193,6 +193,7 @@ final class TelemetryManager: @unchecked Sendable {
 
     enum Key: String {
         case hasAppAccess = "has_app_access"
+        case appEnvironment = "app_environment"
         case buildConfig = "build_config"
         case appVersion = "app_version"
         case buildNumber = "build_number"
@@ -216,10 +217,10 @@ final class TelemetryManager: @unchecked Sendable {
 
     func setAppMetadata() {
         guard isCollectionEnabled else { return }
-        let metadata = TelemetryBuildMetadata.current
-        set(.buildConfig, value: metadata.buildConfig)
-        set(.appVersion, value: metadata.appVersion)
-        set(.buildNumber, value: metadata.buildNumber)
+        set(.appEnvironment, value: envelope.appEnvironment)
+        set(.buildConfig, value: envelope.buildConfig)
+        set(.appVersion, value: envelope.appVersion)
+        set(.buildNumber, value: envelope.buildNumber)
     }
 
     // MARK: - Breadcrumbs (Structured Tokens)
@@ -280,18 +281,6 @@ final class TelemetryManager: @unchecked Sendable {
 }
 
 private extension TelemetryManager {
-    static func makeEnvelope(from metadata: TelemetryBuildMetadata) -> TelemetryEnvelope? {
-        do {
-            return try TelemetryEnvelope(validating: metadata)
-        } catch {
-            #if DEBUG || STAGING
-            preconditionFailure("Telemetry envelope is invalid for this build configuration.")
-            #else
-            return nil
-            #endif
-        }
-    }
-
     struct State {
         var isCollectionEnabled = false
         var didConfigure = false

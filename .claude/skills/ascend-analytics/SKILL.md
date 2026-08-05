@@ -44,6 +44,11 @@ The `TelemetrySink` boundary accepts only enveloped records, so a feature call s
 Mixpanel still registers the same values as super-properties before first use and after SDK state resets as defense in depth.
 `AscendAppTests/TelemetryEnvelopeTests.swift`, `AscendAppTests/TelemetryManagerTests.swift`, and `AscendAppTests/MixpanelTelemetrySinkTests.swift` enforce the runtime contract.
 
+Only Mixpanel routes by environment, so only Mixpanel demands the *validated* envelope: it goes silent when the environment, the build configuration, and the compiled project ID stop agreeing.
+Every other sink takes the resolved envelope, which substitutes `unknown` for a missing bundle version rather than dropping the event, so one blank Info.plist key can never cost a build its Firebase events, screen views, and Crashlytics breadcrumbs.
+`scripts/ci/assert-mixpanel-bundle.mjs` rejects an archive missing either version key, so that fallback stays unreachable in a shipped build.
+Destination drift traps under `DEBUG` only - a shipping build degrades analytics, it never terminates on a telemetry misconfiguration.
+
 Events recorded before this tagging shipped carry none of these properties, and that history cannot be separated retroactively.
 Treat historical untagged events in Development as unattributable rather than as clean production data.
 
