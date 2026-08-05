@@ -13,6 +13,7 @@ The catalog is `AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift`;
 |---|---|---|
 | `workout_cloud_backup_writes_enabled` | Uploading workout documents and heart-rate sidecars | Workouts stay `pendingUpsert` in SwiftData and flush on the next pass |
 | `workout_remote_deletes_enabled` | Deleting remote workout documents and sidecars | `PendingWorkoutDeletion` rows stay queued and replay |
+| `workout_sync_recovery_reopen_enabled` | Re-opening one automatic sync attempt for a workout whose retry series has stopped, after a build change or an epoch bump | Nothing is dropped: the stopped state is untouched and manual retry stays unlimited. Turning it back on re-opens on the next pass |
 | `workout_cloud_restore_enabled` | Decoding cloud backups into local storage | The next bootstrap still treats it as the initial hydration |
 | `workout_media_uploads_enabled` | The background media upload queue, and the sweep that deletes local originals. A batch already running stops at the next item rather than finishing | `PendingMediaUpload` rows stay queued and local files stay on disk. The workout banner stays quiet rather than claiming an upload is in progress, and drops the retry affordance |
 | `routine_cloud_backup_writes_enabled` | Uploading user-authored routines and routine folders | Routines and folders stay `pendingUpsert` in SwiftData and flush on the next pass |
@@ -30,6 +31,20 @@ Public profile publishing reaches a shared service that would need a live backen
 `leaderboard_publishing_enabled` was retired with issue #307.
 The client no longer publishes standings at all - the server derives them from the canonical workouts (`functions/src/leaderboardStats.ts`), so the only kill switch that reaches the leaderboard now is `workout_cloud_backup_writes_enabled`: hold the workout backup and no new standing is derived, because the evidence never lands.
 That is the correct choke point, and it defers rather than drops.
+
+### Settings, which are not switches
+
+A kill switch is a Boolean that ships on and is flipped off to stop a path.
+A **setting** carries a value an operator moves deliberately, so treating it as a switch would make the healthy state a lie.
+The catalog is `AscendApp/Shared/Services/RemoteConfig/RemoteConfigSetting.swift`, read through `RemoteConfigSettingReading` rather than the Boolean flag pipeline - widening that pipeline to carry numbers would put every kill switch's resolution at risk for the sake of one setting.
+
+| Parameter | Type | Baseline | What moving it does |
+|---|---|---|---|
+| `workout_sync_recovery_epoch` | NUMBER | `0`, only ever increased | Grants every workout whose automatic sync series has stopped exactly one more attempt, fleet-wide, with no binary. `firestore.rules` deploys independently of app releases, so after a rules fix this is the only lever that unsticks the workouts that fix repairs. Gated by `workout_sync_recovery_reopen_enabled` |
+
+An unfetched setting resolves to its `shippedDefault` for the same reason a flag does - only `RemoteConfigValue.source == .remote` counts - and zero is that baseline deliberately, so a device's first successful fetch cannot read as a bump.
+Everything else in this document applies to settings too: they are published the same way, and the archive preflight refuses a build whose setting is unreachable exactly as it does for a switch.
+The one difference is the type contract - a setting is held to its own declared type and baseline, not to `BOOLEAN` / `true`.
 
 ### What is deliberately not gated
 

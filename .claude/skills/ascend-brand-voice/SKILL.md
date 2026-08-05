@@ -34,3 +34,4 @@ Defining the niche by exclusion. Use this as a check when adding features, scree
 ## Locked copy
 - Unclaimed climb / no finisher: "First Ascent open. The first finisher claims it forever." Use verbatim (see `ascend-live-climbs`).
 - Achievement terminology is locked to Top 1, Top 3, Top 10, Top 100 (see `ascend-leaderboards`).
+- Cloud sync is described as **sync**, never "backup" or "upload", in every user-facing string: `Syncing` while it is quietly working, `Couldn't sync this climb` with a `TRY AGAIN` control when the climber has to know, `Synced` transiently once it lands, and `OFFLINE` / `SYNCING` on the control itself. The warning text does not change while a retry is running - it is a statement about whether the climb is safe, and a retry in flight has not made it safer. Owner: `WorkoutSyncStatusRow`; the states behind it are `ascend-workout-model`.

@@ -68,14 +68,21 @@ The rules being permissive does not make every bump free on the client: the hear
 ## The workout write rule has almost no expression budget left
 
 Firestore aborts rule evaluation at 1000 expressions and returns a plain `PERMISSION_DENIED`, so an over-budget document silently never reaches the cloud backup.
+That is not hypothetical: the workout rule outgrew the budget and refused one climber's Live Climb for four days, indistinguishably from a deliberate denial (ASCEND-IOS-1J, issue #295).
 Rules functions inline their arguments, so each `item.` dereference inside a per-element validator re-evaluates the whole `request.resource.data.<list>[i]` chain - the cost scales with the number of distinct field references per element, not with the number of comparisons.
-The workout rule is already over budget well below its own declared list caps (issue #295), so before adding any check to that path, exercise it against a document with several nested list elements rather than the single-element fixtures.
 Enum validators there take their value untyped on purpose: membership in a list of string literals already excludes non-strings, so a preceding `is string` is a no-op the budget cannot afford.
 
-**Hoist every repeated subexpression into a parameter.** Because arguments are inlined, a validator that derives `request.resource.data.keys()` or `list.size()` itself pays for that derivation on every branch mentioning it - `keys()` alone was being recomputed once per optional workout field.
-The workout validators therefore take the payload, its key set, and each nested list's size as parameters and never re-derive them.
-That hoist is what leaves room for a Live Climb carrying its heart-rate sidecar, and for a weight configuration at the five-entry maximum the rule declares; both were denied before it.
+**Hoist every repeated subexpression.** Because arguments are inlined, a validator that re-derives `request.resource.data.keys()` or `list.size()` pays for that derivation on every branch mentioning it - `keys()` alone was being recomputed once per optional workout field.
+`isValidWorkoutDocument` therefore binds the payload and its key set once with `let`, and the per-element validators take the element's key set and the list's size as parameters, so neither is ever re-derived.
+A validator that takes a hoisted parameter must be *called* with it everywhere: the routine rule kept calling `isValidWorkoutWeightConfiguration` with one argument after it grew a second, which the emulator reports as an evaluation error inside a bare `PERMISSION_DENIED` - so a routine carrying default weights simply stopped backing up.
 Adding the paid check to that path was affordable for the same reason: `isPaidOwner` replaced the signed-in half of the old owner predicate with the grant lookup instead of adding a third term.
+
+**Measure before adding anything to that path.** `tests/firebase-rules/workout-expression-budget.test.mjs` exercises every declared cap against a fully-populated document, so a check that no longer fits fails there rather than in the field. Single-element fixtures prove nothing.
+
+Two rules the recovery left behind, both in the rule's own header comment - read it before editing:
+
+- **The rule enforces authorization and the trust boundary, not owner-private hygiene.** A workout document is read by its owner and by Cloud Functions. What stays checked: ownership, canonical identity, the strict `hasOnly`/`hasAll` key contract, bounded list sizes, the Storage path binding on the heart-rate sidecar, `startedAt`'s type, and the participation fields a function trusts as written. What went: scalar ranges, string lengths, media and weight-entry internals, timestamp ordering. The test for dropping a field's type check is not "a function reads it" - it is whether that function *rejects* what it reads (fail-closed, so the rule need not) or *coerces* it (so the rule is the only guard).
+- **A declared cap must never exceed the client constant that enforces it.** The rule declared eight participations, could evaluate one, and the client emitted however many the workout had. `WorkoutRemoteSyncLimits` now mirrors the rule by hand; changing a number means changing both and re-running the budget test in the same change.
 
 **Measured, so nobody has to re-derive it.** The user-routine rule (issue #304) was benchmarked against the emulator with a real document: a full per-element validator - `hasOnly`/`hasAll` plus ten typed fields - fits **two** list elements; narrowed to four typed fields it fits **eleven**; `item is map` alone fits **twenty-four**.
 That is the whole budget, for one list, in a rule with about twenty other scalar checks.

@@ -119,11 +119,15 @@ final class WorkoutSyncOutboxEntry {
         )
     }
 
-    /// Re-opens exactly one automatic attempt after the basis for the stop has moved: a new build,
-    /// an operator-bumped recovery epoch, repaired authentication, or connectivity returning when
-    /// offline was the recorded blocker.
+    /// Re-opens exactly one automatic attempt after the basis for the stop has moved.
     ///
-    /// Screen appearance, tab switches and repeated coordinator calls deliberately do not qualify.
+    /// The basis is `buildIdentity|workout_sync_recovery_epoch`, and
+    /// `WorkoutSyncCoordinator.reopenStoppedWorkoutsIfRecoveryBasisChanged` is its only caller: a
+    /// new build, or an operator bumping the epoch after a rules or backend fix. Screen
+    /// appearance, tab switches and repeated coordinator calls deliberately do not qualify.
+    ///
+    /// Offline and cancellation need no entry here - they never consume an attempt, so they cannot
+    /// stop a series in the first place.
     func reopenOneAutomaticAttempt(now: Date) {
         nextEligibleAttemptAt = now
         automaticAttemptCount = max(automaticAttemptCount - 1, 0)

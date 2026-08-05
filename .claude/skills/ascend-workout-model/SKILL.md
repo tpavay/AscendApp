@@ -46,8 +46,24 @@ Local-first with cloud backup. SwiftData is the editing surface and source of tr
 - A workout is *fully synced* only when every component (Firestore document + Storage sidecar + media uploads) has succeeded. Partial success is not success.
 
 ### Sync state
-- Per-workout sync state (owner, last-modified, last-synced, status, last error) lives *on the local `Workout` itself*, not in a separate sync queue. This preserves the local-first UX while keeping pending remote work tracked.
-- Pending remote deletes are tracked on a separate model so the canonical workout record isn't burdened with retry / deletion state.
+- Per-workout sync *verdict* (owner, last-modified, last-synced, status, last error) lives *on the local `Workout` itself*. `Workout.remoteSyncStatus` is the single answer to "is this climb in the cloud", exposed as `Workout.isSyncedToCloud`.
+- The *retry schedule* is a separate model, `WorkoutSyncOutboxEntry`, one row per not-yet-synced workout. Separate because `Workout` carries relationships: freezing its shape would force frozen copies of `WorkoutSourceLink` and `WorkoutParticipation` across two shipped schema versions, where a brand-new model keeps the stage lightweight. Schedule there, verdict on the workout - the two can never disagree.
+- Pending remote deletes are tracked on a separate model for the same reason.
+
+### The retry schedule
+Seven surfaces call `WorkoutSyncCoordinator`, so three triggers can consume three attempts in the same millisecond. The rules that follow from that, all owned by `WorkoutSyncRetryPolicy` and `WorkoutSyncOutboxEntry` - read their doc comments before changing a number:
+
+- **Eligibility is a persisted absolute date** (`nextEligibleAttemptAt`), never a bare counter, and it survives relaunch. Offsets are coarse (0s to 24h over seven attempts) because Firestore's SDK already retries the transport; this layer decides when a *logical* backup is worth re-offering. Jitter is upward-only, so the no-earlier-than guarantee holds.
+- **Only a genuine remote verdict consumes an attempt.** `cancelled` and `offline` never do - charging a tab switch as evidence is how one stuck workout produced 499 events (`WorkoutSyncFailureCategory.consumesAttempt`).
+- **Every stop rule is conjunctive with elapsed time.** The series ends only once the schedule is walked *and* the final offset has elapsed; refusals stop automatic attempts only after 3 of them *and* 30 minutes.
+- **`permissionDenied` is `refused`, not `malformed`.** A deployable rules defect emits the identical code, so no client-only classifier can call it permanent. It stays re-openable.
+- **A stop is re-openable without a release.** The recovery basis is `buildIdentity|workout_sync_recovery_epoch`; when it moves, every stopped workout gets exactly one more automatic attempt, gated by `workout_sync_recovery_reopen_enabled`. Screen appearances and tab switches deliberately do not qualify. `firestore.rules` deploys independently of app releases, so the epoch is the only lever that unsticks a fleet after a rules fix - see `docs/remote-config-kill-switches.md`.
+- **A local edit is a new payload revision** and restarts the series; manual retry re-offers the same bytes and deliberately does not.
+
+### The sync surface
+- Whether a climb says it is not in the cloud is gated on `Workout.isSyncedToCloud` alone, never on retry machinery (`== .rejected`, a view-local in-flight flag). Both made the warning vanish the moment a climber tapped retry.
+- `WorkoutSyncPresentation` is the only thing the row switches on, derived by the coordinator rather than in a view body. The copy is locked - see `ascend-brand-voice`.
+- Manual retry is unlimited; only the *automatic* series stops.
 
 ### Orchestration
 - A single sync coordinator owns all pending remote work. Mutations don't write to Firestore directly - they update local sync state and kick the coordinator.
