@@ -16,10 +16,26 @@ import {
 import {
   expireRevenueCatAccessGrants,
 } from "../../src/revenueCat/expiration.js";
+import {
+  ANALYTICS_OUTBOX_COLLECTION,
+  ANALYTICS_OUTBOX_RETENTION_MS,
+  FirestoreAnalyticsOutboxStore,
+} from "../../src/revenueCat/analyticsFirestoreOutbox.js";
+import {
+  MixpanelDeliveryError,
+} from "../../src/revenueCat/analyticsMixpanelClient.js";
+import {
+  processAnalyticsOutbox,
+} from "../../src/revenueCat/analyticsOutboxProcessor.js";
 import type {
   AppAccessProjection,
   RevenueCatWebhookEvent,
 } from "../../src/revenueCat/types.js";
+import type {
+  LifecycleAnalyticsClient,
+  LifecycleAnalyticsEvent,
+  RevenueCatAnalyticsEnvironment,
+} from "../../src/revenueCat/analyticsTypes.js";
 
 const NOW = new Date("2026-08-05T12:00:00.000Z");
 // RevenueCat's documented retry ladder finishes 155 minutes after the first
@@ -27,6 +43,14 @@ const NOW = new Date("2026-08-05T12:00:00.000Z");
 const REVENUECAT_RETRY_WINDOW_MS = 155 * 60 * 1000;
 const uid = "firebase-user-1";
 const eventCollection = "_revenuecat_webhook_events";
+const analyticsEnvironment: RevenueCatAnalyticsEnvironment = {
+  firebaseProjectId: "ascend-prod-9c8f2",
+  mixpanelProjectId: "4051100",
+  appEnvironment: "production",
+  buildConfig: "server",
+  appVersion: "cloud_functions",
+  buildNumber: "test-revision",
+};
 let db: admin.firestore.Firestore;
 let store: FirestoreRevenueCatEntitlementStore;
 
@@ -44,6 +68,7 @@ before(() => {
 
 beforeEach(async () => {
   await clearCollection(eventCollection);
+  await clearCollection(ANALYTICS_OUTBOX_COLLECTION);
   await clearCollection(`users/${uid}/entitlements`);
   await clearCollection(`users/${uid}/entitlement_status`);
   await clearCollection(`users/${uid}/entitlement_reconciliations`);
@@ -61,12 +86,15 @@ test("duplicate webhook delivery is durably idempotent", async () => {
     event,
     "payload-digest",
     [projection(event, NOW.getTime())],
+    [analyticsEvent(event)],
     NOW
   );
-  assert.deepEqual(
-    await store.claimEvent(event, "payload-digest", NOW),
-    {outcome: "duplicate", claimDigest: "payload-digest"}
-  );
+  for (let replay = 0; replay < 5; replay += 1) {
+    assert.deepEqual(
+      await store.claimEvent(event, "payload-digest", NOW),
+      {outcome: "duplicate", claimDigest: "payload-digest"}
+    );
+  }
 
   const eventSnapshot = await db.doc(`${eventCollection}/${event.id}`).get();
   const entitlementSnapshot = await db.doc(
@@ -75,6 +103,123 @@ test("duplicate webhook delivery is durably idempotent", async () => {
   assert.equal(eventSnapshot.get("status"), "completed");
   assert.equal(eventSnapshot.get("attemptCount"), 1);
   assert.equal(entitlementSnapshot.get("sourceEventId"), event.id);
+  const outbox = await db.collection(ANALYTICS_OUTBOX_COLLECTION).get();
+  assert.equal(outbox.size, 1);
+  assert.equal(outbox.docs[0].get("status"), "queued");
+  assert.equal(outbox.docs[0].get("eventName"), "subscription_renewed");
+  assert.equal(
+    outbox.docs[0].get("retainUntil").toMillis(),
+    NOW.getTime() + ANALYTICS_OUTBOX_RETENTION_MS
+  );
+  assert.ok(ANALYTICS_OUTBOX_RETENTION_MS > REVENUECAT_RETRY_WINDOW_MS);
+});
+
+test("a transient Mixpanel failure requeues and later delivers", async () => {
+  const event = webhookEvent("event-transient-analytics");
+  await store.claimEvent(event, "payload-digest", NOW);
+  await store.completeEvent(
+    event,
+    "payload-digest",
+    [projection(event, NOW.getTime())],
+    [analyticsEvent(event)],
+    NOW
+  );
+
+  const analyticsStore = new FirestoreAnalyticsOutboxStore(db);
+  const client = new FailOnceAnalyticsClient();
+  const first = await processAnalyticsOutbox({
+    store: analyticsStore,
+    client,
+    environment: analyticsEnvironment,
+    now: () => NOW,
+  });
+  assert.equal(first.retriedCount, 1);
+
+  const queued = await db.collection(ANALYTICS_OUTBOX_COLLECTION)
+    .doc(analyticsEvent(event).insertId)
+    .get();
+  assert.equal(queued.get("status"), "queued");
+  assert.equal(queued.get("attemptCount"), 1);
+
+  const retryAt = new Date(NOW.getTime() + 60_000);
+  const second = await processAnalyticsOutbox({
+    store: analyticsStore,
+    client,
+    environment: analyticsEnvironment,
+    now: () => retryAt,
+  });
+  assert.equal(second.deliveredCount, 1);
+  const delivered = await queued.ref.get();
+  assert.equal(delivered.get("status"), "delivered");
+  assert.equal(delivered.get("attemptCount"), 2);
+  assert.equal(client.attemptCount, 2);
+  assert.equal(
+    delivered.get("retainUntil").toMillis(),
+    retryAt.getTime() + ANALYTICS_OUTBOX_RETENTION_MS
+  );
+});
+
+test("a still-retrying row cannot expire before it is delivered", async () => {
+  const event = webhookEvent("event-retention-refresh");
+  await store.claimEvent(event, "payload-digest", NOW);
+  await store.completeEvent(
+    event,
+    "payload-digest",
+    [projection(event, NOW.getTime())],
+    [analyticsEvent(event)],
+    NOW
+  );
+
+  const retryAt = new Date(NOW.getTime() + 20 * 24 * 60 * 60 * 1000);
+  await processAnalyticsOutbox({
+    store: new FirestoreAnalyticsOutboxStore(db),
+    client: new AlwaysFailingAnalyticsClient(),
+    environment: analyticsEnvironment,
+    now: () => retryAt,
+  });
+
+  const requeued = await db.collection(ANALYTICS_OUTBOX_COLLECTION)
+    .doc(analyticsEvent(event).insertId)
+    .get();
+  assert.equal(requeued.get("status"), "queued");
+  assert.equal(
+    requeued.get("retainUntil").toMillis(),
+    retryAt.getTime() + ANALYTICS_OUTBOX_RETENTION_MS
+  );
+  assert.ok(
+    requeued.get("retainUntil").toMillis() >
+      requeued.get("readyAt").toMillis()
+  );
+});
+
+test("a claim released at the run deadline is charged no delivery attempt", async () => {
+  const event = webhookEvent("event-deadline-release");
+  await store.claimEvent(event, "payload-digest", NOW);
+  await store.completeEvent(
+    event,
+    "payload-digest",
+    [projection(event, NOW.getTime())],
+    [analyticsEvent(event)],
+    NOW
+  );
+
+  const summary = await processAnalyticsOutbox({
+    store: new FirestoreAnalyticsOutboxStore(db),
+    client: new AlwaysFailingAnalyticsClient(),
+    environment: analyticsEnvironment,
+    now: () => NOW,
+    runBudgetMs: 0,
+  });
+
+  assert.equal(summary.deferredCount, 1);
+  assert.equal(summary.retriedCount, 0);
+  const released = await db.collection(ANALYTICS_OUTBOX_COLLECTION)
+    .doc(analyticsEvent(event).insertId)
+    .get();
+  assert.equal(released.get("status"), "queued");
+  assert.equal(released.get("attemptCount"), 0);
+  assert.equal(released.get("lastErrorCode"), null);
+  assert.equal(released.get("claimId"), null);
 });
 
 test("the ledger carries a future retention stamp for the TTL policy", async () => {
@@ -86,6 +231,7 @@ test("the ledger carries a future retention stamp for the TTL policy", async () 
     event,
     "retention-payload",
     [projection(event, NOW.getTime())],
+    [],
     NOW
   );
   const completed = await db.doc(`${eventCollection}/${event.id}`).get();
@@ -110,6 +256,7 @@ test("a completed event refuses a redelivery whose bytes differ", async () => {
     event,
     "first-seen-digest",
     [projection(event, NOW.getTime())],
+    [],
     NOW
   );
 
@@ -143,6 +290,7 @@ test("a failed event is reclaimable when its retry bytes differ", async () => {
     event,
     claim.claimDigest,
     [projection(event, NOW.getTime())],
+    [],
     NOW
   );
 
@@ -298,6 +446,7 @@ test("out-of-order webhook completion keeps newer RevenueCat truth", async () =>
     newer,
     "newer-payload",
     [projection(newer, NOW.getTime() + 2_000)],
+    [],
     NOW
   );
   await store.claimEvent(older, "older-payload", NOW);
@@ -305,6 +454,7 @@ test("out-of-order webhook completion keeps newer RevenueCat truth", async () =>
     older,
     "older-payload",
     [projection(older, NOW.getTime() - 2_000)],
+    [],
     NOW
   );
 
@@ -332,6 +482,7 @@ test("a known RevenueCat expiry removes the active grant without the app", async
     event,
     "expiring-payload",
     [expiredProjection],
+    [],
     NOW
   );
 
@@ -354,6 +505,7 @@ test("inactive subscriber truth is recorded and removes the active grant", async
     activeEvent,
     "active-payload",
     [projection(activeEvent, NOW.getTime())],
+    [],
     NOW
   );
 
@@ -368,6 +520,7 @@ test("inactive subscriber truth is recorded and removes the active grant", async
     inactiveEvent,
     "inactive-payload",
     [inactive],
+    [],
     NOW
   );
 
@@ -406,7 +559,7 @@ test("an older unrelated document cannot starve a real expiry behind it", async 
   expired.expiresAt = new Date(NOW.getTime() - 1_000);
   expired.accessUntil = new Date(NOW.getTime() - 1_000);
   await store.claimEvent(event, "starvation-payload", NOW);
-  await store.completeEvent(event, "starvation-payload", [expired], NOW);
+  await store.completeEvent(event, "starvation-payload", [expired], [], NOW);
 
   // A one-document page proves the sweep pages past what the filter rejects
   // rather than discarding the rest of a fixed window.
@@ -429,6 +582,42 @@ function webhookEvent(id: string): RevenueCatWebhookEvent {
     eventTimestampMs: NOW.getTime(),
     appUserIds: [uid],
     identityOverflowCount: 0,
+    productId: "ascend_yearly",
+    newProductId: null,
+    store: "app_store",
+    periodType: "normal",
+    expirationAtMs: Date.parse("2027-08-05T12:00:00.000Z"),
+    gracePeriodExpirationAtMs: null,
+    isTrialConversion: false,
+    lifecycleReason: null,
+  };
+}
+
+function analyticsEvent(
+  event: RevenueCatWebhookEvent
+): LifecycleAnalyticsEvent {
+  return {
+    schemaVersion: 1,
+    eventName: "subscription_renewed",
+    eventVersion: 1,
+    source: "revenuecat_webhook",
+    distinctId: uid,
+    insertId: "0123456789abcdef0123456789abcdef",
+    eventTimestampMs: event.eventTimestampMs,
+    entitlementId: "app_access",
+    productId: "ascend_yearly",
+    previousProductId: null,
+    store: "app_store",
+    periodType: "normal",
+    lifecycleReason: null,
+    refundAttributed: false,
+    entitlementActive: true,
+    effectiveExpirationAtMs: Date.parse("2027-08-05T12:00:00.000Z"),
+    firebaseProjectId: "ascend-prod-9c8f2",
+    appEnvironment: "production",
+    buildConfig: "server",
+    appVersion: "cloud_functions",
+    buildNumber: "test-revision",
   };
 }
 
@@ -456,4 +645,21 @@ function projection(
 async function clearCollection(path: string): Promise<void> {
   const snapshot = await db.collection(path).get();
   await Promise.all(snapshot.docs.map((document) => document.ref.delete()));
+}
+
+class FailOnceAnalyticsClient implements LifecycleAnalyticsClient {
+  attemptCount = 0;
+
+  async send(): Promise<void> {
+    this.attemptCount += 1;
+    if (this.attemptCount === 1) {
+      throw new MixpanelDeliveryError("service_unavailable", true);
+    }
+  }
+}
+
+class AlwaysFailingAnalyticsClient implements LifecycleAnalyticsClient {
+  async send(): Promise<void> {
+    throw new MixpanelDeliveryError("service_unavailable", true);
+  }
 }

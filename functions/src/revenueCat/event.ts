@@ -5,6 +5,35 @@ const MAX_WEBHOOK_BYTES = 256 * 1024;
 const MAX_IDENTITY_COUNT = 20;
 const EVENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const EVENT_TYPE_PATTERN = /^[A-Z][A-Z0-9_]{0,99}$/;
+const PRODUCT_ID_PATTERN = /^[A-Za-z0-9._:-]{1,200}$/;
+const KNOWN_STORES = new Set([
+  "AMAZON",
+  "APP_STORE",
+  "MAC_APP_STORE",
+  "PADDLE",
+  "PLAY_STORE",
+  "PROMOTIONAL",
+  "RC_BILLING",
+  "ROKU",
+  "STRIPE",
+  "TEST_STORE",
+]);
+const KNOWN_PERIOD_TYPES = new Set([
+  "INTRO",
+  "NORMAL",
+  "PREPAID",
+  "PROMOTIONAL",
+  "TRIAL",
+]);
+const KNOWN_LIFECYCLE_REASONS = new Set([
+  "BILLING_ERROR",
+  "CUSTOMER_SUPPORT",
+  "DEVELOPER_INITIATED",
+  "PRICE_INCREASE",
+  "SUBSCRIPTION_PAUSED",
+  "UNKNOWN",
+  "UNSUBSCRIBE",
+]);
 
 export interface ParsedRevenueCatWebhook {
   event: RevenueCatWebhookEvent;
@@ -66,6 +95,18 @@ export function parseRevenueCatWebhook(
       eventTimestampMs: event.event_timestamp_ms,
       appUserIds: identities.appUserIds,
       identityOverflowCount: identities.overflowCount,
+      productId: normalizedProductId(event.product_id),
+      newProductId: normalizedProductId(event.new_product_id),
+      store: normalizedEnum(event.store, KNOWN_STORES),
+      periodType: normalizedEnum(event.period_type, KNOWN_PERIOD_TYPES),
+      expirationAtMs: normalizedTimestamp(event.expiration_at_ms),
+      gracePeriodExpirationAtMs: normalizedTimestamp(
+        event.grace_period_expiration_at_ms
+      ),
+      isTrialConversion: event.is_trial_conversion === true,
+      lifecycleReason: normalizedLifecycleReason(
+        event.cancel_reason ?? event.expiration_reason
+      ),
     },
     payloadSha256: createHash("sha256").update(rawBody).digest("hex"),
   };
@@ -122,6 +163,27 @@ function collectAppUserIds(
 
 function arrayOrEmpty(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function normalizedProductId(value: unknown): string | null {
+  return typeof value === "string" && PRODUCT_ID_PATTERN.test(value) ?
+    value : null;
+}
+
+function normalizedEnum(value: unknown, allowed: Set<string>): string {
+  return typeof value === "string" && allowed.has(value) ?
+    value.toLowerCase() : "unknown";
+}
+
+function normalizedLifecycleReason(value: unknown): string | null {
+  return typeof value === "string" && KNOWN_LIFECYCLE_REASONS.has(value) ?
+    value.toLowerCase() : null;
+}
+
+function normalizedTimestamp(value: unknown): number | null {
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value > 0 ? value : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

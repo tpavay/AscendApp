@@ -129,7 +129,7 @@ test('a caller cannot forge or inspect the server-owned access projection', asyn
   await assertFails(getDoc(doc(context.firestore(), leaderboardPath)));
 });
 
-test('webhook dedupe records and inactive status are server-only', async () => {
+test('RevenueCat ledgers, outbox, and inactive status are server-only', async () => {
   const context = testEnv.authenticatedContext(paidUserId);
 
   await assertFails(getDoc(doc(
@@ -140,6 +140,12 @@ test('webhook dedupe records and inactive status are server-only', async () => {
     doc(context.firestore(), '_revenuecat_webhook_events/forged-event'),
     { status: 'completed' }
   ));
+  const analyticsOutbox = doc(
+    context.firestore(),
+    '_revenuecat_analytics_outbox/forged-event'
+  );
+  await assertFails(setDoc(analyticsOutbox, {status: 'delivered'}));
+  await assertFails(getDoc(analyticsOutbox));
   await assertFails(setDoc(
     doc(
       context.firestore(),

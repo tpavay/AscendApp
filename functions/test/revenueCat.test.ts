@@ -19,6 +19,10 @@ import {
 } from "../src/revenueCat/reconciliation";
 import {buildAppAccessProjection} from "../src/revenueCat/subscriber";
 import type {
+  LifecycleAnalyticsEvent,
+  RevenueCatAnalyticsEnvironment,
+} from "../src/revenueCat/analyticsTypes";
+import type {
   AppAccessProjection,
   FirebaseUserVerifier,
   RevenueCatEntitlementStore,
@@ -40,6 +44,14 @@ const CONFIG: RevenueCatServerConfig = {
   appId: "app123",
   entitlementId: "app_access",
   allowedProductIds: ["ascend_yearly", "ascend_monthly"],
+};
+const ANALYTICS_ENVIRONMENT: RevenueCatAnalyticsEnvironment = {
+  appEnvironment: "production",
+  buildConfig: "server",
+  appVersion: "cloud_functions",
+  buildNumber: "test-revision",
+  firebaseProjectId: "ascend-prod-9c8f2",
+  mixpanelProjectId: "4051100",
 };
 
 test("webhook authentication requires authorization and a current HMAC", () => {
@@ -245,6 +257,7 @@ test("a duplicate event is idempotent and re-fetches RevenueCat only once", asyn
     subscriberClient,
     userVerifier: new StubUserVerifier(),
     config: CONFIG,
+    analyticsEnvironment: ANALYTICS_ENVIRONMENT,
     now: () => NOW,
   };
   const event = webhookEvent();
@@ -254,13 +267,38 @@ test("a duplicate event is idempotent and re-fetches RevenueCat only once", asyn
     "same-payload-sha256",
     dependencies
   ), "processed");
-  assert.equal(await processRevenueCatWebhookEvent(
-    event,
-    "same-payload-sha256",
-    dependencies
-  ), "duplicate");
+  for (let replay = 0; replay < 5; replay += 1) {
+    assert.equal(await processRevenueCatWebhookEvent(
+      event,
+      "same-payload-sha256",
+      dependencies
+    ), "duplicate");
+  }
   assert.equal(subscriberClient.fetchCount, 1);
   assert.equal(store.projections.size, 1);
+  assert.equal(store.analyticsEvents.size, 1);
+});
+
+test("an unavailable analytics destination still projects entitlements", async () => {
+  const store = new InMemoryEntitlementStore();
+  const subscriberClient = new CountingSubscriberClient(
+    subscriberResponse({productId: "ascend_yearly"})
+  );
+
+  assert.equal(await processRevenueCatWebhookEvent(
+    webhookEvent(),
+    "no-analytics-payload",
+    {
+      store,
+      subscriberClient,
+      userVerifier: new StubUserVerifier(),
+      config: CONFIG,
+      analyticsEnvironment: null,
+      now: () => NOW,
+    }
+  ), "processed");
+  assert.equal(store.projections.size, 1);
+  assert.equal(store.analyticsEvents.size, 0);
 });
 
 test("failed reconciliation is retry-safe", async () => {
@@ -274,6 +312,7 @@ test("failed reconciliation is retry-safe", async () => {
     subscriberClient,
     userVerifier: new StubUserVerifier(),
     config: CONFIG,
+    analyticsEnvironment: ANALYTICS_ENVIRONMENT,
     now: () => NOW,
   };
 
@@ -305,6 +344,7 @@ test("out-of-order delivery cannot replace newer subscriber truth", async () => 
     subscriberClient,
     userVerifier: new StubUserVerifier(),
     config: CONFIG,
+    analyticsEnvironment: ANALYTICS_ENVIRONMENT,
     now: () => NOW,
   };
 
@@ -364,6 +404,7 @@ test("a completed event ignores a redelivery whose bytes differ", async () => {
     subscriberClient,
     userVerifier: new StubUserVerifier(),
     config: CONFIG,
+    analyticsEnvironment: ANALYTICS_ENVIRONMENT,
     now: () => NOW,
   };
 
@@ -395,6 +436,7 @@ test("a failed event still reconciles when its retry carries different bytes", a
     subscriberClient,
     userVerifier: new StubUserVerifier(),
     config: CONFIG,
+    analyticsEnvironment: ANALYTICS_ENVIRONMENT,
     now: () => NOW,
   };
 
@@ -557,6 +599,10 @@ function eventBody(overrides: Record<string, unknown> = {}): Buffer {
       app_id: CONFIG.appId,
       event_timestamp_ms: NOW_MS,
       app_user_id: "firebase-user-1",
+      product_id: "ascend_yearly",
+      store: "APP_STORE",
+      period_type: "NORMAL",
+      expiration_at_ms: Date.parse("2027-08-05T12:00:00.000Z"),
       ...overrides,
     },
   }), "utf8");
@@ -572,6 +618,14 @@ function webhookEvent(
     eventTimestampMs: NOW_MS,
     appUserIds: ["firebase-user-1"],
     identityOverflowCount: 0,
+    productId: "ascend_yearly",
+    newProductId: null,
+    store: "app_store",
+    periodType: "normal",
+    expirationAtMs: Date.parse("2027-08-05T12:00:00.000Z"),
+    gracePeriodExpirationAtMs: null,
+    isTrialConversion: false,
+    lifecycleReason: null,
     ...overrides,
   };
 }
@@ -641,6 +695,7 @@ class RecordingSubscriberClient implements RevenueCatSubscriberClient {
 
 class InMemoryEntitlementStore implements RevenueCatEntitlementStore {
   readonly projections = new Map<string, AppAccessProjection>();
+  readonly analyticsEvents = new Map<string, LifecycleAnalyticsEvent>();
   readonly events = new Map<string, {
     payloadSha256: string;
     status: "processing" | "completed" | "failed";
@@ -675,12 +730,18 @@ class InMemoryEntitlementStore implements RevenueCatEntitlementStore {
   async completeEvent(
     event: RevenueCatWebhookEvent,
     claimDigest: string,
-    projections: AppAccessProjection[]
+    projections: AppAccessProjection[],
+    analyticsEvents: LifecycleAnalyticsEvent[]
   ): Promise<void> {
     const storedEvent = this.events.get(event.id);
     assert.equal(storedEvent?.payloadSha256, claimDigest);
     for (const projection of projections) {
       await this.writeProjection(projection);
+    }
+    for (const analyticsEvent of analyticsEvents) {
+      if (!this.analyticsEvents.has(analyticsEvent.insertId)) {
+        this.analyticsEvents.set(analyticsEvent.insertId, analyticsEvent);
+      }
     }
     if (storedEvent) {
       storedEvent.status = "completed";

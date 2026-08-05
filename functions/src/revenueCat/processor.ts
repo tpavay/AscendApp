@@ -3,6 +3,7 @@ import type {
   RevenueCatWebhookDependencies,
   RevenueCatWebhookEvent,
 } from "./types";
+import {buildLifecycleAnalyticsEvent} from "./analyticsEvent";
 import {buildAppAccessProjection} from "./subscriber";
 
 /**
@@ -44,10 +45,22 @@ export async function processRevenueCatWebhookEvent(
         dependencies.now()
       );
     }));
+    const analyticsEnvironment = dependencies.analyticsEnvironment;
+    const analyticsEvents = analyticsEnvironment === null ? [] :
+      projections.flatMap((projection) => {
+        const analyticsEvent = buildLifecycleAnalyticsEvent(
+          event,
+          projection,
+          dependencies.config,
+          analyticsEnvironment
+        );
+        return analyticsEvent ? [analyticsEvent] : [];
+      });
     await dependencies.store.completeEvent(
       event,
       claim.claimDigest,
       projections,
+      analyticsEvents,
       dependencies.now()
     );
     return "processed";

@@ -1,3 +1,8 @@
+import type {
+  LifecycleAnalyticsEvent,
+  RevenueCatAnalyticsEnvironment,
+} from "./analyticsTypes";
+
 export interface RevenueCatServerConfig {
   apiKey: string;
   webhookAuthorization: string;
@@ -14,6 +19,14 @@ export interface RevenueCatWebhookEvent {
   eventTimestampMs: number;
   appUserIds: string[];
   identityOverflowCount: number;
+  productId: string | null;
+  newProductId: string | null;
+  store: string;
+  periodType: string;
+  expirationAtMs: number | null;
+  gracePeriodExpirationAtMs: number | null;
+  isTrialConversion: boolean;
+  lifecycleReason: string | null;
 }
 
 export interface RevenueCatSubscriberResponse {
@@ -74,6 +87,7 @@ export interface RevenueCatEntitlementStore {
     event: RevenueCatWebhookEvent,
     claimDigest: string,
     projections: AppAccessProjection[],
+    analyticsEvents: LifecycleAnalyticsEvent[],
     now: Date
   ): Promise<void>;
   failEvent(
@@ -98,6 +112,7 @@ export interface RevenueCatWebhookDependencies {
   subscriberClient: RevenueCatSubscriberClient;
   userVerifier: FirebaseUserVerifier;
   config: RevenueCatServerConfig;
+  analyticsEnvironment: RevenueCatAnalyticsEnvironment | null;
   now: () => Date;
 }
 

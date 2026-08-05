@@ -4,6 +4,9 @@ import {
   authenticateRevenueCatWebhook,
 } from "./authentication";
 import {
+  optionalAnalyticsEnvironment,
+} from "./analyticsEnvironment";
+import {
   getRevenueCatServerConfig,
   revenueCatServerConfig,
 } from "./config";
@@ -53,6 +56,11 @@ export async function handleRevenueCatWebhook(
     response.status(500).json({status: "server_configuration_error"});
     return;
   }
+
+  const analyticsEnvironment = optionalAnalyticsEnvironment(
+    deployedFirebaseProjectId(),
+    process.env.K_REVISION ?? "unknown"
+  );
 
   const rawBody = request.rawBody;
   if (!Buffer.isBuffer(rawBody)) {
@@ -108,6 +116,7 @@ export async function handleRevenueCatWebhook(
         subscriberClient: new HttpRevenueCatSubscriberClient(config.apiKey),
         userVerifier: new AdminFirebaseUserVerifier(),
         config,
+        analyticsEnvironment,
         now: () => new Date(),
       }
     );
@@ -121,6 +130,14 @@ export async function handleRevenueCatWebhook(
   } catch {
     console.error("RevenueCat webhook reconciliation failed");
     response.status(500).json({status: "retry"});
+  }
+}
+
+function deployedFirebaseProjectId(): string | undefined {
+  try {
+    return admin.app().options.projectId;
+  } catch {
+    return undefined;
   }
 }
 

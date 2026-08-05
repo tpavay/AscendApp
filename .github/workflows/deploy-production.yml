@@ -330,6 +330,7 @@ jobs:
                 onPublicProfileIdentityWritten \
                 onWorkoutWritten \
                 onWorkoutReplaySplitsWritten \
+                processRevenueCatAnalyticsOutbox \
                 reconcileAppAccess \
                 revenueCatWebhook \
                 unsubscribeFromEmails
