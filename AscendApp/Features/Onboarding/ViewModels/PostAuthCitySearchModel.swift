@@ -30,6 +30,13 @@ struct PostAuthLocationSelection: Equatable, Sendable {
         return "\(city), \(countryName)"
     }
 
+    init(city: String, region: String?, countryCode: String, countryName: String) {
+        self.city = city
+        self.region = region
+        self.countryCode = countryCode
+        self.countryName = countryName
+    }
+
     init?(placemark: CLPlacemark) {
         guard let city = placemark.locality?.trimmedLocationText,
               !city.isEmpty,

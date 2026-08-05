@@ -17,6 +17,7 @@ import {
 } from "../src/leaderboardPeriod.js";
 
 const {
+  ageFromBirthDate,
   deriveLeaderboardRows,
   demographicsChanged,
   leaderboardDemographics,
@@ -860,7 +861,7 @@ test("only demographics inside the rules' bounds reach the row", () => {
     location_city: "Portland",
     location_country: "US",
     location_region: "Oregon",
-  }), {
+  }, NOW), {
     age: 34,
     weightKg: 78.5,
     locationCity: "Portland",
@@ -874,13 +875,60 @@ test("only demographics inside the rules' bounds reach the row", () => {
     location_city: "",
     location_country: "United States",
     location_region: "  ",
-  }), {
+  }, NOW), {
     age: null,
     weightKg: null,
     locationCity: null,
     locationCountry: null,
     locationRegion: null,
   });
+});
+
+// The client stores a birthday and deletes the number it replaces, so a board
+// that still read `age` off the user document would filter every climber who
+// set one straight off every age group.
+test("the board's age comes from the birthday, not the stored number", () => {
+  // Born the day before the reconciliation instant's calendar day.
+  assert.equal(
+    leaderboardDemographics({birth_date: "1992-07-31"}, NOW).age,
+    34
+  );
+  // Born the day after, so this year's birthday has not landed yet.
+  assert.equal(
+    leaderboardDemographics({birth_date: "1992-08-02"}, NOW).age,
+    33
+  );
+  // A birthday outranks a stale stored age rather than tying with it.
+  assert.equal(
+    leaderboardDemographics({birth_date: "1992-08-01", age: 12}, NOW).age,
+    34
+  );
+});
+
+// Issue #375: no backfill runs, so a climber who never opened the birthday
+// editor keeps ranking off the age they typed before this shipped.
+test("a climber with no birthday keeps their legacy stored age", () => {
+  assert.equal(leaderboardDemographics({age: 41}, NOW).age, 41);
+  assert.equal(
+    leaderboardDemographics({age: 41, birth_date: "not-a-date"}, NOW).age,
+    41
+  );
+  assert.equal(leaderboardDemographics({}, NOW).age, null);
+  assert.equal(leaderboardDemographics(undefined, NOW).age, null);
+});
+
+// The rules bound the year only, so an out-of-range or impossible birthday can
+// still land. It must drop the climber off the age boards rather than silently
+// resurrecting the number the birthday replaced.
+test("an implausible birthday yields no age at all", () => {
+  assert.equal(
+    leaderboardDemographics({birth_date: "2020-01-01", age: 41}, NOW).age,
+    null
+  );
+  assert.equal(ageFromBirthDate("1992-02-31", NOW), null);
+  assert.equal(ageFromBirthDate("1992-13-01", NOW), null);
+  assert.equal(ageFromBirthDate("19920801", NOW), null);
+  assert.equal(ageFromBirthDate(19920801, NOW), null);
 });
 
 // Reconciliation re-reads the climber's whole workout collection and rewrites
@@ -948,6 +996,12 @@ test("only a demographic change reruns the derivation", () => {
   const base = {age: 34, weight_kg: 78.5, displayName: "Rockstep"};
 
   assert.equal(demographicsChanged(base, {...base, weight_kg: 79}), true);
+  // Correcting a birthday moves the board's age, so it has to rebuild the rows
+  // even though the `age` field it replaced never changes again.
+  assert.equal(
+    demographicsChanged(base, {...base, birth_date: "1992-08-01"}),
+    true
+  );
   assert.equal(demographicsChanged(base, {...base, displayName: "New"}), false);
   assert.equal(demographicsChanged(undefined, base), true);
   assert.equal(demographicsChanged(base, undefined), true);

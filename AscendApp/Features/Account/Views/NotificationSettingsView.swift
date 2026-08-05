@@ -10,29 +10,26 @@ struct NotificationSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                ProfileSection(title: "Climb Drops") {
+                if authorizationStatus == .denied {
+                    notificationsDisabledBanner
+                }
+
+                ProfileSection(title: "Climbs") {
                     ProfileCardSurface {
                         climbDropRow
                     }
                 }
 
-                // Temporary entry point. The Settings page gains its own
-                // NOTIFICATIONS block with Push and Email as siblings (#372),
-                // and this row comes out when it lands.
-                ProfileSection(title: "Emails") {
-                    ProfileCardSurface {
-                        emailRow
-                    }
-                }
+                if authorizationStatus != .denied {
+                    ProfileSection(title: "System") {
+                        ProfileCardSurface {
+                            VStack(spacing: 0) {
+                                permissionStatusRow
 
-                ProfileSection(title: "System") {
-                    ProfileCardSurface {
-                        VStack(spacing: 0) {
-                            permissionStatusRow
-
-                            if shouldShowSystemSettingsAction {
-                                ProfileCardDivider()
-                                systemSettingsButton
+                                if shouldShowSystemSettingsAction {
+                                    ProfileCardDivider()
+                                    systemSettingsButton
+                                }
                             }
                         }
                     }
@@ -42,7 +39,7 @@ struct NotificationSettingsView: View {
             .padding(.bottom, 40)
         }
         .themedBackground()
-        .navigationTitle("Notifications")
+        .navigationTitle("Push")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
@@ -64,13 +61,14 @@ struct NotificationSettingsView: View {
             AppIcon(token: .settingsNotifications, pointSize: 22, weight: .medium)
                 .foregroundStyle(.accent)
                 .frame(width: 28, height: 28)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("New climb drops")
                     .font(.montserratSemiBold(size: 16))
                     .foregroundStyle(.white)
 
-                Text("Get an Ascend alert when new climbs open.")
+                Text("A new landmark opens in the catalog.")
                     .font(.montserratRegular(size: 13))
                     .foregroundStyle(.white.opacity(0.64))
                     .fixedSize(horizontal: false, vertical: true)
@@ -92,36 +90,52 @@ struct NotificationSettingsView: View {
             .labelsHidden()
             .tint(.accent)
             .disabled(isUpdating || authorizationStatus == .denied)
+            .accessibilityLabel("New climb drops")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .opacity(isUpdating ? 0.68 : 1)
+        .opacity(isUpdating ? 0.68 : authorizationStatus == .denied ? 0.45 : 1)
     }
 
-    private var emailRow: some View {
-        NavigationLink {
-            EmailPreferencesView()
-        } label: {
-            HStack(spacing: 16) {
-                AppIcon(token: .settingsContactUs, pointSize: 22, weight: .medium)
-                    .foregroundStyle(.accent)
-                    .frame(width: 28, height: 28)
+    private var notificationsDisabledBanner: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 22, weight: .medium))
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
 
-                Text("Email")
-                    .font(.montserratMedium)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Notifications are off in iOS")
+                    .font(.montserratSemiBold(size: 15))
                     .foregroundStyle(.white)
 
-                Spacer()
+                Text("Ascend can't send anything until you turn them back on.")
+                    .font(.montserratRegular(size: 13))
+                    .foregroundStyle(.white.opacity(0.62))
+                    .fixedSize(horizontal: false, vertical: true)
 
-                AppIcon(token: .disclosureChevronRight, pointSize: 14, weight: .medium)
-                    .foregroundStyle(.white.opacity(0.6))
+                Button("Open iOS Settings") {
+                    ClimbDropNotificationPermissionController.openSystemNotificationSettings()
+                }
+                .font(.montserratSemiBold(size: 13))
+                .foregroundStyle(.accent)
+                .frame(minHeight: 44)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 18)
-            .contentShape(Rectangle())
+
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.orange.opacity(0.1))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.orange.opacity(0.35), lineWidth: 1)
+                }
+        )
+        .accessibilityElement(children: .combine)
     }
 
     private var permissionStatusRow: some View {
@@ -129,6 +143,7 @@ struct NotificationSettingsView: View {
             AppIcon(token: .settingsNotifications, pointSize: 22, weight: .medium)
                 .foregroundStyle(permissionColor)
                 .frame(width: 28, height: 28)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("iOS permission")
@@ -155,6 +170,7 @@ struct NotificationSettingsView: View {
                 AppIcon(token: .settingsNotifications, pointSize: 22, weight: .medium)
                     .foregroundStyle(.accent)
                     .frame(width: 28, height: 28)
+                    .accessibilityHidden(true)
 
                 Text("Open iOS Settings")
                     .font(.montserratMedium)

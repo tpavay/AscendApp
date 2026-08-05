@@ -113,6 +113,41 @@ struct DisplayNamePolicyTests {
         }
     }
 
+    // A legacy climber has neither split field on record. Composing a board
+    // name from one half alone would republish "Maya" over the "Maya Chen"
+    // their standings already carry, so the save has to refuse until both
+    // halves are supplied.
+    @Test
+    func boardNameComposesOnlyFromBothNameHalves() throws {
+        #expect(
+            try DisplayNamePolicy.composedBoardName(
+                firstName: "  Maya ",
+                lastName: " Chen  "
+            ) == "Maya Chen"
+        )
+
+        #expect(throws: DisplayNamePolicyError.incompleteName) {
+            try DisplayNamePolicy.composedBoardName(firstName: "Maya", lastName: "")
+        }
+        #expect(throws: DisplayNamePolicyError.incompleteName) {
+            try DisplayNamePolicy.composedBoardName(firstName: "  ", lastName: "Chen")
+        }
+        #expect(!DisplayNamePolicy.composesAllowedBoardName(firstName: "Maya", lastName: " "))
+        #expect(DisplayNamePolicy.composesAllowedBoardName(firstName: "Maya", lastName: "Chen"))
+    }
+
+    @Test
+    func composedBoardNameCarriesTheScreeningAndLengthBounds() {
+        #expect(!DisplayNamePolicy.composesAllowedBoardName(
+            firstName: "fuck",
+            lastName: "Chen"
+        ))
+        #expect(!DisplayNamePolicy.composesAllowedBoardName(
+            firstName: String(repeating: "A", count: DisplayNamePolicy.maximumLength),
+            lastName: "Chen"
+        ))
+    }
+
     @Test
     @MainActor
     func authenticationRejectsDisplayNameBeforeProfileMutation() async {

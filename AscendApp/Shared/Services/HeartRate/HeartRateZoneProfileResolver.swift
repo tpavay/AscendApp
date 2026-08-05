@@ -1,7 +1,7 @@
 @preconcurrency import FirebaseAuth
 import Foundation
 
-/// Resolves the signed-in climber's zone profile from their declared age.
+/// Resolves the signed-in climber's zone profile from their birthday-derived age.
 /// Falls back to the age-agnostic default when signed out, the profile has
 /// no age yet, or the fetch fails — zones are display-only, so a fallback
 /// band is always acceptable.

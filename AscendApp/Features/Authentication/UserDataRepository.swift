@@ -13,7 +13,8 @@ struct UserDisplayNameData: Sendable {
     let lastName: String?
     let displayName: String?
     let profilePictureURL: String?
-    let age: Int?
+    let birthday: ProfileBirthday?
+    let legacyAge: Int?
     let gender: String?
     let weightKg: Double?
     let heightCm: Double?
@@ -28,12 +29,13 @@ struct UserDisplayNameData: Sendable {
         self.lastName = data?["lastName"] as? String
         self.displayName = data?["displayName"] as? String
         self.profilePictureURL = data?["profilePictureURL"] as? String
+        self.birthday = (data?["birth_date"] as? String).flatMap(ProfileBirthday.init(rawValue:))
         if let age = data?["age"] as? Int {
-            self.age = age
+            self.legacyAge = age
         } else if let age = data?["age"] as? NSNumber {
-            self.age = age.intValue
+            self.legacyAge = age.intValue
         } else {
-            self.age = nil
+            self.legacyAge = nil
         }
         self.gender = data?["gender"] as? String
         if let weightKg = data?["weight_kg"] as? Double {
@@ -61,6 +63,22 @@ struct UserDisplayNameData: Sendable {
         } else {
             self.joinedAt = nil
         }
+    }
+
+    var age: Int? {
+        age(on: .now)
+    }
+
+    func age(on date: Date, calendar: Calendar = .current) -> Int? {
+        if let derivedAge = birthday?.age(on: date, calendar: calendar),
+           ProfileBirthday.validAgeRange.contains(derivedAge) {
+            return derivedAge
+        }
+
+        guard let legacyAge, ProfileBirthday.validAgeRange.contains(legacyAge) else {
+            return nil
+        }
+        return legacyAge
     }
 }
 
@@ -131,6 +149,7 @@ final class UserDataRepository: Sendable {
         displayName: String?,
         profilePictureURL: String? = nil,
         age: Int? = nil,
+        birthday: ProfileBirthday? = nil,
         gender: String? = nil,
         weightKg: Double? = nil,
         heightCm: Double? = nil,
@@ -172,6 +191,10 @@ final class UserDataRepository: Sendable {
 
             if let age {
                 newData["age"] = age
+            }
+
+            if let birthday {
+                newData["birth_date"] = birthday.rawValue
             }
 
             if let gender {
@@ -256,6 +279,10 @@ final class UserDataRepository: Sendable {
                 userData["age"] = age
             }
 
+            if let birthday {
+                userData["birth_date"] = birthday.rawValue
+            }
+
             if let gender {
                 userData["gender"] = gender
             }
@@ -329,11 +356,46 @@ final class UserDataRepository: Sendable {
         cacheDisplayName(displayName)
     }
 
+    func updateProfileName(
+        userId: String,
+        email: String? = nil,
+        firstName: String,
+        lastName: String
+    ) async throws {
+        let displayName = try DisplayNamePolicy.composedBoardName(
+            firstName: firstName,
+            lastName: lastName
+        )
+        try await updateUserAndPublicProfile(
+            userId: userId,
+            email: email,
+            userFields: [
+                "firstName": firstName,
+                "lastName": lastName,
+                "displayName": displayName
+            ],
+            alwaysPublish: true
+        )
+        cacheDisplayName(displayName)
+    }
+
+    func updateBirthday(
+        userId: String,
+        email: String? = nil,
+        birthday: ProfileBirthday
+    ) async throws {
+        try await updateOnboardingDemographics(
+            userId: userId,
+            email: email,
+            birthday: birthday
+        )
+    }
+
     func updateOnboardingProfile(
         userId: String,
         email: String? = nil,
         displayName: String,
-        age: Int,
+        birthday: ProfileBirthday,
         gender: ProfileGender
     ) async throws {
         let displayName = try DisplayNamePolicy.validated(displayName)
@@ -342,7 +404,8 @@ final class UserDataRepository: Sendable {
             email: email,
             userFields: [
                 "displayName": displayName,
-                "age": age,
+                "birth_date": birthday.rawValue,
+                "age": FieldValue.delete(),
                 "gender": gender.rawValue
             ],
             alwaysPublish: true
@@ -354,7 +417,7 @@ final class UserDataRepository: Sendable {
         userId: String,
         email: String? = nil,
         displayName: String? = nil,
-        age: Int? = nil,
+        birthday: ProfileBirthday? = nil,
         gender: ProfileGender? = nil,
         weightKg: Double? = nil,
         heightCm: Double? = nil,
@@ -368,8 +431,9 @@ final class UserDataRepository: Sendable {
         if let displayName {
             userFields["displayName"] = displayName
         }
-        if let age {
-            userFields["age"] = age
+        if let birthday {
+            userFields["birth_date"] = birthday.rawValue
+            userFields["age"] = FieldValue.delete()
         }
         if let gender {
             userFields["gender"] = gender.rawValue
@@ -510,9 +574,11 @@ final class UserDataRepository: Sendable {
         }
     }
 
-    private static func publicIdentity(
+    static func publicIdentity(
         userId: String,
-        userData: [String: Any]
+        userData: [String: Any],
+        asOf date: Date = .now,
+        calendar: Calendar = .current
     ) throws -> ProfileUserIdentity {
         let storedProfile = UserDisplayNameData(userData)
         let publicIdentity = PublicClimberIdentity.resolve(
@@ -525,7 +591,7 @@ final class UserDataRepository: Sendable {
             userId: userId,
             displayName: try DisplayNamePolicy.validated(publicIdentity.displayName),
             photoURL: publicIdentity.photoURL,
-            age: storedProfile.age,
+            age: storedProfile.age(on: date, calendar: calendar),
             gender: storedProfile.gender.flatMap(ProfileGender.init(rawValue:)),
             weightKg: storedProfile.weightKg,
             heightCm: storedProfile.heightCm,

@@ -12,11 +12,18 @@ struct ProfileHeaderView: View {
     
     let photoURL: URL?
     let displayName: String
+    let email: String?
     let onEditTap: (() -> Void)?
     
-    init(photoURL: URL?, displayName: String, onEditTap: (() -> Void)? = nil) {
+    init(
+        photoURL: URL?,
+        displayName: String,
+        email: String? = nil,
+        onEditTap: (() -> Void)? = nil
+    ) {
         self.photoURL = photoURL
         self.displayName = displayName
+        self.email = email
         self.onEditTap = onEditTap
     }
     
@@ -39,6 +46,9 @@ struct ProfileHeaderView: View {
                         }
                         .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
                     }
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Circle())
+                    .accessibilityLabel("Edit profile")
                 }
             }
             
@@ -47,6 +57,14 @@ struct ProfileHeaderView: View {
                 .font(.montserratSemiBold)
                 .foregroundStyle(colorScheme == .dark ? .white : .black)
                 .multilineTextAlignment(.center)
+
+            if let email, !email.isEmpty {
+                Text(email)
+                    .font(.montserratRegular(size: 13))
+                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.45) : .black.opacity(0.55))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, -8)
+            }
         }
         .padding(.top, 20)
     }

@@ -6,8 +6,16 @@ description: Use when working on Ascend profiles - own vs other-user profile sur
 # Profile
 
 ## Profile Demographics
-- Post-auth onboarding captures display name and declared demographics on `users/{uid}`. Age must stay a bounded integer from 13 through 120, and gender must use the `ProfileGender` raw values: `woman`, `man`, `non_binary`, or `prefer_not_to_say`.
-- Profile demographics for V1 are public by default with no per-field opt-out: age, gender, body weight, country/region, and joined date may appear on profiles and leaderboard-adjacent surfaces. Email and authentication/provider data remain private.
+- Post-auth onboarding captures display name and declared demographics on `users/{uid}`. Gender must use the `ProfileGender` raw values: `woman`, `man`, `non_binary`, or `prefer_not_to_say`.
+- **Age is derived, never stored fresh.**
+  The stored field is `birth_date`, a private `YYYY-MM-DD` calendar string on `users/{uid}`, bounded so the derived age lands between 13 and 120.
+  `ProfileBirthday` (`AscendApp/Shared/Models/`) parses it and computes age on device, and `functions/src/leaderboardStats.ts` derives the same number server-side for board demographics.
+  Storing a typed number instead would freeze a climber's age on the day they entered it.
+  Climbers who onboarded before the birthday field keep their legacy `age` integer, consulted only when no birthday exists - there is no backfill and no migration (issue #375), and writing a birthday clears the legacy `age`.
+- Profile demographics for V1 are public by default with no per-field opt-out: age, gender, body weight, country/region, and joined date may appear on profiles and leaderboard-adjacent surfaces.
+  **`birth_date` itself is not one of them** - it stays on the private user document, and only the derived age may reach a public projection or payload.
+  `AscendAppTests/ProfileBirthdayTests.swift` fails if the date reaches the public identity payload.
+  Email and authentication/provider data remain private.
 - Custom display names and profile photos are public account identity only while App Review Guideline 1.2 moderation remains enforced.
   `PublicClimberIdentity` (`AscendApp/Shared/Models/`) resolves account-authored identity, a stable UID-derived fallback, synthetic fixture identity, and the deleted-account `Anonymous Climber` sentinel.
   Every cross-user view must pass that presentation through `ResolvedUserIdentity.Resolver`, which replaces only a blocked climber's name and photo while preserving rank, metrics, and demographics.
@@ -27,7 +35,7 @@ description: Use when working on Ascend profiles - own vs other-user profile sur
   `AscendAppTests/AuditedIdentitySurfaceTests.swift` fails if any audited surface renders a blocked climber's real name or photo.
 - A report requires a reason picker - you cannot triage without one - and writes reported uid, reporter uid, reason, timestamp, and source surface to a queue only the captain reads.
   Reporting is not a block and changes nothing for the reporter, and blocking files a report only when the blocker explicitly checks the optional report box.
-- There is exactly one moderation placement: the overflow menu on `OtherUserProfileView`, plus the Blocked climbers row in `AccountView`'s profile settings.
+- There is exactly one moderation placement: the overflow menu on `OtherUserProfileView`, plus the Blocked climbers row in `AccountView`'s Privacy section.
   Long-press menus, inline buttons, and mid-climb affordances are ruled out; reaching moderation from a new surface is a navigation change that routes to that same profile, not a new menu.
 - Display names are screened at write time so an objectionable name is never published; photo moderation is deliberately reactive (report, human review, removal) with no automated image scanning.
 

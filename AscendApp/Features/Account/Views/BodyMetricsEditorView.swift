@@ -234,16 +234,18 @@ struct BodyMetricsEditorView: View {
         guard let metrics = normalizedMetrics() else { return }
 
         isSaving = true
-        let didSave = await authVM.updateOnboardingBodyMetrics(
-            weightKg: metrics.weightKg,
-            heightCm: metrics.heightCm
-        )
+        errorMessage = await authVM.scopedProfileUpdate(
+            fallback: "Failed to update profile."
+        ) {
+            await authVM.updateOnboardingBodyMetrics(
+                weightKg: metrics.weightKg,
+                heightCm: metrics.heightCm
+            )
+        }
         isSaving = false
 
-        if didSave {
+        if errorMessage == nil {
             dismiss()
-        } else {
-            errorMessage = authVM.errorMessage ?? "Failed to update profile."
         }
     }
 

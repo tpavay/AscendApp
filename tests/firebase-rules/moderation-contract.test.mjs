@@ -392,6 +392,65 @@ test('account and public identity can commit atomically', async () => {
   );
 });
 
+test('birthday is accepted only on the private user document', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const db = context.firestore();
+
+  await assertSucceeds(setDoc(
+    doc(db, `users/${userId}`),
+    makeUserDocument({birth_date: '1994-03-14'})
+  ));
+  await assertFails(setDoc(
+    doc(db, `users/${userId}`),
+    makeUserDocument({birth_date: 'March 14, 1994'})
+  ));
+  await assertFails(setDoc(
+    doc(db, `users/${userId}`),
+    makeUserDocument({birth_date: 19940314})
+  ));
+  await assertFails(setDoc(
+    doc(db, `users/${userId}/public_profile/current`),
+    makePublicProfileDocument({
+      birth_date: '1994-03-14',
+      identityChangedAt: serverTimestamp(),
+    })
+  ));
+});
+
+// The birthday replaced a number the server bounded to 13 through 120. Without
+// a bound of its own the under-13 floor the privacy policy states would be
+// client-side only.
+test('birthday must fall inside the age bound the stored age carried', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const db = context.firestore();
+  const currentYear = new Date().getUTCFullYear();
+
+  await assertSucceeds(setDoc(
+    doc(db, `users/${userId}`),
+    makeUserDocument({birth_date: `${currentYear - 13}-01-01`})
+  ));
+  await assertSucceeds(setDoc(
+    doc(db, `users/${userId}`),
+    makeUserDocument({birth_date: `${currentYear - 121}-12-31`})
+  ));
+  await assertFails(setDoc(
+    doc(db, `users/${userId}`),
+    makeUserDocument({birth_date: `${currentYear - 5}-01-01`})
+  ));
+  await assertFails(setDoc(
+    doc(db, `users/${userId}`),
+    makeUserDocument({birth_date: `${currentYear - 200}-01-01`})
+  ));
+  await assertFails(setDoc(
+    doc(db, `users/${userId}`),
+    makeUserDocument({birth_date: '9999-99-99'})
+  ));
+  await assertFails(setDoc(
+    doc(db, `users/${userId}`),
+    makeUserDocument({birth_date: '0000-00-00'})
+  ));
+});
+
 test('public identity requires bounded nonempty names and bounded photo urls', async () => {
   const context = testEnv.authenticatedContext(userId);
   const db = context.firestore();

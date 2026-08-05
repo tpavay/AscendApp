@@ -86,7 +86,7 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
         case .gender:
             return "single_select"
         case .age:
-            return "number"
+            return "date"
         case .weight:
             return "measurement"
         case .location:

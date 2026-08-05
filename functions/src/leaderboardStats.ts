@@ -490,14 +490,28 @@ export function leaderboardIdentityFields(
 
 /**
  * Copies the board's filter demographics off the private user document.
+ *
+ * Age is derived from the private `birth_date` rather than read as a stored
+ * number, so the board ages a climber with the calendar instead of freezing
+ * whatever they typed once. The stored `age` is consulted only for the legacy
+ * climbers who never recorded a birthday; `birth_date` itself never leaves this
+ * function.
  * @param {Record<string, unknown> | undefined} data The user document.
+ * @param {Date} now The reconciliation instant.
  * @return {LeaderboardDemographics} Present values only.
  */
 export function leaderboardDemographics(
-  data: Record<string, unknown> | undefined
+  data: Record<string, unknown> | undefined,
+  now: Date
 ): LeaderboardDemographics {
   return {
-    age: data === undefined ? null : boundedInteger(data.age, 13, 120),
+    age: data === undefined ?
+      null :
+      boundedInteger(
+        ageFromBirthDate(data.birth_date, now) ?? data.age,
+        13,
+        120
+      ),
     weightKg: data === undefined ?
       null :
       boundedNumber(data.weight_kg, 0, 400),
@@ -653,7 +667,7 @@ export async function reconcileLeaderboardStats(
     );
     const rows = deriveLeaderboardRows(userId, eligible, now, periods);
     const identity = leaderboardIdentityFields(userId, snapshot.publicProfile);
-    const demographics = leaderboardDemographics(snapshot.user);
+    const demographics = leaderboardDemographics(snapshot.user, now);
     const synthetic = new Set(
       snapshot.existingRows
         .filter((row) => row.isSynthetic)
@@ -922,6 +936,7 @@ export const onUserDemographicsWrittenLeaderboardStats = onDocumentWritten(
 
 const DEMOGRAPHIC_FIELDS = [
   "age",
+  "birth_date",
   "weight_kg",
   "location_city",
   "location_country",
@@ -1153,6 +1168,44 @@ function nonNegativeInteger(value: unknown): number | null {
     null;
 }
 
+const BIRTH_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/u;
+
+/**
+ * Derives whole years of age from a stored `YYYY-MM-DD` calendar birthday.
+ *
+ * The birthday carries no time zone, so the comparison runs entirely on
+ * calendar components in UTC: a climber's age must not flip because the
+ * reconciliation ran from a different region.
+ * @param {unknown} value The stored `birth_date`.
+ * @param {Date} now The reconciliation instant.
+ * @return {number | null} Age in years, or null when no usable birthday.
+ */
+function ageFromBirthDate(value: unknown, now: Date): number | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const match = BIRTH_DATE_PATTERN.exec(value);
+  if (match === null) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const roundTrip = new Date(Date.UTC(year, month - 1, day));
+  if (roundTrip.getUTCFullYear() !== year ||
+    roundTrip.getUTCMonth() + 1 !== month ||
+    roundTrip.getUTCDate() !== day) {
+    return null;
+  }
+
+  const currentMonth = now.getUTCMonth() + 1;
+  const currentDay = now.getUTCDate();
+  const birthdayHasOccurred = currentMonth > month ||
+    (currentMonth === month && currentDay >= day);
+  return now.getUTCFullYear() - year - (birthdayHasOccurred ? 0 : 1);
+}
+
 /**
  * Parses an integer inside an inclusive range.
  * @param {unknown} value Raw value.
@@ -1216,6 +1269,7 @@ function countryCode(value: unknown): string | null {
 }
 
 export const leaderboardStatsTestHooks = {
+  ageFromBirthDate,
   aggregateForPeriod,
   demographicsChanged,
   deriveLeaderboardRows,
