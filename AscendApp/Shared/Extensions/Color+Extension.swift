@@ -70,6 +70,15 @@ extension Color {
     /// Custom gray colors
     static let customGray = Color(hex: "888888")
     static let darkGray = Color(hex: "333333")
+
+    /// The caution token: a climber's own work that has not reached their account.
+    ///
+    /// Deliberately not the lime accent, which means "earned", and not red, which the app uses for
+    /// destructive actions. Amber is the captain's call; this exact value is still the design
+    /// board's proposal (`design-ascend-backup-failure-surface`) and is the one visual detail he
+    /// has not confirmed, so it lives here as a single token to change rather than a literal
+    /// scattered across the surface.
+    static let ascendCaution = Color(hex: "FF9F0A")
     
     // MARK: - Workout Intensity Colors
     

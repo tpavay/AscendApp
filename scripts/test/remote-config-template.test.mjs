@@ -3,10 +3,12 @@ import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  APP_PARAMETER_SOURCE_PATHS,
   appFlagKeys,
   findActiveKillSwitches,
   flagParityProblems,
   isParameterOff,
+  isSettingParameter,
   templateParameters,
   templateShapeProblems,
   templateVersionNumber,
@@ -22,11 +24,25 @@ function repositoryText(path) {
 }
 
 const localTemplate = repositoryJSON("remoteconfig.template.json");
-const flagSource = repositoryText(
-  "AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift",
-);
 
-test("every checked-in parameter is a boolean that ships on", () => {
+// Resolved through the shared constant rather than by repeating the paths, so a third enum added
+// there flows into every parity assertion below instead of being wired into some call sites and
+// missed by others - which is the drift the constant exists to prevent.
+const parameterSourceByFileName = new Map(
+  APP_PARAMETER_SOURCE_PATHS.map((path) => [path.split("/").pop(), repositoryText(path)]),
+);
+const everyParameterSource = [...parameterSourceByFileName.values()].join("\n");
+
+function parameterSource(fileName) {
+  const source = parameterSourceByFileName.get(fileName);
+  assert.ok(source, `${fileName} is not listed in APP_PARAMETER_SOURCE_PATHS`);
+  return source;
+}
+
+const flagSource = parameterSource("RemoteFeatureFlag.swift");
+const settingSource = parameterSource("RemoteConfigSetting.swift");
+
+test("every checked-in parameter ships in its healthy shape", () => {
   assert.ok(Object.keys(templateParameters(localTemplate)).length > 0);
   assert.deepEqual(templateShapeProblems(localTemplate), []);
 });
@@ -139,14 +155,39 @@ test("no automated deploy full-replaces the Remote Config template", () => {
   }
 });
 
-test("the template carries exactly the flags the app knows about", () => {
-  // A flag the app reads but the template does not carry is a switch that cannot be
-  // flipped; a parameter the app does not read is a switch that does nothing.
-  const appKeys = appFlagKeys(flagSource);
+test("the template carries exactly the parameters the app knows about", () => {
+  // A parameter the app reads but the template does not carry is a lever that cannot be
+  // pulled; a parameter the app does not read is a lever that moves nothing. Settings live in
+  // their own enum but are held to the same parity contract.
+  const appKeys = appFlagKeys(everyParameterSource);
 
-  assert.ok(appKeys.length > 0, "could not parse any flag keys out of RemoteFeatureFlag.swift");
+  assert.ok(appKeys.length > 0, "could not parse any keys out of the RemoteConfig enums");
   assert.deepEqual(Object.keys(templateParameters(localTemplate)).sort(), appKeys);
-  assert.deepEqual(flagParityProblems(localTemplate, flagSource), []);
+  assert.deepEqual(
+    flagParityProblems(localTemplate, everyParameterSource),
+    [],
+  );
+});
+
+test("a setting is held to its own shape contract, not the kill-switch one", () => {
+  // A kill switch ships on as a Boolean. A setting ships at its healthy baseline with its own
+  // type, and calling it a switch would make the healthy state a lie.
+  assert.ok(isSettingParameter("workout_sync_recovery_epoch"));
+  assert.ok(!isSettingParameter("workout_cloud_backup_writes_enabled"));
+
+  const problems = templateShapeProblems({
+    parameters: {
+      workout_sync_recovery_epoch: {
+        defaultValue: {value: "true"},
+        valueType: "BOOLEAN",
+        description: "wrong shape",
+      },
+    },
+  });
+
+  assert.equal(problems.length, 2);
+  assert.ok(problems.some((problem) => problem.includes("must be declared NUMBER")));
+  assert.ok(problems.some((problem) => problem.includes("healthy baseline")));
 });
 
 test("a flag the app reads with no parameter behind it is reported", () => {
@@ -240,6 +281,58 @@ test("a fully published live template raises nothing", () => {
   const appKeys = appFlagKeys(flagSource);
 
   assert.deepEqual(unpublishedFlagProblems(localTemplate, appKeys), []);
+});
+
+// The archive-blocking gate has to cover settings, not just kill switches.
+//
+// An operator lever that exists in the checked-in template and nowhere in the live backend is
+// worse than no lever, because it is believed in: `workout_sync_recovery_epoch` is the one thing
+// that can unstick a fleet after a rules fix, and it is reached for mid-incident.
+test("both RemoteConfig enums declare keys the published check covers", () => {
+  const appKeys = appFlagKeys(everyParameterSource);
+
+  assert.ok(appKeys.includes("workout_sync_recovery_epoch"));
+  assert.ok(!appFlagKeys(flagSource).includes("workout_sync_recovery_epoch"));
+  assert.deepEqual(unpublishedFlagProblems(localTemplate, appKeys), []);
+});
+
+test("a setting missing from the live backend fails the archive like a switch does", () => {
+  const live = {
+    parameters: Object.fromEntries(
+      appFlagKeys(flagSource).map((key) => [
+        key,
+        { valueType: "BOOLEAN", defaultValue: { value: "true" } },
+      ]),
+    ),
+  };
+
+  const problems = unpublishedFlagProblems(
+    live,
+    appFlagKeys(everyParameterSource),
+  );
+
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /workout_sync_recovery_epoch is missing from the live template/);
+});
+
+test("a setting published at its own declared type is not reported as mistyped", () => {
+  // The check used to hardcode BOOLEAN, which would have reported a correctly published NUMBER
+  // lever as unreachable and blocked every archive.
+  const live = {
+    parameters: {
+      workout_sync_recovery_epoch: { valueType: "NUMBER", defaultValue: { value: "0" } },
+    },
+  };
+
+  assert.deepEqual(unpublishedFlagProblems(live, ["workout_sync_recovery_epoch"]), []);
+
+  const mistyped = unpublishedFlagProblems(
+    { parameters: { workout_sync_recovery_epoch: { valueType: "STRING", defaultValue: { value: "0" } } } },
+    ["workout_sync_recovery_epoch"],
+  );
+
+  assert.equal(mistyped.length, 1);
+  assert.match(mistyped[0], /published as STRING, not the NUMBER the template declares/);
 });
 
 test("a switch an operator turned off is the mechanism working, not a problem", () => {

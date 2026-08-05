@@ -317,9 +317,9 @@ node scripts/deploy-remote-config.mjs --env prod --confirm-production ascend-pro
 
 Both read the live template first and refuse to publish while any managed flag is switched off.
 Production was first published on 2026-08-02 and read back parameter by parameter; `remote-config-kill-switches.md` holds that record and owns the publish contract.
-Re-run this whenever a flag is added - the production archive fails while any flag the build reads is unreachable on the backend.
+Re-run this whenever a parameter is added - a kill switch or an operator setting - because the production archive fails while any parameter the build reads is unreachable on the backend.
 
-Rollback: there is nothing to roll back - the checked-in template is the healthy state, with every switch on.
+Rollback: there is nothing to roll back - the checked-in template is the healthy state, with every switch on and every setting at its baseline.
 To *use* a switch, flip it to `false` in the Firebase console. See `remote-config-kill-switches.md`.
 
 ## Rollback worktree

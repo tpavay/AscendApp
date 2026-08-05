@@ -201,11 +201,20 @@ struct WorkoutSyncCoordinatorTests {
         #expect((await remoteRepository.recordedUpserts()).isEmpty)
     }
 
+    /// A transient failure is retried, but only once its persisted due date has passed - the
+    /// schedule is a clock, not a counter, so "the next pass" is the next pass after the backoff.
     @Test
-    func failedWorkoutRetriesSuccessfullyOnNextPass() async throws {
+    func failedWorkoutRetriesSuccessfullyOnceItsBackoffHasElapsed() async throws {
         let modelContext = try makeModelContext()
+        let clock = MutableClock(now: makeDate(year: 2026, month: 4, day: 13, hour: 10))
         let workout = makeWorkout(date: makeDate(year: 2026, month: 4, day: 13, hour: 9))
-        workout.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: workout.createdAt)
+        // On the coordinator's clock, not the wall clock: a workout whose last modification looks
+        // later than its last attempt is a new payload revision, and would correctly restart the
+        // series this test is measuring.
+        workout.markPendingRemoteUpsert(
+            ownerUserId: "user-123",
+            modifiedAt: clock.value.addingTimeInterval(-60)
+        )
         modelContext.insert(workout)
         try modelContext.save()
 
@@ -214,7 +223,8 @@ struct WorkoutSyncCoordinatorTests {
         let coordinator = WorkoutSyncCoordinator(
             remoteRepository: remoteRepository,
             heartRateStorageRepository: heartRateRepository,
-            operationTimeoutSeconds: 1
+            operationTimeoutSeconds: 1,
+            now: { clock.value }
         )
 
         await coordinator.processPendingWorkouts(
@@ -225,6 +235,15 @@ struct WorkoutSyncCoordinatorTests {
         let failedWorkout = try #require(fetchWorkouts(in: modelContext).first)
         #expect(failedWorkout.remoteSyncStatus == .failed)
         #expect(failedWorkout.lastRemoteSyncAt == nil)
+
+        // A pass inside the backoff window changes nothing - that is the whole point of it.
+        await coordinator.processPendingWorkouts(
+            modelContext: modelContext,
+            currentUserId: "user-123"
+        )
+        #expect(try #require(fetchWorkouts(in: modelContext).first).remoteSyncStatus == .failed)
+
+        clock.value = clock.value.addingTimeInterval(600)
 
         await coordinator.processPendingWorkouts(
             modelContext: modelContext,
@@ -673,11 +692,94 @@ struct WorkoutSyncCoordinatorTests {
         #expect((await remoteRepository.recordedDeletes()).count == 1)
     }
 
+    /// The declared contract has to be honest on both sides. `firestore.rules` bounds the
+    /// participation list, so the client refuses to build a document that exceeds it rather than
+    /// send one the server can only ever refuse - and it must refuse *this* workout without taking
+    /// the rest of the queue down, which is what rethrowing out of the snapshot loop did.
+    @Test
+    func aWorkoutPastTheParticipationCapIsRejectedWithoutBlockingTheQueue() async throws {
+        let modelContext = try makeModelContext()
+        let overCap = makeWorkout(date: makeDate(year: 2026, month: 6, day: 11, hour: 22))
+        overCap.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: overCap.createdAt)
+        modelContext.insert(overCap)
+
+        for index in 0...WorkoutRemoteSyncLimits.maximumParticipations {
+            let participation = WorkoutParticipation(
+                workout: overCap,
+                userId: "user-123",
+                contextType: .routineTemplate,
+                contextId: "template-\(index)",
+                leaderboardEligible: false,
+                verificationTier: .unverified
+            )
+            overCap.participations.append(participation)
+            modelContext.insert(participation)
+        }
+
+        let healthy = makeWorkout(date: makeDate(year: 2026, month: 6, day: 12, hour: 22))
+        healthy.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: healthy.createdAt)
+        modelContext.insert(healthy)
+        try modelContext.save()
+
+        let remoteRepository = FakeWorkoutRemoteRepository()
+        let coordinator = WorkoutSyncCoordinator(
+            remoteRepository: remoteRepository,
+            heartRateStorageRepository: FakeWorkoutHeartRateStorageRepository(),
+            operationTimeoutSeconds: 1
+        )
+
+        await coordinator.processPendingWorkouts(modelContext: modelContext, currentUserId: "user-123")
+
+        let workouts = try fetchWorkouts(in: modelContext)
+        let rejected = try #require(workouts.first { $0.id == overCap.id })
+        let synced = try #require(workouts.first { $0.id == healthy.id })
+        #expect(rejected.remoteSyncStatus == .rejected)
+        #expect(rejected.lastRemoteSyncError?.isEmpty == false)
+        #expect(synced.remoteSyncStatus == .synced)
+        #expect(await remoteRepository.recordedUpserts().map(\.workoutId) == [healthy.id])
+    }
+
+    @Test
+    func aWorkoutAtTheParticipationCapStillSyncs() async throws {
+        let modelContext = try makeModelContext()
+        let workout = makeWorkout(date: makeDate(year: 2026, month: 6, day: 11, hour: 22))
+        workout.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: workout.createdAt)
+        modelContext.insert(workout)
+
+        for index in 0..<WorkoutRemoteSyncLimits.maximumParticipations {
+            let participation = WorkoutParticipation(
+                workout: workout,
+                userId: "user-123",
+                contextType: .routineTemplate,
+                contextId: "template-\(index)",
+                leaderboardEligible: false,
+                verificationTier: .unverified
+            )
+            workout.participations.append(participation)
+            modelContext.insert(participation)
+        }
+        try modelContext.save()
+
+        let remoteRepository = FakeWorkoutRemoteRepository()
+        let coordinator = WorkoutSyncCoordinator(
+            remoteRepository: remoteRepository,
+            heartRateStorageRepository: FakeWorkoutHeartRateStorageRepository(),
+            operationTimeoutSeconds: 1
+        )
+
+        await coordinator.processPendingWorkouts(modelContext: modelContext, currentUserId: "user-123")
+
+        #expect(try #require(fetchWorkouts(in: modelContext).first).remoteSyncStatus == .synced)
+        let upsert = try #require(await remoteRepository.recordedUpserts().first)
+        #expect(upsert.document.participations?.count == WorkoutRemoteSyncLimits.maximumParticipations)
+    }
+
     private func makeModelContext() throws -> ModelContext {
         let container = try ModelContainer(
             for: Workout.self,
             WorkoutSourceLink.self,
             WorkoutParticipation.self,
+            WorkoutSyncOutboxEntry.self,
             PendingWorkoutDeletion.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
@@ -923,4 +1025,13 @@ private actor FlakyWorkoutRemoteRepository: WorkoutRemoteRepositoryProtocol {
 @MainActor
 private final class CoordinatorReference {
     var value: WorkoutSyncCoordinator?
+}
+
+@MainActor
+private final class MutableClock {
+    var value: Date
+
+    init(now: Date) {
+        self.value = now
+    }
 }

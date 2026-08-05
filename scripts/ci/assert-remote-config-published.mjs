@@ -23,7 +23,11 @@ import {fileURLToPath} from "node:url";
 import process from "node:process";
 
 import {annotate} from "../lib/ci-annotations.mjs";
-import {appFlagKeys, unpublishedFlagProblems} from "../lib/remote-config-template.mjs";
+import {
+  APP_PARAMETER_SOURCE_PATHS,
+  appFlagKeys,
+  unpublishedFlagProblems,
+} from "../lib/remote-config-template.mjs";
 
 const FIREBASE_TOOLS = "firebase-tools@15.22.1";
 const STRUCTURAL_EXIT_CODE = 2;
@@ -53,10 +57,10 @@ const PROJECTS = {
 };
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const FLAG_SOURCE_PATH = resolve(
-  REPO_ROOT,
-  "AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift",
-);
+// Both enums, because the archive gate has to cover every parameter the build reads. A setting
+// that exists only in the checked-in template is an operator lever that does not exist in the
+// console at the moment somebody reaches for it - worse than no lever, because it is believed in.
+const PARAMETER_SOURCE_PATHS = APP_PARAMETER_SOURCE_PATHS.map((path) => resolve(REPO_ROOT, path));
 
 function failStructurally(message) {
   annotate("error", message);
@@ -75,17 +79,20 @@ const {projectId, additivePublishScript, fullReplaceScript} = PROJECTS[environme
 
 let swiftSource;
 try {
-  swiftSource = await readFile(FLAG_SOURCE_PATH, "utf8");
+  swiftSource = (
+    await Promise.all(PARAMETER_SOURCE_PATHS.map((path) => readFile(path, "utf8")))
+  ).join("\n");
 } catch (error) {
-  failStructurally(`Cannot read ${FLAG_SOURCE_PATH}: ${error.message}`);
+  failStructurally(`Cannot read the Remote Config parameter declarations: ${error.message}`);
 }
 
 const appKeys = appFlagKeys(swiftSource);
 
 if (appKeys.length === 0) {
   failStructurally(
-    "Parsed no flag keys out of RemoteFeatureFlag.swift. Passing here would mean asserting " +
-      "nothing, which is how this class of gap opens in the first place.",
+    "Parsed no parameter keys out of RemoteFeatureFlag.swift or RemoteConfigSetting.swift. " +
+      "Passing here would mean asserting nothing, which is how this class of gap opens in the " +
+      "first place.",
   );
 }
 
@@ -126,8 +133,8 @@ if (problems.length > 0) {
   // raw log - the least visible place at the moment someone needs it.
   annotate(
     "error",
-    `${problems.length} of ${appKeys.length} kill switch(es) are unreachable in ${projectId}. ` +
-      "Publish the template before archiving.",
+    `${problems.length} of ${appKeys.length} Remote Config parameter(s) this build reads are ` +
+      `unreachable in ${projectId}. Publish the template before archiving.`,
   );
   console.error(`  cd scripts && npm run ${additivePublishScript} -- --apply`);
   console.error(
@@ -144,6 +151,6 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `Verified all ${appKeys.length} kill switch(es) are published in ${projectId} as BOOLEAN ` +
-    "parameters carrying a backend default the client can resolve.",
+  `Verified all ${appKeys.length} Remote Config parameter(s) this build reads are published in ` +
+    `${projectId} at their declared type, carrying a backend default the client can resolve.`,
 );

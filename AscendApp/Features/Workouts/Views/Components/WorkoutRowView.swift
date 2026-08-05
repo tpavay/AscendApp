@@ -11,6 +11,11 @@ struct WorkoutRowView: View {
     let workout: Workout
     var bestEffort: RankedBestEffort? = nil
 
+    /// Only once the climber is meant to know. A workout still working through its quiet automatic
+    /// series is not a problem they can act on, and badging every one of those would train the eye
+    /// straight past the badge that matters.
+    var showsCouldNotSyncBadge: Bool = false
+
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
 
@@ -100,6 +105,16 @@ struct WorkoutRowView: View {
                     effort: bestEffort,
                     colorScheme: effectiveColorScheme
                 )
+            }
+
+            // Its own line, stacking under Best Effort. A climb that is not in the climber's
+            // account looks identical to one that is from this list otherwise, so they would only
+            // find out by losing the phone. "this climb" is redundant on the climb's own row.
+            if showsCouldNotSyncBadge {
+                Label("Couldn't sync", systemImage: "exclamationmark.triangle.fill")
+                    .font(.montserratSemiBold(size: 11))
+                    .foregroundStyle(Color.ascendCaution)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             if !workout.notes.isEmpty {

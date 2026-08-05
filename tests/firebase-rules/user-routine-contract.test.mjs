@@ -174,6 +174,41 @@ test('createdAt is immutable once the routine exists', async () => {
   })));
 });
 
+// A routine's `defaultWeightConfiguration` is validated by helpers the routine rule shares with
+// nothing else any more: the workout rule stopped calling them when it was cut back to fit
+// Firestore's expression ceiling. Nothing in the rules file records that dependency, and no other
+// test populated the field, so deleting the helpers as newly-dead code passed every suite while
+// silently breaking backup for any routine carrying default weights. This is that tie.
+test('a routine backs up its default weight configuration and still validates the entries', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const routineRef = doc(context.firestore(), `users/${userId}/routines/${routineId}`);
+
+  const entry = {
+    id: '33333333-3333-3333-3333-333333333333',
+    equipmentType: 'weighted_vest',
+    weightValue: 20,
+    isEnabled: true,
+  };
+
+  await assertSucceeds(setDoc(routineRef, makeRoutineDocument({
+    defaultWeightConfiguration: {entries: [entry]},
+  })));
+
+  await assertFails(setDoc(routineRef, makeRoutineDocument({
+    defaultWeightConfiguration: {entries: [{...entry, equipmentType: 'sled'}]},
+  })));
+
+  await assertFails(setDoc(routineRef, makeRoutineDocument({
+    defaultWeightConfiguration: {entries: [{...entry, weightValue: -1}]},
+  })));
+
+  await assertFails(setDoc(routineRef, makeRoutineDocument({
+    defaultWeightConfiguration: {
+      entries: [entry, {...entry, id: '44444444-4444-4444-4444-444444444444'}],
+    },
+  })));
+});
+
 test('owner can delete their own routine', async () => {
   const context = testEnv.authenticatedContext(userId);
   await assertSucceeds(setDoc(routineRef(context), makeRoutineDocument()));

@@ -27,6 +27,7 @@ import {fileURLToPath} from "node:url";
 
 import {annotate, summarize} from "../lib/ci-annotations.mjs";
 import {
+  APP_PARAMETER_SOURCE_PATHS,
   appFlagKeys,
   findActiveKillSwitches,
   templateParameters,
@@ -45,10 +46,9 @@ const PROJECTS = {
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const TEMPLATE_PATH = resolve(REPO_ROOT, "remoteconfig.template.json");
-const FLAG_SOURCE_PATH = resolve(
-  REPO_ROOT,
-  "AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift",
-);
+// Both enums: a setting is as unreachable as a switch when it is missing from the backend, and
+// reporting only on switches would leave the epoch lever drifting unwatched.
+const PARAMETER_SOURCE_PATHS = APP_PARAMETER_SOURCE_PATHS.map((path) => resolve(REPO_ROOT, path));
 
 function failStructurally(message) {
   annotate("error", message);
@@ -115,15 +115,18 @@ let localParameters;
 let appKeys;
 try {
   localParameters = templateParameters(JSON.parse(readFileSync(TEMPLATE_PATH, "utf8")));
-  appKeys = appFlagKeys(readFileSync(FLAG_SOURCE_PATH, "utf8"));
+  appKeys = appFlagKeys(
+    PARAMETER_SOURCE_PATHS.map((path) => readFileSync(path, "utf8")).join("\n"),
+  );
 } catch (error) {
-  failStructurally(`Cannot read this ref's kill-switch declarations: ${error.message}`);
+  failStructurally(`Cannot read this ref's Remote Config declarations: ${error.message}`);
 }
 
 if (appKeys.length === 0) {
   failStructurally(
-    "Parsed no flag keys out of RemoteFeatureFlag.swift. Passing here would mean asserting " +
-      "nothing, which is how this class of gap opens in the first place.",
+    "Parsed no parameter keys out of RemoteFeatureFlag.swift or RemoteConfigSetting.swift. " +
+      "Passing here would mean asserting nothing, which is how this class of gap opens in the " +
+      "first place.",
   );
 }
 
@@ -131,7 +134,7 @@ const reports = environments.map((environment) =>
   inspectProject(environment, localParameters, appKeys),
 );
 
-const summaryLines = [`### Remote Config drift, ${appKeys.length} kill switch(es) in this ref`, ""];
+const summaryLines = [`### Remote Config drift, ${appKeys.length} parameter(s) in this ref`, ""];
 
 for (const report of reports) {
   const {projectId, version, unreachable, switchedOff, valueDrift, unmanaged} = report;
@@ -183,7 +186,7 @@ const unreachableCount = reports.reduce((total, report) => total + report.unreac
 if (unreachableCount > 0) {
   annotate(
     "error",
-    `${unreachableCount} kill switch(es) are unreachable across ` +
+    `${unreachableCount} Remote Config parameter(s) are unreachable across ` +
       `${reports.filter((report) => report.unreachable.length > 0).map((report) => report.projectId).join(", ")}. ` +
       "Publish before the next release, or that build's only undo is decorative.",
   );
@@ -191,6 +194,6 @@ if (unreachableCount > 0) {
 }
 
 console.log(
-  `Every one of the ${appKeys.length} kill switch(es) is reachable in ` +
+  `Every one of the ${appKeys.length} Remote Config parameter(s) is reachable in ` +
     `${reports.map((report) => report.projectId).join(", ")}.`,
 );
