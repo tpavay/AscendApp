@@ -5,17 +5,15 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Mounts the sync row the way the detail screen does, on a live window.
+/// Mounts the sync row on a live window and measures what it actually draws.
 ///
-/// The row starts at `.hidden` and renders nothing in that state, and the only things that can move
-/// it off `.hidden` are lifecycle modifiers. So the surface is only alive if those modifiers fire
-/// for a view that is producing no output at the moment they would run - which is the shape SwiftUI
-/// famously does not honour for `EmptyView`. Nothing short of hosting it can answer that: rendering
-/// `WorkoutSyncStatusRow` with an explicit presentation, as the evidence test does, never exercises
-/// the transition at all.
+/// Rendering `WorkoutSyncStatusRow` with an explicit presentation, as the evidence test does, only
+/// ever proves the row can draw. These mount `WorkoutSyncStatusSection` - the thing the detail
+/// screen places - and check the two states that decide whether a climber ever sees the warning:
+/// a refused climb has to occupy space, and a clean one has to occupy none.
 ///
-/// Hidden-to-warning is the transition that matters, because it is the path a climber's first
-/// failed climb takes.
+/// `WorkoutSyncListBadgeEvidenceTests.theRowSurvivesTheDetailScreensNesting` is the companion that
+/// nests the section inside a stack rather than mounting it as a root view.
 @MainActor
 @Suite(.hostsAWindow)
 struct WorkoutSyncStatusSectionHostingTests {
@@ -74,20 +72,20 @@ struct WorkoutSyncStatusSectionHostingTests {
         #expect(
             height > 0,
             """
-            The sync row never left its hidden initial state. Its lifecycle is attached to a view \
-            that renders nothing until the lifecycle runs, so the row - and the TRY AGAIN control \
-            with it - is dead on this screen.
+            The sync row drew nothing for a climb the cloud refused, so the warning - and the TRY \
+            AGAIN control with it - is dead on this screen.
             """
         )
     }
 
-    /// The constraint that rules out the obvious way to make the lifecycle above unconditional.
+    /// The constraint that rules out a permanently present container for the row.
     ///
-    /// Anchoring the row's `.task` to an always-drawing sibling - a zero-size `Color.clear` in a
-    /// `ZStack` - would make the section a real layout subview even with nothing to say, and the
-    /// detail screen stacks it at `spacing: 24`. Every climb that synced cleanly would then carry
-    /// a phantom gap where the row is not. Only a genuinely empty body is elided from a stack, so
-    /// the row has to render nothing, and the hosting test above is what proves it still wakes up.
+    /// Giving the section an always-drawing anchor - a zero-size `Color.clear` in a `ZStack` -
+    /// would make it a real layout subview even with nothing to say, and the detail screen stacks
+    /// it at `spacing: 24`. Every climb that synced cleanly would then carry a phantom gap where
+    /// the row is not. Only a genuinely empty body is elided from a stack, so the row renders
+    /// nothing when there is nothing to say, and the test above is what proves it still draws when
+    /// there is.
     @Test
     func aHiddenRowCostsNoStackSpacing() async throws {
         let container = try Self.hostedContainer()

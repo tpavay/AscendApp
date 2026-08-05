@@ -30,6 +30,19 @@ final class WorkoutSyncCoordinator {
     /// inside the pass, and nothing renders from them directly.
     private(set) var completedPassCount = 0
 
+    /// The one answer every sync surface renders, keyed by workout.
+    ///
+    /// The detail row and the list badge read this rather than each deriving their own. Two
+    /// independent derivations is what let the two surfaces disagree about one climb, and it is
+    /// what forced the detail row to bootstrap its derivation from its own lifecycle - a row whose
+    /// body is empty until that lifecycle runs is a row that never appears when it does not, which
+    /// is exactly what nesting it in the detail screen's stack did.
+    ///
+    /// Observable, so publishing is also the invalidation: a surface reads it from `body` and needs
+    /// no lifecycle of its own. Bounded by the backlog, because only a climb that is not in the
+    /// cloud has anything to say.
+    private(set) var publishedPresentations: [UUID: WorkoutSyncPresentation] = [:]
+
     /// Callers waiting for the pass that is already running to finish.
     ///
     /// Only `retryNow` waits. `processPendingWorkouts` keeps its non-blocking coalescing, because
@@ -173,6 +186,11 @@ final class WorkoutSyncCoordinator {
         // Already being attempted. This tap adds nothing, and the running attempt owns the outcome.
         guard !inFlightWorkoutIds.contains(workoutId) else { return false }
 
+        // The tap itself is the request, so the control locks immediately rather than waiting for
+        // the pass to reach this workout. Published rather than held in the row, so navigating away
+        // and back cannot unlock a request that is still running.
+        publishedPresentations[workoutId] = .couldNotSyncRetrying
+
         manualRetryReachedOutcome[workoutId] = false
         manuallyRequestedWorkoutIds.insert(workoutId)
         warnedWorkoutIds.insert(workoutId)
@@ -188,22 +206,35 @@ final class WorkoutSyncCoordinator {
         return manualRetryReachedOutcome.removeValue(forKey: workoutId) ?? false
     }
 
-    /// What the surface renders, derived from whether the climb is in the cloud - never from what
-    /// the retry machinery happens to be doing.
+    /// What one climb's row shows right now, from published state and the latches alone.
+    ///
+    /// Pure and in-memory - no store query - so a view body may read it directly, which is the
+    /// whole point: the row is never an empty body waiting for a lifecycle to fill it in.
+    ///
+    /// A climb nothing has published yet is answered from its own status, the same answer the
+    /// published form reaches for a workout with no schedule on file. A published warning wins over
+    /// that, because only the published form has read the schedule; a published quiet answer never
+    /// does, because the climb's own status is more current than any snapshot of it.
+    func presentation(for workout: Workout) -> WorkoutSyncPresentation {
+        // Read first and unconditionally: this is the observable a surface registers on, so an
+        // early return past it would leave a body that never hears about the next pass.
+        let published = publishedPresentations[workout.id]
+
+        if let settled = settledPresentation(for: workout) { return settled }
+        if let published, published.isWarning { return published }
+
+        return attentionPresentation(for: workout, entry: nil)
+    }
+
+    /// Derives one climb's answer against the persisted schedule and publishes it.
+    @discardableResult
     func syncPresentation(
         for workout: Workout,
         modelContext: ModelContext
     ) -> WorkoutSyncPresentation {
-        if let settled = settledPresentation(for: workout) { return settled }
-
-        let entry = try? outboxEntry(
-            forWorkoutId: workout.id,
-            ownerUserId: workout.ownerUserId ?? "",
-            createIfMissing: false,
-            modelContext: modelContext
-        )
-
-        return attentionPresentation(for: workout, entry: entry)
+        let presentation = derivedPresentation(for: workout, modelContext: modelContext)
+        publishedPresentations[workout.id] = presentation
+        return presentation
     }
 
     /// The same answer for a whole screenful, on one store query.
@@ -211,6 +242,7 @@ final class WorkoutSyncCoordinator {
     /// The per-workout form issues its own `FetchDescriptor`, so calling it in a loop from a
     /// screen's `.task` is a query whose count grows with the climber's history - the shape the
     /// project forbids outright.
+    @discardableResult
     func syncPresentations(
         for workouts: [Workout],
         modelContext: ModelContext
@@ -226,7 +258,10 @@ final class WorkoutSyncCoordinator {
             }
         }
 
-        guard !needingSchedule.isEmpty else { return presentations }
+        guard !needingSchedule.isEmpty else {
+            publishedPresentations.merge(presentations) { _, published in published }
+            return presentations
+        }
 
         let entries = (try? outboxEntriesByWorkoutId(modelContext: modelContext)) ?? [:]
         for workout in needingSchedule {
@@ -236,7 +271,34 @@ final class WorkoutSyncCoordinator {
             )
         }
 
+        publishedPresentations.merge(presentations) { _, published in published }
         return presentations
+    }
+
+    /// Re-derives what every surface shows, once, at the end of a pass.
+    ///
+    /// A pass is the only thing that moves a climb's schedule, and a surface reading the published
+    /// map has no lifecycle of its own to notice - so the coordinator republishes rather than
+    /// waiting to be asked. One query, bounded by the backlog: a climb already in the cloud needs
+    /// no schedule read to answer for.
+    func republishPresentations(modelContext: ModelContext, currentUserId: String) {
+        let syncedRawValue = WorkoutRemoteSyncStatus.synced.rawValue
+        let descriptor = FetchDescriptor<Workout>(
+            predicate: #Predicate<Workout> { workout in
+                workout.ownerUserId == currentUserId &&
+                workout.remoteSyncStatusRawValue != syncedRawValue
+            }
+        )
+
+        guard let unsynced = try? modelContext.fetch(descriptor) else { return }
+
+        // A climb that has left the backlog has landed or been deleted, and the latches answer for
+        // it now. Dropping it keeps a stale warning from outliving the problem it described - and
+        // keeps this map bounded by the backlog rather than by everything ever published into it.
+        let stillUnsynced = Set(unsynced.map(\.id))
+        publishedPresentations = publishedPresentations.filter { stillUnsynced.contains($0.key) }
+
+        syncPresentations(for: unsynced, modelContext: modelContext)
     }
 
     func enqueuePendingDeletions(
@@ -304,6 +366,7 @@ final class WorkoutSyncCoordinator {
         isProcessingPendingWorkouts = true
         defer {
             isProcessingPendingWorkouts = false
+            republishPresentations(modelContext: modelContext, currentUserId: currentUserId)
             completedPassCount &+= 1
             let waiters = passCompletionWaiters
             passCompletionWaiters = []
@@ -625,6 +688,24 @@ private extension WorkoutSyncCoordinator {
         await withCheckedContinuation { continuation in
             passCompletionWaiters.append(continuation)
         }
+    }
+
+    /// What the surface renders, derived from whether the climb is in the cloud - never from what
+    /// the retry machinery happens to be doing.
+    func derivedPresentation(
+        for workout: Workout,
+        modelContext: ModelContext
+    ) -> WorkoutSyncPresentation {
+        if let settled = settledPresentation(for: workout) { return settled }
+
+        let entry = try? outboxEntry(
+            forWorkoutId: workout.id,
+            ownerUserId: workout.ownerUserId ?? "",
+            createIfMissing: false,
+            modelContext: modelContext
+        )
+
+        return attentionPresentation(for: workout, entry: entry)
     }
 
     /// The states that need no schedule to answer, so a batch can settle them before any query.

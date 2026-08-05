@@ -200,12 +200,13 @@ struct WorkoutListView: View {
             return
         }
 
-        let presentations = syncCoordinator.syncPresentations(
-            for: unsynced,
-            modelContext: modelContext
-        )
+        // Publishes, then reads back what was published - the same call the detail row's presentation
+        // comes from, so the badge and that row cannot disagree about one climb.
+        syncCoordinator.syncPresentations(for: unsynced, modelContext: modelContext)
         couldNotSyncWorkoutIds = Set(
-            presentations.lazy.filter { $0.value.isWarning }.map(\.key)
+            unsynced.lazy
+                .filter { syncCoordinator.presentation(for: $0).isWarning }
+                .map(\.id)
         )
     }
 
