@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
-import {createHmac} from "node:crypto";
+import {createHash, createHmac} from "node:crypto";
 import test from "node:test";
 import {
   authenticateRevenueCatWebhook,
 } from "../src/revenueCat/authentication";
+import {handleRevenueCatWebhook} from "../src/revenueCat/webhook";
+import type {
+  RevenueCatWebhookRuntime,
+} from "../src/revenueCat/webhook";
 import {parseRevenueCatServerConfig} from "../src/revenueCat/config";
 import {
   parseRevenueCatWebhook,
@@ -26,6 +30,7 @@ import type {
   AppAccessProjection,
   FirebaseUserVerifier,
   RevenueCatEntitlementStore,
+  RevenueCatProcessingOutcome,
   RevenueCatServerConfig,
   RevenueCatSubscriberClient,
   RevenueCatSubscriberResponse,
@@ -54,27 +59,142 @@ const ANALYTICS_ENVIRONMENT: RevenueCatAnalyticsEnvironment = {
   mixpanelProjectId: "4051100",
 };
 
-test("webhook authentication requires authorization and a current HMAC", () => {
-  const body = Buffer.from("{\"event\":{}}", "utf8");
-  const timestamp = Math.floor(NOW_MS / 1000);
-  const signature = signedHeader(body, timestamp);
+test("RevenueCat's documented signed delivery is processed", async () => {
+  const body = eventBody();
+  const runtime = new RecordingWebhookRuntime();
+  const response = new FakeWebhookResponse();
+
+  await handleRevenueCatWebhook(new FakeWebhookRequest({
+    method: "POST",
+    headers: {
+      "Authorization": AUTHORIZATION,
+      "Content-Type": "application/json; charset=utf-8",
+      "X-RevenueCat-Webhook-Signature": documentedSignature(body),
+    },
+    rawBody: body,
+  }), response, runtime);
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.payload, {status: "processed"});
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(runtime.processedEvents.length, 1);
+  assert.equal(runtime.processedEvents[0].event.id, "event-123");
+  assert.equal(
+    runtime.processedEvents[0].payloadSha256,
+    createHash("sha256").update(body).digest("hex")
+  );
+});
+
+test("signed deliveries without valid Authorization are rejected", async () => {
+  const body = eventBody();
+  const signature = documentedSignature(body);
+
+  for (const authorization of [
+    undefined,
+    "Bearer wrong-authorization-secret-1234567890",
+  ]) {
+    const runtime = new RecordingWebhookRuntime();
+    const response = new FakeWebhookResponse();
+
+    await handleRevenueCatWebhook(new FakeWebhookRequest({
+      headers: {
+        ...authorization === undefined ? {} : {Authorization: authorization},
+        "Content-Type": "application/json",
+        "X-RevenueCat-Webhook-Signature": signature,
+      },
+      rawBody: body,
+    }), response, runtime);
+
+    assert.equal(response.statusCode, 401);
+    assert.deepEqual(response.payload, {status: "unauthorized"});
+    assert.equal(runtime.processedEvents.length, 0);
+  }
 
   assert.equal(authenticateRevenueCatWebhook(
-    AUTHORIZATION,
-    signature,
-    body,
-    AUTHORIZATION,
-    SIGNING_SECRET,
-    NOW
-  ), "authenticated");
-  assert.equal(authenticateRevenueCatWebhook(
-    "Bearer wrong-authorization-secret-1234567890",
+    undefined,
     signature,
     body,
     AUTHORIZATION,
     SIGNING_SECRET,
     NOW
   ), "invalid_authorization");
+});
+
+test("deliveries RevenueCat never sends cannot reach processing", async () => {
+  const body = eventBody();
+  const signature = documentedSignature(body);
+  const runtime = new RecordingWebhookRuntime();
+  const documentedHeaders = {
+    "Authorization": AUTHORIZATION,
+    "Content-Type": "application/json",
+    "X-RevenueCat-Webhook-Signature": signature,
+  };
+
+  const wrongMethod = new FakeWebhookResponse();
+  await handleRevenueCatWebhook(new FakeWebhookRequest({
+    method: "GET",
+    headers: documentedHeaders,
+    rawBody: body,
+  }), wrongMethod, runtime);
+  assert.equal(wrongMethod.statusCode, 405);
+  assert.deepEqual(wrongMethod.payload, {status: "method_not_allowed"});
+  assert.equal(wrongMethod.headers.get("allow"), "POST");
+
+  const wrongContentType = new FakeWebhookResponse();
+  await handleRevenueCatWebhook(new FakeWebhookRequest({
+    headers: {
+      ...documentedHeaders,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    rawBody: body,
+  }), wrongContentType, runtime);
+  assert.equal(wrongContentType.statusCode, 400);
+  assert.deepEqual(wrongContentType.payload, {status: "invalid_request"});
+
+  const tamperedBody = new FakeWebhookResponse();
+  await handleRevenueCatWebhook(new FakeWebhookRequest({
+    headers: documentedHeaders,
+    rawBody: eventBody({product_id: "ascend_monthly"}),
+  }), tamperedBody, runtime);
+  assert.equal(tamperedBody.statusCode, 401);
+  assert.deepEqual(tamperedBody.payload, {status: "unauthorized"});
+
+  const missingBody = new FakeWebhookResponse();
+  await handleRevenueCatWebhook(
+    new FakeWebhookRequest({headers: documentedHeaders}),
+    missingBody,
+    runtime
+  );
+  assert.equal(missingBody.statusCode, 400);
+  assert.deepEqual(missingBody.payload, {status: "invalid_request"});
+
+  assert.equal(runtime.processedEvents.length, 0);
+});
+
+test("a busy processor asks RevenueCat to retry the delivery", async () => {
+  const body = eventBody();
+  const runtime = new RecordingWebhookRuntime("busy");
+  const response = new FakeWebhookResponse();
+
+  await handleRevenueCatWebhook(new FakeWebhookRequest({
+    headers: {
+      "Authorization": AUTHORIZATION,
+      "Content-Type": "application/json",
+      "X-RevenueCat-Webhook-Signature": documentedSignature(body),
+    },
+    rawBody: body,
+  }), response, runtime);
+
+  assert.equal(response.statusCode, 503);
+  assert.deepEqual(response.payload, {status: "retry"});
+  assert.equal(response.headers.get("retry-after"), "300");
+});
+
+test("webhook authentication rejects altered bodies and stale HMACs", () => {
+  const body = eventBody();
+  const timestamp = Math.floor(NOW_MS / 1000);
+  const signature = signedHeader(body, timestamp);
+
   assert.equal(authenticateRevenueCatWebhook(
     AUTHORIZATION,
     signature,
@@ -581,6 +701,80 @@ test("reconciliation cannot move access back to older subscriber truth", async (
     NOW_MS + 2_000
   );
 });
+
+function documentedSignature(body: Buffer): string {
+  return signedHeader(body, Math.floor(NOW_MS / 1000));
+}
+
+class FakeWebhookRequest {
+  readonly method: string;
+  readonly rawBody?: Buffer;
+  private readonly headerValues: Map<string, string>;
+
+  constructor(options: {
+    method?: string;
+    rawBody?: Buffer;
+    headers?: Record<string, string>;
+  }) {
+    this.method = options.method ?? "POST";
+    this.rawBody = options.rawBody;
+    this.headerValues = new Map(Object.entries(options.headers ?? {}).map(
+      ([name, value]) => [name.toLowerCase(), value] as const
+    ));
+  }
+
+  get(name: string): string | undefined {
+    return this.headerValues.get(name.toLowerCase());
+  }
+}
+
+class FakeWebhookResponse {
+  statusCode: number | null = null;
+  payload: Record<string, string> | null = null;
+  readonly headers = new Map<string, string>();
+
+  set(field: string, value: string): this {
+    this.headers.set(field.toLowerCase(), value);
+    return this;
+  }
+
+  status(code: number): this {
+    this.statusCode = code;
+    return this;
+  }
+
+  json(body: Record<string, string>): this {
+    this.payload = body;
+    return this;
+  }
+}
+
+class RecordingWebhookRuntime implements RevenueCatWebhookRuntime {
+  readonly processedEvents: {
+    event: RevenueCatWebhookEvent;
+    payloadSha256: string;
+  }[] = [];
+
+  constructor(
+    private readonly outcome: RevenueCatProcessingOutcome = "processed"
+  ) {}
+
+  loadConfig(): RevenueCatServerConfig {
+    return CONFIG;
+  }
+
+  async processEvent(
+    event: RevenueCatWebhookEvent,
+    payloadSha256: string
+  ): Promise<RevenueCatProcessingOutcome> {
+    this.processedEvents.push({event, payloadSha256});
+    return this.outcome;
+  }
+
+  now(): Date {
+    return NOW;
+  }
+}
 
 function signedHeader(body: Buffer, timestamp: number): string {
   const signature = createHmac("sha256", SIGNING_SECRET)

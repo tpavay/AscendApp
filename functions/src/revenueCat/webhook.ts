@@ -18,28 +18,61 @@ import {AdminFirebaseUserVerifier} from "./firebaseUserVerifier";
 import {FirestoreRevenueCatEntitlementStore} from "./firestoreStore";
 import {processRevenueCatWebhookEvent} from "./processor";
 import {HttpRevenueCatSubscriberClient} from "./subscriber";
+import type {RevenueCatAnalyticsEnvironment} from "./analyticsTypes";
+import type {
+  RevenueCatProcessingOutcome,
+  RevenueCatServerConfig,
+  RevenueCatWebhookEvent,
+} from "./types";
 
-interface WebhookHttpRequest {
+export interface WebhookHttpRequest {
   method: string;
   rawBody?: Buffer;
   get(name: string): string | undefined;
 }
 
-interface WebhookHttpResponse {
+export interface WebhookHttpResponse {
   set(field: string, value: string): WebhookHttpResponse;
   status(code: number): WebhookHttpResponse;
   json(body: Record<string, string>): WebhookHttpResponse;
 }
 
+export interface RevenueCatWebhookRuntime {
+  loadConfig(): RevenueCatServerConfig;
+  processEvent(
+    event: RevenueCatWebhookEvent,
+    payloadSha256: string,
+    config: RevenueCatServerConfig,
+    analyticsEnvironment: RevenueCatAnalyticsEnvironment | null
+  ): Promise<RevenueCatProcessingOutcome>;
+  now(): Date;
+}
+
+const deployedRuntime: RevenueCatWebhookRuntime = {
+  loadConfig: getRevenueCatServerConfig,
+  processEvent: (event, payloadSha256, config, analyticsEnvironment) =>
+    processRevenueCatWebhookEvent(event, payloadSha256, {
+      store: new FirestoreRevenueCatEntitlementStore(admin.firestore()),
+      subscriberClient: new HttpRevenueCatSubscriberClient(config.apiKey),
+      userVerifier: new AdminFirebaseUserVerifier(),
+      config,
+      analyticsEnvironment,
+      now: () => new Date(),
+    }),
+  now: () => new Date(),
+};
+
 /**
  * Authenticates and processes one RevenueCat webhook request.
  * @param {WebhookHttpRequest} request - HTTP request
  * @param {WebhookHttpResponse} response - HTTP response
+ * @param {RevenueCatWebhookRuntime} runtime - Deployment-owned collaborators
  * @return {Promise<void>}
  */
 export async function handleRevenueCatWebhook(
   request: WebhookHttpRequest,
-  response: WebhookHttpResponse
+  response: WebhookHttpResponse,
+  runtime: RevenueCatWebhookRuntime = deployedRuntime
 ): Promise<void> {
   response.set("Cache-Control", "no-store");
   if (request.method !== "POST") {
@@ -50,7 +83,7 @@ export async function handleRevenueCatWebhook(
 
   let config;
   try {
-    config = getRevenueCatServerConfig();
+    config = runtime.loadConfig();
   } catch {
     console.error("RevenueCat webhook server configuration is invalid");
     response.status(500).json({status: "server_configuration_error"});
@@ -74,7 +107,7 @@ export async function handleRevenueCatWebhook(
     rawBody,
     config.webhookAuthorization,
     config.webhookSigningSecret,
-    new Date()
+    runtime.now()
   );
   if (authentication !== "authenticated") {
     response.status(401).json({status: "unauthorized"});
@@ -108,17 +141,11 @@ export async function handleRevenueCatWebhook(
   }
 
   try {
-    const outcome = await processRevenueCatWebhookEvent(
+    const outcome = await runtime.processEvent(
       parsed.event,
       parsed.payloadSha256,
-      {
-        store: new FirestoreRevenueCatEntitlementStore(admin.firestore()),
-        subscriberClient: new HttpRevenueCatSubscriberClient(config.apiKey),
-        userVerifier: new AdminFirebaseUserVerifier(),
-        config,
-        analyticsEnvironment,
-        now: () => new Date(),
-      }
+      config,
+      analyticsEnvironment
     );
 
     if (outcome === "busy") {
@@ -146,5 +173,5 @@ export const revenueCatWebhook = onRequest(
     secrets: [revenueCatServerConfig],
     timeoutSeconds: 60,
   },
-  handleRevenueCatWebhook
+  (request, response) => handleRevenueCatWebhook(request, response)
 );

@@ -25,7 +25,20 @@ Do not enable Paywall UI or virtual-currency events because they create subscrib
 4. Set the staging destination to `https://us-central1-ascend-staging-fa7d5.cloudfunctions.net/revenueCatWebhook`.
 Set the production destination to `https://us-central1-ascend-prod-9c8f2.cloudfunctions.net/revenueCatWebhook`.
 5. Configure a different high-entropy `Authorization` header value for each destination.
-Enable RevenueCat HMAC signing for each destination and capture each signing secret when RevenueCat shows it once.
+HMAC signing is offered only on a saved integration's detail page, never on the New Webhook form, so the ordering is fixed: create the integration with its URL, `Authorization` value, environment, and app filter, save it, then reopen its detail page.
+On that detail page, toggle **HMAC webhook signing** and copy the signing secret immediately, because RevenueCat shows it only at creation or rotation and cannot retrieve it later.
+Only then assemble that destination's complete `REVENUECAT_SERVER_CONFIG` JSON, write the whole secret to Firebase, and deploy Functions.
+All six configuration fields below are required and the parser refuses a partial value, so there is never a valid intermediate write that carries the new signing secret alone.
+If the one-time value is lost, use **Rotate secret** on that detail page to mint a new one.
+Rotation invalidates the old secret immediately, and RevenueCat, not the captain, decides when the next delivery arrives.
+Every genuine lifecycle event between the rotation click and the deployed replacement is therefore rejected with HTTP 401.
+That window is unavoidable; only its length is controllable.
+Rotate only when the current value is genuinely lost, and follow the same ordering without pausing: click **Rotate secret**, copy the new secret, write the complete Firebase secret with it, deploy Functions, then send the dashboard test webhook and require HTTP 200 before considering the rotation done.
+[RevenueCat's current webhook documentation](https://www.revenuecat.com/docs/integrations/webhooks#webhook-signature-verification-hmac) specifies enabling the toggle on an existing webhook integration, the secret shown only once at creation or rotation, the immediate invalidation of the old secret on rotation, and the `X-RevenueCat-Webhook-Signature: t=<unix_timestamp>,v1=<hmac_sha256_hex>` delivery header.
+That the toggle is absent from the New Webhook form is an observation of the current dashboard rather than a documented claim.
+The same page states that the server should return a 200 status code, that any other status code is considered a failure by RevenueCat's backend, that RevenueCat then retries up to five times with increasing delays of 5, 10, 20, 40, and 80 minutes, and that it stops sending after five retries.
+It does not state whether those delays are intervals between attempts or offsets from the first attempt, so the total retry span, and with it any guaranteed self-healing window for the rotation gap, is unverified and must not be planned against.
+Deliveries rejected during the gap enter that documented retry process, so restore HTTP 200 promptly, then inspect the integration's failed and retrying events and resend whatever still needs it with the **Retry** action the same page documents.
 The function requires both credentials on every request.
 6. After the matching Firebase function is deployed, send RevenueCat's test webhook to each destination and require HTTP 200.
 A test event with no real Firebase UID is expected to complete with zero affected users.
@@ -115,7 +128,7 @@ Superwall remains the paywall presentation and conversion layer, while RevenueCa
 
 ## Server flow
 
-1. RevenueCat sends a POST request with the configured Authorization header and HMAC signature.
+1. After HMAC is enabled on the saved integration, RevenueCat sends a POST request with the configured `Authorization` header and an `X-RevenueCat-Webhook-Signature` HMAC header.
 2. `revenueCatWebhook` verifies method, raw-body size, content type, Authorization, signature, five-minute timestamp tolerance, JSON shape, event ID, event timestamp, and expected RevenueCat app ID.
 3. `_revenuecat_webhook_events/{event.id}` is transactionally claimed with a two-minute processing lease.
 First delivery wins: the ledger keeps the digest and event metadata of the delivery that created it, and a redelivery whose bytes differ never overwrites either.
@@ -148,9 +161,8 @@ Only a confirmed import marks the row delivered; transient network, rate-limit, 
 This fails closed if an expiration webhook is delayed and a concurrent renewal wins through Firestore transaction retry.
 The sweep pages past documents from any other `entitlements` subcollection until it has spent its budget on real `users/{uid}/entitlements/app_access` grants, because the query is ordered by `accessUntil` and a single foreign document with an ancient timestamp would otherwise sit at the head of a fixed window and starve every real expiry behind it.
 
-Webhook failures return a non-2xx response so RevenueCat retries them.
-RevenueCat currently documents five retries after 5, 10, 20, 40, and 80 minutes.
-The processor is safe after a crash because a failed attempt is reclaimable and an abandoned processing lease expires before RevenueCat's first retry.
+Webhook failures return a non-2xx response so RevenueCat retries them, on the five-retry ladder the dashboard setup step above records.
+The processor is safe after a crash because a failed attempt is reclaimable and an abandoned processing lease expires within two minutes, inside the documented five-minute delay before RevenueCat's first retry.
 Mixpanel delivery failures do not fail or delay the webhook response because delivery starts only from the separately scheduled outbox worker.
 An unresolvable analytics destination is degraded rather than fatal: the webhook logs it, skips outbox enqueueing, and still authenticates, deduplicates, and projects the entitlement, because analytics may never decide paid access.
 Each worker run stops claiming deliveries before its function timeout and immediately returns every unattempted claim to the queue, so provider latency drains instead of stranding rows until the fifteen-minute stale sweep.
@@ -163,7 +175,7 @@ The event ledger stores only event metadata, a payload digest, processing state,
 The analytics outbox stores the affected Firebase UID only as the Mixpanel `distinct_id`; account deletion removes every outbox row that still carries it.
 
 Each ledger entry carries `retainUntil`, an explicit thirty-day future timestamp, and a Firestore TTL field override deletes the entry when it passes.
-The dedupe evidence only has to outlive RevenueCat's roughly 155-minute retry ladder, so thirty days is generous while still bounding the collection.
+The dedupe evidence only has to outlive RevenueCat's five documented retries, whose longest documented delay is 80 minutes and whose total span is unverified, so thirty days is generous while still bounding the collection.
 `receivedAt` cannot carry the policy: it is already in the past when it is written, so every entry would be eligible for deletion the moment it was created.
 Each analytics outbox row carries the same thirty-day `retainUntil` stamp and its own Firestore TTL field override, because a row holds a Firebase UID as its Mixpanel `distinct_id` and may not outlive the delivery it exists to prove.
 Every state change restamps it, so the thirty days run from the row's last movement rather than from its creation: a row still retrying cannot be deleted out from under the retry-until-delivery guarantee, and a delivered or terminally failed row gets exactly one bounded window after it settled.
@@ -239,6 +251,8 @@ The processor handles transfer events by re-fetching both sides, but the captain
 - The App Review promotional entitlement's exact `product_identifier` remains unknown.
 It must be explicitly allowlisted if it is not one of the production subscription product IDs.
 - Live webhook destinations and HMAC settings remain unknown until the captain configures and tests them in RevenueCat.
+- RevenueCat documents five retries with increasing delays of 5, 10, 20, 40, and 80 minutes but never says whether those are intervals between attempts or offsets from the first attempt.
+The total retry span is therefore unverified, and no HMAC rotation gap of any particular length can be promised to self-heal.
 
 ## IRREDUCIBLE
 
