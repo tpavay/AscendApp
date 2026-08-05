@@ -47,8 +47,9 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(harness.published == [[Self.entitlementID]])
     }
 
-    /// The purchase response is a pre-refresh snapshot. Only the refreshed, server-reconciled state
-    /// decides the verdict, so a slow projection can no longer be reported as a verified purchase.
+    /// The purchase response is a pre-refresh snapshot. Only the refreshed RevenueCat entitlement
+    /// state decides the verdict, so a slow projection can no longer be reported as a verified
+    /// purchase.
     @Test
     func theRefreshedEntitlementStateAloneDecidesTheVerdict() async {
         let harness = Self.makePurchaseHarness(refreshedState: .active([Self.entitlementID]))
@@ -59,6 +60,37 @@ struct PaywallPurchaseAnalyticsContractTests {
 
         #expect(harness.refreshCount == 1)
         #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_completed")
+    }
+
+    /// A refresh that established nothing must say so. Reporting the stored entitlement in its
+    /// place is what let a transitional `.unknown` read as a lapsed subscription.
+    @Test
+    func everyUnavailableRefreshFailsThePurchaseWithItsOwnBoundedReason() async {
+        let expectations: [(MonetizationEntitlementRefreshFailure, String)] = [
+            (.notConfigured, "configuration"),
+            (.identityUnresolved, "entitlement_unresolved"),
+            (.providerFailed, "entitlement_refresh_failed")
+        ]
+
+        for (failure, errorType) in expectations {
+            let harness = Self.makePurchaseHarness(refreshFailure: failure)
+            Self.recordPaywallContext(in: harness.contextStore)
+
+            let result = await harness.executor.executePurchase(productID: Self.productID) {
+                RevenueCatPurchaseExecutor.PurchaseResponse(userCancelled: false)
+            }
+
+            let records = harness.sink.records
+            #expect(records.map(\.name) == [
+                "revenuecat_purchase_started",
+                "revenuecat_purchase_failed"
+            ])
+            Self.expectOnePurchaseTerminal(in: records)
+            #expect(records[1].parameters["error_type"] == TelemetryValue.string(errorType))
+            #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_failed")
+            #expect(harness.published.isEmpty)
+            Self.expectNoRawErrorText(in: records)
+        }
     }
 
     @Test
@@ -367,7 +399,7 @@ struct PaywallPurchaseAnalyticsContractTests {
 
         #expect(result != .restored)
         #expect(published.isEmpty)
-        #expect(Self.superwallRestoreMessage(for: result) == "No purchases found to restore.")
+        #expect(Self.restoreResultErrorMessage(for: result) == "No purchases found to restore.")
         #expect(harness.sink.records.map(\.name).contains("revenuecat_restore_completed") == false)
         #expect(harness.sink.records.map(\.name).contains("paywall_restore_completed") == false)
     }
@@ -453,8 +485,11 @@ private final class RestorerStub: PaywallPurchaseCoordinating {
     }
 
     @discardableResult
-    func refreshEntitlements(force: Bool) async -> MonetizationEntitlementState {
-        restoredState
+    func refreshEntitlements(
+        force: Bool,
+        waitsForPendingIdentity: Bool
+    ) async -> MonetizationEntitlementRefresh {
+        .refreshed(restoredState)
     }
 
     @discardableResult
@@ -475,7 +510,7 @@ private final class PurchaseHarness {
     private(set) var refreshCount = 0
     private(set) var executor: RevenueCatPurchaseExecutor!
 
-    init(entitlementID: String, refreshedState: MonetizationEntitlementState) {
+    init(entitlementID: String, refresh: MonetizationEntitlementRefresh) {
         executor = RevenueCatPurchaseExecutor(
             telemetry: makeTestTelemetry(sink: sink),
             transactionContextStore: contextStore,
@@ -485,7 +520,7 @@ private final class PurchaseHarness {
             },
             refreshEntitlementState: { [weak self] in
                 self?.refreshCount += 1
-                return refreshedState
+                return refresh
             }
         )
     }
@@ -502,7 +537,13 @@ private extension PaywallPurchaseAnalyticsContractTests {
     static func makePurchaseHarness(
         refreshedState: MonetizationEntitlementState
     ) -> PurchaseHarness {
-        PurchaseHarness(entitlementID: entitlementID, refreshedState: refreshedState)
+        PurchaseHarness(entitlementID: entitlementID, refresh: .refreshed(refreshedState))
+    }
+
+    static func makePurchaseHarness(
+        refreshFailure: MonetizationEntitlementRefreshFailure
+    ) -> PurchaseHarness {
+        PurchaseHarness(entitlementID: entitlementID, refresh: .unavailable(refreshFailure))
     }
 
     static func makeRestoreHarness(
@@ -546,6 +587,7 @@ private extension PaywallPurchaseAnalyticsContractTests {
         let bounded = Set(
             [
                 RevenueCatAnalyticsErrorType.configuration,
+                .entitlementRefreshFailed,
                 .entitlementUnresolved,
                 .missingStoreProduct,
                 .network,
@@ -581,7 +623,10 @@ private extension PaywallPurchaseAnalyticsContractTests {
         return error.localizedDescription
     }
 
-    static func superwallRestoreMessage(for result: SuperwallKit.RestorationResult) -> String? {
+    /// The message inside the `RestorationResult`, not the alert Superwall shows. Superwall's
+    /// restore-failure alert presents `options.paywalls.restoreFailed` and discards this error, so
+    /// on the paywall surface only telemetry carries the nothing-found reason.
+    static func restoreResultErrorMessage(for result: SuperwallKit.RestorationResult) -> String? {
         guard case .failed(let error) = result else { return nil }
         return error?.localizedDescription
     }

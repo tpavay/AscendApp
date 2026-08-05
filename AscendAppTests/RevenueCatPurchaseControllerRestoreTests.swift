@@ -143,12 +143,15 @@ private final class PaywallPurchaseCoordinatorSpy: PaywallPurchaseCoordinating {
     }
 
     @discardableResult
-    func refreshEntitlements(force: Bool) async -> MonetizationEntitlementState {
+    func refreshEntitlements(
+        force: Bool,
+        waitsForPendingIdentity: Bool
+    ) async -> MonetizationEntitlementRefresh {
         if force {
             forcedRefreshCount += 1
         }
 
-        return entitlementState
+        return .refreshed(entitlementState)
     }
 
     @discardableResult

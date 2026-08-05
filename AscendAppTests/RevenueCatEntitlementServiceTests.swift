@@ -328,6 +328,173 @@ struct RevenueCatEntitlementServiceTests {
         #expect(service.entitlementState == .unknown)
         #expect(service.hasFailedIdentityResolution)
     }
+
+    // MARK: - What the refresh actually established
+
+    @Test
+    func anUnconfiguredRefreshReportsThatNothingCouldBeAsked() async {
+        let service = RevenueCatEntitlementService(
+            provider: ControlledRevenueCatEntitlementProvider(),
+            startsConfigured: false
+        )
+
+        let refresh = await service.refreshCustomerInfo()
+
+        #expect(refresh == .unavailable(.notConfigured))
+    }
+
+    @Test
+    func aRefreshWithNoSettledIdentityReportsItUnresolvedRatherThanEmpty() async {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true
+        )
+
+        let refresh = await service.refreshCustomerInfo()
+
+        #expect(refresh == .unavailable(.identityUnresolved))
+        #expect(provider.customerInfoCallCount == 0)
+    }
+
+    /// The background pass must not block on a sign-in, so it reports the identity as unresolved
+    /// instead of reading the transitional `.unknown` as an answer.
+    @Test
+    func aNonWaitingRefreshDuringAnIdentityMutationReportsItUnresolved() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true
+        )
+
+        let identity = service.prepareIdentity(userId: "subscriber")
+        let identifyTask = Task {
+            await service.identify(userId: "subscriber", transition: identity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
+
+        let refresh = await service.refreshCustomerInfo()
+
+        #expect(refresh == .unavailable(.identityUnresolved))
+        #expect(provider.customerInfoCallCount == 0)
+
+        provider.completeLogIn(with: .active(["app_access"]))
+        await identifyTask.value
+    }
+
+    /// The purchase verdict waits the sign-in out instead of reporting the transitional `.unknown`,
+    /// which would fail a charged, successful purchase.
+    @Test
+    func aWaitingRefreshOutlastsAnInFlightIdentityAndReturnsTheRealAnswer() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true
+        )
+
+        let identity = service.prepareIdentity(userId: "subscriber")
+        let identifyTask = Task {
+            await service.identify(userId: "subscriber", transition: identity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
+
+        let refreshTask = Task {
+            await service.refreshCustomerInfo(waitsForPendingIdentity: true)
+        }
+
+        provider.completeLogIn(with: .active(["app_access"]))
+        await identifyTask.value
+
+        #expect(await invocations.next() == .customerInfo)
+        provider.completeCustomerInfo(with: .active(["app_access"]))
+
+        #expect(await refreshTask.value == .refreshed(.active(["app_access"])))
+    }
+
+    /// Waiting is not the same as inventing an answer: an identity mutation that never resolves
+    /// still leaves the refresh with nothing current to report.
+    @Test
+    func aWaitingRefreshStillReportsUnresolvedWhenTheIdentityNeverResolves() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true
+        )
+
+        let identity = service.prepareIdentity(userId: "subscriber")
+        let identifyTask = Task {
+            await service.identify(userId: "subscriber", transition: identity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
+
+        let refreshTask = Task {
+            await service.refreshCustomerInfo(waitsForPendingIdentity: true)
+        }
+
+        provider.failLogIn()
+        await identifyTask.value
+
+        #expect(await refreshTask.value == .unavailable(.identityUnresolved))
+        #expect(provider.customerInfoCallCount == 0)
+        #expect(service.hasFailedIdentityResolution)
+    }
+
+    @Test
+    func aFailedRefreshReportsTheFailureInsteadOfTheStaleEntitlement() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true
+        )
+
+        let identity = service.prepareIdentity(userId: "subscriber")
+        let identifyTask = Task {
+            await service.identify(userId: "subscriber", transition: identity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
+        provider.completeLogIn(with: .active(["app_access"]))
+        await identifyTask.value
+
+        let refreshTask = Task {
+            await service.refreshCustomerInfo()
+        }
+        #expect(await invocations.next() == .customerInfo)
+        provider.failCustomerInfo()
+
+        #expect(await refreshTask.value == .unavailable(.providerFailed))
+        #expect(service.entitlementState == .active(["app_access"]))
+    }
+
+    @Test
+    func aGenuineRefreshReportsExactlyWhatRevenueCatAnswered() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true
+        )
+
+        let identity = service.prepareIdentity(userId: "subscriber")
+        let identifyTask = Task {
+            await service.identify(userId: "subscriber", transition: identity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
+        provider.completeLogIn(with: .active(["app_access"]))
+        await identifyTask.value
+
+        let refreshTask = Task {
+            await service.refreshCustomerInfo()
+        }
+        #expect(await invocations.next() == .customerInfo)
+        provider.completeCustomerInfo(with: .inactive)
+
+        #expect(await refreshTask.value == .refreshed(.inactive))
+        #expect(service.entitlementState == .inactive)
+    }
 }
 
 /// Hands the cooperative pool enough turns for the service's stream consumer to run. Bounded, so a

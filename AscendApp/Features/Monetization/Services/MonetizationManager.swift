@@ -178,10 +178,15 @@ final class MonetizationManager: MonetizationIdentityManaging {
     }
 
     @discardableResult
-    func refreshEntitlements(force: Bool = false) async -> MonetizationEntitlementState {
-        await entitlementService.refreshCustomerInfo()
+    func refreshEntitlements(
+        force: Bool = false,
+        waitsForPendingIdentity: Bool = false
+    ) async -> MonetizationEntitlementRefresh {
+        let refresh = await entitlementService.refreshCustomerInfo(
+            waitsForPendingIdentity: waitsForPendingIdentity
+        )
         await reconcileServerAppAccess(force: force)
-        return entitlementState
+        return refresh
     }
 
     /// Asks the server to re-derive this user's paid access from RevenueCat.

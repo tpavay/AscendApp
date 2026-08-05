@@ -3,6 +3,7 @@ import RevenueCat
 
 enum RevenueCatAnalyticsErrorType: String, Sendable {
     case configuration
+    case entitlementRefreshFailed = "entitlement_refresh_failed"
     case entitlementUnresolved = "entitlement_unresolved"
     case missingStoreProduct = "missing_store_product"
     case network
@@ -11,6 +12,19 @@ enum RevenueCatAnalyticsErrorType: String, Sendable {
     case receipt
     case store
     case unknown
+
+    /// Names why a refresh could not establish a current answer, so a terminal never has to imply
+    /// the climber holds nothing when the truth is that nobody could ask.
+    init(refreshFailure: MonetizationEntitlementRefreshFailure) {
+        switch refreshFailure {
+        case .notConfigured:
+            self = .configuration
+        case .identityUnresolved:
+            self = .entitlementUnresolved
+        case .providerFailed:
+            self = .entitlementRefreshFailed
+        }
+    }
 
     /// Buckets an arbitrary thrown error into the low-cardinality set the paywall funnel reports.
     init(error: any Error) {

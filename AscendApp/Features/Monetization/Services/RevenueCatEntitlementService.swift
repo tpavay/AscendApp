@@ -75,39 +75,51 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         }
     }
 
-    func refreshCustomerInfo() async {
+    @discardableResult
+    func refreshCustomerInfo(
+        waitsForPendingIdentity: Bool
+    ) async -> MonetizationEntitlementRefresh {
         guard isConfigured else {
-            return
+            return .unavailable(.notConfigured)
         }
 
         if let pendingIdentityMutation {
             let transition = pendingIdentityMutation.transition
-            guard identityMutationTasks[transition] == nil else {
-                return
-            }
 
-            let mutationTask = scheduleIdentityMutation(
-                transition: transition,
-                mutation: pendingIdentityMutation.mutation
-            )
-            await mutationTask.value
-            return
+            if let inFlightMutation = identityMutationTasks[transition] {
+                guard waitsForPendingIdentity else {
+                    return .unavailable(.identityUnresolved)
+                }
+                await inFlightMutation.value
+            } else {
+                await scheduleIdentityMutation(
+                    transition: transition,
+                    mutation: pendingIdentityMutation.mutation
+                ).value
+
+                guard waitsForPendingIdentity else {
+                    return .unavailable(.identityUnresolved)
+                }
+            }
         }
 
         guard let refreshToken = identityTransitionState.refreshToken() else {
-            return
+            return .unavailable(.identityUnresolved)
         }
 
         do {
             let state = try await provider.customerInfoState()
             applyRefreshState(state, for: refreshToken)
             await auditLaunchOfferingIfNeeded()
+            return .refreshed(state)
         } catch {
             // A refresh that could not reach RevenueCat is not evidence that the entitlement
-            // lapsed, so the already-resolved answer stands until something can ask again.
+            // lapsed, so the already-resolved answer stands until something can ask again - but the
+            // caller is told nothing current was established rather than reading that stale answer.
             Self.logger.error(
                 "Could not refresh RevenueCat customer info: \(error.localizedDescription, privacy: .public)"
             )
+            return .unavailable(.providerFailed)
         }
     }
 

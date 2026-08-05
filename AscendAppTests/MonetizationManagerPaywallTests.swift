@@ -616,7 +616,12 @@ final class EntitlementServiceStub: EntitlementServicing {
         isConfigured = configuration.canConfigureRevenueCat
     }
 
-    func refreshCustomerInfo() async {}
+    @discardableResult
+    func refreshCustomerInfo(
+        waitsForPendingIdentity: Bool
+    ) async -> MonetizationEntitlementRefresh {
+        .refreshed(entitlementState)
+    }
 
     func prepareIdentity(userId: String) -> MonetizationIdentityTransition {
         prepare(userID: userId)

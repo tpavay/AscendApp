@@ -3,9 +3,13 @@ import RevenueCat
 import StoreKit
 import SuperwallKit
 
-/// Every case here reaches a climber - Superwall renders `errorDescription` verbatim in its
-/// purchase-failure alert, and Ascend's own restore surfaces render the matching copy - so the
-/// diagnostic detail stays in telemetry's bounded `error_type` and never in the message.
+/// Copy a climber can be shown, so the diagnostic detail stays in telemetry's bounded `error_type`
+/// and never in the message.
+///
+/// Superwall renders `errorDescription` verbatim in its purchase-failure alert, and Ascend's own
+/// account-settings and app-access-gate restore surfaces render the matching copy. Superwall's
+/// *restore*-failure alert is the exception: it presents `options.paywalls.restoreFailed` and
+/// discards the error it was handed, so `noPurchasesFound` never reaches a climber on the paywall.
 enum RevenueCatPurchaseControllerError: LocalizedError {
     case missingStoreKitProduct
     case monetizationUnavailable
@@ -52,7 +56,13 @@ final class RevenueCatPurchaseController: PurchaseController {
                 applySuperwallStatus(Self.subscriptionStatus(for: entitlementIDs))
             },
             refreshEntitlementState: {
-                await coordinator().refreshEntitlements(force: true)
+                // A purchase can land mid sign-in, and the climber is already waiting on the
+                // transaction spinner, so this one refresh waits out an unresolved identity rather
+                // than reporting the transitional answer as the verdict.
+                await coordinator().refreshEntitlements(
+                    force: true,
+                    waitsForPendingIdentity: true
+                )
             }
         )
         self.restoreService = restoreService ?? AppAccessRestoreService(
@@ -105,7 +115,9 @@ final class RevenueCatPurchaseController: PurchaseController {
             return .restored
         case .notFound:
             // Superwall has no "nothing to restore" result, and `.restored` would claim access this
-            // climber does not have, so the failure it does have carries the nothing-found reason.
+            // climber does not have, so the failure it does have is the truthful answer. Superwall
+            // shows its own restore-failed alert here; only telemetry and Ascend's own restore
+            // surfaces carry the nothing-found reason.
             return .failed(RevenueCatPurchaseControllerError.noPurchasesFound)
         case .failed(let error):
             return .failed(error)

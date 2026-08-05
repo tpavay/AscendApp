@@ -136,9 +136,10 @@ The segment labels identify nested implementation sections and never replace the
 - **Nested owners are segments.** The value carousel, auth surface, post-auth stages, and feature guide set `segment_id`; none may emit `onboarding_flow_started` or `onboarding_flow_completed`.
 - **Every RevenueCat purchase and restore emits exactly one terminal, and `completed` means verified.**
   A purchase or restore reports `started` only when a RevenueCat call actually happens - a missing StoreKit product or an unconfigured build emits the failure terminal alone.
-  `revenuecat_purchase_completed` and `revenuecat_restore_completed` require `app_access` in the *refreshed, server-reconciled* entitlement state, never the pre-refresh purchase response; they alone carry `entitlement_active=true`.
-  A restore that conclusively finds nothing emits `revenuecat_restore_not_found` (`outcome=no_entitlement`, `entitlement_active=false`), not `_failed` and not `paywall_restore_completed`.
-  A restore that never resolved an answer emits `revenuecat_restore_failed` with a bounded `error_type` and **no** `entitlement_active`, because the state is unknown rather than negative.
+  `revenuecat_purchase_completed` requires `app_access` in the *refreshed RevenueCat entitlement state* - the device answer, whose refresh also triggers server reconciliation but which is not itself server-derived - never the pre-refresh purchase response.
+  A refresh that established nothing (unconfigured, unresolved identity, RevenueCat unreachable) is reported as a failure with the matching bounded `error_type`; the stored entitlement is never read in its place. `MonetizationEntitlementRefresh` is what makes that distinction expressible.
+  Restore has **three mutually exclusive terminals**, superseding the earlier two-terminal wording: `revenuecat_restore_completed` for an active `app_access` (`entitlement_active=true`), `revenuecat_restore_not_found` for a conclusive negative (`outcome=no_entitlement`, `entitlement_active=false`), and `revenuecat_restore_failed` for an unresolved operation - bounded `error_type`, and **no** `entitlement_active`, because unknown is not negative.
+  Only `revenuecat_restore_completed` may be accompanied by `paywall_restore_completed`.
   `AppAccessRestoreService` owns this for all three restore surfaces (paywall, account settings, app-access gate); `RevenueCatPurchaseExecutor` owns it for purchase.
   Enforced by `AscendAppTests/PaywallPurchaseAnalyticsContractTests.swift`.
 
