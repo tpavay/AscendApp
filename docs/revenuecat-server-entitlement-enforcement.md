@@ -75,7 +75,10 @@ The JSON shape is:
 Create a separate project-scoped Mixpanel service account for Staging project `4051102` and Production project `4051100`.
 Grant only the Mixpanel project role required by `/import`; Mixpanel currently requires an Admin service account for that endpoint, so keep each account scoped to its one project and out of organization-wide membership.
 The server derives the destination from its deployed Firebase project and refuses every project outside this fixed map: Development `ascend-f2e4f` -> `4032860`, Staging `ascend-staging-fa7d5` -> `4051102`, Production `ascend-prod-9c8f2` -> `4051100`.
-Development has no RevenueCat webhook endpoint today, so its closed-app lifecycle stream remains intentionally empty unless that integration is added later.
+Server-side subscription lifecycle analytics exists in staging and production only, which is why no dev credential is listed above.
+No repository workflow deploys Cloud Functions to `ascend-f2e4f`, and dev has no RevenueCat webhook endpoint, so dev deliberately has no server analytics credential and its closed-app lifecycle stream stays empty.
+Client analytics is untouched by this: the dev app still reports client events to `4032860` from the device.
+If a dev Functions deployment is ever added, provision a dev-project-scoped Mixpanel service account and its own `MIXPANEL_SERVER_CONFIG` before that deployment, because a bound secret that does not exist fails the whole Functions deploy exactly as it would in staging.
 
 Set both `REVENUECAT_SERVER_CONFIG` and `MIXPANEL_SERVER_CONFIG` before deploying Functions.
 The webhook binds only the RevenueCat secret, while the independent outbox worker binds only the Mixpanel secret, so a Mixpanel outage or credential failure can never decide RevenueCat's webhook response.
