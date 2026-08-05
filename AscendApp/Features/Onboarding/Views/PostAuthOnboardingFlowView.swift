@@ -786,7 +786,9 @@ private struct PostAuthNotificationScreen: View {
                         boxSize: metrics.width(22),
                         cornerRadius: metrics.radius(6),
                         spacing: metrics.width(12),
-                        minimumTargetHeight: metrics.height(44)
+                        // The design coordinates scale with the screen; 44pt
+                        // does not. A small phone gets the same target.
+                        minimumTargetHeight: max(44, metrics.height(44))
                     )
                 )
                 .disabled(isRequesting)
@@ -825,6 +827,12 @@ private struct PostAuthNotificationScreen: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .ignoresSafeArea()
+        .task {
+            // A climber who already answered this question keeps their answer,
+            // even on a phone that has never seen it. Nothing here waits on the
+            // read: the box stays pre-ticked until and unless it returns one.
+            await emailOptIn.adoptStoredDecision()
+        }
     }
 
     private var emailOptInBinding: Binding<Bool> {

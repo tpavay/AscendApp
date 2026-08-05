@@ -2,10 +2,14 @@ import SwiftUI
 
 /// The square tick box used for opt-ins on onboarding screens.
 ///
-/// Built as a `ToggleStyle` rather than a button so VoiceOver reads it as a
-/// control with an on/off value, and so the label is part of the same target.
-/// Nothing here animates: the box takes its new state in one frame, in every
-/// Reduce Motion state.
+/// The rendered row is a button, so the on/off value comes from the
+/// accessibility representation rather than from the `Toggle` behind the style:
+/// VoiceOver describes what a style draws, not what it was applied to. Without
+/// the representation a blind climber would hear "button" and no state, and
+/// could not tell whether Ascend was about to email them.
+///
+/// The label is part of the same target as the box. Nothing here animates: the
+/// box takes its new state in one frame, in every Reduce Motion state.
 struct OnboardingCheckboxToggleStyle: ToggleStyle {
     let boxSize: CGFloat
     let cornerRadius: CGFloat
@@ -28,6 +32,11 @@ struct OnboardingCheckboxToggleStyle: ToggleStyle {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityRepresentation {
+            Toggle(isOn: configuration.$isOn) {
+                configuration.label
+            }
+        }
     }
 
     private func box(isOn: Bool) -> some View {

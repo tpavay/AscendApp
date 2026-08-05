@@ -8,9 +8,10 @@ import SwiftUI
 ///
 /// The paragraph names categories rather than individual emails so a new email
 /// type lands inside an existing bucket and this copy never has to be rewritten.
-/// There is deliberately no line about account and security mail: the switch is
-/// not labelled a blanket email switch, and the paragraph already says what
-/// these emails are.
+/// It claims only what this switch governs: account and transactional mail never
+/// enters this queue, so promising to stop it here would be a lie the privacy
+/// policy contradicts. There is deliberately no line about account and security
+/// mail either: the switch is not labelled a blanket email switch.
 ///
 /// Nothing here animates. The failure line appears in the same frame the write
 /// fails, in every Reduce Motion state, and no crossfade is applied to it in any
@@ -24,8 +25,12 @@ struct EmailPreferencesContentView: View {
                 consentRow
             }
 
+            if viewModel.loadState == .failed {
+                retryRow
+            }
+
             Text(
-                "Ascend emails you when a climb drops, when you hit a milestone worth marking, and when something about your account or the app is worth knowing. Nothing daily. Nothing noisy."
+                "Ascend emails you when a climb drops and when you hit a milestone. Never daily. Never noisy."
             )
             .font(.montserratRegular(size: 13.5))
             .foregroundStyle(.white.opacity(0.62))
@@ -33,6 +38,36 @@ struct EmailPreferencesContentView: View {
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 4)
         }
+    }
+
+    /// The switch stays disabled while the stored answer is unknown, so a read
+    /// that failed needs its own way back: without one the only screen a
+    /// climber can record an answer on is dead until they leave and return.
+    private var retryRow: some View {
+        Button {
+            Task {
+                await viewModel.load()
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Text(viewModel.errorMessage ?? "Couldn't load your email settings.")
+                    .font(.montserratMedium(size: 13))
+                    .foregroundStyle(.orange)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 0)
+
+                Text("RETRY")
+                    .font(.montserratBold(size: 12))
+                    .foregroundStyle(.accent)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .padding(.horizontal, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Retry loading your email settings")
     }
 
     /// The label is part of the control rather than a sibling of it, so the
@@ -76,17 +111,17 @@ struct EmailPreferencesContentView: View {
     }
 
     /// Nothing sits under the label in the settled states. It earns a line only
-    /// while the value is unknown or the last save did not land.
+    /// while the value is unknown or the last save did not land. A failed read
+    /// says so on the retry line instead, which is outside the disabled switch
+    /// and can therefore be tapped.
     private var statusMessage: String? {
-        if let errorMessage = viewModel.errorMessage {
-            return errorMessage
-        }
-
         switch viewModel.loadState {
         case .loading:
             return "Checking your email settings…"
-        case .ready, .failed:
+        case .failed:
             return nil
+        case .ready:
+            return viewModel.errorMessage
         }
     }
 

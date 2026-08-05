@@ -33,8 +33,8 @@ struct EmailPreferencesScreenSnapshotTests {
         for text in [onText, offText, failedText] {
             #expect(text.contains("ascend emails"))
             #expect(text.contains("when a climb drops"))
-            #expect(text.contains("milestone worth marking"))
-            #expect(text.contains("nothing daily"))
+            #expect(text.contains("when you hit a milestone"))
+            #expect(text.contains("never daily"))
         }
 
         try writeEvidence(image: try await renderProofSheet(), named: "email-preferences-states.png")
@@ -74,6 +74,21 @@ struct EmailPreferencesScreenSnapshotTests {
 
         #expect(!text.contains("security"))
         #expect(!text.contains("always come through"))
+        // Nor may it claim the reverse. Account and transactional mail never
+        // enters this queue, so promising the switch governs it would put the
+        // screen at odds with the privacy policy.
+        #expect(!text.contains("account"))
+    }
+
+    @Test
+    func aFailedLoadOffersAWayBack() async throws {
+        // The switch is disabled while the stored answer is unknown, so without
+        // a retry the one screen a climber can record an answer on is dead
+        // until they leave and come back.
+        let text = try await recognizedText(in: try await renderScreen(state: .loadFailed))
+
+        #expect(text.contains("couldn't load your email settings"))
+        #expect(text.contains("retry"))
     }
 
     // MARK: - States
@@ -82,6 +97,7 @@ struct EmailPreferencesScreenSnapshotTests {
         case on
         case off
         case saveFailed
+        case loadFailed
     }
 
     private func viewModel(for state: ScreenState) async -> EmailPreferencesViewModel {
@@ -104,6 +120,12 @@ struct EmailPreferencesScreenSnapshotTests {
             await model.load()
             await service.setSaveError(SnapshotError.offline)
             await model.setLifecycleEmailsEnabled(false)
+            return model
+        case .loadFailed:
+            let service = SnapshotEmailPreferencesService(storedConsent: .granted)
+            await service.setLoadError(SnapshotError.offline)
+            let model = EmailPreferencesViewModel(service: service)
+            await model.load()
             return model
         }
     }
@@ -206,6 +228,7 @@ private struct EmailPreferencesProof: View {
 private actor SnapshotEmailPreferencesService: EmailPreferencesProviding {
     private var storedConsent: LifecycleEmailConsent
     private var saveError: Error?
+    private var loadError: Error?
 
     init(storedConsent: LifecycleEmailConsent) {
         self.storedConsent = storedConsent
@@ -215,8 +238,16 @@ private actor SnapshotEmailPreferencesService: EmailPreferencesProviding {
         saveError = error
     }
 
+    func setLoadError(_ error: Error?) {
+        loadError = error
+    }
+
     func loadConsent() async throws -> LifecycleEmailConsent {
-        storedConsent
+        if let loadError {
+            throw loadError
+        }
+
+        return storedConsent
     }
 
     func recordConsent(

@@ -514,17 +514,19 @@ function normalizeCommunicationPreferencesUpdated(
     );
   }
 
-  // Where the climber answered, kept only when there is an answer to attach it
-  // to. A source with no decision behind it is not a record of anything.
+  // Where the climber answered. A source with no decision behind it records
+  // nothing, and a decision with no source inherits the last one written: a
+  // consent record is only evidence while both halves arrive together.
   const source = payload.lifecycleEmailsSource;
-  if (source !== undefined) {
-    if (
-      typeof normalized.lifecycleEmailsEnabled !== "boolean" ||
-      !isAppLifecycleEmailConsentSource(source)
-    ) {
+  const isConsentDecision =
+    typeof normalized.lifecycleEmailsEnabled === "boolean";
+  if (isConsentDecision) {
+    if (!isAppLifecycleEmailConsentSource(source)) {
       throw invalidArgument("Unsupported lifecycle email consent source.");
     }
     normalized.lifecycleEmailsSource = source;
+  } else if (source !== undefined) {
+    throw invalidArgument("Unsupported lifecycle email consent source.");
   }
 
   return {

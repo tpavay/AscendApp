@@ -7,7 +7,7 @@ import Foundation
 /// had actually chosen to hear from it - and beehiiv's acceptable use policy
 /// requires affirmative consent it can be asked to evidence. An answer nobody
 /// gave is not permission, so `undecided` never allows a send.
-enum LifecycleEmailConsent: String, Equatable, Sendable, CaseIterable {
+enum LifecycleEmailConsent: Equatable, Sendable {
     /// Nobody has asked, or the answer never reached the server.
     case undecided
     case granted

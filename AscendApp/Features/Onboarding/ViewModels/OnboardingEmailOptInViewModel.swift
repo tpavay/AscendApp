@@ -17,6 +17,7 @@ final class OnboardingEmailOptInViewModel {
 
     private(set) var isSelected: Bool
     private let service: EmailPreferencesProviding
+    private var hasClimberAnswered = false
 
     init(
         service: EmailPreferencesProviding = EmailPreferencesService(),
@@ -26,7 +27,35 @@ final class OnboardingEmailOptInViewModel {
         self.isSelected = isSelected
     }
 
+    /// Adopts an answer the climber already gave, wherever they gave it.
+    ///
+    /// The pre-tick is for someone who has never answered. A climber who
+    /// unsubscribed from an email and then reinstalled, or signed in on a new
+    /// phone, has answered: a new device is no reason to ask them again, and no
+    /// reason to answer for them again either.
+    ///
+    /// Onboarding is never held open on this read. Until it lands, and if it
+    /// never does, the box shows the pre-tick, and a climber who has already
+    /// reached for it keeps what they chose.
+    func adoptStoredDecision() async {
+        guard !hasClimberAnswered else { return }
+
+        do {
+            let stored = try await service.loadConsent()
+            guard !hasClimberAnswered, stored.isDecided else { return }
+
+            isSelected = stored.allowsEmail
+        } catch {
+            TelemetryManager.shared.recordError(
+                error,
+                context: .network,
+                code: "onboarding_email_consent_load_failed"
+            )
+        }
+    }
+
     func toggle() {
+        hasClimberAnswered = true
         isSelected.toggle()
     }
 

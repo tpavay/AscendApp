@@ -44,8 +44,8 @@ struct LifecycleEmailConsentTests {
 
     @Test
     func onlyGrantedAllowsEmail() {
-        let allowed = LifecycleEmailConsent.allCases.filter(\.allowsEmail)
-
-        #expect(allowed == [.granted])
+        #expect(LifecycleEmailConsent.granted.allowsEmail)
+        #expect(LifecycleEmailConsent.declined.allowsEmail == false)
+        #expect(LifecycleEmailConsent.undecided.allowsEmail == false)
     }
 }

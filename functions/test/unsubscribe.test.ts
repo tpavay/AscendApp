@@ -220,7 +220,7 @@ test("unsubscribe page keeps crawlers out", () => {
 test("unsubscribing blocks further lifecycle email sends", () => {
   const preferences = buildNextCommunicationPreferences(
     {},
-    {lifecycleEmailsEnabled: false},
+    {lifecycleEmailsEnabled: false, lifecycleEmailsSource: "email_link"},
     stubTimestamp(1000)
   );
 
@@ -230,12 +230,12 @@ test("unsubscribing blocks further lifecycle email sends", () => {
 test("resubscribing re-opens lifecycle email sends", () => {
   const unsubscribed = buildNextCommunicationPreferences(
     {},
-    {lifecycleEmailsEnabled: false},
+    {lifecycleEmailsEnabled: false, lifecycleEmailsSource: "email_link"},
     stubTimestamp(1000)
   );
   const resubscribed = buildNextCommunicationPreferences(
     unsubscribed,
-    {lifecycleEmailsEnabled: true},
+    {lifecycleEmailsEnabled: true, lifecycleEmailsSource: "settings"},
     stubTimestamp(2000)
   );
 
@@ -396,7 +396,7 @@ test("changing an email preference preserves the push preference", () => {
 
   const next = buildNextCommunicationPreferences(
     existing,
-    {lifecycleEmailsEnabled: false},
+    {lifecycleEmailsEnabled: false, lifecycleEmailsSource: "settings"},
     stubTimestamp(1000)
   );
 
@@ -409,7 +409,7 @@ test("communication preferences keep the original createdAt", () => {
   const now = stubTimestamp(1000);
   const next = buildNextCommunicationPreferences(
     {createdAt, pushClimbDropsEnabled: false},
-    {lifecycleEmailsEnabled: false},
+    {lifecycleEmailsEnabled: false, lifecycleEmailsSource: "settings"},
     now
   );
 
@@ -421,7 +421,7 @@ test("communication preferences stamp createdAt on first write", () => {
   const now = stubTimestamp(1000);
   const next = buildNextCommunicationPreferences(
     {},
-    {lifecycleEmailsEnabled: false},
+    {lifecycleEmailsEnabled: false, lifecycleEmailsSource: "onboarding"},
     now
   );
 
@@ -479,7 +479,7 @@ test("an unrelated preference write does not restamp the consent record", () => 
   const decidedAt = stubTimestamp(1000);
   const existing = buildNextCommunicationPreferences(
     {},
-    {lifecycleEmailsEnabled: true},
+    {lifecycleEmailsEnabled: true, lifecycleEmailsSource: "onboarding"},
     decidedAt
   );
 
@@ -497,12 +497,26 @@ test("an unrelated preference write does not restamp the consent record", () => 
 test("communication preferences only change the supplied keys", () => {
   const next = buildNextCommunicationPreferences(
     {climbDropEmailsEnabled: true, lifecycleEmailsEnabled: true},
-    {lifecycleEmailsEnabled: false},
+    {lifecycleEmailsEnabled: false, lifecycleEmailsSource: "settings"},
     stubTimestamp(1000)
   );
 
   assert.equal(next.climbDropEmailsEnabled, true);
   assert.equal(next.lifecycleEmailsEnabled, false);
+});
+
+test("a consent decision without a source is refused", () => {
+  // Otherwise the stored record reads "granted, decided today, via email_link"
+  // - a combination that never happened, because the link only ever declines.
+  // Provenance that can be inherited from the previous answer is not evidence.
+  assert.throws(
+    () => buildNextCommunicationPreferences(
+      {lifecycleEmailsEnabled: false, lifecycleEmailsSource: "email_link"},
+      {lifecycleEmailsEnabled: true},
+      stubTimestamp(2000)
+    ),
+    /must carry the source/
+  );
 });
 
 /**

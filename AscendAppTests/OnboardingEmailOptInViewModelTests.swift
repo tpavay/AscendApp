@@ -17,6 +17,77 @@ struct OnboardingEmailOptInViewModelTests {
     }
 
     @Test
+    func aRecordedDeclineSurvivesAReinstall() async {
+        // The failure this whole change exists to prevent. Onboarding
+        // completion is device-local, so a climber who unsubscribed from an
+        // email and then reinstalled walks back through this step. The
+        // pre-tick must not answer for them a second time.
+        let service = RecordingEmailPreferencesService()
+        await service.setStoredConsent(.declined)
+        let viewModel = OnboardingEmailOptInViewModel(service: service)
+
+        await viewModel.adoptStoredDecision()
+
+        #expect(viewModel.isSelected == false)
+
+        await viewModel.recordDecision()
+
+        #expect(
+            await service.savedDecisions == [
+                StubEmailConsentDecision(isGranted: false, source: .onboarding)
+            ]
+        )
+        #expect(await service.storedConsent == .declined)
+    }
+
+    @Test
+    func aRecordedYesArrivesTicked() async {
+        let service = RecordingEmailPreferencesService()
+        await service.setStoredConsent(.granted)
+        let viewModel = OnboardingEmailOptInViewModel(service: service)
+
+        await viewModel.adoptStoredDecision()
+
+        #expect(viewModel.isSelected)
+    }
+
+    @Test
+    func aClimberWhoNeverAnsweredStillGetsThePreTick() async {
+        let service = RecordingEmailPreferencesService()
+        let viewModel = OnboardingEmailOptInViewModel(service: service)
+
+        await viewModel.adoptStoredDecision()
+
+        #expect(viewModel.isSelected == OnboardingEmailOptInViewModel.shipsTicked)
+    }
+
+    @Test
+    func aFailedReadFallsBackToThePreTick() async {
+        // Onboarding is never held open on this read, and never blocked by it.
+        let service = RecordingEmailPreferencesService()
+        await service.setLoadError(StubError.offline)
+        let viewModel = OnboardingEmailOptInViewModel(service: service)
+
+        await viewModel.adoptStoredDecision()
+
+        #expect(viewModel.isSelected == OnboardingEmailOptInViewModel.shipsTicked)
+    }
+
+    @Test
+    func aTapBeforeTheReadLandsWins() async {
+        // The read is slower than a thumb. Whatever the climber last touched is
+        // the answer, not whatever the network eventually says.
+        let service = RecordingEmailPreferencesService()
+        await service.setStoredConsent(.granted)
+        let viewModel = OnboardingEmailOptInViewModel(service: service)
+
+        viewModel.toggle()
+        await viewModel.adoptStoredDecision()
+
+        #expect(viewModel.isSelected == false)
+    }
+
+    @Test
     func theClimberCanUntickIt() {
         let viewModel = OnboardingEmailOptInViewModel(
             service: RecordingEmailPreferencesService()
@@ -82,13 +153,26 @@ private actor RecordingEmailPreferencesService: EmailPreferencesProviding {
     private(set) var storedConsent: LifecycleEmailConsent = .undecided
     private(set) var savedDecisions: [StubEmailConsentDecision] = []
     private var saveError: Error?
+    private var loadError: Error?
 
     func setSaveError(_ error: Error?) {
         saveError = error
     }
 
+    func setLoadError(_ error: Error?) {
+        loadError = error
+    }
+
+    func setStoredConsent(_ value: LifecycleEmailConsent) {
+        storedConsent = value
+    }
+
     func loadConsent() async throws -> LifecycleEmailConsent {
-        storedConsent
+        if let loadError {
+            throw loadError
+        }
+
+        return storedConsent
     }
 
     func recordConsent(

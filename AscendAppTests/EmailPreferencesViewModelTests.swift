@@ -276,6 +276,41 @@ struct EmailPreferencesViewModelTests {
     }
 
     @Test
+    func aRetryAfterAFailedLoadBringsTheSwitchBack() async {
+        // The screen exists so a climber can record an answer. A read that
+        // failed once must not leave the switch dead until they navigate away
+        // and back: the status line retries in place.
+        let service = StubEmailPreferencesService(storedConsent: .granted)
+        await service.setLoadError(StubError.offline)
+        let viewModel = EmailPreferencesViewModel(service: service)
+        await viewModel.load()
+        #expect(viewModel.loadState == .failed)
+        #expect(viewModel.isToggleDisabled == true)
+
+        await service.setLoadError(nil)
+        await viewModel.load()
+
+        #expect(viewModel.loadState == .ready)
+        #expect(viewModel.isToggleDisabled == false)
+        #expect(viewModel.isLifecycleEmailsEnabled == true)
+        #expect(viewModel.errorMessage == nil)
+    }
+
+    @Test
+    func aRetryThatFailsAgainStillSaysSo() async {
+        let service = StubEmailPreferencesService(storedConsent: .granted)
+        await service.setLoadError(StubError.offline)
+        let viewModel = EmailPreferencesViewModel(service: service)
+        await viewModel.load()
+
+        await viewModel.load()
+
+        #expect(viewModel.loadState == .failed)
+        #expect(viewModel.errorMessage == "Couldn't load your email settings.")
+        #expect(await service.loadCount == 2)
+    }
+
+    @Test
     func theToggleStaysDisabledWhenTheServerValueIsUnknown() async {
         let service = StubEmailPreferencesService(storedConsent: .granted)
         await service.setLoadError(StubError.offline)

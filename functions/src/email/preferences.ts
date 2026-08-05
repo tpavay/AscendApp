@@ -43,6 +43,11 @@ export function isAppLifecycleEmailConsentSource(
  * stamped with the server's own time. beehiiv can ask for the timestamp and
  * method behind any address it is asked to mail, and `updatedAt` cannot answer
  * that: any other writer of this shared document moves it.
+ *
+ * The flag and its source travel together, so a decision can never inherit the
+ * source of the one before it: a record reading "granted today, via email_link"
+ * describes something that never happened, and evidence that contradicts itself
+ * is worse than none.
  * @param {CommunicationPreferences} existing Stored preferences document.
  * @param {CommunicationPreferences} payload Validated preference payload.
  * @param {admin.firestore.Timestamp} now Server timestamp for this write.
@@ -53,6 +58,14 @@ export function buildNextCommunicationPreferences(
   payload: CommunicationPreferences,
   now: admin.firestore.Timestamp
 ): CommunicationPreferences {
+  const isConsentDecision =
+    typeof payload.lifecycleEmailsEnabled === "boolean";
+  if (isConsentDecision && typeof payload.lifecycleEmailsSource !== "string") {
+    throw new Error(
+      "A lifecycle email decision must carry the source it was made at."
+    );
+  }
+
   const next: CommunicationPreferences = {
     ...existing,
     ...payload,
@@ -61,7 +74,7 @@ export function buildNextCommunicationPreferences(
     updatedAt: now,
   };
 
-  if (typeof payload.lifecycleEmailsEnabled === "boolean") {
+  if (isConsentDecision) {
     next.lifecycleEmailsDecidedAt = now;
   }
 

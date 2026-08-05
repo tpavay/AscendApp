@@ -31,8 +31,7 @@ struct EmailPreferencesService: EmailPreferencesProviding {
         source: LifecycleEmailConsentSource
     ) async throws {
         try await LifecycleEventRecorder.shared.recordCommunicationPreferences(
-            lifecycleEmailsEnabled: isGranted,
-            lifecycleEmailsSource: source
+            lifecycleEmails: (isEnabled: isGranted, source: source)
         )
     }
 }
