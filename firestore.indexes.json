@@ -293,6 +293,12 @@
       "fieldPath": "retainUntil",
       "ttl": true,
       "indexes": []
+    },
+    {
+      "collectionGroup": "_revenuecat_analytics_outbox",
+      "fieldPath": "retainUntil",
+      "ttl": true,
+      "indexes": []
     }
   ]
 }

@@ -279,6 +279,28 @@ test("a duplicate event is idempotent and re-fetches RevenueCat only once", asyn
   assert.equal(store.analyticsEvents.size, 1);
 });
 
+test("an unavailable analytics destination still projects entitlements", async () => {
+  const store = new InMemoryEntitlementStore();
+  const subscriberClient = new CountingSubscriberClient(
+    subscriberResponse({productId: "ascend_yearly"})
+  );
+
+  assert.equal(await processRevenueCatWebhookEvent(
+    webhookEvent(),
+    "no-analytics-payload",
+    {
+      store,
+      subscriberClient,
+      userVerifier: new StubUserVerifier(),
+      config: CONFIG,
+      analyticsEnvironment: null,
+      now: () => NOW,
+    }
+  ), "processed");
+  assert.equal(store.projections.size, 1);
+  assert.equal(store.analyticsEvents.size, 0);
+});
+
 test("failed reconciliation is retry-safe", async () => {
   const store = new InMemoryEntitlementStore();
   const subscriberClient = new CountingSubscriberClient(

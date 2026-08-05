@@ -146,6 +146,9 @@ Webhook failures return a non-2xx response so RevenueCat retries them.
 RevenueCat currently documents five retries after 5, 10, 20, 40, and 80 minutes.
 The processor is safe after a crash because a failed attempt is reclaimable and an abandoned processing lease expires before RevenueCat's first retry.
 Mixpanel delivery failures do not fail or delay the webhook response because delivery starts only from the separately scheduled outbox worker.
+An unresolvable analytics destination is degraded rather than fatal: the webhook logs it, skips outbox enqueueing, and still authenticates, deduplicates, and projects the entitlement, because analytics may never decide paid access.
+Each worker run stops claiming deliveries before its function timeout and immediately returns every unattempted claim to the queue, so provider latency drains instead of stranding rows until the fifteen-minute stale sweep.
+A permanently discarded row is logged at error level with its outbox id, event name, and error code, so a dead lifecycle stream is visible rather than silent.
 
 No raw webhook body, transaction identifier, API key, Authorization value, HMAC secret, or subscriber response is stored or logged.
 The event ledger stores only event metadata, a payload digest, processing state, and counts, with no Firebase UID.
@@ -154,6 +157,7 @@ The analytics outbox stores the affected Firebase UID only as the Mixpanel `dist
 Each ledger entry carries `retainUntil`, an explicit thirty-day future timestamp, and a Firestore TTL field override deletes the entry when it passes.
 The dedupe evidence only has to outlive RevenueCat's roughly 155-minute retry ladder, so thirty days is generous while still bounding the collection.
 `receivedAt` cannot carry the policy: it is already in the past when it is written, so every entry would be eligible for deletion the moment it was created.
+Each analytics outbox row carries the same thirty-day `retainUntil` stamp and its own Firestore TTL field override, because a row holds a Firebase UID as its Mixpanel `distinct_id` and may not outlive the delivery it exists to prove.
 
 ## Recovering access the webhook never delivered
 

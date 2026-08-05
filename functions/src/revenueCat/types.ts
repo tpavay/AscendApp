@@ -112,7 +112,7 @@ export interface RevenueCatWebhookDependencies {
   subscriberClient: RevenueCatSubscriberClient;
   userVerifier: FirebaseUserVerifier;
   config: RevenueCatServerConfig;
-  analyticsEnvironment: RevenueCatAnalyticsEnvironment;
+  analyticsEnvironment: RevenueCatAnalyticsEnvironment | null;
   now: () => Date;
 }
 

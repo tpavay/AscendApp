@@ -4,7 +4,7 @@ import {
   authenticateRevenueCatWebhook,
 } from "./authentication";
 import {
-  analyticsEnvironmentForFirebaseProject,
+  optionalAnalyticsEnvironment,
 } from "./analyticsEnvironment";
 import {
   getRevenueCatServerConfig,
@@ -49,22 +49,18 @@ export async function handleRevenueCatWebhook(
   }
 
   let config;
-  let analyticsEnvironment;
   try {
     config = getRevenueCatServerConfig();
-    const firebaseProjectId = admin.app().options.projectId;
-    if (!firebaseProjectId) {
-      throw new Error("Firebase project is unavailable");
-    }
-    analyticsEnvironment = analyticsEnvironmentForFirebaseProject(
-      firebaseProjectId,
-      process.env.K_REVISION ?? "unknown"
-    );
   } catch {
     console.error("RevenueCat webhook server configuration is invalid");
     response.status(500).json({status: "server_configuration_error"});
     return;
   }
+
+  const analyticsEnvironment = optionalAnalyticsEnvironment(
+    deployedFirebaseProjectId(),
+    process.env.K_REVISION ?? "unknown"
+  );
 
   const rawBody = request.rawBody;
   if (!Buffer.isBuffer(rawBody)) {
@@ -134,6 +130,14 @@ export async function handleRevenueCatWebhook(
   } catch {
     console.error("RevenueCat webhook reconciliation failed");
     response.status(500).json({status: "retry"});
+  }
+}
+
+function deployedFirebaseProjectId(): string | undefined {
+  try {
+    return admin.app().options.projectId;
+  } catch {
+    return undefined;
   }
 }
 

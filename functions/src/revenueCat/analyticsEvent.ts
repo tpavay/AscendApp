@@ -96,8 +96,14 @@ function lifecycleEventName(
   case "BILLING_ISSUE":
     return "subscription_billing_issue";
   case "EXPIRATION":
-    return event.lifecycleReason === "customer_support" ?
-      "subscription_refunded" : "subscription_expired";
+    if (event.lifecycleReason === "customer_support") {
+      // One refund arrives twice: CANCELLATION(customer_support) at the refund
+      // itself, then EXPIRATION(customer_support) for the access it removed.
+      // The cancellation row owns subscription_refunded, so exporting this one
+      // too would make one refund look like two.
+      return null;
+    }
+    return "subscription_expired";
   case "PRODUCT_CHANGE":
     return "subscription_product_changed";
   default:

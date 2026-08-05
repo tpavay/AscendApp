@@ -1,5 +1,9 @@
 import * as admin from "firebase-admin";
 import {shouldReplaceProjection} from "./projectionOrdering";
+import {
+  ANALYTICS_OUTBOX_COLLECTION,
+  serializeAnalyticsOutboxEvent,
+} from "./analyticsFirestoreOutbox";
 import type {
   LifecycleAnalyticsEvent,
 } from "./analyticsTypes";
@@ -11,8 +15,6 @@ import type {
 } from "./types";
 
 const EVENT_COLLECTION = "_revenuecat_webhook_events";
-export const ANALYTICS_OUTBOX_COLLECTION =
-  "_revenuecat_analytics_outbox";
 const PROCESSING_LEASE_MS = 2 * 60 * 1000;
 
 // RevenueCat currently retries a failed delivery five times over roughly 155
@@ -334,24 +336,6 @@ implements RevenueCatEntitlementStore {
       `users/${projection.uid}/entitlements/${projection.entitlementId}`
     );
   }
-}
-
-function serializeAnalyticsOutboxEvent(
-  event: LifecycleAnalyticsEvent,
-  now: admin.firestore.Timestamp
-): Record<string, unknown> {
-  return {
-    ...event,
-    status: "queued",
-    attemptCount: 0,
-    readyAt: now,
-    processingStartedAt: null,
-    claimId: null,
-    deliveredAt: null,
-    lastErrorCode: null,
-    createdAt: now,
-    updatedAt: now,
-  };
 }
 
 function isProjectedAccessUnchanged(

@@ -41,6 +41,29 @@ export function analyticsEnvironmentForFirebaseProject(
   };
 }
 
+/**
+ * Resolves the analytics destination for a caller that must not fail on it.
+ *
+ * Entitlement ingress owns paid access, so an unresolvable analytics
+ * destination degrades the lifecycle export rather than rejecting the webhook
+ * that projects the grant.
+ * @param {string | undefined} firebaseProjectId - Deployed project, if known
+ * @param {string} revision - Cloud Run revision for producer attribution
+ * @return {RevenueCatAnalyticsEnvironment | null} Envelope, or null
+ */
+export function optionalAnalyticsEnvironment(
+  firebaseProjectId: string | undefined,
+  revision: string
+): RevenueCatAnalyticsEnvironment | null {
+  if (!firebaseProjectId || !isKnownFirebaseProject(firebaseProjectId)) {
+    console.error("RevenueCat analytics destination is unresolved", {
+      firebaseProjectId: firebaseProjectId ?? "unknown",
+    });
+    return null;
+  }
+  return analyticsEnvironmentForFirebaseProject(firebaseProjectId, revision);
+}
+
 function isKnownFirebaseProject(
   projectId: string
 ): projectId is keyof typeof PROJECT_DESTINATIONS {

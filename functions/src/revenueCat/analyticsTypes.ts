@@ -76,4 +76,5 @@ export interface AnalyticsOutboxProcessingSummary {
   deliveredCount: number;
   retriedCount: number;
   failedCount: number;
+  deferredCount: number;
 }

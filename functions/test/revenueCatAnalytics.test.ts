@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   analyticsEnvironmentForFirebaseProject,
+  optionalAnalyticsEnvironment,
 } from "../src/revenueCat/analyticsEnvironment";
 import {
   buildLifecycleAnalyticsEvent,
@@ -153,6 +154,27 @@ test("support cancellation is a refund only after access is removed", () => {
   )?.eventName, "subscription_refunded");
 });
 
+test("one refund exports one refund event across its paired webhooks", () => {
+  assert.equal(buildLifecycleAnalyticsEvent(
+    webhookEvent({type: "CANCELLATION", lifecycleReason: "customer_support"}),
+    projection({isActive: false}),
+    CONFIG,
+    ENVIRONMENT
+  )?.eventName, "subscription_refunded");
+  assert.equal(buildLifecycleAnalyticsEvent(
+    webhookEvent({type: "EXPIRATION", lifecycleReason: "customer_support"}),
+    projection({isActive: false}),
+    CONFIG,
+    ENVIRONMENT
+  ), null);
+  assert.equal(buildLifecycleAnalyticsEvent(
+    webhookEvent({type: "EXPIRATION", lifecycleReason: "unsubscribe"}),
+    projection({isActive: false}),
+    CONFIG,
+    ENVIRONMENT
+  )?.eventName, "subscription_expired");
+});
+
 test("billing-error cancellation is not double-counted beside billing issue", () => {
   assert.equal(buildLifecycleAnalyticsEvent(
     webhookEvent({type: "CANCELLATION", lifecycleReason: "billing_error"}),
@@ -216,6 +238,23 @@ test("Firebase project selects exactly one matching Mixpanel project", () => {
   );
   assert.throws(
     () => analyticsEnvironmentForFirebaseProject("unexpected-project", "r")
+  );
+});
+
+test("an unresolvable analytics destination degrades instead of throwing", async () => {
+  const errors = await capturedErrors(async () => {
+    assert.equal(optionalAnalyticsEnvironment(undefined, "revision-1"), null);
+    assert.equal(
+      optionalAnalyticsEnvironment("unexpected-project", "revision-1"),
+      null
+    );
+  });
+
+  assert.equal(errors.length, 2);
+  assert.equal(
+    optionalAnalyticsEnvironment("ascend-prod-9c8f2", "revision-1")
+      ?.mixpanelProjectId,
+    "4051100"
   );
 });
 
@@ -323,6 +362,7 @@ test("a transient analytics failure requeues and later delivers", async () => {
   });
   assert.deepEqual(first, {
     claimedCount: 1,
+    deferredCount: 0,
     deliveredCount: 0,
     failedCount: 0,
     reclaimedCount: 0,
@@ -344,6 +384,90 @@ test("a transient analytics failure requeues and later delivers", async () => {
   assert.equal(client.attemptCount, 2);
   assert.deepEqual(client.insertIds, [event.insertId, event.insertId]);
 });
+
+test("a run past its budget requeues claims instead of stranding them", async () => {
+  const event = buildLifecycleAnalyticsEvent(
+    webhookEvent(),
+    projection(),
+    CONFIG,
+    ENVIRONMENT
+  );
+  assert.ok(event);
+  const store = new MultiRowAnalyticsOutboxStore(event, 3);
+  let clockMs = NOW.getTime();
+  const client: LifecycleAnalyticsClient = {
+    async send(): Promise<void> {
+      clockMs += 40_000;
+    },
+  };
+
+  const summary = await processAnalyticsOutbox({
+    store,
+    client,
+    environment: ENVIRONMENT,
+    now: () => new Date(clockMs),
+    runBudgetMs: 75_000,
+  });
+
+  assert.equal(summary.claimedCount, 3);
+  assert.equal(summary.deliveredCount, 2);
+  assert.equal(summary.deferredCount, 1);
+  assert.deepEqual(store.statuses(), ["delivered", "delivered", "queued"]);
+  assert.equal(store.rows[2].lastErrorCode, "run_deadline_reached");
+  assert.equal(store.rows[2].readyAt.getTime(), clockMs);
+});
+
+test("a permanently discarded row is reported, not silently dropped", async () => {
+  const event = buildLifecycleAnalyticsEvent(
+    webhookEvent(),
+    projection(),
+    CONFIG,
+    ENVIRONMENT
+  );
+  assert.ok(event);
+  const store = new MultiRowAnalyticsOutboxStore(event, 1);
+  const client: LifecycleAnalyticsClient = {
+    async send(): Promise<void> {
+      throw new MixpanelDeliveryError("validation_failed", false);
+    },
+  };
+
+  const errors = await capturedErrors(async () => {
+    const summary = await processAnalyticsOutbox({
+      store,
+      client,
+      environment: ENVIRONMENT,
+      now: () => NOW,
+    });
+    assert.equal(summary.failedCount, 1);
+  });
+
+  assert.deepEqual(store.statuses(), ["failed"]);
+  assert.equal(errors.length, 1);
+  assert.deepEqual(errors[0][1], {
+    outboxId: "outbox-1",
+    eventName: "subscription_renewed",
+    attemptCount: 1,
+    lastErrorCode: "validation_failed",
+  });
+  assert.equal(JSON.stringify(errors).includes(event.distinctId), false);
+});
+
+async function capturedErrors(
+  run: () => Promise<void>
+): Promise<unknown[][]> {
+  const captured: unknown[][] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => {
+    captured.push(args);
+  };
+  try {
+    await run();
+  } finally {
+    console.error = original;
+  }
+  return captured;
+}
 
 function webhookEvent(
   overrides: Partial<RevenueCatWebhookEvent> = {}
@@ -427,6 +551,87 @@ class InMemoryAnalyticsOutboxStore implements AnalyticsOutboxStore {
 
   async markFailed(): Promise<void> {
     this.status = "failed";
+  }
+}
+
+interface AnalyticsOutboxRow {
+  outboxId: string;
+  status: "queued" | "processing" | "delivered" | "failed";
+  attemptCount: number;
+  readyAt: Date;
+  lastErrorCode: string | null;
+}
+
+class MultiRowAnalyticsOutboxStore implements AnalyticsOutboxStore {
+  readonly rows: AnalyticsOutboxRow[];
+
+  constructor(
+    private readonly event: LifecycleAnalyticsEvent,
+    rowCount: number
+  ) {
+    this.rows = Array.from({length: rowCount}, (_unused, index) => ({
+      outboxId: `outbox-${index + 1}`,
+      status: "queued" as const,
+      attemptCount: 0,
+      readyAt: NOW,
+      lastErrorCode: null,
+    }));
+  }
+
+  statuses(): string[] {
+    return this.rows.map((row) => row.status);
+  }
+
+  async reclaimStale(): Promise<number> {
+    return 0;
+  }
+
+  async claimDue(now: Date, limit = 25): Promise<AnalyticsOutboxClaim[]> {
+    return this.rows
+      .filter((row) => row.status === "queued" && row.readyAt <= now)
+      .slice(0, limit)
+      .map((row) => {
+        row.status = "processing";
+        row.attemptCount += 1;
+        return {
+          outboxId: row.outboxId,
+          claimId: `claim-${row.outboxId}-${row.attemptCount}`,
+          attemptCount: row.attemptCount,
+          event: this.event,
+        };
+      });
+  }
+
+  async markDelivered(claim: AnalyticsOutboxClaim): Promise<void> {
+    this.row(claim).status = "delivered";
+  }
+
+  async requeue(
+    claim: AnalyticsOutboxClaim,
+    readyAt: Date,
+    errorCode: string
+  ): Promise<void> {
+    const row = this.row(claim);
+    row.status = "queued";
+    row.readyAt = readyAt;
+    row.lastErrorCode = errorCode;
+  }
+
+  async markFailed(
+    claim: AnalyticsOutboxClaim,
+    errorCode: string
+  ): Promise<void> {
+    const row = this.row(claim);
+    row.status = "failed";
+    row.lastErrorCode = errorCode;
+  }
+
+  private row(claim: AnalyticsOutboxClaim): AnalyticsOutboxRow {
+    const row = this.rows.find(
+      (candidate) => candidate.outboxId === claim.outboxId
+    );
+    assert.ok(row);
+    return row;
   }
 }
 

@@ -1,14 +1,21 @@
 import {randomUUID} from "node:crypto";
 import * as admin from "firebase-admin";
-import {
-  ANALYTICS_OUTBOX_COLLECTION,
-} from "./firestoreStore";
 import type {
   AnalyticsOutboxClaim,
   AnalyticsOutboxStore,
   LifecycleAnalyticsEvent,
   LifecycleAnalyticsEventName,
 } from "./analyticsTypes";
+
+export const ANALYTICS_OUTBOX_COLLECTION =
+  "_revenuecat_analytics_outbox";
+
+// A row carries the affected Firebase UID as its Mixpanel `distinct_id`, so it
+// may not outlive the reason it exists. Delivery dedupe only has to outlive
+// RevenueCat's roughly 155-minute retry ladder; thirty days matches the event
+// ledger and leaves a human-inspectable trail. The Firestore TTL policy on
+// `retainUntil` does the deleting.
+export const ANALYTICS_OUTBOX_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 const STALE_PROCESSING_MS = 15 * 60 * 1000;
 const EVENT_NAMES = new Set<LifecycleAnalyticsEventName>([
@@ -77,6 +84,13 @@ implements AnalyticsOutboxStore {
 
     for (const document of snapshot.docs) {
       const claim = await this.claimOne(document.ref, nowTimestamp);
+      if (claim === "invalid_outbox_payload") {
+        console.error("RevenueCat analytics row is unreadable and discarded", {
+          outboxId: document.id,
+          lastErrorCode: "invalid_outbox_payload",
+        });
+        continue;
+      }
       if (claim) {
         claims.push(claim);
       }
@@ -135,7 +149,7 @@ implements AnalyticsOutboxStore {
   private async claimOne(
     reference: admin.firestore.DocumentReference,
     now: admin.firestore.Timestamp
-  ): Promise<AnalyticsOutboxClaim | null> {
+  ): Promise<AnalyticsOutboxClaim | "invalid_outbox_payload" | null> {
     return this.firestore.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(reference);
       const readyAt = snapshot.get("readyAt");
@@ -154,7 +168,7 @@ implements AnalyticsOutboxStore {
           lastErrorCode: "invalid_outbox_payload",
           updatedAt: now,
         });
-        return null;
+        return "invalid_outbox_payload";
       }
       const attemptCount = integerAtLeast(snapshot.get("attemptCount"), 0) + 1;
       const claimId = randomUUID();
@@ -188,6 +202,33 @@ implements AnalyticsOutboxStore {
       transaction.update(reference, updates);
     });
   }
+}
+
+/**
+ * Renders one queued outbox row, including its bounded retention stamp.
+ * @param {LifecycleAnalyticsEvent} event - Normalized lifecycle event
+ * @param {admin.firestore.Timestamp} now - Write clock
+ * @return {Record<string, unknown>} Serialized queued row
+ */
+export function serializeAnalyticsOutboxEvent(
+  event: LifecycleAnalyticsEvent,
+  now: admin.firestore.Timestamp
+): Record<string, unknown> {
+  return {
+    ...event,
+    status: "queued",
+    attemptCount: 0,
+    readyAt: now,
+    processingStartedAt: null,
+    claimId: null,
+    deliveredAt: null,
+    lastErrorCode: null,
+    createdAt: now,
+    updatedAt: now,
+    retainUntil: admin.firestore.Timestamp.fromMillis(
+      now.toMillis() + ANALYTICS_OUTBOX_RETENTION_MS
+    ),
+  };
 }
 
 function parseLifecycleAnalyticsEvent(

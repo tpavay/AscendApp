@@ -10,7 +10,6 @@ import assert from "node:assert/strict";
 import test, {before, beforeEach} from "node:test";
 import * as admin from "firebase-admin";
 import {
-  ANALYTICS_OUTBOX_COLLECTION,
   EVENT_RETENTION_MS,
   FirestoreRevenueCatEntitlementStore,
 } from "../../src/revenueCat/firestoreStore.js";
@@ -18,6 +17,8 @@ import {
   expireRevenueCatAccessGrants,
 } from "../../src/revenueCat/expiration.js";
 import {
+  ANALYTICS_OUTBOX_COLLECTION,
+  ANALYTICS_OUTBOX_RETENTION_MS,
   FirestoreAnalyticsOutboxStore,
 } from "../../src/revenueCat/analyticsFirestoreOutbox.js";
 import {
@@ -106,6 +107,11 @@ test("duplicate webhook delivery is durably idempotent", async () => {
   assert.equal(outbox.size, 1);
   assert.equal(outbox.docs[0].get("status"), "queued");
   assert.equal(outbox.docs[0].get("eventName"), "subscription_renewed");
+  assert.equal(
+    outbox.docs[0].get("retainUntil").toMillis(),
+    NOW.getTime() + ANALYTICS_OUTBOX_RETENTION_MS
+  );
+  assert.ok(ANALYTICS_OUTBOX_RETENTION_MS > REVENUECAT_RETRY_WINDOW_MS);
 });
 
 test("a transient Mixpanel failure requeues and later delivers", async () => {

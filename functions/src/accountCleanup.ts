@@ -6,7 +6,7 @@ import {buildEmailJobId} from "./email/queue";
 import {PUBLIC_IDENTITY_STATE_DELETED} from "./publicIdentity";
 import {
   ANALYTICS_OUTBOX_COLLECTION,
-} from "./revenueCat/firestoreStore";
+} from "./revenueCat/analyticsFirestoreOutbox";
 
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
 
