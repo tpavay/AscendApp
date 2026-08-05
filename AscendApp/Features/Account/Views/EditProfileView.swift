@@ -325,10 +325,11 @@ struct EditProfileView: View {
             return
         }
 
-        await authVM.updateProfilePictureWithData(imageData: imageData)
-        if let failure = authVM.errorMessage {
-            authVM.errorMessage = nil
-            errorMessage = failure
+        errorMessage = await authVM.scopedProfileUpdate(
+            fallback: "Failed to update profile picture"
+        ) {
+            await authVM.updateProfilePictureWithData(imageData: imageData)
+            return authVM.errorMessage == nil
         }
     }
 }

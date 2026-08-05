@@ -9,6 +9,7 @@ struct ProfileNameEditorView: View {
     @State private var firstName: String
     @State private var lastName: String
     @State private var isSaving = false
+    @State private var errorMessage: String?
     @FocusState private var focusedField: ProfileNameField?
 
     // A climber who signed up before the split fields existed has neither on
@@ -70,7 +71,7 @@ struct ProfileNameEditorView: View {
                 .disabled(!canSave)
                 .opacity(canSave ? 1 : 0.45)
 
-                if let errorMessage = authVM.errorMessage {
+                if let errorMessage {
                     Text(errorMessage)
                         .font(.montserratRegular(size: 14))
                         .foregroundStyle(.red.opacity(0.9))
@@ -89,7 +90,6 @@ struct ProfileNameEditorView: View {
             focusedField = nil
         }
         .onAppear {
-            authVM.errorMessage = nil
             focusedField = field
         }
     }
@@ -131,12 +131,16 @@ struct ProfileNameEditorView: View {
 
         Task { @MainActor in
             isSaving = true
-            let didSave = await authVM.updateProfileName(
-                firstName: firstName,
-                lastName: lastName
-            )
+            errorMessage = await authVM.scopedProfileUpdate(
+                fallback: "Failed to update name"
+            ) {
+                await authVM.updateProfileName(
+                    firstName: firstName,
+                    lastName: lastName
+                )
+            }
             isSaving = false
-            if didSave {
+            if errorMessage == nil {
                 dismiss()
             }
         }

@@ -6,6 +6,7 @@ struct ProfileGenderEditorView: View {
 
     @State private var selectedGender: ProfileGender
     @State private var isSaving = false
+    @State private var errorMessage: String?
 
     init(gender: ProfileGender?) {
         _selectedGender = State(initialValue: gender ?? .preferNotToSay)
@@ -71,7 +72,7 @@ struct ProfileGenderEditorView: View {
                 .disabled(isSaving)
                 .opacity(isSaving ? 0.7 : 1)
 
-                if let errorMessage = authVM.errorMessage {
+                if let errorMessage {
                     Text(errorMessage)
                         .font(.montserratRegular(size: 14))
                         .foregroundStyle(.red.opacity(0.9))
@@ -86,9 +87,6 @@ struct ProfileGenderEditorView: View {
         .navigationTitle("Gender")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
-        .onAppear {
-            authVM.errorMessage = nil
-        }
     }
 
     private func save() {
@@ -96,9 +94,13 @@ struct ProfileGenderEditorView: View {
 
         Task { @MainActor in
             isSaving = true
-            let didSave = await authVM.updateOnboardingGender(selectedGender)
+            errorMessage = await authVM.scopedProfileUpdate(
+                fallback: "Failed to update gender"
+            ) {
+                await authVM.updateOnboardingGender(selectedGender)
+            }
             isSaving = false
-            if didSave {
+            if errorMessage == nil {
                 dismiss()
             }
         }

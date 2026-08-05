@@ -498,6 +498,23 @@ extension AuthenticationViewModel {
         return "\(fallback): \(error.localizedDescription)"
     }
 
+    /// Runs a profile mutation and hands its failure back to the caller instead
+    /// of leaving it on `errorMessage`.
+    ///
+    /// `errorMessage` is app-wide: the Settings root renders it inline, so a
+    /// message a pushed editor left behind follows the climber back out and
+    /// sits there under an unrelated screen.
+    func scopedProfileUpdate(
+        fallback: String,
+        _ update: () async -> Bool
+    ) async -> String? {
+        errorMessage = nil
+        let didSucceed = await update()
+        let failure = errorMessage
+        errorMessage = nil
+        return didSucceed ? nil : (failure ?? fallback)
+    }
+
     var displayPhotoURL: URL? {
         // Prioritize custom profile picture, then fall back to OAuth provider photo
         return customProfilePictureURL ?? photoURL

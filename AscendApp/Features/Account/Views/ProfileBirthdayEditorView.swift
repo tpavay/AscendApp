@@ -6,6 +6,7 @@ struct ProfileBirthdayEditorView: View {
 
     @State private var selectedBirthday: Date
     @State private var isSaving = false
+    @State private var errorMessage: String?
 
     init(birthday: ProfileBirthday?) {
         let defaultDate = Calendar.current.date(byAdding: .year, value: -32, to: .now) ?? .now
@@ -52,7 +53,7 @@ struct ProfileBirthdayEditorView: View {
                 .disabled(isSaving)
                 .opacity(isSaving ? 0.7 : 1)
 
-                if let errorMessage = authVM.errorMessage {
+                if let errorMessage {
                     Text(errorMessage)
                         .font(.montserratRegular(size: 14))
                         .foregroundStyle(.red.opacity(0.9))
@@ -67,9 +68,6 @@ struct ProfileBirthdayEditorView: View {
         .navigationTitle("Birthday")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
-        .onAppear {
-            authVM.errorMessage = nil
-        }
     }
 
     private var allowedRange: ClosedRange<Date> {
@@ -85,11 +83,13 @@ struct ProfileBirthdayEditorView: View {
 
         Task { @MainActor in
             isSaving = true
-            let didSave = await authVM.updateBirthday(
-                ProfileBirthday(date: selectedBirthday)
-            )
+            errorMessage = await authVM.scopedProfileUpdate(
+                fallback: "Failed to update birthday"
+            ) {
+                await authVM.updateBirthday(ProfileBirthday(date: selectedBirthday))
+            }
             isSaving = false
-            if didSave {
+            if errorMessage == nil {
                 dismiss()
             }
         }

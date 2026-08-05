@@ -9,6 +9,7 @@ struct ProfileLocationEditorView: View {
 
     @State private var selectedLocation: PostAuthLocationSelection?
     @State private var isSaving = false
+    @State private var saveErrorMessage: String?
 
     init(city: String?, region: String?, countryCode: String?) {
         let normalizedCity = city?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -108,7 +109,7 @@ struct ProfileLocationEditorView: View {
                 .disabled(selectedLocation == nil || isSaving)
                 .opacity(selectedLocation == nil || isSaving ? 0.45 : 1)
 
-                if let errorMessage = citySearch.errorMessage ?? currentLocation.errorMessage ?? authVM.errorMessage {
+                if let errorMessage = citySearch.errorMessage ?? currentLocation.errorMessage ?? saveErrorMessage {
                     Text(errorMessage)
                         .font(.montserratRegular(size: 14))
                         .foregroundStyle(.red.opacity(0.9))
@@ -127,7 +128,6 @@ struct ProfileLocationEditorView: View {
             isSearchFocused = false
         }
         .onAppear {
-            authVM.errorMessage = nil
             if citySearch.query.isEmpty, let selectedLocation {
                 citySearch.setSelectedLocation(selectedLocation)
             }
@@ -188,13 +188,17 @@ struct ProfileLocationEditorView: View {
 
         Task { @MainActor in
             isSaving = true
-            let didSave = await authVM.updateOnboardingLocation(
-                city: selectedLocation.city,
-                countryCode: selectedLocation.countryCode,
-                region: selectedLocation.region
-            )
+            saveErrorMessage = await authVM.scopedProfileUpdate(
+                fallback: "Failed to update location"
+            ) {
+                await authVM.updateOnboardingLocation(
+                    city: selectedLocation.city,
+                    countryCode: selectedLocation.countryCode,
+                    region: selectedLocation.region
+                )
+            }
             isSaving = false
-            if didSave {
+            if saveErrorMessage == nil {
                 dismiss()
             }
         }
