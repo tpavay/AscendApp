@@ -29,6 +29,9 @@ final class WorkoutSyncOutboxEntry {
     /// When the cloud first had something of this workout's it had not acknowledged. Anchors both
     /// the 30-minute attention threshold and the elapsed arm of the refusal stop.
     var firstPendingAt: Date?
+
+    /// When the cloud last saw this workout. Doubles as the payload revision the schedule is armed
+    /// against - see ``isScheduledForPayloadRevision(at:)``.
     var lastAttemptAt: Date?
 
     /// Genuine remote outcomes only. Offline deferral and lifecycle cancellation never count -
@@ -126,6 +129,21 @@ final class WorkoutSyncOutboxEntry {
         automaticAttemptCount = max(automaticAttemptCount - 1, 0)
         refusalCount = 0
         failureCategory = nil
+    }
+
+    /// Whether this schedule was armed against the bytes the workout is offering now.
+    ///
+    /// `lastAttemptAt` is the moment the cloud last saw this workout, and every path that gives it
+    /// something new to offer - a local edit, a photo finishing its upload, a participation being
+    /// attached - goes through `Workout.markPendingRemoteUpsert`, which moves `lastModifiedAt`. So
+    /// a workout modified since its last attempt is offering different bytes from the ones this
+    /// series was refused for, and holding it to that verdict is what left an edited stopped
+    /// workout neither retried nor visible.
+    ///
+    /// An entry the cloud has never seen has nothing to be stale against, and no schedule to lose.
+    func isScheduledForPayloadRevision(at revisionAt: Date) -> Bool {
+        guard let lastAttemptAt else { return true }
+        return revisionAt <= lastAttemptAt
     }
 
     /// A local edit is a new payload revision, so the series starts over.

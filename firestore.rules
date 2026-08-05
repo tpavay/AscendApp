@@ -612,28 +612,34 @@ service cloud.firestore {
 
     // What this rule is for, and what it deliberately stopped doing.
     //
-    // A workout document is private to one climber: nobody else reads it, and every Cloud Function
-    // that consumes it - `leaderboardStats.parseEligibleWorkout`, `climbCompletions`,
-    // `liveReplayLeaderboard` - re-derives and re-type-checks every value it uses, rejecting the
-    // workout outright when a number is not a number. So per-field hygiene here bought nothing
-    // that is not already guaranteed downstream, and it cost the budget that the checks below
-    // actually need. Firestore aborts at 1000 expressions and reports the abort as a bare
-    // PERMISSION_DENIED, so an over-budget rule does not fail loudly - it silently stops being
-    // able to accept legitimate documents as they grow.
+    // A workout document is private to one climber: nobody else reads it. Firestore aborts at 1000
+    // expressions and reports the abort as a bare PERMISSION_DENIED, so an over-budget rule does
+    // not fail loudly - it silently stops being able to accept legitimate documents as they grow.
+    // Per-field hygiene here was spending that budget on values no reader trusts.
+    //
+    // The test for dropping a field's type check is NOT "a Cloud Function reads it". It is whether
+    // that function REJECTS or COERCES what it reads:
+    //
+    //   - REJECTS, so the rule need not check it. `steps` and `floors` go through
+    //     `nonNegativeIntegerValue` / `nonNegativeInteger`, and `durationSeconds` through
+    //     `nonNegativeNumberValue` / `finiteNumber`, in `leaderboardStats`, `climbCompletions` and
+    //     `liveReplayLeaderboard`. Each guards on `typeof` and returns null, and null is
+    //     fail-closed - the workout simply does not count.
+    //   - COERCES, so the rule is the only thing standing between a client and a malformed
+    //     server-derived projection. `startedAt` is the one: `timestampMillis` in both
+    //     `climbCompletions` and `leaderboardStats` accepts a raw finite `number` as epoch millis,
+    //     and `climbCompletions` re-serialises it through `Timestamp.fromMillis` into the landmark
+    //     projection. `onWorkoutWritten` retries, so an out-of-range number there is a retry storm
+    //     against a projection that never converges. It stays typed here.
     //
     // What stays is authorization and the trust boundary: ownership, canonical identity, the
     // strict top-level key contract, bounded list sizes, the Storage path binding that stops one
-    // climber pointing at another's heart-rate sidecar, and every participation field a Cloud
-    // Function reads without re-deriving. What went is owner-private hygiene - scalar ranges,
-    // string lengths, media and weight-entry internals, timestamp typing and ordering.
+    // climber pointing at another's heart-rate sidecar, `startedAt`'s type, and every participation
+    // field a Cloud Function reads without re-deriving. What went is owner-private hygiene - scalar
+    // ranges, string lengths, media and weight-entry internals, and the timestamp ordering nothing
+    // reads.
     //
     // Measure before adding anything here. Do not assume there is room.
-    // Weight configuration is validated in full for ONE caller: the routine rule's
-    // `defaultWeightConfiguration`. Routines are nowhere near the expression ceiling, so they keep
-    // the per-entry contract they have always had. The workout rule deliberately does NOT use
-    // these - it bounds the list size inline and stops there, because it has no budget left and
-    // nothing but the owner reads a workout's weights. Deleting these would silently break
-    // routine backup for any routine carrying default weights.
     function isValidWorkoutId(workoutId) {
       return workoutId.matches("^[0-9a-fA-F-]{36}$");
     }
@@ -689,6 +695,12 @@ service cloud.firestore {
         hasUniqueWorkoutWeightEquipmentTypes(entries, count);
     }
 
+    // Validated in full for ONE caller: the routine rule's `defaultWeightConfiguration`. Routines
+    // are nowhere near the expression ceiling, so they keep the per-entry contract they have always
+    // had. The workout rule deliberately does NOT use this - it bounds the list size inline and
+    // stops there, because it has no budget left and nothing but the owner reads a workout's
+    // weights. Deleting this as dead code would silently break routine backup for any routine
+    // carrying default weights.
     function isValidWorkoutWeightConfiguration(config, configKeys) {
       return config is map &&
         configKeys.size() == 1 &&
@@ -848,6 +860,9 @@ service cloud.firestore {
         ]) &&
         data.userId == userId &&
         isSupportedSchemaVersion(data.schemaVersion) &&
+        // The one scalar type check the budget still buys, because `climbCompletions` coerces this
+        // value rather than rejecting it - see the philosophy block above.
+        data.startedAt is timestamp &&
         isValidWorkoutSource(data.source) &&
         isValidIntegrityLevel(data.integrityLevel) &&
         // A climb query key only means anything on an in-app sensor workout, and

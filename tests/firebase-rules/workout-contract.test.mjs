@@ -334,6 +334,32 @@ test('workout climb query key is bounded and limited to headphone motion', async
   })));
 });
 
+// The one scalar whose type the workout rule still spends budget on.
+//
+// Every other de-validated number is re-parsed by a Cloud Function helper that REJECTS a wrong
+// type and returns null, which is fail-closed. `startedAt` is the exception: `timestampMillis` in
+// both `climbCompletions` and `leaderboardStats` accepts a raw finite number as epoch millis, and
+// `climbCompletions` re-serialises it through `Timestamp.fromMillis` into the landmark projection.
+// `onWorkoutWritten` is declared `retry: true`, so an out-of-range number would retry-storm against
+// a projection that never converges. Nothing downstream refuses it, so the rule has to.
+test('a workout startedAt must be a timestamp, not a number a function would coerce', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    source: 'headphone_motion',
+    integrityLevel: 'verified',
+    climbId: 'cn-tower',
+    startedAt: 1e15,
+  })));
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    startedAt: '2026-04-10T06:30:00.000Z',
+  })));
+
+  await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument()));
+});
+
 test('climb attempt participation requires headphone motion source', async () => {
   const context = testEnv.authenticatedContext(userId);
   const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);

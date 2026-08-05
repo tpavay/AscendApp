@@ -59,8 +59,6 @@ enum WorkoutRemoteSyncMapper {
             blob: heartRateBlob
         )
 
-        // Refuse rather than truncate. The rule bounds this list, so a workout carrying more than
-        // the cap is a document the server will refuse every time it is offered - and silently
         let participations = workout.participations.isEmpty
             ? nil
             : workout.participations

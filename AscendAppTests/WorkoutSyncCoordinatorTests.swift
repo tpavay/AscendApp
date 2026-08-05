@@ -201,11 +201,20 @@ struct WorkoutSyncCoordinatorTests {
         #expect((await remoteRepository.recordedUpserts()).isEmpty)
     }
 
+    /// A transient failure is retried, but only once its persisted due date has passed - the
+    /// schedule is a clock, not a counter, so "the next pass" is the next pass after the backoff.
     @Test
-    func failedWorkoutRetriesSuccessfullyOnNextPass() async throws {
+    func failedWorkoutRetriesSuccessfullyOnceItsBackoffHasElapsed() async throws {
         let modelContext = try makeModelContext()
+        let clock = MutableClock(now: makeDate(year: 2026, month: 4, day: 13, hour: 10))
         let workout = makeWorkout(date: makeDate(year: 2026, month: 4, day: 13, hour: 9))
-        workout.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: workout.createdAt)
+        // On the coordinator's clock, not the wall clock: a workout whose last modification looks
+        // later than its last attempt is a new payload revision, and would correctly restart the
+        // series this test is measuring.
+        workout.markPendingRemoteUpsert(
+            ownerUserId: "user-123",
+            modifiedAt: clock.value.addingTimeInterval(-60)
+        )
         modelContext.insert(workout)
         try modelContext.save()
 
@@ -214,7 +223,8 @@ struct WorkoutSyncCoordinatorTests {
         let coordinator = WorkoutSyncCoordinator(
             remoteRepository: remoteRepository,
             heartRateStorageRepository: heartRateRepository,
-            operationTimeoutSeconds: 1
+            operationTimeoutSeconds: 1,
+            now: { clock.value }
         )
 
         await coordinator.processPendingWorkouts(
@@ -225,6 +235,15 @@ struct WorkoutSyncCoordinatorTests {
         let failedWorkout = try #require(fetchWorkouts(in: modelContext).first)
         #expect(failedWorkout.remoteSyncStatus == .failed)
         #expect(failedWorkout.lastRemoteSyncAt == nil)
+
+        // A pass inside the backoff window changes nothing - that is the whole point of it.
+        await coordinator.processPendingWorkouts(
+            modelContext: modelContext,
+            currentUserId: "user-123"
+        )
+        #expect(try #require(fetchWorkouts(in: modelContext).first).remoteSyncStatus == .failed)
+
+        clock.value = clock.value.addingTimeInterval(600)
 
         await coordinator.processPendingWorkouts(
             modelContext: modelContext,
@@ -760,6 +779,7 @@ struct WorkoutSyncCoordinatorTests {
             for: Workout.self,
             WorkoutSourceLink.self,
             WorkoutParticipation.self,
+            WorkoutSyncOutboxEntry.self,
             PendingWorkoutDeletion.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
@@ -1005,4 +1025,13 @@ private actor FlakyWorkoutRemoteRepository: WorkoutRemoteRepositoryProtocol {
 @MainActor
 private final class CoordinatorReference {
     var value: WorkoutSyncCoordinator?
+}
+
+@MainActor
+private final class MutableClock {
+    var value: Date
+
+    init(now: Date) {
+        self.value = now
+    }
 }

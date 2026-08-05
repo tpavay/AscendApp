@@ -18,6 +18,12 @@ final class WorkoutSyncCoordinator {
     private var isProcessingPendingWorkouts = false
     private var shouldProcessPendingWorkoutsAgain = false
 
+    /// Callers waiting for the pass that is already running to finish.
+    ///
+    /// Only `retryNow` waits. `processPendingWorkouts` keeps its non-blocking coalescing, because
+    /// the sync path re-enters itself - a pass that awaited its own successor would deadlock.
+    private var passCompletionWaiters: [CheckedContinuation<Void, Never>] = []
+
     /// Workouts the climber has personally asked to sync, and the ones currently in flight.
     ///
     /// Both live here rather than in a view's `@State` because a tab switch or a navigation would
@@ -120,6 +126,12 @@ final class WorkoutSyncCoordinator {
     ///
     /// Deliberately does not touch the automatic series: a manual retry re-offers the same payload
     /// revision, so resetting the schedule it bypasses would let taps launder the stopping policy.
+    ///
+    /// The request outlives this call rather than being cleared when it returns. Seven surfaces
+    /// drive the coordinator, so a tap regularly lands while a pass is already running; clearing
+    /// the request on the early return dropped it, and the surface still reported a failure for an
+    /// attempt that never ran. The flag is now consumed by the pass that actually reads it, and
+    /// this waits for that pass rather than answering before it.
     func retryNow(
         workoutId: UUID,
         modelContext: ModelContext,
@@ -130,7 +142,10 @@ final class WorkoutSyncCoordinator {
         manuallyRequestedWorkoutIds.insert(workoutId)
         warnedWorkoutIds.insert(workoutId)
         await processPendingWorkouts(modelContext: modelContext, currentUserId: currentUserId)
-        manuallyRequestedWorkoutIds.remove(workoutId)
+
+        while manuallyRequestedWorkoutIds.contains(workoutId), isProcessingPendingWorkouts {
+            await awaitRunningPass()
+        }
     }
 
     /// What the surface renders, derived from whether the climb is in the cloud - never from what
@@ -139,15 +154,7 @@ final class WorkoutSyncCoordinator {
         for workout: Workout,
         modelContext: ModelContext
     ) -> WorkoutSyncPresentation {
-        if workout.isSyncedToCloud {
-            return warnedWorkoutIds.contains(workout.id) ? .synced : .hidden
-        }
-
-        if inFlightWorkoutIds.contains(workout.id) {
-            // The row keeps saying `Couldn't sync this climb` while the control says `SYNCING`, so
-            // tapping can never make the warning disappear.
-            return warnedWorkoutIds.contains(workout.id) ? .couldNotSyncRetrying : .syncing
-        }
+        if let settled = settledPresentation(for: workout) { return settled }
 
         let entry = try? outboxEntry(
             forWorkoutId: workout.id,
@@ -156,19 +163,40 @@ final class WorkoutSyncCoordinator {
             modelContext: modelContext
         )
 
-        // Once a climber has been told, the surface stays loud until the climb actually lands.
-        //
-        // Without this latch a refused manual retry re-derives the status from the automatic
-        // series, drops `rejected` back to `failed`, and - if the quiet window has not elapsed -
-        // the warning silently becomes `Syncing`. That is the disappearing-warning defect arriving
-        // through a different door, and it reads as success.
-        let needsAttention = workout.remoteSyncStatus == .rejected ||
-            warnedWorkoutIds.contains(workout.id) ||
-            (entry?.requiresAttention(now: now()) ?? false)
-        guard needsAttention else { return .syncing }
+        return attentionPresentation(for: workout, entry: entry)
+    }
 
-        warnedWorkoutIds.insert(workout.id)
-        return connectivityService.isConnected ? .couldNotSync : .couldNotSyncOffline
+    /// The same answer for a whole screenful, on one store query.
+    ///
+    /// The per-workout form issues its own `FetchDescriptor`, so calling it in a loop from a
+    /// screen's `.task` is a query whose count grows with the climber's history - the shape the
+    /// project forbids outright.
+    func syncPresentations(
+        for workouts: [Workout],
+        modelContext: ModelContext
+    ) -> [UUID: WorkoutSyncPresentation] {
+        var presentations: [UUID: WorkoutSyncPresentation] = [:]
+        var needingSchedule: [Workout] = []
+
+        for workout in workouts {
+            if let settled = settledPresentation(for: workout) {
+                presentations[workout.id] = settled
+            } else {
+                needingSchedule.append(workout)
+            }
+        }
+
+        guard !needingSchedule.isEmpty else { return presentations }
+
+        let entries = (try? outboxEntriesByWorkoutId(modelContext: modelContext)) ?? [:]
+        for workout in needingSchedule {
+            presentations[workout.id] = attentionPresentation(
+                for: workout,
+                entry: entries[workout.id]
+            )
+        }
+
+        return presentations
     }
 
     func enqueuePendingDeletions(
@@ -205,6 +233,11 @@ final class WorkoutSyncCoordinator {
                     ownerUserId: ownerUserId
                 )
             )
+            // The workout is about to leave the store, and nothing else sweeps the outbox by
+            // workout id. An entry left behind would outlive its workout forever, be re-read by
+            // every recovery sweep, and - since entries are found by workout id - be inherited by
+            // any future record that reused it.
+            try deleteOutboxEntries(forWorkoutId: workout.id, modelContext: modelContext)
             didInsertDeletion = true
         }
 
@@ -221,7 +254,12 @@ final class WorkoutSyncCoordinator {
         }
 
         isProcessingPendingWorkouts = true
-        defer { isProcessingPendingWorkouts = false }
+        defer {
+            isProcessingPendingWorkouts = false
+            let waiters = passCompletionWaiters
+            passCompletionWaiters = []
+            for waiter in waiters { waiter.resume() }
+        }
 
         do {
             try reopenStoppedWorkoutsIfRecoveryBasisChanged(
@@ -393,6 +431,12 @@ private extension WorkoutSyncCoordinator {
             do {
                 try await deleteRemoteResources(for: pendingDeletion)
                 deletedWorkoutIds.insert(pendingDeletion.workoutId)
+                // Also covers a deletion queued by a build that predates the sweep in
+                // `enqueuePendingDeletions`.
+                try deleteOutboxEntries(
+                    forWorkoutId: pendingDeletion.workoutId,
+                    modelContext: modelContext
+                )
                 modelContext.delete(pendingDeletion)
                 try modelContext.save()
             } catch {
@@ -451,26 +495,48 @@ private extension WorkoutSyncCoordinator {
         )
 
         let now = self.now()
-        let workouts = try modelContext.fetch(descriptor)
-            .filter { workout in
-                guard !pendingDeletionIds.contains(workout.id) else { return false }
-                guard workout.remoteSyncStatus != .synced else { return false }
+        // One query for the whole schedule rather than one per candidate workout: this runs on
+        // every pass, and a pass after a sign-in restore has every workout to consider.
+        let entriesByWorkoutId = try outboxEntriesByWorkoutId(modelContext: modelContext)
+        var didResetSchedule = false
+        var workouts: [Workout] = []
 
-                // A climber's tap bypasses the due date for exactly one attempt. Everything else
-                // waits for its persisted no-earlier-than time, which is what stops seven trigger
-                // surfaces from spending the whole series in one millisecond.
-                if manuallyRequestedWorkoutIds.contains(workout.id) { return true }
-                guard workout.remoteSyncStatus != .rejected else { return false }
+        for workout in try modelContext.fetch(descriptor) {
+            // A climber's tap bypasses the due date for exactly one attempt. It is consumed here,
+            // by the pass that actually reads it, so a tap that arrived while another pass was
+            // running is still served rather than cleared unread.
+            let wasManuallyRequested = manuallyRequestedWorkoutIds.remove(workout.id) != nil
 
-                let entry = try? outboxEntry(
-                    forWorkoutId: workout.id,
-                    ownerUserId: currentUserId,
-                    createIfMissing: false,
-                    modelContext: modelContext
-                )
-                guard let entry else { return true }
-                return entry.isDueForAutomaticAttempt(now: now)
+            guard !pendingDeletionIds.contains(workout.id) else { continue }
+            guard workout.remoteSyncStatus != .synced else { continue }
+
+            let entry = entriesByWorkoutId[workout.id]
+                .flatMap { candidate -> WorkoutSyncOutboxEntry? in
+                    candidate.ownerUserId == currentUserId ? candidate : nil
+                }
+
+            // A schedule armed against bytes the climber has since changed is not a statement
+            // about the bytes now on offer. Starting the series over is what keeps an edited
+            // workout from waiting out a stop it never earned - or, once stopped, from being
+            // dropped from every automatic pass forever.
+            if let entry, !entry.isScheduledForPayloadRevision(at: workout.lastModifiedAt) {
+                entry.resetForNewPayloadRevision(now: now)
+                didResetSchedule = true
             }
+
+            if wasManuallyRequested {
+                workouts.append(workout)
+                continue
+            }
+
+            guard workout.remoteSyncStatus != .rejected else { continue }
+            guard entry?.isDueForAutomaticAttempt(now: now) ?? true else { continue }
+            workouts.append(workout)
+        }
+
+        if didResetSchedule {
+            try modelContext.save()
+        }
 
         var snapshots: [WorkoutRemoteSyncSnapshot] = []
         for workout in workouts {
@@ -490,6 +556,71 @@ private extension WorkoutSyncCoordinator {
         return snapshots
     }
 
+    /// Waits for the pass that is already running, without starting one.
+    func awaitRunningPass() async {
+        guard isProcessingPendingWorkouts else { return }
+
+        await withCheckedContinuation { continuation in
+            passCompletionWaiters.append(continuation)
+        }
+    }
+
+    /// The states that need no schedule to answer, so a batch can settle them before any query.
+    func settledPresentation(for workout: Workout) -> WorkoutSyncPresentation? {
+        if workout.isSyncedToCloud {
+            return warnedWorkoutIds.contains(workout.id) ? .synced : .hidden
+        }
+
+        if inFlightWorkoutIds.contains(workout.id) {
+            // The row keeps saying `Couldn't sync this climb` while the control says `SYNCING`, so
+            // tapping can never make the warning disappear.
+            return warnedWorkoutIds.contains(workout.id) ? .couldNotSyncRetrying : .syncing
+        }
+
+        return nil
+    }
+
+    /// Whether a climb that is not in the cloud is one the climber is meant to know about.
+    func attentionPresentation(
+        for workout: Workout,
+        entry: WorkoutSyncOutboxEntry?
+    ) -> WorkoutSyncPresentation {
+        // An entry belonging to another account, or armed against bytes the climber has since
+        // changed, says nothing about the climb in front of them.
+        let entry = entry.flatMap { candidate -> WorkoutSyncOutboxEntry? in
+            guard candidate.ownerUserId == (workout.ownerUserId ?? "") else { return nil }
+            guard candidate.isScheduledForPayloadRevision(at: workout.lastModifiedAt) else {
+                return nil
+            }
+            return candidate
+        }
+
+        // Once a climber has been told, the surface stays loud until the climb actually lands.
+        //
+        // Without this latch a refused manual retry re-derives the status from the automatic
+        // series, drops `rejected` back to `failed`, and - if the quiet window has not elapsed -
+        // the warning silently becomes `Syncing`. That is the disappearing-warning defect arriving
+        // through a different door, and it reads as success.
+        let needsAttention = workout.remoteSyncStatus == .rejected ||
+            warnedWorkoutIds.contains(workout.id) ||
+            (entry?.requiresAttention(now: now()) ?? false)
+        guard needsAttention else { return .syncing }
+
+        warnedWorkoutIds.insert(workout.id)
+        return connectivityService.isConnected ? .couldNotSync : .couldNotSyncOffline
+    }
+
+    /// Every persisted schedule in the store, indexed by the workout it belongs to.
+    ///
+    /// Only workouts that are not yet in the cloud carry one, so this is bounded by the backlog
+    /// rather than by the climber's history.
+    func outboxEntriesByWorkoutId(
+        modelContext: ModelContext
+    ) throws -> [UUID: WorkoutSyncOutboxEntry] {
+        try modelContext.fetch(FetchDescriptor<WorkoutSyncOutboxEntry>())
+            .reduce(into: [:]) { index, entry in index[entry.workoutId] = entry }
+    }
+
     /// The persisted schedule for one workout, created on first need.
     ///
     /// A workout that predates this build simply has no entry, which reads as "never attempted" -
@@ -502,7 +633,7 @@ private extension WorkoutSyncCoordinator {
     ) throws -> WorkoutSyncOutboxEntry? {
         let descriptor = FetchDescriptor<WorkoutSyncOutboxEntry>(
             predicate: #Predicate<WorkoutSyncOutboxEntry> { entry in
-                entry.workoutId == workoutId
+                entry.workoutId == workoutId && entry.ownerUserId == ownerUserId
             }
         )
 
@@ -520,6 +651,12 @@ private extension WorkoutSyncCoordinator {
 
     /// Drops the schedule once the cloud has acknowledged the workout. Nothing is left to retry.
     func clearOutboxEntry(forWorkoutId workoutId: UUID, modelContext: ModelContext) throws {
+        try deleteOutboxEntries(forWorkoutId: workoutId, modelContext: modelContext)
+        try modelContext.save()
+    }
+
+    /// Removes the schedule without committing, for callers that own the surrounding save.
+    func deleteOutboxEntries(forWorkoutId workoutId: UUID, modelContext: ModelContext) throws {
         let descriptor = FetchDescriptor<WorkoutSyncOutboxEntry>(
             predicate: #Predicate<WorkoutSyncOutboxEntry> { entry in
                 entry.workoutId == workoutId
@@ -529,7 +666,6 @@ private extension WorkoutSyncCoordinator {
         for entry in try modelContext.fetch(descriptor) {
             modelContext.delete(entry)
         }
-        try modelContext.save()
     }
 
     /// Records a genuine remote outcome against the persisted schedule.

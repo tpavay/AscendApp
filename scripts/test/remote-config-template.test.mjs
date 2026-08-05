@@ -271,6 +271,58 @@ test("a fully published live template raises nothing", () => {
   assert.deepEqual(unpublishedFlagProblems(localTemplate, appKeys), []);
 });
 
+// The archive-blocking gate has to cover settings, not just kill switches.
+//
+// An operator lever that exists in the checked-in template and nowhere in the live backend is
+// worse than no lever, because it is believed in: `workout_sync_recovery_epoch` is the one thing
+// that can unstick a fleet after a rules fix, and it is reached for mid-incident.
+test("both RemoteConfig enums declare keys the published check covers", () => {
+  const appKeys = appFlagKeys([flagSource, settingSource].join("\n"));
+
+  assert.ok(appKeys.includes("workout_sync_recovery_epoch"));
+  assert.ok(!appFlagKeys(flagSource).includes("workout_sync_recovery_epoch"));
+  assert.deepEqual(unpublishedFlagProblems(localTemplate, appKeys), []);
+});
+
+test("a setting missing from the live backend fails the archive like a switch does", () => {
+  const live = {
+    parameters: Object.fromEntries(
+      appFlagKeys(flagSource).map((key) => [
+        key,
+        { valueType: "BOOLEAN", defaultValue: { value: "true" } },
+      ]),
+    ),
+  };
+
+  const problems = unpublishedFlagProblems(
+    live,
+    appFlagKeys([flagSource, settingSource].join("\n")),
+  );
+
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /workout_sync_recovery_epoch is missing from the live template/);
+});
+
+test("a setting published at its own declared type is not reported as mistyped", () => {
+  // The check used to hardcode BOOLEAN, which would have reported a correctly published NUMBER
+  // lever as unreachable and blocked every archive.
+  const live = {
+    parameters: {
+      workout_sync_recovery_epoch: { valueType: "NUMBER", defaultValue: { value: "0" } },
+    },
+  };
+
+  assert.deepEqual(unpublishedFlagProblems(live, ["workout_sync_recovery_epoch"]), []);
+
+  const mistyped = unpublishedFlagProblems(
+    { parameters: { workout_sync_recovery_epoch: { valueType: "STRING", defaultValue: { value: "0" } } } },
+    ["workout_sync_recovery_epoch"],
+  );
+
+  assert.equal(mistyped.length, 1);
+  assert.match(mistyped[0], /published as STRING, not the NUMBER the template declares/);
+});
+
 test("a switch an operator turned off is the mechanism working, not a problem", () => {
   // The guard must never conflate "deliberately off" with "never published", or it would
   // block the archive precisely when someone is using the lever it exists to protect.

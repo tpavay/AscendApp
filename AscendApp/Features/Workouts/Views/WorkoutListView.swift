@@ -176,17 +176,40 @@ struct WorkoutListView: View {
                 importCoordinator.configure(modelContext: modelContext)
                 refreshCouldNotSyncWorkoutIds()
             }
+            // The same signal `WorkoutDetailView` invalidates on. Without it the badge is a
+            // snapshot taken once: a climb that lands keeps its warning, and one that starts
+            // failing never gets one.
+            .onChange(of: remoteSyncStatusSignature) { _, _ in
+                refreshCouldNotSyncWorkoutIds()
+            }
+    }
+
+    /// Changes exactly when some climb's cloud status does, so the badge tracks current truth.
+    ///
+    /// Reads an already-loaded column of an array `filteredWorkouts` walks anyway - no store query.
+    private var remoteSyncStatusSignature: [String] {
+        workouts.map(\.remoteSyncStatusRawValue)
     }
 
     /// Bounded by construction: only workouts that are not in the cloud are asked about, and a
     /// climb still working through its quiet automatic series is deliberately not counted.
+    ///
+    /// One store query for the whole screen, never one per workout - the per-workout form is a
+    /// query whose count grows with the climber's history, on the render entry path.
     private func refreshCouldNotSyncWorkoutIds() {
-        let coordinator = WorkoutSyncCoordinator.shared
+        let unsynced = workouts.filter { !$0.isSyncedToCloud }
+
+        guard !unsynced.isEmpty else {
+            couldNotSyncWorkoutIds = []
+            return
+        }
+
+        let presentations = WorkoutSyncCoordinator.shared.syncPresentations(
+            for: unsynced,
+            modelContext: modelContext
+        )
         couldNotSyncWorkoutIds = Set(
-            workouts
-                .filter { !$0.isSyncedToCloud }
-                .filter { coordinator.syncPresentation(for: $0, modelContext: modelContext).isWarning }
-                .map(\.id)
+            presentations.lazy.filter { $0.value.isWarning }.map(\.key)
         )
     }
 

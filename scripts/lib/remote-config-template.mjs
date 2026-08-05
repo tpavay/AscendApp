@@ -34,6 +34,23 @@ export function isSettingParameter(key) {
   return Object.hasOwn(SETTING_PARAMETERS, key);
 }
 
+/**
+ * Every Swift source whose enum raw values are Remote Config parameter keys.
+ *
+ * Repo-relative and exported so no caller has to remember there are two. `appFlagKeys` is
+ * happy to parse one file, and a check that quietly parses only the flags is indistinguishable
+ * from one that passes.
+ */
+export const APP_PARAMETER_SOURCE_PATHS = Object.freeze([
+  "AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift",
+  "AscendApp/Shared/Services/RemoteConfig/RemoteConfigSetting.swift",
+]);
+
+/** The value type the live backend must declare for one managed parameter. */
+export function expectedValueType(key) {
+  return SETTING_PARAMETERS[key]?.valueType ?? "BOOLEAN";
+}
+
 export function isParameterOff(parameter) {
   return String(parameter?.defaultValue?.value ?? "").trim().toLowerCase() === "false";
 }
@@ -100,9 +117,14 @@ export function findActiveKillSwitches(liveTemplate, localTemplate) {
 
 /**
  * The Remote Config parameter keys the app actually reads, parsed out of
- * `RemoteFeatureFlag.swift`. The enum's raw values ARE the keys, so the Swift source is the
- * one authority on what the app looks for; deriving them keeps every check honest when a
- * flag is added.
+ * `RemoteFeatureFlag.swift` and `RemoteConfigSetting.swift`. Both enums' raw values ARE the
+ * keys, so the Swift sources are the one authority on what the app looks for; deriving them
+ * keeps every check honest when a flag or a setting is added.
+ *
+ * Callers pass both files joined - see `APP_PARAMETER_SOURCE_PATHS`. A caller that reads only
+ * the flag enum leaves every setting outside the "a parameter the build reads must exist in
+ * the live backend" gate, which is how an operator lever comes to be believed in mid-incident
+ * without existing.
  */
 export function appFlagKeys(swiftSource) {
   return [...swiftSource.matchAll(/^\s*case\s+\w+\s*=\s*"([a-z0-9_]+)"/gm)]
@@ -138,7 +160,7 @@ export function unpublishedFlagProblems(liveTemplate, appKeys) {
 
     if (parameter === undefined) {
       return [
-        `${key} is missing from the live template - this build's kill switch is decorative.`,
+        `${key} is missing from the live template - this build's lever is decorative.`,
       ];
     }
 
@@ -159,13 +181,16 @@ export function unpublishedFlagProblems(liveTemplate, appKeys) {
 
     // Not a claim that the current value is inert: the client reads `stringValue` and never
     // inspects `valueType`, so a STRING "false" would in fact be honoured. The template
-    // declares BOOLEAN, and that declaration is what keeps a value the client's strict parser
-    // would drop from ever reaching the parameter in the first place.
-    if (parameter.valueType !== "BOOLEAN") {
+    // declares the type, and that declaration is what keeps a value the client's strict parser
+    // would drop from ever reaching the parameter in the first place. A setting declares its own
+    // type - `workout_sync_recovery_epoch` is a NUMBER, and demanding BOOLEAN of it would report
+    // a correctly published lever as unreachable.
+    const declaredType = expectedValueType(key);
+    if (parameter.valueType !== declaredType) {
       return [
         `${key} is published as ${parameter.valueType ?? "an untyped parameter"}, not the ` +
-          "BOOLEAN the template declares - the console type is what stops a value the client's " +
-          "strict parser would drop from being saved against this switch.",
+          `${declaredType} the template declares - the console type is what stops a value the ` +
+          "client's strict parser would drop from being saved against this parameter.",
       ];
     }
 

@@ -42,10 +42,31 @@ struct WorkoutSyncStatusRow: View {
         .accessibilityElement(children: .combine)
     }
 
+    // Enablement comes from `WorkoutSyncPresentation.isRetryControlEnabled` rather than from a
+    // switch with a `default:` arm, so the property the tests assert on is the one the shipped row
+    // consults. A new presentation case cannot make the two disagree.
     @ViewBuilder
     private var retryControl: some View {
-        switch presentation {
-        case .couldNotSyncRetrying:
+        if presentation.isRetryControlEnabled {
+            Button(action: onRetry) {
+                Text("TRY AGAIN")
+                    .font(.montserratBold(size: 12))
+                    .foregroundStyle(Color.ascendAccent)
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 8)
+                    // `.frame(minHeight:)` sizes the view, not the hit area, so the tappable
+                    // region would otherwise stay the label's bounds.
+                    .contentShape(.rect)
+            }
+            .accessibilityLabel("Try again")
+        } else if presentation == .couldNotSyncOffline {
+            Text("OFFLINE")
+                .font(.montserratBold(size: 12))
+                .foregroundStyle(Color.customGray)
+                .padding(.vertical, 10)
+                .padding(.horizontal, 8)
+                .accessibilityLabel("Offline")
+        } else {
             HStack(spacing: 6) {
                 // The one animation on this row, and Reduce Motion drops it. Everything else is a
                 // hard cut in both motion modes - animating a warning's departure emphasises the
@@ -61,27 +82,6 @@ struct WorkoutSyncStatusRow: View {
             .padding(.vertical, 10)
             .padding(.horizontal, 8)
             .accessibilityLabel("Syncing")
-
-        case .couldNotSyncOffline:
-            Text("OFFLINE")
-                .font(.montserratBold(size: 12))
-                .foregroundStyle(Color.customGray)
-                .padding(.vertical, 10)
-                .padding(.horizontal, 8)
-                .accessibilityLabel("Offline")
-
-        default:
-            Button(action: onRetry) {
-                Text("TRY AGAIN")
-                    .font(.montserratBold(size: 12))
-                    .foregroundStyle(Color.ascendAccent)
-                    .padding(.vertical, 10)
-                    .padding(.horizontal, 8)
-                    // `.frame(minHeight:)` sizes the view, not the hit area, so the tappable
-                    // region would otherwise stay the label's bounds.
-                    .contentShape(.rect)
-            }
-            .accessibilityLabel("Try again")
         }
     }
 

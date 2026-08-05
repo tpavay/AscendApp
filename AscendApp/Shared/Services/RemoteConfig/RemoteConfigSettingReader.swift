@@ -14,10 +14,17 @@ protocol RemoteConfigSettingReading: Sendable {
 
 struct FirebaseRemoteConfigSettingReader: RemoteConfigSettingReading {
     func integer(_ setting: RemoteConfigSetting) -> Int {
-        let value = RemoteConfig.remoteConfig()[setting.rawValue].numberValue.intValue
-        // A device that has never fetched reads the shipped default, and the shipped default
-        // equals the template's baseline. That equality is load-bearing: if they differed, the
-        // first successful fetch would look like an operator bump and re-open the whole fleet.
-        return value
+        let configValue = RemoteConfig.remoteConfig().configValue(forKey: setting.rawValue)
+
+        // "The server said N" and "nobody has answered yet" are different answers, and only
+        // `source == .remote` tells them apart - the same thing
+        // `FirebaseRemoteFeatureFlagSource.remoteSourcedValues()` requires. The app deliberately
+        // calls no `setDefaults`, so an unfetched key resolves to 0 through `numberValue`; reading
+        // that as an answer would make every launch record `build|0` before the fetch and
+        // `build|N` after it, flapping the recovery basis and spending the one re-open attempt on
+        // essentially every launch.
+        guard configValue.source == .remote else { return setting.shippedDefault }
+
+        return configValue.numberValue.intValue
     }
 }

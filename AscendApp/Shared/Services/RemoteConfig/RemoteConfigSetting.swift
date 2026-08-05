@@ -23,22 +23,17 @@ enum RemoteConfigSetting: String, CaseIterable, Sendable {
     /// would re-open on the way back down for no stated reason.
     case workoutSyncRecoveryEpoch = "workout_sync_recovery_epoch"
 
-    /// What the app falls back to when Remote Config has never been fetched.
+    /// What the app falls back to when Remote Config has never answered for this key.
     ///
     /// Zero, and it matters that it is: a device that has not fetched must look identical to one
     /// that fetched the baseline, or the first successful fetch would read as a bump and re-open
-    /// the fleet for no reason.
+    /// the fleet for no reason. `FirebaseRemoteConfigSettingReader` returns this whenever the
+    /// resolved value's source is not `.remote`, so an unfetched key can never be mistaken for an
+    /// operator's answer.
     var shippedDefault: Int {
         switch self {
         case .workoutSyncRecoveryEpoch:
             return 0
-        }
-    }
-
-    var summary: String {
-        switch self {
-        case .workoutSyncRecoveryEpoch:
-            return "Bump to give every stopped workout one more automatic sync attempt."
         }
     }
 }

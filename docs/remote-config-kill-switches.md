@@ -180,7 +180,9 @@ Every flag resolved to its `shippedDefault`, the app behaved completely normally
 The comparison nobody made was against the live backend, which was empty in dev, staging and production.
 
 `scripts/ci/assert-remote-config-published.mjs <dev|staging|prod>` closes that.
-It reads the live template and fails the staging and production archives when a flag the build reads is unreachable on the backend it will talk to.
+It reads the live template and fails the staging and production archives when a parameter the build reads is unreachable on the backend it will talk to.
+"A parameter the build reads" is both enums - `RemoteFeatureFlag.swift` and `RemoteConfigSetting.swift`.
+An operator setting that exists only in the checked-in template is worse than no lever, because it is believed in: `workout_sync_recovery_epoch` is what unsticks a fleet after a rules fix, and it is reached for mid-incident.
 
 Unreachable is wider than absent.
 The condition that matters is `RemoteConfigValue.source == .remote`, the single thing `FirebaseRemoteFeatureFlagSource.remoteSourcedValues()` requires before a value counts, so the preflight refuses all of these:
@@ -188,7 +190,7 @@ The condition that matters is `RemoteConfigValue.source == .remote`, the single 
 - The parameter is **missing** from the live template.
 - The parameter is set to **use in-app default**, so the backend deliberately supplies no value. The key is right there in the console and the flag still resolves from `shippedDefault` - the most deceptive shape of the lot.
 - The parameter carries **only conditional values** and no default, so any client matching no condition receives nothing.
-- The parameter is not declared **`BOOLEAN`**. Note carefully what this one is and is not: the client reads `stringValue` and never inspects `valueType`, so a `STRING` parameter holding `"false"` *is* honoured as a live kill switch. Do not read a type warning during an incident as "the switch is inert" - it may well be doing exactly what you asked. The declaration is refused because the template requires `BOOLEAN` and because the console type is what stops a value the client's strict parser would drop from ever being saved against a switch. Blocking a config that happens to work is the safe direction here; passing one that does not is #318.
+- The parameter is not declared at **its own type** - `BOOLEAN` for a kill switch, and whatever `SETTING_PARAMETERS` declares for a setting (`workout_sync_recovery_epoch` is `NUMBER`). Note carefully what this one is and is not: the client reads `stringValue` and never inspects `valueType`, so a `STRING` parameter holding `"false"` *is* honoured as a live kill switch. Do not read a type warning during an incident as "the switch is inert" - it may well be doing exactly what you asked. The declaration is refused because the template requires that type and because the console type is what stops a value the client's strict parser would drop from ever being saved against a switch. Blocking a config that happens to work is the safe direction here; passing one that does not is #318.
 
 Two things it deliberately does **not** do:
 
@@ -198,7 +200,7 @@ Two things it deliberately does **not** do:
 ### What a pull request is told
 
 The archive preflight cannot run on a pull request: a flag added there is not published anywhere yet, by definition, and never should be.
-So `scripts/ci/report-kill-switch-changes.mjs` runs instead, and asserts the half that needs no backend - `RemoteFeatureFlag.swift` and `remoteconfig.template.json` declare the same keys, and each parameter is a `BOOLEAN` that ships on with a description.
+So `scripts/ci/report-kill-switch-changes.mjs` runs instead, and asserts the half that needs no backend - `RemoteFeatureFlag.swift`, `RemoteConfigSetting.swift` and `remoteconfig.template.json` declare the same keys, and each parameter ships with a description in its healthy shape: a `BOOLEAN` that is on for a switch, the declared type at the declared baseline for a setting.
 
 The rest is reporting.
 A pull request that adds a switch says so in its checks, naming the switch, where it lands automatically, and that production does not.
