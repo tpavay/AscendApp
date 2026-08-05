@@ -725,13 +725,29 @@ private struct PostAuthLocationScreen: View {
     }
 }
 
-private struct PostAuthNotificationScreen: View {
+struct PostAuthNotificationScreen: View {
     let stage: PostAuthOnboardingStage
     let onBack: () -> Void
     let onContinue: () -> Void
 
     @State private var isRequesting = false
-    @State private var emailOptIn = OnboardingEmailOptInViewModel()
+    @State private var emailOptIn: OnboardingEmailOptInViewModel
+
+    /// `emailOptIn` is defaulted to the view model this screen has always built,
+    /// so every production call site is unchanged. Only tests pass one, to watch
+    /// what Skip actually writes when the real control is pressed.
+    @MainActor
+    init(
+        stage: PostAuthOnboardingStage,
+        onBack: @escaping () -> Void,
+        onContinue: @escaping () -> Void,
+        emailOptIn: OnboardingEmailOptInViewModel = OnboardingEmailOptInViewModel()
+    ) {
+        self.stage = stage
+        self.onBack = onBack
+        self.onContinue = onContinue
+        _emailOptIn = State(initialValue: emailOptIn)
+    }
 
     var body: some View {
         GeometryReader { geometry in
