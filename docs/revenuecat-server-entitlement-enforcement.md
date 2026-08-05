@@ -60,6 +60,26 @@ Staging must allow `ascend_staging_yearly` and `ascend_staging_monthly`.
 Production must allow `ascend_yearly` and `ascend_monthly`.
 Add a promotional product identifier only when the App Review subscriber response proves its exact value.
 
+Create `MIXPANEL_SERVER_CONFIG` as a Firebase Functions secret separately in staging and production.
+Enter it at the secret prompt so no value reaches shell history, logs, Git, chat, or the iOS bundle.
+
+The JSON shape is:
+
+```json
+{
+  "serviceAccountUsername": "<environment Mixpanel service-account username>",
+  "serviceAccountPassword": "<environment Mixpanel service-account password>"
+}
+```
+
+Create a separate project-scoped Mixpanel service account for Staging project `4051102` and Production project `4051100`.
+Grant only the Mixpanel project role required by `/import`; Mixpanel currently requires an Admin service account for that endpoint, so keep each account scoped to its one project and out of organization-wide membership.
+The server derives the destination from its deployed Firebase project and refuses every project outside this fixed map: Development `ascend-f2e4f` -> `4032860`, Staging `ascend-staging-fa7d5` -> `4051102`, Production `ascend-prod-9c8f2` -> `4051100`.
+Development has no RevenueCat webhook endpoint today, so its closed-app lifecycle stream remains intentionally empty unless that integration is added later.
+
+Set both `REVENUECAT_SERVER_CONFIG` and `MIXPANEL_SERVER_CONFIG` before deploying Functions.
+The webhook binds only the RevenueCat secret, while the independent outbox worker binds only the Mixpanel secret, so a Mixpanel outage or credential failure can never decide RevenueCat's webhook response.
+
 Before the first Storage rules deployment in each Firebase project, enable cross-service Cloud Storage Security Rules access to Cloud Firestore.
 Firebase prompts for this permission when the rules are saved from the Firebase CLI or Firebase console.
 Verify in Google Cloud IAM, with Google-provided grants visible, that the Firebase Storage service account ending in `@gcp-sa-firebasestorage.iam.gserviceaccount.com` holds the `Firebase Rules Firestore Service Agent` role.
@@ -110,18 +130,26 @@ It creates `users/{uid}/entitlements/app_access` only while the configured `app_
 It deletes that active grant when current RevenueCat state is inactive.
 7. A projection only replaces one derived from an older RevenueCat `request_date_ms`.
 The triggering event's order therefore cannot move subscriber state backward.
-8. The event is marked complete in the same transaction as the projection changes.
+8. For each verified Firebase uid and reportable subscription transition, the event-completion transaction creates one `_revenuecat_analytics_outbox` row whose stable idempotency key is derived from the RevenueCat event ID and uid.
+The row contains only the normalized lifecycle event, server environment envelope, product and entitlement classification, event time, and delivery state.
+It never contains the raw webhook, receipt, transaction ID, API credential, authorization value, HMAC secret, or vendor response.
+9. The event is marked complete in that same transaction as the projection changes and outbox writes.
 A duplicate completed event returns HTTP 200 without a second RevenueCat lookup.
-9. `expireRevenueCatEntitlements` removes a still-present active grant within five minutes after its last verified expiration or grace-period timestamp.
+10. `processRevenueCatAnalyticsOutbox` independently retries due rows into the Mixpanel project mapped from the deployed Firebase project.
+It uses Mixpanel `/import` with `strict=1` and a stable `$insert_id`, so a provider retry or a crash after Mixpanel accepts the event cannot surface a second event.
+Only a confirmed import marks the row delivered; transient network, rate-limit, authentication, and provider failures return it to the queue with bounded exponential backoff.
+11. `expireRevenueCatEntitlements` removes a still-present active grant within five minutes after its last verified expiration or grace-period timestamp.
 This fails closed if an expiration webhook is delayed and a concurrent renewal wins through Firestore transaction retry.
 The sweep pages past documents from any other `entitlements` subcollection until it has spent its budget on real `users/{uid}/entitlements/app_access` grants, because the query is ordered by `accessUntil` and a single foreign document with an ancient timestamp would otherwise sit at the head of a fixed window and starve every real expiry behind it.
 
 Webhook failures return a non-2xx response so RevenueCat retries them.
 RevenueCat currently documents five retries after 5, 10, 20, 40, and 80 minutes.
 The processor is safe after a crash because a failed attempt is reclaimable and an abandoned processing lease expires before RevenueCat's first retry.
+Mixpanel delivery failures do not fail or delay the webhook response because delivery starts only from the separately scheduled outbox worker.
 
-No raw webhook body, transaction identifier, API key, Authorization value, HMAC secret, Firebase UID, or subscriber response is stored or logged.
-The event ledger stores only event metadata, a payload digest, processing state, and counts.
+No raw webhook body, transaction identifier, API key, Authorization value, HMAC secret, or subscriber response is stored or logged.
+The event ledger stores only event metadata, a payload digest, processing state, and counts, with no Firebase UID.
+The analytics outbox stores the affected Firebase UID only as the Mixpanel `distinct_id`; account deletion removes every outbox row that still carries it.
 
 Each ledger entry carries `retainUntil`, an explicit thirty-day future timestamp, and a Firestore TTL field override deletes the entry when it passes.
 The dedupe evidence only has to outlive RevenueCat's roughly 155-minute retry ladder, so thirty days is generous while still bounding the collection.
@@ -188,7 +216,7 @@ Each paid Firestore request costs one rules document access, and each paid Stora
 
 No new SDK, device data source, or App Privacy category is introduced.
 `PrivacyInfo.xcprivacy` already declares linked Purchase History and linked User ID for app functionality, and the published privacy policy already describes subscription status, entitlements, and purchase history processed through Apple and RevenueCat.
-The server stores a minimal entitlement projection and no raw purchase receipt or transaction identifier, so no privacy manifest or policy change is required for this implementation.
+The server stores a minimal entitlement projection and bounded analytics outbox, with no raw purchase receipt or transaction identifier, so no privacy manifest or policy change is required for this implementation.
 
 ## UNKNOWN
 

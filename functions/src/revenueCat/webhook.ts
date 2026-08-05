@@ -4,6 +4,9 @@ import {
   authenticateRevenueCatWebhook,
 } from "./authentication";
 import {
+  analyticsEnvironmentForFirebaseProject,
+} from "./analyticsEnvironment";
+import {
   getRevenueCatServerConfig,
   revenueCatServerConfig,
 } from "./config";
@@ -46,8 +49,17 @@ export async function handleRevenueCatWebhook(
   }
 
   let config;
+  let analyticsEnvironment;
   try {
     config = getRevenueCatServerConfig();
+    const firebaseProjectId = admin.app().options.projectId;
+    if (!firebaseProjectId) {
+      throw new Error("Firebase project is unavailable");
+    }
+    analyticsEnvironment = analyticsEnvironmentForFirebaseProject(
+      firebaseProjectId,
+      process.env.K_REVISION ?? "unknown"
+    );
   } catch {
     console.error("RevenueCat webhook server configuration is invalid");
     response.status(500).json({status: "server_configuration_error"});
@@ -108,6 +120,7 @@ export async function handleRevenueCatWebhook(
         subscriberClient: new HttpRevenueCatSubscriberClient(config.apiKey),
         userVerifier: new AdminFirebaseUserVerifier(),
         config,
+        analyticsEnvironment,
         now: () => new Date(),
       }
     );

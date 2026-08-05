@@ -1640,5 +1640,9 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /_revenuecat_analytics_outbox/{eventId} {
+      allow read, write: if false;
+    }
+
   }
 }

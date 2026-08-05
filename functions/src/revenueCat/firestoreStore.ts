@@ -1,6 +1,9 @@
 import * as admin from "firebase-admin";
 import {shouldReplaceProjection} from "./projectionOrdering";
 import type {
+  LifecycleAnalyticsEvent,
+} from "./analyticsTypes";
+import type {
   AppAccessProjection,
   RevenueCatEntitlementStore,
   RevenueCatWebhookEvent,
@@ -8,6 +11,8 @@ import type {
 } from "./types";
 
 const EVENT_COLLECTION = "_revenuecat_webhook_events";
+export const ANALYTICS_OUTBOX_COLLECTION =
+  "_revenuecat_analytics_outbox";
 const PROCESSING_LEASE_MS = 2 * 60 * 1000;
 
 // RevenueCat currently retries a failed delivery five times over roughly 155
@@ -105,6 +110,7 @@ implements RevenueCatEntitlementStore {
     event: RevenueCatWebhookEvent,
     claimDigest: string,
     projections: AppAccessProjection[],
+    analyticsEvents: LifecycleAnalyticsEvent[],
     now: Date
   ): Promise<void> {
     const eventRef = this.firestore.collection(EVENT_COLLECTION).doc(event.id);
@@ -113,6 +119,10 @@ implements RevenueCatEntitlementStore {
     );
     const statusRefs = projections.map(
       (projection) => this.statusRef(projection)
+    );
+    const outboxRefs = analyticsEvents.map((analyticsEvent) =>
+      this.firestore.collection(ANALYTICS_OUTBOX_COLLECTION)
+        .doc(analyticsEvent.insertId)
     );
 
     await this.firestore.runTransaction(async (transaction) => {
@@ -123,8 +133,11 @@ implements RevenueCatEntitlementStore {
         throw new Error("RevenueCat event claim was lost before completion");
       }
 
-      const existingStatuses = statusRefs.length > 0 ?
-        await transaction.getAll(...statusRefs) : [];
+      const allRefs = [...statusRefs, ...outboxRefs];
+      const existingDocuments = allRefs.length > 0 ?
+        await transaction.getAll(...allRefs) : [];
+      const existingStatuses = existingDocuments.slice(0, statusRefs.length);
+      const existingOutboxRows = existingDocuments.slice(statusRefs.length);
       projections.forEach((projection, index) => {
         if (!shouldReplaceProjection(
           existingStatuses[index]?.get("revenueCatRequestDateMs"),
@@ -141,6 +154,14 @@ implements RevenueCatEntitlementStore {
       });
 
       const nowTimestamp = admin.firestore.Timestamp.fromDate(now);
+      analyticsEvents.forEach((analyticsEvent, index) => {
+        if (!existingOutboxRows[index].exists) {
+          transaction.create(
+            outboxRefs[index],
+            serializeAnalyticsOutboxEvent(analyticsEvent, nowTimestamp)
+          );
+        }
+      });
       transaction.update(eventRef, {
         status: "completed",
         completedAt: nowTimestamp,
@@ -313,6 +334,24 @@ implements RevenueCatEntitlementStore {
       `users/${projection.uid}/entitlements/${projection.entitlementId}`
     );
   }
+}
+
+function serializeAnalyticsOutboxEvent(
+  event: LifecycleAnalyticsEvent,
+  now: admin.firestore.Timestamp
+): Record<string, unknown> {
+  return {
+    ...event,
+    status: "queued",
+    attemptCount: 0,
+    readyAt: now,
+    processingStartedAt: null,
+    claimId: null,
+    deliveredAt: null,
+    lastErrorCode: null,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 function isProjectedAccessUnchanged(

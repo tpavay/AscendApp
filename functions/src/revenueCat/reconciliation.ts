@@ -87,6 +87,14 @@ function reconciliationSourceEvent(
     eventTimestampMs: now.getTime(),
     appUserIds: [uid],
     identityOverflowCount: 0,
+    productId: null,
+    newProductId: null,
+    store: "unknown",
+    periodType: "unknown",
+    expirationAtMs: null,
+    gracePeriodExpirationAtMs: null,
+    isTrialConversion: false,
+    lifecycleReason: null,
   };
 }
 

@@ -4,6 +4,9 @@ import * as admin from "firebase-admin";
 import {buildRatingPromptEmailDedupeKey} from "./email/automation";
 import {buildEmailJobId} from "./email/queue";
 import {PUBLIC_IDENTITY_STATE_DELETED} from "./publicIdentity";
+import {
+  ANALYTICS_OUTBOX_COLLECTION,
+} from "./revenueCat/firestoreStore";
 
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
 
@@ -32,6 +35,7 @@ export interface DeletedUserCleanupPort {
   deleteModerationReports(userId: string): Promise<number>;
   deleteIncomingBlockDocuments(userId: string): Promise<number>;
   deleteLifecycleEmailJobs(userId: string): Promise<number>;
+  deleteRevenueCatAnalyticsOutbox(userId: string): Promise<number>;
   deleteRateLimitDocument(userId: string): Promise<void>;
 }
 
@@ -47,6 +51,7 @@ export interface CleanupSummary {
   deletedModerationReports: number;
   deletedIncomingBlockDocuments: number;
   deletedLifecycleEmailJobs: number;
+  deletedRevenueCatAnalyticsOutbox: number;
   failures: string[];
 }
 
@@ -67,7 +72,8 @@ export interface CleanupSummary {
  * way, so each such record needs its own step here: notification_devices,
  * leaderboard_stats, identity propagation checkpoints, replay entries,
  * userRateLimits, the replay finisher statuses, feedback, moderation_reports,
- * incoming block documents, and the uid-keyed email_jobs.
+ * incoming block documents, the uid-keyed email_jobs, and the RevenueCat
+ * analytics outbox rows that carry the uid as Mixpanel distinct_id.
  * Feedback and moderation reports are
  * hard-deleted rather than anonymized because their free-text or safety context
  * can identify the user after their account is gone.
@@ -181,6 +187,14 @@ export async function cleanupDeletedUser(
     failures.push(`email_jobs: ${errorMessage(error)}`);
   }
 
+  let deletedRevenueCatAnalyticsOutbox = 0;
+  try {
+    deletedRevenueCatAnalyticsOutbox =
+      await port.deleteRevenueCatAnalyticsOutbox(userId);
+  } catch (error) {
+    failures.push(`revenuecat_analytics_outbox: ${errorMessage(error)}`);
+  }
+
   try {
     await port.deleteRateLimitDocument(userId);
   } catch (error) {
@@ -198,6 +212,7 @@ export async function cleanupDeletedUser(
     deletedLifecycleEmailJobs,
     deletedNotificationDevices,
     deletedReplayFinisherStatuses,
+    deletedRevenueCatAnalyticsOutbox,
     deletedSubcollections,
     failures,
   };
@@ -452,6 +467,18 @@ export function makeAdminPort(
       return deleted;
     },
 
+    async deleteRevenueCatAnalyticsOutbox(userId) {
+      const snapshot = await firestore
+        .collection(ANALYTICS_OUTBOX_COLLECTION)
+        .where("distinctId", "==", userId)
+        .get();
+
+      for (const document of snapshot.docs) {
+        await document.ref.delete();
+      }
+      return snapshot.size;
+    },
+
     async deleteRateLimitDocument(userId) {
       await firestore.collection("userRateLimits").doc(userId).delete();
     },
@@ -493,6 +520,8 @@ export const cleanupDeletedUserData = onDocumentDeleted(
       deletedLifecycleEmailJobs: summary.deletedLifecycleEmailJobs,
       deletedNotificationDevices: summary.deletedNotificationDevices,
       deletedReplayFinisherStatuses: summary.deletedReplayFinisherStatuses,
+      deletedRevenueCatAnalyticsOutbox:
+        summary.deletedRevenueCatAnalyticsOutbox,
       deletedSubcollections: summary.deletedSubcollections,
       userId,
     });

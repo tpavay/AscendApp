@@ -60,7 +60,7 @@ Complete every item before starting the production workflow.
    No deploy workflow publishes it to production; dev and staging receive new switches automatically, production stays a captain-only publish.
    See "Remote Config kill switches" below for the command, and `npm run remoteconfig:drift` for what is live in all three right now.
    The production `build-ios` job now refuses to archive while any flag the build reads is unreachable in `ascend-prod-9c8f2`, so a missed publish stops the release rather than shipping a decorative lever.
-10. Complete every production captain action for server-side entitlement enforcement before this rollout: the `REVENUECAT_SERVER_CONFIG` Functions secret, the production RevenueCat webhook destination and its credentials, the App Store Server Notification URLs, the cross-service Storage-to-Firestore IAM role, and a reconciled grant for every account that already has paid access.
+10. Complete every production captain action for server-side entitlement enforcement before this rollout: the `REVENUECAT_SERVER_CONFIG` Functions secret, the project-scoped `MIXPANEL_SERVER_CONFIG` service-account secret, the production RevenueCat webhook destination and its credentials, the App Store Server Notification URLs, the cross-service Storage-to-Firestore IAM role, and a reconciled grant for every account that already has paid access.
     Firestore and Storage rules deny paid data to a signed-in account with no server-owned grant, so a missed step here is a subscriber lockout rather than a degraded feature.
     `docs/revenuecat-server-entitlement-enforcement.md` owns the full action list; do not restate it here.
 

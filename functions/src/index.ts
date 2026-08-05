@@ -33,6 +33,9 @@ export {
   updatePushNotificationPreferences,
 } from "./pushNotifications";
 export {revenueCatWebhook} from "./revenueCat/webhook";
+export {
+  processRevenueCatAnalyticsOutbox,
+} from "./revenueCat/analyticsExporter";
 export {reconcileAppAccess} from "./revenueCat/reconciliation";
 export {
   expireRevenueCatEntitlements,
