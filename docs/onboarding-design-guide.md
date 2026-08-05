@@ -604,7 +604,11 @@ Copy:
 
 Visual:
 - First Ascent badge plus clock/drop card.
-- This is a single ask. Do not bundle other permission requests.
+- Push is the only permission asked here.
+  Do not bundle other permission requests.
+- A pre-ticked `Email me when climbs drop.` checkbox sits between the copy block and the CTA stack.
+  It is an independent answer: the CTA never ticks it, unticking it never suppresses the iOS prompt, and either button saves whatever state it is in.
+  It is the `onboarding` source of the recorded email consent - see `functions/EMAIL_SETUP.md` for the consent record it writes.
 
 ### 24. Paywall
 

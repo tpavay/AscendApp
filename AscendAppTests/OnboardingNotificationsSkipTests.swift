@@ -35,14 +35,13 @@ struct OnboardingNotificationsSkipTests {
 
         try await hostNotificationsStep(emailOptIn: optIn) { root in
             #expect(optIn.isSelected, "The box ships ticked")
+            try photograph(root, named: "onboarding-skip-box-ticked.png")
             try activateElement(labelled: "Skip", in: root)
         }
 
-        #expect(
-            await service.awaitDecisions() == [
-                StubEmailConsentDecision(isGranted: true, source: .onboarding)
-            ]
-        )
+        let decisions = await service.awaitDecisions()
+        #expect(decisions == [StubEmailConsentDecision(isGranted: true, source: .onboarding)])
+        report("box left ticked, Skip pressed", recorded: decisions)
 
         // Skip declines push; it must not be a second way to ask for it.
         let statusAfter = await ClimbDropNotificationPermissionController.authorizationStatus()
@@ -60,14 +59,13 @@ struct OnboardingNotificationsSkipTests {
         try await hostNotificationsStep(emailOptIn: optIn) { root in
             try activateElement(labelled: "Email me when climbs drop.", in: root)
             #expect(optIn.isSelected == false)
+            try photograph(root, named: "onboarding-skip-box-unticked.png")
             try activateElement(labelled: "Skip", in: root)
         }
 
-        #expect(
-            await service.awaitDecisions() == [
-                StubEmailConsentDecision(isGranted: false, source: .onboarding)
-            ]
-        )
+        let decisions = await service.awaitDecisions()
+        #expect(decisions == [StubEmailConsentDecision(isGranted: false, source: .onboarding)])
+        report("box unticked by the climber, Skip pressed", recorded: decisions)
     }
 
     // MARK: - Hosting
@@ -104,6 +102,7 @@ struct OnboardingNotificationsSkipTests {
         controller.view.frame = CGRect(origin: .zero, size: size)
 
         let window = UIWindow(frame: controller.view.frame)
+        window.overrideUserInterfaceStyle = .dark
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer { window.isHidden = true }
@@ -121,6 +120,38 @@ struct OnboardingNotificationsSkipTests {
         for _ in 0..<8 {
             try await Task.sleep(for: .milliseconds(50))
         }
+    }
+
+    /// Photographs the step exactly as it stands when Skip is about to be
+    /// pressed, so which way the box was pointing at the moment of the press is
+    /// visible rather than only asserted. Images land in `ASCEND_EVIDENCE_DIR`
+    /// when it is set and in the test host's temporary directory otherwise.
+    /// Nothing reads them back - these are evidence, not golden images.
+    private func photograph(_ view: UIView, named name: String) throws {
+        let format = UIGraphicsImageRendererFormat.preferred()
+        format.scale = 3
+        let image = UIGraphicsImageRenderer(size: view.bounds.size, format: format).image { _ in
+            view.drawHierarchy(in: view.bounds, afterScreenUpdates: true)
+        }
+        let png = try #require(image.pngData(), "UIImage produced no PNG data")
+
+        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
+            ?? NSTemporaryDirectory()
+        let url = URL(filePath: directory).appending(path: name)
+        try png.write(to: url)
+
+        #expect(png.count > 5_000)
+        print("Rendered onboarding Skip evidence: \(url.path())")
+    }
+
+    /// Prints what the press actually persisted, so the recorded answer reads
+    /// back in the run transcript next to the photograph of the screen it came
+    /// from.
+    private func report(_ situation: String, recorded decisions: [StubEmailConsentDecision]) {
+        let written = decisions
+            .map { "lifecycleEmailsEnabled=\($0.isGranted) source=\($0.source.rawValue)" }
+            .joined(separator: ", ")
+        print("Onboarding Skip - \(situation) -> wrote [\(written.isEmpty ? "nothing" : written)]")
     }
 
     /// Activates the control a climber would tap, through the same

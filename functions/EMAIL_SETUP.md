@@ -70,7 +70,7 @@ npx -y firebase-tools@15.22.1 deploy --only firestore:rules,firestore:indexes,fu
 - Links point at `/api/unsubscribe`, a Hosting rewrite to the `unsubscribeFromEmails` function, and carry an HMAC token signed with `unsubscribeSigningKey`. Tokens do not expire, so links outlive the message.
 - `GET` renders a confirmation page and does not act; `POST` performs the opt-out and sets `lifecycleEmailsEnabled: false`. See CLAUDE.md, Firebase Hosting, for why that split is load-bearing.
 - The write merges into `users/{uid}/communication_preferences/current`, so the push notification preference survives.
-- The in-app switch on the Email screen, reached from Settings, Notifications, writes the same preference through `recordLifecycleEvent`.
+- The app writes the same preference through `recordLifecycleEvent` from two places: the switch on the Email screen, reached from Settings, Notifications, and the opt-in checkbox on the onboarding notifications step.
 - Every write of `lifecycleEmailsEnabled` carries `lifecycleEmailsSource` and is stamped with a server-derived `lifecycleEmailsDecidedAt`. That trio is the consent record beehiiv can ask to see: the answer, where it was given, and when. A write that carries the flag without a source is rejected, so a decision can never inherit the source of the one before it. The app may only claim `onboarding` or `settings`; `email_link` is written server-side by the unsubscribe endpoint and no client can claim it.
 
 ## Lifecycle email automation
