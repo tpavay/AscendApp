@@ -974,7 +974,7 @@ struct WorkoutDetailView: View {
             // for the pass to reach this workout.
             syncPresentation = .couldNotSyncRetrying
 
-            await WorkoutSyncCoordinator.shared.retryNow(
+            let wasAttempted = await WorkoutSyncCoordinator.shared.retryNow(
                 workoutId: workout.id,
                 modelContext: modelContext,
                 currentUserId: userId
@@ -984,7 +984,15 @@ struct WorkoutDetailView: View {
             // The acknowledgement that a retry ran and failed is the haptic plus the control
             // returning from SYNCING to TRY AGAIN. The row deliberately does not change, so it can
             // never read as a fresh problem or as success.
-            HapticsManager.shared.trigger(workout.isSyncedToCloud ? .success : .warning)
+            //
+            // A tap no pass ever read - backups killed, the pass cancelled, another account's
+            // climb - gets no failure haptic. Nothing was refused, so saying so would be a lie,
+            // and the control coming back live is the honest answer on its own.
+            if workout.isSyncedToCloud {
+                HapticsManager.shared.trigger(.success)
+            } else if wasAttempted {
+                HapticsManager.shared.trigger(.warning)
+            }
         }
     }
 

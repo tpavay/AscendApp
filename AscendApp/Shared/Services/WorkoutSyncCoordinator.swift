@@ -1,41 +1,53 @@
 import Foundation
 import FirebaseStorage
+import Observation
 import SwiftData
 
 @MainActor
+@Observable
 final class WorkoutSyncCoordinator {
-    static let shared = WorkoutSyncCoordinator()
+    @ObservationIgnored static let shared = WorkoutSyncCoordinator()
 
-    private let remoteRepository: any WorkoutRemoteRepositoryProtocol
-    private let heartRateStorageRepository: any WorkoutHeartRateStorageRepositoryProtocol
-    private let featureFlags: RemoteFeatureFlagStore
-    private let operationTimeoutSeconds: Double
-    private let connectivityService: any WorkoutSyncConnectivityProviding
-    private let settingReader: any RemoteConfigSettingReading
-    private let userDefaults: UserDefaults
-    private let buildIdentity: String
-    private let now: () -> Date
-    private var isProcessingPendingWorkouts = false
-    private var shouldProcessPendingWorkoutsAgain = false
+    @ObservationIgnored private let remoteRepository: any WorkoutRemoteRepositoryProtocol
+    @ObservationIgnored private let heartRateStorageRepository: any WorkoutHeartRateStorageRepositoryProtocol
+    @ObservationIgnored private let featureFlags: RemoteFeatureFlagStore
+    @ObservationIgnored private let operationTimeoutSeconds: Double
+    @ObservationIgnored private let connectivityService: any WorkoutSyncConnectivityProviding
+    @ObservationIgnored private let settingReader: any RemoteConfigSettingReading
+    @ObservationIgnored private let userDefaults: UserDefaults
+    @ObservationIgnored private let buildIdentity: String
+    @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private var isProcessingPendingWorkouts = false
+    @ObservationIgnored private var shouldProcessPendingWorkoutsAgain = false
+
+    /// Bumped once when a pass finishes, and never per workout.
+    ///
+    /// The one observable thing here, so a surface can re-derive what it shows without polling and
+    /// without watching the workout store. A pass saves once per workout outcome, so invalidating a
+    /// screen on the store's own churn costs one full recomputation per synced climb - and the
+    /// first sign-in restore, when the backlog equals the climber's whole history, is exactly when
+    /// that is worst. Every other stored property here is deliberately unobserved: they change
+    /// inside the pass, and nothing renders from them directly.
+    private(set) var completedPassCount = 0
 
     /// Callers waiting for the pass that is already running to finish.
     ///
     /// Only `retryNow` waits. `processPendingWorkouts` keeps its non-blocking coalescing, because
     /// the sync path re-enters itself - a pass that awaited its own successor would deadlock.
-    private var passCompletionWaiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored private var passCompletionWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// Workouts the climber has personally asked to sync, and the ones currently in flight.
     ///
     /// Both live here rather than in a view's `@State` because a tab switch or a navigation would
     /// otherwise discard them while the operation kept running - the surface would forget it had
     /// been asked, and the control would unlock under a request that was still going.
-    private var manuallyRequestedWorkoutIds: Set<UUID> = []
-    private(set) var inFlightWorkoutIds: Set<UUID> = []
+    @ObservationIgnored private var manuallyRequestedWorkoutIds: Set<UUID> = []
+    @ObservationIgnored private(set) var inFlightWorkoutIds: Set<UUID> = []
 
     /// Workouts whose climber has seen the warning, so the transient `Synced` confirmation is only
     /// ever shown to someone who was told there was a problem. In-memory on purpose: losing it on
     /// relaunch costs a confirmation, never a warning.
-    private(set) var warnedWorkoutIds: Set<UUID> = []
+    @ObservationIgnored private(set) var warnedWorkoutIds: Set<UUID> = []
 
     init(
         remoteRepository: any WorkoutRemoteRepositoryProtocol = WorkoutRemoteRepository.shared,
@@ -132,12 +144,23 @@ final class WorkoutSyncCoordinator {
     /// the request on the early return dropped it, and the surface still reported a failure for an
     /// attempt that never ran. The flag is now consumed by the pass that actually reads it, and
     /// this waits for that pass rather than answering before it.
+    ///
+    /// Returns whether a pass actually read the request. Several paths reach the end of a pass
+    /// without ever looking: the cloud-backup kill switch short-circuits the pending query, a
+    /// cancelled pass abandons the rest of its queue, and a workout owned by another account is
+    /// never in this user's candidates. A caller must be able to tell those from a genuine refusal,
+    /// because telling a climber their climb failed to sync when nothing was attempted is a lie in
+    /// the one place the app has promised not to tell one. An unread request is dropped here rather
+    /// than left behind, so it cannot silently bypass the rejected guard and the due date on some
+    /// later automatic pass with no tap behind it.
+    @discardableResult
     func retryNow(
         workoutId: UUID,
         modelContext: ModelContext,
         currentUserId: String
-    ) async {
-        guard !inFlightWorkoutIds.contains(workoutId) else { return }
+    ) async -> Bool {
+        // Already being attempted. This tap adds nothing, and the running attempt owns the outcome.
+        guard !inFlightWorkoutIds.contains(workoutId) else { return false }
 
         manuallyRequestedWorkoutIds.insert(workoutId)
         warnedWorkoutIds.insert(workoutId)
@@ -146,6 +169,8 @@ final class WorkoutSyncCoordinator {
         while manuallyRequestedWorkoutIds.contains(workoutId), isProcessingPendingWorkouts {
             await awaitRunningPass()
         }
+
+        return manuallyRequestedWorkoutIds.remove(workoutId) == nil
     }
 
     /// What the surface renders, derived from whether the climb is in the cloud - never from what
@@ -206,6 +231,10 @@ final class WorkoutSyncCoordinator {
     ) throws -> Bool {
         guard !workouts.isEmpty else { return false }
 
+        // Both reads happen before anything is staged, and nothing below throws. The caller owns
+        // the save, and `WorkoutDetailView.deleteWorkout` abandons the delete on a throw from here
+        // without saving - so a throw after staging would leave orphan changes in the shared main
+        // context for the next unrelated save to commit.
         let existingDescriptor = FetchDescriptor<PendingWorkoutDeletion>()
         var existingKeys = try Set(
             modelContext.fetch(existingDescriptor).map {
@@ -215,8 +244,9 @@ final class WorkoutSyncCoordinator {
                 )
             }
         )
+        let outboxEntries = try modelContext.fetch(FetchDescriptor<WorkoutSyncOutboxEntry>())
 
-        var didInsertDeletion = false
+        var enqueuedWorkoutIds: Set<UUID> = []
 
         for workout in workouts {
             guard let ownerUserId = workout.ownerUserId ?? fallbackUserId else { continue }
@@ -233,15 +263,18 @@ final class WorkoutSyncCoordinator {
                     ownerUserId: ownerUserId
                 )
             )
-            // The workout is about to leave the store, and nothing else sweeps the outbox by
-            // workout id. An entry left behind would outlive its workout forever, be re-read by
-            // every recovery sweep, and - since entries are found by workout id - be inherited by
-            // any future record that reused it.
-            try deleteOutboxEntries(forWorkoutId: workout.id, modelContext: modelContext)
-            didInsertDeletion = true
+            enqueuedWorkoutIds.insert(workout.id)
         }
 
-        return didInsertDeletion
+        // The workouts are about to leave the store, and nothing else sweeps the outbox by workout
+        // id. An entry left behind would outlive its workout forever, be re-read by every recovery
+        // sweep, and - since entries are found by workout id - be inherited by any future record
+        // that reused it.
+        for entry in outboxEntries where enqueuedWorkoutIds.contains(entry.workoutId) {
+            modelContext.delete(entry)
+        }
+
+        return !enqueuedWorkoutIds.isEmpty
     }
 
     func processPendingWorkouts(
@@ -256,6 +289,7 @@ final class WorkoutSyncCoordinator {
         isProcessingPendingWorkouts = true
         defer {
             isProcessingPendingWorkouts = false
+            completedPassCount &+= 1
             let waiters = passCompletionWaiters
             passCompletionWaiters = []
             for waiter in waiters { waiter.resume() }
@@ -519,7 +553,8 @@ private extension WorkoutSyncCoordinator {
             // about the bytes now on offer. Starting the series over is what keeps an edited
             // workout from waiting out a stop it never earned - or, once stopped, from being
             // dropped from every automatic pass forever.
-            if let entry, !entry.isScheduledForPayloadRevision(at: workout.lastModifiedAt) {
+            if let entry,
+               !entry.isScheduledForPayloadRevision(at: workout.lastModifiedAt, now: now) {
                 entry.resetForNewPayloadRevision(now: now)
                 didResetSchedule = true
             }
@@ -587,9 +622,13 @@ private extension WorkoutSyncCoordinator {
     ) -> WorkoutSyncPresentation {
         // An entry belonging to another account, or armed against bytes the climber has since
         // changed, says nothing about the climb in front of them.
+        let now = self.now()
         let entry = entry.flatMap { candidate -> WorkoutSyncOutboxEntry? in
             guard candidate.ownerUserId == (workout.ownerUserId ?? "") else { return nil }
-            guard candidate.isScheduledForPayloadRevision(at: workout.lastModifiedAt) else {
+            guard candidate.isScheduledForPayloadRevision(
+                at: workout.lastModifiedAt,
+                now: now
+            ) else {
                 return nil
             }
             return candidate
@@ -603,7 +642,7 @@ private extension WorkoutSyncCoordinator {
         // through a different door, and it reads as success.
         let needsAttention = workout.remoteSyncStatus == .rejected ||
             warnedWorkoutIds.contains(workout.id) ||
-            (entry?.requiresAttention(now: now()) ?? false)
+            (entry?.requiresAttention(now: now) ?? false)
         guard needsAttention else { return .syncing }
 
         warnedWorkoutIds.insert(workout.id)

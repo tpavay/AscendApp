@@ -305,4 +305,83 @@ struct WorkoutSyncOutboxEntryTests {
         #expect(entry.refusalCount == 0)
         #expect(entry.isDueForAutomaticAttempt(now: edited))
     }
+
+    /// An edit that has genuinely happened is a new revision, and the series has to restart for it.
+    @Test
+    func anEditAfterTheLastAttemptIsANewRevision() {
+        let entry = WorkoutSyncOutboxEntry(workoutId: UUID(), ownerUserId: "user-123")
+        entry.recordFailure(category: .refused, now: start, randomFraction: 0)
+
+        let editedAt = start.addingTimeInterval(60)
+        let now = start.addingTimeInterval(120)
+
+        #expect(entry.isScheduledForPayloadRevision(at: editedAt, now: now) == false)
+        #expect(entry.isScheduledForPayloadRevision(at: start, now: now))
+    }
+
+    /// A clock moved back leaves the last edit stamped in the future, and a revision the clock
+    /// cannot justify must not read as evidence.
+    ///
+    /// `lastAttemptAt` can only ever be a moment that has already happened, so an unclamped
+    /// comparison would stay stale on every pass: the series resets, re-attempts immediately with
+    /// no backoff, and never stops - the unbounded loop the persisted schedule exists to close.
+    @Test
+    func aClockMovedBackCannotMakeAnEditRestartTheSeriesForever() {
+        let entry = WorkoutSyncOutboxEntry(workoutId: UUID(), ownerUserId: "user-123")
+        entry.recordFailure(category: .refused, now: start, randomFraction: 0)
+
+        let editedOnTheOldClock = start.addingTimeInterval(24 * 60 * 60)
+
+        for elapsed in [0.0, 60.0, 3_600.0] {
+            #expect(
+                entry.isScheduledForPayloadRevision(
+                    at: editedOnTheOldClock,
+                    now: start.addingTimeInterval(elapsed)
+                ),
+                "A revision the clock has not reached is deferred, never re-armed every pass."
+            )
+        }
+
+        // Once the clock catches up, the edit is evidence again and restarts the series exactly
+        // as an ordinary edit would.
+        #expect(
+            entry.isScheduledForPayloadRevision(
+                at: editedOnTheOldClock,
+                now: editedOnTheOldClock.addingTimeInterval(1)
+            ) == false
+        )
+    }
+
+    /// A clock pushed far forward does not change the answer: the last attempt still happened
+    /// before the edit, or it did not.
+    @Test
+    func aClockMovedForwardDoesNotDisturbThePayloadRevisionAnswer() {
+        let entry = WorkoutSyncOutboxEntry(workoutId: UUID(), ownerUserId: "user-123")
+        entry.recordFailure(category: .refused, now: start, randomFraction: 0)
+
+        let farFuture = start.addingTimeInterval(400 * 24 * 60 * 60)
+
+        #expect(entry.isScheduledForPayloadRevision(at: start, now: farFuture))
+        #expect(
+            entry.isScheduledForPayloadRevision(
+                at: start.addingTimeInterval(60),
+                now: farFuture
+            ) == false
+        )
+    }
+
+    /// Nothing has been offered yet, so there is no schedule to lose and nothing to be stale
+    /// against - including for a revision the clock has not reached.
+    @Test
+    func anEntryTheCloudHasNeverSeenIsNeverStale() {
+        let entry = WorkoutSyncOutboxEntry(workoutId: UUID(), ownerUserId: "user-123")
+
+        #expect(entry.isScheduledForPayloadRevision(at: start, now: start))
+        #expect(
+            entry.isScheduledForPayloadRevision(
+                at: start.addingTimeInterval(24 * 60 * 60),
+                now: start
+            )
+        )
+    }
 }

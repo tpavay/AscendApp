@@ -26,6 +26,7 @@ import {fileURLToPath} from "node:url";
 
 import {annotate, summarize} from "../lib/ci-annotations.mjs";
 import {
+  APP_PARAMETER_SOURCE_PATHS,
   flagParityProblems,
   killSwitchChanges,
   templateParameters,
@@ -34,10 +35,6 @@ import {
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const TEMPLATE_PATH = "remoteconfig.template.json";
-const FLAG_SOURCE_PATH = "AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift";
-// Settings live in their own enum, but the parity contract is the same: every parameter in the
-// template must be read by a case in one of these two files, or flipping it changes nothing.
-const SETTING_SOURCE_PATH = "AscendApp/Shared/Services/RemoteConfig/RemoteConfigSetting.swift";
 
 function parseArgs(argv) {
   const args = {baseRef: null};
@@ -81,10 +78,9 @@ function templateAtBase(baseRef) {
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const localTemplate = JSON.parse(readFileSync(resolve(REPO_ROOT, TEMPLATE_PATH), "utf8"));
-  const swiftSource = [
-    readFileSync(resolve(REPO_ROOT, FLAG_SOURCE_PATH), "utf8"),
-    readFileSync(resolve(REPO_ROOT, SETTING_SOURCE_PATH), "utf8"),
-  ].join("\n");
+  const swiftSource = APP_PARAMETER_SOURCE_PATHS.map((path) =>
+    readFileSync(resolve(REPO_ROOT, path), "utf8"),
+  ).join("\n");
 
   const problems = [
     ...flagParityProblems(localTemplate, swiftSource),
@@ -96,8 +92,8 @@ function main() {
       annotate("error", problem);
     }
     console.error(
-      `${problems.length} problem(s) between ${FLAG_SOURCE_PATH} and ${TEMPLATE_PATH}. ` +
-        "See docs/remote-config-kill-switches.md.",
+      `${problems.length} problem(s) between ${APP_PARAMETER_SOURCE_PATHS.join(", ")} and ` +
+        `${TEMPLATE_PATH}. See docs/remote-config-kill-switches.md.`,
     );
     process.exit(1);
   }

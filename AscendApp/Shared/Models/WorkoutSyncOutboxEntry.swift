@@ -141,7 +141,16 @@ final class WorkoutSyncOutboxEntry {
     /// workout neither retried nor visible.
     ///
     /// An entry the cloud has never seen has nothing to be stale against, and no schedule to lose.
-    func isScheduledForPayloadRevision(at revisionAt: Date) -> Bool {
+    ///
+    /// A revision the clock cannot yet justify is not evidence of anything. `lastAttemptAt` can
+    /// only ever be a moment that has already happened, so a `revisionAt` in the future would stay
+    /// ahead of it on every pass - resetting the series each time, and re-attempting immediately
+    /// with no backoff and no stop, which is the unbounded loop the persisted schedule exists to
+    /// make impossible. It is reachable from a device clock moved back after an edit. Treating it
+    /// as already armed defers the restart until the clock catches up, which is self-healing and
+    /// bounded, where trusting it is neither.
+    func isScheduledForPayloadRevision(at revisionAt: Date, now: Date) -> Bool {
+        guard revisionAt <= now else { return true }
         guard let lastAttemptAt else { return true }
         return revisionAt <= lastAttemptAt
     }

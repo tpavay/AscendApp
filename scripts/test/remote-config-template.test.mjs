@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  APP_PARAMETER_SOURCE_PATHS,
   appFlagKeys,
   findActiveKillSwitches,
   flagParityProblems,
@@ -23,12 +24,23 @@ function repositoryText(path) {
 }
 
 const localTemplate = repositoryJSON("remoteconfig.template.json");
-const flagSource = repositoryText(
-  "AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift",
+
+// Resolved through the shared constant rather than by repeating the paths, so a third enum added
+// there flows into every parity assertion below instead of being wired into some call sites and
+// missed by others - which is the drift the constant exists to prevent.
+const parameterSourceByFileName = new Map(
+  APP_PARAMETER_SOURCE_PATHS.map((path) => [path.split("/").pop(), repositoryText(path)]),
 );
-const settingSource = repositoryText(
-  "AscendApp/Shared/Services/RemoteConfig/RemoteConfigSetting.swift",
-);
+const everyParameterSource = [...parameterSourceByFileName.values()].join("\n");
+
+function parameterSource(fileName) {
+  const source = parameterSourceByFileName.get(fileName);
+  assert.ok(source, `${fileName} is not listed in APP_PARAMETER_SOURCE_PATHS`);
+  return source;
+}
+
+const flagSource = parameterSource("RemoteFeatureFlag.swift");
+const settingSource = parameterSource("RemoteConfigSetting.swift");
 
 test("every checked-in parameter ships in its healthy shape", () => {
   assert.ok(Object.keys(templateParameters(localTemplate)).length > 0);
@@ -147,12 +159,12 @@ test("the template carries exactly the parameters the app knows about", () => {
   // A parameter the app reads but the template does not carry is a lever that cannot be
   // pulled; a parameter the app does not read is a lever that moves nothing. Settings live in
   // their own enum but are held to the same parity contract.
-  const appKeys = appFlagKeys([flagSource, settingSource].join("\n"));
+  const appKeys = appFlagKeys(everyParameterSource);
 
   assert.ok(appKeys.length > 0, "could not parse any keys out of the RemoteConfig enums");
   assert.deepEqual(Object.keys(templateParameters(localTemplate)).sort(), appKeys);
   assert.deepEqual(
-    flagParityProblems(localTemplate, [flagSource, settingSource].join("\n")),
+    flagParityProblems(localTemplate, everyParameterSource),
     [],
   );
 });
@@ -277,7 +289,7 @@ test("a fully published live template raises nothing", () => {
 // worse than no lever, because it is believed in: `workout_sync_recovery_epoch` is the one thing
 // that can unstick a fleet after a rules fix, and it is reached for mid-incident.
 test("both RemoteConfig enums declare keys the published check covers", () => {
-  const appKeys = appFlagKeys([flagSource, settingSource].join("\n"));
+  const appKeys = appFlagKeys(everyParameterSource);
 
   assert.ok(appKeys.includes("workout_sync_recovery_epoch"));
   assert.ok(!appFlagKeys(flagSource).includes("workout_sync_recovery_epoch"));
@@ -296,7 +308,7 @@ test("a setting missing from the live backend fails the archive like a switch do
 
   const problems = unpublishedFlagProblems(
     live,
-    appFlagKeys([flagSource, settingSource].join("\n")),
+    appFlagKeys(everyParameterSource),
   );
 
   assert.equal(problems.length, 1);

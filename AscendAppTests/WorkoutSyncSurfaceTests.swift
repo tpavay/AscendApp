@@ -215,7 +215,12 @@ struct WorkoutSyncSurfaceTests {
         try modelContext.save()
 
         let repository = RefusingRepository()
-        let coordinator = makeCoordinator(remoteRepository: repository, now: start)
+        let clock = MutableClock(now: start)
+        let coordinator = makeCoordinator(
+            remoteRepository: repository,
+            now: start,
+            clock: clock
+        )
 
         await coordinator.processPendingWorkouts(modelContext: modelContext, currentUserId: "user-123")
 
@@ -229,17 +234,16 @@ struct WorkoutSyncSurfaceTests {
         await coordinator.processPendingWorkouts(modelContext: modelContext, currentUserId: "user-123")
         #expect(await repository.attemptCount() == 1, "A stopped series stays stopped on its own.")
 
-        workout.markPendingRemoteUpsert(
-            ownerUserId: "user-123",
-            modifiedAt: start.addingTimeInterval(60)
-        )
+        let editedAt = start.addingTimeInterval(60)
+        workout.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: editedAt)
         try modelContext.save()
+        clock.value = editedAt.addingTimeInterval(60)
 
         await coordinator.processPendingWorkouts(modelContext: modelContext, currentUserId: "user-123")
 
         #expect(await repository.attemptCount() == 2, "The edit is a new revision, so it is offered.")
         #expect(entry.refusalCount == 1, "The refusal series restarted rather than resuming.")
-        #expect(entry.hasStoppedAutomaticAttempts(now: start) == false)
+        #expect(entry.hasStoppedAutomaticAttempts(now: clock.value) == false)
     }
 
     /// Seven surfaces drive the coordinator, so a tap regularly lands while a pass is running.
@@ -349,6 +353,179 @@ struct WorkoutSyncSurfaceTests {
         }
     }
 
+    /// The unbounded-retry shape this whole branch exists to close, arriving through the payload
+    /// revision check instead of the retry budget.
+    ///
+    /// A device clock moved back leaves `lastModifiedAt` stamped ahead of every attempt the
+    /// coordinator can make. Comparing the two raw would find the schedule stale on every pass -
+    /// resetting the counts, clearing the due date, and re-offering the same bytes immediately,
+    /// forever, across seven trigger surfaces.
+    @Test
+    func aRevisionStampedAheadOfTheClockCannotRetryForever() async throws {
+        let modelContext = try makeModelContext()
+        let workout = makeWorkout()
+        workout.markPendingRemoteUpsert(
+            ownerUserId: "user-123",
+            modifiedAt: start.addingTimeInterval(24 * 60 * 60)
+        )
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        let repository = RefusingRepository()
+        let coordinator = makeCoordinator(remoteRepository: repository, now: start)
+
+        for _ in 0..<5 {
+            await coordinator.processPendingWorkouts(
+                modelContext: modelContext,
+                currentUserId: "user-123"
+            )
+        }
+
+        #expect(
+            await repository.attemptCount() == 1,
+            "The backoff has to hold even when the revision is stamped in the future."
+        )
+
+        let entry = try #require(try fetchOutboxEntry(for: workout.id, in: modelContext))
+        #expect(entry.automaticAttemptCount == 1)
+        #expect(entry.nextEligibleAttemptAt != nil, "The schedule must still be armed.")
+    }
+
+    /// A tap no pass ever read is not a refusal, and the surface must not be told it was one.
+    @Test
+    func aTapNoPassCouldReadReportsThatItWasNotAttempted() async throws {
+        let modelContext = try makeModelContext()
+        let workout = makeWorkout()
+        workout.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: start)
+        workout.remoteSyncStatus = .rejected
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        let repository = RefusingRepository()
+        let coordinator = makeCoordinator(
+            remoteRepository: repository,
+            now: start,
+            featureFlags: RemoteFeatureFlagStore(
+                snapshot: .resolving(
+                    remoteValues: [RemoteFeatureFlag.workoutCloudBackupWrites.key: false]
+                )
+            )
+        )
+
+        let wasAttempted = await coordinator.retryNow(
+            workoutId: workout.id,
+            modelContext: modelContext,
+            currentUserId: "user-123"
+        )
+
+        #expect(wasAttempted == false)
+        #expect(await repository.attemptCount() == 0)
+
+        // The unread request must not linger: a later automatic pass would otherwise bypass both
+        // the rejected guard and the due date with no tap behind it.
+        await coordinator.processPendingWorkouts(
+            modelContext: modelContext,
+            currentUserId: "user-123"
+        )
+        #expect(await repository.attemptCount() == 0)
+    }
+
+    @Test
+    func aServedTapReportsThatItWasAttempted() async throws {
+        let modelContext = try makeModelContext()
+        let workout = makeWorkout()
+        workout.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: start)
+        workout.remoteSyncStatus = .rejected
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        let repository = RefusingRepository()
+        let coordinator = makeCoordinator(remoteRepository: repository, now: start)
+
+        let wasAttempted = await coordinator.retryNow(
+            workoutId: workout.id,
+            modelContext: modelContext,
+            currentUserId: "user-123"
+        )
+
+        #expect(wasAttempted)
+        #expect(await repository.attemptCount() == 1)
+    }
+
+    /// The signal a screen invalidates on has to be per pass, not per workout.
+    ///
+    /// A pass saves once per outcome, so a screen keyed on the store's own churn recomputes itself
+    /// once per climb - and the first sign-in restore, when the backlog is the whole history, is
+    /// exactly when that is worst.
+    @Test
+    func aPassAnnouncesItselfOnceRegardlessOfHowManyClimbsItTouched() async throws {
+        let modelContext = try makeModelContext()
+
+        for offset in 0..<3 {
+            let workout = makeWorkout()
+            workout.markPendingRemoteUpsert(
+                ownerUserId: "user-123",
+                modifiedAt: start.addingTimeInterval(Double(offset))
+            )
+            modelContext.insert(workout)
+        }
+        try modelContext.save()
+
+        let repository = RefusingRepository()
+        let coordinator = makeCoordinator(remoteRepository: repository, now: start)
+        let before = coordinator.completedPassCount
+
+        await coordinator.processPendingWorkouts(
+            modelContext: modelContext,
+            currentUserId: "user-123"
+        )
+
+        #expect(await repository.attemptCount() == 3)
+        #expect(coordinator.completedPassCount == before + 1)
+    }
+
+    /// Deleting a whole screenful takes every schedule with it, on one bounded query rather than
+    /// one per climb.
+    @Test
+    func deletingManyWorkoutsTakesEverySchedule() async throws {
+        let modelContext = try makeModelContext()
+        var workouts: [Workout] = []
+
+        for offset in 0..<3 {
+            let workout = makeWorkout()
+            workout.markPendingRemoteUpsert(
+                ownerUserId: "user-123",
+                modifiedAt: start.addingTimeInterval(Double(offset))
+            )
+            modelContext.insert(workout)
+            workouts.append(workout)
+        }
+        try modelContext.save()
+
+        let coordinator = makeCoordinator(remoteRepository: RefusingRepository(), now: start)
+        await coordinator.processPendingWorkouts(
+            modelContext: modelContext,
+            currentUserId: "user-123"
+        )
+        #expect(try fetchOutboxEntries(in: modelContext).count == 3)
+
+        _ = try coordinator.enqueuePendingDeletions(
+            for: workouts,
+            fallbackUserId: "user-123",
+            modelContext: modelContext
+        )
+        for workout in workouts { modelContext.delete(workout) }
+        try modelContext.save()
+
+        #expect(try fetchOutboxEntries(in: modelContext).isEmpty)
+    }
+
+    private func fetchOutboxEntries(
+        in modelContext: ModelContext
+    ) throws -> [WorkoutSyncOutboxEntry] {
+        try modelContext.fetch(FetchDescriptor<WorkoutSyncOutboxEntry>())
+    }
+
     private func fetchOutboxEntry(
         for workoutId: UUID,
         in modelContext: ModelContext
@@ -363,16 +540,23 @@ struct WorkoutSyncSurfaceTests {
     private func makeCoordinator(
         remoteRepository: RefusingRepository,
         now: Date,
-        connectivityService: any WorkoutSyncConnectivityProviding = StubConnectivity(isConnected: true)
+        connectivityService: any WorkoutSyncConnectivityProviding = StubConnectivity(isConnected: true),
+        featureFlags: RemoteFeatureFlagStore = .init(),
+        clock: MutableClock? = nil
     ) -> WorkoutSyncCoordinator {
-        WorkoutSyncCoordinator(
+        // Frozen unless a test needs the clock to move. An edit is only a new payload revision once
+        // the clock has reached it, so a test about one has to advance time rather than stamp the
+        // edit ahead of a frozen now.
+        let clock = clock ?? MutableClock(now: now)
+        return WorkoutSyncCoordinator(
             remoteRepository: remoteRepository,
             heartRateStorageRepository: InertHeartRateRepository(),
+            featureFlags: featureFlags,
             operationTimeoutSeconds: 1,
             connectivityService: connectivityService,
             // The baseline an unfetched device reads, so nothing here depends on a live backend.
             settingReader: StubSettingReader(epoch: 0),
-            now: { now }
+            now: { clock.value }
         )
     }
 
@@ -411,6 +595,15 @@ private struct StubSettingReader: RemoteConfigSettingReading {
     let epoch: Int
 
     func integer(_ setting: RemoteConfigSetting) -> Int { epoch }
+}
+
+@MainActor
+private final class MutableClock {
+    var value: Date
+
+    init(now: Date) {
+        self.value = now
+    }
 }
 
 private struct RefusedWrite: Error, CustomNSError, Sendable {

@@ -15,6 +15,7 @@ struct WorkoutListView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @State private var themeManager = ThemeManager.shared
     @State private var importCoordinator = WorkoutImportCoordinator.shared
+    @State private var syncCoordinator = WorkoutSyncCoordinator.shared
     @State private var filterState = WorkoutListFilterState()
 
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
@@ -176,19 +177,14 @@ struct WorkoutListView: View {
                 importCoordinator.configure(modelContext: modelContext)
                 refreshCouldNotSyncWorkoutIds()
             }
-            // The same signal `WorkoutDetailView` invalidates on. Without it the badge is a
-            // snapshot taken once: a climb that lands keeps its warning, and one that starts
-            // failing never gets one.
-            .onChange(of: remoteSyncStatusSignature) { _, _ in
+            // Without this the badge is a snapshot taken once: a climb that lands keeps its
+            // warning, and one that starts failing never gets one. Keyed on the coordinator's
+            // per-pass counter rather than on the workout store's own churn - a pass saves once
+            // per workout outcome, so watching the store would recompute the whole screen once
+            // per synced climb, and the first sign-in restore is when that backlog is largest.
+            .onChange(of: syncCoordinator.completedPassCount) { _, _ in
                 refreshCouldNotSyncWorkoutIds()
             }
-    }
-
-    /// Changes exactly when some climb's cloud status does, so the badge tracks current truth.
-    ///
-    /// Reads an already-loaded column of an array `filteredWorkouts` walks anyway - no store query.
-    private var remoteSyncStatusSignature: [String] {
-        workouts.map(\.remoteSyncStatusRawValue)
     }
 
     /// Bounded by construction: only workouts that are not in the cloud are asked about, and a
@@ -204,7 +200,7 @@ struct WorkoutListView: View {
             return
         }
 
-        let presentations = WorkoutSyncCoordinator.shared.syncPresentations(
+        let presentations = syncCoordinator.syncPresentations(
             for: unsynced,
             modelContext: modelContext
         )
