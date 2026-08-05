@@ -29,8 +29,11 @@ struct MonetizationVerdictBudgetTests {
         #expect(await resolution.value == .unavailable(.refreshTimedOut))
         #expect(sleeper.requestedTotals == [.seconds(10)])
 
-        // Abandoning the wait must not abandon the work, which owns identity state.
+        // Abandoning the wait must not abandon the work, which owns identity state. Its late
+        // answer is discarded rather than replacing the verdict the caller already reported.
         work.finish(with: .refreshed(.active(["app_access"])))
+        #expect(!work.wasCancelled)
+        #expect(await resolution.value == .unavailable(.refreshTimedOut))
     }
 
     /// The budget is started once for the whole attempt, so a slow first segment leaves less for
@@ -115,6 +118,10 @@ final class ControlledBudgetSleeper {
 /// One segment of a refresh, held open until the test decides it lands.
 @MainActor
 private final class ControlledRefreshWork {
+    /// Work that cannot be safely interrupted must never see cancellation, however the budget
+    /// abandons it.
+    private(set) var wasCancelled = false
+
     private var continuation: CheckedContinuation<MonetizationEntitlementRefresh, Never>?
     private var startObserver: CheckedContinuation<Void, Never>?
     private var hasStarted = false
@@ -147,8 +154,12 @@ private final class ControlledRefreshWork {
 
         if let settled { return settled }
 
-        return await withCheckedContinuation { continuation in
-            self.continuation = continuation
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                self.continuation = continuation
+            }
+        } onCancel: {
+            Task { @MainActor in self.wasCancelled = true }
         }
     }
 }

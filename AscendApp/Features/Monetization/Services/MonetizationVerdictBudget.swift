@@ -30,14 +30,16 @@ struct MonetizationVerdictBudget {
     /// unresolved answer if any part of it outlasts the budget.
     ///
     /// Work that outlasts the budget is abandoned rather than cancelled: a RevenueCat identity
-    /// mutation stopped midway would leave the identity ambiguous, so it finishes on its own while
-    /// the caller gets a verdict it can report truthfully.
+    /// mutation stopped midway would leave the identity ambiguous. Its task is therefore never
+    /// retained for cancellation - it finishes on its own and the latch discards the late answer -
+    /// so no cancellation can ever propagate into it, however cancellation-aware the layers below
+    /// become. Only the deadline timer, which owns nothing but a sleep, is cancelled.
     func resolve(
         _ work: @escaping @MainActor () async -> MonetizationEntitlementRefresh
     ) async -> MonetizationEntitlementRefresh {
         let latch = VerdictLatch()
 
-        let attempt = Task { @MainActor in
+        Task { @MainActor in
             latch.finish(await work())
         }
         let expiry = Task { @MainActor [total, sleeper] in
@@ -46,7 +48,6 @@ struct MonetizationVerdictBudget {
         }
 
         let outcome = await latch.outcome
-        attempt.cancel()
         expiry.cancel()
         return outcome
     }

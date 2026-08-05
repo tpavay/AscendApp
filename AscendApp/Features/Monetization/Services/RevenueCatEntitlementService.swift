@@ -15,6 +15,9 @@ final class RevenueCatEntitlementService: EntitlementServicing {
     var hasFailedIdentityResolution: Bool {
         identityTransitionState.hasFailedIdentityResolution
     }
+    var identityGeneration: MonetizationIdentityTransition? {
+        identityTransitionState.refreshToken()
+    }
     private(set) var isConfigured: Bool
     var scheduledIdentityMutationCount: Int {
         identityMutationTasks.count

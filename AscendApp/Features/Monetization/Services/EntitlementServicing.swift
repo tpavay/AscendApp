@@ -4,6 +4,10 @@ import Foundation
 protocol EntitlementServicing: AnyObject {
     var entitlementState: MonetizationEntitlementState { get }
     var hasFailedIdentityResolution: Bool { get }
+    /// The identity generation the current `entitlementState` belongs to, or `nil` while no
+    /// identity is settled. Re-reading it across a suspension is how a caller proves the answer it
+    /// resolved earlier still describes the climber the app holds access for.
+    var identityGeneration: MonetizationIdentityTransition? { get }
     var isConfigured: Bool { get }
 
     func configure(configuration: MonetizationConfiguration)

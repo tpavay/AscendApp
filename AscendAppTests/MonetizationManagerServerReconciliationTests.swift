@@ -120,6 +120,34 @@ struct MonetizationManagerServerReconciliationTests {
         reconciler.finishReconciling()
     }
 
+    /// The reconcile suspends, and an account switch landing inside it leaves the pre-reconcile
+    /// answer describing an identity the app no longer holds. Returning it would emit
+    /// `revenuecat_purchase_completed` while the gate grants nothing.
+    @Test
+    func anIdentityChangeDuringReconciliationRefusesThePreReconcileAnswer() async {
+        let reconciler = SuspendingAppAccessReconciler()
+        let entitlementService = EntitlementServiceStub(entitlementState: .active(["app_access"]))
+        let manager = MonetizationManager(
+            configuration: MonetizationConfiguration(
+                infoDictionary: [
+                    MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "NO"
+                ]
+            ),
+            entitlementService: entitlementService,
+            paywallPresenter: PaywallPresenterSpy(),
+            appAccessReconciler: reconciler
+        )
+
+        let refresh = Task {
+            await manager.refreshEntitlements(force: true, waitsForPendingIdentity: true)
+        }
+        await reconciler.waitUntilReconciling()
+        _ = entitlementService.prepareIdentity(userId: "switched-user")
+        reconciler.finishReconciling()
+
+        #expect(await refresh.value == .unavailable(.identityUnresolved))
+    }
+
     /// A verdict that lands inside the budget is reported as the refresh resolved it, and the
     /// reconcile still runs inside the same attempt.
     @Test
