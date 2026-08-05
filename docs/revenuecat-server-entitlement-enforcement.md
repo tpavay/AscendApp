@@ -25,7 +25,11 @@ Do not enable Paywall UI or virtual-currency events because they create subscrib
 4. Set the staging destination to `https://us-central1-ascend-staging-fa7d5.cloudfunctions.net/revenueCatWebhook`.
 Set the production destination to `https://us-central1-ascend-prod-9c8f2.cloudfunctions.net/revenueCatWebhook`.
 5. Configure a different high-entropy `Authorization` header value for each destination.
-Enable RevenueCat HMAC signing for each destination and capture each signing secret when RevenueCat shows it once.
+Save each webhook integration, then reopen its detail page.
+The HMAC control is not part of the New Webhook form.
+On the saved integration's detail page, toggle **HMAC webhook signing**, then immediately copy the signing secret RevenueCat shows once and store it in that destination's Firebase secret configuration.
+If the one-time value is lost, use **Rotate secret** on that detail page and replace the Firebase value before sending another webhook.
+[RevenueCat's current webhook documentation](https://www.revenuecat.com/docs/integrations/webhooks#webhook-signature-verification-hmac) specifies this post-creation location and the `X-RevenueCat-Webhook-Signature: t=<unix_timestamp>,v1=<hmac_sha256_hex>` delivery header.
 The function requires both credentials on every request.
 6. After the matching Firebase function is deployed, send RevenueCat's test webhook to each destination and require HTTP 200.
 A test event with no real Firebase UID is expected to complete with zero affected users.
@@ -115,7 +119,7 @@ Superwall remains the paywall presentation and conversion layer, while RevenueCa
 
 ## Server flow
 
-1. RevenueCat sends a POST request with the configured Authorization header and HMAC signature.
+1. After HMAC is enabled on the saved integration, RevenueCat sends a POST request with the configured `Authorization` header and an `X-RevenueCat-Webhook-Signature` HMAC header.
 2. `revenueCatWebhook` verifies method, raw-body size, content type, Authorization, signature, five-minute timestamp tolerance, JSON shape, event ID, event timestamp, and expected RevenueCat app ID.
 3. `_revenuecat_webhook_events/{event.id}` is transactionally claimed with a two-minute processing lease.
 First delivery wins: the ledger keeps the digest and event metadata of the delivery that created it, and a redelivery whose bytes differ never overwrites either.

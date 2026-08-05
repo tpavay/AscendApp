@@ -54,27 +54,54 @@ const ANALYTICS_ENVIRONMENT: RevenueCatAnalyticsEnvironment = {
   mixpanelProjectId: "4051100",
 };
 
-test("webhook authentication requires authorization and a current HMAC", () => {
-  const body = Buffer.from("{\"event\":{}}", "utf8");
+test("RevenueCat's documented signed delivery authenticates", () => {
+  const body = eventBody();
   const timestamp = Math.floor(NOW_MS / 1000);
-  const signature = signedHeader(body, timestamp);
+  const request = {
+    method: "POST",
+    headers: {
+      Authorization: AUTHORIZATION,
+      "Content-Type": "application/json",
+      "X-RevenueCat-Webhook-Signature": signedHeader(body, timestamp),
+    },
+    rawBody: body,
+  };
 
   assert.equal(authenticateRevenueCatWebhook(
-    AUTHORIZATION,
-    signature,
-    body,
+    request.headers.Authorization,
+    request.headers["X-RevenueCat-Webhook-Signature"],
+    request.rawBody,
     AUTHORIZATION,
     SIGNING_SECRET,
     NOW
   ), "authenticated");
-  assert.equal(authenticateRevenueCatWebhook(
+});
+
+test("signed deliveries without valid Authorization are rejected", () => {
+  const body = eventBody();
+  const timestamp = Math.floor(NOW_MS / 1000);
+  const signature = signedHeader(body, timestamp);
+
+  for (const authorization of [
+    undefined,
     "Bearer wrong-authorization-secret-1234567890",
-    signature,
-    body,
-    AUTHORIZATION,
-    SIGNING_SECRET,
-    NOW
-  ), "invalid_authorization");
+  ]) {
+    assert.equal(authenticateRevenueCatWebhook(
+      authorization,
+      signature,
+      body,
+      AUTHORIZATION,
+      SIGNING_SECRET,
+      NOW
+    ), "invalid_authorization");
+  }
+});
+
+test("webhook authentication rejects altered bodies and stale HMACs", () => {
+  const body = eventBody();
+  const timestamp = Math.floor(NOW_MS / 1000);
+  const signature = signedHeader(body, timestamp);
+
   assert.equal(authenticateRevenueCatWebhook(
     AUTHORIZATION,
     signature,
