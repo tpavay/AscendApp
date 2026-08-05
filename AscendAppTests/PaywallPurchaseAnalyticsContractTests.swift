@@ -69,6 +69,7 @@ struct PaywallPurchaseAnalyticsContractTests {
         let expectations: [(MonetizationEntitlementRefreshFailure, String)] = [
             (.notConfigured, "configuration"),
             (.identityUnresolved, "entitlement_unresolved"),
+            (.identityRefreshTimedOut, "entitlement_refresh_timeout"),
             (.providerFailed, "entitlement_refresh_failed")
         ]
 
@@ -588,6 +589,7 @@ private extension PaywallPurchaseAnalyticsContractTests {
             [
                 RevenueCatAnalyticsErrorType.configuration,
                 .entitlementRefreshFailed,
+                .entitlementRefreshTimedOut,
                 .entitlementUnresolved,
                 .missingStoreProduct,
                 .network,

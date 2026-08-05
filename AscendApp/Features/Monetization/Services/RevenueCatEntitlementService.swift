@@ -34,12 +34,27 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         mutation: RevenueCatIdentityMutation
     )?
 
+    /// How long a caller that asked to wait for serialized identity work will actually wait.
+    ///
+    /// Generous for one RevenueCat `logIn`/`logOut` round trip on an ordinary connection, short
+    /// enough that the post-purchase spinner it sits behind is not read as hung.
+    static let defaultIdentityWaitDeadline = Duration.seconds(10)
+
+    private let identityWaitDeadline: Duration
+    private let waitDeadlineSleeper: @Sendable (Duration) async throws -> Void
+
     init(
         provider: any RevenueCatEntitlementProviding = RevenueCatPurchasesProvider(),
-        startsConfigured: Bool = false
+        startsConfigured: Bool = false,
+        identityWaitDeadline: Duration = RevenueCatEntitlementService.defaultIdentityWaitDeadline,
+        waitDeadlineSleeper: @escaping @Sendable (Duration) async throws -> Void = {
+            try await Task.sleep(for: $0)
+        }
     ) {
         self.provider = provider
         isConfigured = startsConfigured
+        self.identityWaitDeadline = identityWaitDeadline
+        self.waitDeadlineSleeper = waitDeadlineSleeper
     }
 
     func configure(configuration: MonetizationConfiguration = .live) {
@@ -85,21 +100,25 @@ final class RevenueCatEntitlementService: EntitlementServicing {
 
         if let pendingIdentityMutation {
             let transition = pendingIdentityMutation.transition
+            let inFlightMutation = identityMutationTasks[transition]
 
-            if let inFlightMutation = identityMutationTasks[transition] {
-                guard waitsForPendingIdentity else {
-                    return .unavailable(.identityUnresolved)
-                }
-                await inFlightMutation.value
-            } else {
-                await scheduleIdentityMutation(
-                    transition: transition,
-                    mutation: pendingIdentityMutation.mutation
-                ).value
+            if inFlightMutation != nil, !waitsForPendingIdentity {
+                return .unavailable(.identityUnresolved)
+            }
 
-                guard waitsForPendingIdentity else {
-                    return .unavailable(.identityUnresolved)
-                }
+            let identityWork = inFlightMutation ?? scheduleIdentityMutation(
+                transition: transition,
+                mutation: pendingIdentityMutation.mutation
+            )
+
+            guard await settlesWithinDeadline(identityWork) else {
+                return .unavailable(
+                    waitsForPendingIdentity ? .identityRefreshTimedOut : .identityUnresolved
+                )
+            }
+
+            guard waitsForPendingIdentity else {
+                return .unavailable(.identityUnresolved)
             }
         }
 
@@ -109,7 +128,14 @@ final class RevenueCatEntitlementService: EntitlementServicing {
 
         do {
             let state = try await provider.customerInfoState()
-            applyRefreshState(state, for: refreshToken)
+
+            // The identity can move on while that call is suspended. An answer the transition state
+            // refuses describes a superseded identity, so reporting it as refreshed would put the
+            // verdict and the entitlement this app actually holds back into disagreement.
+            guard applyRefreshState(state, for: refreshToken) else {
+                return .unavailable(.identityUnresolved)
+            }
+
             await auditLaunchOfferingIfNeeded()
             return .refreshed(state)
         } catch {
@@ -332,15 +358,40 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         applyRefreshState(state, for: refreshToken)
     }
 
+    /// Waits for serialized identity work, but never past the deadline.
+    ///
+    /// The mutation itself is deliberately not cancelled: abandoning a RevenueCat `logIn`/`logOut`
+    /// midway would leave the identity ambiguous, so it finishes on its own and resolves for
+    /// whoever is still listening. Only this wait gives up.
+    private func settlesWithinDeadline(_ identityWork: Task<Void, Never>) async -> Bool {
+        let latch = IdentityWaitLatch()
+
+        let settlement = Task { @MainActor in
+            await identityWork.value
+            latch.finish(settled: true)
+        }
+        let deadline = Task { @MainActor [waitDeadlineSleeper, identityWaitDeadline] in
+            try? await waitDeadlineSleeper(identityWaitDeadline)
+            latch.finish(settled: false)
+        }
+
+        let settled = await latch.settled
+        settlement.cancel()
+        deadline.cancel()
+        return settled
+    }
+
+    @discardableResult
     private func applyRefreshState(
         _ state: MonetizationEntitlementState,
         for refreshToken: MonetizationIdentityTransition
-    ) {
+    ) -> Bool {
         guard identityTransitionState.applyRefresh(state, for: refreshToken) else {
-            return
+            return false
         }
 
         updateTelemetry(for: state)
+        return true
     }
 
     private func updateTelemetry(for state: MonetizationEntitlementState) {
@@ -348,5 +399,30 @@ final class RevenueCatEntitlementService: EntitlementServicing {
             .hasAppAccess,
             value: state.hasActiveEntitlement(configuration.revenueCatEntitlementID)
         )
+    }
+}
+
+/// Resolves once, for whichever of the identity work and the deadline gets there first.
+@MainActor
+private final class IdentityWaitLatch {
+    private var continuation: CheckedContinuation<Bool, Never>?
+    private var result: Bool?
+
+    var settled: Bool {
+        get async {
+            if let result { return result }
+
+            return await withCheckedContinuation { continuation in
+                self.continuation = continuation
+            }
+        }
+    }
+
+    func finish(settled: Bool) {
+        guard result == nil else { return }
+
+        result = settled
+        continuation?.resume(returning: settled)
+        continuation = nil
     }
 }

@@ -15,8 +15,11 @@ enum MonetizationEntitlementRefresh: Equatable, Sendable {
 enum MonetizationEntitlementRefreshFailure: Equatable, Sendable {
     /// The build has no RevenueCat to ask.
     case notConfigured
-    /// An identity mutation never resolved, so there is no settled identity to ask about.
+    /// An identity mutation never resolved, or the identity moved on before the answer landed, so
+    /// there is no settled identity this answer describes.
     case identityUnresolved
+    /// Serialized identity work outlasted the deadline the caller was willing to wait.
+    case identityRefreshTimedOut
     /// RevenueCat was asked and did not answer.
     case providerFailed
 }

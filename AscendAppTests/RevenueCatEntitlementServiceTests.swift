@@ -469,6 +469,110 @@ struct RevenueCatEntitlementServiceTests {
         #expect(service.entitlementState == .active(["app_access"]))
     }
 
+    /// The identity can move on while `customerInfoState()` is suspended. The answer that lands
+    /// then belongs to a superseded identity, and the service refuses it - so the refresh must
+    /// refuse it too rather than handing a purchase verdict an entitlement the app does not hold.
+    @Test
+    func anAnswerTheServiceRefusesIsNeverReportedAsRefreshed() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true
+        )
+
+        let firstIdentity = service.prepareIdentity(userId: "first-user")
+        let firstIdentifyTask = Task {
+            await service.identify(userId: "first-user", transition: firstIdentity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "first-user"))
+        provider.completeLogIn(with: .active(["app_access"]))
+        await firstIdentifyTask.value
+
+        let refreshTask = Task {
+            await service.refreshCustomerInfo()
+        }
+        #expect(await invocations.next() == .customerInfo)
+
+        let switchedIdentity = service.prepareIdentity(userId: "switched-user")
+        let switchedIdentifyTask = Task {
+            await service.identify(userId: "switched-user", transition: switchedIdentity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "switched-user"))
+
+        provider.completeCustomerInfo(with: .active(["app_access"]))
+
+        #expect(await refreshTask.value == .unavailable(.identityUnresolved))
+        #expect(service.entitlementState == .unknown)
+
+        provider.completeLogIn(with: .inactive)
+        await switchedIdentifyTask.value
+    }
+
+    @Test
+    func aWaitingRefreshGivesUpOnTheIdentityQueueAtItsDeadline() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let sleeper = ControlledDeadlineSleeper()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true,
+            waitDeadlineSleeper: sleeper.sleep
+        )
+
+        let identity = service.prepareIdentity(userId: "subscriber")
+        let identifyTask = Task {
+            await service.identify(userId: "subscriber", transition: identity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
+
+        let refreshTask = Task {
+            await service.refreshCustomerInfo(waitsForPendingIdentity: true)
+        }
+        await sleeper.waitUntilSleeping()
+        sleeper.expireDeadline()
+
+        #expect(await refreshTask.value == .unavailable(.identityRefreshTimedOut))
+        #expect(provider.customerInfoCallCount == 0)
+        #expect(sleeper.requestedDurations == [RevenueCatEntitlementService.defaultIdentityWaitDeadline])
+
+        // Abandoning the wait must not abandon the identity mutation itself.
+        provider.completeLogIn(with: .active(["app_access"]))
+        await identifyTask.value
+        #expect(service.entitlementState == .active(["app_access"]))
+    }
+
+    @Test
+    func aWaitingRefreshThatSettlesBeforeTheDeadlineStillAsksRevenueCat() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let sleeper = ControlledDeadlineSleeper()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true,
+            waitDeadlineSleeper: sleeper.sleep
+        )
+
+        let identity = service.prepareIdentity(userId: "subscriber")
+        let identifyTask = Task {
+            await service.identify(userId: "subscriber", transition: identity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
+
+        let refreshTask = Task {
+            await service.refreshCustomerInfo(waitsForPendingIdentity: true)
+        }
+        await sleeper.waitUntilSleeping()
+
+        provider.completeLogIn(with: .active(["app_access"]))
+        await identifyTask.value
+
+        #expect(await invocations.next() == .customerInfo)
+        provider.completeCustomerInfo(with: .active(["app_access"]))
+
+        #expect(await refreshTask.value == .refreshed(.active(["app_access"])))
+    }
+
     @Test
     func aGenuineRefreshReportsExactlyWhatRevenueCatAnswered() async throws {
         let provider = ControlledRevenueCatEntitlementProvider()
@@ -504,6 +608,53 @@ private func settle(until condition: () -> Bool) async {
     for _ in 0..<100 {
         if condition() { return }
         await Task.yield()
+    }
+}
+
+/// Stands in for the deadline clock so the timeout is exercised without any test waiting on one.
+@MainActor
+private final class ControlledDeadlineSleeper {
+    private(set) var requestedDurations: [Duration] = []
+
+    private var deadlineContinuation: CheckedContinuation<Void, any Error>?
+    private var startObserver: CheckedContinuation<Void, Never>?
+
+    var sleep: @Sendable (Duration) async throws -> Void {
+        { [self] duration in
+            try await beginSleeping(for: duration)
+        }
+    }
+
+    func waitUntilSleeping() async {
+        guard requestedDurations.isEmpty else { return }
+
+        await withCheckedContinuation { continuation in
+            startObserver = continuation
+        }
+    }
+
+    func expireDeadline() {
+        deadlineContinuation?.resume()
+        deadlineContinuation = nil
+    }
+
+    private func beginSleeping(for duration: Duration) async throws {
+        requestedDurations.append(duration)
+        startObserver?.resume()
+        startObserver = nil
+
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                deadlineContinuation = continuation
+            }
+        } onCancel: {
+            Task { @MainActor in self.cancelSleeping() }
+        }
+    }
+
+    private func cancelSleeping() {
+        deadlineContinuation?.resume(throwing: CancellationError())
+        deadlineContinuation = nil
     }
 }
 

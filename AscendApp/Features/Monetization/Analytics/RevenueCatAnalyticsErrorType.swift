@@ -4,6 +4,7 @@ import RevenueCat
 enum RevenueCatAnalyticsErrorType: String, Sendable {
     case configuration
     case entitlementRefreshFailed = "entitlement_refresh_failed"
+    case entitlementRefreshTimedOut = "entitlement_refresh_timeout"
     case entitlementUnresolved = "entitlement_unresolved"
     case missingStoreProduct = "missing_store_product"
     case network
@@ -21,6 +22,8 @@ enum RevenueCatAnalyticsErrorType: String, Sendable {
             self = .configuration
         case .identityUnresolved:
             self = .entitlementUnresolved
+        case .identityRefreshTimedOut:
+            self = .entitlementRefreshTimedOut
         case .providerFailed:
             self = .entitlementRefreshFailed
         }
