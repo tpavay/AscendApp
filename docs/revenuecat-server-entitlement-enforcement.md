@@ -182,13 +182,13 @@ Ordering is the shared `request_date_ms` rule, so a slow reconciliation cannot m
 Because a recovery check is polled rather than event-driven, it also skips the write entirely when `isActive`, `productId`, and `accessUntil` already match and the active grant document's presence agrees with them; a missing grant under a current status still rewrites, since that is exactly the state this path exists to repair.
 
 The client treats `throttled` as a refusal rather than an answer, so a refused call never satisfies its own five-minute spacing.
-Every outcome still sets its own next-attempt time - five minutes after an answer, sixty seconds after a refusal, thirty seconds after a failure - because launch, foreground, identity change, the entitlement flip, purchase, and both restores all trigger this, and an outcome that recorded nothing would let a backgrounding user issue one call per trigger.
+Every outcome still sets its own next-attempt time - five minutes after an answer, sixty seconds after a refusal, thirty seconds after a failure - because launch, foreground, identity change, the entitlement flip, purchase, and restore all trigger this, and an outcome that recorded nothing would let a backgrounding user issue one call per trigger.
 An explicit restore bypasses that client spacing entirely and lets the server's own policy decide.
 
-The app invokes it wherever an active device entitlement can outlive or race webhook delivery: after every entitlement refresh (launch, foreground, identity change), when access flips active mid-session from RevenueCat's customer-info stream, after a completed purchase, and unconditionally after either restore path.
-Both restore surfaces - account settings and the Superwall paywall's Restore button - route through the single `PaywallPurchaseCoordinating` hook on `MonetizationManager`, so neither can drift back to calling RevenueCat directly and skipping reconciliation.
-`restorePurchases()` returns the state RevenueCat resolved for that restore, and both the Superwall status and the forced reconciliation read that return value rather than the stored `entitlementState`, which a pending identity transition can still be holding at `.unknown`.
-The device entitlement check, the hard paywall, and both restore surfaces are otherwise unchanged.
+The app invokes it wherever an active device entitlement can outlive or race webhook delivery: after every entitlement refresh (launch, foreground, identity change), when access flips active mid-session from RevenueCat's customer-info stream, on the entitlement refresh a completed purchase forces before its verdict, and unconditionally after every restore.
+All three restore surfaces - account settings, the Superwall paywall's Restore button, and the app-access gate placeholder - run the single `AppAccessRestoreService`, which restores through `MonetizationManager`, so none can drift back to calling RevenueCat directly and skipping reconciliation.
+`restorePurchases()` returns the state RevenueCat resolved for that restore, and the Superwall status, the forced reconciliation, and the restore's analytics terminal all read that return value rather than the stored `entitlementState`, which a pending identity transition can still be holding at `.unknown`.
+The device entitlement check, the hard paywall, and the restore surfaces are otherwise unchanged.
 
 ## Backend choke points
 

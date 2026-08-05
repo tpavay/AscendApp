@@ -587,6 +587,7 @@ final class PaywallPresenterSpy: PaywallPresenting {
 final class EntitlementServiceStub: EntitlementServicing {
     private(set) var entitlementState: MonetizationEntitlementState
     private(set) var hasFailedIdentityResolution = false
+    var identityGeneration: MonetizationIdentityTransition? { currentTransition }
     var isConfigured = true
     var identityResolution = MonetizationEntitlementState.inactive
     var restoreError: (any Error)?
@@ -616,7 +617,12 @@ final class EntitlementServiceStub: EntitlementServicing {
         isConfigured = configuration.canConfigureRevenueCat
     }
 
-    func refreshCustomerInfo() async {}
+    @discardableResult
+    func refreshCustomerInfo(
+        waitsForPendingIdentity: Bool
+    ) async -> MonetizationEntitlementRefresh {
+        .refreshed(entitlementState)
+    }
 
     func prepareIdentity(userId: String) -> MonetizationIdentityTransition {
         prepare(userID: userId)

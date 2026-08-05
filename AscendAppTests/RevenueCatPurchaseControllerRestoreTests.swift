@@ -77,6 +77,24 @@ struct RevenueCatPurchaseControllerRestoreTests {
         #expect(!isRestored(result))
     }
 
+    /// `MonetizationManager.restorePurchases()` already forces server reconciliation, so a second
+    /// forced refresh here would bill two Cloud Function round trips to one restore spinner.
+    @Test
+    func aRestoreReconcilesOnceInsteadOfRefreshingASecondTime() async {
+        let coordinator = PaywallPurchaseCoordinatorSpy(
+            restoredState: .active(["app_access"])
+        )
+        let controller = RevenueCatPurchaseController(
+            coordinator: { coordinator },
+            applySuperwallStatus: { _ in }
+        )
+
+        _ = await controller.restorePurchases()
+
+        #expect(coordinator.restoreCount == 1)
+        #expect(coordinator.forcedRefreshCount == 0)
+    }
+
     @Test
     func anUnresolvedRestoreLeavesTheSuperwallStatusAlone() async {
         let coordinator = PaywallPurchaseCoordinatorSpy(restoredState: .unknown)
@@ -124,10 +142,16 @@ private final class PaywallPurchaseCoordinatorSpy: PaywallPurchaseCoordinating {
         entitlementState = restoredState
     }
 
-    func refreshEntitlements(force: Bool) async {
+    @discardableResult
+    func refreshEntitlements(
+        force: Bool,
+        waitsForPendingIdentity: Bool
+    ) async -> MonetizationEntitlementRefresh {
         if force {
             forcedRefreshCount += 1
         }
+
+        return .refreshed(entitlementState)
     }
 
     @discardableResult

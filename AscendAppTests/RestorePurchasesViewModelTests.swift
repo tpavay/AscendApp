@@ -7,7 +7,7 @@ struct RestorePurchasesViewModelTests {
     @Test
     func successfulRestoreConfirmsCompletion() async {
         let restorer = StubPurchaseRestorer()
-        let viewModel = RestorePurchasesViewModel(purchaseRestorer: restorer)
+        let viewModel = RestorePurchasesViewModel(restoreService: makeRestoreService(restorer))
 
         await viewModel.restorePurchases()
 
@@ -19,20 +19,20 @@ struct RestorePurchasesViewModelTests {
     @Test
     func failedRestoreSurfacesRetryGuidance() async {
         let restorer = StubPurchaseRestorer(error: StubRestoreError.offline)
-        let viewModel = RestorePurchasesViewModel(purchaseRestorer: restorer)
+        let viewModel = RestorePurchasesViewModel(restoreService: makeRestoreService(restorer))
 
         await viewModel.restorePurchases()
 
         #expect(restorer.restoreCount == 1)
         #expect(viewModel.isRestoring == false)
         #expect(viewModel.result?.title == "Restore Failed")
-        #expect(viewModel.result?.message.contains("try again") == true)
+        #expect(viewModel.result?.message?.contains("try again") == true)
     }
 
     @Test
     func unavailableRestoreFailsWithoutCallingTheStore() async {
         let restorer = StubPurchaseRestorer(isRevenueCatConfigured: false)
-        let viewModel = RestorePurchasesViewModel(purchaseRestorer: restorer)
+        let viewModel = RestorePurchasesViewModel(restoreService: makeRestoreService(restorer))
 
         await viewModel.restorePurchases()
 
@@ -43,7 +43,7 @@ struct RestorePurchasesViewModelTests {
     @Test
     func restoreShowsProgressAndIgnoresASecondRequest() async {
         let restorer = SuspendingPurchaseRestorer()
-        let viewModel = RestorePurchasesViewModel(purchaseRestorer: restorer)
+        let viewModel = RestorePurchasesViewModel(restoreService: makeRestoreService(restorer))
 
         async let restoration: Void = viewModel.restorePurchases()
         await restorer.waitUntilRestoreStarts()
@@ -58,6 +58,15 @@ struct RestorePurchasesViewModelTests {
         #expect(viewModel.isRestoring == false)
         #expect(viewModel.result?.title == "Restore Complete")
     }
+}
+
+@MainActor
+private func makeRestoreService(_ restorer: any PurchaseRestoring) -> AppAccessRestoreService {
+    AppAccessRestoreService(
+        telemetry: makeTestTelemetry(sink: InMemoryTelemetrySink(destination: .analytics)),
+        entitlementID: "app_access",
+        restorer: { restorer }
+    )
 }
 
 private enum StubRestoreError: Error {
