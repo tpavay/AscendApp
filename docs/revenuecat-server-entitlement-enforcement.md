@@ -131,6 +131,9 @@ It deletes that active grant when current RevenueCat state is inactive.
 7. A projection only replaces one derived from an older RevenueCat `request_date_ms`.
 The triggering event's order therefore cannot move subscriber state backward.
 8. For each verified Firebase uid and reportable subscription transition, the event-completion transaction creates one `_revenuecat_analytics_outbox` row whose stable idempotency key is derived from the RevenueCat event ID and uid.
+Exactly-once therefore means one analytics event per RevenueCat event ID plus uid; two distinct event IDs are two real transitions and each exports once.
+One Apple refund is two such transitions: the `CANCELLATION` exports `subscription_cancelled`, which may still hold access to the end of the paid period, and the later `EXPIRATION` that fresh RevenueCat truth shows removed access exports `subscription_refunded`.
+Both carry `refund_attributed`, so a refund is queryable end to end without either transition being suppressed or relabelled as the other.
 The row contains only the normalized lifecycle event, server environment envelope, product and entitlement classification, event time, and delivery state.
 It never contains the raw webhook, receipt, transaction ID, API credential, authorization value, HMAC secret, or vendor response.
 9. The event is marked complete in that same transaction as the projection changes and outbox writes.
@@ -148,7 +151,9 @@ The processor is safe after a crash because a failed attempt is reclaimable and 
 Mixpanel delivery failures do not fail or delay the webhook response because delivery starts only from the separately scheduled outbox worker.
 An unresolvable analytics destination is degraded rather than fatal: the webhook logs it, skips outbox enqueueing, and still authenticates, deduplicates, and projects the entitlement, because analytics may never decide paid access.
 Each worker run stops claiming deliveries before its function timeout and immediately returns every unattempted claim to the queue, so provider latency drains instead of stranding rows until the fifteen-minute stale sweep.
+A claim released that way was never sent, so it keeps the delivery attempt count and last delivery error it already had; only a real send moves either, and the backoff ladder is unaffected by how busy a run was.
 A permanently discarded row is logged at error level with its outbox id, event name, and error code, so a dead lifecycle stream is visible rather than silent.
+A row that keeps failing retryably past its tenth attempt - a rotated Mixpanel credential answers 401, which is retryable - is logged at error level on every further attempt, so retrying forever is never the same as failing quietly.
 
 No raw webhook body, transaction identifier, API key, Authorization value, HMAC secret, or subscriber response is stored or logged.
 The event ledger stores only event metadata, a payload digest, processing state, and counts, with no Firebase UID.
@@ -158,6 +163,7 @@ Each ledger entry carries `retainUntil`, an explicit thirty-day future timestamp
 The dedupe evidence only has to outlive RevenueCat's roughly 155-minute retry ladder, so thirty days is generous while still bounding the collection.
 `receivedAt` cannot carry the policy: it is already in the past when it is written, so every entry would be eligible for deletion the moment it was created.
 Each analytics outbox row carries the same thirty-day `retainUntil` stamp and its own Firestore TTL field override, because a row holds a Firebase UID as its Mixpanel `distinct_id` and may not outlive the delivery it exists to prove.
+Every state change restamps it, so the thirty days run from the row's last movement rather than from its creation: a row still retrying cannot be deleted out from under the retry-until-delivery guarantee, and a delivered or terminally failed row gets exactly one bounded window after it settled.
 
 ## Recovering access the webhook never delivered
 

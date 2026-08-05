@@ -61,6 +61,7 @@ export function buildLifecycleAnalyticsEvent(
     store: event.store,
     periodType: event.periodType,
     lifecycleReason: event.lifecycleReason,
+    refundAttributed: isRefundAttributed(event),
     entitlementActive: projection.isActive,
     effectiveExpirationAtMs: effectiveExpirationAtMs(event, projection),
     firebaseProjectId: environment.firebaseProjectId,
@@ -69,6 +70,15 @@ export function buildLifecycleAnalyticsEvent(
     appVersion: environment.appVersion,
     buildNumber: environment.buildNumber,
   };
+}
+
+/**
+ * Marks the two transitions Apple's refund produces so both stay queryable as
+ * one commercial refund without either being suppressed.
+ */
+function isRefundAttributed(event: RevenueCatWebhookEvent): boolean {
+  return event.lifecycleReason === "customer_support" &&
+    (event.type === "CANCELLATION" || event.type === "EXPIRATION");
 }
 
 function lifecycleEventName(
@@ -88,22 +98,18 @@ function lifecycleEventName(
       // both webhook rows would make one billing failure look like two.
       return null;
     }
-    return event.lifecycleReason === "customer_support" &&
-      !projection.isActive ?
-      "subscription_refunded" : "subscription_cancelled";
+    // A support refund cancels first and may leave access running to period
+    // end, so this transition stays a cancellation and carries the refund
+    // attribution instead of borrowing the expiration's meaning.
+    return "subscription_cancelled";
   case "UNCANCELLATION":
     return "subscription_uncancelled";
   case "BILLING_ISSUE":
     return "subscription_billing_issue";
   case "EXPIRATION":
-    if (event.lifecycleReason === "customer_support") {
-      // One refund arrives twice: CANCELLATION(customer_support) at the refund
-      // itself, then EXPIRATION(customer_support) for the access it removed.
-      // The cancellation row owns subscription_refunded, so exporting this one
-      // too would make one refund look like two.
-      return null;
-    }
-    return "subscription_expired";
+    return event.lifecycleReason === "customer_support" &&
+      !projection.isActive ?
+      "subscription_refunded" : "subscription_expired";
   case "PRODUCT_CHANGE":
     return "subscription_product_changed";
   default:

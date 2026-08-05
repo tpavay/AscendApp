@@ -33,6 +33,7 @@ export interface LifecycleAnalyticsEvent {
   store: string;
   periodType: string;
   lifecycleReason: string | null;
+  refundAttributed: boolean;
   entitlementActive: boolean;
   effectiveExpirationAtMs: number | null;
   firebaseProjectId: string;
@@ -64,6 +65,11 @@ export interface AnalyticsOutboxStore {
     errorCode: string,
     now: Date
   ): Promise<void>;
+  /**
+   * Returns a claim the run never attempted, so the row keeps the delivery
+   * attempt count and last delivery error it had before it was claimed.
+   */
+  release(claim: AnalyticsOutboxClaim, now: Date): Promise<void>;
 }
 
 export interface LifecycleAnalyticsClient {

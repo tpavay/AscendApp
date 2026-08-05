@@ -9,6 +9,7 @@ import {
 } from "../src/revenueCat/analyticsEvent";
 import {
   processAnalyticsOutbox,
+  retryDelayMs,
 } from "../src/revenueCat/analyticsOutboxProcessor";
 import {
   MixpanelLifecycleAnalyticsClient,
@@ -87,7 +88,7 @@ test("every server lifecycle transition has its own event name", () => {
     },
     {
       event: {
-        type: "CANCELLATION",
+        type: "EXPIRATION",
         lifecycleReason: "customer_support",
       },
       expectedName: "subscription_refunded",
@@ -134,45 +135,90 @@ test("cancellation remains active and is never relabeled as expiration", () => {
   );
 });
 
-test("support cancellation is a refund only after access is removed", () => {
-  const event = webhookEvent({
-    type: "CANCELLATION",
-    lifecycleReason: "customer_support",
-  });
-
-  assert.equal(buildLifecycleAnalyticsEvent(
-    event,
+test("a refund keeps its cancellation and its access removal distinct", () => {
+  const cancellation = buildLifecycleAnalyticsEvent(
+    webhookEvent({
+      id: "event-refund-cancellation",
+      type: "CANCELLATION",
+      lifecycleReason: "customer_support",
+    }),
     projection({isActive: true}),
     CONFIG,
     ENVIRONMENT
-  )?.eventName, "subscription_cancelled");
-  assert.equal(buildLifecycleAnalyticsEvent(
-    event,
+  );
+  const expiration = buildLifecycleAnalyticsEvent(
+    webhookEvent({
+      id: "event-refund-expiration",
+      type: "EXPIRATION",
+      lifecycleReason: "customer_support",
+    }),
     projection({isActive: false}),
     CONFIG,
     ENVIRONMENT
-  )?.eventName, "subscription_refunded");
+  );
+
+  assert.equal(cancellation?.eventName, "subscription_cancelled");
+  assert.equal(cancellation?.entitlementActive, true);
+  assert.equal(cancellation?.refundAttributed, true);
+  assert.equal(expiration?.eventName, "subscription_refunded");
+  assert.equal(expiration?.entitlementActive, false);
+  assert.equal(expiration?.refundAttributed, true);
+  assert.notEqual(cancellation?.insertId, expiration?.insertId);
 });
 
-test("one refund exports one refund event across its paired webhooks", () => {
-  assert.equal(buildLifecycleAnalyticsEvent(
+test("each refund webhook stays exactly one event across redeliveries", () => {
+  const cancellation = webhookEvent({
+    id: "event-refund-cancellation",
+    type: "CANCELLATION",
+    lifecycleReason: "customer_support",
+  });
+  const expiration = webhookEvent({
+    id: "event-refund-expiration",
+    type: "EXPIRATION",
+    lifecycleReason: "customer_support",
+  });
+  const build = (
+    event: RevenueCatWebhookEvent,
+    isActive: boolean
+  ) => buildLifecycleAnalyticsEvent(
+    event,
+    projection({isActive}),
+    CONFIG,
+    ENVIRONMENT
+  );
+
+  assert.deepEqual(
+    build(cancellation, true),
+    build(cancellation, true)
+  );
+  assert.deepEqual(
+    build(expiration, false),
+    build(expiration, false)
+  );
+});
+
+test("a support cancellation that already removed access still cancels", () => {
+  const analyticsEvent = buildLifecycleAnalyticsEvent(
     webhookEvent({type: "CANCELLATION", lifecycleReason: "customer_support"}),
     projection({isActive: false}),
     CONFIG,
     ENVIRONMENT
-  )?.eventName, "subscription_refunded");
-  assert.equal(buildLifecycleAnalyticsEvent(
-    webhookEvent({type: "EXPIRATION", lifecycleReason: "customer_support"}),
-    projection({isActive: false}),
-    CONFIG,
-    ENVIRONMENT
-  ), null);
-  assert.equal(buildLifecycleAnalyticsEvent(
+  );
+
+  assert.equal(analyticsEvent?.eventName, "subscription_cancelled");
+  assert.equal(analyticsEvent?.refundAttributed, true);
+});
+
+test("an ordinary expiration is neither a refund nor refund-attributed", () => {
+  const analyticsEvent = buildLifecycleAnalyticsEvent(
     webhookEvent({type: "EXPIRATION", lifecycleReason: "unsubscribe"}),
     projection({isActive: false}),
     CONFIG,
     ENVIRONMENT
-  )?.eventName, "subscription_expired");
+  );
+
+  assert.equal(analyticsEvent?.eventName, "subscription_expired");
+  assert.equal(analyticsEvent?.refundAttributed, false);
 });
 
 test("billing-error cancellation is not double-counted beside billing issue", () => {
@@ -311,6 +357,7 @@ test("Mixpanel import is strict, environment-bound, and retry-safe", async () =>
   assert.equal(payload[0].event, "subscription_renewed");
   assert.equal(payload[0].properties.$insert_id, event.insertId);
   assert.equal(payload[0].properties.app_environment, "production");
+  assert.equal(payload[0].properties.refund_attributed, false);
   assert.equal(payload[0].properties.ip, 0);
   assert.equal(requestBody.includes("serviceAccount"), false);
   assert.equal(requestBody.includes("test-password"), false);
@@ -394,6 +441,7 @@ test("a run past its budget requeues claims instead of stranding them", async ()
   );
   assert.ok(event);
   const store = new MultiRowAnalyticsOutboxStore(event, 3);
+  store.rows[2].lastErrorCode = "rate_limited";
   let clockMs = NOW.getTime();
   const client: LifecycleAnalyticsClient = {
     async send(): Promise<void> {
@@ -413,8 +461,75 @@ test("a run past its budget requeues claims instead of stranding them", async ()
   assert.equal(summary.deliveredCount, 2);
   assert.equal(summary.deferredCount, 1);
   assert.deepEqual(store.statuses(), ["delivered", "delivered", "queued"]);
-  assert.equal(store.rows[2].lastErrorCode, "run_deadline_reached");
   assert.equal(store.rows[2].readyAt.getTime(), clockMs);
+});
+
+test("a deferred claim is not charged a delivery attempt or a false error", async () => {
+  const event = buildLifecycleAnalyticsEvent(
+    webhookEvent(),
+    projection(),
+    CONFIG,
+    ENVIRONMENT
+  );
+  assert.ok(event);
+  const store = new MultiRowAnalyticsOutboxStore(event, 1);
+  const client: LifecycleAnalyticsClient = {
+    async send(): Promise<void> {
+      assert.fail("a deferred run must not deliver");
+    },
+  };
+
+  const summary = await processAnalyticsOutbox({
+    store,
+    client,
+    environment: ENVIRONMENT,
+    now: () => NOW,
+    runBudgetMs: 0,
+  });
+
+  assert.equal(summary.deferredCount, 1);
+  assert.equal(summary.deliveredCount, 0);
+  assert.equal(store.rows[0].status, "queued");
+  assert.equal(store.rows[0].attemptCount, 0);
+  assert.equal(store.rows[0].lastErrorCode, null);
+  assert.equal(retryDelayMs(store.rows[0].attemptCount + 1), 60_000);
+});
+
+test("a delivery that never converges is reported while it keeps retrying", async () => {
+  const event = buildLifecycleAnalyticsEvent(
+    webhookEvent(),
+    projection(),
+    CONFIG,
+    ENVIRONMENT
+  );
+  assert.ok(event);
+  const store = new MultiRowAnalyticsOutboxStore(event, 1);
+  store.rows[0].attemptCount = 11;
+  const client: LifecycleAnalyticsClient = {
+    async send(): Promise<void> {
+      throw new MixpanelDeliveryError("http_401", true);
+    },
+  };
+
+  const errors = await capturedErrors(async () => {
+    const summary = await processAnalyticsOutbox({
+      store,
+      client,
+      environment: ENVIRONMENT,
+      now: () => NOW,
+    });
+    assert.equal(summary.retriedCount, 1);
+  });
+
+  assert.equal(store.rows[0].status, "queued");
+  assert.equal(errors.length, 1);
+  assert.deepEqual(errors[0][1], {
+    outboxId: "outbox-1",
+    eventName: "subscription_renewed",
+    attemptCount: 12,
+    lastErrorCode: "http_401",
+  });
+  assert.equal(JSON.stringify(errors).includes(event.distinctId), false);
 });
 
 test("a permanently discarded row is reported, not silently dropped", async () => {
@@ -549,6 +664,12 @@ class InMemoryAnalyticsOutboxStore implements AnalyticsOutboxStore {
     this.readyAt = readyAt;
   }
 
+  async release(claim: AnalyticsOutboxClaim, now: Date): Promise<void> {
+    this.status = "queued";
+    this.readyAt = now;
+    this.attemptCount = Math.max(claim.attemptCount - 1, 0);
+  }
+
   async markFailed(): Promise<void> {
     this.status = "failed";
   }
@@ -615,6 +736,13 @@ class MultiRowAnalyticsOutboxStore implements AnalyticsOutboxStore {
     row.status = "queued";
     row.readyAt = readyAt;
     row.lastErrorCode = errorCode;
+  }
+
+  async release(claim: AnalyticsOutboxClaim, now: Date): Promise<void> {
+    const row = this.row(claim);
+    row.status = "queued";
+    row.readyAt = now;
+    row.attemptCount = Math.max(claim.attemptCount - 1, 0);
   }
 
   async markFailed(

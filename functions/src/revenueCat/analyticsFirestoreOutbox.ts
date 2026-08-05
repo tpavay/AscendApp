@@ -15,6 +15,12 @@ export const ANALYTICS_OUTBOX_COLLECTION =
 // RevenueCat's roughly 155-minute retry ladder; thirty days matches the event
 // ledger and leaves a human-inspectable trail. The Firestore TTL policy on
 // `retainUntil` does the deleting.
+//
+// Every state transition restamps it, so the bound measures thirty days from
+// the row's last movement rather than from its creation: a row still retrying
+// cannot be deleted out from under the retry-until-delivery guarantee, while a
+// delivered or terminally failed row gets exactly one bounded window after it
+// settled.
 export const ANALYTICS_OUTBOX_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 const STALE_PROCESSING_MS = 15 * 60 * 1000;
@@ -62,6 +68,7 @@ implements AnalyticsOutboxStore {
             processingStartedAt: null,
             claimId: null,
             updatedAt: admin.firestore.Timestamp.fromDate(now),
+            retainUntil: retentionStamp(now),
           });
           return true;
         }
@@ -109,6 +116,7 @@ implements AnalyticsOutboxStore {
       claimId: null,
       lastErrorCode: null,
       updatedAt: admin.firestore.Timestamp.fromDate(now),
+      retainUntil: retentionStamp(now),
     });
   }
 
@@ -125,6 +133,22 @@ implements AnalyticsOutboxStore {
       claimId: null,
       lastErrorCode: errorCode,
       updatedAt: admin.firestore.Timestamp.fromDate(now),
+      retainUntil: retentionStamp(now),
+    });
+  }
+
+  async release(
+    claim: AnalyticsOutboxClaim,
+    now: Date
+  ): Promise<void> {
+    await this.updateClaimed(claim, {
+      status: "queued",
+      readyAt: admin.firestore.Timestamp.fromDate(now),
+      processingStartedAt: null,
+      claimId: null,
+      attemptCount: Math.max(claim.attemptCount - 1, 0),
+      updatedAt: admin.firestore.Timestamp.fromDate(now),
+      retainUntil: retentionStamp(now),
     });
   }
 
@@ -139,6 +163,7 @@ implements AnalyticsOutboxStore {
       claimId: null,
       lastErrorCode: errorCode,
       updatedAt: admin.firestore.Timestamp.fromDate(now),
+      retainUntil: retentionStamp(now),
     });
   }
 
@@ -231,6 +256,12 @@ export function serializeAnalyticsOutboxEvent(
   };
 }
 
+function retentionStamp(now: Date): admin.firestore.Timestamp {
+  return admin.firestore.Timestamp.fromMillis(
+    now.getTime() + ANALYTICS_OUTBOX_RETENTION_MS
+  );
+}
+
 function parseLifecycleAnalyticsEvent(
   value: admin.firestore.DocumentData | undefined
 ): LifecycleAnalyticsEvent | null {
@@ -249,6 +280,7 @@ function parseLifecycleAnalyticsEvent(
     !isBoundedString(value.store, 30) ||
     !isBoundedString(value.periodType, 30) ||
     !isNullableBoundedString(value.lifecycleReason, 40) ||
+    !isOptionalBoolean(value.refundAttributed) ||
     typeof value.entitlementActive !== "boolean" ||
     !isNullablePositiveInteger(value.effectiveExpirationAtMs) ||
     !isBoundedString(value.firebaseProjectId, 100) ||
@@ -272,6 +304,7 @@ function parseLifecycleAnalyticsEvent(
     store: value.store,
     periodType: value.periodType,
     lifecycleReason: value.lifecycleReason,
+    refundAttributed: value.refundAttributed === true,
     entitlementActive: value.entitlementActive,
     effectiveExpirationAtMs: value.effectiveExpirationAtMs,
     firebaseProjectId: value.firebaseProjectId,
@@ -291,6 +324,10 @@ function isAppEnvironment(
   value: unknown
 ): value is "dev" | "staging" | "production" {
   return value === "dev" || value === "staging" || value === "production";
+}
+
+function isOptionalBoolean(value: unknown): value is boolean | undefined {
+  return value === undefined || typeof value === "boolean";
 }
 
 function isBoundedString(value: unknown, max: number): value is string {

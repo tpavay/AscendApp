@@ -153,6 +153,73 @@ test("a transient Mixpanel failure requeues and later delivers", async () => {
   assert.equal(delivered.get("status"), "delivered");
   assert.equal(delivered.get("attemptCount"), 2);
   assert.equal(client.attemptCount, 2);
+  assert.equal(
+    delivered.get("retainUntil").toMillis(),
+    retryAt.getTime() + ANALYTICS_OUTBOX_RETENTION_MS
+  );
+});
+
+test("a still-retrying row cannot expire before it is delivered", async () => {
+  const event = webhookEvent("event-retention-refresh");
+  await store.claimEvent(event, "payload-digest", NOW);
+  await store.completeEvent(
+    event,
+    "payload-digest",
+    [projection(event, NOW.getTime())],
+    [analyticsEvent(event)],
+    NOW
+  );
+
+  const retryAt = new Date(NOW.getTime() + 20 * 24 * 60 * 60 * 1000);
+  await processAnalyticsOutbox({
+    store: new FirestoreAnalyticsOutboxStore(db),
+    client: new AlwaysFailingAnalyticsClient(),
+    environment: analyticsEnvironment,
+    now: () => retryAt,
+  });
+
+  const requeued = await db.collection(ANALYTICS_OUTBOX_COLLECTION)
+    .doc(analyticsEvent(event).insertId)
+    .get();
+  assert.equal(requeued.get("status"), "queued");
+  assert.equal(
+    requeued.get("retainUntil").toMillis(),
+    retryAt.getTime() + ANALYTICS_OUTBOX_RETENTION_MS
+  );
+  assert.ok(
+    requeued.get("retainUntil").toMillis() >
+      requeued.get("readyAt").toMillis()
+  );
+});
+
+test("a claim released at the run deadline is charged no delivery attempt", async () => {
+  const event = webhookEvent("event-deadline-release");
+  await store.claimEvent(event, "payload-digest", NOW);
+  await store.completeEvent(
+    event,
+    "payload-digest",
+    [projection(event, NOW.getTime())],
+    [analyticsEvent(event)],
+    NOW
+  );
+
+  const summary = await processAnalyticsOutbox({
+    store: new FirestoreAnalyticsOutboxStore(db),
+    client: new AlwaysFailingAnalyticsClient(),
+    environment: analyticsEnvironment,
+    now: () => NOW,
+    runBudgetMs: 0,
+  });
+
+  assert.equal(summary.deferredCount, 1);
+  assert.equal(summary.retriedCount, 0);
+  const released = await db.collection(ANALYTICS_OUTBOX_COLLECTION)
+    .doc(analyticsEvent(event).insertId)
+    .get();
+  assert.equal(released.get("status"), "queued");
+  assert.equal(released.get("attemptCount"), 0);
+  assert.equal(released.get("lastErrorCode"), null);
+  assert.equal(released.get("claimId"), null);
 });
 
 test("the ledger carries a future retention stamp for the TTL policy", async () => {
@@ -543,6 +610,7 @@ function analyticsEvent(
     store: "app_store",
     periodType: "normal",
     lifecycleReason: null,
+    refundAttributed: false,
     entitlementActive: true,
     effectiveExpirationAtMs: Date.parse("2027-08-05T12:00:00.000Z"),
     firebaseProjectId: "ascend-prod-9c8f2",
@@ -587,5 +655,11 @@ class FailOnceAnalyticsClient implements LifecycleAnalyticsClient {
     if (this.attemptCount === 1) {
       throw new MixpanelDeliveryError("service_unavailable", true);
     }
+  }
+}
+
+class AlwaysFailingAnalyticsClient implements LifecycleAnalyticsClient {
+  async send(): Promise<void> {
+    throw new MixpanelDeliveryError("service_unavailable", true);
   }
 }

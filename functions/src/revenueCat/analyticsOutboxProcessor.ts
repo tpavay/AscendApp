@@ -16,6 +16,12 @@ const DEFAULT_BATCH_SIZE = 25;
 const DEFAULT_RUN_BUDGET_MS = 75 * 1000;
 const INITIAL_RETRY_DELAY_MS = 60 * 1000;
 const MAX_RETRY_DELAY_MS = 60 * 60 * 1000;
+// Backoff reaches its one-hour cap by the seventh delivery attempt, so a row
+// past this has been retrying for the better part of a day. Retrying forever is
+// the contract, but doing it silently is not: a rotated Mixpanel credential
+// answers 401, which is retryable, and would otherwise stall the whole stream
+// with no error-level signal.
+const STUCK_ATTEMPT_COUNT = 10;
 
 interface AnalyticsOutboxDependencies {
   store: AnalyticsOutboxStore;
@@ -55,12 +61,7 @@ export async function processAnalyticsOutbox(
   for (const claim of claims) {
     const now = dependencies.now();
     if (now.getTime() >= deadlineMs) {
-      await dependencies.store.requeue(
-        claim,
-        now,
-        "run_deadline_reached",
-        now
-      );
+      await dependencies.store.release(claim, now);
       summary.deferredCount += 1;
       continue;
     }
@@ -96,6 +97,14 @@ export async function processAnalyticsOutbox(
           deliveryError.code,
           dependencies.now()
         );
+        if (claim.attemptCount >= STUCK_ATTEMPT_COUNT) {
+          console.error("RevenueCat analytics delivery is not converging", {
+            outboxId: claim.outboxId,
+            eventName: claim.event.eventName,
+            attemptCount: claim.attemptCount,
+            lastErrorCode: deliveryError.code,
+          });
+        }
         summary.retriedCount += 1;
       } else {
         await dependencies.store.markFailed(

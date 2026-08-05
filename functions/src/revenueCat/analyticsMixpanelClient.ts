@@ -98,6 +98,7 @@ function mixpanelEvent(event: LifecycleAnalyticsEvent): {
       "store": event.store,
       "period_type": event.periodType,
       "lifecycle_reason": event.lifecycleReason,
+      "refund_attributed": event.refundAttributed,
       "entitlement_active": event.entitlementActive,
       "effective_expiration_at_ms": event.effectiveExpirationAtMs,
       "app_environment": event.appEnvironment,
