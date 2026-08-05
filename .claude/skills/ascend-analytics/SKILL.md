@@ -38,6 +38,8 @@ Debug reports to Development `4032860`, Staging reports to Staging `4051102`, an
 `ASCEND_MIXPANEL_TOKEN` and `ASCEND_MIXPANEL_PROJECT_ID` are compile-time Xcode settings expanded through Info.plist.
 `scripts/ci/assert-mixpanel-build-settings.mjs` resolves all three configurations and rejects empty, incorrect, or duplicate destinations without printing token values.
 Archive workflows also inspect the processed app bundle with `scripts/ci/assert-mixpanel-bundle.mjs` before upload.
+`scripts/test/mixpanel-build-configuration.test.mjs` pins the same contract offline against `project.pbxproj` and `Info.plist`, holds the Mixpanel SDK import inside the three adapter files, and keeps session replay disabled.
+Replay stays off because Ascend handles health data: turning it on means masking date of birth, weight, exact location, and heart-rate values before capture.
 
 Every event and screen carries `app_environment`, `build_config`, `app_version`, and `build_number` directly in its payload through `TelemetryEnvelope`.
 The `TelemetrySink` boundary accepts only enveloped records, so a feature call site cannot omit those fields or spoof them with event parameters.
@@ -88,7 +90,7 @@ Those tests are the executable source of truth; this table is the readable one.
 ### The 21 screens, in order
 
 `screen_id` equals `step_id` on every event.
-Every event also carries `flow_id=onboarding`, `flow_version=v1`, `segment_id`, `step_index`, `step_count=21`, and `app_environment`.
+Every event also carries `flow_id=onboarding`, `flow_version=v1`, `segment_id`, `step_index`, `step_count=21`, and the four `TelemetryEnvelope` fields every event carries.
 The segment labels identify nested implementation sections and never replace the user-level flow ID.
 `step_index` is zero-based against that ordered list, so the paywall reports `step_index` 20 with `step_count` 21.
 `onboarding_flow_started` and `onboarding_screen_viewed` also carry `resume`, and `onboarding_flow_completed` carries `completion_reason`.

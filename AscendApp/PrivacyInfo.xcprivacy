@@ -315,7 +315,9 @@
           model, OS version, app/build version. Analytics is declared because the
           `paywall_skipped` reason and `paywall_error` error descriptions built in
           SuperwallPaywallPresenter use TelemetryRecord's default
-          `destinations: [.analytics]`, so they reach Firebase Analytics and Mixpanel.
+          `destinations: [.analytics]`, so they reach Firebase Analytics and Mixpanel,
+          and because TelemetryEnvelope stamps `app_environment`, `build_config`,
+          `app_version`, and `build_number` onto every analytics event and screen view.
         -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
