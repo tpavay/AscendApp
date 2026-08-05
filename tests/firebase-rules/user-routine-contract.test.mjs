@@ -7,6 +7,7 @@ import {
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing';
 import { deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore';
+import { seedActiveAppAccess } from './paid-access-fixture.mjs';
 
 const projectId = 'demo-ascendapp-routine-rules';
 const firestoreRules = readFileSync(new URL('../../firestore.rules', import.meta.url), 'utf8');
@@ -40,6 +41,9 @@ before(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore();
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await seedActiveAppAccess(adminContext, [userId, otherUserId]);
+  });
 });
 
 after(async () => {

@@ -9,6 +9,23 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    // RevenueCat is reconciled into a server-owned active-grant document.
+    // Existence deliberately replaces the old signed-in predicate instead of
+    // adding another expression: valid workouts already consume Firestore's
+    // 1000-expression evaluation ceiling.
+    function hasPaidAppAccess() {
+      return exists(
+        /databases/$(database)/documents/users/$(request.auth.uid)/entitlements/app_access
+      );
+    }
+
+    function isPaidOwner(userId) {
+      return request.auth.uid == userId &&
+        exists(
+          /databases/$(database)/documents/users/$(request.auth.uid)/entitlements/app_access
+        );
+    }
+
     function isNonNegativeNumber(value) {
       return (value is int || value is float) && value >= 0;
     }
@@ -1354,16 +1371,26 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // Paid access is a server-owned RevenueCat projection. Clients cannot
+      // read or forge the timestamp that the rules evaluate.
+      match /entitlements/{entitlementId} {
+        allow read, write: if false;
+      }
+
+      match /entitlement_status/{entitlementId} {
+        allow read, write: if false;
+      }
+
       match /workouts/{workoutId} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId) &&
+        allow read: if isPaidOwner(userId);
+        allow create: if isPaidOwner(userId) &&
           isValidWorkoutDocument(userId, workoutId);
         // The stored schema version may only move forward. Equality would make
         // every stored document un-updatable the day the number is bumped, since
         // an updated client always emits the new number. Writes are whole-document
         // `setData`, so allowing it to move backward would instead let an older
         // build drop the fields a newer schema added.
-        allow update: if isOwner(userId) &&
+        allow update: if isPaidOwner(userId) &&
           isValidWorkoutDocument(userId, workoutId) &&
           request.resource.data.userId == resource.data.userId &&
           request.resource.data.schemaVersion >= resource.data.schemaVersion &&
@@ -1377,14 +1404,14 @@ service cloud.firestore {
       // away from the top-level `routine_templates`, which is server-owned
       // published content and must stay read-only to every client.
       match /routines/{routineId} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId) &&
+        allow read: if isPaidOwner(userId);
+        allow create: if isPaidOwner(userId) &&
           isValidUserRoutineDocument(userId, routineId);
         // Same forward-only schema version rule as workouts, and for the same
         // reason: writes are whole-document `setData`, so letting the stored
         // version move backward would let an older build drop the fields a
         // newer schema added.
-        allow update: if isOwner(userId) &&
+        allow update: if isPaidOwner(userId) &&
           isValidUserRoutineDocument(userId, routineId) &&
           request.resource.data.userId == resource.data.userId &&
           request.resource.data.schemaVersion >= resource.data.schemaVersion &&
@@ -1393,10 +1420,10 @@ service cloud.firestore {
       }
 
       match /routine_folders/{folderId} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId) &&
+        allow read: if isPaidOwner(userId);
+        allow create: if isPaidOwner(userId) &&
           isValidRoutineFolderDocument(userId, folderId);
-        allow update: if isOwner(userId) &&
+        allow update: if isPaidOwner(userId) &&
           isValidRoutineFolderDocument(userId, folderId) &&
           request.resource.data.userId == resource.data.userId &&
           request.resource.data.schemaVersion >= resource.data.schemaVersion &&
@@ -1405,7 +1432,7 @@ service cloud.firestore {
       }
 
       match /liveClimbPublishStatuses/{workoutId} {
-        allow read: if isOwner(userId);
+        allow read: if isPaidOwner(userId);
         allow write: if false;
       }
 
@@ -1415,7 +1442,7 @@ service cloud.firestore {
       // ever read their own. Same "client reads its own, only the server
       // writer writes" shape as achievements / liveClimbPublishStatuses.
       match /landmarkResults/{landmarkId} {
-        allow read: if isOwner(userId);
+        allow read: if isPaidOwner(userId);
         allow write: if false;
       }
 
@@ -1433,23 +1460,23 @@ service cloud.firestore {
       }
 
       match /profile_stats/{docId} {
-        allow read: if isSignedIn() && docId == "current";
-        allow create, update: if isOwner(userId) &&
+        allow read: if hasPaidAppAccess() && docId == "current";
+        allow create, update: if isPaidOwner(userId) &&
           docId == "current" &&
           isValidProfileStatsDocument();
         allow delete: if isOwner(userId) && docId == "current";
       }
 
       match /profile_workouts/{workoutId} {
-        allow read: if isSignedIn();
-        allow create, update: if isOwner(userId) &&
+        allow read: if hasPaidAppAccess();
+        allow create, update: if isPaidOwner(userId) &&
           isCanonicalWorkoutId(workoutId) &&
           isValidProfileWorkoutSummary();
         allow delete: if isOwner(userId);
       }
 
       match /achievements/{achievementId} {
-        allow read: if isSignedIn();
+        allow read: if hasPaidAppAccess();
         allow write: if false;
       }
 
@@ -1470,9 +1497,9 @@ service cloud.firestore {
     // reach this collection: the totals here are what the nightly finalizer
     // freezes into permanent achievements, and validating a client-authored
     // aggregate's shape is not validating its evidence (issue #307). Reads stay
-    // open to every signed-in climber - the board is the conversation.
+    // open to every paid climber - the board is the conversation.
     match /leaderboard_stats/{docId} {
-      allow read: if isSignedIn();
+      allow read: if hasPaidAppAccess();
       allow write: if false;
     }
 
@@ -1483,7 +1510,7 @@ service cloud.firestore {
     // Remote routine templates are content-managed and server-owned.
     // Clients can only read published templates.
     match /routine_templates/{templateId} {
-      allow read: if isSignedIn() &&
+      allow read: if hasPaidAppAccess() &&
         resource.data.status == "published";
       allow write: if false;
     }
@@ -1491,33 +1518,33 @@ service cloud.firestore {
     // Time-aligned replay leaderboard indexes are server-published from saved attempts.
     // Clients only read tiny window buckets during live sessions.
     match /live_replay_leaderboards/{contextKey} {
-      allow read: if isSignedIn();
+      allow read: if hasPaidAppAccess();
       allow write: if false;
 
       match /splitBuckets/{bucketId} {
-        allow read: if isSignedIn();
+        allow read: if hasPaidAppAccess();
         allow write: if false;
 
         match /entries/{entryId} {
-          allow read: if isSignedIn();
+          allow read: if hasPaidAppAccess();
           allow write: if false;
         }
       }
 
       match /finishers/{userId} {
-        allow read: if isSignedIn();
+        allow read: if hasPaidAppAccess();
         allow write: if false;
       }
 
       match /completionSnapshots/{workoutId} {
-        allow read: if isSignedIn();
+        allow read: if hasPaidAppAccess();
         allow write: if false;
       }
     }
 
     // Global Live Climb community stats are server-owned aggregates.
     match /live_climb_community_stats/{docId} {
-      allow read: if isSignedIn() && docId == "global";
+      allow read: if hasPaidAppAccess() && docId == "global";
       allow write: if false;
 
       // Per-user dedupe markers are server-only and are not client-readable.
@@ -1553,9 +1580,9 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Remote share-card template manifest is read-only for authenticated users.
+    // Remote share-card template manifest is read-only for paid users.
     match /config/{docId} {
-      allow read: if isSignedIn() && docId == "shareCardTemplates";
+      allow read: if hasPaidAppAccess() && docId == "shareCardTemplates";
       allow write: if false;
     }
 
@@ -1570,6 +1597,10 @@ service cloud.firestore {
       match /kinds/{kind} {
         allow read, write: if false;
       }
+    }
+
+    match /_revenuecat_webhook_events/{eventId} {
+      allow read, write: if false;
     }
 
   }

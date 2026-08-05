@@ -8,6 +8,7 @@ import {
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing';
 import { deleteField, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { seedActiveAppAccess } from './paid-access-fixture.mjs';
 
 // Test files run concurrently against one emulator, and `clearFirestore()` wipes a whole
 // project. Own project id = this suite's seeded documents survive the other suite's reset.
@@ -32,6 +33,9 @@ before(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore();
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await seedActiveAppAccess(adminContext, [userId]);
+  });
 });
 
 after(async () => {

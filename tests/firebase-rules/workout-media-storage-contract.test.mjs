@@ -6,6 +6,7 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing';
+import { seedActiveAppAccess } from './paid-access-fixture.mjs';
 import {
   deleteObject,
   getBytes,
@@ -15,7 +16,8 @@ import {
   uploadBytes,
 } from 'firebase/storage';
 
-const projectId = 'demo-ascendapp-rules-storage-media';
+const projectId = 'demo-ascendapp-rules';
+const firestoreRules = readFileSync(new URL('../../firestore.rules', import.meta.url), 'utf8');
 const storageRules = readFileSync(new URL('../../storage.rules', import.meta.url), 'utf8');
 
 const ownerId = 'owner-123';
@@ -36,6 +38,11 @@ let testEnv;
 before(async () => {
   testEnv = await initializeTestEnvironment({
     projectId,
+    firestore: {
+      rules: firestoreRules,
+      host: '127.0.0.1',
+      port: 8080,
+    },
     storage: {
       rules: storageRules,
       host: '127.0.0.1',
@@ -45,8 +52,10 @@ before(async () => {
 });
 
 beforeEach(async () => {
+  await testEnv.clearFirestore();
   await testEnv.clearStorage();
   await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await seedActiveAppAccess(adminContext, [ownerId, intruderId]);
     const storage = adminContext.storage();
     await uploadBytes(ref(storage, legacyPhotoPath), jpegBytes, { contentType: 'image/jpeg' });
     await uploadBytes(ref(storage, legacyVideoPath), mp4Bytes, { contentType: 'video/quicktime' });
