@@ -15,6 +15,16 @@ import SwiftUI
 /// Owning the state here keeps the observation and the presentation cache inside a subtree that is
 /// cheap to rebuild, and leaves the screen's expensive derivation rebuilding exactly as often as it
 /// did before the row existed.
+///
+/// One invariant holds this together and is not obvious. `presentation` starts `.hidden`, and a
+/// hidden `WorkoutSyncStatusRow` renders nothing - it has to, because only a genuinely empty body
+/// is elided from the detail screen's `spacing: 24` stack, and a zero-size placeholder would leave
+/// a phantom gap on every climb that synced cleanly. So the lifecycle below hangs off a view that
+/// is drawing nothing at the moment it must first run. That works because the modifiers attach to
+/// `WorkoutSyncStatusRow` itself, a concrete view whose node exists whatever its body resolves to -
+/// unlike a bare `if` or an `EmptyView`, which produce no node and would swallow `.task`.
+/// `WorkoutSyncStatusSectionHostingTests` mounts this on a live window and drives the
+/// hidden-to-warning transition, so that distinction is verified rather than assumed.
 struct WorkoutSyncStatusSection: View {
     let workout: Workout
     let effectiveColorScheme: ColorScheme
