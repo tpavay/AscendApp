@@ -35,6 +35,7 @@ struct WorkoutDetailView: View {
     @State private var showingLiveClimbSummaryPreview = false
     @State private var copyConfirmationText: String?
     @State private var isFetchingAppleHealthHeartRate = false
+    @State private var syncPresentation: WorkoutSyncPresentation = .hidden
     @State private var appleHealthHeartRateMessage: String?
     @State private var appleHealthHeartRateStatus = WorkoutImportCoordinator.AppleHealthEnrichmentStatus.notPending
 
@@ -147,8 +148,12 @@ struct WorkoutDetailView: View {
             }
         }
         .task(id: workout.id) {
+            refreshSyncPresentation()
             refreshAppleHealthHeartRateStatus()
             await retryAppleHealthEnrichmentIfNeeded()
+        }
+        .onChange(of: workout.remoteSyncStatusRawValue) { _, _ in
+            refreshSyncPresentation()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             appleHealthRetryTask?.cancel()
@@ -340,6 +345,16 @@ struct WorkoutDetailView: View {
     /// Content sections after the title (shared between both layouts)
     private func workoutContentSectionsWithoutTitle(_ derived: WorkoutDetailDerivedContent) -> some View {
         Group {
+            // Above the stats on purpose. Whether this climb reached the climber's account is not
+            // a footnote about the session - it is whether the session exists anywhere but here.
+            if syncPresentation != .hidden {
+                WorkoutSyncStatusRow(
+                    presentation: syncPresentation,
+                    effectiveColorScheme: effectiveColorScheme,
+                    onRetry: retrySyncNow
+                )
+            }
+
             // Notes (blockquote style)
             if !workout.notes.isEmpty {
                 NotesBlockquote(
@@ -935,6 +950,41 @@ struct WorkoutDetailView: View {
                 appleHealthHeartRateMessage = "No matching heart-rate samples found yet. Try again after Apple Watch finishes syncing."
                 HapticsManager.shared.trigger(.warning)
             }
+        }
+    }
+
+    /// Recomputes what the row says from the one question that matters: is this climb in the cloud.
+    ///
+    /// Held in `@State` only as a render cache - the coordinator owns the in-flight and
+    /// climber-asked latches, so navigating away and back cannot lose them or contradict them.
+    private func refreshSyncPresentation() {
+        syncPresentation = WorkoutSyncCoordinator.shared.syncPresentation(
+            for: workout,
+            modelContext: modelContext
+        )
+    }
+
+    /// One tap, one attempt, unlimited. The control locks for the whole operation and comes back
+    /// live on failure; the row keeps saying `Couldn't sync this climb` throughout.
+    private func retrySyncNow() {
+        guard let userId = workout.ownerUserId ?? authVM.user?.uid else { return }
+
+        Task { @MainActor in
+            // The tap itself is the request, so the control locks immediately rather than waiting
+            // for the pass to reach this workout.
+            syncPresentation = .couldNotSyncRetrying
+
+            await WorkoutSyncCoordinator.shared.retryNow(
+                workoutId: workout.id,
+                modelContext: modelContext,
+                currentUserId: userId
+            )
+
+            refreshSyncPresentation()
+            // The acknowledgement that a retry ran and failed is the haptic plus the control
+            // returning from SYNCING to TRY AGAIN. The row deliberately does not change, so it can
+            // never read as a fresh problem or as success.
+            HapticsManager.shared.trigger(workout.isSyncedToCloud ? .success : .warning)
         }
     }
 

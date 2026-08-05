@@ -25,6 +25,9 @@ struct WorkoutListView: View {
     @State private var showingDeleteError = false
     @State private var deleteErrorMessage = ""
     @State private var isDeleting = false
+    /// Which climbs the climber is meant to know about, resolved once per refresh rather than in
+    /// the render path.
+    @State private var couldNotSyncWorkoutIds: Set<UUID> = []
     @State private var isCancelling = false
     @State private var deleteTask: Task<Void, Never>? = nil
 
@@ -102,7 +105,8 @@ struct WorkoutListView: View {
                         isInDeleteMode: isInDeleteMode,
                         effectiveColorScheme: effectiveColorScheme,
                         selectedWorkouts: selectedWorkouts,
-                        toggleSelection: toggleWorkoutSelection
+                        toggleSelection: toggleWorkoutSelection,
+                        couldNotSyncWorkoutIds: couldNotSyncWorkoutIds
                     )
                 }
             }
@@ -170,7 +174,20 @@ struct WorkoutListView: View {
             }
             .task {
                 importCoordinator.configure(modelContext: modelContext)
+                refreshCouldNotSyncWorkoutIds()
             }
+    }
+
+    /// Bounded by construction: only workouts that are not in the cloud are asked about, and a
+    /// climb still working through its quiet automatic series is deliberately not counted.
+    private func refreshCouldNotSyncWorkoutIds() {
+        let coordinator = WorkoutSyncCoordinator.shared
+        couldNotSyncWorkoutIds = Set(
+            workouts
+                .filter { !$0.isSyncedToCloud }
+                .filter { coordinator.syncPresentation(for: $0, modelContext: modelContext).isWarning }
+                .map(\.id)
+        )
     }
 
     private var areAllWorkoutsSelected: Bool {

@@ -10,7 +10,7 @@ final class WorkoutSyncCoordinator {
     private let heartRateStorageRepository: any WorkoutHeartRateStorageRepositoryProtocol
     private let featureFlags: RemoteFeatureFlagStore
     private let operationTimeoutSeconds: Double
-    private let connectivityService: NetworkConnectivityService
+    private let connectivityService: any WorkoutSyncConnectivityProviding
     private let now: () -> Date
     private var isProcessingPendingWorkouts = false
     private var shouldProcessPendingWorkoutsAgain = false
@@ -33,7 +33,7 @@ final class WorkoutSyncCoordinator {
         heartRateStorageRepository: any WorkoutHeartRateStorageRepositoryProtocol = WorkoutHeartRateStorageRepository.shared,
         featureFlags: RemoteFeatureFlagStore = .shared,
         operationTimeoutSeconds: Double = 15.0,
-        connectivityService: NetworkConnectivityService = .shared,
+        connectivityService: any WorkoutSyncConnectivityProviding = NetworkConnectivityService.shared,
         now: @escaping () -> Date = Date.init
     ) {
         self.remoteRepository = remoteRepository
@@ -84,7 +84,14 @@ final class WorkoutSyncCoordinator {
             modelContext: modelContext
         )
 
+        // Once a climber has been told, the surface stays loud until the climb actually lands.
+        //
+        // Without this latch a refused manual retry re-derives the status from the automatic
+        // series, drops `rejected` back to `failed`, and - if the quiet window has not elapsed -
+        // the warning silently becomes `Syncing`. That is the disappearing-warning defect arriving
+        // through a different door, and it reads as success.
         let needsAttention = workout.remoteSyncStatus == .rejected ||
+            warnedWorkoutIds.contains(workout.id) ||
             (entry?.requiresAttention(now: now()) ?? false)
         guard needsAttention else { return .syncing }
 
