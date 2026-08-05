@@ -101,7 +101,7 @@ struct AccountView: View {
         .alert(item: $restorePurchases.result) { result in
             Alert(
                 title: Text(result.title),
-                message: Text(result.message),
+                message: result.message.map { Text($0) },
                 dismissButton: .default(Text("Done"))
             )
         }

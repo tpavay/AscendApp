@@ -28,8 +28,18 @@ struct AppAccessRestoreStateTests {
         #expect(AppAccessRestoreState.idle.buttonTitle(isRevenueCatConfigured: true) == "Restore Purchases")
         #expect(AppAccessRestoreState.restoring.buttonTitle(isRevenueCatConfigured: true) == "Restoring...")
         #expect(AppAccessRestoreState.restored.buttonTitle(isRevenueCatConfigured: true) == "Restored")
-        #expect(AppAccessRestoreState.noPurchasesFound.buttonTitle(isRevenueCatConfigured: true) == "Nothing to Restore")
         #expect(AppAccessRestoreState.failed.buttonTitle(isRevenueCatConfigured: true) == "Restore Failed")
+    }
+
+    /// A conclusive negative leaves the control on its ordinary action label so the climber can
+    /// simply press it again - the result is carried by the status line, not by a renamed button.
+    @Test
+    func aConclusiveNegativeLeavesTheRestoreControlOnItsActionLabel() {
+        #expect(
+            AppAccessRestoreState.noPurchasesFound.buttonTitle(isRevenueCatConfigured: true)
+                == AppAccessRestoreState.idle.buttonTitle(isRevenueCatConfigured: true)
+        )
+        #expect(AppAccessRestoreState.noPurchasesFound.isButtonEnabled(isRevenueCatConfigured: true))
     }
 
     /// A restore that resolved nothing says so; one that resolved nothing *conclusively* is the

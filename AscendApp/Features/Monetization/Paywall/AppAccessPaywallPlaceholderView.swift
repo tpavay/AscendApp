@@ -5,10 +5,14 @@ struct AppAccessPaywallPlaceholderView: View {
 
     @State private var hasAttemptedAutomaticPresentation = false
     @State private var presentationState: AppAccessPaywallPresentationState
-    @State private var restoreState = AppAccessRestoreState.idle
+    @State private var restoreState: AppAccessRestoreState
 
-    init(initialPresentationState: AppAccessPaywallPresentationState = .presenting) {
+    init(
+        initialPresentationState: AppAccessPaywallPresentationState = .presenting,
+        initialRestoreState: AppAccessRestoreState = .idle
+    ) {
         _presentationState = State(initialValue: initialPresentationState)
+        _restoreState = State(initialValue: initialRestoreState)
     }
 
     var body: some View {

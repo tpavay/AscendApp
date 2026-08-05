@@ -26,7 +26,7 @@ struct RestorePurchasesViewModelTests {
         #expect(restorer.restoreCount == 1)
         #expect(viewModel.isRestoring == false)
         #expect(viewModel.result?.title == "Restore Failed")
-        #expect(viewModel.result?.message.contains("try again") == true)
+        #expect(viewModel.result?.message?.contains("try again") == true)
     }
 
     @Test

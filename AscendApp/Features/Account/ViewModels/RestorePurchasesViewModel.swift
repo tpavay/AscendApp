@@ -16,18 +16,20 @@ final class RestorePurchasesViewModel {
             case .restored:
                 return "Restore Complete"
             case .noPurchasesFound:
-                return "Nothing to Restore"
+                // The conclusive negative is stated once, verbatim, and carries no second line -
+                // a paraphrased heading above it would be a second way of saying the same thing.
+                return "No purchases found to restore."
             case .failed:
                 return "Restore Failed"
             }
         }
 
-        var message: String {
+        var message: String? {
             switch self {
             case .restored:
                 return "Ascend checked your App Store purchases and updated your access."
             case .noPurchasesFound:
-                return "No purchases found to restore."
+                return nil
             case .failed:
                 return "Ascend couldn't restore your purchases. Check your connection and try again."
             }

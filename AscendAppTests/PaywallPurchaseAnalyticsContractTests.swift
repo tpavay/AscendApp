@@ -409,7 +409,7 @@ struct PaywallPurchaseAnalyticsContractTests {
     func theAccountRestoreEntryPointEmitsExactlyOneTerminalPerOutcome() async {
         let expectations: [(MonetizationEntitlementState, String, String)] = [
             (.active([Self.entitlementID]), "revenuecat_restore_completed", "Restore Complete"),
-            (.inactive, "revenuecat_restore_not_found", "Nothing to Restore"),
+            (.inactive, "revenuecat_restore_not_found", "No purchases found to restore."),
             (.unknown, "revenuecat_restore_failed", "Restore Failed")
         ]
 
@@ -428,6 +428,8 @@ struct PaywallPurchaseAnalyticsContractTests {
         }
     }
 
+    /// The only sentence the climber is shown is the contract's, verbatim and exactly once - the
+    /// alert carries no paraphrased heading above it.
     @Test
     func theAccountRestoreShowsTheExactNoPurchasesCopy() async {
         let harness = Self.makeRestoreHarness(restoredState: .inactive)
@@ -435,7 +437,29 @@ struct PaywallPurchaseAnalyticsContractTests {
 
         await viewModel.restorePurchases()
 
-        #expect(viewModel.result?.message == "No purchases found to restore.")
+        #expect(viewModel.result == .noPurchasesFound)
+        #expect(viewModel.result?.title == Self.noPurchasesCopy)
+        #expect(viewModel.result?.message == nil)
+    }
+
+    /// An unresolved restore never borrows the conclusive negative's event, result, or wording: it
+    /// says the operation failed and asks for a retry, and claims nothing about what the climber owns.
+    @Test
+    func theAccountRestoreKeepsFailureGenericAndDistinctFromTheConclusiveNegative() async {
+        let harness = Self.makeRestoreHarness(restoredState: .unknown)
+        let viewModel = RestorePurchasesViewModel(restoreService: harness.service)
+
+        await viewModel.restorePurchases()
+
+        #expect(viewModel.result == .failed)
+        #expect(viewModel.result != .noPurchasesFound)
+        #expect(viewModel.result?.title == "Restore Failed")
+        #expect(
+            viewModel.result?.message
+                == "Ascend couldn't restore your purchases. Check your connection and try again."
+        )
+        Self.expectClaimsNothingAboutOwnership(viewModel.result?.title)
+        Self.expectClaimsNothingAboutOwnership(viewModel.result?.message)
     }
 
     @Test
@@ -462,7 +486,62 @@ struct PaywallPurchaseAnalyticsContractTests {
 
     @Test
     func theAppAccessGateShowsTheExactNoPurchasesCopy() {
-        #expect(AppAccessRestoreState.noPurchasesFound.statusMessage == "No purchases found to restore.")
+        #expect(AppAccessRestoreState.noPurchasesFound.statusMessage == Self.noPurchasesCopy)
+        // The conclusive negative reads as a finished operation the climber may simply repeat.
+        #expect(
+            AppAccessRestoreState.noPurchasesFound.buttonTitle(isRevenueCatConfigured: true)
+                == AppAccessRestoreState.idle.buttonTitle(isRevenueCatConfigured: true)
+        )
+    }
+
+    @Test
+    func theAppAccessGateKeepsFailureGenericAndDistinctFromTheConclusiveNegative() {
+        #expect(AppAccessRestoreState.failed != .noPurchasesFound)
+        #expect(
+            AppAccessRestoreState.failed.statusMessage
+                == "Ascend couldn't restore your purchases. Check your connection and try again."
+        )
+        #expect(AppAccessRestoreState.failed.buttonTitle(isRevenueCatConfigured: true) == "Restore Failed")
+        Self.expectClaimsNothingAboutOwnership(AppAccessRestoreState.failed.statusMessage)
+        Self.expectClaimsNothingAboutOwnership(
+            AppAccessRestoreState.failed.buttonTitle(isRevenueCatConfigured: true)
+        )
+    }
+
+    /// Every climber-visible sentence for a conclusive negative, across every restore surface, is
+    /// the one contract sentence. A paraphrase anywhere is what this test exists to catch.
+    @Test
+    func noRestoreSurfaceParaphrasesTheConclusiveNegative() {
+        let visibleNoPurchasesCopy = [
+            AppAccessRestoreState.noPurchasesFound.statusMessage,
+            RestorePurchasesViewModel.Result.noPurchasesFound.title,
+            RestorePurchasesViewModel.Result.noPurchasesFound.message,
+            RevenueCatPurchaseControllerError.noPurchasesFound.errorDescription
+        ].compactMap { $0 }
+
+        #expect(Set(visibleNoPurchasesCopy) == [Self.noPurchasesCopy])
+    }
+
+    private static let noPurchasesCopy = "No purchases found to restore."
+
+    /// Failure copy is about the operation, never about what the climber owns - an unresolved
+    /// restore is not evidence of a lapsed or absent subscription.
+    private static func expectClaimsNothingAboutOwnership(
+        _ copy: String?,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        guard let copy else {
+            Issue.record("Expected visible failure copy", sourceLocation: sourceLocation)
+            return
+        }
+        #expect(copy != noPurchasesCopy, sourceLocation: sourceLocation)
+        for ownershipClaim in ["no purchases", "nothing to restore", "no subscription", "not subscribed"] {
+            #expect(
+                !copy.localizedStandardContains(ownershipClaim),
+                "Failure copy must not imply what the climber owns: \(copy)",
+                sourceLocation: sourceLocation
+            )
+        }
     }
 }
 

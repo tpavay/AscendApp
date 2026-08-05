@@ -1,6 +1,6 @@
 import Foundation
 
-enum AppAccessRestoreState: Equatable, Sendable {
+enum AppAccessRestoreState: CaseIterable, Equatable, Sendable {
     case idle
     case restoring
     case restored
@@ -29,7 +29,9 @@ enum AppAccessRestoreState: Equatable, Sendable {
         case .restored:
             return "Restored"
         case .noPurchasesFound:
-            return "Nothing to Restore"
+            // A conclusive negative is a finished operation, not a new label: the control keeps its
+            // ordinary action name so the one found-nothing sentence lives in `statusMessage` alone.
+            return "Restore Purchases"
         case .failed:
             return "Restore Failed"
         }
