@@ -67,6 +67,9 @@ struct ProfileBirthdayEditorView: View {
         .navigationTitle("Birthday")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+        .onAppear {
+            authVM.errorMessage = nil
+        }
     }
 
     private var allowedRange: ClosedRange<Date> {

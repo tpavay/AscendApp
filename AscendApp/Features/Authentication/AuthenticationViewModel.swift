@@ -557,18 +557,12 @@ extension AuthenticationViewModel {
 
         let normalizedFirstName = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedLastName = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalizedFirstName.count <= 80, normalizedLastName.count <= 80 else {
-            errorMessage = "Names must be 80 characters or fewer"
-            return false
-        }
-
         let previousDisplayName = displayName
 
         do {
-            let composedDisplayName = try DisplayNamePolicy.validated(
-                [normalizedFirstName, normalizedLastName]
-                    .filter { !$0.isEmpty }
-                    .joined(separator: " ")
+            let composedDisplayName = try DisplayNamePolicy.composedBoardName(
+                firstName: normalizedFirstName,
+                lastName: normalizedLastName
             )
             displayName = composedDisplayName
 

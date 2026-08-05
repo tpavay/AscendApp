@@ -86,6 +86,9 @@ struct ProfileGenderEditorView: View {
         .navigationTitle("Gender")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+        .onAppear {
+            authVM.errorMessage = nil
+        }
     }
 
     private func save() {

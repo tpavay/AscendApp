@@ -112,6 +112,9 @@ struct SettingsReorganizationContractTests {
         #expect(flow.contains("private struct PostAuthBirthdayScreen"))
         #expect(flow.contains("headline: \"When were you born?\""))
         #expect(flow.contains("DatePicker("))
+        // `pickerStyle` configures `Picker`, not `DatePicker`: applying it here
+        // silently leaves the compact field inside chrome sized for a wheel.
+        #expect(flow.contains(".datePickerStyle(.wheel)"))
         #expect(flow.contains("updateOnboardingBirthday"))
         #expect(!flow.contains("PostAuthAgeWheelPicker"))
         #expect(stage.contains("case age"))

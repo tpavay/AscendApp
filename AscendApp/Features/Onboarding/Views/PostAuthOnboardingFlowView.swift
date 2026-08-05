@@ -1752,7 +1752,7 @@ private struct PostAuthBirthdayWheelPicker: View {
                 in: allowedRange,
                 displayedComponents: .date
             )
-            .pickerStyle(.wheel)
+            .datePickerStyle(.wheel)
             .labelsHidden()
             .frame(width: metrics.width(320), height: metrics.height(200))
             .clipped()

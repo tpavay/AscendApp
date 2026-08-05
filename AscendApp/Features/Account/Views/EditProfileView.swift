@@ -12,6 +12,7 @@ struct EditProfileView: View {
     @State private var isUploadingPhoto = false
     @State private var imageForCropping: UIImage?
     @State private var showingCropView = false
+    @State private var errorMessage: String?
 
     var body: some View {
         ScrollView {
@@ -58,10 +59,10 @@ struct EditProfileView: View {
         }
         .alert("Error", isPresented: errorAlertBinding) {
             Button("OK") {
-                authVM.errorMessage = nil
+                errorMessage = nil
             }
         } message: {
-            Text(authVM.errorMessage ?? "Try again.")
+            Text(errorMessage ?? "Try again.")
         }
         .onAppear {
             Task {
@@ -249,17 +250,7 @@ struct EditProfileView: View {
 
     private var formattedHeight: String {
         guard let heightCm = profileData?.heightCm, heightCm > 0 else { return "Not set" }
-
-        switch settingsManager.measurementSystem {
-        case .imperial:
-            let totalInches = max(
-                Int(MeasurementSystem.metric.convertHeight(heightCm, to: .imperial).rounded()),
-                0
-            )
-            return "\(totalInches / 12) ft \(totalInches % 12) in"
-        case .metric:
-            return "\(Int(heightCm.rounded())) cm"
-        }
+        return settingsManager.measurementSystem.formatHeightCentimeters(heightCm)
     }
 
     private var formattedWeight: String {
@@ -281,10 +272,10 @@ struct EditProfileView: View {
 
     private var errorAlertBinding: Binding<Bool> {
         Binding(
-            get: { authVM.errorMessage != nil },
+            get: { errorMessage != nil },
             set: { isPresented in
                 if !isPresented {
-                    authVM.errorMessage = nil
+                    errorMessage = nil
                 }
             }
         )
@@ -307,7 +298,7 @@ struct EditProfileView: View {
         do {
             profileData = try await UserDataRepository.shared.getUserFromFirestore(userId: userID)
         } catch {
-            authVM.errorMessage = "Failed to load profile: \(error.localizedDescription)"
+            errorMessage = "Failed to load profile: \(error.localizedDescription)"
         }
         isLoadingProfile = false
     }
@@ -315,7 +306,7 @@ struct EditProfileView: View {
     private func loadImageForCropping(_ item: PhotosPickerItem) async {
         guard let data = try? await item.loadTransferable(type: Data.self),
               let image = UIImage(data: data) else {
-            authVM.errorMessage = "Failed to load image"
+            errorMessage = "Failed to load image"
             selectedPhotoItem = nil
             return
         }
@@ -330,11 +321,15 @@ struct EditProfileView: View {
         defer { isUploadingPhoto = false }
 
         guard let imageData = image.jpegData(compressionQuality: 0.8) else {
-            authVM.errorMessage = "Failed to process image"
+            errorMessage = "Failed to process image"
             return
         }
 
         await authVM.updateProfilePictureWithData(imageData: imageData)
+        if let failure = authVM.errorMessage {
+            authVM.errorMessage = nil
+            errorMessage = failure
+        }
     }
 }
 

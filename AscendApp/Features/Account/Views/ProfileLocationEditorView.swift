@@ -127,6 +127,7 @@ struct ProfileLocationEditorView: View {
             isSearchFocused = false
         }
         .onAppear {
+            authVM.errorMessage = nil
             if citySearch.query.isEmpty, let selectedLocation {
                 citySearch.setSelectedLocation(selectedLocation)
             }

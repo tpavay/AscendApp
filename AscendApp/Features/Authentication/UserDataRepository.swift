@@ -362,10 +362,9 @@ final class UserDataRepository: Sendable {
         firstName: String,
         lastName: String
     ) async throws {
-        let displayName = try DisplayNamePolicy.validated(
-            [firstName, lastName]
-                .filter { !$0.isEmpty }
-                .joined(separator: " ")
+        let displayName = try DisplayNamePolicy.composedBoardName(
+            firstName: firstName,
+            lastName: lastName
         )
         try await updateUserAndPublicProfile(
             userId: userId,
