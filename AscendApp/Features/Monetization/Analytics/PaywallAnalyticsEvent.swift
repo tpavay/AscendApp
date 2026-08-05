@@ -50,6 +50,11 @@ struct PaywallAnalyticsContext: Sendable, Hashable {
 }
 
 enum PaywallAnalyticsEvent: TelemetryEvent {
+    enum RestoreFailureOutcome: String, Sendable {
+        case failed
+        case noEntitlement = "no_entitlement"
+    }
+
     case shown(context: PaywallAnalyticsContext)
     case dismissed(context: PaywallAnalyticsContext)
     case transactionStarted(context: PaywallAnalyticsContext, productID: String)
@@ -57,8 +62,18 @@ enum PaywallAnalyticsEvent: TelemetryEvent {
     case transactionFailed(context: PaywallAnalyticsContext, errorType: String, productID: String?)
     case transactionAbandoned(context: PaywallAnalyticsContext, productID: String)
     case restoreCompleted(context: PaywallAnalyticsContext, restoreType: String)
-    case purchaseControllerCompleted(productID: String, outcome: String)
-    case restoreControllerCompleted(outcome: String)
+    case revenueCatPurchaseStarted(productID: String, placement: String, presentationID: String?)
+    case revenueCatPurchaseCompleted(productID: String, entitlementID: String)
+    case revenueCatPurchaseCancelled(productID: String)
+    case revenueCatPurchasePending(productID: String)
+    case revenueCatPurchaseFailed(productID: String, errorType: RevenueCatAnalyticsErrorType)
+    case revenueCatRestoreStarted
+    case revenueCatRestoreCompleted(entitlementID: String)
+    case revenueCatRestoreFailed(
+        outcome: RestoreFailureOutcome,
+        entitlementID: String,
+        errorType: RevenueCatAnalyticsErrorType
+    )
 
     var record: TelemetryRecord {
         switch self {
@@ -122,19 +137,80 @@ enum PaywallAnalyticsEvent: TelemetryEvent {
                 parameters: parameters
             )
 
-        case .purchaseControllerCompleted(let productID, let outcome):
+        case .revenueCatPurchaseStarted(let productID, let placement, let presentationID):
+            var parameters: [String: TelemetryValue] = [
+                "product_id": .string(productID),
+                "placement": .string(placement)
+            ]
+            if let presentationID {
+                parameters["presentation_id"] = .string(presentationID)
+            }
+            return TelemetryRecord(
+                name: "revenuecat_purchase_started",
+                parameters: parameters
+            )
+
+        case .revenueCatPurchaseCompleted(let productID, let entitlementID):
             return TelemetryRecord(
                 name: "revenuecat_purchase_completed",
                 parameters: [
                     "product_id": .string(productID),
-                    "outcome": .string(outcome)
+                    "outcome": .string("success"),
+                    "entitlement_id": .string(entitlementID),
+                    "entitlement_active": .bool(true)
                 ]
             )
 
-        case .restoreControllerCompleted(let outcome):
+        case .revenueCatPurchaseCancelled(let productID):
+            return TelemetryRecord(
+                name: "revenuecat_purchase_cancelled",
+                parameters: [
+                    "product_id": .string(productID),
+                    "outcome": .string("user_cancelled")
+                ]
+            )
+
+        case .revenueCatPurchasePending(let productID):
+            return TelemetryRecord(
+                name: "revenuecat_purchase_pending",
+                parameters: [
+                    "product_id": .string(productID),
+                    "outcome": .string("pending")
+                ]
+            )
+
+        case .revenueCatPurchaseFailed(let productID, let errorType):
+            return TelemetryRecord(
+                name: "revenuecat_purchase_failed",
+                parameters: [
+                    "product_id": .string(productID),
+                    "outcome": .string("failed"),
+                    "error_type": .string(errorType.rawValue)
+                ]
+            )
+
+        case .revenueCatRestoreStarted:
+            return TelemetryRecord(name: "revenuecat_restore_started")
+
+        case .revenueCatRestoreCompleted(let entitlementID):
             return TelemetryRecord(
                 name: "revenuecat_restore_completed",
-                parameters: ["outcome": .string(outcome)]
+                parameters: [
+                    "outcome": .string("success"),
+                    "entitlement_id": .string(entitlementID),
+                    "entitlement_active": .bool(true)
+                ]
+            )
+
+        case .revenueCatRestoreFailed(let outcome, let entitlementID, let errorType):
+            return TelemetryRecord(
+                name: "revenuecat_restore_failed",
+                parameters: [
+                    "outcome": .string(outcome.rawValue),
+                    "entitlement_id": .string(entitlementID),
+                    "entitlement_active": .bool(false),
+                    "error_type": .string(errorType.rawValue)
+                ]
             )
         }
     }

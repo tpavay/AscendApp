@@ -417,7 +417,7 @@ private extension OnboardingAnalyticsFunnelTranscriptTests {
 
     static var paywallOutcomes: [PaywallAnalyticsEvent] {
         [
-            .purchaseControllerCompleted(productID: "ascend_yearly", outcome: "purchased")
+            .revenueCatPurchaseCompleted(productID: "ascend_yearly", entitlementID: "app_access")
         ]
     }
 }

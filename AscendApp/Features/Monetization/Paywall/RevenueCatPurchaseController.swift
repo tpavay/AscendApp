@@ -6,6 +6,7 @@ import SuperwallKit
 enum RevenueCatPurchaseControllerError: LocalizedError {
     case missingStoreKitProduct
     case monetizationUnavailable
+    case noActiveEntitlement
 
     var errorDescription: String? {
         switch self {
@@ -13,10 +14,13 @@ enum RevenueCatPurchaseControllerError: LocalizedError {
             return "Superwall did not provide a StoreKit 2 product for RevenueCat to purchase."
         case .monetizationUnavailable:
             return "Ascend could not reach the App Store. Check your connection and try again."
+        case .noActiveEntitlement:
+            return "RevenueCat did not confirm the app_access entitlement."
         }
     }
 }
 
+@MainActor
 final class RevenueCatPurchaseController: PurchaseController {
     // Resolved on use, not at init: `MonetizationManager.shared` owns the Superwall presenter that
     // owns this controller, so reading it here would re-enter a static initializer still running.
@@ -24,6 +28,7 @@ final class RevenueCatPurchaseController: PurchaseController {
     private let applySuperwallStatus: @MainActor (SuperwallKit.SubscriptionStatus) -> Void
 
     private var subscriptionStatusTask: Task<Void, Never>?
+    private let executor: RevenueCatPurchaseExecutor
 
     init(
         coordinator: @escaping @MainActor () -> any PaywallPurchaseCoordinating = {
@@ -31,13 +36,21 @@ final class RevenueCatPurchaseController: PurchaseController {
         },
         applySuperwallStatus: @escaping @MainActor (SuperwallKit.SubscriptionStatus) -> Void = {
             Superwall.shared.subscriptionStatus = $0
-        }
+        },
+        executor: RevenueCatPurchaseExecutor? = nil
     ) {
         self.coordinator = coordinator
         self.applySuperwallStatus = applySuperwallStatus
+        self.executor = executor ?? RevenueCatPurchaseExecutor(
+            applySubscriptionStatus: { entitlementIDs in
+                applySuperwallStatus(Self.subscriptionStatus(for: entitlementIDs))
+            },
+            refreshEntitlementState: {
+                await coordinator().refreshEntitlements(force: true)
+            }
+        )
     }
 
-    @MainActor
     func syncSubscriptionStatus() {
         guard Purchases.isConfigured else { return }
 
@@ -57,97 +70,57 @@ final class RevenueCatPurchaseController: PurchaseController {
         }
     }
 
-    @MainActor
     func purchase(product: SuperwallKit.StoreProduct) async -> PurchaseResult {
-        do {
-            guard let sk2Product = product.sk2Product else {
-                throw RevenueCatPurchaseControllerError.missingStoreKitProduct
-            }
+        guard let sk2Product = product.sk2Product else {
+            let error = RevenueCatPurchaseControllerError.missingStoreKitProduct
+            return executor.failPurchaseBeforeRevenueCatCall(
+                productID: product.productIdentifier,
+                error: error,
+                errorType: .missingStoreProduct
+            )
+        }
 
-            let storeProduct = RevenueCat.StoreProduct(sk2Product: sk2Product)
+        let storeProduct = RevenueCat.StoreProduct(sk2Product: sk2Product)
+        return await executor.executePurchase(productID: product.productIdentifier) {
             let result = try await Purchases.shared.purchase(product: storeProduct)
-            let outcome = result.userCancelled ? "cancelled" : "purchased"
+            return RevenueCatPurchaseExecutor.PurchaseResponse(
+                userCancelled: result.userCancelled,
+                activeEntitlementIDs: Set(
+                    result.customerInfo.entitlements.activeInCurrentEnvironment.keys
+                )
+            )
+        }
+    }
 
-            if !result.userCancelled {
-                applySubscriptionStatus(from: result.customerInfo)
-                await coordinator().refreshEntitlements(force: true)
+    func restorePurchases() async -> RestorationResult {
+        await executor.executeRestore { [coordinator] in
+            guard coordinator().isRevenueCatConfigured else {
+                throw RevenueCatPurchaseControllerError.monetizationUnavailable
             }
 
-            TelemetryManager.shared.track(
-                PaywallAnalyticsEvent.purchaseControllerCompleted(
-                    productID: product.productIdentifier,
-                    outcome: outcome
-                )
-            )
-
-            return result.userCancelled ? .cancelled : .purchased
-        } catch let error as ErrorCode {
-            let outcome = error == .paymentPendingError ? "pending" : "failed"
-            TelemetryManager.shared.track(
-                PaywallAnalyticsEvent.purchaseControllerCompleted(
-                    productID: product.productIdentifier,
-                    outcome: outcome
-                )
-            )
-
-            return error == .paymentPendingError ? .pending : .failed(error)
-        } catch {
-            TelemetryManager.shared.track(
-                PaywallAnalyticsEvent.purchaseControllerCompleted(
-                    productID: product.productIdentifier,
-                    outcome: "failed"
-                )
-            )
-
-            return .failed(error)
+            // The restore publishes what RevenueCat resolved for *this* call rather than the stored
+            // `entitlementState`, which a pending identity transition can hold at `.unknown`.
+            switch try await coordinator().restorePurchases() {
+            case .unknown:
+                // An unresolved answer is not evidence of a lapse, so it fails the restore instead
+                // of reporting an empty entitlement set - that would publish `.inactive` and flash
+                // the paywall over a real subscriber.
+                throw RevenueCatPurchaseControllerError.noActiveEntitlement
+            case .inactive:
+                return []
+            case .active(let entitlementIDs):
+                return entitlementIDs
+            }
         }
     }
 
-    @MainActor
-    func restorePurchases() async -> RestorationResult {
-        guard coordinator().isRevenueCatConfigured else {
-            TelemetryManager.shared.track(
-                PaywallAnalyticsEvent.restoreControllerCompleted(outcome: "failed")
-            )
-            return .failed(RevenueCatPurchaseControllerError.monetizationUnavailable)
-        }
-
-        do {
-            applySubscriptionStatus(from: try await coordinator().restorePurchases())
-            TelemetryManager.shared.track(
-                PaywallAnalyticsEvent.restoreControllerCompleted(outcome: "restored")
-            )
-            return .restored
-        } catch {
-            TelemetryManager.shared.track(
-                PaywallAnalyticsEvent.restoreControllerCompleted(outcome: "failed")
-            )
-            return .failed(error)
-        }
-    }
-
-    @MainActor
     private func applySubscriptionStatus(from customerInfo: RevenueCat.CustomerInfo) {
-        applySuperwallStatus(
-            subscriptionStatus(for: Set(customerInfo.entitlements.activeInCurrentEnvironment.keys))
-        )
+        let entitlementIDs = Set(customerInfo.entitlements.activeInCurrentEnvironment.keys)
+
+        applySuperwallStatus(Self.subscriptionStatus(for: entitlementIDs))
     }
 
-    /// An unresolved entitlement answer leaves Superwall's status alone: it is not evidence of a
-    /// lapse, and publishing `.inactive` would flash the paywall over a real subscriber.
-    @MainActor
-    private func applySubscriptionStatus(from state: MonetizationEntitlementState) {
-        switch state {
-        case .unknown:
-            return
-        case .inactive:
-            applySuperwallStatus(subscriptionStatus(for: []))
-        case .active(let entitlementIDs):
-            applySuperwallStatus(subscriptionStatus(for: entitlementIDs))
-        }
-    }
-
-    private func subscriptionStatus(for entitlementIDs: Set<String>)
+    private static func subscriptionStatus(for entitlementIDs: Set<String>)
         -> SuperwallKit.SubscriptionStatus {
         let entitlements = entitlementIDs.map { SuperwallKit.Entitlement(id: $0) }
 
