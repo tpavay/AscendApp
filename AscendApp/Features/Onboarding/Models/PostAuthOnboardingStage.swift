@@ -16,7 +16,7 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
     case planLoading = "loading"
     case firstClimb = "first_climb"
 
-    static let flowID = "post_auth_onboarding"
+    static let segmentID = "post_auth_onboarding"
     static let plannedStepCount = allCases.count
 
     static var allCases: [PostAuthOnboardingStage] {
@@ -61,10 +61,8 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
 
     var analyticsContext: OnboardingAnalyticsContext {
         OnboardingAnalyticsContext(
-            flowID: Self.flowID,
-            stepID: rawValue,
-            stepIndex: progressIndex,
-            stepCount: Self.plannedStepCount
+            segmentID: Self.segmentID,
+            stepID: analyticsStepID
         )
     }
 
@@ -111,6 +109,10 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
         case .displayName, .features, .age, .weight, .location, .planLoading:
             return nil
         }
+    }
+
+    private var analyticsStepID: String {
+        self == .features ? "summit_landmarks" : rawValue
     }
 }
 

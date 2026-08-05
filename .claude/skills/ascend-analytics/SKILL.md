@@ -71,14 +71,18 @@ DEBUG builds expose a developer-visible analytics console so events and screen v
 Onboarding is the one funnel measured screen-by-screen, so it has a fixed contract: **21 visible screens, each emitting exactly one `onboarding_screen_viewed`**, plus a decision event on every interactive screen.
 Read this before adding, removing, reordering, or renaming an onboarding screen - changing the flow means changing this table and the tests that enforce it.
 
-Enforcement lives in `AscendAppTests/OnboardingAnalyticsEventTests.swift` (ordered screen coverage, dedupe, per-screen properties) and `AscendAppTests/OnboardingAnalyticsFunnelTranscriptTests.swift` (renders the whole funnel as a transcript from real emissions).
+Enforcement lives in `AscendAppTests/OnboardingAnalyticsEventTests.swift` (ordered screen coverage, dedupe, per-screen properties), `AscendAppTests/OnboardingAnalyticsFunnelTranscriptTests.swift` (renders the whole funnel as a transcript from real emissions, and asserts the clean-pass event counts plus the resumed and back-navigation paths), and `AscendAppTests/OnboardingFlowAnalyticsCoordinatorTests.swift` (the one lifecycle pair: pass persistence, account ownership, and completion attribution).
 Those tests are the executable source of truth; this table is the readable one.
 
 ### The 21 screens, in order
 
-`screen_id` equals `step_id` on every event. Every event also carries `flow_id`, `flow_version` (`v1`), `step_index`, `step_count`, and `app_environment`.
+`screen_id` equals `step_id` on every event.
+Every event also carries `flow_id=onboarding`, `flow_version=v1`, `segment_id`, `step_index`, `step_count=21`, and `app_environment`.
+The segment labels identify nested implementation sections and never replace the user-level flow ID.
+`step_index` is zero-based against that ordered list, so the paywall reports `step_index` 20 with `step_count` 21.
+`onboarding_flow_started` and `onboarding_screen_viewed` also carry `resume`, and `onboarding_flow_completed` carries `completion_reason`.
 
-| # | screen_id | flow_id | Events beyond the view | Interactive sub-properties |
+| # | screen_id | segment_id | Events beyond the view | Interactive sub-properties |
 | --- | --- | --- | --- | --- |
 | 1 | `welcome` | `pre_auth_welcome` | `onboarding_screen_completed` | `action_id` (`get_started` / `sign_in` for the returning-climber route), `input_type=button` |
 | 2 | `watch_yourself_get_better` | `pre_auth_value_onboarding` | `onboarding_screen_completed`, `onboarding_back_tapped` | `action_id` (`continue` / `swipe_forward`), `input_type` (`button` / `gesture`) |
@@ -108,8 +112,15 @@ Those tests are the executable source of truth; this table is the readable one.
 - **The `features` stage is a container, not a screen.** It emits no view of its own - its three guide screens (`summit_landmarks`, `real_time`, `daily_climbs`) each report theirs, so counting the container would inflate the funnel with a screen nobody sees. `PostAuthOnboardingStage.visibleScreenAnalyticsContext` returns `nil` for it and only for it.
 - **Views dedupe by `step_id`.** `OnboardingScreenViewRecorder` emits once per distinct step for the lifetime of the flow, so back-navigation and re-renders re-emit nothing. The dedupe is in-memory, so a relaunch mid-flow re-emits the current step.
 - **Conditional screens report only when actually shown.** Never pre-emit a view for a screen the user may skip.
+- **`step_index` is derived from `OnboardingAnalyticsContext.orderedStepIDs`, never passed in.** Contexts are built from content arrays, so a page added to a carousel or guide can drift out of that list; onboarding is the one flow a user cannot route around, so drift asserts in development and reports `step_index` `-1` in production rather than terminating the app. A `-1` in the funnel means a screen was added without being added to the ordered list.
 - **The routed `appAccessGate` joins this funnel.** `MonetizationManager.trackPaywallReached` emits `onboarding_paywall_reached` and records the `paywall` screen view through the same recorder for both `onboardingPaywall` and `appAccessGate`, so a retry through the placeholder never banks a second view.
-- **The paywall is not a `PostAuthOnboardingStage`.** It continues the stage sequence by index and counts itself into `step_count` (`OnboardingAnalyticsEvent.paywallContext`).
+- **The paywall is not a `PostAuthOnboardingStage`.** It is still the canonical user-level last screen through `OnboardingAnalyticsEvent.paywallContext`, which resolves its index from the same ordered list every other screen uses.
+- **Only `OnboardingFlowAnalyticsCoordinator` owns the lifecycle pair.** It starts at the first onboarding screen the install shows - welcome on a clean run, the resumed step when a reinstall keeps the Keychain session but not `UserDefaults` - persists that start across relaunch, and completes only after active access routes the app to Home. A pass that opens past the first canonical step says `resume=true` on its start and on the one screen it comes back to; nothing else in the pass does.
+- **A pass belongs to one account.** A pass opened before auth is adopted by the account that finishes it; a different account, a sign-out of the account that adopted it, an account deletion, or a debug replay retires it, so one climber's abandoned start can never be closed by the next climber's completion.
+- **Losing the authenticated identity is not a sign-out.** Firebase reports "no user" on every signed-out cold launch too, and that report reaches `MonetizationManager.prepareIdentityReset` before any screen renders, so only `retireAdoptedPass` may run there: a pass no account has claimed survives the relaunch and re-emits nothing.
+- **`completion_reason` is attributed from evidence, never from timing.** `existing_entitlement` means this pass never asked for a grant. While a paywall presentation or a restore is in flight, there is no reason to report at all - the entitlement can turn active before the outcome says how. Once the request reports, `purchase`/`restore` come from that result, and a request that reported nothing still means whatever turns access on afterwards was that grant.
+- **Grant provenance is part of the pass, not of the process.** `OnboardingAccessGrantProvenance` is persisted inside the same `PassState` it describes and is retired with it, because the app can die on the StoreKit sheet between the purchase and the route to Home. A request the process died holding is settled to "reported nothing" when the next process loads the pass - it can never report, and deferring forever would cost the completion entirely.
+- **Nested owners are segments.** The value carousel, auth surface, post-auth stages, and feature guide set `segment_id`; none may emit `onboarding_flow_started` or `onboarding_flow_completed`.
 
 ## Reference
 - `docs/sentry-setup.md` - Sentry role and app configuration.

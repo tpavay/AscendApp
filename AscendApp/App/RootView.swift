@@ -129,6 +129,10 @@ struct RootView: View {
             postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid, force: true)
             advancePostAuthOnboardingPastDisplayNameIfAvailable()
         }
+        .onChange(of: onboardingFlowCompletionCandidate, initial: true) { _, reason in
+            guard let reason else { return }
+            OnboardingFlowAnalyticsCoordinator.shared.recordFlowCompletedIfNeeded(reason: reason)
+        }
     }
 
     private var rootRoute: AppRootRoute {
@@ -148,6 +152,14 @@ struct RootView: View {
         }
 
         return resolvedRoute
+    }
+
+    private var onboardingFlowCompletionCandidate: OnboardingFlowCompletionReason? {
+        OnboardingFlowCompletionResolver.completionReason(
+            rootRoute: rootRoute,
+            postAuthPhase: postAuthOnboardingCoordinator.phase,
+            confirmedAccessReason: monetizationManager.onboardingCompletionReasonForActiveAccess
+        )
     }
 
     @ViewBuilder

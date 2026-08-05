@@ -1,14 +1,13 @@
 import Testing
 @testable import AscendApp
 
+@MainActor
 struct OnboardingAnalyticsEventTests {
     @Test
     func profileScreenCompletedUsesStableEventNameWithoutAnswerProperties() {
         let context = OnboardingAnalyticsContext(
-            flowID: "post_auth_onboarding",
-            stepID: "gender",
-            stepIndex: 6,
-            stepCount: 13
+            segmentID: "post_auth_onboarding",
+            stepID: "gender"
         )
 
         let record = OnboardingAnalyticsEvent.screenCompleted(
@@ -18,7 +17,8 @@ struct OnboardingAnalyticsEventTests {
         ).record
 
         #expect(record.name == "onboarding_screen_completed")
-        expectStringParameter(record, "flow_id", "post_auth_onboarding")
+        expectStringParameter(record, "flow_id", "onboarding")
+        expectStringParameter(record, "segment_id", "post_auth_onboarding")
         expectStringParameter(record, "flow_version", "v1")
         expectStringParameter(record, "step_id", "gender")
         expectStringParameter(record, "screen_id", "gender")
@@ -34,10 +34,8 @@ struct OnboardingAnalyticsEventTests {
     @Test
     func profileTextScreenCompletedDoesNotRecordRawTextAnswer() {
         let context = OnboardingAnalyticsContext(
-            flowID: "post_auth_onboarding",
-            stepID: "displayName",
-            stepIndex: 0,
-            stepCount: 13
+            segmentID: "post_auth_onboarding",
+            stepID: "displayName"
         )
 
         let record = OnboardingAnalyticsEvent.screenCompleted(
@@ -60,10 +58,8 @@ struct OnboardingAnalyticsEventTests {
     @Test
     func surveyQuestionAnsweredUsesStableEventNameAndAnswerProperties() {
         let context = OnboardingAnalyticsContext(
-            flowID: "post_auth_onboarding",
-            stepID: "stair_stepper_baseline",
-            stepIndex: 1,
-            stepCount: 13
+            segmentID: "post_auth_onboarding",
+            stepID: "stair_stepper_baseline"
         )
 
         let record = OnboardingAnalyticsEvent.questionAnswered(
@@ -77,7 +73,8 @@ struct OnboardingAnalyticsEventTests {
         ).record
 
         #expect(record.name == "onboarding_question_answered")
-        expectStringParameter(record, "flow_id", "post_auth_onboarding")
+        expectStringParameter(record, "flow_id", "onboarding")
+        expectStringParameter(record, "segment_id", "post_auth_onboarding")
         expectStringParameter(record, "step_id", "stair_stepper_baseline")
         expectStringParameter(record, "screen_id", "stair_stepper_baseline")
         expectStringParameter(record, "question_id", "stair_stepper_baseline")
@@ -94,7 +91,8 @@ struct OnboardingAnalyticsEventTests {
         let record = OnboardingAnalyticsEvent.authStarted(provider: "apple").record
 
         #expect(record.name == "onboarding_auth_started")
-        expectStringParameter(record, "flow_id", "pre_auth_auth")
+        expectStringParameter(record, "flow_id", "onboarding")
+        expectStringParameter(record, "segment_id", "pre_auth_auth")
         expectStringParameter(record, "step_id", "auth")
         expectStringParameter(record, "provider", "apple")
     }
@@ -102,10 +100,8 @@ struct OnboardingAnalyticsEventTests {
     @Test
     func notificationPermissionSelectedUsesStatusAsSingleSelectAnswer() {
         let context = OnboardingAnalyticsContext(
-            flowID: "post_auth_onboarding",
-            stepID: "notifications",
-            stepIndex: 10,
-            stepCount: 13
+            segmentID: "post_auth_onboarding",
+            stepID: "notifications"
         )
 
         let record = OnboardingAnalyticsEvent.notificationPermissionSelected(
@@ -125,10 +121,8 @@ struct OnboardingAnalyticsEventTests {
     @Test
     func firstClimbSelectedIncludesRecommendationContext() {
         let context = OnboardingAnalyticsContext(
-            flowID: "post_auth_onboarding",
-            stepID: "first_climb",
-            stepIndex: 12,
-            stepCount: 13
+            segmentID: "post_auth_onboarding",
+            stepID: "first_climb"
         )
 
         let record = OnboardingAnalyticsEvent.firstClimbSelected(
@@ -138,7 +132,8 @@ struct OnboardingAnalyticsEventTests {
         ).record
 
         #expect(record.name == "onboarding_question_answered")
-        expectStringParameter(record, "flow_id", "post_auth_onboarding")
+        expectStringParameter(record, "flow_id", "onboarding")
+        expectStringParameter(record, "segment_id", "post_auth_onboarding")
         expectStringParameter(record, "question_id", "first_climb")
         expectStringParameter(record, "input_type", "single_select")
         expectStringParameter(record, "selection_type", "single_select")
@@ -155,7 +150,8 @@ struct OnboardingAnalyticsEventTests {
         ).record
 
         #expect(record.name == "onboarding_paywall_reached")
-        expectStringParameter(record, "flow_id", "post_auth_onboarding")
+        expectStringParameter(record, "flow_id", "onboarding")
+        expectStringParameter(record, "segment_id", "post_auth_onboarding")
         expectStringParameter(record, "step_id", "paywall")
         expectStringParameter(record, "placement", "onboarding_paywall")
         expectStringParameter(record, "source", "post_auth_onboarding")
@@ -168,7 +164,8 @@ struct OnboardingAnalyticsEventTests {
         ).record
 
         #expect(record.name == "onboarding_screen_viewed")
-        expectStringParameter(record, "flow_id", "pre_auth_welcome")
+        expectStringParameter(record, "flow_id", "onboarding")
+        expectStringParameter(record, "segment_id", "pre_auth_welcome")
         expectStringParameter(record, "step_id", "welcome")
         expectStringParameter(record, "screen_id", "welcome")
         expectBoolParameter(record, "viewed", true)
@@ -253,7 +250,8 @@ struct OnboardingAnalyticsEventTests {
         ).record
 
         #expect(record.name == "onboarding_screen_viewed")
-        expectStringParameter(record, "flow_id", "pre_auth_auth")
+        expectStringParameter(record, "flow_id", "onboarding")
+        expectStringParameter(record, "segment_id", "pre_auth_auth")
         expectStringParameter(record, "step_id", "auth")
         expectStringParameter(record, "screen_id", "auth")
     }
@@ -265,10 +263,11 @@ struct OnboardingAnalyticsEventTests {
         ).record
 
         #expect(record.name == "onboarding_screen_viewed")
-        expectStringParameter(record, "flow_id", "post_auth_onboarding")
+        expectStringParameter(record, "flow_id", "onboarding")
+        expectStringParameter(record, "segment_id", "post_auth_onboarding")
         expectStringParameter(record, "step_id", "paywall")
         expectStringParameter(record, "screen_id", "paywall")
-        expectIntParameter(record, "step_index", PostAuthOnboardingStage.plannedStepCount)
+        expectIntParameter(record, "step_index", 20)
     }
 
     @Test
@@ -281,13 +280,17 @@ struct OnboardingAnalyticsEventTests {
     @Test
     func flowStartedUsesStableEventName() {
         let record = OnboardingAnalyticsEvent.flowStarted(
-            context: PostAuthOnboardingStage.displayName.analyticsContext
+            context: OnboardingAnalyticsEvent.welcomeContext,
+            resume: false
         ).record
 
         #expect(record.name == "onboarding_flow_started")
-        expectStringParameter(record, "flow_id", "post_auth_onboarding")
-        expectStringParameter(record, "step_id", "displayName")
+        expectStringParameter(record, "flow_id", "onboarding")
+        expectStringParameter(record, "segment_id", "pre_auth_welcome")
+        expectStringParameter(record, "step_id", "welcome")
         expectIntParameter(record, "step_index", 0)
+        expectIntParameter(record, "step_count", 21)
+        expectBoolParameter(record, "resume", false)
     }
 
     @Test
@@ -298,7 +301,8 @@ struct OnboardingAnalyticsEventTests {
         ).record
 
         #expect(record.name == "onboarding_back_tapped")
-        expectStringParameter(record, "flow_id", "post_auth_onboarding")
+        expectStringParameter(record, "flow_id", "onboarding")
+        expectStringParameter(record, "segment_id", "post_auth_onboarding")
         expectStringParameter(record, "step_id", "gender")
         expectStringParameter(record, "from_step", "gender")
         expectStringParameter(record, "input_type", "button")
@@ -314,12 +318,14 @@ struct OnboardingAnalyticsEventTests {
         let record = OnboardingAnalyticsEvent.backTapped(context: context, inputType: "gesture").record
 
         #expect(record.name == "onboarding_back_tapped")
-        expectStringParameter(record, "flow_id", "pre_auth_value_onboarding")
+        expectStringParameter(record, "flow_id", "onboarding")
+        expectStringParameter(record, "segment_id", "pre_auth_value_onboarding")
         expectStringParameter(record, "from_step", pages[1].id)
         expectStringParameter(record, "input_type", "gesture")
     }
 }
 
+@MainActor
 struct OnboardingScreenViewCoverageTests {
     @Test
     func everyVisibleOnboardingScreenEmitsExactlyOnce() {
@@ -366,11 +372,31 @@ struct OnboardingScreenViewCoverageTests {
         #expect(screenIDs.contains("features") == false)
         #expect(records.allSatisfy { $0.parameters["viewed"] == .bool(true) })
         #expect(records.allSatisfy { $0.parameters["step_id"] == $0.parameters["screen_id"] })
-        #expect(records.allSatisfy { $0.parameters["flow_id"] != nil })
+        #expect(records.allSatisfy { $0.parameters["flow_id"] == .string("onboarding") })
         #expect(records.allSatisfy { $0.parameters["flow_version"] == .string("v1") })
-        #expect(records.allSatisfy { $0.parameters["step_index"] != nil })
-        #expect(records.allSatisfy { $0.parameters["step_count"] != nil })
+        #expect(records.allSatisfy { $0.parameters["segment_id"] != nil })
+        #expect(records.map { $0.parameters["step_index"] } == (0..<21).map(TelemetryValue.int))
+        #expect(records.allSatisfy { $0.parameters["step_count"] == .int(21) })
         #expect(records.allSatisfy { $0.parameters["app_environment"] != nil })
+    }
+
+    /// Contexts are built from content arrays, so a step can drift out of the canonical order.
+    /// Onboarding is the one flow a user cannot route around, so the drift resolves to an
+    /// out-of-band index rather than taking a shipped build down with it.
+    @Test
+    func anUnknownStepResolvesToNoCanonicalPositionInsteadOfTrapping() {
+        #expect(OnboardingAnalyticsContext.canonicalStepIndex(for: "not_an_onboarding_step") == nil)
+        #expect(OnboardingAnalyticsContext.unknownStepIndex < 0)
+    }
+
+    @Test
+    func everyStepTheFlowActuallyBuildsIsCanonical() {
+        for context in canonicalVisibleContexts() {
+            #expect(
+                OnboardingAnalyticsContext.canonicalStepIndex(for: context.stepID) == context.stepIndex,
+                "\(context.stepID) is not in the canonical onboarding order"
+            )
+        }
     }
 
     @Test
@@ -396,7 +422,7 @@ struct OnboardingScreenViewCoverageTests {
         for stage in PostAuthOnboardingStage.allCases {
             if stage == .features {
                 contexts.append(contentsOf: OnboardingFeatureGuideFlowScreen.analyticsContexts(
-                    flowID: "post_auth_features"
+                    segmentID: "post_auth_features"
                 ))
             } else if let context = stage.visibleScreenAnalyticsContext {
                 contexts.append(context)
@@ -408,16 +434,17 @@ struct OnboardingScreenViewCoverageTests {
     }
 }
 
+@MainActor
 struct OnboardingValueCarouselAnalyticsContextTests {
     @Test
     func contextUsesPageIdentityAndPosition() throws {
         let pages = OnboardingValuePages.all
         let context = try #require(OnboardingValueCarouselView.analyticsContext(pages: pages, index: 0))
 
-        #expect(context.flowID == "pre_auth_value_onboarding")
+        #expect(context.segmentID == "pre_auth_value_onboarding")
         #expect(context.stepID == pages[0].id)
-        #expect(context.stepIndex == 0)
-        #expect(context.stepCount == pages.count)
+        #expect(context.stepIndex == 1)
+        #expect(context.stepCount == 21)
     }
 
     @Test

@@ -1,14 +1,13 @@
 import SwiftUI
 
 struct OnboardingValueCarouselView: View {
-    static let defaultAnalyticsFlowID = "pre_auth_value_onboarding"
+    static let defaultAnalyticsSegmentID = "pre_auth_value_onboarding"
 
     @Binding var selectedIndex: Int
     @State private var scrollPositionID: String?
-    @State private var didRecordFlowStart = false
 
     let pages: [OnboardingValuePage]
-    var analyticsFlowID = defaultAnalyticsFlowID
+    var analyticsSegmentID = defaultAnalyticsSegmentID
     let onFinish: () -> Void
 
     var body: some View {
@@ -49,7 +48,6 @@ struct OnboardingValueCarouselView: View {
                 .onAppear {
                     clampSelectedIndex()
                     syncScrollPositionToSelectedIndex()
-                    recordFlowStartIfNeeded()
                 }
                 .onChange(of: pages.count) { _, _ in
                     clampSelectedIndex()
@@ -119,11 +117,6 @@ struct OnboardingValueCarouselView: View {
         if selectedIndex < pages.count - 1 {
             selectedIndex += 1
         } else {
-            if let context = currentAnalyticsContext() {
-                TelemetryManager.shared.track(
-                    OnboardingAnalyticsEvent.flowCompleted(context: context)
-                )
-            }
             onFinish()
         }
     }
@@ -164,7 +157,7 @@ struct OnboardingValueCarouselView: View {
                 actionID: "swipe_forward"
             )
         } else if let context = Self.analyticsContext(
-            flowID: analyticsFlowID,
+            segmentID: analyticsSegmentID,
             pages: pages,
             index: previousIndex
         ) {
@@ -176,18 +169,8 @@ struct OnboardingValueCarouselView: View {
         selectedIndex = index
     }
 
-    private func recordFlowStartIfNeeded() {
-        guard !didRecordFlowStart,
-              let context = currentAnalyticsContext() else { return }
-
-        didRecordFlowStart = true
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.flowStarted(context: context)
-        )
-    }
-
     private func currentAnalyticsContext() -> OnboardingAnalyticsContext? {
-        Self.analyticsContext(flowID: analyticsFlowID, pages: pages, index: selectedIndex)
+        Self.analyticsContext(segmentID: analyticsSegmentID, pages: pages, index: selectedIndex)
     }
 
     private func recordCurrentPageCompleted(actionID: String) {
@@ -196,7 +179,7 @@ struct OnboardingValueCarouselView: View {
 
     private func recordPageCompleted(at index: Int, inputType: String, actionID: String) {
         guard let context = Self.analyticsContext(
-            flowID: analyticsFlowID,
+            segmentID: analyticsSegmentID,
             pages: pages,
             index: index
         ) else { return }
@@ -213,17 +196,15 @@ struct OnboardingValueCarouselView: View {
     /// Builds the context for a carousel page so surfaces that own chrome around the carousel
     /// (back buttons, scaffolds) report the same `step_id` the carousel itself reports.
     static func analyticsContext(
-        flowID: String = defaultAnalyticsFlowID,
+        segmentID: String = defaultAnalyticsSegmentID,
         pages: [OnboardingValuePage],
         index: Int
     ) -> OnboardingAnalyticsContext? {
         guard pages.indices.contains(index) else { return nil }
 
         return OnboardingAnalyticsContext(
-            flowID: flowID,
-            stepID: pages[index].id,
-            stepIndex: index,
-            stepCount: pages.count
+            segmentID: segmentID,
+            stepID: pages[index].id
         )
     }
 }

@@ -156,7 +156,10 @@ private struct PostAuthSurveyQuestionStageScreen: View {
             context: stage.analyticsContext,
             selectedOptionIDs: selectedOptionIDs
         )
-        trackPostAuthInput(stage: stage)
+        trackPostAuthInput(
+            stage: stage,
+            properties: ["answer_count": .int(selectedOptionIDs.count)]
+        )
         onContinue()
     }
 }
@@ -167,7 +170,7 @@ private struct PostAuthFeatureGuideStageScreen: View {
 
     var body: some View {
         OnboardingFeatureGuideFlowScreen(
-            flowID: "post_auth_features",
+            segmentID: "post_auth_features",
             onBackFromFirstScreen: onBack
         ) {
             onContinue()
@@ -888,7 +891,10 @@ struct PostAuthNotificationScreen: View {
             )
             TelemetryManager.shared.setUserProperty("notifications_inputted", value: "true")
             OnboardingAnalyticsUserProperties.setNotificationChoice(isAllowed ? "allow" : "decline")
-            trackPostAuthInput(stage: stage)
+            trackPostAuthInput(
+                stage: stage,
+                properties: ["status": .string(isAllowed ? "allow" : "decline")]
+            )
             onContinue()
         }
     }
@@ -912,7 +918,10 @@ struct PostAuthNotificationScreen: View {
             )
             TelemetryManager.shared.setUserProperty("notifications_inputted", value: "true")
             OnboardingAnalyticsUserProperties.setNotificationChoice("skip")
-            trackPostAuthInput(stage: stage)
+            trackPostAuthInput(
+                stage: stage,
+                properties: ["status": .string("skip")]
+            )
             onContinue()
         }
     }
@@ -1511,7 +1520,13 @@ private struct PostAuthFirstClimbRevealScreen: View {
                         climbName: firstClimb.name
                     )
                 )
-                trackPostAuthInput(stage: stage)
+                trackPostAuthInput(
+                    stage: stage,
+                    properties: [
+                        "climb_id": .string(firstClimb.id),
+                        "climb_name": .string(firstClimb.name)
+                    ]
+                )
                 onContinue()
             }
         }
