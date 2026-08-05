@@ -25,17 +25,19 @@ Do not enable Paywall UI or virtual-currency events because they create subscrib
 4. Set the staging destination to `https://us-central1-ascend-staging-fa7d5.cloudfunctions.net/revenueCatWebhook`.
 Set the production destination to `https://us-central1-ascend-prod-9c8f2.cloudfunctions.net/revenueCatWebhook`.
 5. Configure a different high-entropy `Authorization` header value for each destination.
-Save each webhook integration, then reopen its detail page.
-The HMAC control is not part of the New Webhook form.
-On the saved integration's detail page, toggle **HMAC webhook signing**, then immediately copy the signing secret RevenueCat shows once and store it in that destination's Firebase secret configuration.
-RevenueCat shows the secret only at creation or rotation and cannot retrieve it later, so if the one-time value is lost, use **Rotate secret** on that detail page to mint a new one.
+HMAC signing is offered only on a saved integration's detail page, never on the New Webhook form, so the ordering is fixed: create the integration with its URL, `Authorization` value, environment, and app filter, save it, then reopen its detail page.
+On that detail page, toggle **HMAC webhook signing** and copy the signing secret immediately, because RevenueCat shows it only at creation or rotation and cannot retrieve it later.
+Only then assemble that destination's complete `REVENUECAT_SERVER_CONFIG` JSON, write the whole secret to Firebase, and deploy Functions.
+All six configuration fields below are required and the parser refuses a partial value, so there is never a valid intermediate write that carries the new signing secret alone.
+If the one-time value is lost, use **Rotate secret** on that detail page to mint a new one.
 Rotation invalidates the old secret immediately, and RevenueCat, not the captain, decides when the next delivery arrives.
 Every genuine lifecycle event between the rotation click and the deployed replacement is therefore rejected with HTTP 401.
 That window is unavoidable; only its length is controllable.
-Minimize it by rotating only when the current value is genuinely lost, staging the full new `REVENUECAT_SERVER_CONFIG` JSON before clicking **Rotate secret**, then setting the Firebase secret and redeploying Functions immediately, and finally sending the dashboard test webhook and requiring HTTP 200 before considering the rotation done.
-[RevenueCat's current webhook documentation](https://www.revenuecat.com/docs/integrations/webhooks#webhook-signature-verification-hmac) specifies this post-creation location, the show-once-or-rotate secret, the immediate invalidation of the old secret, and the `X-RevenueCat-Webhook-Signature: t=<unix_timestamp>,v1=<hmac_sha256_hex>` delivery header.
-The same page treats any non-2xx response as a failure and retries a failed delivery up to five times after 5, 10, 20, 40, and 80 minutes.
-A window closed inside roughly 155 minutes therefore self-heals with no lost events, while a longer one permanently drops every delivery whose retries expired unless each failed event is resent by hand with **Retry** from the integration's event table.
+Rotate only when the current value is genuinely lost, and follow the same ordering without pausing: click **Rotate secret**, copy the new secret, write the complete Firebase secret with it, deploy Functions, then send the dashboard test webhook and require HTTP 200 before considering the rotation done.
+[RevenueCat's current webhook documentation](https://www.revenuecat.com/docs/integrations/webhooks#webhook-signature-verification-hmac) specifies enabling the toggle on an existing webhook integration, the secret shown only once at creation or rotation, the immediate invalidation of the old secret on rotation, and the `X-RevenueCat-Webhook-Signature: t=<unix_timestamp>,v1=<hmac_sha256_hex>` delivery header.
+That the toggle is absent from the New Webhook form is an observation of the current dashboard rather than a documented claim.
+The same page states that the server should return a 200 status code, that any other status code is considered a failure by RevenueCat's backend, that RevenueCat then retries up to five times with increasing delays of 5, 10, 20, 40, and 80 minutes, and that it stops sending after five retries.
+A rejected delivery's last retry therefore lands roughly 155 minutes after its first attempt: a rotation window closed inside that span self-heals for every delivery still retrying, while any delivery whose five retries expired first is lost unless it is resent by hand with **Retry** from the failed-event table, which the same page documents.
 The function requires both credentials on every request.
 6. After the matching Firebase function is deployed, send RevenueCat's test webhook to each destination and require HTTP 200.
 A test event with no real Firebase UID is expected to complete with zero affected users.
