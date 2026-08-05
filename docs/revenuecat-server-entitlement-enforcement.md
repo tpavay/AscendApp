@@ -37,7 +37,8 @@ Rotate only when the current value is genuinely lost, and follow the same orderi
 [RevenueCat's current webhook documentation](https://www.revenuecat.com/docs/integrations/webhooks#webhook-signature-verification-hmac) specifies enabling the toggle on an existing webhook integration, the secret shown only once at creation or rotation, the immediate invalidation of the old secret on rotation, and the `X-RevenueCat-Webhook-Signature: t=<unix_timestamp>,v1=<hmac_sha256_hex>` delivery header.
 That the toggle is absent from the New Webhook form is an observation of the current dashboard rather than a documented claim.
 The same page states that the server should return a 200 status code, that any other status code is considered a failure by RevenueCat's backend, that RevenueCat then retries up to five times with increasing delays of 5, 10, 20, 40, and 80 minutes, and that it stops sending after five retries.
-A rejected delivery's last retry therefore lands roughly 155 minutes after its first attempt: a rotation window closed inside that span self-heals for every delivery still retrying, while any delivery whose five retries expired first is lost unless it is resent by hand with **Retry** from the failed-event table, which the same page documents.
+It does not state whether those delays are intervals between attempts or offsets from the first attempt, so the total retry span, and with it any guaranteed self-healing window for the rotation gap, is unverified and must not be planned against.
+Deliveries rejected during the gap enter that documented retry process, so restore HTTP 200 promptly, then inspect the integration's failed and retrying events and resend whatever still needs it with the **Retry** action the same page documents.
 The function requires both credentials on every request.
 6. After the matching Firebase function is deployed, send RevenueCat's test webhook to each destination and require HTTP 200.
 A test event with no real Firebase UID is expected to complete with zero affected users.
@@ -251,6 +252,8 @@ The processor handles transfer events by re-fetching both sides, but the captain
 - The App Review promotional entitlement's exact `product_identifier` remains unknown.
 It must be explicitly allowlisted if it is not one of the production subscription product IDs.
 - Live webhook destinations and HMAC settings remain unknown until the captain configures and tests them in RevenueCat.
+- RevenueCat documents five retries with increasing delays of 5, 10, 20, 40, and 80 minutes but never says whether those are intervals between attempts or offsets from the first attempt.
+The total retry span is therefore unverified, and no HMAC rotation gap of any particular length can be promised to self-heal.
 
 ## IRREDUCIBLE
 
