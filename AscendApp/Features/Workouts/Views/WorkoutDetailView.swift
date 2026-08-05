@@ -21,6 +21,7 @@ struct WorkoutDetailView: View {
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
     @State private var importCoordinator = WorkoutImportCoordinator.shared
+    @State private var syncCoordinator = WorkoutSyncCoordinator.shared
     @State private var showingEditWorkout = false
     @State private var showingShareWorkoutView = false
     @State private var showingDeleteConfirmation = false
@@ -153,6 +154,13 @@ struct WorkoutDetailView: View {
             await retryAppleHealthEnrichmentIfNeeded()
         }
         .onChange(of: workout.remoteSyncStatusRawValue) { _, _ in
+            refreshSyncPresentation()
+        }
+        // The same per-pass signal the list keys off, so the two surfaces cannot disagree about
+        // one climb. The status alone is not enough: it settles on `failed` after the first
+        // refusal and stops moving, while the row is still quietly `Syncing` until the attention
+        // threshold elapses - so without this the primary surface is the one that never says.
+        .onChange(of: syncCoordinator.completedPassCount) { _, _ in
             refreshSyncPresentation()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
@@ -958,7 +966,7 @@ struct WorkoutDetailView: View {
     /// Held in `@State` only as a render cache - the coordinator owns the in-flight and
     /// climber-asked latches, so navigating away and back cannot lose them or contradict them.
     private func refreshSyncPresentation() {
-        syncPresentation = WorkoutSyncCoordinator.shared.syncPresentation(
+        syncPresentation = syncCoordinator.syncPresentation(
             for: workout,
             modelContext: modelContext
         )
@@ -974,7 +982,7 @@ struct WorkoutDetailView: View {
             // for the pass to reach this workout.
             syncPresentation = .couldNotSyncRetrying
 
-            let wasAttempted = await WorkoutSyncCoordinator.shared.retryNow(
+            let wasAttempted = await syncCoordinator.retryNow(
                 workoutId: workout.id,
                 modelContext: modelContext,
                 currentUserId: userId

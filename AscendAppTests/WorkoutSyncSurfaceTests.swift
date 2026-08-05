@@ -430,6 +430,87 @@ struct WorkoutSyncSurfaceTests {
         #expect(await repository.attemptCount() == 0)
     }
 
+    /// Why a surface cannot invalidate on `remoteSyncStatusRawValue` alone.
+    ///
+    /// The status settles on `failed` after the first refusal and stops moving, but the row is
+    /// still quietly `Syncing` until the attention threshold elapses. A screen watching only the
+    /// status therefore never learns that the climb crossed into the warn state - the never-told
+    /// defect, on the surface that carries the warning. The per-pass counter does move, which is
+    /// what both surfaces key off.
+    @Test
+    func crossingTheAttentionThresholdMovesThePassSignalButNotTheStatus() async throws {
+        let modelContext = try makeModelContext()
+        let workout = makeWorkout()
+        workout.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: start)
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        let clock = MutableClock(now: start)
+        let coordinator = makeCoordinator(
+            remoteRepository: RefusingRepository(),
+            now: start,
+            clock: clock
+        )
+
+        await coordinator.processPendingWorkouts(modelContext: modelContext, currentUserId: "user-123")
+
+        let statusWhileQuiet = workout.remoteSyncStatusRawValue
+        let passCountWhileQuiet = coordinator.completedPassCount
+        #expect(
+            coordinator.syncPresentation(for: workout, modelContext: modelContext) == .syncing
+        )
+
+        clock.value = start.addingTimeInterval(WorkoutSyncRetryPolicy.attentionThreshold + 60)
+        await coordinator.processPendingWorkouts(modelContext: modelContext, currentUserId: "user-123")
+
+        #expect(
+            workout.remoteSyncStatusRawValue == statusWhileQuiet,
+            "The status is unchanged, so it cannot be the only invalidation signal."
+        )
+        #expect(coordinator.completedPassCount > passCountWhileQuiet)
+        #expect(
+            coordinator.syncPresentation(for: workout, modelContext: modelContext) == .couldNotSync
+        )
+    }
+
+    /// A teardown partway through the queue abandons everything behind it, including a climb a
+    /// climber had just tapped. The bypass token was already spent putting it in the queue, so
+    /// deriving "served" from the token reports a refusal for bytes that were never offered.
+    @Test
+    func aTapDroppedByACancelledPassReportsThatItWasNotAttempted() async throws {
+        let modelContext = try makeModelContext()
+
+        // Ordered by `lastModifiedAt`, so this one is reached first and tears the pass down.
+        let cancelling = makeWorkout()
+        cancelling.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: start)
+        modelContext.insert(cancelling)
+
+        // Stopped, so only the tap can put it in the queue - and it sits behind the teardown.
+        let tapped = makeWorkout()
+        tapped.markPendingRemoteUpsert(
+            ownerUserId: "user-123",
+            modifiedAt: start.addingTimeInterval(60)
+        )
+        tapped.remoteSyncStatus = .rejected
+        modelContext.insert(tapped)
+        try modelContext.save()
+
+        let cancellingId = cancelling.id
+        let repository = RefusingRepository(
+            errorForWorkoutId: { $0 == cancellingId ? CancellationError() : nil }
+        )
+        let coordinator = makeCoordinator(remoteRepository: repository, now: start)
+
+        let wasAttempted = await coordinator.retryNow(
+            workoutId: tapped.id,
+            modelContext: modelContext,
+            currentUserId: "user-123"
+        )
+
+        #expect(await repository.attemptedWorkoutIds() == [cancellingId])
+        #expect(wasAttempted == false, "The tapped climb was never offered, so nothing refused it.")
+    }
+
     @Test
     func aServedTapReportsThatItWasAttempted() async throws {
         let modelContext = try makeModelContext()
@@ -617,9 +698,14 @@ private struct RefusedWrite: Error, CustomNSError, Sendable {
 private actor RefusingRepository: WorkoutRemoteRepositoryProtocol {
     private var attempts: [UUID] = []
     private let onUpsert: (@MainActor (UUID) async -> Void)?
+    private let errorForWorkoutId: (@Sendable (UUID) -> (any Error)?)?
 
-    init(onUpsert: (@MainActor (UUID) async -> Void)? = nil) {
+    init(
+        onUpsert: (@MainActor (UUID) async -> Void)? = nil,
+        errorForWorkoutId: (@Sendable (UUID) -> (any Error)?)? = nil
+    ) {
         self.onUpsert = onUpsert
+        self.errorForWorkoutId = errorForWorkoutId
     }
 
     func fetchWorkouts(userId: String) async throws -> [RemoteWorkoutRecord] { [] }
@@ -631,6 +717,7 @@ private actor RefusingRepository: WorkoutRemoteRepositoryProtocol {
     ) async throws {
         attempts.append(workoutId)
         await onUpsert?(workoutId)
+        if let error = errorForWorkoutId?(workoutId) { throw error }
         throw RefusedWrite()
     }
 

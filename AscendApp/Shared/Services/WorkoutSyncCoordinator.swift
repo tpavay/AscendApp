@@ -42,6 +42,15 @@ final class WorkoutSyncCoordinator {
     /// otherwise discard them while the operation kept running - the surface would forget it had
     /// been asked, and the control would unlock under a request that was still going.
     @ObservationIgnored private var manuallyRequestedWorkoutIds: Set<UUID> = []
+
+    /// Taps still waiting to learn whether their climb reached a verdict, keyed by workout.
+    ///
+    /// Separate from `manuallyRequestedWorkoutIds` because the two answer different questions at
+    /// different moments. The request set is a bypass token, spent when a pass *queues* the
+    /// workout; this records whether the queued workout then actually got an answer. A pass torn
+    /// down partway through its queue spends the token on a climb it never offers, so deriving
+    /// "was it served" from the token reports a refusal that never happened.
+    @ObservationIgnored private var manualRetryReachedOutcome: [UUID: Bool] = [:]
     @ObservationIgnored private(set) var inFlightWorkoutIds: Set<UUID> = []
 
     /// Workouts whose climber has seen the warning, so the transient `Synced` confirmation is only
@@ -142,17 +151,19 @@ final class WorkoutSyncCoordinator {
     /// The request outlives this call rather than being cleared when it returns. Seven surfaces
     /// drive the coordinator, so a tap regularly lands while a pass is already running; clearing
     /// the request on the early return dropped it, and the surface still reported a failure for an
-    /// attempt that never ran. The flag is now consumed by the pass that actually reads it, and
-    /// this waits for that pass rather than answering before it.
+    /// attempt that never ran. The request is now spent by the pass that actually queues it, and
+    /// this waits for that climb's verdict rather than answering before it.
     ///
-    /// Returns whether a pass actually read the request. Several paths reach the end of a pass
-    /// without ever looking: the cloud-backup kill switch short-circuits the pending query, a
-    /// cancelled pass abandons the rest of its queue, and a workout owned by another account is
-    /// never in this user's candidates. A caller must be able to tell those from a genuine refusal,
-    /// because telling a climber their climb failed to sync when nothing was attempted is a lie in
-    /// the one place the app has promised not to tell one. An unread request is dropped here rather
-    /// than left behind, so it cannot silently bypass the rejected guard and the due date on some
-    /// later automatic pass with no tap behind it.
+    /// Returns whether this climb actually reached a verdict - a server acknowledgement, a refusal,
+    /// or a shape the client will never be able to offer. Several paths end a pass without ever
+    /// getting one: the cloud-backup kill switch short-circuits the pending query, a workout owned
+    /// by another account is never in this user's candidates, and a pass torn down partway through
+    /// its queue abandons everything behind the workout it was on. A caller must be able to tell
+    /// those from a genuine refusal, because telling a climber their climb failed to sync when
+    /// nothing was ever offered is a lie in the one place the app has promised not to tell one.
+    ///
+    /// An unspent request is dropped here rather than left behind, so it cannot silently bypass the
+    /// rejected guard and the due date on some later automatic pass with no tap behind it.
     @discardableResult
     func retryNow(
         workoutId: UUID,
@@ -162,15 +173,19 @@ final class WorkoutSyncCoordinator {
         // Already being attempted. This tap adds nothing, and the running attempt owns the outcome.
         guard !inFlightWorkoutIds.contains(workoutId) else { return false }
 
+        manualRetryReachedOutcome[workoutId] = false
         manuallyRequestedWorkoutIds.insert(workoutId)
         warnedWorkoutIds.insert(workoutId)
         await processPendingWorkouts(modelContext: modelContext, currentUserId: currentUserId)
 
-        while manuallyRequestedWorkoutIds.contains(workoutId), isProcessingPendingWorkouts {
+        // Waits for the verdict itself, not merely for the request to be spent: a pass that queued
+        // this climb may still be working towards it.
+        while manualRetryReachedOutcome[workoutId] == false, isProcessingPendingWorkouts {
             await awaitRunningPass()
         }
 
-        return manuallyRequestedWorkoutIds.remove(workoutId) == nil
+        manuallyRequestedWorkoutIds.remove(workoutId)
+        return manualRetryReachedOutcome.removeValue(forKey: workoutId) ?? false
     }
 
     /// What the surface renders, derived from whether the climb is in the cloud - never from what
@@ -341,6 +356,7 @@ final class WorkoutSyncCoordinator {
                             modelContext: modelContext
                         )
                         try clearOutboxEntry(forWorkoutId: snapshot.workoutId, modelContext: modelContext)
+                        noteOutcomeReached(forWorkoutId: snapshot.workoutId)
                     } catch {
                         let category = WorkoutSyncFailureClassifier.category(
                             for: error,
@@ -371,6 +387,7 @@ final class WorkoutSyncCoordinator {
                             errorMessage: error.localizedDescription,
                             modelContext: modelContext
                         )
+                        noteOutcomeReached(forWorkoutId: snapshot.workoutId)
                     }
                 }
             } catch {
@@ -585,10 +602,20 @@ private extension WorkoutSyncCoordinator {
                 // cloud at all.
                 workout.markRemoteSyncRejected(error.localizedDescription)
                 try modelContext.save()
+                noteOutcomeReached(forWorkoutId: workout.id)
             }
         }
 
         return snapshots
+    }
+
+    /// Records that a climb reached a verdict, for a tap that is waiting to hear one.
+    ///
+    /// Deliberately silent for a workout nobody asked about: the map holds only taps in flight, so
+    /// it cannot grow with the queue.
+    func noteOutcomeReached(forWorkoutId workoutId: UUID) {
+        guard manualRetryReachedOutcome[workoutId] != nil else { return }
+        manualRetryReachedOutcome[workoutId] = true
     }
 
     /// Waits for the pass that is already running, without starting one.
