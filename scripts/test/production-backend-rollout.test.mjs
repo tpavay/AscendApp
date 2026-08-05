@@ -98,8 +98,8 @@ test("declares every server collection-group field index", () => {
   // reconciliation query run against. finishers and blocked are addressed by
   // document ID, so they need the collection-group index only. The entitlement
   // expiry sweep orders active grants by accessUntil across every user, and the
-  // webhook ledger is bounded by a TTL policy on its own future retention
-  // stamp rather than by any query.
+  // webhook ledger and the analytics outbox are each bounded by a TTL policy on
+  // their own future retention stamp rather than by any query.
   assert.deepEqual(signatures, [
     [
       "blocked",
@@ -131,6 +131,12 @@ test("declares every server collection-group field index", () => {
     ],
     [
       "_revenuecat_webhook_events",
+      "retainUntil",
+      [],
+      true,
+    ],
+    [
+      "_revenuecat_analytics_outbox",
       "retainUntil",
       [],
       true,
