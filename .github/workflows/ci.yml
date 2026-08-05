@@ -85,6 +85,16 @@ jobs:
             scripts:
               - "scripts/**"
               - "SharedTestVectors/**"
+              # The Mixpanel build-configuration suite reads every Swift file
+              # under AscendApp/ to prove `import Mixpanel` reaches only the
+              # telemetry adapter and that session replay is never enabled, and
+              # either mistake can be made in any file. So, exactly like the
+              # `swiftdata_schema` filter below, this is the whole app tree on
+              # purpose and is never narrowed to the folders the telemetry code
+              # lives in today. The narrower app paths below stay listed: they
+              # are each some suite's declared input, and this entry going away
+              # must not silently take them with it.
+              - "AscendApp/**"
               # The monetization build-configuration suite reads all three, so a
               # key, Info.plist, or placeholder-contract edit must run it.
               - "AscendApp.xcodeproj/**"
