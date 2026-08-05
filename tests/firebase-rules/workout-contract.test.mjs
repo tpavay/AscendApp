@@ -229,39 +229,32 @@ test('bounded workout lists write at the maximum the rules declare', async () =>
   })));
 });
 
-// The workout write rule sits close to Firestore's 1000-expression evaluation ceiling, so the
-// integrity metadata is guarded by type and domain rather than by an additional byte-count range:
-// a wrong-typed value is what breaks the whole envelope's decode, while a merely wrong byte count
-// is already caught client-side by the exact-size and hash comparison.
-test('workout HR integrity metadata is bounded and validated', async () => {
+// The heart-rate reference keeps exactly one check that matters to anybody but its owner: the
+// storage path must be the caller's own. Everything else about the reference - the sha256 format,
+// the object schema version, the compressed byte count, the series timestamps and their ordering -
+// is deliberately no longer validated here. `WorkoutHeartRateSidecarValidator` verifies the actual
+// digest and byte count on download, which is strictly stronger than a format check, and the
+// budget those checks consumed is why a Live Climb with a participation and a restored sidecar
+// could not be written at all (ASCEND-IOS-1J).
+test('workout HR reference is bound to the callers own storage path', async () => {
   const context = testEnv.authenticatedContext(userId);
   const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
 
   await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    heartRateSeries: makeHeartRateSeriesReference(otherUserId, workoutId),
+  })));
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
     heartRateSeries: {
       ...makeHeartRateSeriesReference(userId, workoutId),
-      sha256: 'not-a-sha256',
+      encoding: 'json',
     },
   })));
 
   await assertFails(setDoc(workoutRef, makeWorkoutDocument({
     heartRateSeries: {
       ...makeHeartRateSeriesReference(userId, workoutId),
-      compressedByteCount: 'x',
-    },
-  })));
-
-  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
-    heartRateSeries: {
-      ...makeHeartRateSeriesReference(userId, workoutId),
-      objectSchemaVersion: 0,
-    },
-  })));
-
-  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
-    heartRateSeries: {
-      ...makeHeartRateSeriesReference(userId, workoutId),
-      objectSchemaVersion: 'one',
+      sampleCount: 0,
     },
   })));
 });
@@ -352,45 +345,41 @@ test('climb attempt participation requires headphone motion source', async () =>
   })));
 });
 
-test('highlighted media id must point to an uploaded media item', async () => {
+// Media and weight entries are bounded, not inspected, and that is a decision rather than a gap.
+//
+// Nobody but the owner ever reads either one, and no server code derives anything from them, so
+// the only thing the rule owes them is a size cap that keeps one document from growing without
+// limit. Validating their contents cost more of the 1000-expression budget than the whole
+// participation list, and it bought protection against a climber corrupting their own private
+// workout. `WorkoutRemoteSyncMapper` builds both, and the Firestore decoder drops what it cannot
+// read rather than restoring a corrupt item.
+test('media and weight entries are bounded in size but not validated per item', async () => {
   const context = testEnv.authenticatedContext(userId);
   const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
 
-  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
-    media: [makeMediaItem()],
+  await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument({
+    media: [makeMediaItem(), {...makeMediaItem(secondMediaId), type: 'gif'}],
     highlightedMediaId: secondMediaId,
   })));
-});
 
-test('invalid nested media items are rejected', async () => {
-  const context = testEnv.authenticatedContext(userId);
-  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
-
-  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
-    media: [
-      makeMediaItem(),
-      {
-        ...makeMediaItem(secondMediaId),
-        type: 'gif',
-      },
-    ],
-    highlightedMediaId: mediaId,
-  })));
-});
-
-test('invalid weight entries are rejected', async () => {
-  const context = testEnv.authenticatedContext(userId);
-  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
-
-  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+  await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument({
     weightConfiguration: {
       entries: [
         makeWeightEntry(),
-        {
-          ...makeWeightEntry('44444444-4444-4444-4444-444444444444'),
-          equipmentType: 'sled',
-        },
+        {...makeWeightEntry('44444444-4444-4444-4444-444444444444'), equipmentType: 'sled'},
       ],
+    },
+  })));
+
+  // The caps themselves still hold.
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    media: [0, 1, 2, 3].map((index) => makeMediaItem(`1111111${index}-1111-1111-1111-111111111111`)),
+  })));
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    weightConfiguration: {
+      entries: [0, 1, 2, 3, 4, 5].map((index) =>
+        makeWeightEntry(`3333333${index}-3333-3333-3333-333333333333`)),
     },
   })));
 });
@@ -408,24 +397,6 @@ test('invalid weight entries are rejected', async () => {
 // Each fixture populates at most one nested list - the write rule is already over Firestore's
 // 1000-expression ceiling well below its declared caps (issue #295), and a denial from that would
 // pass these assertions while proving nothing.
-test('a workout weight entry rejects an unknown key and a missing required key', async () => {
-  const context = testEnv.authenticatedContext(userId);
-  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
-
-  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
-    weightConfiguration: {
-      entries: [{...makeWeightEntry(), unexpected: 'extra'}],
-    },
-  })));
-
-  const {isEnabled, ...weightEntryMissingIsEnabled} = makeWeightEntry();
-  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
-    weightConfiguration: {
-      entries: [{...weightEntryMissingIsEnabled, enabled: isEnabled}],
-    },
-  })));
-});
-
 test('a workout weight configuration rejects an unknown key and a missing required key', async () => {
   const context = testEnv.authenticatedContext(userId);
   const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
@@ -444,11 +415,15 @@ test('a workout weight configuration rejects an unknown key and a missing requir
   })));
 });
 
-test('a participation metrics snapshot rejects an unknown key and a missing required key', async () => {
+// `metricsSnapshot` is the one nested map no server code reads at all: the replay function
+// recomputes every number it needs from the workout's own `durationSeconds`, `steps` and
+// `sourceMetadata`. Its contents are therefore private to the owner's device, and the
+// participation's own key contract still guarantees the key is present.
+test('a participation metrics snapshot is carried but no longer inspected', async () => {
   const context = testEnv.authenticatedContext(userId);
   const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
 
-  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+  await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument({
     participations: [{
       ...makeRoutineTemplateParticipation(),
       metricsSnapshot: {...makeMetricsSnapshot(), unexpected: 'extra'},
@@ -456,7 +431,7 @@ test('a participation metrics snapshot rejects an unknown key and a missing requ
   })));
 
   const {floors, ...snapshotMissingFloors} = makeMetricsSnapshot();
-  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+  await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument({
     participations: [{
       ...makeRoutineTemplateParticipation(),
       metricsSnapshot: {...snapshotMissingFloors, flights: floors},
@@ -566,19 +541,7 @@ test('non-string enum values are rejected without a separate type check', async 
   await assertFails(setDoc(workoutRef, makeWorkoutDocument({source: 1})));
   await assertFails(setDoc(workoutRef, makeWorkoutDocument({integrityLevel: true})));
   await assertFails(setDoc(workoutRef, makeWorkoutDocument({
-    media: [{...makeMediaItem(), type: 3}],
-  })));
-  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
-    weightConfiguration: {entries: [{...makeWeightEntry(), equipmentType: 7}]},
-  })));
-  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
     participations: [{...makeRoutineTemplateParticipation(), contextType: 2}],
-  })));
-  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
-    participations: [{...makeRoutineTemplateParticipation(), role: 4}],
-  })));
-  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
-    participations: [{...makeRoutineTemplateParticipation(), verificationTier: 5}],
   })));
 });
 
@@ -594,21 +557,27 @@ test('a heart-rate reference at a bumped object schema version stays writable', 
   })));
 });
 
-test('heart-rate object schema versions outside the supported range are rejected', async () => {
+// The participation cap is the one number that must agree in three places: this rule,
+// `WorkoutRemoteSyncLimits.maximumParticipations` on the writing side, and
+// `workout-expression-budget.test.mjs`, which proves the rule can still evaluate a document
+// holding that many. They used to disagree - eight declared, one evaluable, no client cap - and
+// that mismatch is why the failure was undiagnosable.
+test('the participation cap is enforced at exactly four', async () => {
   const context = testEnv.authenticatedContext(userId);
   const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
 
-  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
-    heartRateSeries: {
-      ...makeHeartRateSeriesReference(userId, workoutId),
-      objectSchemaVersion: 0,
-    },
+  const participation = (index) => ({
+    ...makeRoutineTemplateParticipation(),
+    id: `4444444${index}-4444-4444-4444-444444444444`,
+    contextId: `template-${index}`,
+  });
+
+  await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument({
+    participations: [0, 1, 2, 3].map(participation),
   })));
+
   await assertFails(setDoc(workoutRef, makeWorkoutDocument({
-    heartRateSeries: {
-      ...makeHeartRateSeriesReference(userId, workoutId),
-      objectSchemaVersion: MAX_SCHEMA_VERSION + 1,
-    },
+    participations: [0, 1, 2, 3, 4].map(participation),
   })));
 });
 

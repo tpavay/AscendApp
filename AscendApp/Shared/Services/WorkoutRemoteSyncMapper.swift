@@ -14,6 +14,15 @@ enum WorkoutRemoteSyncMapper {
             throw WorkoutSyncError.implausibleWorkoutTotals
         }
 
+        // Refuse rather than truncate. `firestore.rules` bounds this list, so a workout carrying
+        // more than the cap is a document the server will refuse every time it is offered - and
+        // silently dropping the overflow would sync the workout while quietly losing the link that
+        // made it count toward a board. Sits with the other preconditions so a workout that is
+        // about to be refused never pays for the heart-rate series scan below.
+        guard workout.participations.count <= WorkoutRemoteSyncLimits.maximumParticipations else {
+            throw WorkoutSyncError.tooManyParticipations(count: workout.participations.count)
+        }
+
         let media = workout.photos.isEmpty
             ? nil
             : workout.photos.map { photo in
@@ -50,6 +59,8 @@ enum WorkoutRemoteSyncMapper {
             blob: heartRateBlob
         )
 
+        // Refuse rather than truncate. The rule bounds this list, so a workout carrying more than
+        // the cap is a document the server will refuse every time it is offered - and silently
         let participations = workout.participations.isEmpty
             ? nil
             : workout.participations

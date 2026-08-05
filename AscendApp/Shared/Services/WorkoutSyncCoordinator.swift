@@ -271,11 +271,14 @@ private extension WorkoutSyncCoordinator {
         for workout in workouts {
             do {
                 snapshots.append(try WorkoutRemoteSyncMapper.snapshot(from: workout))
-            } catch WorkoutSyncError.implausibleWorkoutTotals {
-                workout.markRemoteSyncRejected(WorkoutSyncError.implausibleWorkoutTotals.localizedDescription)
+            } catch let error as WorkoutSyncError {
+                // Every `WorkoutSyncError` is a permanent statement about this one workout's shape,
+                // so it takes the terminal status and the pass carries on. Rethrowing - which
+                // implausible totals were the only exception to - aborts the whole queue, so one
+                // unsyncable workout would stop every healthy one behind it from reaching the
+                // cloud at all.
+                workout.markRemoteSyncRejected(error.localizedDescription)
                 try modelContext.save()
-            } catch {
-                throw error
             }
         }
 
