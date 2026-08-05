@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// Drives the email preference toggle in notification settings.
+/// Drives the switch on the Email preference screen.
 @MainActor
 @Observable
 final class EmailPreferencesViewModel {
@@ -12,7 +12,10 @@ final class EmailPreferencesViewModel {
     }
 
     private(set) var loadState: LoadState = .loading
-    private(set) var isLifecycleEmailsEnabled = true
+    /// Starts off, and stays off until the server says a climber said yes. A
+    /// switch that shows on before the answer is known would be claiming a
+    /// consent nobody has given.
+    private(set) var consent: LifecycleEmailConsent = .undecided
     private(set) var isUpdating = false
     private(set) var errorMessage: String?
 
@@ -22,6 +25,12 @@ final class EmailPreferencesViewModel {
 
     init(service: EmailPreferencesProviding = EmailPreferencesService()) {
         self.service = service
+    }
+
+    /// What the switch shows. An unanswered question reads as off, which is
+    /// exactly what the server will do with it.
+    var isLifecycleEmailsEnabled: Bool {
+        consent.allowsEmail
     }
 
     var isToggleDisabled: Bool {
@@ -48,7 +57,7 @@ final class EmailPreferencesViewModel {
         let generationAtReadStart = writeGeneration
 
         do {
-            let serverValue = try await service.loadLifecycleEmailsEnabled()
+            let serverValue = try await service.loadConsent()
             // A write that started mid-read still owns the value, and so does
             // one that both started and finished while this read was in
             // flight: either way the write is newer than what this read saw.
@@ -56,7 +65,7 @@ final class EmailPreferencesViewModel {
                 return
             }
 
-            isLifecycleEmailsEnabled = serverValue
+            consent = serverValue
             loadState = .ready
             errorMessage = nil
         } catch {
@@ -68,14 +77,15 @@ final class EmailPreferencesViewModel {
     }
 
     func setLifecycleEmailsEnabled(_ isEnabled: Bool) async {
-        guard !isUpdating, isEnabled != isLifecycleEmailsEnabled else { return }
+        let nextConsent = LifecycleEmailConsent(isGranted: isEnabled)
+        guard !isUpdating, nextConsent != consent else { return }
 
-        let previousValue = isLifecycleEmailsEnabled
+        let previousConsent = consent
         isUpdating = true
         errorMessage = nil
         // Move the switch immediately, then put it back if the write fails, so
         // the control never shows a state the server did not accept.
-        isLifecycleEmailsEnabled = isEnabled
+        consent = nextConsent
         // A revert counts too: it settles the value just as a save does, so a
         // read that started before it is equally out of date.
         defer {
@@ -84,10 +94,13 @@ final class EmailPreferencesViewModel {
         }
 
         do {
-            try await service.setLifecycleEmailsEnabled(isEnabled)
+            try await service.recordConsent(
+                isGranted: isEnabled,
+                source: .settings
+            )
         } catch {
-            isLifecycleEmailsEnabled = previousValue
-            errorMessage = "Couldn't save that. Check your connection."
+            consent = previousConsent
+            errorMessage = "Couldn't save. Check your connection."
         }
     }
 }

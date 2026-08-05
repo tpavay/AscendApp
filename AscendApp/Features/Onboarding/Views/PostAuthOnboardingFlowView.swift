@@ -725,12 +725,29 @@ private struct PostAuthLocationScreen: View {
     }
 }
 
-private struct PostAuthNotificationScreen: View {
+struct PostAuthNotificationScreen: View {
     let stage: PostAuthOnboardingStage
     let onBack: () -> Void
     let onContinue: () -> Void
 
     @State private var isRequesting = false
+    @State private var emailOptIn: OnboardingEmailOptInViewModel
+
+    /// `emailOptIn` is defaulted to the view model this screen has always built,
+    /// so every production call site is unchanged. Only tests pass one, to watch
+    /// what Skip actually writes when the real control is pressed.
+    @MainActor
+    init(
+        stage: PostAuthOnboardingStage,
+        onBack: @escaping () -> Void,
+        onContinue: @escaping () -> Void,
+        emailOptIn: OnboardingEmailOptInViewModel = OnboardingEmailOptInViewModel()
+    ) {
+        self.stage = stage
+        self.onBack = onBack
+        self.onContinue = onContinue
+        _emailOptIn = State(initialValue: emailOptIn)
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -769,7 +786,30 @@ private struct PostAuthNotificationScreen: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(width: metrics.width(342))
-                .offset(x: metrics.x(24), y: metrics.y(507))
+                .offset(x: metrics.x(24), y: metrics.y(470))
+
+                // Email is a separate answer from push. Enabling notifications
+                // must never tick this, and unticking it must never stop the
+                // iOS prompt: bundling them is what makes consent unspecific.
+                Toggle(isOn: emailOptInBinding) {
+                    Text("Email me when climbs drop.")
+                        .font(.montserratMedium(size: metrics.font(14)))
+                        .foregroundStyle(.white.opacity(0.82))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .toggleStyle(
+                    OnboardingCheckboxToggleStyle(
+                        boxSize: metrics.width(22),
+                        cornerRadius: metrics.radius(6),
+                        spacing: metrics.width(12),
+                        // The design coordinates scale with the screen; 44pt
+                        // does not. A small phone gets the same target.
+                        minimumTargetHeight: max(44, metrics.height(44))
+                    )
+                )
+                .disabled(isRequesting)
+                .frame(width: metrics.width(334))
+                .position(x: metrics.x(195), y: metrics.y(651))
 
                 VStack(spacing: metrics.height(14)) {
                     Button(action: requestNotifications) {
@@ -798,11 +838,24 @@ private struct PostAuthNotificationScreen: View {
                     .disabled(isRequesting)
                 }
                 .frame(width: metrics.width(334), alignment: .center)
-                .position(x: metrics.x(195), y: metrics.y(725))
+                .position(x: metrics.x(195), y: metrics.y(744))
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .ignoresSafeArea()
+        .task {
+            // A climber who already answered this question keeps their answer,
+            // even on a phone that has never seen it. Nothing here waits on the
+            // read: the box stays pre-ticked until and unless it returns one.
+            await emailOptIn.adoptStoredDecision()
+        }
+    }
+
+    private var emailOptInBinding: Binding<Bool> {
+        Binding(
+            get: { emailOptIn.isSelected },
+            set: { _ in emailOptIn.toggle() }
+        )
     }
 
     private func requestNotifications() {
@@ -810,6 +863,9 @@ private struct PostAuthNotificationScreen: View {
 
         Task { @MainActor in
             isRequesting = true
+            // The email answer is the climber's either way, so it is written
+            // down before the iOS prompt can change what they are looking at.
+            emailOptIn.startRecordingDecision()
             let status = await ClimbDropNotificationPermissionController.requestDuringOnboarding()
             isRequesting = false
 
@@ -836,6 +892,9 @@ private struct PostAuthNotificationScreen: View {
 
         Task { @MainActor in
             isRequesting = true
+            // Skip declines push, not email. The tick is a separate answer and
+            // it is saved here exactly as it is saved by Enable.
+            emailOptIn.startRecordingDecision()
             await ClimbDropNotificationPermissionController.disable()
             isRequesting = false
 
