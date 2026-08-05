@@ -50,11 +50,6 @@ struct PaywallAnalyticsContext: Sendable, Hashable {
 }
 
 enum PaywallAnalyticsEvent: TelemetryEvent {
-    enum RestoreFailureOutcome: String, Sendable {
-        case failed
-        case noEntitlement = "no_entitlement"
-    }
-
     case shown(context: PaywallAnalyticsContext)
     case dismissed(context: PaywallAnalyticsContext)
     case transactionStarted(context: PaywallAnalyticsContext, productID: String)
@@ -69,8 +64,8 @@ enum PaywallAnalyticsEvent: TelemetryEvent {
     case revenueCatPurchaseFailed(productID: String, errorType: RevenueCatAnalyticsErrorType)
     case revenueCatRestoreStarted
     case revenueCatRestoreCompleted(entitlementID: String)
+    case revenueCatRestoreNotFound(entitlementID: String)
     case revenueCatRestoreFailed(
-        outcome: RestoreFailureOutcome,
         entitlementID: String,
         errorType: RevenueCatAnalyticsErrorType
     )
@@ -202,13 +197,24 @@ enum PaywallAnalyticsEvent: TelemetryEvent {
                 ]
             )
 
-        case .revenueCatRestoreFailed(let outcome, let entitlementID, let errorType):
+        case .revenueCatRestoreNotFound(let entitlementID):
+            return TelemetryRecord(
+                name: "revenuecat_restore_not_found",
+                parameters: [
+                    "outcome": .string("no_entitlement"),
+                    "entitlement_id": .string(entitlementID),
+                    "entitlement_active": .bool(false)
+                ]
+            )
+
+        // A restore that never resolved an entitlement answer carries no `entitlement_active`:
+        // reporting `false` would count an outage as evidence the climber holds nothing.
+        case .revenueCatRestoreFailed(let entitlementID, let errorType):
             return TelemetryRecord(
                 name: "revenuecat_restore_failed",
                 parameters: [
-                    "outcome": .string(outcome.rawValue),
+                    "outcome": .string("failed"),
                     "entitlement_id": .string(entitlementID),
-                    "entitlement_active": .bool(false),
                     "error_type": .string(errorType.rawValue)
                 ]
             )

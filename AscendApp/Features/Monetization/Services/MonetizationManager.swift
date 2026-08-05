@@ -177,9 +177,11 @@ final class MonetizationManager: MonetizationIdentityManaging {
         paywallPresenter.resetIdentity()
     }
 
-    func refreshEntitlements(force: Bool = false) async {
+    @discardableResult
+    func refreshEntitlements(force: Bool = false) async -> MonetizationEntitlementState {
         await entitlementService.refreshCustomerInfo()
         await reconcileServerAppAccess(force: force)
+        return entitlementState
     }
 
     /// Asks the server to re-derive this user's paid access from RevenueCat.

@@ -113,6 +113,16 @@ struct AppAccessPaywallPlaceholderView: View {
                 .buttonStyle(.plain)
                 .disabled(!restoreState.isButtonEnabled(isRevenueCatConfigured: monetizationManager.isRevenueCatConfigured))
 
+                if let restoreMessage = restoreState.statusMessage {
+                    Text(restoreMessage)
+                        .font(.montserratMedium(size: 13))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
+                        .accessibilityIdentifier("appAccessRestoreStatus")
+                }
+
                 #if DEBUG
                 if monetizationManager.debugForcesAppAccessPaywall {
                     Button(action: clearDebugGateOverride) {
@@ -157,20 +167,13 @@ struct AppAccessPaywallPlaceholderView: View {
     }
 
     private func restorePurchases() {
-        guard monetizationManager.isRevenueCatConfigured else {
-            restoreState = .failed
-            return
-        }
         guard restoreState != .restoring else { return }
         restoreState = .restoring
 
+        let restorer = monetizationManager
+        let restoreService = AppAccessRestoreService(restorer: { restorer })
         Task {
-            do {
-                try await monetizationManager.restorePurchases()
-                restoreState = .restored
-            } catch {
-                restoreState = .failed
-            }
+            restoreState = AppAccessRestoreState(outcome: await restoreService.restore())
         }
     }
 

@@ -35,6 +35,7 @@ Event parameters are not scanned, which is why they are inventoried here.
 - `selected_value` on `leaderboard_filter_changed` is **Health** when `filter_type` is `body_weight`, **Other Data Types** when it is `age_group`, and **Coarse Location** when it is `location`.
 - `answer_id` and `answer_count` on `onboarding_question_answered` are **Fitness** for the `stair_stepper_baseline`, `exercise_level`, `goal`, `motivation`, and `plan` questions, and **Other Data Types** for the `notifications` and `first_climb` questions.
 - `outcome` is **Fitness** on `workout_import_finished` and `live_climb_attempt_saved`, and **Purchase History** on every `revenuecat_purchase_*` and `revenuecat_restore_*` terminal event.
+- `entitlement_active` is **Purchase History**, and it is logged only where the entitlement answer was actually resolved: `revenuecat_purchase_completed`, `revenuecat_restore_completed`, and `revenuecat_restore_not_found`. `revenuecat_restore_failed` omits it deliberately - an unresolved restore is not evidence of a lapsed subscription.
 - `reason` is **Other Diagnostic Data** on `paywall_skipped` and `onboarding_auth_failed`, where it carries an SDK-authored string rather than a user choice.
 
 ## What deliberately does not reach analytics

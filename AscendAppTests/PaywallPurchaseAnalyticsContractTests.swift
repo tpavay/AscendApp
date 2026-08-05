@@ -16,19 +16,19 @@ struct PaywallPurchaseAnalyticsContractTests {
     ]
     private static let restoreTerminalNames: Set<String> = [
         "revenuecat_restore_completed",
+        "revenuecat_restore_not_found",
         "revenuecat_restore_failed"
     ]
 
+    // MARK: - Purchase
+
     @Test
     func successfulPurchaseEmitsOneCompletedTerminalAndReturnsSuperwallPurchased() async {
-        let harness = Self.makeHarness()
+        let harness = Self.makePurchaseHarness(refreshedState: .active([Self.entitlementID]))
         Self.recordPaywallContext(in: harness.contextStore)
 
         let result = await harness.executor.executePurchase(productID: Self.productID) {
-            RevenueCatPurchaseExecutor.PurchaseResponse(
-                userCancelled: false,
-                activeEntitlementIDs: [Self.entitlementID]
-            )
+            RevenueCatPurchaseExecutor.PurchaseResponse(userCancelled: false)
         }
 
         let records = harness.sink.records
@@ -44,18 +44,30 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(records[1].parameters["outcome"] == TelemetryValue.string("success"))
         #expect(records[1].parameters["entitlement_id"] == TelemetryValue.string(Self.entitlementID))
         #expect(records[1].parameters["entitlement_active"] == TelemetryValue.bool(true))
+        #expect(harness.published == [[Self.entitlementID]])
+    }
+
+    /// The purchase response is a pre-refresh snapshot. Only the refreshed, server-reconciled state
+    /// decides the verdict, so a slow projection can no longer be reported as a verified purchase.
+    @Test
+    func theRefreshedEntitlementStateAloneDecidesTheVerdict() async {
+        let harness = Self.makePurchaseHarness(refreshedState: .active([Self.entitlementID]))
+
+        let result = await harness.executor.executePurchase(productID: Self.productID) {
+            RevenueCatPurchaseExecutor.PurchaseResponse(userCancelled: false)
+        }
+
+        #expect(harness.refreshCount == 1)
+        #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_completed")
     }
 
     @Test
-    func cancelledPurchaseEmitsOneCancelledTerminalAndReturnsSuperwallCancelled() async {
-        let harness = Self.makeHarness()
+    func cancelledPurchaseEmitsOneCancelledTerminalAndNeverRefreshes() async {
+        let harness = Self.makePurchaseHarness(refreshedState: .active([Self.entitlementID]))
         Self.recordPaywallContext(in: harness.contextStore)
 
         let result = await harness.executor.executePurchase(productID: Self.productID) {
-            RevenueCatPurchaseExecutor.PurchaseResponse(
-                userCancelled: true,
-                activeEntitlementIDs: []
-            )
+            RevenueCatPurchaseExecutor.PurchaseResponse(userCancelled: true)
         }
 
         let records = harness.sink.records
@@ -66,11 +78,12 @@ struct PaywallPurchaseAnalyticsContractTests {
         Self.expectOnePurchaseTerminal(in: records)
         #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_abandoned")
         #expect(records[1].parameters["outcome"] == TelemetryValue.string("user_cancelled"))
+        #expect(harness.refreshCount == 0)
     }
 
     @Test
     func thrownCancellationEmitsTheSameSingleCancelledTerminal() async {
-        let harness = Self.makeHarness()
+        let harness = Self.makePurchaseHarness(refreshedState: .inactive)
         Self.recordPaywallContext(in: harness.contextStore)
 
         let result = await harness.executor.executePurchase(productID: Self.productID) {
@@ -88,7 +101,7 @@ struct PaywallPurchaseAnalyticsContractTests {
 
     @Test
     func pendingPurchaseEmitsOnePendingTerminalAndReturnsSuperwallPending() async {
-        let harness = Self.makeHarness()
+        let harness = Self.makePurchaseHarness(refreshedState: .inactive)
         Self.recordPaywallContext(in: harness.contextStore)
 
         let result = await harness.executor.executePurchase(productID: Self.productID) {
@@ -107,7 +120,7 @@ struct PaywallPurchaseAnalyticsContractTests {
 
     @Test
     func failedPurchaseEmitsOneFailedTerminalWithBoundedErrorAndReturnsSuperwallFailure() async {
-        let harness = Self.makeHarness()
+        let harness = Self.makePurchaseHarness(refreshedState: .inactive)
         Self.recordPaywallContext(in: harness.contextStore)
 
         let result = await harness.executor.executePurchase(productID: Self.productID) {
@@ -123,18 +136,16 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_failed")
         #expect(records[1].parameters["outcome"] == TelemetryValue.string("failed"))
         #expect(records[1].parameters["error_type"] == TelemetryValue.string("network"))
+        Self.expectNoRawErrorText(in: records)
     }
 
     @Test
     func purchaseWithoutActiveEntitlementIsFailedInsteadOfCompleted() async {
-        let harness = Self.makeHarness()
+        let harness = Self.makePurchaseHarness(refreshedState: .inactive)
         Self.recordPaywallContext(in: harness.contextStore)
 
         let result = await harness.executor.executePurchase(productID: Self.productID) {
-            RevenueCatPurchaseExecutor.PurchaseResponse(
-                userCancelled: false,
-                activeEntitlementIDs: []
-            )
+            RevenueCatPurchaseExecutor.PurchaseResponse(userCancelled: false)
         }
 
         let records = harness.sink.records
@@ -145,11 +156,32 @@ struct PaywallPurchaseAnalyticsContractTests {
         Self.expectOnePurchaseTerminal(in: records)
         #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_failed")
         #expect(records[1].parameters["error_type"] == TelemetryValue.string("no_active_entitlement"))
+        #expect(Self.presentedMessage(for: result) == "Ascend couldn't confirm your subscription. Check your connection and try again.")
+    }
+
+    @Test
+    func anUnresolvedRefreshFailsThePurchaseWithoutClaimingALapse() async {
+        let harness = Self.makePurchaseHarness(refreshedState: .unknown)
+        Self.recordPaywallContext(in: harness.contextStore)
+
+        let result = await harness.executor.executePurchase(productID: Self.productID) {
+            RevenueCatPurchaseExecutor.PurchaseResponse(userCancelled: false)
+        }
+
+        let records = harness.sink.records
+        #expect(records.map(\.name) == [
+            "revenuecat_purchase_started",
+            "revenuecat_purchase_failed"
+        ])
+        Self.expectOnePurchaseTerminal(in: records)
+        #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_failed")
+        #expect(records[1].parameters["error_type"] == TelemetryValue.string("entitlement_unresolved"))
+        #expect(harness.published.isEmpty)
     }
 
     @Test
     func missingStoreProductEmitsOneFailureWithoutClaimingARevenueCatStart() {
-        let harness = Self.makeHarness()
+        let harness = Self.makePurchaseHarness(refreshedState: .inactive)
         Self.recordPaywallContext(in: harness.contextStore)
         let error = RevenueCatPurchaseControllerError.missingStoreKitProduct
 
@@ -166,13 +198,37 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(records[0].parameters["error_type"] == TelemetryValue.string("missing_store_product"))
     }
 
+    /// Every message a climber can be shown names Ascend and an action, never RevenueCat,
+    /// Superwall, or the internal entitlement ID.
+    @Test
+    func noPurchaseOrRestoreErrorLeaksVendorOrEntitlementWording() {
+        let messages = [
+            RevenueCatPurchaseControllerError.missingStoreKitProduct,
+            .monetizationUnavailable,
+            .entitlementUnconfirmed,
+            .noPurchasesFound
+        ].map { $0.localizedDescription }
+
+        for message in messages {
+            #expect(!message.localizedStandardContains("RevenueCat"))
+            #expect(!message.localizedStandardContains("Superwall"))
+            #expect(!message.localizedStandardContains("app_access"))
+            #expect(!message.localizedStandardContains("StoreKit"))
+            #expect(!message.isEmpty)
+        }
+        #expect(
+            RevenueCatPurchaseControllerError.noPurchasesFound.localizedDescription
+                == "No purchases found to restore."
+        )
+    }
+
+    // MARK: - Restore
+
     @Test
     func successfulRestoreEmitsOneCompletedTerminalAndReturnsRestored() async {
-        let harness = Self.makeHarness()
+        let harness = Self.makeRestoreHarness(restoredState: .active([Self.entitlementID]))
 
-        let result = await harness.executor.executeRestore {
-            [Self.entitlementID]
-        }
+        let outcome = await harness.service.restore()
 
         let records = harness.sink.records
         #expect(records.map(\.name) == [
@@ -180,38 +236,48 @@ struct PaywallPurchaseAnalyticsContractTests {
             "revenuecat_restore_completed"
         ])
         Self.expectOneRestoreTerminal(in: records)
-        #expect(result == .restored)
+        #expect(Self.isRestored(outcome))
         #expect(records[1].parameters["outcome"] == TelemetryValue.string("success"))
         #expect(records[1].parameters["entitlement_id"] == TelemetryValue.string(Self.entitlementID))
         #expect(records[1].parameters["entitlement_active"] == TelemetryValue.bool(true))
     }
 
     @Test
-    func restoreWithoutEntitlementEmitsOneFailedTerminalAndNeverCompletesSuperwallRestore() async {
-        let harness = Self.makeHarness()
+    func restoreWithoutAnyPurchaseEmitsOneNotFoundTerminal() async {
+        let harness = Self.makeRestoreHarness(restoredState: .inactive)
 
-        let result = await harness.executor.executeRestore { [] }
+        let outcome = await harness.service.restore()
 
         let records = harness.sink.records
         #expect(records.map(\.name) == [
             "revenuecat_restore_started",
-            "revenuecat_restore_failed"
+            "revenuecat_restore_not_found"
         ])
         Self.expectOneRestoreTerminal(in: records)
-        #expect(Self.isSuperwallRestoreCompleted(result) == false)
+        #expect(Self.isNotFound(outcome))
         #expect(records[1].parameters["outcome"] == TelemetryValue.string("no_entitlement"))
         #expect(records[1].parameters["entitlement_id"] == TelemetryValue.string(Self.entitlementID))
         #expect(records[1].parameters["entitlement_active"] == TelemetryValue.bool(false))
-        #expect(records[1].parameters["error_type"] == TelemetryValue.string("no_active_entitlement"))
     }
 
     @Test
-    func failedRestoreEmitsOneFailedTerminalWithBoundedError() async {
-        let harness = Self.makeHarness()
+    func restoreThatResolvesOtherEntitlementsIsStillNotFound() async {
+        let harness = Self.makeRestoreHarness(restoredState: .active(["some_other_entitlement"]))
 
-        let result = await harness.executor.executeRestore {
-            throw ErrorCode.networkError
-        }
+        let outcome = await harness.service.restore()
+
+        #expect(harness.sink.records.map(\.name) == [
+            "revenuecat_restore_started",
+            "revenuecat_restore_not_found"
+        ])
+        #expect(Self.isNotFound(outcome))
+    }
+
+    @Test
+    func anUnresolvedRestoreFailsWithoutAssertingTheEntitlementIsInactive() async {
+        let harness = Self.makeRestoreHarness(restoredState: .unknown)
+
+        let outcome = await harness.service.restore()
 
         let records = harness.sink.records
         #expect(records.map(\.name) == [
@@ -219,32 +285,243 @@ struct PaywallPurchaseAnalyticsContractTests {
             "revenuecat_restore_failed"
         ])
         Self.expectOneRestoreTerminal(in: records)
-        #expect(Self.isSuperwallRestoreCompleted(result) == false)
+        #expect(Self.isFailed(outcome))
         #expect(records[1].parameters["outcome"] == TelemetryValue.string("failed"))
-        #expect(records[1].parameters["entitlement_active"] == TelemetryValue.bool(false))
+        #expect(records[1].parameters["error_type"] == TelemetryValue.string("entitlement_unresolved"))
+        #expect(records[1].parameters["entitlement_active"] == nil)
+    }
+
+    @Test
+    func failedRestoreEmitsOneFailedTerminalWithBoundedErrorAndNoEntitlementClaim() async {
+        let harness = Self.makeRestoreHarness(
+            restoredState: .inactive,
+            restoreError: ErrorCode.networkError
+        )
+
+        let outcome = await harness.service.restore()
+
+        let records = harness.sink.records
+        #expect(records.map(\.name) == [
+            "revenuecat_restore_started",
+            "revenuecat_restore_failed"
+        ])
+        Self.expectOneRestoreTerminal(in: records)
+        #expect(Self.isFailed(outcome))
+        #expect(records[1].parameters["outcome"] == TelemetryValue.string("failed"))
         #expect(records[1].parameters["error_type"] == TelemetryValue.string("network"))
+        #expect(records[1].parameters["entitlement_active"] == nil)
+        Self.expectNoRawErrorText(in: records)
+    }
+
+    @Test
+    func anUnconfiguredRestoreEmitsOneFailureWithoutClaimingARevenueCatStart() async {
+        let harness = Self.makeRestoreHarness(
+            restoredState: .inactive,
+            isRevenueCatConfigured: false
+        )
+
+        let outcome = await harness.service.restore()
+
+        let records = harness.sink.records
+        #expect(records.map(\.name) == ["revenuecat_restore_failed"])
+        Self.expectOneRestoreTerminal(in: records)
+        #expect(Self.isFailed(outcome))
+        #expect(records[0].parameters["error_type"] == TelemetryValue.string("configuration"))
+        #expect(harness.restorer.restoreCount == 0)
+    }
+
+    // MARK: - Every restore entry point runs the same contract
+
+    @Test
+    func theSuperwallRestoreEntryPointEmitsExactlyOneTerminalPerOutcome() async {
+        for restoredState in [
+            MonetizationEntitlementState.active([Self.entitlementID]),
+            .inactive,
+            .unknown
+        ] {
+            let harness = Self.makeRestoreHarness(restoredState: restoredState)
+            let controller = RevenueCatPurchaseController(
+                coordinator: { harness.restorer },
+                applySuperwallStatus: { _ in },
+                restoreService: harness.service
+            )
+
+            _ = await controller.restorePurchases()
+
+            #expect(harness.sink.records.first?.name == "revenuecat_restore_started")
+            Self.expectOneRestoreTerminal(in: harness.sink.records)
+        }
+    }
+
+    @Test
+    func theSuperwallRestoreNeverReportsRestoredWhenThereIsNothingToRestore() async {
+        let harness = Self.makeRestoreHarness(restoredState: .inactive)
+        var published: [SuperwallKit.SubscriptionStatus] = []
+        let controller = RevenueCatPurchaseController(
+            coordinator: { harness.restorer },
+            applySuperwallStatus: { published.append($0) },
+            restoreService: harness.service
+        )
+
+        let result = await controller.restorePurchases()
+
+        #expect(result != .restored)
+        #expect(published.isEmpty)
+        #expect(Self.superwallRestoreMessage(for: result) == "No purchases found to restore.")
+        #expect(harness.sink.records.map(\.name).contains("revenuecat_restore_completed") == false)
+        #expect(harness.sink.records.map(\.name).contains("paywall_restore_completed") == false)
+    }
+
+    @Test
+    func theAccountRestoreEntryPointEmitsExactlyOneTerminalPerOutcome() async {
+        let expectations: [(MonetizationEntitlementState, String, String)] = [
+            (.active([Self.entitlementID]), "revenuecat_restore_completed", "Restore Complete"),
+            (.inactive, "revenuecat_restore_not_found", "Nothing to Restore"),
+            (.unknown, "revenuecat_restore_failed", "Restore Failed")
+        ]
+
+        for (restoredState, terminalName, alertTitle) in expectations {
+            let harness = Self.makeRestoreHarness(restoredState: restoredState)
+            let viewModel = RestorePurchasesViewModel(restoreService: harness.service)
+
+            await viewModel.restorePurchases()
+
+            #expect(harness.sink.records.map(\.name) == [
+                "revenuecat_restore_started",
+                terminalName
+            ])
+            Self.expectOneRestoreTerminal(in: harness.sink.records)
+            #expect(viewModel.result?.title == alertTitle)
+        }
+    }
+
+    @Test
+    func theAccountRestoreShowsTheExactNoPurchasesCopy() async {
+        let harness = Self.makeRestoreHarness(restoredState: .inactive)
+        let viewModel = RestorePurchasesViewModel(restoreService: harness.service)
+
+        await viewModel.restorePurchases()
+
+        #expect(viewModel.result?.message == "No purchases found to restore.")
+    }
+
+    @Test
+    func theAppAccessGateRestoreEntryPointEmitsExactlyOneTerminalPerOutcome() async {
+        let expectations: [(MonetizationEntitlementState, String, AppAccessRestoreState)] = [
+            (.active([Self.entitlementID]), "revenuecat_restore_completed", .restored),
+            (.inactive, "revenuecat_restore_not_found", .noPurchasesFound),
+            (.unknown, "revenuecat_restore_failed", .failed)
+        ]
+
+        for (restoredState, terminalName, expectedState) in expectations {
+            let harness = Self.makeRestoreHarness(restoredState: restoredState)
+
+            let gateState = AppAccessRestoreState(outcome: await harness.service.restore())
+
+            #expect(harness.sink.records.map(\.name) == [
+                "revenuecat_restore_started",
+                terminalName
+            ])
+            Self.expectOneRestoreTerminal(in: harness.sink.records)
+            #expect(gateState == expectedState)
+        }
+    }
+
+    @Test
+    func theAppAccessGateShowsTheExactNoPurchasesCopy() {
+        #expect(AppAccessRestoreState.noPurchasesFound.statusMessage == "No purchases found to restore.")
+    }
+}
+
+// MARK: - Harness
+
+@MainActor
+private final class RestorerStub: PaywallPurchaseCoordinating {
+    var isRevenueCatConfigured: Bool
+    private(set) var restoreCount = 0
+    private let restoredState: MonetizationEntitlementState
+    private let restoreError: (any Error)?
+
+    init(
+        restoredState: MonetizationEntitlementState,
+        restoreError: (any Error)? = nil,
+        isRevenueCatConfigured: Bool = true
+    ) {
+        self.restoredState = restoredState
+        self.restoreError = restoreError
+        self.isRevenueCatConfigured = isRevenueCatConfigured
+    }
+
+    @discardableResult
+    func refreshEntitlements(force: Bool) async -> MonetizationEntitlementState {
+        restoredState
+    }
+
+    @discardableResult
+    func restorePurchases() async throws -> MonetizationEntitlementState {
+        restoreCount += 1
+        if let restoreError {
+            throw restoreError
+        }
+        return restoredState
+    }
+}
+
+@MainActor
+private final class PurchaseHarness {
+    let sink = InMemoryTelemetrySink(destination: .analytics)
+    let contextStore = PaywallTransactionContextStore()
+    private(set) var published: [Set<String>] = []
+    private(set) var refreshCount = 0
+    private(set) var executor: RevenueCatPurchaseExecutor!
+
+    init(entitlementID: String, refreshedState: MonetizationEntitlementState) {
+        executor = RevenueCatPurchaseExecutor(
+            telemetry: makeTestTelemetry(sink: sink),
+            transactionContextStore: contextStore,
+            entitlementID: entitlementID,
+            applySubscriptionStatus: { [weak self] entitlementIDs in
+                self?.published.append(entitlementIDs)
+            },
+            refreshEntitlementState: { [weak self] in
+                self?.refreshCount += 1
+                return refreshedState
+            }
+        )
     }
 }
 
 @MainActor
 private extension PaywallPurchaseAnalyticsContractTests {
-    typealias Harness = (
-        executor: RevenueCatPurchaseExecutor,
+    typealias RestoreHarness = (
+        service: AppAccessRestoreService,
         sink: InMemoryTelemetrySink,
-        contextStore: PaywallTransactionContextStore
+        restorer: RestorerStub
     )
 
-    static func makeHarness() -> Harness {
+    static func makePurchaseHarness(
+        refreshedState: MonetizationEntitlementState
+    ) -> PurchaseHarness {
+        PurchaseHarness(entitlementID: entitlementID, refreshedState: refreshedState)
+    }
+
+    static func makeRestoreHarness(
+        restoredState: MonetizationEntitlementState,
+        restoreError: (any Error)? = nil,
+        isRevenueCatConfigured: Bool = true
+    ) -> RestoreHarness {
         let sink = InMemoryTelemetrySink(destination: .analytics)
-        let contextStore = PaywallTransactionContextStore()
-        let executor = RevenueCatPurchaseExecutor(
-            telemetry: makeTestTelemetry(sink: sink),
-            transactionContextStore: contextStore,
-            entitlementID: entitlementID,
-            applySubscriptionStatus: { _ in },
-            refreshEntitlementState: {}
+        let restorer = RestorerStub(
+            restoredState: restoredState,
+            restoreError: restoreError,
+            isRevenueCatConfigured: isRevenueCatConfigured
         )
-        return (executor, sink, contextStore)
+        let service = AppAccessRestoreService(
+            telemetry: makeTestTelemetry(sink: sink),
+            entitlementID: entitlementID,
+            restorer: { restorer }
+        )
+        return (service, sink, restorer)
     }
 
     static func recordPaywallContext(in contextStore: PaywallTransactionContextStore) {
@@ -263,6 +540,31 @@ private extension PaywallPurchaseAnalyticsContractTests {
         #expect(records.filter { restoreTerminalNames.contains($0.name) }.count == 1)
     }
 
+    /// `error_type` is the only error surface a terminal carries, and it is always one of the
+    /// bounded `RevenueCatAnalyticsErrorType` values.
+    static func expectNoRawErrorText(in records: [EnvelopedTelemetryRecord]) {
+        let bounded = Set(
+            [
+                RevenueCatAnalyticsErrorType.configuration,
+                .entitlementUnresolved,
+                .missingStoreProduct,
+                .network,
+                .noActiveEntitlement,
+                .purchaseNotAllowed,
+                .receipt,
+                .store,
+                .unknown
+            ].map(\.rawValue)
+        )
+
+        for record in records {
+            #expect(record.parameters["error"] == nil)
+            #expect(record.parameters["message"] == nil)
+            guard case .string(let errorType)? = record.parameters["error_type"] else { continue }
+            #expect(bounded.contains(errorType))
+        }
+    }
+
     static func superwallTerminalName(for result: SuperwallKit.PurchaseResult) -> String {
         switch result {
         case .purchased:
@@ -274,7 +576,28 @@ private extension PaywallPurchaseAnalyticsContractTests {
         }
     }
 
-    static func isSuperwallRestoreCompleted(_ result: SuperwallKit.RestorationResult) -> Bool {
-        result == .restored
+    static func presentedMessage(for result: SuperwallKit.PurchaseResult) -> String? {
+        guard case .failed(let error) = result else { return nil }
+        return error.localizedDescription
+    }
+
+    static func superwallRestoreMessage(for result: SuperwallKit.RestorationResult) -> String? {
+        guard case .failed(let error) = result else { return nil }
+        return error?.localizedDescription
+    }
+
+    static func isRestored(_ outcome: AppAccessRestoreOutcome) -> Bool {
+        if case .restored = outcome { return true }
+        return false
+    }
+
+    static func isNotFound(_ outcome: AppAccessRestoreOutcome) -> Bool {
+        if case .notFound = outcome { return true }
+        return false
+    }
+
+    static func isFailed(_ outcome: AppAccessRestoreOutcome) -> Bool {
+        if case .failed = outcome { return true }
+        return false
     }
 }

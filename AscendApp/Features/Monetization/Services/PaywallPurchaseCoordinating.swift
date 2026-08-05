@@ -6,15 +6,12 @@ import Foundation
 /// meant its Restore button skipped the server reconciliation the account-settings Restore ran. A
 /// single coordinator keeps the two restore surfaces from drifting apart again.
 @MainActor
-protocol PaywallPurchaseCoordinating: AnyObject {
-    var isRevenueCatConfigured: Bool { get }
-
-    func refreshEntitlements(force: Bool) async
-    /// - Returns: What RevenueCat resolved for this restore. The controller publishes that rather
-    ///   than the stored `entitlementState`, which a pending identity transition can hold at
-    ///   `.unknown` even though the restore itself succeeded.
+protocol PaywallPurchaseCoordinating: PurchaseRestoring {
+    /// - Returns: The reconciled entitlement state the refresh resolved. A purchase verdict reads
+    ///   this and nothing else, so the terminal it reports and the access the app grants can never
+    ///   come from two disagreeing snapshots.
     @discardableResult
-    func restorePurchases() async throws -> MonetizationEntitlementState
+    func refreshEntitlements(force: Bool) async -> MonetizationEntitlementState
 }
 
 extension MonetizationManager: PaywallPurchaseCoordinating { }

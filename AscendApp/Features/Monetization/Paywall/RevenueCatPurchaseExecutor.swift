@@ -6,7 +6,6 @@ import SuperwallKit
 final class RevenueCatPurchaseExecutor {
     struct PurchaseResponse: Equatable, Sendable {
         let userCancelled: Bool
-        let activeEntitlementIDs: Set<String>
     }
 
     private enum PurchaseFailure {
@@ -19,21 +18,14 @@ final class RevenueCatPurchaseExecutor {
     private let transactionContextStore: PaywallTransactionContextStore
     private let entitlementID: String
     private let applySubscriptionStatus: @MainActor (Set<String>) -> Void
-    private let refreshEntitlementState: @MainActor () async -> Void
+    private let refreshEntitlementState: @MainActor () async -> MonetizationEntitlementState
 
     init(
         telemetry: TelemetryManager = .shared,
         transactionContextStore: PaywallTransactionContextStore = .shared,
         entitlementID: String = MonetizationConfiguration.live.revenueCatEntitlementID,
-        applySubscriptionStatus: @escaping @MainActor (Set<String>) -> Void = { entitlementIDs in
-            let entitlements = Set(entitlementIDs.map { SuperwallKit.Entitlement(id: $0) })
-            Superwall.shared.subscriptionStatus = entitlements.isEmpty
-                ? .inactive
-                : .active(entitlements)
-        },
-        refreshEntitlementState: @escaping @MainActor () async -> Void = {
-            await RevenueCatEntitlementService.shared.refreshCustomerInfo()
-        }
+        applySubscriptionStatus: @escaping @MainActor (Set<String>) -> Void,
+        refreshEntitlementState: @escaping @MainActor () async -> MonetizationEntitlementState
     ) {
         self.telemetry = telemetry
         self.transactionContextStore = transactionContextStore
@@ -63,26 +55,13 @@ final class RevenueCatPurchaseExecutor {
                 return .cancelled
             }
 
-            applySubscriptionStatus(response.activeEntitlementIDs)
-            await refreshEntitlementState()
-
-            guard response.activeEntitlementIDs.contains(entitlementID) else {
-                telemetry.track(
-                    PaywallAnalyticsEvent.revenueCatPurchaseFailed(
-                        productID: productID,
-                        errorType: .noActiveEntitlement
-                    )
-                )
-                return .failed(RevenueCatPurchaseControllerError.noActiveEntitlement)
-            }
-
-            telemetry.track(
-                PaywallAnalyticsEvent.revenueCatPurchaseCompleted(
-                    productID: productID,
-                    entitlementID: entitlementID
-                )
+            // The refreshed, server-reconciled state is the single source the verdict and the
+            // terminal both read. The `CustomerInfo` the purchase call returned is a pre-refresh
+            // snapshot, so consulting it too would let two sources disagree about one purchase.
+            return verdict(
+                forRefreshedState: await refreshEntitlementState(),
+                productID: productID
             )
-            return .purchased
         } catch {
             switch Self.purchaseFailure(for: error) {
             case .cancelled:
@@ -118,86 +97,57 @@ final class RevenueCatPurchaseExecutor {
         return .failed(error)
     }
 
-    func executeRestore(
-        operation: @MainActor () async throws -> Set<String>
-    ) async -> RestorationResult {
-        telemetry.track(PaywallAnalyticsEvent.revenueCatRestoreStarted)
-
-        do {
-            let activeEntitlementIDs = try await operation()
-            applySubscriptionStatus(activeEntitlementIDs)
-            await refreshEntitlementState()
-
-            guard activeEntitlementIDs.contains(entitlementID) else {
-                telemetry.track(
-                    PaywallAnalyticsEvent.revenueCatRestoreFailed(
-                        outcome: .noEntitlement,
-                        entitlementID: entitlementID,
-                        errorType: .noActiveEntitlement
-                    )
-                )
-                return .failed(RevenueCatPurchaseControllerError.noActiveEntitlement)
-            }
-
+    private func verdict(
+        forRefreshedState state: MonetizationEntitlementState,
+        productID: String
+    ) -> PurchaseResult {
+        switch state {
+        case .active(let entitlementIDs) where entitlementIDs.contains(entitlementID):
+            applySubscriptionStatus(entitlementIDs)
             telemetry.track(
-                PaywallAnalyticsEvent.revenueCatRestoreCompleted(entitlementID: entitlementID)
-            )
-            return .restored
-        } catch {
-            telemetry.track(
-                PaywallAnalyticsEvent.revenueCatRestoreFailed(
-                    outcome: .failed,
-                    entitlementID: entitlementID,
-                    errorType: Self.analyticsErrorType(for: error)
+                PaywallAnalyticsEvent.revenueCatPurchaseCompleted(
+                    productID: productID,
+                    entitlementID: entitlementID
                 )
             )
-            return .failed(error)
+            return .purchased
+
+        case .active(let entitlementIDs):
+            applySubscriptionStatus(entitlementIDs)
+            return failVerifiedPurchase(productID: productID, errorType: .noActiveEntitlement)
+
+        case .inactive:
+            applySubscriptionStatus([])
+            return failVerifiedPurchase(productID: productID, errorType: .noActiveEntitlement)
+
+        case .unknown:
+            // An unresolved answer is not evidence of a lapse, so the published status is left
+            // alone - but it is not verified access either, so it cannot report `completed`.
+            return failVerifiedPurchase(productID: productID, errorType: .entitlementUnresolved)
         }
     }
 
-    static func analyticsErrorType(for error: any Error) -> RevenueCatAnalyticsErrorType {
-        guard let errorCode = revenueCatErrorCode(for: error) else {
-            return .unknown
-        }
-
-        switch errorCode {
-        case .networkError, .offlineConnectionError, .apiEndpointBlockedError,
-             .productRequestTimedOut:
-            return .network
-        case .purchaseNotAllowedError, .ineligibleError, .insufficientPermissionsError:
-            return .purchaseNotAllowed
-        case .receiptAlreadyInUseError, .invalidReceiptError, .missingReceiptFileError,
-             .receiptInUseByOtherSubscriberError, .purchaseBelongsToOtherUser:
-            return .receipt
-        case .invalidCredentialsError, .invalidAppleSubscriptionKeyError, .configurationError,
-             .signatureVerificationFailed:
-            return .configuration
-        case .storeProblemError, .purchaseInvalidError, .productNotAvailableForPurchaseError,
-             .productAlreadyPurchasedError, .operationAlreadyInProgressForProductError:
-            return .store
-        default:
-            return .unknown
-        }
+    private func failVerifiedPurchase(
+        productID: String,
+        errorType: RevenueCatAnalyticsErrorType
+    ) -> PurchaseResult {
+        telemetry.track(
+            PaywallAnalyticsEvent.revenueCatPurchaseFailed(
+                productID: productID,
+                errorType: errorType
+            )
+        )
+        return .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed)
     }
 
     private static func purchaseFailure(for error: any Error) -> PurchaseFailure {
-        switch revenueCatErrorCode(for: error) {
+        switch RevenueCatAnalyticsErrorType.revenueCatErrorCode(for: error) {
         case .purchaseCancelledError:
             return .cancelled
         case .paymentPendingError:
             return .pending
         default:
-            return .failed(analyticsErrorType(for: error))
+            return .failed(RevenueCatAnalyticsErrorType(error: error))
         }
-    }
-
-    private static func revenueCatErrorCode(for error: any Error) -> ErrorCode? {
-        if let errorCode = error as? ErrorCode {
-            return errorCode
-        }
-
-        let nsError = error as NSError
-        guard nsError.domain == ErrorCode.errorDomain else { return nil }
-        return ErrorCode(rawValue: nsError.code)
     }
 }

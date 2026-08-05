@@ -117,7 +117,7 @@ The segment labels identify nested implementation sections and never replace the
 | 18 | `notifications` | `post_auth_onboarding` | `onboarding_question_answered`, `onboarding_screen_completed` | `question_id=notifications`, `status`/`answer_id` (`allow` / `decline` / `skip`) |
 | 19 | `loading` | `post_auth_onboarding` | `onboarding_screen_completed` | none - the only non-interactive screen |
 | 20 | `first_climb` | `post_auth_onboarding` | `onboarding_question_answered` (`question_id=first_climb`), `onboarding_screen_completed` | `climb_id`, `climb_name` |
-| 21 | `paywall` | `post_auth_onboarding` | `onboarding_paywall_reached`, `revenuecat_purchase_completed`, `revenuecat_restore_completed` | `placement`, `source`, `product_id`, `outcome` |
+| 21 | `paywall` | `post_auth_onboarding` | `onboarding_paywall_reached`, `revenuecat_purchase_started`, one of `revenuecat_purchase_completed` / `_cancelled` / `_pending` / `_failed`, `revenuecat_restore_started`, one of `revenuecat_restore_completed` / `_not_found` / `_failed` | `placement`, `presentation_id`, `source`, `product_id`, `outcome`, `entitlement_id`, `entitlement_active`, `error_type` |
 
 ### Invariants that are easy to break
 
@@ -134,6 +134,13 @@ The segment labels identify nested implementation sections and never replace the
 - **`completion_reason` is attributed from evidence, never from timing.** `existing_entitlement` means this pass never asked for a grant. While a paywall presentation or a restore is in flight, there is no reason to report at all - the entitlement can turn active before the outcome says how. Once the request reports, `purchase`/`restore` come from that result, and a request that reported nothing still means whatever turns access on afterwards was that grant.
 - **Grant provenance is part of the pass, not of the process.** `OnboardingAccessGrantProvenance` is persisted inside the same `PassState` it describes and is retired with it, because the app can die on the StoreKit sheet between the purchase and the route to Home. A request the process died holding is settled to "reported nothing" when the next process loads the pass - it can never report, and deferring forever would cost the completion entirely.
 - **Nested owners are segments.** The value carousel, auth surface, post-auth stages, and feature guide set `segment_id`; none may emit `onboarding_flow_started` or `onboarding_flow_completed`.
+- **Every RevenueCat purchase and restore emits exactly one terminal, and `completed` means verified.**
+  A purchase or restore reports `started` only when a RevenueCat call actually happens - a missing StoreKit product or an unconfigured build emits the failure terminal alone.
+  `revenuecat_purchase_completed` and `revenuecat_restore_completed` require `app_access` in the *refreshed, server-reconciled* entitlement state, never the pre-refresh purchase response; they alone carry `entitlement_active=true`.
+  A restore that conclusively finds nothing emits `revenuecat_restore_not_found` (`outcome=no_entitlement`, `entitlement_active=false`), not `_failed` and not `paywall_restore_completed`.
+  A restore that never resolved an answer emits `revenuecat_restore_failed` with a bounded `error_type` and **no** `entitlement_active`, because the state is unknown rather than negative.
+  `AppAccessRestoreService` owns this for all three restore surfaces (paywall, account settings, app-access gate); `RevenueCatPurchaseExecutor` owns it for purchase.
+  Enforced by `AscendAppTests/PaywallPurchaseAnalyticsContractTests.swift`.
 
 ## Reference
 - `docs/sentry-setup.md` - Sentry role and app configuration.

@@ -3,43 +3,49 @@ import RevenueCat
 import StoreKit
 import SuperwallKit
 
+/// Every case here reaches a climber - Superwall renders `errorDescription` verbatim in its
+/// purchase-failure alert, and Ascend's own restore surfaces render the matching copy - so the
+/// diagnostic detail stays in telemetry's bounded `error_type` and never in the message.
 enum RevenueCatPurchaseControllerError: LocalizedError {
     case missingStoreKitProduct
     case monetizationUnavailable
-    case noActiveEntitlement
+    case entitlementUnconfirmed
+    case noPurchasesFound
 
     var errorDescription: String? {
         switch self {
         case .missingStoreKitProduct:
-            return "Superwall did not provide a StoreKit 2 product for RevenueCat to purchase."
+            return "Ascend couldn't start that purchase. Try again in a moment."
         case .monetizationUnavailable:
             return "Ascend could not reach the App Store. Check your connection and try again."
-        case .noActiveEntitlement:
-            return "RevenueCat did not confirm the app_access entitlement."
+        case .entitlementUnconfirmed:
+            return "Ascend couldn't confirm your subscription. Check your connection and try again."
+        case .noPurchasesFound:
+            return "No purchases found to restore."
         }
     }
 }
 
 @MainActor
 final class RevenueCatPurchaseController: PurchaseController {
-    // Resolved on use, not at init: `MonetizationManager.shared` owns the Superwall presenter that
-    // owns this controller, so reading it here would re-enter a static initializer still running.
-    private let coordinator: @MainActor () -> any PaywallPurchaseCoordinating
     private let applySuperwallStatus: @MainActor (SuperwallKit.SubscriptionStatus) -> Void
 
     private var subscriptionStatusTask: Task<Void, Never>?
     private let executor: RevenueCatPurchaseExecutor
+    private let restoreService: AppAccessRestoreService
 
     init(
+        // Resolved on use, not at init: `MonetizationManager.shared` owns the Superwall presenter
+        // that owns this controller, so reading it here would re-enter a running static initializer.
         coordinator: @escaping @MainActor () -> any PaywallPurchaseCoordinating = {
             MonetizationManager.shared
         },
         applySuperwallStatus: @escaping @MainActor (SuperwallKit.SubscriptionStatus) -> Void = {
             Superwall.shared.subscriptionStatus = $0
         },
-        executor: RevenueCatPurchaseExecutor? = nil
+        executor: RevenueCatPurchaseExecutor? = nil,
+        restoreService: AppAccessRestoreService? = nil
     ) {
-        self.coordinator = coordinator
         self.applySuperwallStatus = applySuperwallStatus
         self.executor = executor ?? RevenueCatPurchaseExecutor(
             applySubscriptionStatus: { entitlementIDs in
@@ -48,6 +54,9 @@ final class RevenueCatPurchaseController: PurchaseController {
             refreshEntitlementState: {
                 await coordinator().refreshEntitlements(force: true)
             }
+        )
+        self.restoreService = restoreService ?? AppAccessRestoreService(
+            restorer: { coordinator() }
         )
     }
 
@@ -84,33 +93,22 @@ final class RevenueCatPurchaseController: PurchaseController {
         return await executor.executePurchase(productID: product.productIdentifier) {
             let result = try await Purchases.shared.purchase(product: storeProduct)
             return RevenueCatPurchaseExecutor.PurchaseResponse(
-                userCancelled: result.userCancelled,
-                activeEntitlementIDs: Set(
-                    result.customerInfo.entitlements.activeInCurrentEnvironment.keys
-                )
+                userCancelled: result.userCancelled
             )
         }
     }
 
     func restorePurchases() async -> RestorationResult {
-        await executor.executeRestore { [coordinator] in
-            guard coordinator().isRevenueCatConfigured else {
-                throw RevenueCatPurchaseControllerError.monetizationUnavailable
-            }
-
-            // The restore publishes what RevenueCat resolved for *this* call rather than the stored
-            // `entitlementState`, which a pending identity transition can hold at `.unknown`.
-            switch try await coordinator().restorePurchases() {
-            case .unknown:
-                // An unresolved answer is not evidence of a lapse, so it fails the restore instead
-                // of reporting an empty entitlement set - that would publish `.inactive` and flash
-                // the paywall over a real subscriber.
-                throw RevenueCatPurchaseControllerError.noActiveEntitlement
-            case .inactive:
-                return []
-            case .active(let entitlementIDs):
-                return entitlementIDs
-            }
+        switch await restoreService.restore() {
+        case .restored(let entitlementIDs):
+            applySuperwallStatus(Self.subscriptionStatus(for: entitlementIDs))
+            return .restored
+        case .notFound:
+            // Superwall has no "nothing to restore" result, and `.restored` would claim access this
+            // climber does not have, so the failure it does have carries the nothing-found reason.
+            return .failed(RevenueCatPurchaseControllerError.noPurchasesFound)
+        case .failed(let error):
+            return .failed(error)
         }
     }
 
