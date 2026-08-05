@@ -1,79 +1,45 @@
-//
-//  EditProfileView.swift
-//  AscendApp
-//
-//  Created by Tyler Pavay on 11/20/25.
-//
-
-import SwiftUI
 import PhotosUI
+import SwiftUI
 
 struct EditProfileView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
 
+    @State private var settingsManager = SettingsManager.shared
+    @State private var profileData: UserDisplayNameData?
+    @State private var isLoadingProfile = true
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isUploadingPhoto = false
     @State private var imageForCropping: UIImage?
     @State private var showingCropView = false
-    @State private var isEditingDisplayName = false
-    @State private var editedDisplayName = ""
-    @State private var isSavingDisplayName = false
-    @FocusState private var isDisplayNameFocused: Bool
-    
+
     var body: some View {
         ScrollView {
             VStack(spacing: 28) {
-                // Profile Picture Section
                 profilePictureSection
 
-                // User Info Section
-                userInfoSection
-
-                // Preferences Section
-                preferencesSection
+                if isLoadingProfile {
+                    ProgressView()
+                        .tint(.accent)
+                        .frame(minHeight: 120)
+                        .accessibilityLabel("Loading profile")
+                } else {
+                    profileSection
+                    personalInformationSection
+                    locationSection
+                }
 
                 Spacer(minLength: 40)
             }
             .padding(.horizontal, 20)
             .padding(.top, 20)
+            .padding(.bottom, 40)
         }
         .themedBackground()
         .navigationTitle("Edit Profile")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
-        .keyboardAccessoryToolbar {
-            if isEditingDisplayName {
-                Button("Cancel") {
-                    cancelEditing()
-                    KeyboardAccessoryDismissAction.dismissKeyboard()
-                }
-                .font(.montserratSemiBold(size: 16))
-                .foregroundStyle(.white.opacity(0.82))
-                .buttonStyle(.plain)
-
-                Spacer(minLength: 0)
-
-                if isSavingDisplayName {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .accent))
-                        .scaleEffect(0.8)
-                        .frame(minWidth: 64, minHeight: 44, alignment: .trailing)
-                } else {
-                    Button {
-                        saveDisplayName()
-                    } label: {
-                        KeyboardDoneAccessoryLabel()
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .opacity(editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
-                    .accessibilityLabel("Done")
-                }
-            }
-        }
         .fullScreenCover(isPresented: $showingCropView) {
             if let image = imageForCropping {
                 PhotoCropView(image: image) { croppedImage in
@@ -83,20 +49,23 @@ struct EditProfileView: View {
                 }
             }
         }
-        .onChange(of: selectedPhotoItem) { oldValue, newValue in
-            if let newValue = newValue {
+        .onChange(of: selectedPhotoItem) { _, newValue in
+            if let newValue {
                 Task {
                     await loadImageForCropping(newValue)
                 }
             }
         }
-        .alert("Error", isPresented: .constant(authVM.errorMessage != nil)) {
+        .alert("Error", isPresented: errorAlertBinding) {
             Button("OK") {
                 authVM.errorMessage = nil
             }
         } message: {
-            if let errorMessage = authVM.errorMessage {
-                Text(errorMessage)
+            Text(authVM.errorMessage ?? "Try again.")
+        }
+        .onAppear {
+            Task {
+                await loadProfile()
             }
         }
         .onChange(of: authVM.authenticationState) { _, newValue in
@@ -105,38 +74,37 @@ struct EditProfileView: View {
             }
         }
     }
-    
-    // MARK: - Profile Picture Section
-    
+
     private var profilePictureSection: some View {
         VStack(spacing: 16) {
             ZStack {
-                // Profile Image
                 profileImageView
-                
-                // Loading overlay
+
                 if isUploadingPhoto {
                     ZStack {
                         Circle()
                             .fill(.black.opacity(0.5))
                             .frame(width: 120, height: 120)
-                        
+
                         ProgressView()
                             .tint(.white)
                     }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Uploading profile photo")
                 }
             }
-            
-            // Change Photo Button
+
             PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
                 Text("Change Photo")
                     .font(.montserratMedium(size: 16))
                     .foregroundStyle(.accent)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
             }
             .disabled(isUploadingPhoto)
         }
     }
-    
+
     private var profileImageView: some View {
         AsyncImage(url: authVM.displayPhotoURL) { phase in
             switch phase {
@@ -148,10 +116,10 @@ struct EditProfileView: View {
                     .scaledToFill()
                     .frame(width: 120, height: 120)
                     .clipShape(Circle())
-                    .overlay(
+                    .overlay {
                         Circle()
                             .stroke(.white.opacity(0.2), lineWidth: 2)
-                    )
+                    }
             case .failure:
                 placeholderImage
             @unknown default:
@@ -159,180 +127,214 @@ struct EditProfileView: View {
             }
         }
         .frame(width: 120, height: 120)
+        .accessibilityLabel("Profile photo")
     }
-    
+
     private var placeholderImage: some View {
         ZStack {
             Circle()
                 .fill(.jetLighter.opacity(0.3))
-                .frame(width: 120, height: 120)
-            
+
             Image(systemName: "person.fill")
                 .font(.system(size: 50))
                 .foregroundStyle(.white.opacity(0.7))
+                .accessibilityHidden(true)
         }
+        .frame(width: 120, height: 120)
     }
-    
-    // MARK: - User Info Section
-    
-    private var userInfoSection: some View {
-        ProfileSection(title: "Profile Information") {
+
+    private var profileSection: some View {
+        ProfileSection(title: "Profile") {
             ProfileCardSurface {
                 VStack(spacing: 0) {
-                    displayNameRow
+                    ProfileValueRow(
+                        icon: .settingsEditProfile,
+                        title: "First name",
+                        value: displayValue(profileData?.firstName),
+                        destination: ProfileNameEditorView(
+                            field: .firstName,
+                            firstName: profileData?.firstName ?? "",
+                            lastName: profileData?.lastName ?? ""
+                        )
+                    )
 
-                    if let email = authVM.user?.email {
-                        ProfileCardDivider()
-                        InfoRow(label: "Email", value: email)
-                    }
+                    ProfileCardDivider(leadingInset: 60)
+
+                    ProfileValueRow(
+                        icon: .settingsEditProfile,
+                        title: "Last name",
+                        value: displayValue(profileData?.lastName),
+                        destination: ProfileNameEditorView(
+                            field: .lastName,
+                            firstName: profileData?.firstName ?? "",
+                            lastName: profileData?.lastName ?? ""
+                        )
+                    )
                 }
             }
         }
     }
 
-    private var preferencesSection: some View {
-        ProfileSection(title: "Preferences") {
-            SettingsCard(options: preferenceOptions)
+    private var personalInformationSection: some View {
+        ProfileSection(title: "Personal Information") {
+            ProfileCardSurface {
+                VStack(spacing: 0) {
+                    ProfileValueRow(
+                        icon: .profileBirthday,
+                        title: "Birthday",
+                        value: formattedBirthday,
+                        destination: ProfileBirthdayEditorView(birthday: profileData?.birthday)
+                    )
+
+                    ProfileCardDivider(leadingInset: 60)
+
+                    ProfileValueRow(
+                        icon: .profileGender,
+                        title: "Gender",
+                        value: formattedGender,
+                        destination: ProfileGenderEditorView(
+                            gender: profileData?.gender.flatMap(ProfileGender.init(rawValue:))
+                        )
+                    )
+
+                    ProfileCardDivider(leadingInset: 60)
+
+                    ProfileValueRow(
+                        icon: .settingsMeasurementSystem,
+                        title: "Height",
+                        value: formattedHeight,
+                        destination: BodyMetricsEditorView()
+                    )
+
+                    ProfileCardDivider(leadingInset: 60)
+
+                    ProfileValueRow(
+                        icon: .profileWeight,
+                        title: "Weight",
+                        value: formattedWeight,
+                        destination: BodyMetricsEditorView()
+                    )
+                }
+            }
         }
     }
 
-    private var preferenceOptions: [SettingsOption] {
-        [
-            SettingsOption(
-                icon: .settingsMeasurementSystem,
-                title: "Body Metrics",
-                destination: BodyMetricsEditorView()
-            ),
-            SettingsOption(
-                icon: .settingsMeasurementSystem,
-                title: "Measurement System",
-                destination: MeasurementSystemSelectionView()
-            ),
-            SettingsOption(
-                icon: .settingsIntegrations,
-                title: "Integrations",
-                destination: IntegrationsView()
+    private var locationSection: some View {
+        ProfileSection(title: "Location") {
+            ProfileCardSurface {
+                ProfileValueRow(
+                    icon: .mapPin,
+                    title: "Location",
+                    value: formattedLocation,
+                    destination: ProfileLocationEditorView(
+                        city: profileData?.locationCity,
+                        region: profileData?.locationRegion,
+                        countryCode: profileData?.locationCountry
+                    )
+                )
+            }
+        }
+    }
+
+    private var formattedBirthday: String {
+        guard let date = profileData?.birthday?.date() else { return "Not set" }
+        return date.formatted(.dateTime.month(.abbreviated).day().year())
+    }
+
+    private var formattedGender: String {
+        profileData?.gender
+            .flatMap(ProfileGender.init(rawValue:))?
+            .displayName ?? "Not set"
+    }
+
+    private var formattedHeight: String {
+        guard let heightCm = profileData?.heightCm, heightCm > 0 else { return "Not set" }
+
+        switch settingsManager.measurementSystem {
+        case .imperial:
+            let totalInches = max(
+                Int(MeasurementSystem.metric.convertHeight(heightCm, to: .imperial).rounded()),
+                0
             )
-        ]
+            return "\(totalInches / 12) ft \(totalInches % 12) in"
+        case .metric:
+            return "\(Int(heightCm.rounded())) cm"
+        }
     }
-    
-    private var displayNameRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Display Name")
-                .font(.montserratMedium(size: 14))
-                .foregroundStyle(.secondary)
-            
-            if isEditingDisplayName {
-                TextField("Enter display name", text: $editedDisplayName)
-                    .font(.montserratRegular(size: 16))
-                    .foregroundStyle(.white)
-                    .textFieldStyle(.plain)
-                    .focused($isDisplayNameFocused)
-                    .submitLabel(.done)
-                    .onSubmit {
-                        saveDisplayName()
-                    }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Button {
-                    startEditing()
-                } label: {
-                    HStack {
-                        Text(authVM.displayName.isEmpty ? "Not Set" : authVM.displayName)
-                            .font(.montserratRegular(size: 16))
-                            .foregroundStyle(.white)
-                        
-                        Spacer()
-                        
-                        Image(systemName: "pencil")
-                            .font(.system(size: 16))
-                            .foregroundStyle(.accent)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+
+    private var formattedWeight: String {
+        guard let weightKg = profileData?.weightKg, weightKg > 0 else { return "Not set" }
+        let converted = MeasurementSystem.metric.convertWeight(
+            weightKg,
+            to: settingsManager.measurementSystem
+        )
+        return settingsManager.measurementSystem.formatWeight(converted)
+    }
+
+    private var formattedLocation: String {
+        guard let city = profileData?.locationCity, !city.isEmpty else { return "Not set" }
+        if let region = profileData?.locationRegion, !region.isEmpty {
+            return "\(city), \(region)"
+        }
+        return city
+    }
+
+    private var errorAlertBinding: Binding<Bool> {
+        Binding(
+            get: { authVM.errorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    authVM.errorMessage = nil
                 }
-                .buttonStyle(.plain)
             }
+        )
+    }
+
+    private func displayValue(_ value: String?) -> String {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return "Not set"
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        return value
     }
-    
-    private func startEditing() {
-        editedDisplayName = authVM.displayName
-        isEditingDisplayName = true
-        isDisplayNameFocused = true
-    }
-    
-    private func cancelEditing() {
-        isEditingDisplayName = false
-        editedDisplayName = ""
-        isDisplayNameFocused = false
-    }
-    
-    private func saveDisplayName() {
-        let trimmedName = editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else { return }
-        
-        isSavingDisplayName = true
-        
-        Task {
-            await authVM.updateDisplayName(trimmedName)
-            isSavingDisplayName = false
-            isEditingDisplayName = false
-            isDisplayNameFocused = false
+
+    private func loadProfile() async {
+        guard let userID = authVM.user?.uid else {
+            isLoadingProfile = false
+            return
         }
+
+        do {
+            profileData = try await UserDataRepository.shared.getUserFromFirestore(userId: userID)
+        } catch {
+            authVM.errorMessage = "Failed to load profile: \(error.localizedDescription)"
+        }
+        isLoadingProfile = false
     }
-    
-    // MARK: - Actions
-    
+
     private func loadImageForCropping(_ item: PhotosPickerItem) async {
         guard let data = try? await item.loadTransferable(type: Data.self),
-              let uiImage = UIImage(data: data) else {
+              let image = UIImage(data: data) else {
             authVM.errorMessage = "Failed to load image"
             selectedPhotoItem = nil
             return
         }
-        
-        imageForCropping = uiImage
+
+        imageForCropping = image
         showingCropView = true
         selectedPhotoItem = nil
     }
-    
+
     private func uploadCroppedImage(_ image: UIImage) async {
         isUploadingPhoto = true
         defer { isUploadingPhoto = false }
-        
-        // Convert UIImage to JPEG data
+
         guard let imageData = image.jpegData(compressionQuality: 0.8) else {
             authVM.errorMessage = "Failed to process image"
             return
         }
-        
+
         await authVM.updateProfilePictureWithData(imageData: imageData)
-    }
-}
-
-// MARK: - Info Row Component
-
-private struct InfoRow: View {
-    @Environment(\.colorScheme) private var colorScheme
-    
-    let label: String
-    let value: String
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(label)
-                .font(.montserratMedium(size: 14))
-                .foregroundStyle(.secondary)
-            
-            Text(value)
-                .font(.montserratRegular(size: 16))
-                .foregroundStyle(.white)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

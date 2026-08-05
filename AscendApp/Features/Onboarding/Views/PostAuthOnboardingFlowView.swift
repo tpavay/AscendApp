@@ -31,7 +31,7 @@ struct PostAuthOnboardingFlowView: View {
                     onContinue: onContinue
                 )
             case .age:
-                PostAuthAgeScreen(
+                PostAuthBirthdayScreen(
                     stage: stage,
                     onBack: onBack,
                     onContinue: onContinue
@@ -385,35 +385,35 @@ private struct PostAuthGenderScreen: View {
     }
 }
 
-private struct PostAuthAgeScreen: View {
+private struct PostAuthBirthdayScreen: View {
     @Environment(AuthenticationViewModel.self) private var authVM
 
     let stage: PostAuthOnboardingStage
     let onBack: () -> Void
     let onContinue: () -> Void
 
-    @State private var selectedAge = 32
+    @State private var selectedBirthday = Calendar.current.date(
+        byAdding: .year,
+        value: -32,
+        to: .now
+    ) ?? .now
     @State private var isSaving = false
 
     var body: some View {
         PostAuthProfileQuestionShell(
             stage: stage,
-            headline: "How old are you?",
-            subtitle: "Age keeps leaderboard context honest",
+            headline: "When were you born?",
+            subtitle: "Your age keeps leaderboard context honest",
             primaryTitle: isSaving ? "SAVING..." : "CONTINUE",
             isContinueEnabled: !isSaving,
             onBack: onBack,
-            onContinue: saveAge
+            onContinue: saveBirthday
         ) { metrics in
             VStack(spacing: metrics.height(12)) {
-                PostAuthAgeWheelPicker(
-                    selectedAge: $selectedAge,
+                PostAuthBirthdayWheelPicker(
+                    selectedBirthday: $selectedBirthday,
                     metrics: metrics
                 )
-
-                Text("13 - 120")
-                    .font(.montserratBold(size: metrics.font(8)))
-                    .foregroundStyle(.white.opacity(0.54))
 
                 if let message = authVM.errorMessage {
                     Text(message)
@@ -428,20 +428,26 @@ private struct PostAuthAgeScreen: View {
         }
     }
 
-    private func saveAge() {
+    private func saveBirthday() {
         guard !isSaving else { return }
 
         Task { @MainActor in
+            let birthday = ProfileBirthday(date: selectedBirthday)
+            guard let age = birthday.age(), ProfileBirthday.validAgeRange.contains(age) else {
+                authVM.errorMessage = "Choose a birthday for an age from 13 to 120"
+                return
+            }
+
             isSaving = true
-            let didSave = await authVM.updateOnboardingAge(selectedAge)
+            let didSave = await authVM.updateOnboardingBirthday(birthday)
             isSaving = false
 
             if didSave {
                 TelemetryManager.shared.setUserProperty("age_inputted", value: "true")
-                OnboardingAnalyticsUserProperties.setAgeGroup(age: selectedAge)
+                OnboardingAnalyticsUserProperties.setAgeGroup(age: age)
                 trackPostAuthInput(
                     stage: stage,
-                    properties: ["profile_age_group": .string(OnboardingAnalyticsUserProperties.ageGroupValue(for: selectedAge))]
+                    properties: ["profile_age_group": .string(OnboardingAnalyticsUserProperties.ageGroupValue(for: age))]
                 )
                 onContinue()
             }
@@ -1734,38 +1740,37 @@ private struct PostAuthBodyMetricColumn<Content: View>: View {
     }
 }
 
-private struct PostAuthAgeWheelPicker: View {
-    @Binding var selectedAge: Int
+private struct PostAuthBirthdayWheelPicker: View {
+    @Binding var selectedBirthday: Date
     let metrics: PostAuthProfileMetrics
-
-    private let ageRange = Array(13...120)
 
     var body: some View {
         ZStack {
-            Picker("Age", selection: $selectedAge) {
-                ForEach(ageRange, id: \.self) { age in
-                    Text(age.formatted())
-                        .font(.montserratBold(size: metrics.font(34)))
-                        .foregroundStyle(.white)
-                        .monospacedDigit()
-                        .tag(age)
-                }
-            }
+            DatePicker(
+                "Birthday",
+                selection: $selectedBirthday,
+                in: allowedRange,
+                displayedComponents: .date
+            )
             .pickerStyle(.wheel)
             .labelsHidden()
-            .frame(width: metrics.width(142), height: metrics.height(150))
+            .frame(width: metrics.width(320), height: metrics.height(200))
             .clipped()
             .colorScheme(.dark)
-
-            RoundedRectangle(cornerRadius: metrics.radius(8), style: .continuous)
-                .stroke(OnboardingValuePalette.lime.opacity(0.9), lineWidth: 1)
-                .allowsHitTesting(false)
         }
-        .frame(width: metrics.width(150), height: metrics.height(156), alignment: .center)
+        .frame(width: metrics.width(320), height: metrics.height(200), alignment: .center)
         .background(PostAuthProfilePalette.fieldBackground)
         .clipShape(RoundedRectangle(cornerRadius: metrics.radius(8), style: .continuous))
-        .accessibilityLabel("Age")
-        .accessibilityValue("\(selectedAge)")
+        .accessibilityLabel("Birthday")
+        .accessibilityValue(selectedBirthday.formatted(date: .long, time: .omitted))
+    }
+
+    private var allowedRange: ClosedRange<Date> {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let oldest = calendar.date(byAdding: .year, value: -120, to: today) ?? today
+        let youngest = calendar.date(byAdding: .year, value: -13, to: today) ?? today
+        return oldest...youngest
     }
 }
 

@@ -213,6 +213,7 @@ service cloud.firestore {
           "displayName",
           "profilePictureURL",
           "age",
+          "birth_date",
           "gender",
           "weight_kg",
           "height_cm",
@@ -246,6 +247,9 @@ service cloud.firestore {
           (request.resource.data.age is int &&
             request.resource.data.age >= 13 &&
             request.resource.data.age <= 120)) &&
+        (!request.resource.data.keys().hasAny(["birth_date"]) ||
+          (request.resource.data.birth_date is string &&
+            request.resource.data.birth_date.matches("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"))) &&
         (!request.resource.data.keys().hasAny(["gender"]) ||
           (request.resource.data.gender is string &&
             request.resource.data.gender in [

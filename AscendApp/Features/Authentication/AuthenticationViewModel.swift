@@ -406,7 +406,8 @@ extension AuthenticationViewModel {
             firstName: existingData?.firstName,
             lastName: existingData?.lastName,
             displayName: existingData?.displayName,
-            age: existingData?.age,
+            age: existingData?.legacyAge,
+            birthday: existingData?.birthday,
             gender: existingData?.gender,
             weightKg: existingData?.weightKg,
             heightCm: existingData?.heightCm,
@@ -546,7 +547,7 @@ extension AuthenticationViewModel {
     }
 
     @discardableResult
-    func updateOnboardingProfile(displayName newDisplayName: String, age: Int, gender: ProfileGender) async -> Bool {
+    func updateProfileName(firstName: String, lastName: String) async -> Bool {
         errorMessage = nil
 
         guard let user else {
@@ -554,8 +555,59 @@ extension AuthenticationViewModel {
             return false
         }
 
-        guard (13...120).contains(age) else {
-            errorMessage = "Enter an age from 13 to 120"
+        let normalizedFirstName = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedLastName = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedFirstName.count <= 80, normalizedLastName.count <= 80 else {
+            errorMessage = "Names must be 80 characters or fewer"
+            return false
+        }
+
+        let previousDisplayName = displayName
+
+        do {
+            let composedDisplayName = try DisplayNamePolicy.validated(
+                [normalizedFirstName, normalizedLastName]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: " ")
+            )
+            displayName = composedDisplayName
+
+            try await authenticationService.updateUserDisplayName(
+                displayName: composedDisplayName
+            )
+            try await UserDataRepository.shared.updateProfileName(
+                userId: user.uid,
+                email: user.email,
+                firstName: normalizedFirstName,
+                lastName: normalizedLastName
+            )
+            hasRemoteDisplayName = true
+            return true
+        } catch {
+            displayName = previousDisplayName
+            errorMessage = profileUpdateFailureMessage(
+                error,
+                fallback: "Failed to update name"
+            )
+            return false
+        }
+    }
+
+    @discardableResult
+    func updateOnboardingProfile(
+        displayName newDisplayName: String,
+        birthday: ProfileBirthday,
+        gender: ProfileGender
+    ) async -> Bool {
+        errorMessage = nil
+
+        guard let user else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        guard birthday.hasValidProfileAge() else {
+            errorMessage = "Choose a birthday for an age from 13 to 120"
             return false
         }
 
@@ -575,7 +627,7 @@ extension AuthenticationViewModel {
                 userId: user.uid,
                 email: user.email,
                 displayName: validatedDisplayName,
-                age: age,
+                birthday: birthday,
                 gender: gender
             )
             hasRemoteDisplayName = true
@@ -615,7 +667,7 @@ extension AuthenticationViewModel {
     }
 
     @discardableResult
-    func updateOnboardingAge(_ age: Int) async -> Bool {
+    func updateOnboardingBirthday(_ birthday: ProfileBirthday) async -> Bool {
         errorMessage = nil
 
         guard let user else {
@@ -623,8 +675,8 @@ extension AuthenticationViewModel {
             return false
         }
 
-        guard (13...120).contains(age) else {
-            errorMessage = "Enter an age from 13 to 120"
+        guard birthday.hasValidProfileAge() else {
+            errorMessage = "Choose a birthday for an age from 13 to 120"
             return false
         }
 
@@ -633,11 +685,41 @@ extension AuthenticationViewModel {
                 userId: user.uid,
                 email: user.email,
                 displayName: displayName,
-                age: age
+                birthday: birthday
             )
             return true
         } catch {
             errorMessage = "Failed to update profile: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func updateBirthday(_ birthday: ProfileBirthday) async -> Bool {
+        errorMessage = nil
+
+        guard let user else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        guard birthday.hasValidProfileAge() else {
+            errorMessage = "Choose a birthday for an age from 13 to 120"
+            return false
+        }
+
+        do {
+            try await UserDataRepository.shared.updateBirthday(
+                userId: user.uid,
+                email: user.email,
+                birthday: birthday
+            )
+            return true
+        } catch {
+            errorMessage = profileUpdateFailureMessage(
+                error,
+                fallback: "Failed to update birthday"
+            )
             return false
         }
     }

@@ -392,6 +392,31 @@ test('account and public identity can commit atomically', async () => {
   );
 });
 
+test('birthday is accepted only on the private user document', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const db = context.firestore();
+
+  await assertSucceeds(setDoc(
+    doc(db, `users/${userId}`),
+    makeUserDocument({birth_date: '1994-03-14'})
+  ));
+  await assertFails(setDoc(
+    doc(db, `users/${userId}`),
+    makeUserDocument({birth_date: 'March 14, 1994'})
+  ));
+  await assertFails(setDoc(
+    doc(db, `users/${userId}`),
+    makeUserDocument({birth_date: 19940314})
+  ));
+  await assertFails(setDoc(
+    doc(db, `users/${userId}/public_profile/current`),
+    makePublicProfileDocument({
+      birth_date: '1994-03-14',
+      identityChangedAt: serverTimestamp(),
+    })
+  ));
+});
+
 test('public identity requires bounded nonempty names and bounded photo urls', async () => {
   const context = testEnv.authenticatedContext(userId);
   const db = context.firestore();

@@ -23,6 +23,7 @@ struct ProfileSection<Content: View>: View {
                 .foregroundStyle(.secondary)
                 .tracking(0.8)
                 .padding(.horizontal, 4)
+                .accessibilityAddTraits(.isHeader)
 
             content
         }
@@ -50,8 +51,15 @@ struct ProfileCardSurface<Content: View>: View {
 }
 
 struct ProfileCardDivider: View {
+    let leadingInset: CGFloat
+
+    init(leadingInset: CGFloat = 0) {
+        self.leadingInset = leadingInset
+    }
+
     var body: some View {
         Divider()
             .background(.white.opacity(0.1))
+            .padding(.leading, leadingInset)
     }
 }
