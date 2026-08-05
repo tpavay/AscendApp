@@ -96,6 +96,15 @@ final class WorkoutSyncCoordinator {
     /// Where the basis for a stopped series is remembered, so a change to it re-opens exactly once.
     static let recoveryBasisDefaultsKeyPrefix = "workoutSync.recoveryBasis."
 
+    /// Where the identity the app last saw authenticated is remembered.
+    ///
+    /// Deliberately one global key rather than one per user: it answers "who is signed in", which
+    /// only ever has one answer, and ``forgetAuthenticatedIdentity()`` clears it on sign-out. That
+    /// is what lets the same climber signing back in read as a change - the case that matters most,
+    /// because credentials that stopped syncing are usually repaired by signing in again as the
+    /// same person.
+    static let authenticatedIdentityDefaultsKey = "workoutSync.authenticatedIdentity"
+
     /// Gives every stopped workout one more automatic attempt when the basis for stopping moves.
     ///
     /// Two triggers, and the second is the one that matters: `firestore.rules` deploys
@@ -132,28 +141,69 @@ final class WorkoutSyncCoordinator {
 
         guard userDefaults.string(forKey: key) != token else { return }
 
-        let descriptor = FetchDescriptor<WorkoutSyncOutboxEntry>(
-            predicate: #Predicate<WorkoutSyncOutboxEntry> { entry in
-                entry.ownerUserId == currentUserId
-            }
+        let reopenedAt = now()
+        try reopenStoppedWorkouts(
+            ownedBy: currentUserId,
+            at: reopenedAt,
+            modelContext: modelContext,
+            isEligible: { $0.hasStoppedAutomaticAttempts(now: reopenedAt) }
         )
 
-        let reopenedAt = now()
-        for entry in try modelContext.fetch(descriptor)
-        where entry.hasStoppedAutomaticAttempts(now: reopenedAt) {
-            entry.reopenOneAutomaticAttempt(now: reopenedAt)
+        userDefaults.set(token, forKey: key)
+    }
 
-            if let workout = try Self.fetchWorkout(
-                workoutId: entry.workoutId,
-                userId: currentUserId,
-                modelContext: modelContext
-            ), !workout.isSyncedToCloud {
-                workout.remoteSyncStatus = .pendingUpsert
-            }
+    /// Gives the workouts stopped by failing credentials one more automatic attempt, once the
+    /// climber has signed back in.
+    ///
+    /// An `authentication` series takes more than twenty-four hours to exhaust, so by the time the
+    /// climber repairs their sign-in the affected climbs have already scrolled into history.
+    /// Leaving the recovery to the manual control would ask them to hunt for something they do not
+    /// know is broken, which is the same silent failure this whole path exists to remove.
+    ///
+    /// Scoped twice over. Only this climber's own entries, and only the series whose recorded
+    /// blocker is `authentication`: a refusal or a malformed request is a statement about the bytes
+    /// on offer, and signing back in moves neither.
+    ///
+    /// Fires once per identity change, never once per pass - the signed-in identity is compared
+    /// against the one last recorded, exactly as the recovery basis is. A cold-launch session
+    /// restore therefore does not qualify, and a sign-in attempt that fails never reaches here at
+    /// all: a pass only ever runs for an identity Firebase has already authenticated.
+    func reopenAuthenticationStoppedWorkoutsIfIdentityRepaired(
+        modelContext: ModelContext,
+        currentUserId: String
+    ) throws {
+        // Killed: the same deal as the recovery basis - nothing is lost, because the identity is
+        // only recorded after the sweep succeeds, so it re-opens on a later pass once the flag is
+        // back on.
+        guard RemoteFeatureGate.allows(
+            .workoutSyncRecoveryReopen,
+            path: "WorkoutSyncCoordinator.reopenAuthenticationStoppedWorkoutsIfIdentityRepaired",
+            store: featureFlags
+        ) else {
+            return
         }
 
-        try modelContext.save()
-        userDefaults.set(token, forKey: key)
+        let key = Self.authenticatedIdentityDefaultsKey
+        guard userDefaults.string(forKey: key) != currentUserId else { return }
+
+        let reopenedAt = now()
+        try reopenStoppedWorkouts(
+            ownedBy: currentUserId,
+            at: reopenedAt,
+            modelContext: modelContext,
+            isEligible: { $0.isStoppedByFailingCredentials(now: reopenedAt) }
+        )
+
+        userDefaults.set(currentUserId, forKey: key)
+    }
+
+    /// Forgets the signed-in identity, so the next authenticated pass reads as a repair.
+    ///
+    /// Called from the one place that sees the transition the coordinator itself cannot: Firebase
+    /// signing the climber out. That covers the tap in Account, and equally the backend revoking
+    /// the very credentials whose failure stopped these syncs.
+    func forgetAuthenticatedIdentity() {
+        userDefaults.removeObject(forKey: Self.authenticatedIdentityDefaultsKey)
     }
 
     /// One tap, one Ascend-level attempt, unlimited and never exhausting.
@@ -375,6 +425,17 @@ final class WorkoutSyncCoordinator {
 
         do {
             try reopenStoppedWorkoutsIfRecoveryBasisChanged(
+                modelContext: modelContext,
+                currentUserId: currentUserId
+            )
+        } catch {
+            recordSyncFailure(error, workoutId: nil, category: .transient)
+        }
+
+        // Separate from the recovery basis rather than folded into it: the two answer different
+        // questions, and a repaired sign-in must not launder a refusal into another attempt.
+        do {
+            try reopenAuthenticationStoppedWorkoutsIfIdentityRepaired(
                 modelContext: modelContext,
                 currentUserId: currentUserId
             )
@@ -755,6 +816,42 @@ private extension WorkoutSyncCoordinator {
 
         warnedWorkoutIds.insert(workout.id)
         return connectivityService.isConnected ? .couldNotSync : .couldNotSyncOffline
+    }
+
+    /// Re-opens one automatic attempt for every stopped schedule `isEligible` accepts, and puts its
+    /// workout back in the pending queue.
+    ///
+    /// The shared body behind both re-open triggers, so the two can never drift into disagreeing
+    /// about what re-opening a series means. What they do not share is `isEligible`: a moved
+    /// recovery basis speaks to every stopped series, and a repaired sign-in only to the ones that
+    /// failing credentials stopped.
+    ///
+    /// Always scoped to one owner, for the same reason the recovery basis marker is keyed per user.
+    func reopenStoppedWorkouts(
+        ownedBy currentUserId: String,
+        at reopenedAt: Date,
+        modelContext: ModelContext,
+        isEligible: (WorkoutSyncOutboxEntry) -> Bool
+    ) throws {
+        let descriptor = FetchDescriptor<WorkoutSyncOutboxEntry>(
+            predicate: #Predicate<WorkoutSyncOutboxEntry> { entry in
+                entry.ownerUserId == currentUserId
+            }
+        )
+
+        for entry in try modelContext.fetch(descriptor) where isEligible(entry) {
+            entry.reopenOneAutomaticAttempt(now: reopenedAt)
+
+            if let workout = try Self.fetchWorkout(
+                workoutId: entry.workoutId,
+                userId: currentUserId,
+                modelContext: modelContext
+            ), !workout.isSyncedToCloud {
+                workout.remoteSyncStatus = .pendingUpsert
+            }
+        }
+
+        try modelContext.save()
     }
 
     /// Every persisted schedule in the store, indexed by the workout it belongs to.

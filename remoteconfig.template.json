@@ -19,7 +19,7 @@
         "value": "true"
       },
       "valueType": "BOOLEAN",
-      "description": "Kill switch. Off stops re-opening a stopped workout's automatic sync attempts after a build or epoch change; the stopped state and unlimited manual retry are untouched."
+      "description": "Kill switch. Off stops re-opening a stopped workout's automatic sync attempts after a build change, an epoch bump, or a repaired sign-in; the stopped state and unlimited manual retry are untouched."
     },
     "workout_sync_recovery_epoch": {
       "defaultValue": {

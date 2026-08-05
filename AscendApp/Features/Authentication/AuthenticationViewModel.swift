@@ -171,6 +171,12 @@ class AuthenticationViewModel {
                         )
                     }
 
+                    // Signing back in is what repairs credentials that were failing workout
+                    // syncs, and this is the only place the app sees the signed-out half of that
+                    // transition - including when Firebase revokes a session rather than the
+                    // climber tapping sign out.
+                    WorkoutSyncCoordinator.shared.forgetAuthenticatedIdentity()
+
                     self.displayName = ""
                     self.customProfilePictureURL = nil
                     self.hasRemoteDisplayName = false

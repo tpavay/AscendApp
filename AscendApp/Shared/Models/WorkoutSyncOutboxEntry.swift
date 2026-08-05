@@ -119,15 +119,34 @@ final class WorkoutSyncOutboxEntry {
         )
     }
 
+    /// Whether this stopped series is one that repairing the sign-in could actually move.
+    ///
+    /// Keyed on the recorded blocker, not merely on the presence of a stop. A refusal and a
+    /// malformed request are statements about the bytes on offer, and signing back in changes
+    /// neither - re-offering them would spend an attempt on a verdict that has not moved.
+    func isStoppedByFailingCredentials(now: Date) -> Bool {
+        failureCategory == .authentication && hasStoppedAutomaticAttempts(now: now)
+    }
+
     /// Re-opens exactly one automatic attempt after the basis for the stop has moved.
     ///
-    /// The basis is `buildIdentity|workout_sync_recovery_epoch`, and
-    /// `WorkoutSyncCoordinator.reopenStoppedWorkoutsIfRecoveryBasisChanged` is its only caller: a
-    /// new build, or an operator bumping the epoch after a rules or backend fix. Screen
-    /// appearance, tab switches and repeated coordinator calls deliberately do not qualify.
+    /// `WorkoutSyncCoordinator` is the only caller, from two triggers. Each is keyed on a persisted
+    /// marker compared for difference, so it fires once per change rather than once per pass:
     ///
-    /// Offline and cancellation need no entry here - they never consume an attempt, so they cannot
-    /// stop a series in the first place.
+    /// - the recovery basis `buildIdentity|workout_sync_recovery_epoch` moving - a new build, or an
+    ///   operator bumping the epoch after a rules or backend fix - which re-opens every stopped
+    ///   series (`reopenStoppedWorkoutsIfRecoveryBasisChanged`);
+    /// - the climber signing back in, which re-opens only the series whose recorded blocker is
+    ///   `authentication` (`reopenAuthenticationStoppedWorkoutsIfIdentityRepaired`).
+    ///
+    /// Screen appearance, tab switches and repeated coordinator calls deliberately do not qualify.
+    ///
+    /// A local edit does not come through here at all: new bytes are a new payload revision, and
+    /// start the series over in ``resetForNewPayloadRevision(now:)``.
+    ///
+    /// Offline and cancellation need no trigger of their own. Neither consumes an attempt, so
+    /// neither can stop a series in the first place - an offline workout simply stays due, and the
+    /// next pass after connectivity returns attempts it.
     func reopenOneAutomaticAttempt(now: Date) {
         nextEligibleAttemptAt = now
         automaticAttemptCount = max(automaticAttemptCount - 1, 0)
