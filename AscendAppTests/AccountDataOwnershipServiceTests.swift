@@ -129,6 +129,34 @@ struct AccountDataOwnershipServiceTests {
         #expect(conflict.summary.rowCount(of: Workout.self) == 1)
     }
 
+    @Test("A genuinely different climber is blocked without deleting the first climber's work", .bug(id: 389))
+    func differentClimberIsBlockedAndOriginalWorkIsPreserved() throws {
+        let modelContext = try makeModelContext()
+        let defaults = try makeUserDefaults()
+        let sessionStore = AccountSessionStore(userDefaults: defaults)
+        sessionStore.recordLocalDataOwner(userId: "climber-a")
+        let workout = Workout(duration: 1_200, steps: 1_000, floors: 63)
+        workout.markPendingRemoteUpsert(ownerUserId: "climber-a")
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        let decision = try AccountDataOwnershipService.evaluateAccess(
+            modelContext: modelContext,
+            signedInUserId: "climber-b",
+            sessionStore: sessionStore
+        )
+
+        guard case .blocked = decision else {
+            Issue.record("Expected the ownership guard to block a genuinely different climber.")
+            return
+        }
+
+        let storedWorkouts = try modelContext.fetch(FetchDescriptor<Workout>())
+        #expect(storedWorkouts.count == 1)
+        #expect(storedWorkouts.first?.ownerUserId == "climber-a")
+        #expect(storedWorkouts.first?.remoteSyncStatus == .pendingUpsert)
+    }
+
     @Test
     func allowsLegacyOwnerlessDataForFirstPostUpgradeSignIn() throws {
         let modelContext = try makeModelContext()

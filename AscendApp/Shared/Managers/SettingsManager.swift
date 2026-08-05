@@ -13,6 +13,9 @@ import SwiftUI
 @Observable
 final class SettingsManager {
     static let shared = SettingsManager()
+
+    @ObservationIgnored private let userDefaults: UserDefaults
+    @ObservationIgnored private var isResettingAfterAccountDeletion = false
     
     private let measurementSystemKey = "measurementSystem"
     private let stepHeightKey = "stepHeight"
@@ -27,6 +30,7 @@ final class SettingsManager {
     private let appleHealthAutoImportPromptDismissedUserIDsKey = "appleHealthAutoImportPromptDismissedUserIDs"
     var measurementSystem: MeasurementSystem {
         didSet {
+            guard !isResettingAfterAccountDeletion else { return }
             let oldSystem = oldValue
             saveMeasurementSystem()
             // Convert step height to new measurement system
@@ -36,42 +40,49 @@ final class SettingsManager {
     
     var stepHeight: Double {
         didSet {
+            guard !isResettingAfterAccountDeletion else { return }
             saveStepHeight()
         }
     }
     
     var fitnessLevel: FitnessLevel {
         didSet {
+            guard !isResettingAfterAccountDeletion else { return }
             saveFitnessLevel()
         }
     }
 
     var seededBaseLevel: Int {
         didSet {
+            guard !isResettingAfterAccountDeletion else { return }
             saveSeededBaseLevel()
         }
     }
 
     var autoCalculatedBaseLevel: Int? {
         didSet {
+            guard !isResettingAfterAccountDeletion else { return }
             saveAutoCalculatedBaseLevel()
         }
     }
 
     var manualBaseLevelOverride: Int? {
         didSet {
+            guard !isResettingAfterAccountDeletion else { return }
             saveManualBaseLevelOverride()
         }
     }
 
     var hasCompletedBaseLevelOnboarding: Bool {
         didSet {
+            guard !isResettingAfterAccountDeletion else { return }
             saveHasCompletedBaseLevelOnboarding()
         }
     }
 
     var appleHealthAutoImportEnabled: Bool {
         didSet {
+            guard !isResettingAfterAccountDeletion else { return }
             if appleHealthAutoImportEnabled && !oldValue {
                 appleHealthAutoImportActivatedAt = Date()
             } else if !appleHealthAutoImportEnabled {
@@ -84,6 +95,7 @@ final class SettingsManager {
 
     var appleHealthAutoImportActivatedAt: Date? {
         didSet {
+            guard !isResettingAfterAccountDeletion else { return }
             saveAppleHealthAutoImportActivatedAt()
         }
     }
@@ -112,10 +124,12 @@ final class SettingsManager {
         !hasCompletedBaseLevelOnboarding
     }
 
-    private init() {
+    init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
+
         // Load saved measurement system or default to imperial
         let loadedMeasurementSystem: MeasurementSystem
-        if let savedSystem = UserDefaults.standard.string(forKey: measurementSystemKey),
+        if let savedSystem = userDefaults.string(forKey: measurementSystemKey),
            let system = MeasurementSystem(rawValue: savedSystem) {
             loadedMeasurementSystem = system
         } else {
@@ -124,15 +138,15 @@ final class SettingsManager {
         self.measurementSystem = loadedMeasurementSystem
         
         // Load saved step height or default based on measurement system
-        if UserDefaults.standard.object(forKey: stepHeightKey) != nil {
-            self.stepHeight = UserDefaults.standard.double(forKey: stepHeightKey)
+        if userDefaults.object(forKey: stepHeightKey) != nil {
+            self.stepHeight = userDefaults.double(forKey: stepHeightKey)
         } else {
             self.stepHeight = loadedMeasurementSystem.defaultStepHeight
         }
         
         // Load saved fitness level or default to intermediate
         let loadedFitnessLevel: FitnessLevel
-        if let savedLevel = UserDefaults.standard.string(forKey: fitnessLevelKey),
+        if let savedLevel = userDefaults.string(forKey: fitnessLevelKey),
            let level = FitnessLevel(rawValue: savedLevel) {
             loadedFitnessLevel = level
         } else {
@@ -140,93 +154,93 @@ final class SettingsManager {
         }
         self.fitnessLevel = loadedFitnessLevel
 
-        let hadPreviousLaunch = UserDefaults.standard.object(forKey: firstLaunchDateKey) != nil
+        let hadPreviousLaunch = userDefaults.object(forKey: firstLaunchDateKey) != nil
         let migratedSeededLevel = Self.migratedBaseLevel(for: loadedFitnessLevel)
-        if let storedSeededBaseLevel = UserDefaults.standard.object(forKey: seededBaseLevelKey) as? Int {
+        if let storedSeededBaseLevel = userDefaults.object(forKey: seededBaseLevelKey) as? Int {
             self.seededBaseLevel = SPMMappingService.clampedLevel(storedSeededBaseLevel)
         } else {
             let initialSeededBaseLevel = hadPreviousLaunch ? migratedSeededLevel : 7
             self.seededBaseLevel = initialSeededBaseLevel
-            UserDefaults.standard.set(initialSeededBaseLevel, forKey: seededBaseLevelKey)
+            userDefaults.set(initialSeededBaseLevel, forKey: seededBaseLevelKey)
         }
 
-        if let storedAutoCalculatedBaseLevel = UserDefaults.standard.object(forKey: autoCalculatedBaseLevelKey) as? Int {
+        if let storedAutoCalculatedBaseLevel = userDefaults.object(forKey: autoCalculatedBaseLevelKey) as? Int {
             self.autoCalculatedBaseLevel = SPMMappingService.clampedLevel(storedAutoCalculatedBaseLevel)
         } else {
             self.autoCalculatedBaseLevel = nil
         }
 
-        if let storedManualBaseLevelOverride = UserDefaults.standard.object(forKey: manualBaseLevelOverrideKey) as? Int {
+        if let storedManualBaseLevelOverride = userDefaults.object(forKey: manualBaseLevelOverrideKey) as? Int {
             self.manualBaseLevelOverride = SPMMappingService.clampedLevel(storedManualBaseLevelOverride)
         } else {
             self.manualBaseLevelOverride = nil
         }
 
-        if UserDefaults.standard.object(forKey: hasCompletedBaseLevelOnboardingKey) != nil {
-            self.hasCompletedBaseLevelOnboarding = UserDefaults.standard.bool(forKey: hasCompletedBaseLevelOnboardingKey)
+        if userDefaults.object(forKey: hasCompletedBaseLevelOnboardingKey) != nil {
+            self.hasCompletedBaseLevelOnboarding = userDefaults.bool(forKey: hasCompletedBaseLevelOnboardingKey)
         } else {
             self.hasCompletedBaseLevelOnboarding = hadPreviousLaunch
             if hadPreviousLaunch {
-                UserDefaults.standard.set(true, forKey: hasCompletedBaseLevelOnboardingKey)
+                userDefaults.set(true, forKey: hasCompletedBaseLevelOnboardingKey)
             }
         }
 
-        self.appleHealthAutoImportEnabled = UserDefaults.standard.bool(forKey: appleHealthAutoImportEnabledKey)
-        self.appleHealthAutoImportActivatedAt = UserDefaults.standard.object(forKey: appleHealthAutoImportActivatedAtKey) as? Date
+        self.appleHealthAutoImportEnabled = userDefaults.bool(forKey: appleHealthAutoImportEnabledKey)
+        self.appleHealthAutoImportActivatedAt = userDefaults.object(forKey: appleHealthAutoImportActivatedAtKey) as? Date
 
     }
     
     private func saveMeasurementSystem() {
-        UserDefaults.standard.set(measurementSystem.rawValue, forKey: measurementSystemKey)
-        UserDefaults.standard.synchronize()
+        userDefaults.set(measurementSystem.rawValue, forKey: measurementSystemKey)
+        userDefaults.synchronize()
     }
     
     private func saveStepHeight() {
-        UserDefaults.standard.set(stepHeight, forKey: stepHeightKey)
-        UserDefaults.standard.synchronize()
+        userDefaults.set(stepHeight, forKey: stepHeightKey)
+        userDefaults.synchronize()
     }
     
     private func saveFitnessLevel() {
-        UserDefaults.standard.set(fitnessLevel.rawValue, forKey: fitnessLevelKey)
-        UserDefaults.standard.synchronize()
+        userDefaults.set(fitnessLevel.rawValue, forKey: fitnessLevelKey)
+        userDefaults.synchronize()
     }
 
     private func saveSeededBaseLevel() {
-        UserDefaults.standard.set(seededBaseLevel, forKey: seededBaseLevelKey)
-        UserDefaults.standard.synchronize()
+        userDefaults.set(seededBaseLevel, forKey: seededBaseLevelKey)
+        userDefaults.synchronize()
     }
 
     private func saveAutoCalculatedBaseLevel() {
         if let autoCalculatedBaseLevel {
-            UserDefaults.standard.set(autoCalculatedBaseLevel, forKey: autoCalculatedBaseLevelKey)
+            userDefaults.set(autoCalculatedBaseLevel, forKey: autoCalculatedBaseLevelKey)
         } else {
-            UserDefaults.standard.removeObject(forKey: autoCalculatedBaseLevelKey)
+            userDefaults.removeObject(forKey: autoCalculatedBaseLevelKey)
         }
-        UserDefaults.standard.synchronize()
+        userDefaults.synchronize()
     }
 
     private func saveManualBaseLevelOverride() {
         if let manualBaseLevelOverride {
-            UserDefaults.standard.set(manualBaseLevelOverride, forKey: manualBaseLevelOverrideKey)
+            userDefaults.set(manualBaseLevelOverride, forKey: manualBaseLevelOverrideKey)
         } else {
-            UserDefaults.standard.removeObject(forKey: manualBaseLevelOverrideKey)
+            userDefaults.removeObject(forKey: manualBaseLevelOverrideKey)
         }
-        UserDefaults.standard.synchronize()
+        userDefaults.synchronize()
     }
 
     private func saveHasCompletedBaseLevelOnboarding() {
-        UserDefaults.standard.set(hasCompletedBaseLevelOnboarding, forKey: hasCompletedBaseLevelOnboardingKey)
-        UserDefaults.standard.synchronize()
+        userDefaults.set(hasCompletedBaseLevelOnboarding, forKey: hasCompletedBaseLevelOnboardingKey)
+        userDefaults.synchronize()
     }
 
     private func saveAppleHealthAutoImportEnabled() {
-        UserDefaults.standard.set(appleHealthAutoImportEnabled, forKey: appleHealthAutoImportEnabledKey)
-        UserDefaults.standard.synchronize()
+        userDefaults.set(appleHealthAutoImportEnabled, forKey: appleHealthAutoImportEnabledKey)
+        userDefaults.synchronize()
     }
 
     private func saveAppleHealthAutoImportActivatedAt() {
-        UserDefaults.standard.set(appleHealthAutoImportActivatedAt, forKey: appleHealthAutoImportActivatedAtKey)
-        UserDefaults.standard.synchronize()
+        userDefaults.set(appleHealthAutoImportActivatedAt, forKey: appleHealthAutoImportActivatedAtKey)
+        userDefaults.synchronize()
     }
 
     private func convertStepHeight(from oldSystem: MeasurementSystem, to newSystem: MeasurementSystem) {
@@ -258,17 +272,34 @@ final class SettingsManager {
     }
 
     func hasDismissedAppleHealthAutoImportPrompt(for userID: String) -> Bool {
-        Set(UserDefaults.standard.stringArray(forKey: appleHealthAutoImportPromptDismissedUserIDsKey) ?? [])
+        Set(userDefaults.stringArray(forKey: appleHealthAutoImportPromptDismissedUserIDsKey) ?? [])
             .contains(userID)
     }
 
     func markAppleHealthAutoImportPromptDismissed(for userID: String) {
-        var dismissedUserIDs = Set(UserDefaults.standard.stringArray(forKey: appleHealthAutoImportPromptDismissedUserIDsKey) ?? [])
+        var dismissedUserIDs = Set(userDefaults.stringArray(forKey: appleHealthAutoImportPromptDismissedUserIDsKey) ?? [])
         let inserted = dismissedUserIDs.insert(userID).inserted
         guard inserted else { return }
 
-        UserDefaults.standard.set(Array(dismissedUserIDs).sorted(), forKey: appleHealthAutoImportPromptDismissedUserIDsKey)
-        UserDefaults.standard.synchronize()
+        userDefaults.set(Array(dismissedUserIDs).sorted(), forKey: appleHealthAutoImportPromptDismissedUserIDsKey)
+        userDefaults.synchronize()
+    }
+
+    /// Resets the process-wide mirror after account deletion without writing any value back into
+    /// the persistent domain that deletion just cleared.
+    func resetInMemoryAfterAccountDeletion() {
+        isResettingAfterAccountDeletion = true
+        defer { isResettingAfterAccountDeletion = false }
+
+        measurementSystem = .imperial
+        stepHeight = MeasurementSystem.imperial.defaultStepHeight
+        fitnessLevel = .intermediate
+        seededBaseLevel = 7
+        autoCalculatedBaseLevel = nil
+        manualBaseLevelOverride = nil
+        hasCompletedBaseLevelOnboarding = false
+        appleHealthAutoImportEnabled = false
+        appleHealthAutoImportActivatedAt = nil
     }
 
     func setStepHeight(_ height: Double) {

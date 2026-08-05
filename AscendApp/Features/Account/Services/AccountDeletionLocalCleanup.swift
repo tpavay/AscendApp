@@ -12,6 +12,9 @@ import Foundation
 /// wiping the test host's UserDefaults and documents directory.
 @MainActor
 protocol AccountDeletionLocalCleanup {
+    func suspendAuthenticatedSessionWork() async
+    func resumeAuthenticatedSessionWork()
+    func discardAuthenticatedSessionWork()
     func clearPendingUploadFiles() async throws
     func clearUserDefaults()
     func clearImageCache()
@@ -20,6 +23,34 @@ protocol AccountDeletionLocalCleanup {
 /// The production cleanup, backed by the app's real storage.
 @MainActor
 struct AppAccountDeletionLocalCleanup: AccountDeletionLocalCleanup {
+    private let userDefaults: UserDefaults
+    private let persistentDomainName: String?
+    private let settingsManager: SettingsManager
+    private let bootstrapCoordinator: AuthenticatedBootstrapCoordinator
+
+    init(
+        userDefaults: UserDefaults = .standard,
+        persistentDomainName: String? = Bundle.main.bundleIdentifier,
+        settingsManager: SettingsManager = .shared,
+        bootstrapCoordinator: AuthenticatedBootstrapCoordinator = .shared
+    ) {
+        self.userDefaults = userDefaults
+        self.persistentDomainName = persistentDomainName
+        self.settingsManager = settingsManager
+        self.bootstrapCoordinator = bootstrapCoordinator
+    }
+
+    func suspendAuthenticatedSessionWork() async {
+        await bootstrapCoordinator.suspendAndDrain()
+    }
+
+    func resumeAuthenticatedSessionWork() {
+        bootstrapCoordinator.resumeLatest()
+    }
+
+    func discardAuthenticatedSessionWork() {
+        bootstrapCoordinator.discard()
+    }
 
     func clearPendingUploadFiles() async throws {
         try await LocalMediaStorage.clearAllPendingUploads()
@@ -27,11 +58,11 @@ struct AppAccountDeletionLocalCleanup: AccountDeletionLocalCleanup {
 
     /// Clears all UserDefaults for the app domain
     func clearUserDefaults() {
-        guard let bundleIdentifier = Bundle.main.bundleIdentifier else {
-            return
+        if let persistentDomainName {
+            userDefaults.removePersistentDomain(forName: persistentDomainName)
         }
 
-        UserDefaults.standard.removePersistentDomain(forName: bundleIdentifier)
+        settingsManager.resetInMemoryAfterAccountDeletion()
     }
 
     func clearImageCache() {
