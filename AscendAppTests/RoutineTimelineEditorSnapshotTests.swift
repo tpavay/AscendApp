@@ -217,7 +217,8 @@ struct RoutineTimelineEditorSnapshotTests {
     }
 
     /// The one-off mark, spotlighting the overview rather than the timeline, with a single
-    /// dot and a single Got it.
+    /// dot and a single Got it. No ring around the strip: the working window is already a lime
+    /// outline, and a second one around it read as a box in a box.
     @Test
     func theWindowCoachMarkSpotlightsTheOverview() throws {
         let device = CGSize(width: 402, height: 874)
