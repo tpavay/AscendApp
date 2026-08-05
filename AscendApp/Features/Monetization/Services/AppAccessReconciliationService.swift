@@ -1,33 +1,29 @@
 import Foundation
 @preconcurrency import FirebaseAuth
-@preconcurrency import FirebaseFunctions
 
-/// Invokes the authenticated `reconcileAppAccess` callable.
-///
-/// The callable takes no arguments on purpose: entitlement state, product, expiry, and identity all
-/// come from Firebase Authentication and RevenueCat's subscriber API on the server, never from here.
+/// Owns when the device asks the server to re-derive paid access, and what counts as an answer.
 @MainActor
 final class AppAccessReconciliationService: AppAccessReconciling {
     static let shared = AppAccessReconciliationService()
 
-    private static let callableName = "reconcileAppAccess"
     private static let minimumSpacing: TimeInterval = 5 * 60
 
-    private let functions: Functions
+    private let invoker: any AppAccessReconciliationInvoking
     private let currentUserID: @MainActor () -> String?
     private let clock: @Sendable () -> Date
     private let minimumSpacing: TimeInterval
     private var lastSucceededUserID: String?
     private var lastSucceededAt: Date?
-    private var inFlight: Task<Void, Never>?
+    private var inFlight: (requestID: UInt64, task: Task<Void, Never>)?
+    private var lastRequestID: UInt64 = 0
 
     init(
-        functions: Functions = Functions.functions(region: "us-central1"),
+        invoker: any AppAccessReconciliationInvoking = FunctionsAppAccessReconciliationInvoker(),
         currentUserID: @escaping @MainActor () -> String? = { Auth.auth().currentUser?.uid },
         clock: @escaping @Sendable () -> Date = Date.init,
         minimumSpacing: TimeInterval = AppAccessReconciliationService.minimumSpacing
     ) {
-        self.functions = functions
+        self.invoker = invoker
         self.currentUserID = currentUserID
         self.clock = clock
         self.minimumSpacing = minimumSpacing
@@ -37,18 +33,24 @@ final class AppAccessReconciliationService: AppAccessReconciling {
         guard let userID = currentUserID() else { return }
 
         if let inFlight {
-            await inFlight.value
+            await inFlight.task.value
             if !force { return }
         }
 
         guard force || shouldReconcile(userID: userID) else { return }
 
+        lastRequestID &+= 1
+        let requestID = lastRequestID
         let task = Task { [weak self] () -> Void in
             await self?.performReconciliation(userID: userID)
         }
-        inFlight = task
+        inFlight = (requestID, task)
         await task.value
-        inFlight = nil
+        // Only the request that installed the marker may clear it, or an overlapping caller's
+        // marker is erased and a third caller starts a duplicate call it would have joined.
+        if inFlight?.requestID == requestID {
+            inFlight = nil
+        }
     }
 
     private func shouldReconcile(userID: String) -> Bool {
@@ -58,7 +60,9 @@ final class AppAccessReconciliationService: AppAccessReconciling {
 
     private func performReconciliation(userID: String) async {
         do {
-            _ = try await functions.httpsCallable(Self.callableName).call()
+            // A throttled refusal is not an answer, so it never satisfies the spacing below and the
+            // next refresh, foreground, or restore asks again.
+            guard try await invoker.invokeReconciliation().didDeriveAccess else { return }
             lastSucceededUserID = userID
             lastSucceededAt = clock()
         } catch {

@@ -5,17 +5,37 @@ import SuperwallKit
 
 enum RevenueCatPurchaseControllerError: LocalizedError {
     case missingStoreKitProduct
+    case monetizationUnavailable
 
     var errorDescription: String? {
         switch self {
         case .missingStoreKitProduct:
             return "Superwall did not provide a StoreKit 2 product for RevenueCat to purchase."
+        case .monetizationUnavailable:
+            return "Ascend could not reach the App Store. Check your connection and try again."
         }
     }
 }
 
 final class RevenueCatPurchaseController: PurchaseController {
+    // Resolved on use, not at init: `MonetizationManager.shared` owns the Superwall presenter that
+    // owns this controller, so reading it here would re-enter a static initializer still running.
+    private let coordinator: @MainActor () -> any PaywallPurchaseCoordinating
+    private let applySuperwallStatus: @MainActor (SuperwallKit.SubscriptionStatus) -> Void
+
     private var subscriptionStatusTask: Task<Void, Never>?
+
+    init(
+        coordinator: @escaping @MainActor () -> any PaywallPurchaseCoordinating = {
+            MonetizationManager.shared
+        },
+        applySuperwallStatus: @escaping @MainActor (SuperwallKit.SubscriptionStatus) -> Void = {
+            Superwall.shared.subscriptionStatus = $0
+        }
+    ) {
+        self.coordinator = coordinator
+        self.applySuperwallStatus = applySuperwallStatus
+    }
 
     @MainActor
     func syncSubscriptionStatus() {
@@ -50,7 +70,7 @@ final class RevenueCatPurchaseController: PurchaseController {
 
             if !result.userCancelled {
                 applySubscriptionStatus(from: result.customerInfo)
-                await RevenueCatEntitlementService.shared.refreshCustomerInfo()
+                await coordinator().refreshEntitlements(force: true)
             }
 
             TelemetryManager.shared.track(
@@ -85,10 +105,16 @@ final class RevenueCatPurchaseController: PurchaseController {
 
     @MainActor
     func restorePurchases() async -> RestorationResult {
+        guard coordinator().isRevenueCatConfigured else {
+            TelemetryManager.shared.track(
+                PaywallAnalyticsEvent.restoreControllerCompleted(outcome: "failed")
+            )
+            return .failed(RevenueCatPurchaseControllerError.monetizationUnavailable)
+        }
+
         do {
-            let customerInfo = try await Purchases.shared.restorePurchases()
-            applySubscriptionStatus(from: customerInfo)
-            await RevenueCatEntitlementService.shared.refreshCustomerInfo()
+            try await coordinator().restorePurchases()
+            applySubscriptionStatus(from: coordinator().entitlementState)
             TelemetryManager.shared.track(
                 PaywallAnalyticsEvent.restoreControllerCompleted(outcome: "restored")
             )
@@ -103,12 +129,29 @@ final class RevenueCatPurchaseController: PurchaseController {
 
     @MainActor
     private func applySubscriptionStatus(from customerInfo: RevenueCat.CustomerInfo) {
-        let entitlements = customerInfo.entitlements.activeInCurrentEnvironment.keys.map {
-            SuperwallKit.Entitlement(id: $0)
-        }
+        applySuperwallStatus(
+            subscriptionStatus(for: Set(customerInfo.entitlements.activeInCurrentEnvironment.keys))
+        )
+    }
 
-        Superwall.shared.subscriptionStatus = entitlements.isEmpty
-            ? .inactive
-            : .active(Set(entitlements))
+    /// An unresolved entitlement answer leaves Superwall's status alone: it is not evidence of a
+    /// lapse, and publishing `.inactive` would flash the paywall over a real subscriber.
+    @MainActor
+    private func applySubscriptionStatus(from state: MonetizationEntitlementState) {
+        switch state {
+        case .unknown:
+            return
+        case .inactive:
+            applySuperwallStatus(subscriptionStatus(for: []))
+        case .active(let entitlementIDs):
+            applySuperwallStatus(subscriptionStatus(for: entitlementIDs))
+        }
+    }
+
+    private func subscriptionStatus(for entitlementIDs: Set<String>)
+        -> SuperwallKit.SubscriptionStatus {
+        let entitlements = entitlementIDs.map { SuperwallKit.Entitlement(id: $0) }
+
+        return entitlements.isEmpty ? .inactive : .active(Set(entitlements))
     }
 }

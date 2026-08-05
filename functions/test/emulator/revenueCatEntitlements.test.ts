@@ -174,6 +174,74 @@ test("reconciliation writes the same grant the webhook would have", async () => 
   );
 });
 
+test("an unchanged reconciliation writes nothing at all", async () => {
+  const first = projection(webhookEvent("recovered"), NOW.getTime());
+  assert.equal(await store.writeProjection(first), true);
+  const before = await db.doc(`users/${uid}/entitlement_status/app_access`).get();
+
+  // A recovery check always carries a fresh RevenueCat request stamp, so the
+  // ordering rule alone would rewrite both documents on every single call.
+  const unchanged = projection(webhookEvent("polled"), NOW.getTime() + 60_000);
+  assert.equal(await store.writeProjection(unchanged), false);
+
+  const after = await db.doc(`users/${uid}/entitlement_status/app_access`).get();
+  assert.equal(after.get("sourceEventId"), "recovered");
+  assert.equal(after.get("revenueCatRequestDateMs"), NOW.getTime());
+  assert.deepEqual(after.updateTime, before.updateTime);
+});
+
+test("a changed reconciliation still writes both transitions", async () => {
+  const active = projection(webhookEvent("active"), NOW.getTime());
+  await store.writeProjection(active);
+
+  const lapsed = projection(webhookEvent("lapsed"), NOW.getTime() + 1_000);
+  lapsed.isActive = false;
+  lapsed.productId = null;
+  lapsed.expiresAt = null;
+  lapsed.accessUntil = new Date(0);
+  assert.equal(await store.writeProjection(lapsed), true);
+  assert.equal(
+    (await db.doc(`users/${uid}/entitlements/app_access`).get()).exists,
+    false
+  );
+
+  const renewed = projection(webhookEvent("renewed"), NOW.getTime() + 2_000);
+  assert.equal(await store.writeProjection(renewed), true);
+  assert.equal(
+    (await db.doc(`users/${uid}/entitlements/app_access`).get()).exists,
+    true
+  );
+});
+
+test("reconciliation restores a grant that went missing under a current status", async () => {
+  const granted = projection(webhookEvent("granted"), NOW.getTime());
+  await store.writeProjection(granted);
+  await db.doc(`users/${uid}/entitlements/app_access`).delete();
+
+  // This is the whole point of the recovery path: the status can look current
+  // while the document the rules actually read is gone.
+  const recovery = projection(webhookEvent("recovery"), NOW.getTime() + 1_000);
+  assert.equal(await store.writeProjection(recovery), true);
+  assert.equal(
+    (await db.doc(`users/${uid}/entitlements/app_access`).get()).exists,
+    true
+  );
+});
+
+test("a released reservation lets a failed reconciliation retry immediately", async () => {
+  assert.equal(await store.claimReconciliation(uid, NOW, 60_000), true);
+  assert.equal(await store.claimReconciliation(uid, NOW, 60_000), false);
+
+  await store.releaseReconciliation(uid);
+
+  assert.equal(await store.claimReconciliation(uid, NOW, 60_000), true);
+  assert.equal(
+    (await db.doc(`users/${uid}/entitlement_reconciliations/current`).get())
+      .get("requestCount"),
+    2
+  );
+});
+
 test("reconciliation is rate limited per user by the server", async () => {
   assert.equal(await store.claimReconciliation(uid, NOW, 60_000), true);
   assert.equal(await store.claimReconciliation(uid, NOW, 60_000), false);

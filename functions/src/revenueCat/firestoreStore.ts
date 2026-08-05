@@ -194,9 +194,23 @@ implements RevenueCatEntitlementStore {
     const grantRef = this.activeGrantRef(projection);
 
     return this.firestore.runTransaction(async (transaction) => {
-      const existing = await transaction.get(statusRef);
+      const [existingStatus, existingGrant] = await transaction.getAll(
+        statusRef,
+        grantRef
+      );
       if (!shouldReplaceProjection(
-        existing.get("revenueCatRequestDateMs"),
+        existingStatus.get("revenueCatRequestDateMs"),
+        projection
+      )) {
+        return false;
+      }
+      // A recovery check is polled rather than event-driven, and it carries a
+      // fresh RevenueCat request stamp every time, so the ordering rule alone
+      // would rewrite both documents on every call. Nothing an authorization
+      // decision reads has changed in that case.
+      if (isProjectedAccessUnchanged(
+        existingStatus,
+        existingGrant,
         projection
       )) {
         return false;
@@ -243,6 +257,21 @@ implements RevenueCatEntitlementStore {
     });
   }
 
+  /**
+   * Returns an unused reconciliation reservation.
+   *
+   * The cooldown exists to bound RevenueCat traffic, not to punish an outage.
+   * An attempt that never reached subscriber truth must not hold the lock, or
+   * a subscriber who then taps Restore is refused the recovery they asked for.
+   * @param {string} uid - Verified Firebase user id
+   * @return {Promise<void>}
+   */
+  async releaseReconciliation(uid: string): Promise<void> {
+    await this.firestore.doc(
+      `users/${uid}/entitlement_reconciliations/current`
+    ).set({lastReconciledAt: null}, {merge: true});
+  }
+
   private statusRef(
     projection: AppAccessProjection
   ): admin.firestore.DocumentReference {
@@ -258,6 +287,21 @@ implements RevenueCatEntitlementStore {
       `users/${projection.uid}/entitlements/${projection.entitlementId}`
     );
   }
+}
+
+function isProjectedAccessUnchanged(
+  status: admin.firestore.DocumentSnapshot,
+  grant: admin.firestore.DocumentSnapshot,
+  projection: AppAccessProjection
+): boolean {
+  if (!status.exists || grant.exists !== projection.isActive) {
+    return false;
+  }
+  const accessUntil = status.get("accessUntil");
+  return status.get("isActive") === projection.isActive &&
+    (status.get("productId") ?? null) === projection.productId &&
+    accessUntil instanceof admin.firestore.Timestamp &&
+    accessUntil.toMillis() === projection.accessUntil.getTime();
 }
 
 function applyProjection(

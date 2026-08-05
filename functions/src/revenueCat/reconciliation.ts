@@ -134,6 +134,7 @@ export const reconcileAppAccess = onCall(
       });
       return {status: result.outcome};
     } catch (error) {
+      await store.releaseReconciliation(uid).catch(() => undefined);
       if (error instanceof UnknownFirebaseUserError) {
         throw new HttpsError(
           "permission-denied",

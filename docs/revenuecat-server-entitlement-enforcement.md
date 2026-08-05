@@ -134,11 +134,16 @@ A delivery that never arrived or exhausted RevenueCat's five retries would other
 
 `reconcileAppAccess` is an authenticated callable that re-derives one user's projection from the same RevenueCat subscriber API the webhook uses.
 It acts only on `request.auth.uid`, never reads `request.data`, and accepts no entitlement state, product, expiry, or identity from the caller, so it does not move the trust boundary.
-A server-owned per-user cooldown in `users/{uid}/entitlement_reconciliations/current` keeps a modified client from turning recovery into an unbounded subscriber-API amplifier; a throttled call returns without work and without an error.
+A server-owned per-user cooldown in `users/{uid}/entitlement_reconciliations/current` keeps a modified client from turning recovery into an unbounded subscriber-API amplifier; a throttled call returns `{"status": "throttled"}` without work and without an error.
+An attempt that never reached RevenueCat releases the reservation, because a cooldown that outlived an outage would refuse the recovery a subscriber asks for by tapping Restore.
 Ordering is the shared `request_date_ms` rule, so a slow reconciliation cannot move access backward.
+Because a recovery check is polled rather than event-driven, it also skips the write entirely when `isActive`, `productId`, and `accessUntil` already match and the active grant document's presence agrees with them; a missing grant under a current status still rewrites, since that is exactly the state this path exists to repair.
 
-The app invokes it wherever an active device entitlement can outlive or race webhook delivery: after every entitlement refresh (launch, foreground, identity change), when access flips active mid-session from RevenueCat's customer-info stream, and unconditionally after either restore path.
-The device entitlement check, the hard paywall, and both restore surfaces are unchanged.
+The client treats `throttled` as a refusal rather than an answer, so a refused call never satisfies its own five-minute spacing.
+
+The app invokes it wherever an active device entitlement can outlive or race webhook delivery: after every entitlement refresh (launch, foreground, identity change), when access flips active mid-session from RevenueCat's customer-info stream, after a completed purchase, and unconditionally after either restore path.
+Both restore surfaces - account settings and the Superwall paywall's Restore button - route through the single `PaywallPurchaseCoordinating` hook on `MonetizationManager`, so neither can drift back to calling RevenueCat directly and skipping reconciliation.
+The device entitlement check, the hard paywall, and both restore surfaces are otherwise unchanged.
 
 ## Backend choke points
 
