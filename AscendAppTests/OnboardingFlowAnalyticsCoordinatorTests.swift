@@ -155,6 +155,67 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
         #expect(fixture.records(named: "onboarding_flow_completed").count == 1)
     }
 
+    /// Firebase reports "no user" on every signed-out cold launch, not only on a deliberate sign
+    /// out, and that report reaches the monetization identity reset before any screen renders. A
+    /// climber who killed the app mid-carousel must come back to the pass they left.
+    @Test
+    func aSignedOutColdLaunchKeepsThePreAuthPassItFinds() {
+        let fixture = makeFixture()
+        defer { fixture.cleanUp() }
+
+        fixture.coordinator.recordFlowStartedIfNeeded(context: OnboardingAnalyticsEvent.welcomeContext)
+
+        let relaunchedCoordinator = fixture.makeRelaunchedCoordinator()
+        let relaunchedMonetization = MonetizationManager(
+            entitlementService: EntitlementServiceStub(),
+            paywallPresenter: PaywallPresenterSpy(),
+            telemetry: fixture.telemetry,
+            onboardingLifecycle: relaunchedCoordinator
+        )
+        relaunchedMonetization.prepareIdentityReset()
+
+        relaunchedCoordinator.recordFlowStartedIfNeeded(
+            context: OnboardingAnalyticsEvent.welcomeContext
+        )
+        fixture.telemetry.track(
+            OnboardingAnalyticsEvent.screenViewed(
+                context: OnboardingAnalyticsEvent.welcomeContext,
+                resume: relaunchedCoordinator.consumeScreenResumeFlag()
+            )
+        )
+
+        #expect(fixture.records(named: "onboarding_flow_started").count == 1)
+        #expect(
+            fixture.records(named: "onboarding_screen_viewed").first?.parameters["resume"]
+                == .bool(true)
+        )
+    }
+
+    /// Signing out of an account that claimed a pass does abandon it.
+    @Test
+    func signingOutOfAnAdoptedPassRetiresIt() {
+        let fixture = makeFixture()
+        defer { fixture.cleanUp() }
+
+        let monetization = MonetizationManager(
+            entitlementService: EntitlementServiceStub(),
+            paywallPresenter: PaywallPresenterSpy(),
+            telemetry: fixture.telemetry,
+            onboardingLifecycle: fixture.coordinator
+        )
+
+        fixture.coordinator.recordFlowStartedIfNeeded(context: OnboardingAnalyticsEvent.welcomeContext)
+        monetization.prepareIdentity(userId: "climber-a")
+        monetization.prepareIdentityReset()
+
+        // Climber A's start is gone, so their pass cannot be closed by whoever comes next.
+        fixture.coordinator.recordFlowCompletedIfNeeded(reason: .purchase)
+        #expect(fixture.records(named: "onboarding_flow_completed").isEmpty)
+
+        fixture.coordinator.recordFlowStartedIfNeeded(context: OnboardingAnalyticsEvent.welcomeContext)
+        #expect(fixture.records(named: "onboarding_flow_started").count == 2)
+    }
+
     @Test
     func adoptingTheSameAccountKeepsThePassItOpenedAcrossRelaunch() {
         let fixture = makeFixture()

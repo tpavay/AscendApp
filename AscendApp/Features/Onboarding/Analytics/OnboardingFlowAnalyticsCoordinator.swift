@@ -51,12 +51,21 @@ final class OnboardingFlowAnalyticsCoordinator {
         shouldMarkNextScreenAsResumed = false
     }
 
-    /// Retires the current pass so the next onboarding screen opens a fresh one. Sign-out, account
-    /// deletion, and the debug replay tools all hand the flow to a pass that has to be counted on
-    /// its own.
+    /// Retires the current pass so the next onboarding screen opens a fresh one. The debug replay
+    /// tools hand the flow to a pass that has to be counted on its own.
     func resetPass() {
         userDefaults.removeObject(forKey: Self.passStateKey)
         shouldMarkNextScreenAsResumed = false
+    }
+
+    /// Retires a pass an account already claimed, and leaves an unclaimed one alone. Losing the
+    /// authenticated identity is not by itself a sign-out: a cold launch with no session reports
+    /// exactly the same thing, and it must not wipe the pre-auth pass the climber is mid-way
+    /// through and make the next screen open a second one.
+    func retireAdoptedPass() {
+        guard loadState().ownerUserID != nil else { return }
+
+        resetPass()
     }
 
     func recordFlowStartedIfNeeded(context: OnboardingAnalyticsContext) {

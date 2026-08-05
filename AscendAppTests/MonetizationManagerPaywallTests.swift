@@ -69,6 +69,66 @@ struct MonetizationManagerPaywallTests {
         #expect(manager.onboardingCompletionReasonForActiveAccess == .purchase)
     }
 
+    /// The entitlement can turn active before Superwall says how it was granted. Completion is
+    /// persisted the first time a reason exists, so answering early would bank a guess that the
+    /// real outcome arrives too late to correct.
+    @Test
+    func noReasonIsReportedWhileThePaywallOutcomeIsStillPending() {
+        let entitlementService = EntitlementServiceStub()
+        let paywallPresenter = PaywallPresenterSpy()
+        let manager = MonetizationManager(
+            entitlementService: entitlementService,
+            paywallPresenter: paywallPresenter
+        )
+
+        manager.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
+        paywallPresenter.send(.presented)
+        entitlementService.setEntitlementState(.active(["app_access"]))
+
+        #expect(manager.onboardingCompletionReasonForActiveAccess == nil)
+
+        paywallPresenter.send(.restored)
+
+        #expect(manager.onboardingCompletionReasonForActiveAccess == .restore)
+    }
+
+    /// The same ordering through the restore call: the entitlement can flip while the restore is
+    /// still in flight, and the answer has to wait for what the restore itself reports.
+    @Test
+    func noReasonIsReportedWhileARestoreIsStillInFlight() async throws {
+        let entitlementService = EntitlementServiceStub()
+        entitlementService.restoredState = .active(["app_access"])
+        let manager = MonetizationManager(
+            entitlementService: entitlementService,
+            paywallPresenter: PaywallPresenterSpy()
+        )
+
+        entitlementService.onRestoreStarted = {
+            entitlementService.setEntitlementState(.active(["app_access"]))
+            #expect(manager.onboardingCompletionReasonForActiveAccess == nil)
+        }
+
+        try await manager.restorePurchases()
+
+        #expect(manager.onboardingCompletionReasonForActiveAccess == .restore)
+    }
+
+    /// A build with no Superwall key never presents anything, so the request has to close itself or
+    /// the climber waits on a result that will never arrive.
+    @Test
+    func anUnpresentablePaywallClosesItsOwnRequest() {
+        let entitlementService = EntitlementServiceStub()
+        let manager = MonetizationManager(
+            entitlementService: entitlementService,
+            paywallPresenter: PaywallPresenterSpy(isConfigured: false)
+        )
+
+        manager.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
+        entitlementService.setEntitlementState(.active(["app_access"]))
+
+        #expect(manager.onboardingCompletionReasonForActiveAccess == .purchase)
+    }
+
     /// A dismissal, a skip or a failure is not evidence that the climber already owned access. If
     /// the entitlement turns on afterwards - a webhook-delayed purchase, a Superwall presentation
     /// that reported skip while the purchase still went through - the grant this pass asked for is
@@ -140,12 +200,10 @@ struct MonetizationManagerPaywallTests {
 
         manager.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
         paywallPresenter.send(.purchased)
-        #expect(manager.didRequestOnboardingAccessGrant)
 
         manager.prepareIdentity(userId: "climber-b")
         entitlementService.setEntitlementState(.active(["app_access"]))
 
-        #expect(manager.didRequestOnboardingAccessGrant == false)
         #expect(manager.onboardingCompletionReasonForActiveAccess == .existingEntitlement)
     }
 
@@ -482,6 +540,9 @@ final class EntitlementServiceStub: EntitlementServicing {
     /// A restore resolves its own answer even when a pending identity transition holds
     /// `entitlementState` at `.unknown`, so the two are settable independently.
     var restoredState: MonetizationEntitlementState?
+    /// Runs inside the restore, so a test can flip the entitlement while the call is still in
+    /// flight and assert what the manager reports at that moment.
+    var onRestoreStarted: (@MainActor () -> Void)?
     private var revision: UInt = 0
     private var currentTransition: MonetizationIdentityTransition?
 
@@ -527,6 +588,8 @@ final class EntitlementServiceStub: EntitlementServicing {
 
     @discardableResult
     func restorePurchases() async throws -> MonetizationEntitlementState {
+        onRestoreStarted?()
+
         if let restoreError {
             throw restoreError
         }

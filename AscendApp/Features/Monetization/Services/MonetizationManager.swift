@@ -23,11 +23,10 @@ final class MonetizationManager: MonetizationIdentityManaging {
     @ObservationIgnored
     private var preparedIdentityTransition: MonetizationIdentityTransition?
     private(set) var configuration: MonetizationConfiguration
-    private(set) var onboardingAccessGrantReason: OnboardingFlowCompletionReason?
-    /// Set the moment this identity is asked to buy or restore access it does not yet have. It is
-    /// the evidence that whatever turns access on afterwards is a new grant rather than an
-    /// entitlement the climber already held when the pass started.
-    private(set) var didRequestOnboardingAccessGrant = false
+    /// Tracks whether this identity has asked to buy or restore access it does not yet have, and
+    /// what that request finally reported. Attribution is read from the request's own result, never
+    /// inferred from when the entitlement happened to turn active.
+    private var onboardingAccessGrantRequest: OnboardingAccessGrantRequest = .notRequested
     #if DEBUG
     private(set) var debugForcesAppAccessPaywall: Bool
     #endif
@@ -78,15 +77,20 @@ final class MonetizationManager: MonetizationIdentityManaging {
             return nil
         }
 
-        if let onboardingAccessGrantReason {
-            return onboardingAccessGrantReason
+        switch onboardingAccessGrantRequest {
+        case .notRequested:
+            // Access this pass never asked for is access the climber already held.
+            return .existingEntitlement
+        case .pending:
+            // The entitlement can turn active before the paywall or restore says how. Reporting a
+            // reason now would bank a guess the persisted completion can never correct.
+            return nil
+        case .resolved(let reason):
+            // A request that reported no grant of its own - dismissed, skipped, failed, or a
+            // restore that found nothing - still asked for one, so a webhook-delayed purchase that
+            // lands afterwards is that purchase, not a pre-existing entitlement.
+            return reason ?? .purchase
         }
-
-        // An outcome that never reported itself - a webhook-delayed purchase picked up by a
-        // refresh, a Superwall presentation that ended in skip or error while the purchase still
-        // went through - is still a grant this pass asked for, and calling it a pre-existing
-        // entitlement would be a lie the persisted completion can never correct.
-        return didRequestOnboardingAccessGrant ? .purchase : .existingEntitlement
     }
 
     init(
@@ -123,8 +127,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
         if identifiedUserID != userId {
             identifiedUserID = userId
             onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
-            onboardingAccessGrantReason = nil
-            didRequestOnboardingAccessGrant = false
+            onboardingAccessGrantRequest = .notRequested
         }
 
         // The pass that opened before auth belongs to whoever just claimed it; a different account
@@ -160,9 +163,8 @@ final class MonetizationManager: MonetizationIdentityManaging {
         // change starts a new pass, so the recorder cannot outlive the identity it was filled for.
         identifiedUserID = nil
         onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
-        onboardingAccessGrantReason = nil
-        didRequestOnboardingAccessGrant = false
-        onboardingLifecycle.resetPass()
+        onboardingAccessGrantRequest = .notRequested
+        onboardingLifecycle.retireAdoptedPass()
 
         let transition = entitlementService.prepareIdentityReset()
         preparedIdentityTransition = transition
@@ -213,16 +215,23 @@ final class MonetizationManager: MonetizationIdentityManaging {
 
     @discardableResult
     func restorePurchases() async throws -> MonetizationEntitlementState {
-        noteOnboardingAccessGrantRequested()
+        beginOnboardingAccessGrantRequest()
 
-        let state = try await entitlementService.restorePurchases()
-        await reconcileServerAppAccess(for: state, force: true)
+        do {
+            let state = try await entitlementService.restorePurchases()
+            await reconcileServerAppAccess(for: state, force: true)
 
-        if state.hasActiveEntitlement(configuration.revenueCatEntitlementID) {
-            onboardingAccessGrantReason = .restore
+            if state.hasActiveEntitlement(configuration.revenueCatEntitlementID) {
+                recordOnboardingAccessGranted(.restore)
+            } else {
+                recordOnboardingAccessGrantRequestReportedNothing()
+            }
+
+            return state
+        } catch {
+            recordOnboardingAccessGrantRequestReportedNothing()
+            throw error
         }
-
-        return state
     }
 
     func presentPaywall(
@@ -237,10 +246,13 @@ final class MonetizationManager: MonetizationIdentityManaging {
 
         let tracksOnboardingAccess = placement == .onboardingPaywall || placement == .appAccessGate
         if tracksOnboardingAccess {
-            noteOnboardingAccessGrantRequested()
+            beginOnboardingAccessGrantRequest()
         }
 
         guard paywallPresenter.isConfigured else {
+            if tracksOnboardingAccess {
+                recordOnboardingAccessGrantRequestReportedNothing()
+            }
             onOutcome(.failed(message: "Superwall is not configured for this build."))
             return
         }
@@ -296,24 +308,46 @@ final class MonetizationManager: MonetizationIdentityManaging {
         )
     }
 
-    private func noteOnboardingAccessGrantRequested() {
+    private func beginOnboardingAccessGrantRequest() {
         guard !entitlementStateForRouting.hasActiveEntitlement(
             configuration.revenueCatEntitlementID
         ) else { return }
 
-        didRequestOnboardingAccessGrant = true
+        onboardingAccessGrantRequest = .pending
+    }
+
+    private func recordOnboardingAccessGranted(_ reason: OnboardingFlowCompletionReason) {
+        onboardingAccessGrantRequest = .resolved(reason)
+    }
+
+    /// Closes the pending request without attributing anything, so a climber whose paywall
+    /// reported nothing is never left waiting on a result that will not arrive.
+    private func recordOnboardingAccessGrantRequestReportedNothing() {
+        guard onboardingAccessGrantRequest == .pending else { return }
+
+        onboardingAccessGrantRequest = .resolved(nil)
     }
 
     /// Only an outcome that names how access was granted may attribute one. A dismissal, a skip or
-    /// a failure is not evidence of anything, least of all of a pre-existing entitlement.
+    /// a failure closes the request without naming anything.
     private func recordOnboardingPaywallOutcome(_ outcome: PaywallPresentationOutcome) {
         switch outcome {
         case .purchased:
-            onboardingAccessGrantReason = .purchase
+            recordOnboardingAccessGranted(.purchase)
         case .restored:
-            onboardingAccessGrantReason = .restore
-        case .presented, .dismissedWithoutPurchase, .skipped, .failed:
+            recordOnboardingAccessGranted(.restore)
+        case .dismissedWithoutPurchase, .skipped, .failed:
+            recordOnboardingAccessGrantRequestReportedNothing()
+        case .presented:
+            // The paywall being on screen is not a result; the request stays pending.
             break
         }
     }
+}
+
+private enum OnboardingAccessGrantRequest: Equatable {
+    case notRequested
+    case pending
+    /// `nil` when the request closed without naming how access was granted.
+    case resolved(OnboardingFlowCompletionReason?)
 }

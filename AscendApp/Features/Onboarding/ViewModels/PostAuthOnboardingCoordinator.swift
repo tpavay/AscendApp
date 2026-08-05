@@ -6,18 +6,15 @@ import Observation
 final class PostAuthOnboardingCoordinator {
     private let store: PostAuthOnboardingStore
     private let telemetry: TelemetryManager
-    private let onboardingLifecycle: OnboardingFlowAnalyticsCoordinator
     private var currentUserId: String?
     private(set) var phase: PostAuthOnboardingPhase = .signedOut
 
     init(
         store: PostAuthOnboardingStore = PostAuthOnboardingStore(),
-        telemetry: TelemetryManager = .shared,
-        onboardingLifecycle: OnboardingFlowAnalyticsCoordinator = .shared
+        telemetry: TelemetryManager = .shared
     ) {
         self.store = store
         self.telemetry = telemetry
-        self.onboardingLifecycle = onboardingLifecycle
     }
 
     func resolve(userId: String?, force: Bool = false) {
@@ -116,17 +113,6 @@ final class PostAuthOnboardingCoordinator {
         store.save(snapshot, for: userId)
         phase = .onboarding(previousStage)
         recordLifecycleSnapshot(snapshot)
-    }
-
-    func resetCurrentUser() {
-        guard let userId = currentUserId else { return }
-        store.reset(for: userId)
-        // A pass the climber is about to walk again has to be counted on its own.
-        onboardingLifecycle.resetPass()
-        let snapshot = store.snapshot(for: userId)
-        phase = .onboarding(.first)
-        recordLifecycleSnapshot(snapshot)
-        NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
     }
 
     func markCurrentUserComplete() {
