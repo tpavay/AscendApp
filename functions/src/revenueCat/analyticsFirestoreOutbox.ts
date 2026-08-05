@@ -12,9 +12,9 @@ export const ANALYTICS_OUTBOX_COLLECTION =
 
 // A row carries the affected Firebase UID as its Mixpanel `distinct_id`, so it
 // may not outlive the reason it exists. Delivery dedupe only has to outlive
-// RevenueCat's roughly 155-minute retry ladder; thirty days matches the event
-// ledger and leaves a human-inspectable trail. The Firestore TTL policy on
-// `retainUntil` does the deleting.
+// RevenueCat's five documented retries, whose total span is unverified; thirty
+// days matches the event ledger and leaves a human-inspectable trail. The
+// Firestore TTL policy on `retainUntil` does the deleting.
 //
 // Every state transition restamps it, so the bound measures thirty days from
 // the row's last movement rather than from its creation: a row still retrying

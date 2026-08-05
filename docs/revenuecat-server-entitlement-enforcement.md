@@ -161,9 +161,8 @@ Only a confirmed import marks the row delivered; transient network, rate-limit, 
 This fails closed if an expiration webhook is delayed and a concurrent renewal wins through Firestore transaction retry.
 The sweep pages past documents from any other `entitlements` subcollection until it has spent its budget on real `users/{uid}/entitlements/app_access` grants, because the query is ordered by `accessUntil` and a single foreign document with an ancient timestamp would otherwise sit at the head of a fixed window and starve every real expiry behind it.
 
-Webhook failures return a non-2xx response so RevenueCat retries them.
-RevenueCat currently documents five retries after 5, 10, 20, 40, and 80 minutes.
-The processor is safe after a crash because a failed attempt is reclaimable and an abandoned processing lease expires before RevenueCat's first retry.
+Webhook failures return a non-2xx response so RevenueCat retries them, on the five-retry ladder the dashboard setup step above records.
+The processor is safe after a crash because a failed attempt is reclaimable and an abandoned processing lease expires within two minutes, inside the documented five-minute delay before RevenueCat's first retry.
 Mixpanel delivery failures do not fail or delay the webhook response because delivery starts only from the separately scheduled outbox worker.
 An unresolvable analytics destination is degraded rather than fatal: the webhook logs it, skips outbox enqueueing, and still authenticates, deduplicates, and projects the entitlement, because analytics may never decide paid access.
 Each worker run stops claiming deliveries before its function timeout and immediately returns every unattempted claim to the queue, so provider latency drains instead of stranding rows until the fifteen-minute stale sweep.
@@ -176,7 +175,7 @@ The event ledger stores only event metadata, a payload digest, processing state,
 The analytics outbox stores the affected Firebase UID only as the Mixpanel `distinct_id`; account deletion removes every outbox row that still carries it.
 
 Each ledger entry carries `retainUntil`, an explicit thirty-day future timestamp, and a Firestore TTL field override deletes the entry when it passes.
-The dedupe evidence only has to outlive RevenueCat's roughly 155-minute retry ladder, so thirty days is generous while still bounding the collection.
+The dedupe evidence only has to outlive RevenueCat's five documented retries, whose longest documented delay is 80 minutes and whose total span is unverified, so thirty days is generous while still bounding the collection.
 `receivedAt` cannot carry the policy: it is already in the past when it is written, so every entry would be eligible for deletion the moment it was created.
 Each analytics outbox row carries the same thirty-day `retainUntil` stamp and its own Firestore TTL field override, because a row holds a Firebase UID as its Mixpanel `distinct_id` and may not outlive the delivery it exists to prove.
 Every state change restamps it, so the thirty days run from the row's last movement rather than from its creation: a row still retrying cannot be deleted out from under the retry-until-delivery guarantee, and a delivered or terminally failed row gets exactly one bounded window after it settled.

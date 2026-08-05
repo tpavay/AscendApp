@@ -17,8 +17,10 @@ import type {
 const EVENT_COLLECTION = "_revenuecat_webhook_events";
 const PROCESSING_LEASE_MS = 2 * 60 * 1000;
 
-// RevenueCat currently retries a failed delivery five times over roughly 155
-// minutes, and dedupe only has to outlive that window. Thirty days keeps a
+// RevenueCat documents five retries of a failed delivery, the longest at 80
+// minutes, and dedupe only has to outlive that ladder; the documentation never
+// says whether those delays are intervals or offsets, so the total span is
+// unverified and nothing here may be sized against it. Thirty days keeps a
 // human-inspectable trail of what the server acted on while still bounding the
 // ledger, and the Firestore TTL policy on `retainUntil` does the deleting.
 // `receivedAt` cannot carry the policy: it is already in the past when it is
