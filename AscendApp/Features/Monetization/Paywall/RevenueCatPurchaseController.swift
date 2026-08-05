@@ -113,8 +113,7 @@ final class RevenueCatPurchaseController: PurchaseController {
         }
 
         do {
-            try await coordinator().restorePurchases()
-            applySubscriptionStatus(from: coordinator().entitlementState)
+            applySubscriptionStatus(from: try await coordinator().restorePurchases())
             TelemetryManager.shared.track(
                 PaywallAnalyticsEvent.restoreControllerCompleted(outcome: "restored")
             )

@@ -17,36 +17,73 @@ struct AppAccessReconciliationServiceTests {
     }
 
     @Test
-    func aThrottledRefusalIsNotRecordedAsAnAnswer() async {
+    func aThrottledRefusalBacksOffWithoutCountingAsAnAnswer() async {
         let invoker = ReconciliationInvokerSpy(outcomes: [.throttled, .active])
         let clock = TestClock()
         let service = makeService(invoker: invoker, clock: clock)
 
         await service.reconcileAppAccess(force: false)
+        // A refusal must not let every foreground issue another call...
         await service.reconcileAppAccess(force: false)
+        #expect(invoker.callCount == 1)
 
+        // ...and it must not buy the full success spacing either.
+        clock.advance(by: 61)
+        await service.reconcileAppAccess(force: false)
         #expect(invoker.callCount == 2)
     }
 
     @Test
-    func anUnrecognizedStatusIsNotRecordedAsAnAnswer() async {
+    func anUnrecognizedStatusBacksOffWithoutCountingAsAnAnswer() async {
         let invoker = ReconciliationInvokerSpy(outcomes: [.unrecognized, .inactive])
-        let service = makeService(invoker: invoker, clock: TestClock())
+        let clock = TestClock()
+        let service = makeService(invoker: invoker, clock: clock)
 
         await service.reconcileAppAccess(force: false)
         await service.reconcileAppAccess(force: false)
+        #expect(invoker.callCount == 1)
 
+        clock.advance(by: 61)
+        await service.reconcileAppAccess(force: false)
         #expect(invoker.callCount == 2)
     }
 
     @Test
-    func aFailedCallLeavesTheNextAttemptFreeToRecover() async {
+    func aFailedCallBacksOffAndThenRecovers() async {
+        let invoker = ReconciliationInvokerSpy(outcomes: [.active])
+        invoker.errors = [ReconciliationFailure()]
+        let clock = TestClock()
+        let service = makeService(invoker: invoker, clock: clock)
+
+        await service.reconcileAppAccess(force: false)
+        // An outage must not turn every trigger into another callable invocation.
+        await service.reconcileAppAccess(force: false)
+        #expect(invoker.callCount == 1)
+
+        clock.advance(by: 31)
+        await service.reconcileAppAccess(force: false)
+        #expect(invoker.callCount == 2)
+    }
+
+    @Test
+    func anExplicitRestoreStillRecoversInsideAFailureBackoff() async {
         let invoker = ReconciliationInvokerSpy(outcomes: [.active])
         invoker.errors = [ReconciliationFailure()]
         let service = makeService(invoker: invoker, clock: TestClock())
 
         await service.reconcileAppAccess(force: false)
+        await service.reconcileAppAccess(force: true)
+
+        #expect(invoker.callCount == 2)
+    }
+
+    @Test
+    func anExplicitRestoreStillRecoversInsideAThrottleBackoff() async {
+        let invoker = ReconciliationInvokerSpy(outcomes: [.throttled, .active])
+        let service = makeService(invoker: invoker, clock: TestClock())
+
         await service.reconcileAppAccess(force: false)
+        await service.reconcileAppAccess(force: true)
 
         #expect(invoker.callCount == 2)
     }
@@ -78,7 +115,8 @@ struct AppAccessReconciliationServiceTests {
     @Test
     func overlappingCallersNeverLeaveAStaleInFlightMarker() async {
         let invoker = ReconciliationInvokerSpy(outcomes: [.active, .active, .active])
-        let service = makeService(invoker: invoker, clock: TestClock())
+        let clock = TestClock()
+        let service = makeService(invoker: invoker, clock: clock)
 
         async let first: Void = service.reconcileAppAccess(force: true)
         async let second: Void = service.reconcileAppAccess(force: true)

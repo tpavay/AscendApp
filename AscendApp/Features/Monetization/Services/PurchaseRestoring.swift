@@ -4,7 +4,8 @@ import Foundation
 protocol PurchaseRestoring: AnyObject {
     var isRevenueCatConfigured: Bool { get }
 
-    func restorePurchases() async throws
+    @discardableResult
+    func restorePurchases() async throws -> MonetizationEntitlementState
 }
 
 extension MonetizationManager: PurchaseRestoring { }

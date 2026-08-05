@@ -11,7 +11,7 @@ struct RevenueCatPurchaseControllerRestoreTests {
     @Test
     func theSuperwallRestoreRoutesThroughTheSharedCoordinator() async {
         let coordinator = PaywallPurchaseCoordinatorSpy(
-            entitlementState: .active(["app_access"])
+            restoredState: .active(["app_access"])
         )
         var published: [SuperwallKit.SubscriptionStatus] = []
         let controller = RevenueCatPurchaseController(
@@ -26,9 +26,30 @@ struct RevenueCatPurchaseControllerRestoreTests {
         #expect(published.count == 1)
     }
 
+    /// A pending identity transition holds `entitlementState` at `.unknown`, so publishing from the
+    /// stored state would silently drop a restore that genuinely succeeded against RevenueCat.
+    @Test
+    func aRestoreDuringAPendingIdentityTransitionStillPublishesTruth() async {
+        let coordinator = PaywallPurchaseCoordinatorSpy(
+            restoredState: .active(["app_access"])
+        )
+        coordinator.entitlementState = .unknown
+        var published: [SuperwallKit.SubscriptionStatus] = []
+        let controller = RevenueCatPurchaseController(
+            coordinator: { coordinator },
+            applySuperwallStatus: { published.append($0) }
+        )
+
+        let result = await controller.restorePurchases()
+
+        #expect(isRestored(result))
+        #expect(published.count == 1)
+        #expect(isActive(published.first))
+    }
+
     @Test
     func aFailedSuperwallRestoreReportsTheFailure() async {
-        let coordinator = PaywallPurchaseCoordinatorSpy(entitlementState: .inactive)
+        let coordinator = PaywallPurchaseCoordinatorSpy(restoredState: .inactive)
         coordinator.restoreError = RestoreFailure()
         let controller = RevenueCatPurchaseController(
             coordinator: { coordinator },
@@ -43,7 +64,7 @@ struct RevenueCatPurchaseControllerRestoreTests {
 
     @Test
     func anUnconfiguredBuildNeverClaimsARestore() async {
-        let coordinator = PaywallPurchaseCoordinatorSpy(entitlementState: .unknown)
+        let coordinator = PaywallPurchaseCoordinatorSpy(restoredState: .unknown)
         coordinator.isRevenueCatConfigured = false
         let controller = RevenueCatPurchaseController(
             coordinator: { coordinator },
@@ -57,8 +78,8 @@ struct RevenueCatPurchaseControllerRestoreTests {
     }
 
     @Test
-    func anUnresolvedEntitlementLeavesTheSuperwallStatusAlone() async {
-        let coordinator = PaywallPurchaseCoordinatorSpy(entitlementState: .unknown)
+    func anUnresolvedRestoreLeavesTheSuperwallStatusAlone() async {
+        let coordinator = PaywallPurchaseCoordinatorSpy(restoredState: .unknown)
         var published: [SuperwallKit.SubscriptionStatus] = []
         let controller = RevenueCatPurchaseController(
             coordinator: { coordinator },
@@ -77,6 +98,14 @@ struct RevenueCatPurchaseControllerRestoreTests {
 
         return false
     }
+
+    private func isActive(_ status: SuperwallKit.SubscriptionStatus?) -> Bool {
+        if case .active = status {
+            return true
+        }
+
+        return false
+    }
 }
 
 private struct RestoreFailure: Error { }
@@ -84,13 +113,15 @@ private struct RestoreFailure: Error { }
 @MainActor
 private final class PaywallPurchaseCoordinatorSpy: PaywallPurchaseCoordinating {
     var isRevenueCatConfigured = true
-    var entitlementState: MonetizationEntitlementState
+    var entitlementState: MonetizationEntitlementState = .unknown
     var restoreError: (any Error)?
     private(set) var restoreCount = 0
     private(set) var forcedRefreshCount = 0
+    private let restoredState: MonetizationEntitlementState
 
-    init(entitlementState: MonetizationEntitlementState) {
-        self.entitlementState = entitlementState
+    init(restoredState: MonetizationEntitlementState) {
+        self.restoredState = restoredState
+        entitlementState = restoredState
     }
 
     func refreshEntitlements(force: Bool) async {
@@ -99,10 +130,13 @@ private final class PaywallPurchaseCoordinatorSpy: PaywallPurchaseCoordinating {
         }
     }
 
-    func restorePurchases() async throws {
+    @discardableResult
+    func restorePurchases() async throws -> MonetizationEntitlementState {
         restoreCount += 1
         if let restoreError {
             throw restoreError
         }
+
+        return restoredState
     }
 }

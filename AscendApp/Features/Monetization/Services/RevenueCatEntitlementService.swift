@@ -199,14 +199,20 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         await mutationTask.value
     }
 
-    func restorePurchases() async throws {
-        guard isConfigured else { return }
+    /// A pending or superseded identity transition refuses the stored state, but it does not make
+    /// the restore's own answer wrong. The resolved state is returned either way so a caller that
+    /// asked for the restore can act on what RevenueCat actually said.
+    @discardableResult
+    func restorePurchases() async throws -> MonetizationEntitlementState {
+        guard isConfigured else { return .unknown }
         let refreshToken = identityTransitionState.refreshToken()
         let state = try await provider.restorePurchasesState()
 
         if let refreshToken {
             applyRefreshState(state, for: refreshToken)
         }
+
+        return state
     }
 
     private func prepareIdentityMutation(

@@ -13,5 +13,8 @@ protocol EntitlementServicing: AnyObject {
     func prepareIdentityReset() -> MonetizationIdentityTransition
     func resetIdentity(transition: MonetizationIdentityTransition) async
     func retryIdentityResolution() async
-    func restorePurchases() async throws
+    /// - Returns: The state RevenueCat resolved for the restore, which is authoritative even when
+    ///   a pending identity transition refuses to let it become `entitlementState`.
+    @discardableResult
+    func restorePurchases() async throws -> MonetizationEntitlementState
 }

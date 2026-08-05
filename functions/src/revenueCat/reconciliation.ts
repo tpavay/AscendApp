@@ -18,6 +18,7 @@ import type {
 const RECONCILIATION_SOURCE_EVENT_ID = "client_reconciliation";
 const RECONCILIATION_SOURCE_EVENT_TYPE = "CLIENT_RECONCILIATION";
 export const RECONCILIATION_COOLDOWN_MS = 60 * 1000;
+export const RECONCILIATION_FAILURE_RETRY_AFTER_MS = 15 * 1000;
 
 export type ReconciliationOutcome = "active" | "inactive";
 
@@ -134,7 +135,12 @@ export const reconcileAppAccess = onCall(
       });
       return {status: result.outcome};
     } catch (error) {
-      await store.releaseReconciliation(uid).catch(() => undefined);
+      await store.backOffReconciliation(
+        uid,
+        now,
+        RECONCILIATION_FAILURE_RETRY_AFTER_MS,
+        RECONCILIATION_COOLDOWN_MS
+      ).catch(() => undefined);
       if (error instanceof UnknownFirebaseUserError) {
         throw new HttpsError(
           "permission-denied",

@@ -8,10 +8,13 @@ import Foundation
 @MainActor
 protocol PaywallPurchaseCoordinating: AnyObject {
     var isRevenueCatConfigured: Bool { get }
-    var entitlementState: MonetizationEntitlementState { get }
 
     func refreshEntitlements(force: Bool) async
-    func restorePurchases() async throws
+    /// - Returns: What RevenueCat resolved for this restore. The controller publishes that rather
+    ///   than the stored `entitlementState`, which a pending identity transition can hold at
+    ///   `.unknown` even though the restore itself succeeded.
+    @discardableResult
+    func restorePurchases() async throws -> MonetizationEntitlementState
 }
 
 extension MonetizationManager: PaywallPurchaseCoordinating { }

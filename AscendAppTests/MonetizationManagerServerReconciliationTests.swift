@@ -65,6 +65,30 @@ struct MonetizationManagerServerReconciliationTests {
         #expect(reconciler.forcedCalls.isEmpty)
     }
 
+    /// A pending identity transition holds `entitlementState` at `.unknown`, but the restore still
+    /// resolved a real answer, and that answer is what must drive server reconciliation.
+    @Test
+    func aRestoreDuringAPendingIdentityTransitionStillReconciles() async throws {
+        let reconciler = AppAccessReconcilerSpy()
+        let entitlementService = EntitlementServiceStub(entitlementState: .unknown)
+        entitlementService.restoredState = .active(["app_access"])
+        let manager = MonetizationManager(
+            configuration: MonetizationConfiguration(
+                infoDictionary: [
+                    MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "NO"
+                ]
+            ),
+            entitlementService: entitlementService,
+            paywallPresenter: PaywallPresenterSpy(),
+            appAccessReconciler: reconciler
+        )
+
+        let restored = try await manager.restorePurchases()
+
+        #expect(restored == .active(["app_access"]))
+        #expect(reconciler.forcedCalls == [true])
+    }
+
     private func makeManager(
         entitlementState: MonetizationEntitlementState,
         restoreError: (any Error)? = nil,

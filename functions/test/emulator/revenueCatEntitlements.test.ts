@@ -228,17 +228,49 @@ test("reconciliation restores a grant that went missing under a current status",
   );
 });
 
-test("a released reservation lets a failed reconciliation retry immediately", async () => {
+test("a failed attempt keeps a short backoff instead of the success cooldown", async () => {
   assert.equal(await store.claimReconciliation(uid, NOW, 60_000), true);
-  assert.equal(await store.claimReconciliation(uid, NOW, 60_000), false);
 
-  await store.releaseReconciliation(uid);
+  await store.backOffReconciliation(uid, NOW, 15_000, 60_000);
 
-  assert.equal(await store.claimReconciliation(uid, NOW, 60_000), true);
+  // Still bounded, so a RevenueCat outage cannot turn every foreground into
+  // another subscriber fetch...
+  assert.equal(
+    await store.claimReconciliation(
+      uid,
+      new Date(NOW.getTime() + 14_000),
+      60_000
+    ),
+    false
+  );
+  // ...but the subscriber who taps Restore recovers in seconds, not a minute.
+  assert.equal(
+    await store.claimReconciliation(
+      uid,
+      new Date(NOW.getTime() + 15_000),
+      60_000
+    ),
+    true
+  );
   assert.equal(
     (await db.doc(`users/${uid}/entitlement_reconciliations/current`).get())
       .get("requestCount"),
     2
+  );
+});
+
+test("a backoff never shortens a reservation another attempt already made", async () => {
+  const staleClaim = NOW;
+  await store.claimReconciliation(uid, staleClaim, 60_000);
+  const newerClaim = new Date(NOW.getTime() + 60_000);
+  await store.claimReconciliation(uid, newerClaim, 60_000);
+
+  await store.backOffReconciliation(uid, staleClaim, 15_000, 60_000);
+
+  assert.equal(
+    (await db.doc(`users/${uid}/entitlement_reconciliations/current`).get())
+      .get("lastReconciledAt").toMillis(),
+    newerClaim.getTime()
   );
 });
 

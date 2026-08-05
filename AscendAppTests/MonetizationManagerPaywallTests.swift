@@ -347,6 +347,9 @@ final class EntitlementServiceStub: EntitlementServicing {
     var isConfigured = true
     var identityResolution = MonetizationEntitlementState.inactive
     var restoreError: (any Error)?
+    /// A restore resolves its own answer even when a pending identity transition holds
+    /// `entitlementState` at `.unknown`, so the two are settable independently.
+    var restoredState: MonetizationEntitlementState?
     private var revision: UInt = 0
     private var currentTransition: MonetizationIdentityTransition?
 
@@ -390,10 +393,13 @@ final class EntitlementServiceStub: EntitlementServicing {
 
     func retryIdentityResolution() async {}
 
-    func restorePurchases() async throws {
+    @discardableResult
+    func restorePurchases() async throws -> MonetizationEntitlementState {
         if let restoreError {
             throw restoreError
         }
+
+        return restoredState ?? entitlementState
     }
 
     private func prepare(userID: String?) -> MonetizationIdentityTransition {

@@ -258,18 +258,44 @@ implements RevenueCatEntitlementStore {
   }
 
   /**
-   * Returns an unused reconciliation reservation.
+   * Shortens this attempt's reservation to a brief retry window.
    *
-   * The cooldown exists to bound RevenueCat traffic, not to punish an outage.
-   * An attempt that never reached subscriber truth must not hold the lock, or
-   * a subscriber who then taps Restore is refused the recovery they asked for.
+   * An attempt that never reached subscriber truth must not hold the full
+   * success cooldown, or a subscriber who then taps Restore is refused the
+   * recovery they asked for. Clearing the reservation outright is the opposite
+   * failure: during a RevenueCat outage every foreground would issue another
+   * subscriber fetch, which is the amplification the cooldown exists to stop.
+   * Only the reservation this attempt made is shortened, so a newer claim that
+   * already replaced it is left alone.
    * @param {string} uid - Verified Firebase user id
+   * @param {Date} claimedAt - The instant this attempt reserved
+   * @param {number} retryAfterMs - Spacing to leave before the next attempt
+   * @param {number} cooldownMs - The success cooldown being shortened
    * @return {Promise<void>}
    */
-  async releaseReconciliation(uid: string): Promise<void> {
-    await this.firestore.doc(
+  async backOffReconciliation(
+    uid: string,
+    claimedAt: Date,
+    retryAfterMs: number,
+    cooldownMs: number
+  ): Promise<void> {
+    const limitRef = this.firestore.doc(
       `users/${uid}/entitlement_reconciliations/current`
-    ).set({lastReconciledAt: null}, {merge: true});
+    );
+
+    await this.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(limitRef);
+      const lastReconciledAt = snapshot.get("lastReconciledAt");
+      if (!(lastReconciledAt instanceof admin.firestore.Timestamp) ||
+        lastReconciledAt.toMillis() !== claimedAt.getTime()) {
+        return;
+      }
+      transaction.update(limitRef, {
+        lastReconciledAt: admin.firestore.Timestamp.fromMillis(
+          claimedAt.getTime() - Math.max(cooldownMs - retryAfterMs, 0)
+        ),
+      });
+    });
   }
 
   private statusRef(

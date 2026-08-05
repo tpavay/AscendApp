@@ -157,7 +157,14 @@ final class MonetizationManager: MonetizationIdentityManaging {
     /// out of every paid boundary forever, so an active device entitlement always prompts the
     /// server to reconcile. It costs nothing when the projection is already current.
     func reconcileServerAppAccess(force: Bool = false) async {
-        guard entitlementState.hasActiveEntitlement(
+        await reconcileServerAppAccess(for: entitlementState, force: force)
+    }
+
+    private func reconcileServerAppAccess(
+        for state: MonetizationEntitlementState,
+        force: Bool
+    ) async {
+        guard state.hasActiveEntitlement(
             configuration.revenueCatEntitlementID
         ) else { return }
 
@@ -168,9 +175,11 @@ final class MonetizationManager: MonetizationIdentityManaging {
         await entitlementService.retryIdentityResolution()
     }
 
-    func restorePurchases() async throws {
-        try await entitlementService.restorePurchases()
-        await reconcileServerAppAccess(force: true)
+    @discardableResult
+    func restorePurchases() async throws -> MonetizationEntitlementState {
+        let state = try await entitlementService.restorePurchases()
+        await reconcileServerAppAccess(for: state, force: true)
+        return state
     }
 
     func presentPaywall(

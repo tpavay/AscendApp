@@ -75,12 +75,15 @@ private final class StubPurchaseRestorer: PurchaseRestoring {
         self.error = error
     }
 
-    func restorePurchases() async throws {
+    @discardableResult
+    func restorePurchases() async throws -> MonetizationEntitlementState {
         restoreCount += 1
 
         if let error {
             throw error
         }
+
+        return .active(["app_access"])
     }
 }
 
@@ -92,7 +95,8 @@ private final class SuspendingPurchaseRestorer: PurchaseRestoring {
     private var restoreContinuation: CheckedContinuation<Void, Never>?
     private var startObserver: CheckedContinuation<Void, Never>?
 
-    func restorePurchases() async {
+    @discardableResult
+    func restorePurchases() async -> MonetizationEntitlementState {
         restoreCount += 1
         startObserver?.resume()
         startObserver = nil
@@ -100,6 +104,8 @@ private final class SuspendingPurchaseRestorer: PurchaseRestoring {
         await withCheckedContinuation { continuation in
             restoreContinuation = continuation
         }
+
+        return .active(["app_access"])
     }
 
     func waitUntilRestoreStarts() async {

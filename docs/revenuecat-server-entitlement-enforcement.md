@@ -135,14 +135,18 @@ A delivery that never arrived or exhausted RevenueCat's five retries would other
 `reconcileAppAccess` is an authenticated callable that re-derives one user's projection from the same RevenueCat subscriber API the webhook uses.
 It acts only on `request.auth.uid`, never reads `request.data`, and accepts no entitlement state, product, expiry, or identity from the caller, so it does not move the trust boundary.
 A server-owned per-user cooldown in `users/{uid}/entitlement_reconciliations/current` keeps a modified client from turning recovery into an unbounded subscriber-API amplifier; a throttled call returns `{"status": "throttled"}` without work and without an error.
-An attempt that never reached RevenueCat releases the reservation, because a cooldown that outlived an outage would refuse the recovery a subscriber asks for by tapping Restore.
+An attempt that never reached RevenueCat shortens its own reservation to a fifteen-second retry window rather than clearing it: a cooldown that outlived an outage would refuse the recovery a subscriber asks for by tapping Restore, but no cooldown at all would let every foreground during that outage issue another subscriber fetch, which is the amplification the cooldown exists to stop.
+The shortening only applies to the reservation that attempt made, so a newer claim that already replaced it is untouched.
 Ordering is the shared `request_date_ms` rule, so a slow reconciliation cannot move access backward.
 Because a recovery check is polled rather than event-driven, it also skips the write entirely when `isActive`, `productId`, and `accessUntil` already match and the active grant document's presence agrees with them; a missing grant under a current status still rewrites, since that is exactly the state this path exists to repair.
 
 The client treats `throttled` as a refusal rather than an answer, so a refused call never satisfies its own five-minute spacing.
+Every outcome still sets its own next-attempt time - five minutes after an answer, sixty seconds after a refusal, thirty seconds after a failure - because launch, foreground, identity change, the entitlement flip, purchase, and both restores all trigger this, and an outcome that recorded nothing would let a backgrounding user issue one call per trigger.
+An explicit restore bypasses that client spacing entirely and lets the server's own policy decide.
 
 The app invokes it wherever an active device entitlement can outlive or race webhook delivery: after every entitlement refresh (launch, foreground, identity change), when access flips active mid-session from RevenueCat's customer-info stream, after a completed purchase, and unconditionally after either restore path.
 Both restore surfaces - account settings and the Superwall paywall's Restore button - route through the single `PaywallPurchaseCoordinating` hook on `MonetizationManager`, so neither can drift back to calling RevenueCat directly and skipping reconciliation.
+`restorePurchases()` returns the state RevenueCat resolved for that restore, and both the Superwall status and the forced reconciliation read that return value rather than the stored `entitlementState`, which a pending identity transition can still be holding at `.unknown`.
 The device entitlement check, the hard paywall, and both restore surfaces are otherwise unchanged.
 
 ## Backend choke points
