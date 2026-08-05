@@ -22,7 +22,7 @@ enum RevenueCatAnalyticsErrorType: String, Sendable {
             self = .configuration
         case .identityUnresolved:
             self = .entitlementUnresolved
-        case .identityRefreshTimedOut:
+        case .refreshTimedOut:
             self = .entitlementRefreshTimedOut
         case .providerFailed:
             self = .entitlementRefreshFailed

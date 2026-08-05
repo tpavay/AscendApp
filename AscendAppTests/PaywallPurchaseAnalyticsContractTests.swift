@@ -69,7 +69,7 @@ struct PaywallPurchaseAnalyticsContractTests {
         let expectations: [(MonetizationEntitlementRefreshFailure, String)] = [
             (.notConfigured, "configuration"),
             (.identityUnresolved, "entitlement_unresolved"),
-            (.identityRefreshTimedOut, "entitlement_refresh_timeout"),
+            (.refreshTimedOut, "entitlement_refresh_timeout"),
             (.providerFailed, "entitlement_refresh_failed")
         ]
 

@@ -14,6 +14,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
     private let appAccessReconciler: any AppAccessReconciling
     private let telemetry: TelemetryManager
     private let userDefaults: UserDefaults
+    private let verdictBudget: MonetizationVerdictBudget
     @ObservationIgnored
     private let onboardingLifecycle: OnboardingFlowAnalyticsCoordinator
     @ObservationIgnored
@@ -96,7 +97,8 @@ final class MonetizationManager: MonetizationIdentityManaging {
         appAccessReconciler: any AppAccessReconciling = AppAccessReconciliationService.shared,
         telemetry: TelemetryManager = .shared,
         onboardingLifecycle: OnboardingFlowAnalyticsCoordinator = .shared,
-        userDefaults: UserDefaults = .standard
+        userDefaults: UserDefaults = .standard,
+        verdictBudget: MonetizationVerdictBudget = MonetizationVerdictBudget()
     ) {
         self.configuration = configuration
         self.entitlementService = entitlementService
@@ -105,6 +107,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
         self.telemetry = telemetry
         self.onboardingLifecycle = onboardingLifecycle
         self.userDefaults = userDefaults
+        self.verdictBudget = verdictBudget
         #if DEBUG
         debugForcesAppAccessPaywall = userDefaults.bool(
             forKey: MonetizationManager.debugForcesAppAccessPaywallKey
@@ -182,11 +185,21 @@ final class MonetizationManager: MonetizationIdentityManaging {
         force: Bool = false,
         waitsForPendingIdentity: Bool = false
     ) async -> MonetizationEntitlementRefresh {
-        let refresh = await entitlementService.refreshCustomerInfo(
-            waitsForPendingIdentity: waitsForPendingIdentity
-        )
-        await reconcileServerAppAccess(force: force)
-        return refresh
+        // Only a caller waiting on a verdict is holding a climber behind a spinner, so only that
+        // caller spends the budget. The background pass never blocks on identity work anyway.
+        guard waitsForPendingIdentity else {
+            let refresh = await entitlementService.refreshCustomerInfo()
+            await reconcileServerAppAccess(force: force)
+            return refresh
+        }
+
+        return await verdictBudget.resolve {
+            let refresh = await self.entitlementService.refreshCustomerInfo(
+                waitsForPendingIdentity: true
+            )
+            await self.reconcileServerAppAccess(force: force)
+            return refresh
+        }
     }
 
     /// Asks the server to re-derive this user's paid access from RevenueCat.

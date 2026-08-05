@@ -18,8 +18,8 @@ enum MonetizationEntitlementRefreshFailure: Equatable, Sendable {
     /// An identity mutation never resolved, or the identity moved on before the answer landed, so
     /// there is no settled identity this answer describes.
     case identityUnresolved
-    /// Serialized identity work outlasted the deadline the caller was willing to wait.
-    case identityRefreshTimedOut
+    /// The refresh outlasted the one total budget the caller was willing to spend on a verdict.
+    case refreshTimedOut
     /// RevenueCat was asked and did not answer.
     case providerFailed
 }

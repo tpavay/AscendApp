@@ -509,15 +509,15 @@ struct RevenueCatEntitlementServiceTests {
         await switchedIdentifyTask.value
     }
 
+    /// A background pass must not stall a launch or foreground chain on identity work whose answer
+    /// it then discards, and must not re-drive a mutation `retryIdentityResolution` owns.
     @Test
-    func aWaitingRefreshGivesUpOnTheIdentityQueueAtItsDeadline() async throws {
+    func aBackgroundRefreshNeitherWaitsForNorReDrivesAStalledIdentity() async throws {
         let provider = ControlledRevenueCatEntitlementProvider()
         var invocations = provider.invocations.makeAsyncIterator()
-        let sleeper = ControlledDeadlineSleeper()
         let service = RevenueCatEntitlementService(
             provider: provider,
-            startsConfigured: true,
-            waitDeadlineSleeper: sleeper.sleep
+            startsConfigured: true
         )
 
         let identity = service.prepareIdentity(userId: "subscriber")
@@ -525,32 +525,27 @@ struct RevenueCatEntitlementServiceTests {
             await service.identify(userId: "subscriber", transition: identity)
         }
         #expect(await invocations.next() == .logIn(userID: "subscriber"))
-
-        let refreshTask = Task {
-            await service.refreshCustomerInfo(waitsForPendingIdentity: true)
-        }
-        await sleeper.waitUntilSleeping()
-        sleeper.expireDeadline()
-
-        #expect(await refreshTask.value == .unavailable(.identityRefreshTimedOut))
-        #expect(provider.customerInfoCallCount == 0)
-        #expect(sleeper.requestedDurations == [RevenueCatEntitlementService.defaultIdentityWaitDeadline])
-
-        // Abandoning the wait must not abandon the identity mutation itself.
-        provider.completeLogIn(with: .active(["app_access"]))
+        provider.failLogIn()
         await identifyTask.value
-        #expect(service.entitlementState == .active(["app_access"]))
+        #expect(service.hasFailedIdentityResolution)
+
+        let refresh = await service.refreshCustomerInfo()
+
+        #expect(refresh == .unavailable(.identityUnresolved))
+        #expect(provider.customerInfoCallCount == 0)
+        #expect(provider.completedIdentityMutations == [])
+        #expect(service.scheduledIdentityMutationCount == 0)
     }
 
+    /// The verdict pass does re-drive it, because a purchase landing mid sign-in has a real answer
+    /// waiting behind that mutation.
     @Test
-    func aWaitingRefreshThatSettlesBeforeTheDeadlineStillAsksRevenueCat() async throws {
+    func aWaitingRefreshReDrivesAStalledIdentityAndThenAsksRevenueCat() async throws {
         let provider = ControlledRevenueCatEntitlementProvider()
         var invocations = provider.invocations.makeAsyncIterator()
-        let sleeper = ControlledDeadlineSleeper()
         let service = RevenueCatEntitlementService(
             provider: provider,
-            startsConfigured: true,
-            waitDeadlineSleeper: sleeper.sleep
+            startsConfigured: true
         )
 
         let identity = service.prepareIdentity(userId: "subscriber")
@@ -558,14 +553,14 @@ struct RevenueCatEntitlementServiceTests {
             await service.identify(userId: "subscriber", transition: identity)
         }
         #expect(await invocations.next() == .logIn(userID: "subscriber"))
+        provider.failLogIn()
+        await identifyTask.value
 
         let refreshTask = Task {
             await service.refreshCustomerInfo(waitsForPendingIdentity: true)
         }
-        await sleeper.waitUntilSleeping()
-
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
         provider.completeLogIn(with: .active(["app_access"]))
-        await identifyTask.value
 
         #expect(await invocations.next() == .customerInfo)
         provider.completeCustomerInfo(with: .active(["app_access"]))
@@ -608,53 +603,6 @@ private func settle(until condition: () -> Bool) async {
     for _ in 0..<100 {
         if condition() { return }
         await Task.yield()
-    }
-}
-
-/// Stands in for the deadline clock so the timeout is exercised without any test waiting on one.
-@MainActor
-private final class ControlledDeadlineSleeper {
-    private(set) var requestedDurations: [Duration] = []
-
-    private var deadlineContinuation: CheckedContinuation<Void, any Error>?
-    private var startObserver: CheckedContinuation<Void, Never>?
-
-    var sleep: @Sendable (Duration) async throws -> Void {
-        { [self] duration in
-            try await beginSleeping(for: duration)
-        }
-    }
-
-    func waitUntilSleeping() async {
-        guard requestedDurations.isEmpty else { return }
-
-        await withCheckedContinuation { continuation in
-            startObserver = continuation
-        }
-    }
-
-    func expireDeadline() {
-        deadlineContinuation?.resume()
-        deadlineContinuation = nil
-    }
-
-    private func beginSleeping(for duration: Duration) async throws {
-        requestedDurations.append(duration)
-        startObserver?.resume()
-        startObserver = nil
-
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                deadlineContinuation = continuation
-            }
-        } onCancel: {
-            Task { @MainActor in self.cancelSleeping() }
-        }
-    }
-
-    private func cancelSleeping() {
-        deadlineContinuation?.resume(throwing: CancellationError())
-        deadlineContinuation = nil
     }
 }
 

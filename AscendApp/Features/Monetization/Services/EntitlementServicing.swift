@@ -26,8 +26,9 @@ protocol EntitlementServicing: AnyObject {
 }
 
 extension EntitlementServicing {
-    /// The background freshness pass. It never blocks on an identity mutation, because a routing
-    /// or lifecycle refresh has nothing to decide from a transitional answer anyway.
+    /// The background freshness pass. It neither waits for an unresolved identity mutation nor
+    /// re-drives one, because a routing or lifecycle refresh has nothing to decide from a
+    /// transitional answer and stalling its `.task` chain on one buys the caller nothing.
     @discardableResult
     func refreshCustomerInfo() async -> MonetizationEntitlementRefresh {
         await refreshCustomerInfo(waitsForPendingIdentity: false)
