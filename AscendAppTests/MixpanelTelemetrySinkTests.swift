@@ -115,6 +115,45 @@ struct MixpanelTelemetrySinkTests {
         #expect(client.registeredSuperProperties == buildMetadata.properties)
     }
 
+    /// A padded MARKETING_VERSION or CURRENT_PROJECT_VERSION must not make the
+    /// stamped envelope differ from the one the sink validates against, or every
+    /// Mixpanel event would drop while Firebase and Crashlytics kept flowing.
+    @Test
+    func aPaddedBundleVersionStillReachesMixpanel() {
+        let client = RecordingMixpanelClient()
+        let buildMetadata = TelemetryBuildMetadata(
+            appEnvironment: "staging",
+            buildConfig: "staging",
+            appVersion: " 1.2.3 ",
+            buildNumber: " 456 ",
+            bundleIdentifier: "com.tylerpavay.AscendApp.staging"
+        )
+        let sink = MixpanelTelemetrySink(
+            configuration: AnalyticsConfiguration(
+                infoDictionary: [
+                    AnalyticsConfiguration.mixpanelTokenInfoKey: "token",
+                    AnalyticsConfiguration.mixpanelProjectIDInfoKey: "4051102"
+                ]
+            ),
+            buildMetadata: buildMetadata,
+            makeClient: { _, _ in client }
+        )
+        let telemetry = TelemetryManager(
+            sinks: [sink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            buildMetadata: buildMetadata
+        )
+
+        telemetry.configure()
+        telemetry.track(TelemetryRecord(name: "padded_version_event"))
+
+        #expect(client.trackedEvents == ["padded_version_event"])
+        let trackedProperties = client.trackedProperties.first
+        #expect(trackedProperties?["app_version"] as? String == "1.2.3")
+        #expect(trackedProperties?["build_number"] as? String == "456")
+    }
+
     #if !DEBUG
     /// Shipping builds must degrade analytics, never terminate: the trap that
     /// catches destination drift is a DEBUG-only development aid.

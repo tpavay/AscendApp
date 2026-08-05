@@ -62,6 +62,23 @@ struct TelemetryEnvelopeTests {
             Issue.record("Unexpected build-number validation error: \(error)")
         }
     }
+
+    /// `MixpanelTelemetrySink.accepts(_:)` gates on the resolving envelope being
+    /// equal to the validating one, so any normalization the two initializers
+    /// disagree on would silently drop every Mixpanel event.
+    @Test
+    func bothInitializersNormalizeSurroundingWhitespaceIdentically() throws {
+        let padded = metadata(appVersion: " 1.2.3 ", buildNumber: "\t456\n")
+
+        let resolved = TelemetryEnvelope(resolving: padded)
+        let validated = try TelemetryEnvelope(validating: padded)
+
+        #expect(resolved == validated)
+        #expect(validated.appVersion == "1.2.3")
+        #expect(validated.buildNumber == "456")
+        #expect(resolved.appVersion == "1.2.3")
+        #expect(resolved.buildNumber == "456")
+    }
 }
 
 private extension TelemetryEnvelopeTests {

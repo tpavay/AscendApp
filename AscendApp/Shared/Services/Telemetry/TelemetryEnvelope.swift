@@ -58,7 +58,7 @@ struct TelemetryEnvelope: Sendable, Hashable, Equatable {
 
         appEnvironment = metadata.appEnvironment
         buildConfig = metadata.buildConfig
-        appVersion = metadata.appVersion
-        buildNumber = metadata.buildNumber
+        appVersion = metadata.resolvedAppVersion
+        buildNumber = metadata.resolvedBuildNumber
     }
 }
