@@ -28,7 +28,16 @@ private struct OnboardingScreenViewTracker: ViewModifier {
     }
 
     private func recordScreenViewIfNeeded() {
-        recorder.recordIfNeeded(context)
+        guard let context else { return }
+
+        if context.stepID == OnboardingAnalyticsEvent.welcomeContext.stepID {
+            OnboardingFlowAnalyticsCoordinator.shared.recordFlowStartedIfNeeded()
+        }
+
+        recorder.recordIfNeeded(
+            context,
+            resume: OnboardingFlowAnalyticsCoordinator.shared.consumeScreenResumeFlag()
+        )
     }
 }
 
@@ -37,12 +46,13 @@ struct OnboardingScreenViewRecorder {
 
     mutating func recordIfNeeded(
         _ context: OnboardingAnalyticsContext?,
+        resume: Bool = false,
         telemetry: TelemetryManager = .shared
     ) {
         guard let context, viewedStepIDs.insert(context.stepID).inserted else { return }
 
         telemetry.track(
-            OnboardingAnalyticsEvent.screenViewed(context: context)
+            OnboardingAnalyticsEvent.screenViewed(context: context, resume: resume)
         )
     }
 }

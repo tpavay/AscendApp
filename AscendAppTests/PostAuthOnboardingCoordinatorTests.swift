@@ -22,7 +22,7 @@ struct PostAuthOnboardingCoordinatorTests {
             .firstClimb
         ])
         #expect(PostAuthOnboardingStage.first == .displayName)
-        #expect(PostAuthOnboardingStage.flowID == "post_auth_onboarding")
+        #expect(PostAuthOnboardingStage.segmentID == "post_auth_onboarding")
         #expect(PostAuthOnboardingStage.plannedStepCount == 14)
     }
 
@@ -157,7 +157,7 @@ struct PostAuthOnboardingCoordinatorTests {
 
     @MainActor
     @Test
-    func resolvingIntoOnboardingStartsTheFunnelAtTheFirstStage() {
+    func resolvingIntoOnboardingDoesNotCompeteForFlowOwnership() {
         let defaults = makeDefaults()
         let store = PostAuthOnboardingStore(userDefaults: defaults)
         let sink = InMemoryTelemetrySink(destination: .analytics)
@@ -167,12 +167,8 @@ struct PostAuthOnboardingCoordinatorTests {
         coordinator.resolve(userId: userId)
 
         #expect(coordinator.phase == .onboarding(.displayName))
-        #expect(store.hasRecordedFlowStart(for: userId))
-
-        let started = sink.records.filter { $0.name == "onboarding_flow_started" }
-        #expect(started.count == 1)
-        #expect(started.first?.parameters["step_id"] == .string("displayName"))
-        #expect(started.first?.parameters["flow_id"] == .string("post_auth_onboarding"))
+        #expect(sink.records.filter { $0.name == "onboarding_flow_started" }.isEmpty)
+        #expect(sink.records.filter { $0.name == "onboarding_flow_completed" }.isEmpty)
     }
 
     @MainActor
@@ -192,7 +188,7 @@ struct PostAuthOnboardingCoordinatorTests {
         relaunch.resolve(userId: userId)
 
         #expect(relaunch.phase == .onboarding(.stairStepperBaseline))
-        #expect(sink.records.filter { $0.name == "onboarding_flow_started" }.count == 1)
+        #expect(sink.records.filter { $0.name == "onboarding_flow_started" }.isEmpty)
     }
 
     @MainActor
@@ -208,13 +204,12 @@ struct PostAuthOnboardingCoordinatorTests {
         coordinator.resolve(userId: userId)
 
         #expect(coordinator.phase == .complete)
-        #expect(!store.hasRecordedFlowStart(for: userId))
         #expect(sink.records.isEmpty)
     }
 
     @MainActor
     @Test
-    func completingTheLastStageClosesTheFunnelThatWasStarted() {
+    func completingTheLastStageDoesNotCompleteTheUserLevelFlow() {
         let defaults = makeDefaults()
         let store = PostAuthOnboardingStore(userDefaults: defaults)
         let sink = InMemoryTelemetrySink(destination: .analytics)
@@ -227,13 +222,13 @@ struct PostAuthOnboardingCoordinatorTests {
         }
 
         #expect(coordinator.phase == .complete)
-        #expect(sink.records.filter { $0.name == "onboarding_flow_started" }.count == 1)
-        #expect(sink.records.filter { $0.name == "onboarding_flow_completed" }.count == 1)
+        #expect(sink.records.filter { $0.name == "onboarding_flow_started" }.isEmpty)
+        #expect(sink.records.filter { $0.name == "onboarding_flow_completed" }.isEmpty)
     }
 
     @MainActor
     @Test
-    func remoteProfileCompletionClosesTheFunnelThatWasStarted() {
+    func remoteProfileCompletionDoesNotCompleteTheUserLevelFlow() {
         let defaults = makeDefaults()
         let store = PostAuthOnboardingStore(userDefaults: defaults)
         let sink = InMemoryTelemetrySink(destination: .analytics)
@@ -246,12 +241,8 @@ struct PostAuthOnboardingCoordinatorTests {
         coordinator.markCurrentUserComplete()
 
         #expect(coordinator.phase == .complete)
-        #expect(sink.records.filter { $0.name == "onboarding_flow_started" }.count == 1)
-
-        let completed = sink.records.filter { $0.name == "onboarding_flow_completed" }
-        #expect(completed.count == 1)
-        #expect(completed.first?.parameters["step_id"] == .string("first_climb"))
-        #expect(completed.first?.parameters["flow_id"] == .string("post_auth_onboarding"))
+        #expect(sink.records.filter { $0.name == "onboarding_flow_started" }.isEmpty)
+        #expect(sink.records.filter { $0.name == "onboarding_flow_completed" }.isEmpty)
     }
 
     @MainActor
@@ -273,7 +264,7 @@ struct PostAuthOnboardingCoordinatorTests {
 
     @MainActor
     @Test
-    func markingCompleteAfterFinishingTheFlowDoesNotEmitASecondCompletion() {
+    func markingCompleteAfterFinishingStagesStillEmitsNoFlowCompletion() {
         let defaults = makeDefaults()
         let store = PostAuthOnboardingStore(userDefaults: defaults)
         let sink = InMemoryTelemetrySink(destination: .analytics)
@@ -285,16 +276,15 @@ struct PostAuthOnboardingCoordinatorTests {
             coordinator.completeCurrentStage()
         }
 
-        // The remote profile check runs after a genuine finish; starts and completions stay 1:1.
         coordinator.markCurrentUserComplete()
 
-        #expect(sink.records.filter { $0.name == "onboarding_flow_started" }.count == 1)
-        #expect(sink.records.filter { $0.name == "onboarding_flow_completed" }.count == 1)
+        #expect(sink.records.filter { $0.name == "onboarding_flow_started" }.isEmpty)
+        #expect(sink.records.filter { $0.name == "onboarding_flow_completed" }.isEmpty)
     }
 
     @MainActor
     @Test
-    func bothCompletionPathsReportTheSameFinalStep() {
+    func bothPostAuthCompletionPathsEmitNoUserLevelCompletion() {
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let telemetry = makeTestTelemetry(sink: sink)
 
@@ -311,8 +301,7 @@ struct PostAuthOnboardingCoordinatorTests {
         remote.markCurrentUserComplete()
 
         let completed = sink.records.filter { $0.name == "onboarding_flow_completed" }
-        #expect(completed.count == 2)
-        #expect(completed[0].parameters == completed[1].parameters)
+        #expect(completed.isEmpty)
     }
 
     @MainActor
@@ -331,31 +320,6 @@ struct PostAuthOnboardingCoordinatorTests {
         let back = sink.records.filter { $0.name == "onboarding_back_tapped" }
         #expect(back.count == 1)
         #expect(back.first?.parameters["from_step"] == .string("stair_stepper_baseline"))
-    }
-
-    @Test
-    func resetClearsFlowStartSoTheFunnelCanRestart() {
-        let defaults = makeDefaults()
-        let store = PostAuthOnboardingStore(userDefaults: defaults)
-        let userId = "user-reset"
-
-        store.markFlowStartRecorded(for: userId)
-        #expect(store.hasRecordedFlowStart(for: userId))
-
-        store.reset(for: userId)
-
-        #expect(!store.hasRecordedFlowStart(for: userId))
-    }
-
-    @Test
-    func flowStartFlagIsScopedPerUser() {
-        let defaults = makeDefaults()
-        let store = PostAuthOnboardingStore(userDefaults: defaults)
-
-        store.markFlowStartRecorded(for: "user-a")
-
-        #expect(store.hasRecordedFlowStart(for: "user-a"))
-        #expect(!store.hasRecordedFlowStart(for: "user-b"))
     }
 
     private func makeDefaults() -> UserDefaults {

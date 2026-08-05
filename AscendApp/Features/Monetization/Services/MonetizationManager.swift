@@ -21,6 +21,8 @@ final class MonetizationManager: MonetizationIdentityManaging {
     @ObservationIgnored
     private var preparedIdentityTransition: MonetizationIdentityTransition?
     private(set) var configuration: MonetizationConfiguration
+    private(set) var onboardingAccessGrantReason: OnboardingFlowCompletionReason?
+    private(set) var isAwaitingOnboardingAccessGrant = false
     #if DEBUG
     private(set) var debugForcesAppAccessPaywall: Bool
     #endif
@@ -64,6 +66,20 @@ final class MonetizationManager: MonetizationIdentityManaging {
         paywallPresenter.isConfigured
     }
 
+    var onboardingCompletionReasonForActiveAccess: OnboardingFlowCompletionReason? {
+        guard entitlementStateForRouting.hasActiveEntitlement(
+            configuration.revenueCatEntitlementID
+        ) else {
+            return nil
+        }
+
+        if let onboardingAccessGrantReason {
+            return onboardingAccessGrantReason
+        }
+
+        return isAwaitingOnboardingAccessGrant ? nil : .existingEntitlement
+    }
+
     init(
         configuration: MonetizationConfiguration = .live,
         entitlementService: any EntitlementServicing = RevenueCatEntitlementService.shared,
@@ -96,6 +112,8 @@ final class MonetizationManager: MonetizationIdentityManaging {
         if identifiedUserID != userId {
             identifiedUserID = userId
             onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
+            onboardingAccessGrantReason = nil
+            isAwaitingOnboardingAccessGrant = false
         }
 
         let transition = entitlementService.prepareIdentity(userId: userId)
@@ -127,6 +145,8 @@ final class MonetizationManager: MonetizationIdentityManaging {
         // change starts a new pass, so the recorder cannot outlive the identity it was filled for.
         identifiedUserID = nil
         onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
+        onboardingAccessGrantReason = nil
+        isAwaitingOnboardingAccessGrant = false
 
         let transition = entitlementService.prepareIdentityReset()
         preparedIdentityTransition = transition
@@ -177,9 +197,22 @@ final class MonetizationManager: MonetizationIdentityManaging {
 
     @discardableResult
     func restorePurchases() async throws -> MonetizationEntitlementState {
-        let state = try await entitlementService.restorePurchases()
-        await reconcileServerAppAccess(for: state, force: true)
-        return state
+        isAwaitingOnboardingAccessGrant = true
+
+        do {
+            let state = try await entitlementService.restorePurchases()
+            await reconcileServerAppAccess(for: state, force: true)
+
+            if state.hasActiveEntitlement(configuration.revenueCatEntitlementID) {
+                onboardingAccessGrantReason = .restore
+            }
+
+            isAwaitingOnboardingAccessGrant = false
+            return state
+        } catch {
+            isAwaitingOnboardingAccessGrant = false
+            throw error
+        }
     }
 
     func presentPaywall(
@@ -192,7 +225,15 @@ final class MonetizationManager: MonetizationIdentityManaging {
         )
         trackPaywallReached(placement, params: params)
 
+        let tracksOnboardingAccess = placement == .onboardingPaywall || placement == .appAccessGate
+        if tracksOnboardingAccess {
+            isAwaitingOnboardingAccessGrant = true
+        }
+
         guard paywallPresenter.isConfigured else {
+            if tracksOnboardingAccess {
+                isAwaitingOnboardingAccessGrant = false
+            }
             onOutcome(.failed(message: "Superwall is not configured for this build."))
             return
         }
@@ -200,7 +241,12 @@ final class MonetizationManager: MonetizationIdentityManaging {
         paywallPresenter.register(
             placement: placement,
             params: params,
-            onOutcome: onOutcome
+            onOutcome: { [weak self] outcome in
+                if tracksOnboardingAccess {
+                    self?.recordOnboardingPaywallOutcome(outcome)
+                }
+                onOutcome(outcome)
+            }
         )
     }
 
@@ -238,7 +284,23 @@ final class MonetizationManager: MonetizationIdentityManaging {
         )
         onboardingScreenViewRecorder.recordIfNeeded(
             OnboardingAnalyticsEvent.paywallContext,
+            resume: OnboardingFlowAnalyticsCoordinator.shared.consumeScreenResumeFlag(),
             telemetry: telemetry
         )
+    }
+
+    private func recordOnboardingPaywallOutcome(_ outcome: PaywallPresentationOutcome) {
+        switch outcome {
+        case .presented:
+            return
+        case .purchased:
+            onboardingAccessGrantReason = .purchase
+        case .restored:
+            onboardingAccessGrantReason = .restore
+        case .dismissedWithoutPurchase, .skipped, .failed:
+            break
+        }
+
+        isAwaitingOnboardingAccessGrant = false
     }
 }

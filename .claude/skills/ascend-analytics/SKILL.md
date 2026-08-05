@@ -62,9 +62,11 @@ Those tests are the executable source of truth; this table is the readable one.
 
 ### The 21 screens, in order
 
-`screen_id` equals `step_id` on every event. Every event also carries `flow_id`, `flow_version` (`v1`), `step_index`, `step_count`, and `app_environment`.
+`screen_id` equals `step_id` on every event.
+Every event also carries `flow_id=onboarding`, `flow_version=v1`, `segment_id`, `step_index`, `step_count=21`, and `app_environment`.
+The segment labels identify nested implementation sections and never replace the user-level flow ID.
 
-| # | screen_id | flow_id | Events beyond the view | Interactive sub-properties |
+| # | screen_id | segment_id | Events beyond the view | Interactive sub-properties |
 | --- | --- | --- | --- | --- |
 | 1 | `welcome` | `pre_auth_welcome` | `onboarding_screen_completed` | `action_id` (`get_started` / `sign_in` for the returning-climber route), `input_type=button` |
 | 2 | `watch_yourself_get_better` | `pre_auth_value_onboarding` | `onboarding_screen_completed`, `onboarding_back_tapped` | `action_id` (`continue` / `swipe_forward`), `input_type` (`button` / `gesture`) |
@@ -95,7 +97,9 @@ Those tests are the executable source of truth; this table is the readable one.
 - **Views dedupe by `step_id`.** `OnboardingScreenViewRecorder` emits once per distinct step for the lifetime of the flow, so back-navigation and re-renders re-emit nothing. The dedupe is in-memory, so a relaunch mid-flow re-emits the current step.
 - **Conditional screens report only when actually shown.** Never pre-emit a view for a screen the user may skip.
 - **The routed `appAccessGate` joins this funnel.** `MonetizationManager.trackPaywallReached` emits `onboarding_paywall_reached` and records the `paywall` screen view through the same recorder for both `onboardingPaywall` and `appAccessGate`, so a retry through the placeholder never banks a second view.
-- **The paywall is not a `PostAuthOnboardingStage`.** It continues the stage sequence by index and counts itself into `step_count` (`OnboardingAnalyticsEvent.paywallContext`).
+- **The paywall is not a `PostAuthOnboardingStage`.** It is still canonical user-level step 20 of 21 through `OnboardingAnalyticsEvent.paywallContext`.
+- **Only `OnboardingFlowAnalyticsCoordinator` owns the lifecycle pair.** It starts at the first welcome presentation, persists that start across relaunch, and completes only after active access routes the app to Home.
+- **Nested owners are segments.** The value carousel, auth surface, post-auth stages, and feature guide set `segment_id`; none may emit `onboarding_flow_started` or `onboarding_flow_completed`.
 
 ## Reference
 - `docs/sentry-setup.md` - Sentry role and app configuration.

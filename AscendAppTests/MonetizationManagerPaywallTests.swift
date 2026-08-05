@@ -49,6 +49,45 @@ struct MonetizationManagerPaywallTests {
         )
 
         #expect(manager.hasAppAccess)
+        #expect(manager.onboardingCompletionReasonForActiveAccess == .existingEntitlement)
+    }
+
+    @Test
+    func purchaseReasonWaitsForThePaywallOutcomeAfterAccessBecomesActive() {
+        let entitlementService = EntitlementServiceStub()
+        let paywallPresenter = PaywallPresenterSpy()
+        let manager = MonetizationManager(
+            entitlementService: entitlementService,
+            paywallPresenter: paywallPresenter
+        )
+
+        manager.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
+        paywallPresenter.send(.presented)
+        entitlementService.setEntitlementState(.active(["app_access"]))
+
+        #expect(manager.onboardingCompletionReasonForActiveAccess == nil)
+
+        paywallPresenter.send(.purchased)
+
+        #expect(manager.onboardingCompletionReasonForActiveAccess == .purchase)
+    }
+
+    @Test
+    func restoreReasonIsRecordedOnlyAfterRestoredAccessIsActive() async throws {
+        let entitlementService = EntitlementServiceStub()
+        entitlementService.restoredState = .active(["app_access"])
+        let manager = MonetizationManager(
+            entitlementService: entitlementService,
+            paywallPresenter: PaywallPresenterSpy()
+        )
+
+        #expect(manager.onboardingCompletionReasonForActiveAccess == nil)
+
+        try await manager.restorePurchases()
+        // The restore is what turned access on, so the service reports it from here.
+        entitlementService.setEntitlementState(.active(["app_access"]))
+
+        #expect(manager.onboardingCompletionReasonForActiveAccess == .restore)
     }
 
     @Test
@@ -400,6 +439,10 @@ final class EntitlementServiceStub: EntitlementServicing {
         }
 
         return restoredState ?? entitlementState
+    }
+
+    func setEntitlementState(_ state: MonetizationEntitlementState) {
+        entitlementState = state
     }
 
     private func prepare(userID: String?) -> MonetizationIdentityTransition {

@@ -12,8 +12,15 @@ struct OnboardingAnalyticsFunnelTranscriptTests {
     func everyVisibleScreenShipsAViewAndEveryInteractiveScreenShipsItsDecision() {
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let telemetry = makeTestTelemetry(sink: sink)
+        let defaults = makeOnboardingDefaults()
+        let lifecycle = OnboardingFlowAnalyticsCoordinator(
+            userDefaults: defaults,
+            telemetry: telemetry
+        )
         var recorder = OnboardingScreenViewRecorder()
         let steps = Self.funnelSteps
+
+        lifecycle.recordFlowStartedIfNeeded()
 
         for step in steps {
             recorder.recordIfNeeded(step.context, telemetry: telemetry)
@@ -28,9 +35,9 @@ struct OnboardingAnalyticsFunnelTranscriptTests {
             paywallPresenter: PaywallPresenterSpy(),
             telemetry: telemetry
         )
-        monetization.presentPaywall(.appAccessGate, params: ["source": "app_access_gate"])
-        monetization.presentPaywall(.appAccessGate, params: ["source": "paywall_placeholder_retry"])
+        monetization.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
         Self.paywallOutcomes.forEach { telemetry.track($0) }
+        lifecycle.recordFlowCompletedIfNeeded(reason: .purchase)
 
         let records = sink.records
         let transcript = Self.transcript(
@@ -50,6 +57,24 @@ struct OnboardingAnalyticsFunnelTranscriptTests {
         #expect(viewedScreenIDs.count == 21)
         #expect(Set(viewedScreenIDs).count == 21)
         #expect(viewedScreenIDs.contains("features") == false)
+        #expect(records.filter { $0.name == "onboarding_flow_started" }.count == 1)
+        #expect(records.filter { $0.name == "onboarding_flow_completed" }.count == 1)
+        #expect(records.filter { $0.name == "onboarding_screen_completed" }.count == 19)
+        #expect(records.filter { $0.name == "onboarding_question_answered" }.count == 7)
+        #expect(records.filter { $0.name == "onboarding_auth_started" }.count == 1)
+        #expect(records.filter { $0.name == "onboarding_auth_completed" }.count == 1)
+        #expect(records.filter { $0.name == "onboarding_auth_failed" }.isEmpty)
+        #expect(records.filter { $0.name == "onboarding_paywall_reached" }.count == 1)
+
+        let onboardingRecords = records.filter { $0.name.hasPrefix("onboarding_") }
+        #expect(onboardingRecords.allSatisfy { $0.parameters["flow_id"] == .string("onboarding") })
+        #expect(onboardingRecords.allSatisfy { $0.parameters["flow_version"] == .string("v1") })
+        #expect(onboardingRecords.allSatisfy { $0.parameters["step_count"] == .int(21) })
+
+        let completion = records.first { $0.name == "onboarding_flow_completed" }
+        #expect(completion?.parameters["step_id"] == .string("paywall"))
+        #expect(completion?.parameters["step_index"] == .int(20))
+        #expect(completion?.parameters["completion_reason"] == .string("purchase"))
 
         for step in steps where step.isInteractive {
             let decisions = records.filter { record in
@@ -58,7 +83,7 @@ struct OnboardingAnalyticsFunnelTranscriptTests {
                     && !Self.subProperties(of: record).isEmpty
             }
 
-            #expect(!decisions.isEmpty, "\(step.screenID) reports no decision with sub-properties")
+            #expect(decisions.isEmpty == false, "\(step.screenID) reports no decision with sub-properties")
         }
     }
 }
@@ -154,7 +179,7 @@ private extension OnboardingAnalyticsFunnelTranscriptTests {
 
     static func featureGuideSteps() -> [Step] {
         OnboardingFeatureGuideFlowScreen
-            .analyticsContexts(flowID: "post_auth_features")
+            .analyticsContexts(segmentID: "post_auth_features")
             .map { context in
                 Step(
                     context,
@@ -187,7 +212,9 @@ private extension OnboardingAnalyticsFunnelTranscriptTests {
         case .displayName:
             return [completed(["display_name_provided": .bool(true)])]
         case .stairStepperBaseline, .exerciseLevel, .goal, .motivation, .plan:
-            return surveyInteractions(for: stage, context: context) + [completed([:])]
+            return surveyInteractions(for: stage, context: context) + [
+                completed(["answer_count": .int(1)])
+            ]
         case .gender:
             return [completed(["profile_gender": .string("woman")])]
         case .age:
@@ -220,7 +247,7 @@ private extension OnboardingAnalyticsFunnelTranscriptTests {
         case .notifications:
             return [
                 .notificationPermissionSelected(context: context, status: "allow"),
-                completed([:])
+                completed(["status": .string("allow")])
             ]
         case .planLoading:
             return [completed([:])]
@@ -231,7 +258,10 @@ private extension OnboardingAnalyticsFunnelTranscriptTests {
                     climbID: "eiffel-tower",
                     climbName: "Eiffel Tower"
                 ),
-                completed([:])
+                completed([
+                    "climb_id": .string("eiffel-tower"),
+                    "climb_name": .string("Eiffel Tower")
+                ])
             ]
         case .features:
             return []
@@ -260,8 +290,7 @@ private extension OnboardingAnalyticsFunnelTranscriptTests {
 
     static var paywallOutcomes: [PaywallAnalyticsEvent] {
         [
-            .purchaseControllerCompleted(productID: "ascend_yearly", outcome: "purchased"),
-            .restoreControllerCompleted(outcome: "restored")
+            .purchaseControllerCompleted(productID: "ascend_yearly", outcome: "purchased")
         ]
     }
 }
@@ -270,7 +299,7 @@ private extension OnboardingAnalyticsFunnelTranscriptTests {
 
 private extension OnboardingAnalyticsFunnelTranscriptTests {
     static let contextParameterKeys: Set<String> = [
-        "flow_id", "flow_version", "step_id", "step_index", "step_count",
+        "flow_id", "flow_version", "segment_id", "step_id", "step_index", "step_count",
         "screen_id", "app_environment"
     ]
 
@@ -286,7 +315,7 @@ private extension OnboardingAnalyticsFunnelTranscriptTests {
             "",
             "ONBOARDING FUNNEL TRANSCRIPT - events as delivered to MixpanelTelemetrySink",
             "",
-            "| # | Screen | Flow | Event | Sub-properties |",
+            "| # | Screen | Segment | Event | Sub-properties |",
             "| --- | --- | --- | --- | --- |"
         ]
 
@@ -298,15 +327,15 @@ private extension OnboardingAnalyticsFunnelTranscriptTests {
                     .sorted { $0.key < $1.key }
                     .map { "\($0.key)=\(describe($0.value))" }
                     .joined(separator: ", ")
-                var flowID = ""
-                if case .string(let value)? = record.parameters["flow_id"] {
-                    flowID = value
+                var segmentID = ""
+                if case .string(let value)? = record.parameters["segment_id"] {
+                    segmentID = value
                 }
 
                 lines.append(
                     "| \(recordIndex == 0 ? String(index + 1) : "") "
                         + "| \(recordIndex == 0 ? screenID : "") "
-                        + "| \(recordIndex == 0 ? flowID : "") "
+                        + "| \(recordIndex == 0 ? segmentID : "") "
                         + "| \(record.name) "
                         + "| \(subProperties.isEmpty ? "-" : subProperties) |"
                 )
@@ -343,4 +372,11 @@ private extension OnboardingAnalyticsFunnelTranscriptTests {
             return String(value)
         }
     }
+}
+
+private func makeOnboardingDefaults() -> UserDefaults {
+    let suiteName = "OnboardingAnalyticsFunnelTranscriptTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defaults.removePersistentDomain(forName: suiteName)
+    return defaults
 }
