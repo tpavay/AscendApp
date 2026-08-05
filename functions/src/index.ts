@@ -32,5 +32,10 @@ export {
   unregisterPushDevice,
   updatePushNotificationPreferences,
 } from "./pushNotifications";
+export {revenueCatWebhook} from "./revenueCat/webhook";
+export {reconcileAppAccess} from "./revenueCat/reconciliation";
+export {
+  expireRevenueCatEntitlements,
+} from "./revenueCat/expiration";
 
 setGlobalOptions({maxInstances: 10});

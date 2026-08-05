@@ -6,7 +6,7 @@ This file is the always-on core. Domain detail lives in `.claude/skills/` - see 
 
 Ascend is a competitive stair stepper companion for iOS. It's built for people who already use the stair stepper (or are about to start) and want their work to count. Users race the world up real landmarks, top per-climb leaderboards, log every session, and watch their progress compound over time. The leaderboard is the conversation.
 
-**Solo dev + AI assisted** (Tyler Pavay). Launch monetization is a hard paywall with no freemium tier: `$49.99/year` with a seven-day free trial, or `$9.99/month` charged immediately with no trial. Both unlock RevenueCat entitlement `app_access`; there is no weekly or separate launch-discount product.
+**Solo dev + AI assisted** (Tyler Pavay). Launch monetization is a hard paywall with no freemium tier: `$49.99/year` with a seven-day free trial, or `$9.99/month` charged immediately with no trial. Both unlock RevenueCat entitlement `app_access`; there is no weekly or separate launch-discount product. The paywall is a server-enforced lock, not just a screen: Firebase requires a server-owned grant projected from RevenueCat (`docs/revenuecat-server-entitlement-enforcement.md`).
 
 ## What Ascend Is NOT
 
@@ -90,8 +90,14 @@ cd web && npm run build                    # Website -> web/dist/
 
 # Deploy (aliases in .firebaserc: dev · staging · production)
 # Pinned CLI - see docs/dependency-security.md before changing the version
+# Order is load-bearing: the paid rules require a grant only the entitlement
+# functions and their expiry index can produce, so they deploy last.
 npx -y firebase-tools@15.22.1 deploy --project staging \
-  --only functions,firestore:rules,firestore:indexes,storage,hosting
+  --only firestore:indexes
+npx -y firebase-tools@15.22.1 deploy --project staging \
+  --only functions
+npx -y firebase-tools@15.22.1 deploy --project staging \
+  --only firestore:rules,storage,hosting
 ```
 
 Deploys normally run from CI, not locally - see `ascend-deploy`.

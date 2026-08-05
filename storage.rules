@@ -9,6 +9,19 @@ service firebase.storage {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function hasPaidAppAccess() {
+      return isSignedIn() && firestore.exists(
+        /databases/(default)/documents/users/$(request.auth.uid)/entitlements/app_access
+      );
+    }
+
+    function isPaidOwner(userId) {
+      return isOwner(userId) &&
+        firestore.exists(
+          /databases/(default)/documents/users/$(request.auth.uid)/entitlements/app_access
+        );
+    }
+
     function validFileName(fileName) {
       return fileName.size() > 0 && fileName.size() <= 200;
     }
@@ -42,9 +55,9 @@ service firebase.storage {
 
     // User workout photos.
     match /users/{userId}/photos/{fileName} {
-      allow get: if isOwner(userId) && validFileName(fileName);
-      allow list: if isOwner(userId);
-      allow create, update: if isOwner(userId) &&
+      allow get: if isPaidOwner(userId) && validFileName(fileName);
+      allow list: if isPaidOwner(userId);
+      allow create, update: if isPaidOwner(userId) &&
         validFileName(fileName) &&
         isImageUpload(15 * 1024 * 1024);
       allow delete: if isOwner(userId) && validFileName(fileName);
@@ -52,9 +65,9 @@ service firebase.storage {
 
     // User workout videos.
     match /users/{userId}/videos/{fileName} {
-      allow get: if isOwner(userId) && validFileName(fileName);
-      allow list: if isOwner(userId);
-      allow create, update: if isOwner(userId) &&
+      allow get: if isPaidOwner(userId) && validFileName(fileName);
+      allow list: if isPaidOwner(userId);
+      allow create, update: if isPaidOwner(userId) &&
         validFileName(fileName) &&
         isVideoUpload(200 * 1024 * 1024);
       allow delete: if isOwner(userId) && validFileName(fileName);
@@ -62,9 +75,9 @@ service firebase.storage {
 
     // User workout heart-rate sidecars.
     match /users/{userId}/workout_heart_rate/{fileName} {
-      allow get: if isOwner(userId) && validWorkoutHeartRateFileName(fileName);
-      allow list: if isOwner(userId);
-      allow create, update: if isOwner(userId) &&
+      allow get: if isPaidOwner(userId) && validWorkoutHeartRateFileName(fileName);
+      allow list: if isPaidOwner(userId);
+      allow create, update: if isPaidOwner(userId) &&
         validWorkoutHeartRateFileName(fileName) &&
         isCompressedHeartRateUpload(5 * 1024 * 1024);
       allow delete: if isOwner(userId) && validWorkoutHeartRateFileName(fileName);
@@ -105,11 +118,15 @@ service firebase.storage {
 
     // Remote share-card template assets are read-only from the app.
     match /share-card-templates/{allPaths=**} {
-      allow read: if isSignedIn();
+      allow read: if hasPaidAppAccess();
       allow write: if false;
     }
 
-    // Climb landmark images are read-only from the app.
+    // Climb landmark images are read-only from the app, and deliberately stay
+    // readable before purchase. The `firstClimb` onboarding stage runs before
+    // the paywall and shows the recommended landmark's artwork, so gating this
+    // prefix would break the conversion path itself. Like the Hosting climb
+    // catalog, this is immutable product content with no user data.
     match /climb-images/{allPaths=**} {
       allow read: if isSignedIn();
       allow write: if false;
@@ -117,7 +134,7 @@ service firebase.storage {
 
     // Synthetic live replay avatars are server-owned and read-only from the app.
     match /live-replay-avatars/{allPaths=**} {
-      allow read: if isSignedIn();
+      allow read: if hasPaidAppAccess();
       allow write: if false;
     }
   }

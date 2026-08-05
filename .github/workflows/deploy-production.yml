@@ -325,10 +325,13 @@ jobs:
           npx -y firebase-tools@15.22.1 --json functions:list --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --token "$FIREBASE_TOKEN" \
             | node scripts/ci/assert-firebase-functions-active.mjs \
                 cleanupDeletedUserData \
+                expireRevenueCatEntitlements \
                 onPublicIdentityPropagationJobWritten \
                 onPublicProfileIdentityWritten \
                 onWorkoutWritten \
                 onWorkoutReplaySplitsWritten \
+                reconcileAppAccess \
+                revenueCatWebhook \
                 unsubscribeFromEmails
 
       # The step above proves a curated set of critical functions is healthy.

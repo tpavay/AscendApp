@@ -249,6 +249,22 @@
           "queryScope": "COLLECTION_GROUP"
         }
       ]
+    },
+    {
+      "collectionGroup": "entitlements",
+      "fieldPath": "accessUntil",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION_GROUP"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "_revenuecat_webhook_events",
+      "fieldPath": "retainUntil",
+      "ttl": true,
+      "indexes": []
     }
   ]
 }

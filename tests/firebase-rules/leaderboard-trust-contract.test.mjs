@@ -8,6 +8,7 @@ import {
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing';
 import { deleteDoc, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { seedActiveAppAccess } from './paid-access-fixture.mjs';
 
 // Test files run concurrently against one emulator, and `clearFirestore()` wipes a whole
 // project. Own project id = this suite's seeded documents survive the other suite's reset.
@@ -38,6 +39,7 @@ before(async () => {
 beforeEach(async () => {
   await testEnv.clearFirestore();
   await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await seedActiveAppAccess(adminContext, [userId, 'user-456']);
     await setDoc(
       doc(adminContext.firestore(), `users/${userId}/public_profile/current`),
       makePublicProfileDocument()
@@ -108,9 +110,9 @@ test('a climber cannot write into another climbers standing', async () => {
   ));
 });
 
-// The board is the product's central promise, so every signed-in climber still reads it.
-// Closing the write path must not close the read path.
-test('every signed-in climber still reads the standings', async () => {
+// The board is the product's central promise, so every paid climber reads it.
+// Closing the write path must not close the paid read path.
+test('every paid climber reads the standings', async () => {
   await seedServerWrittenStanding();
   const context = testEnv.authenticatedContext('user-456');
 
