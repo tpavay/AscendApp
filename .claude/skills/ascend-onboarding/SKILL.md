@@ -60,3 +60,4 @@ This sequence will evolve as we learn from SuperWall and RevenueCat funnel analy
 - `docs/superwall-paywall-setup.md` - the authoritative launch subscription offer (products, entitlement, offering, paywall plan states), the per-environment RevenueCat/SuperWall split, and the audited Superwall IDs.
   `Staging` and `Release` require an active `app_access` entitlement and audit their environment-specific launch products.
   `Debug` ships unset vendor keys and allows unentitled access for local convenience, with the existing force-paywall control available to exercise the gate.
+- `docs/revenuecat-server-entitlement-enforcement.md` - the paid gate is enforced in Firebase rules, not only on device. Every pre-paywall stage, including `firstClimb` and its landmark artwork, is deliberately left ungated; adding a Firebase read or write to an onboarding stage that sits behind a paid boundary would be denied for exactly the users who have not purchased yet.
