@@ -16,11 +16,11 @@ final class FirebaseTelemetrySink: TelemetrySink, @unchecked Sendable {
         Analytics.setUserProperty(value, forName: name)
     }
 
-    func record(_ record: TelemetryRecord) {
+    func record(_ record: EnvelopedTelemetryRecord) {
         Analytics.logEvent(record.name, parameters: record.firebaseParameters)
     }
 
-    func record(screen: TelemetryScreen) {
+    func record(screen: EnvelopedTelemetryScreen) {
         var parameters = screen.firebaseParameters
         parameters[AnalyticsParameterScreenName] = screen.name
         parameters[AnalyticsParameterScreenClass] = screen.screenClass
@@ -36,13 +36,13 @@ private extension Dictionary where Key == String, Value == TelemetryValue {
     }
 }
 
-private extension TelemetryScreen {
+private extension EnvelopedTelemetryScreen {
     var firebaseParameters: [String: Any] {
         parameters.firebaseParameters
     }
 }
 
-private extension TelemetryRecord {
+private extension EnvelopedTelemetryRecord {
     var firebaseParameters: [String: Any] {
         parameters.firebaseParameters
     }

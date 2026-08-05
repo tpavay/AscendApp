@@ -13,9 +13,9 @@ final class CrashlyticsBreadcrumbSink: TelemetrySink, @unchecked Sendable {
 
     func setUserID(_ userID: String?) {}
 
-    func record(_ record: TelemetryRecord) {
+    func record(_ record: EnvelopedTelemetryRecord) {
         reporter.log(record.crashlyticsMessage)
     }
 
-    func record(screen: TelemetryScreen) {}
+    func record(screen: EnvelopedTelemetryScreen) {}
 }

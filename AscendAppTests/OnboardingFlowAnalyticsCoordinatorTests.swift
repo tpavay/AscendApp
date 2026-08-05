@@ -363,7 +363,7 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
         let telemetry: TelemetryManager
         let coordinator: OnboardingFlowAnalyticsCoordinator
 
-        func records(named name: String) -> [TelemetryRecord] {
+        func records(named name: String) -> [EnvelopedTelemetryRecord] {
             sink.records.filter { $0.name == name }
         }
 

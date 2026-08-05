@@ -11,6 +11,26 @@ struct NoopCrashlyticsReporter: CrashlyticsReporting {
     func record(error: Error, context: String, code: String, additionalInfo: [String: String]?) {}
 }
 
+func makeTestTelemetryEnvelope() throws -> TelemetryEnvelope {
+    try TelemetryEnvelope(
+        validating: TelemetryBuildMetadata(
+            appEnvironment: "staging",
+            buildConfig: "staging",
+            appVersion: "1.2.3",
+            buildNumber: "456",
+            bundleIdentifier: "com.tylerpavay.AscendApp.tests"
+        )
+    )
+}
+
+func makeEnvelopedTestRecord(_ record: TelemetryRecord) throws -> EnvelopedTelemetryRecord {
+    EnvelopedTelemetryRecord(record: record, envelope: try makeTestTelemetryEnvelope())
+}
+
+func makeEnvelopedTestScreen(_ screen: TelemetryScreen) throws -> EnvelopedTelemetryScreen {
+    EnvelopedTelemetryScreen(screen: screen, envelope: try makeTestTelemetryEnvelope())
+}
+
 /// `configure()` is what applies the override; without it collection stays off and every
 /// emission assertion would pass vacuously against an empty sink.
 func makeTestTelemetry(

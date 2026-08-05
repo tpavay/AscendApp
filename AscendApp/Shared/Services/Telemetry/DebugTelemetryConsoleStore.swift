@@ -17,11 +17,11 @@ final class DebugTelemetryConsoleStore {
         self.maxEntries = maxEntries
     }
 
-    func record(_ record: TelemetryRecord) {
+    func record(_ record: EnvelopedTelemetryRecord) {
         insert(DebugTelemetryConsoleEntry(record: record))
     }
 
-    func record(screen: TelemetryScreen) {
+    func record(screen: EnvelopedTelemetryScreen) {
         insert(DebugTelemetryConsoleEntry(screen: screen))
     }
 
