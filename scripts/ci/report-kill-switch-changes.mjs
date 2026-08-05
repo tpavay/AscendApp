@@ -35,6 +35,9 @@ import {
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const TEMPLATE_PATH = "remoteconfig.template.json";
 const FLAG_SOURCE_PATH = "AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift";
+// Settings live in their own enum, but the parity contract is the same: every parameter in the
+// template must be read by a case in one of these two files, or flipping it changes nothing.
+const SETTING_SOURCE_PATH = "AscendApp/Shared/Services/RemoteConfig/RemoteConfigSetting.swift";
 
 function parseArgs(argv) {
   const args = {baseRef: null};
@@ -78,7 +81,10 @@ function templateAtBase(baseRef) {
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const localTemplate = JSON.parse(readFileSync(resolve(REPO_ROOT, TEMPLATE_PATH), "utf8"));
-  const swiftSource = readFileSync(resolve(REPO_ROOT, FLAG_SOURCE_PATH), "utf8");
+  const swiftSource = [
+    readFileSync(resolve(REPO_ROOT, FLAG_SOURCE_PATH), "utf8"),
+    readFileSync(resolve(REPO_ROOT, SETTING_SOURCE_PATH), "utf8"),
+  ].join("\n");
 
   const problems = [
     ...flagParityProblems(localTemplate, swiftSource),

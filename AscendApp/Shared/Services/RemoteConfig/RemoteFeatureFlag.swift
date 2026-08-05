@@ -21,6 +21,11 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// irreversible, so it is separable from the upload path.
     case workoutRemoteDeletes = "workout_remote_deletes_enabled"
 
+    /// Re-opening one automatic attempt for workouts whose retry series has stopped, after a
+    /// build change or an operator-bumped recovery epoch. Reshapes persisted sync state, so it is
+    /// separable from the upload path it feeds.
+    case workoutSyncRecoveryReopen = "workout_sync_recovery_reopen_enabled"
+
     /// Decoding cloud backups back into local SwiftData on sign-in and reinstall.
     case workoutCloudRestore = "workout_cloud_restore_enabled"
 
@@ -65,6 +70,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Uploads workout documents and heart-rate sidecars to cloud backup."
         case .workoutRemoteDeletes:
             return "Deletes remote workout documents and heart-rate sidecars."
+        case .workoutSyncRecoveryReopen:
+            return "Re-opens one sync attempt for stopped workouts after a build or epoch change."
         case .workoutCloudRestore:
             return "Restores cloud backups into local storage on sign-in and reinstall."
         case .workoutMediaUploads:

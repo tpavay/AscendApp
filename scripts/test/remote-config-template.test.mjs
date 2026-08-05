@@ -7,6 +7,7 @@ import {
   findActiveKillSwitches,
   flagParityProblems,
   isParameterOff,
+  isSettingParameter,
   templateParameters,
   templateShapeProblems,
   templateVersionNumber,
@@ -25,8 +26,11 @@ const localTemplate = repositoryJSON("remoteconfig.template.json");
 const flagSource = repositoryText(
   "AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift",
 );
+const settingSource = repositoryText(
+  "AscendApp/Shared/Services/RemoteConfig/RemoteConfigSetting.swift",
+);
 
-test("every checked-in parameter is a boolean that ships on", () => {
+test("every checked-in parameter ships in its healthy shape", () => {
   assert.ok(Object.keys(templateParameters(localTemplate)).length > 0);
   assert.deepEqual(templateShapeProblems(localTemplate), []);
 });
@@ -139,14 +143,39 @@ test("no automated deploy full-replaces the Remote Config template", () => {
   }
 });
 
-test("the template carries exactly the flags the app knows about", () => {
-  // A flag the app reads but the template does not carry is a switch that cannot be
-  // flipped; a parameter the app does not read is a switch that does nothing.
-  const appKeys = appFlagKeys(flagSource);
+test("the template carries exactly the parameters the app knows about", () => {
+  // A parameter the app reads but the template does not carry is a lever that cannot be
+  // pulled; a parameter the app does not read is a lever that moves nothing. Settings live in
+  // their own enum but are held to the same parity contract.
+  const appKeys = appFlagKeys([flagSource, settingSource].join("\n"));
 
-  assert.ok(appKeys.length > 0, "could not parse any flag keys out of RemoteFeatureFlag.swift");
+  assert.ok(appKeys.length > 0, "could not parse any keys out of the RemoteConfig enums");
   assert.deepEqual(Object.keys(templateParameters(localTemplate)).sort(), appKeys);
-  assert.deepEqual(flagParityProblems(localTemplate, flagSource), []);
+  assert.deepEqual(
+    flagParityProblems(localTemplate, [flagSource, settingSource].join("\n")),
+    [],
+  );
+});
+
+test("a setting is held to its own shape contract, not the kill-switch one", () => {
+  // A kill switch ships on as a Boolean. A setting ships at its healthy baseline with its own
+  // type, and calling it a switch would make the healthy state a lie.
+  assert.ok(isSettingParameter("workout_sync_recovery_epoch"));
+  assert.ok(!isSettingParameter("workout_cloud_backup_writes_enabled"));
+
+  const problems = templateShapeProblems({
+    parameters: {
+      workout_sync_recovery_epoch: {
+        defaultValue: {value: "true"},
+        valueType: "BOOLEAN",
+        description: "wrong shape",
+      },
+    },
+  });
+
+  assert.equal(problems.length, 2);
+  assert.ok(problems.some((problem) => problem.includes("must be declared NUMBER")));
+  assert.ok(problems.some((problem) => problem.includes("healthy baseline")));
 });
 
 test("a flag the app reads with no parameter behind it is reported", () => {

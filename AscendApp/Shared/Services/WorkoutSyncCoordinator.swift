@@ -11,6 +11,9 @@ final class WorkoutSyncCoordinator {
     private let featureFlags: RemoteFeatureFlagStore
     private let operationTimeoutSeconds: Double
     private let connectivityService: any WorkoutSyncConnectivityProviding
+    private let settingReader: any RemoteConfigSettingReading
+    private let userDefaults: UserDefaults
+    private let buildIdentity: String
     private let now: () -> Date
     private var isProcessingPendingWorkouts = false
     private var shouldProcessPendingWorkoutsAgain = false
@@ -34,6 +37,9 @@ final class WorkoutSyncCoordinator {
         featureFlags: RemoteFeatureFlagStore = .shared,
         operationTimeoutSeconds: Double = 15.0,
         connectivityService: any WorkoutSyncConnectivityProviding = NetworkConnectivityService.shared,
+        settingReader: any RemoteConfigSettingReading = FirebaseRemoteConfigSettingReader(),
+        userDefaults: UserDefaults = .standard,
+        buildIdentity: String = TelemetryBuildMetadata.current.releaseName,
         now: @escaping () -> Date = Date.init
     ) {
         self.remoteRepository = remoteRepository
@@ -41,7 +47,73 @@ final class WorkoutSyncCoordinator {
         self.featureFlags = featureFlags
         self.operationTimeoutSeconds = operationTimeoutSeconds
         self.connectivityService = connectivityService
+        self.settingReader = settingReader
+        self.userDefaults = userDefaults
+        self.buildIdentity = buildIdentity
         self.now = now
+    }
+
+    /// Where the basis for a stopped series is remembered, so a change to it re-opens exactly once.
+    static let recoveryBasisDefaultsKeyPrefix = "workoutSync.recoveryBasis."
+
+    /// Gives every stopped workout one more automatic attempt when the basis for stopping moves.
+    ///
+    /// Two triggers, and the second is the one that matters: `firestore.rules` deploys
+    /// independently of app releases, so a build-change trigger alone could not unstick the
+    /// workouts a rules fix repairs - including the ones this very change repairs. An operator
+    /// bumps `workout_sync_recovery_epoch` after the fix and the whole fleet re-attempts without a
+    /// binary.
+    ///
+    /// Screen appearance, tab switches, repeated coordinator calls and ordinary Remote Config
+    /// fetches deliberately do not qualify. The token is compared for difference, and the shipped
+    /// default equals the template baseline, so a device's first successful fetch cannot read as a
+    /// bump.
+    ///
+    /// Keyed per user: sign-out does not empty the local store, so one device can hold stopped
+    /// workouts for two accounts, and a single global marker would let whichever account ran first
+    /// consume the re-open for both.
+    func reopenStoppedWorkoutsIfRecoveryBasisChanged(
+        modelContext: ModelContext,
+        currentUserId: String
+    ) throws {
+        // Killed: stopped workouts stay stopped and re-open on a later pass once the flag returns.
+        // Nothing is lost - the recorded basis is only written after the sweep succeeds.
+        guard RemoteFeatureGate.allows(
+            .workoutSyncRecoveryReopen,
+            path: "WorkoutSyncCoordinator.reopenStoppedWorkoutsIfRecoveryBasisChanged",
+            store: featureFlags
+        ) else {
+            return
+        }
+
+        let epoch = settingReader.integer(.workoutSyncRecoveryEpoch)
+        let token = "\(buildIdentity)|\(epoch)"
+        let key = Self.recoveryBasisDefaultsKeyPrefix + currentUserId
+
+        guard userDefaults.string(forKey: key) != token else { return }
+
+        let descriptor = FetchDescriptor<WorkoutSyncOutboxEntry>(
+            predicate: #Predicate<WorkoutSyncOutboxEntry> { entry in
+                entry.ownerUserId == currentUserId
+            }
+        )
+
+        let reopenedAt = now()
+        for entry in try modelContext.fetch(descriptor)
+        where entry.hasStoppedAutomaticAttempts(now: reopenedAt) {
+            entry.reopenOneAutomaticAttempt(now: reopenedAt)
+
+            if let workout = try Self.fetchWorkout(
+                workoutId: entry.workoutId,
+                userId: currentUserId,
+                modelContext: modelContext
+            ), !workout.isSyncedToCloud {
+                workout.remoteSyncStatus = .pendingUpsert
+            }
+        }
+
+        try modelContext.save()
+        userDefaults.set(token, forKey: key)
     }
 
     /// One tap, one Ascend-level attempt, unlimited and never exhausting.
@@ -150,6 +222,15 @@ final class WorkoutSyncCoordinator {
 
         isProcessingPendingWorkouts = true
         defer { isProcessingPendingWorkouts = false }
+
+        do {
+            try reopenStoppedWorkoutsIfRecoveryBasisChanged(
+                modelContext: modelContext,
+                currentUserId: currentUserId
+            )
+        } catch {
+            recordSyncFailure(error, workoutId: nil, category: .transient)
+        }
 
         repeat {
             shouldProcessPendingWorkoutsAgain = false

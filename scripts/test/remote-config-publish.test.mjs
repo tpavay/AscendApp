@@ -45,7 +45,13 @@ function liveTemplateWith(values) {
 }
 
 const everyKey = Object.keys(templateParameters(localTemplate));
-const allOn = Object.fromEntries(everyKey.map((key) => [key, "true"]));
+// Each parameter's own checked-in default, not a blanket "true": the template carries settings as
+// well as kill switches, and a setting published as a Boolean would read as drift.
+const allOn = Object.fromEntries(
+  Object.entries(templateParameters(localTemplate)).map(
+    ([key, parameter]) => [key, parameter?.defaultValue?.value],
+  ),
+);
 
 test("a project already holding every switch is left alone", () => {
   const plan = additivePublishPlan(liveTemplateWith(allOn), localTemplate);

@@ -13,6 +13,27 @@ import {isDeepStrictEqual} from "node:util";
  * uses this to decide whether publishing would *undo* something, and guessing "off" there
  * would block routine deploys on a malformed entry.
  */
+/**
+ * Parameters that are operator *settings* rather than kill switches.
+ *
+ * A kill switch is a Boolean that ships on and is flipped off to stop a path. A setting carries a
+ * value an operator moves deliberately, so it is held to its own contract: the right type, a
+ * healthy checked-in baseline, and a description. Both still have to be read by the app, because a
+ * parameter nothing reads is a lever that moves nothing.
+ *
+ * `workout_sync_recovery_epoch` is the first: bumping it after a rules or backend fix gives every
+ * stopped workout one more automatic sync attempt without shipping a binary. That matters because
+ * `firestore.rules` deploys independently of app releases, so a build-change trigger alone cannot
+ * unstick the workouts a rules fix repairs.
+ */
+export const SETTING_PARAMETERS = Object.freeze({
+  workout_sync_recovery_epoch: Object.freeze({ valueType: "NUMBER", healthyDefault: "0" }),
+});
+
+export function isSettingParameter(key) {
+  return Object.hasOwn(SETTING_PARAMETERS, key);
+}
+
 export function isParameterOff(parameter) {
   return String(parameter?.defaultValue?.value ?? "").trim().toLowerCase() === "false";
 }
@@ -206,16 +227,34 @@ export function templateShapeProblems(localTemplate) {
 
   return Object.entries(parameters).flatMap(([key, parameter]) => {
     const problems = [];
+    const setting = SETTING_PARAMETERS[key];
 
-    if (parameter?.valueType !== "BOOLEAN") {
-      problems.push(`${key} must be declared BOOLEAN, not ${parameter?.valueType ?? "untyped"}.`);
+    if (setting) {
+      if (parameter?.valueType !== setting.valueType) {
+        problems.push(
+          `${key} is a setting and must be declared ${setting.valueType}, not ` +
+            `${parameter?.valueType ?? "untyped"}.`,
+        );
+      }
+      if (parameter?.defaultValue?.value !== setting.healthyDefault) {
+        problems.push(
+          `${key} must ship at its healthy baseline of "${setting.healthyDefault}" - the ` +
+            "checked-in template is the healthy state, so a different value would publish a " +
+            "change nobody chose to make.",
+        );
+      }
+    } else {
+      if (parameter?.valueType !== "BOOLEAN") {
+        problems.push(`${key} must be declared BOOLEAN, not ${parameter?.valueType ?? "untyped"}.`);
+      }
+      if (parameter?.defaultValue?.value !== "true") {
+        problems.push(
+          `${key} must ship on - the checked-in template is the healthy state, and publishing a ` +
+            "checked-in false would disable a path nobody chose to disable.",
+        );
+      }
     }
-    if (parameter?.defaultValue?.value !== "true") {
-      problems.push(
-        `${key} must ship on - the checked-in template is the healthy state, and publishing a ` +
-          "checked-in false would disable a path nobody chose to disable.",
-      );
-    }
+
     if (!(parameter?.description?.length > 0)) {
       problems.push(`${key} needs a description saying what turning it off stops.`);
     }

@@ -14,6 +14,20 @@
       "valueType": "BOOLEAN",
       "description": "Kill switch. Off stops deleting remote workout documents and sidecars; tombstones stay queued locally and replay when it returns."
     },
+    "workout_sync_recovery_reopen_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops re-opening a stopped workout's automatic sync attempts after a build or epoch change; the stopped state and unlimited manual retry are untouched."
+    },
+    "workout_sync_recovery_epoch": {
+      "defaultValue": {
+        "value": "0"
+      },
+      "valueType": "NUMBER",
+      "description": "Operator recovery epoch, NOT a kill switch. Bump it after a rules or backend fix to give every stopped workout one more automatic sync attempt without shipping a binary. Never decrease it."
+    },
     "workout_cloud_restore_enabled": {
       "defaultValue": {
         "value": "true"
