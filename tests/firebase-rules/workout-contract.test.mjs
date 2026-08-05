@@ -171,6 +171,64 @@ test('owner can write a valid workout backup document', async () => {
   })));
 });
 
+// The richest workout the product actually produces: a Live Climb carrying its heart-rate
+// sidecar, its climb-attempt participation, and every optional measurement the sensor flow
+// records. Firestore's 1000-expression ceiling - not the rule's field caps - is what bounds
+// this write, so a new per-field check pushes a real Live Climb backup into PERMISSION_DENIED
+// rather than merely tightening validation.
+test('owner can write the most expensive workout the rules expression budget admits', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument({
+    source: 'headphone_motion',
+    climbId: 'maximum-workout-climb',
+    avgHeartRateBpm: 150,
+    maxHeartRateBpm: 180,
+    caloriesBurned: 500,
+    effortRating: 5,
+    averageMETs: 9.5,
+    deviceModel: 'iPhone',
+    heartRateSeries: makeHeartRateSeriesReference(userId, workoutId),
+    participations: [makeClimbAttemptParticipation()],
+  })));
+});
+
+// The bounded lists carry their own declared maxima. Each one costs enough on its own that
+// they are independent ceilings rather than a single envelope that can be filled at once.
+test('bounded workout lists write at the maximum the rules declare', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+  const media = [
+    makeMediaItem('10000000-0000-0000-0000-000000000001'),
+    {
+      ...makeMediaItem('10000000-0000-0000-0000-000000000002'),
+      type: 'video',
+      durationSeconds: 30,
+    },
+    makeMediaItem('10000000-0000-0000-0000-000000000003'),
+  ];
+  const equipmentTypes = [
+    'weighted_vest',
+    'dumbbells',
+    'barbell',
+    'ankle_weights',
+    'wrist_weights',
+  ];
+  const weightEntries = equipmentTypes.map((equipmentType, index) => ({
+    ...makeWeightEntry(`20000000-0000-0000-0000-00000000000${index + 1}`),
+    equipmentType,
+  }));
+
+  await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument({
+    media,
+    highlightedMediaId: media[2].id,
+  })));
+  await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument({
+    weightConfiguration: {entries: weightEntries},
+  })));
+});
+
 // The workout write rule sits close to Firestore's 1000-expression evaluation ceiling, so the
 // integrity metadata is guarded by type and domain rather than by an additional byte-count range:
 // a wrong-typed value is what breaks the whole envelope's decode, while a merely wrong byte count

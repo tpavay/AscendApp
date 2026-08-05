@@ -605,16 +605,23 @@ service cloud.firestore {
       ];
     }
 
-    function isValidWorkoutMediaItem(item) {
+    // The workout validators below take every repeated subexpression - the request
+    // payload, its key set, and each nested list's size - as a parameter instead of
+    // re-deriving it inline. Firestore counts each re-derivation against the same
+    // 1000-expression evaluation ceiling, and `request.resource.data.keys()` alone was
+    // being recomputed once per optional field. Evaluating each once is what leaves room
+    // for a Live Climb that carries its heart-rate sidecar, or a weight configuration at
+    // the five-entry maximum the rule declares: both were denied before the hoist.
+    function isValidWorkoutMediaItem(item, itemKeys) {
       return item is map &&
-        item.keys().hasOnly([
+        itemKeys.hasOnly([
           "id",
           "url",
           "uploadedAt",
           "type",
           "durationSeconds"
         ]) &&
-        item.keys().hasAll([
+        itemKeys.hasAll([
           "id",
           "url",
           "uploadedAt",
@@ -627,33 +634,33 @@ service cloud.firestore {
         item.url.size() <= 2048 &&
         item.uploadedAt is timestamp &&
         isValidWorkoutMediaType(item.type) &&
-        (!item.keys().hasAny(["durationSeconds"]) ||
+        (!itemKeys.hasAny(["durationSeconds"]) ||
           (isNonNegativeNumber(item.durationSeconds) &&
             item.type == "video"));
     }
 
-    function mediaListContainsId(media, mediaId) {
+    function mediaListContainsId(media, count, mediaId) {
       return media is list &&
-        media.size() > 0 &&
+        count > 0 &&
         (
           media[0].id == mediaId ||
-          (media.size() > 1 && media[1].id == mediaId) ||
-          (media.size() > 2 && media[2].id == mediaId)
+          (count > 1 && media[1].id == mediaId) ||
+          (count > 2 && media[2].id == mediaId)
         );
     }
 
-    function isValidWorkoutMediaList(media) {
+    function isValidWorkoutMediaList(media, count) {
       return media is list &&
-        media.size() <= 3 &&
-        (media.size() == 0 || isValidWorkoutMediaItem(media[0])) &&
-        (media.size() <= 1 || isValidWorkoutMediaItem(media[1])) &&
-        (media.size() <= 2 || isValidWorkoutMediaItem(media[2]));
+        count <= 3 &&
+        (count == 0 || isValidWorkoutMediaItem(media[0], media[0].keys())) &&
+        (count <= 1 || isValidWorkoutMediaItem(media[1], media[1].keys())) &&
+        (count <= 2 || isValidWorkoutMediaItem(media[2], media[2].keys()));
     }
 
-    function isValidWorkoutWeightEntry(entry) {
+    function isValidWorkoutWeightEntry(entry, entryKeys) {
       return entry is map &&
-        entry.keys().size() == 4 &&
-        entry.keys().hasAll([
+        entryKeys.size() == 4 &&
+        entryKeys.hasAll([
           "id",
           "equipmentType",
           "weightValue",
@@ -666,41 +673,41 @@ service cloud.firestore {
         entry.isEnabled is bool;
     }
 
-    function hasUniqueWorkoutWeightEquipmentTypes(entries) {
+    function hasUniqueWorkoutWeightEquipmentTypes(entries, count) {
       return
-        (entries.size() <= 1 || entries[0].equipmentType != entries[1].equipmentType) &&
-        (entries.size() <= 2 || entries[0].equipmentType != entries[2].equipmentType) &&
-        (entries.size() <= 3 || entries[0].equipmentType != entries[3].equipmentType) &&
-        (entries.size() <= 4 || entries[0].equipmentType != entries[4].equipmentType) &&
-        (entries.size() <= 2 || entries[1].equipmentType != entries[2].equipmentType) &&
-        (entries.size() <= 3 || entries[1].equipmentType != entries[3].equipmentType) &&
-        (entries.size() <= 4 || entries[1].equipmentType != entries[4].equipmentType) &&
-        (entries.size() <= 3 || entries[2].equipmentType != entries[3].equipmentType) &&
-        (entries.size() <= 4 || entries[2].equipmentType != entries[4].equipmentType) &&
-        (entries.size() <= 4 || entries[3].equipmentType != entries[4].equipmentType);
+        (count <= 1 || entries[0].equipmentType != entries[1].equipmentType) &&
+        (count <= 2 || entries[0].equipmentType != entries[2].equipmentType) &&
+        (count <= 3 || entries[0].equipmentType != entries[3].equipmentType) &&
+        (count <= 4 || entries[0].equipmentType != entries[4].equipmentType) &&
+        (count <= 2 || entries[1].equipmentType != entries[2].equipmentType) &&
+        (count <= 3 || entries[1].equipmentType != entries[3].equipmentType) &&
+        (count <= 4 || entries[1].equipmentType != entries[4].equipmentType) &&
+        (count <= 3 || entries[2].equipmentType != entries[3].equipmentType) &&
+        (count <= 4 || entries[2].equipmentType != entries[4].equipmentType) &&
+        (count <= 4 || entries[3].equipmentType != entries[4].equipmentType);
     }
 
-    function isValidWorkoutWeightEntryList(entries) {
+    function isValidWorkoutWeightEntryList(entries, count) {
       return entries is list &&
-        entries.size() <= 5 &&
-        (entries.size() == 0 || isValidWorkoutWeightEntry(entries[0])) &&
-        (entries.size() <= 1 || isValidWorkoutWeightEntry(entries[1])) &&
-        (entries.size() <= 2 || isValidWorkoutWeightEntry(entries[2])) &&
-        (entries.size() <= 3 || isValidWorkoutWeightEntry(entries[3])) &&
-        (entries.size() <= 4 || isValidWorkoutWeightEntry(entries[4])) &&
-        hasUniqueWorkoutWeightEquipmentTypes(entries);
+        count <= 5 &&
+        (count == 0 || isValidWorkoutWeightEntry(entries[0], entries[0].keys())) &&
+        (count <= 1 || isValidWorkoutWeightEntry(entries[1], entries[1].keys())) &&
+        (count <= 2 || isValidWorkoutWeightEntry(entries[2], entries[2].keys())) &&
+        (count <= 3 || isValidWorkoutWeightEntry(entries[3], entries[3].keys())) &&
+        (count <= 4 || isValidWorkoutWeightEntry(entries[4], entries[4].keys())) &&
+        hasUniqueWorkoutWeightEquipmentTypes(entries, count);
     }
 
-    function isValidWorkoutWeightConfiguration(config) {
+    function isValidWorkoutWeightConfiguration(config, configKeys) {
       return config is map &&
-        config.keys().size() == 1 &&
-        config.keys().hasAll(["entries"]) &&
-        isValidWorkoutWeightEntryList(config.entries);
+        configKeys.size() == 1 &&
+        configKeys.hasAll(["entries"]) &&
+        isValidWorkoutWeightEntryList(config.entries, config.entries.size());
     }
 
-    function isValidWorkoutHeartRateSeriesReference(userId, workoutId, reference) {
+    function isValidWorkoutHeartRateSeriesReference(userId, workoutId, reference, referenceKeys) {
       return reference is map &&
-        reference.keys().hasOnly([
+        referenceKeys.hasOnly([
           "storagePath",
           "encoding",
           "sampleCount",
@@ -710,7 +717,7 @@ service cloud.firestore {
           "compressedByteCount",
           "sha256"
         ]) &&
-        reference.keys().hasAll([
+        referenceKeys.hasAll([
           "storagePath",
           "encoding",
           "sampleCount",
@@ -752,10 +759,10 @@ service cloud.firestore {
       return tier in ["unverified", "provider_verified", "sensor_verified"];
     }
 
-    function isValidWorkoutParticipationMetricsSnapshot(snapshot) {
+    function isValidWorkoutParticipationMetricsSnapshot(snapshot, snapshotKeys) {
       return snapshot is map &&
-        snapshot.keys().size() == 5 &&
-        snapshot.keys().hasAll([
+        snapshotKeys.size() == 5 &&
+        snapshotKeys.hasAll([
           "startedAt",
           "durationSeconds",
           "steps",
@@ -771,10 +778,10 @@ service cloud.firestore {
         isNonNegativeNumber(snapshot.stepsPerMinute);
     }
 
-    function isValidWorkoutParticipationItem(userId, workoutId, item, workoutSource) {
+    function isValidWorkoutParticipationItem(userId, workoutId, item, itemKeys, workoutSource) {
       return item is map &&
-        item.keys().size() == 12 &&
-        item.keys().hasAll([
+        itemKeys.size() == 12 &&
+        itemKeys.hasAll([
           "id",
           "workoutId",
           "userId",
@@ -805,7 +812,10 @@ service cloud.firestore {
         isValidWorkoutParticipationRole(item.role) &&
         item.leaderboardEligible is bool &&
         isValidWorkoutParticipationVerificationTier(item.verificationTier) &&
-        isValidWorkoutParticipationMetricsSnapshot(item.metricsSnapshot) &&
+        isValidWorkoutParticipationMetricsSnapshot(
+          item.metricsSnapshot,
+          item.metricsSnapshot.keys()
+        ) &&
         item.createdAt is timestamp &&
         (
           item.contextType != "climb_attempt" ||
@@ -817,30 +827,46 @@ service cloud.firestore {
         );
     }
 
-    function isValidWorkoutParticipationList(userId, workoutId, participations, workoutSource) {
+    function isValidWorkoutParticipationList(userId, workoutId, participations, count, workoutSource) {
       return participations is list &&
-        participations.size() <= 8 &&
-        (participations.size() == 0 ||
-          isValidWorkoutParticipationItem(userId, workoutId, participations[0], workoutSource)) &&
-        (participations.size() <= 1 ||
-          isValidWorkoutParticipationItem(userId, workoutId, participations[1], workoutSource)) &&
-        (participations.size() <= 2 ||
-          isValidWorkoutParticipationItem(userId, workoutId, participations[2], workoutSource)) &&
-        (participations.size() <= 3 ||
-          isValidWorkoutParticipationItem(userId, workoutId, participations[3], workoutSource)) &&
-        (participations.size() <= 4 ||
-          isValidWorkoutParticipationItem(userId, workoutId, participations[4], workoutSource)) &&
-        (participations.size() <= 5 ||
-          isValidWorkoutParticipationItem(userId, workoutId, participations[5], workoutSource)) &&
-        (participations.size() <= 6 ||
-          isValidWorkoutParticipationItem(userId, workoutId, participations[6], workoutSource)) &&
-        (participations.size() <= 7 ||
-          isValidWorkoutParticipationItem(userId, workoutId, participations[7], workoutSource));
+        count <= 8 &&
+        (count == 0 ||
+          isValidWorkoutParticipationItem(
+            userId, workoutId, participations[0], participations[0].keys(), workoutSource
+          )) &&
+        (count <= 1 ||
+          isValidWorkoutParticipationItem(
+            userId, workoutId, participations[1], participations[1].keys(), workoutSource
+          )) &&
+        (count <= 2 ||
+          isValidWorkoutParticipationItem(
+            userId, workoutId, participations[2], participations[2].keys(), workoutSource
+          )) &&
+        (count <= 3 ||
+          isValidWorkoutParticipationItem(
+            userId, workoutId, participations[3], participations[3].keys(), workoutSource
+          )) &&
+        (count <= 4 ||
+          isValidWorkoutParticipationItem(
+            userId, workoutId, participations[4], participations[4].keys(), workoutSource
+          )) &&
+        (count <= 5 ||
+          isValidWorkoutParticipationItem(
+            userId, workoutId, participations[5], participations[5].keys(), workoutSource
+          )) &&
+        (count <= 6 ||
+          isValidWorkoutParticipationItem(
+            userId, workoutId, participations[6], participations[6].keys(), workoutSource
+          )) &&
+        (count <= 7 ||
+          isValidWorkoutParticipationItem(
+            userId, workoutId, participations[7], participations[7].keys(), workoutSource
+          ));
     }
 
-    function isValidWorkoutDocument(userId, workoutId) {
+    function isValidWorkoutDocument(userId, workoutId, data, keys) {
       return isCanonicalWorkoutId(workoutId) &&
-        request.resource.data.keys().hasOnly([
+        keys.hasOnly([
           "userId",
           "schemaVersion",
           "name",
@@ -870,7 +896,7 @@ service cloud.firestore {
           "heartRateSeries",
           "participations"
         ]) &&
-        request.resource.data.keys().hasAll([
+        keys.hasAll([
           "userId",
           "schemaVersion",
           "name",
@@ -885,85 +911,89 @@ service cloud.firestore {
           "createdAt",
           "updatedAt"
         ]) &&
-        request.resource.data.userId == userId &&
-        isSupportedSchemaVersion(request.resource.data.schemaVersion) &&
-        request.resource.data.name is string &&
-        request.resource.data.name.size() > 0 &&
-        request.resource.data.name.size() <= 120 &&
-        request.resource.data.startedAt is timestamp &&
-        isNonNegativeNumber(request.resource.data.durationSeconds) &&
-        request.resource.data.steps is int &&
-        request.resource.data.steps >= 0 &&
-        request.resource.data.floors is int &&
-        request.resource.data.floors >= 0 &&
-        request.resource.data.stepsPerFloor is int &&
-        request.resource.data.stepsPerFloor > 0 &&
-        request.resource.data.stepsPerFloor <= 100 &&
-        request.resource.data.notes is string &&
-        request.resource.data.notes.size() <= 5000 &&
-        isValidWorkoutSource(request.resource.data.source) &&
-        (!request.resource.data.keys().hasAny(["climbId"]) ||
-          (request.resource.data.source == "headphone_motion" &&
-            request.resource.data.climbId is string &&
-            request.resource.data.climbId.size() > 0 &&
-            request.resource.data.climbId.size() <= 160)) &&
-        isValidIntegrityLevel(request.resource.data.integrityLevel) &&
-        request.resource.data.createdAt is timestamp &&
-        request.resource.data.updatedAt is timestamp &&
-        (!request.resource.data.keys().hasAny(["avgHeartRateBpm"]) ||
-          (request.resource.data.avgHeartRateBpm is int &&
-            request.resource.data.avgHeartRateBpm >= 25 &&
-            request.resource.data.avgHeartRateBpm <= 240)) &&
-        (!request.resource.data.keys().hasAny(["maxHeartRateBpm"]) ||
-          (request.resource.data.maxHeartRateBpm is int &&
-            request.resource.data.maxHeartRateBpm >= 25 &&
-            request.resource.data.maxHeartRateBpm <= 240)) &&
-        (!request.resource.data.keys().hasAny(["caloriesBurned"]) ||
-          (request.resource.data.caloriesBurned is int &&
-            request.resource.data.caloriesBurned >= 0)) &&
-        (!request.resource.data.keys().hasAny(["effortRating"]) ||
-          (isNonNegativeNumber(request.resource.data.effortRating) &&
-            request.resource.data.effortRating <= 5)) &&
-        (!request.resource.data.keys().hasAny(["averageMETs"]) ||
-          isNonNegativeNumber(request.resource.data.averageMETs)) &&
-        (!request.resource.data.keys().hasAny(["deviceModel"]) ||
-          (request.resource.data.deviceModel is string &&
-            request.resource.data.deviceModel.size() <= 120)) &&
-        (!request.resource.data.keys().hasAny(["sourceMetadata"]) ||
-          (request.resource.data.sourceMetadata is string &&
-            request.resource.data.sourceMetadata.size() <= 4000)) &&
-        (!request.resource.data.keys().hasAny(["healthKitUUID"]) ||
-          (request.resource.data.healthKitUUID is string &&
-            request.resource.data.healthKitUUID.size() <= 128)) &&
-        (!request.resource.data.keys().hasAny(["hevyWorkoutId"]) ||
-          (request.resource.data.hevyWorkoutId is string &&
-            request.resource.data.hevyWorkoutId.size() <= 128)) &&
-        (!request.resource.data.keys().hasAny(["media"]) ||
-          isValidWorkoutMediaList(request.resource.data.media)) &&
-        (!request.resource.data.keys().hasAny(["highlightedMediaId"]) ||
-          (request.resource.data.highlightedMediaId is string &&
-            isValidWorkoutMediaId(request.resource.data.highlightedMediaId) &&
-            request.resource.data.keys().hasAny(["media"]) &&
+        data.userId == userId &&
+        isSupportedSchemaVersion(data.schemaVersion) &&
+        data.name is string &&
+        data.name.size() > 0 &&
+        data.name.size() <= 120 &&
+        data.startedAt is timestamp &&
+        isNonNegativeNumber(data.durationSeconds) &&
+        data.steps is int &&
+        data.steps >= 0 &&
+        data.floors is int &&
+        data.floors >= 0 &&
+        data.stepsPerFloor is int &&
+        data.stepsPerFloor > 0 &&
+        data.stepsPerFloor <= 100 &&
+        data.notes is string &&
+        data.notes.size() <= 5000 &&
+        isValidWorkoutSource(data.source) &&
+        (!keys.hasAny(["climbId"]) ||
+          (data.source == "headphone_motion" &&
+            data.climbId is string &&
+            data.climbId.size() > 0 &&
+            data.climbId.size() <= 160)) &&
+        isValidIntegrityLevel(data.integrityLevel) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        (!keys.hasAny(["avgHeartRateBpm"]) ||
+          (data.avgHeartRateBpm is int &&
+            data.avgHeartRateBpm >= 25 &&
+            data.avgHeartRateBpm <= 240)) &&
+        (!keys.hasAny(["maxHeartRateBpm"]) ||
+          (data.maxHeartRateBpm is int &&
+            data.maxHeartRateBpm >= 25 &&
+            data.maxHeartRateBpm <= 240)) &&
+        (!keys.hasAny(["caloriesBurned"]) ||
+          (data.caloriesBurned is int &&
+            data.caloriesBurned >= 0)) &&
+        (!keys.hasAny(["effortRating"]) ||
+          (isNonNegativeNumber(data.effortRating) &&
+            data.effortRating <= 5)) &&
+        (!keys.hasAny(["averageMETs"]) ||
+          isNonNegativeNumber(data.averageMETs)) &&
+        (!keys.hasAny(["deviceModel"]) ||
+          (data.deviceModel is string &&
+            data.deviceModel.size() <= 120)) &&
+        (!keys.hasAny(["sourceMetadata"]) ||
+          (data.sourceMetadata is string &&
+            data.sourceMetadata.size() <= 4000)) &&
+        (!keys.hasAny(["healthKitUUID"]) ||
+          (data.healthKitUUID is string &&
+            data.healthKitUUID.size() <= 128)) &&
+        (!keys.hasAny(["hevyWorkoutId"]) ||
+          (data.hevyWorkoutId is string &&
+            data.hevyWorkoutId.size() <= 128)) &&
+        (!keys.hasAny(["media"]) ||
+          isValidWorkoutMediaList(data.media, data.media.size())) &&
+        (!keys.hasAny(["highlightedMediaId"]) ||
+          (data.highlightedMediaId is string &&
+            isValidWorkoutMediaId(data.highlightedMediaId) &&
+            keys.hasAny(["media"]) &&
             mediaListContainsId(
-              request.resource.data.media,
-              request.resource.data.highlightedMediaId
+              data.media,
+              data.media.size(),
+              data.highlightedMediaId
             ))) &&
-        (!request.resource.data.keys().hasAny(["weightConfiguration"]) ||
+        (!keys.hasAny(["weightConfiguration"]) ||
           isValidWorkoutWeightConfiguration(
-            request.resource.data.weightConfiguration
+            data.weightConfiguration,
+            data.weightConfiguration.keys()
           )) &&
-        (!request.resource.data.keys().hasAny(["heartRateSeries"]) ||
+        (!keys.hasAny(["heartRateSeries"]) ||
           isValidWorkoutHeartRateSeriesReference(
             userId,
             workoutId,
-            request.resource.data.heartRateSeries
+            data.heartRateSeries,
+            data.heartRateSeries.keys()
           )) &&
-        (!request.resource.data.keys().hasAny(["participations"]) ||
+        (!keys.hasAny(["participations"]) ||
           isValidWorkoutParticipationList(
             userId,
             workoutId,
-            request.resource.data.participations,
-            request.resource.data.source
+            data.participations,
+            data.participations.size(),
+            data.source
           ));
     }
 
@@ -1391,14 +1421,14 @@ service cloud.firestore {
       match /workouts/{workoutId} {
         allow read: if isPaidOwner(userId);
         allow create: if isPaidOwner(userId) &&
-          isValidWorkoutDocument(userId, workoutId);
+          isValidWorkoutDocument(userId, workoutId, request.resource.data, request.resource.data.keys());
         // The stored schema version may only move forward. Equality would make
         // every stored document un-updatable the day the number is bumped, since
         // an updated client always emits the new number. Writes are whole-document
         // `setData`, so allowing it to move backward would instead let an older
         // build drop the fields a newer schema added.
         allow update: if isPaidOwner(userId) &&
-          isValidWorkoutDocument(userId, workoutId) &&
+          isValidWorkoutDocument(userId, workoutId, request.resource.data, request.resource.data.keys()) &&
           request.resource.data.userId == resource.data.userId &&
           request.resource.data.schemaVersion >= resource.data.schemaVersion &&
           request.resource.data.createdAt == resource.data.createdAt;
