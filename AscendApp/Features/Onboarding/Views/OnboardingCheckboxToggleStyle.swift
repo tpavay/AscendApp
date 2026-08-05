@@ -6,7 +6,10 @@ import SwiftUI
 /// accessibility representation rather than from the `Toggle` behind the style:
 /// VoiceOver describes what a style draws, not what it was applied to. Without
 /// the representation a blind climber would hear "button" and no state, and
-/// could not tell whether Ascend was about to email them.
+/// could not tell whether Ascend was about to email them. The representation is
+/// built from the configuration rather than from a fresh `Toggle`, which is the
+/// initializer SwiftUI provides for a style to restate its own control without
+/// re-entering itself.
 ///
 /// The label is part of the same target as the box. Nothing here animates: the
 /// box takes its new state in one frame, in every Reduce Motion state.
@@ -33,9 +36,7 @@ struct OnboardingCheckboxToggleStyle: ToggleStyle {
         }
         .buttonStyle(.plain)
         .accessibilityRepresentation {
-            Toggle(isOn: configuration.$isOn) {
-                configuration.label
-            }
+            Toggle(configuration)
         }
     }
 
