@@ -98,7 +98,9 @@ The segment labels identify nested implementation sections and never replace the
 - **Conditional screens report only when actually shown.** Never pre-emit a view for a screen the user may skip.
 - **The routed `appAccessGate` joins this funnel.** `MonetizationManager.trackPaywallReached` emits `onboarding_paywall_reached` and records the `paywall` screen view through the same recorder for both `onboardingPaywall` and `appAccessGate`, so a retry through the placeholder never banks a second view.
 - **The paywall is not a `PostAuthOnboardingStage`.** It is still canonical user-level step 20 of 21 through `OnboardingAnalyticsEvent.paywallContext`.
-- **Only `OnboardingFlowAnalyticsCoordinator` owns the lifecycle pair.** It starts at the first welcome presentation, persists that start across relaunch, and completes only after active access routes the app to Home.
+- **Only `OnboardingFlowAnalyticsCoordinator` owns the lifecycle pair.** It starts at the first onboarding screen the install shows - welcome on a clean run, the resumed step when a reinstall keeps the Keychain session but not `UserDefaults` - persists that start across relaunch, and completes only after active access routes the app to Home.
+- **A pass belongs to one account.** A pass opened before auth is adopted by the account that finishes it; a different account, a sign-out, an account deletion, or a debug replay retires it, so one climber's abandoned start can never be closed by the next climber's completion.
+- **`completion_reason` is attributed from evidence, not from absence.** `existing_entitlement` means this pass never asked for a grant. Once the paywall or a restore is reached without access, whatever turns access on afterwards is that grant - a dismissal or a skip proves nothing.
 - **Nested owners are segments.** The value carousel, auth surface, post-auth stages, and feature guide set `segment_id`; none may emit `onboarding_flow_started` or `onboarding_flow_completed`.
 
 ## Reference

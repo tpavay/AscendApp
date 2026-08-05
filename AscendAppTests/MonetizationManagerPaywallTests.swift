@@ -53,7 +53,7 @@ struct MonetizationManagerPaywallTests {
     }
 
     @Test
-    func purchaseReasonWaitsForThePaywallOutcomeAfterAccessBecomesActive() {
+    func purchaseReasonIsAttributedFromTheReportedPaywallOutcome() {
         let entitlementService = EntitlementServiceStub()
         let paywallPresenter = PaywallPresenterSpy()
         let manager = MonetizationManager(
@@ -63,11 +63,42 @@ struct MonetizationManagerPaywallTests {
 
         manager.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
         paywallPresenter.send(.presented)
+        paywallPresenter.send(.purchased)
         entitlementService.setEntitlementState(.active(["app_access"]))
 
-        #expect(manager.onboardingCompletionReasonForActiveAccess == nil)
+        #expect(manager.onboardingCompletionReasonForActiveAccess == .purchase)
+    }
 
-        paywallPresenter.send(.purchased)
+    /// A dismissal, a skip or a failure is not evidence that the climber already owned access. If
+    /// the entitlement turns on afterwards - a webhook-delayed purchase, a Superwall presentation
+    /// that reported skip while the purchase still went through - the grant this pass asked for is
+    /// what turned it on.
+    @Test
+    func accessGrantedAfterAPaywallOutcomeThatReportedNothingIsStillAPurchase() {
+        let entitlementService = EntitlementServiceStub()
+        let paywallPresenter = PaywallPresenterSpy()
+        let manager = MonetizationManager(
+            entitlementService: entitlementService,
+            paywallPresenter: paywallPresenter
+        )
+
+        manager.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
+        paywallPresenter.send(.skipped(reason: "no_audience_match"))
+        entitlementService.setEntitlementState(.active(["app_access"]))
+
+        #expect(manager.onboardingCompletionReasonForActiveAccess == .purchase)
+    }
+
+    @Test
+    func restoreThatFoundNothingDoesNotMakeALaterGrantLookPreExisting() async throws {
+        let entitlementService = EntitlementServiceStub()
+        let manager = MonetizationManager(
+            entitlementService: entitlementService,
+            paywallPresenter: PaywallPresenterSpy()
+        )
+
+        try await manager.restorePurchases()
+        entitlementService.setEntitlementState(.active(["app_access"]))
 
         #expect(manager.onboardingCompletionReasonForActiveAccess == .purchase)
     }
@@ -88,6 +119,68 @@ struct MonetizationManagerPaywallTests {
         entitlementService.setEntitlementState(.active(["app_access"]))
 
         #expect(manager.onboardingCompletionReasonForActiveAccess == .restore)
+    }
+
+    /// An identity change starts a new pass, so nothing the previous identity's paywall did may
+    /// attribute the next climber's access.
+    @Test
+    func anIdentityChangeClearsTheGrantEvidenceOfThePreviousPass() {
+        let suiteName = "MonetizationManagerPaywallTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let entitlementService = EntitlementServiceStub()
+        let paywallPresenter = PaywallPresenterSpy()
+        let manager = MonetizationManager(
+            entitlementService: entitlementService,
+            paywallPresenter: paywallPresenter,
+            onboardingLifecycle: OnboardingFlowAnalyticsCoordinator(userDefaults: defaults)
+        )
+
+        manager.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
+        paywallPresenter.send(.purchased)
+        #expect(manager.didRequestOnboardingAccessGrant)
+
+        manager.prepareIdentity(userId: "climber-b")
+        entitlementService.setEntitlementState(.active(["app_access"]))
+
+        #expect(manager.didRequestOnboardingAccessGrant == false)
+        #expect(manager.onboardingCompletionReasonForActiveAccess == .existingEntitlement)
+    }
+
+    /// The paywall screen view is the one step the monetization layer owns, so it has to read the
+    /// resume marker from the injected lifecycle rather than from device-wide state.
+    @Test
+    func paywallScreenViewReadsTheResumeMarkerFromTheInjectedLifecycle() {
+        let suiteName = "MonetizationManagerPaywallTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let telemetry = makeTestTelemetry(sink: sink)
+        let lifecycle = OnboardingFlowAnalyticsCoordinator(
+            userDefaults: defaults,
+            telemetry: telemetry
+        )
+        lifecycle.recordFlowStartedIfNeeded(
+            context: PostAuthOnboardingStage.displayName.analyticsContext
+        )
+
+        let manager = MonetizationManager(
+            entitlementService: EntitlementServiceStub(),
+            paywallPresenter: PaywallPresenterSpy(),
+            telemetry: telemetry,
+            onboardingLifecycle: lifecycle
+        )
+        manager.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
+
+        let paywallView = sink.records.first {
+            $0.name == "onboarding_screen_viewed"
+                && $0.parameters["screen_id"] == .string("paywall")
+        }
+        #expect(paywallView?.parameters["resume"] == .bool(true))
     }
 
     @Test

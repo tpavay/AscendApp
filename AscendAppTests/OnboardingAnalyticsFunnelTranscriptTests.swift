@@ -20,7 +20,7 @@ struct OnboardingAnalyticsFunnelTranscriptTests {
         var recorder = OnboardingScreenViewRecorder()
         let steps = Self.funnelSteps
 
-        lifecycle.recordFlowStartedIfNeeded()
+        lifecycle.recordFlowStartedIfNeeded(context: OnboardingAnalyticsEvent.welcomeContext)
 
         for step in steps {
             recorder.recordIfNeeded(step.context, telemetry: telemetry)
@@ -33,7 +33,8 @@ struct OnboardingAnalyticsFunnelTranscriptTests {
         let monetization = MonetizationManager(
             entitlementService: EntitlementServiceStub(),
             paywallPresenter: PaywallPresenterSpy(),
-            telemetry: telemetry
+            telemetry: telemetry,
+            onboardingLifecycle: lifecycle
         )
         monetization.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
         Self.paywallOutcomes.forEach { telemetry.track($0) }

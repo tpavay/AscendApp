@@ -380,6 +380,25 @@ struct OnboardingScreenViewCoverageTests {
         #expect(records.allSatisfy { $0.parameters["app_environment"] != nil })
     }
 
+    /// Contexts are built from content arrays, so a step can drift out of the canonical order.
+    /// Onboarding is the one flow a user cannot route around, so the drift resolves to an
+    /// out-of-band index rather than taking a shipped build down with it.
+    @Test
+    func anUnknownStepResolvesToNoCanonicalPositionInsteadOfTrapping() {
+        #expect(OnboardingAnalyticsContext.canonicalStepIndex(for: "not_an_onboarding_step") == nil)
+        #expect(OnboardingAnalyticsContext.unknownStepIndex < 0)
+    }
+
+    @Test
+    func everyStepTheFlowActuallyBuildsIsCanonical() {
+        for context in canonicalVisibleContexts() {
+            #expect(
+                OnboardingAnalyticsContext.canonicalStepIndex(for: context.stepID) == context.stepIndex,
+                "\(context.stepID) is not in the canonical onboarding order"
+            )
+        }
+    }
+
     @Test
     func featuresContainerHasNoVisibleScreenContext() {
         #expect(PostAuthOnboardingStage.features.visibleScreenAnalyticsContext == nil)

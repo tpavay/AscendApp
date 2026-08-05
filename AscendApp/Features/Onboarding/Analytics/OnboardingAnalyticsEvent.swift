@@ -27,6 +27,13 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
         "paywall"
     ]
 
+    /// The index reported for a step that is not part of the canonical flow. Contexts are built
+    /// from content arrays, so an added carousel page or guide screen can drift out of the ordered
+    /// list - and onboarding is the one flow a user has no way around, so instrumentation drift
+    /// must never be able to terminate the app. Drift fails loudly in development and degrades to
+    /// an out-of-band index in production instead.
+    static let unknownStepIndex = -1
+
     let segmentID: String
     let flowVersion: String
     let stepID: String
@@ -38,15 +45,18 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
         flowVersion: String = Self.currentFlowVersion,
         stepID: String
     ) {
-        guard let stepIndex = Self.orderedStepIDs.firstIndex(of: stepID) else {
-            preconditionFailure("Unknown onboarding analytics step: \(stepID)")
-        }
+        let canonicalStepIndex = Self.canonicalStepIndex(for: stepID)
+        assert(canonicalStepIndex != nil, "Unknown onboarding analytics step: \(stepID)")
 
         self.segmentID = segmentID
         self.flowVersion = flowVersion
         self.stepID = stepID
-        self.stepIndex = stepIndex
+        stepIndex = canonicalStepIndex ?? Self.unknownStepIndex
         stepCount = Self.orderedStepIDs.count
+    }
+
+    static func canonicalStepIndex(for stepID: String) -> Int? {
+        orderedStepIDs.firstIndex(of: stepID)
     }
 }
 

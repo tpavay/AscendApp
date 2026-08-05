@@ -322,6 +322,27 @@ struct PostAuthOnboardingCoordinatorTests {
         #expect(back.first?.parameters["from_step"] == .string("stair_stepper_baseline"))
     }
 
+    /// The guide sub-screen the user tapped back on reports that tap itself, and it reports the
+    /// same `step_id` the container would, so a second event here is indistinguishable noise.
+    @MainActor
+    @Test
+    func movingBackOffTheContainerStageReportsNothingOfItsOwn() {
+        let defaults = makeDefaults()
+        let store = PostAuthOnboardingStore(userDefaults: defaults)
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let userId = "user-back-features"
+
+        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTestTelemetry(sink: sink))
+        coordinator.resolve(userId: userId)
+        for _ in PostAuthOnboardingStage.allCases where coordinator.phase != .onboarding(.features) {
+            coordinator.completeCurrentStage()
+        }
+        coordinator.moveBack()
+
+        #expect(coordinator.phase == .onboarding(.plan))
+        #expect(sink.records.filter { $0.name == "onboarding_back_tapped" }.isEmpty)
+    }
+
     private func makeDefaults() -> UserDefaults {
         let suiteName = "PostAuthOnboardingCoordinatorTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

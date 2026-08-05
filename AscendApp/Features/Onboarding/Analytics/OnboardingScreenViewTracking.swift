@@ -7,13 +7,18 @@ extension View {
     /// than persisted: a relaunch mid-flow starts a fresh set and re-emits the current step. A
     /// `nil` context emits nothing, which lets callers whose step is index-derived pass an
     /// out-of-bounds state through.
-    func trackOnboardingScreenView(_ context: OnboardingAnalyticsContext?) -> some View {
-        modifier(OnboardingScreenViewTracker(context: context))
+    @MainActor
+    func trackOnboardingScreenView(
+        _ context: OnboardingAnalyticsContext?,
+        lifecycle: OnboardingFlowAnalyticsCoordinator = .shared
+    ) -> some View {
+        modifier(OnboardingScreenViewTracker(context: context, lifecycle: lifecycle))
     }
 }
 
 private struct OnboardingScreenViewTracker: ViewModifier {
     let context: OnboardingAnalyticsContext?
+    let lifecycle: OnboardingFlowAnalyticsCoordinator
 
     @State private var recorder = OnboardingScreenViewRecorder()
 
@@ -30,13 +35,14 @@ private struct OnboardingScreenViewTracker: ViewModifier {
     private func recordScreenViewIfNeeded() {
         guard let context else { return }
 
-        if context.stepID == OnboardingAnalyticsEvent.welcomeContext.stepID {
-            OnboardingFlowAnalyticsCoordinator.shared.recordFlowStartedIfNeeded()
-        }
+        // Any onboarding screen can be the first one a pass shows: a reinstall keeps the Keychain
+        // session while `UserDefaults` starts empty, so a climber who signed in but never finished
+        // resumes mid-flow and never sees welcome.
+        lifecycle.recordFlowStartedIfNeeded(context: context)
 
         recorder.recordIfNeeded(
             context,
-            resume: OnboardingFlowAnalyticsCoordinator.shared.consumeScreenResumeFlag()
+            resume: lifecycle.consumeScreenResumeFlag()
         )
     }
 }
