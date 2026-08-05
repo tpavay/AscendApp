@@ -52,7 +52,9 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
         }
     }
 
-    func record(_ record: TelemetryRecord) {
+    func record(_ record: EnvelopedTelemetryRecord) {
+        guard accepts(record.envelope) else { return }
+
         withConfiguredClient { client in
             client.track(
                 event: record.name,
@@ -62,7 +64,9 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
         }
     }
 
-    func record(screen: TelemetryScreen) {
+    func record(screen: EnvelopedTelemetryScreen) {
+        guard accepts(screen.envelope) else { return }
+
         withConfiguredClient { client in
             var properties = screen.parameters.mixpanelProperties
             properties["screen_name"] = screen.name
@@ -77,7 +81,7 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
     }
 
     private func withConfiguredClient(_ action: (any MixpanelClient) -> Void) {
-        guard let token = configuration.mixpanelToken else { return }
+        guard let token = validatedToken() else { return }
 
         lock.lock()
         defer { lock.unlock() }
@@ -94,6 +98,30 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
         client.registerSuperProperties(buildMetadata.properties)
         self.client = client
         action(client)
+    }
+
+    private func validatedToken() -> String? {
+        do {
+            return try configuration.validatedMixpanelToken(for: buildMetadata)
+        } catch {
+            #if DEBUG || STAGING
+            preconditionFailure("Mixpanel destination does not match this build configuration.")
+            #else
+            return nil
+            #endif
+        }
+    }
+
+    private func accepts(_ envelope: TelemetryEnvelope) -> Bool {
+        guard envelope == buildMetadata.envelope else {
+            #if DEBUG || STAGING
+            preconditionFailure("Mixpanel received an envelope for a different build configuration.")
+            #else
+            return false
+            #endif
+        }
+
+        return true
     }
 
     private var flushInterval: Double {

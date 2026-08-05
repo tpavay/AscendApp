@@ -22,13 +22,13 @@ final class DebugTelemetryConsoleSink: TelemetrySink {
         }
     }
 
-    func record(_ record: TelemetryRecord) {
+    func record(_ record: EnvelopedTelemetryRecord) {
         Task { @MainActor in
             storeProvider().record(record)
         }
     }
 
-    func record(screen: TelemetryScreen) {
+    func record(screen: EnvelopedTelemetryScreen) {
         Task { @MainActor in
             storeProvider().record(screen: screen)
         }

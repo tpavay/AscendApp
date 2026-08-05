@@ -17,14 +17,21 @@ struct TelemetryManagerTests {
         let telemetry = TelemetryManager(
             sinks: [analyticsSink, crashlyticsSink],
             crashlyticsReporter: NoopCrashlyticsReporter(),
-            collectionEnabledOverride: true
+            collectionEnabledOverride: true,
+            buildMetadata: Self.stagingBuildMetadata
         )
 
         telemetry.configure()
         telemetry.track(
             TelemetryRecord(
                 name: "test_event",
-                parameters: ["result": .string("success")],
+                parameters: [
+                    "result": .string("success"),
+                    "app_environment": .string("spoofed"),
+                    "build_config": .string("spoofed"),
+                    "app_version": .string("spoofed"),
+                    "build_number": .string("spoofed")
+                ],
                 destinations: [.analytics, .crashlytics]
             )
         )
@@ -41,7 +48,14 @@ struct TelemetryManagerTests {
         #expect(crashlyticsSink.records.count == 1)
         #expect(analyticsSink.screens.count == 1)
         #expect(crashlyticsSink.screens.isEmpty)
-        #expect(analyticsSink.records.first?.parameters["app_environment"] != nil)
+        #expect(analyticsSink.records.first?.parameters["app_environment"] == .string("staging"))
+        #expect(analyticsSink.records.first?.parameters["build_config"] == .string("staging"))
+        #expect(analyticsSink.records.first?.parameters["app_version"] == .string("1.2.3"))
+        #expect(analyticsSink.records.first?.parameters["build_number"] == .string("456"))
+        #expect(analyticsSink.screens.first?.parameters["app_environment"] == .string("staging"))
+        #expect(analyticsSink.screens.first?.parameters["build_config"] == .string("staging"))
+        #expect(analyticsSink.screens.first?.parameters["app_version"] == .string("1.2.3"))
+        #expect(analyticsSink.screens.first?.parameters["build_number"] == .string("456"))
     }
 
     @Test
@@ -105,8 +119,8 @@ struct TelemetryManagerTests {
             userDefaults: defaults
         )
 
-        #expect(!disabled)
-        #expect(!persisted)
+        #expect(disabled == false)
+        #expect(persisted == false)
     }
 
     @Test
@@ -147,9 +161,9 @@ struct TelemetryManagerTests {
             userDefaults: defaults
         )
 
-        #expect(!enabledArgumentUnderTests)
-        #expect(!enabledEnvironmentUnderTests)
-        #expect(!persistedAfterTestRuns)
+        #expect(enabledArgumentUnderTests == false)
+        #expect(enabledEnvironmentUnderTests == false)
+        #expect(persistedAfterTestRuns == false)
     }
 
     @Test
@@ -163,7 +177,7 @@ struct TelemetryManagerTests {
             userDefaults: defaults
         )
 
-        #expect(!enabled)
+        #expect(enabled == false)
     }
 
     private func makeDefaults() throws -> (UserDefaults, String) {
@@ -173,4 +187,12 @@ struct TelemetryManagerTests {
         return (defaults, suiteName)
     }
     #endif
+
+    private static let stagingBuildMetadata = TelemetryBuildMetadata(
+        appEnvironment: "staging",
+        buildConfig: "staging",
+        appVersion: "1.2.3",
+        buildNumber: "456",
+        bundleIdentifier: "com.tylerpavay.AscendApp.staging"
+    )
 }

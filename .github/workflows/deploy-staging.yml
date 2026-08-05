@@ -203,6 +203,9 @@ jobs:
       # A placeholder RevenueCat or Superwall key would archive and upload
       # cleanly while leaving every staging tester behind an unresolvable
       # paywall, so fail before the archive instead.
+      - name: Verify Mixpanel build destinations
+        run: node scripts/ci/assert-mixpanel-build-settings.mjs
+
       - name: Verify staging monetization keys
         shell: bash
         run: node scripts/ci/assert-monetization-keys-configured.mjs Staging
@@ -254,6 +257,9 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
         run: bundle exec fastlane build_staging
+
+      - name: Verify staging Mixpanel destination in the IPA
+        run: node scripts/ci/assert-mixpanel-bundle.mjs Staging fastlane/build/AscendApp-Staging.ipa
 
       - name: Upload staging IPA artifact
         uses: actions/upload-artifact@v4

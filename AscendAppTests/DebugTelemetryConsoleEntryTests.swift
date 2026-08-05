@@ -12,14 +12,13 @@ import Testing
 
 struct DebugTelemetryConsoleEntryTests {
     @Test
-    func breadcrumbEntriesUseFriendlyLabels() {
+    func breadcrumbEntriesUseFriendlyLabels() throws {
         let entry = DebugTelemetryConsoleEntry(
-            record: TelemetryRecord(
-                name: "auth:profile_loaded",
-                parameters: [
-                    "app_environment": .string("dev")
-                ],
-                destinations: [.crashlytics]
+            record: try makeEnvelopedTestRecord(
+                TelemetryRecord(
+                    name: "auth:profile_loaded",
+                    destinations: [.crashlytics]
+                )
             ),
             timestamp: Date(timeIntervalSince1970: 0)
         )
@@ -30,23 +29,24 @@ struct DebugTelemetryConsoleEntryTests {
         #expect(entry.summary == "The signed-in user's profile finished loading.")
         #expect(entry.whenItFires == "This fires after auth is known and Ascend finishes loading the user's app profile data.")
         #expect(entry.whyTracked == "It marks the point where the app has enough user data to personalize the experience.")
-        #expect(entry.environment == "Dev")
+        #expect(entry.environment == "Staging")
         #expect(entry.destinationsSummary == "Sent to Crashlytics")
     }
 
     @Test
-    func analyticsEntriesHumanizeParameters() {
+    func analyticsEntriesHumanizeParameters() throws {
         let entry = DebugTelemetryConsoleEntry(
-            record: TelemetryRecord(
-                name: "workout_import_finished",
-                parameters: [
-                    "app_environment": .string("dev"),
-                    "import_mode": .string("selected"),
-                    "source_mix": .string("apple_health_only"),
-                    "candidate_count_bucket": .string("2_5"),
-                    "outcome": .string("partial_success")
-                ],
-                destinations: [.analytics, .crashlytics]
+            record: try makeEnvelopedTestRecord(
+                TelemetryRecord(
+                    name: "workout_import_finished",
+                    parameters: [
+                        "import_mode": .string("selected"),
+                        "source_mix": .string("apple_health_only"),
+                        "candidate_count_bucket": .string("2_5"),
+                        "outcome": .string("partial_success")
+                    ],
+                    destinations: [.analytics, .crashlytics]
+                )
             ),
             timestamp: Date(timeIntervalSince1970: 0)
         )
@@ -54,7 +54,7 @@ struct DebugTelemetryConsoleEntryTests {
         #expect(entry.kind == .analytics)
         #expect(entry.title == "Workout Import Finished")
         #expect(entry.feature == "Workouts")
-        #expect(entry.environment == "Dev")
+        #expect(entry.environment == "Staging")
         #expect(entry.destinationsSummary == "Sent to Analytics, and Crashlytics")
         #expect(entry.whenItFires == "This fires when the import flow ends, whether it created workouts, updated existing ones, partially succeeded, or failed.")
         #expect(entry.whyTracked == "It tells us whether imports are succeeding, where users hit failures, and how much workout data is actually getting into the app.")

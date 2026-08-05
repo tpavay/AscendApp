@@ -13,26 +13,26 @@ import Testing
 @MainActor
 struct DebugTelemetryConsoleStoreTests {
     @Test
-    func storeKeepsNewestEntriesAndCapsHistory() {
+    func storeKeepsNewestEntriesAndCapsHistory() throws {
         let store = DebugTelemetryConsoleStore(maxEntries: 2)
 
         store.record(
-            TelemetryRecord(
+            try makeEnvelopedTestRecord(TelemetryRecord(
                 name: "first_event",
                 destinations: [.analytics]
-            )
+            ))
         )
         store.record(
-            screen: TelemetryScreen(
+            screen: try makeEnvelopedTestScreen(TelemetryScreen(
                 name: "import_screen",
                 screenClass: "WorkoutImportSheet"
-            )
+            ))
         )
         store.record(
-            TelemetryRecord(
+            try makeEnvelopedTestRecord(TelemetryRecord(
                 name: "second_event",
                 destinations: [.crashlytics]
-            )
+            ))
         )
 
         #expect(store.entries.count == 2)
@@ -41,7 +41,7 @@ struct DebugTelemetryConsoleStoreTests {
     }
 
     @Test
-    func sinkMirrorsCollectionStateAndRecentTelemetry() async {
+    func sinkMirrorsCollectionStateAndRecentTelemetry() async throws {
         let store = DebugTelemetryConsoleStore(maxEntries: 10)
         let sink = DebugTelemetryConsoleSink {
             store
@@ -50,17 +50,17 @@ struct DebugTelemetryConsoleStoreTests {
         sink.setCollectionEnabled(true)
         sink.setUserID("user_123")
         sink.record(
-            TelemetryRecord(
+            try makeEnvelopedTestRecord(TelemetryRecord(
                 name: "test_event",
                 parameters: ["result": .string("success")],
                 destinations: [.analytics, .crashlytics]
-            )
+            ))
         )
         sink.record(
-            screen: TelemetryScreen(
+            screen: try makeEnvelopedTestScreen(TelemetryScreen(
                 name: "test_screen",
                 screenClass: "TelemetryConsoleView"
-            )
+            ))
         )
 
         for _ in 0..<5 {

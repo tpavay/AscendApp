@@ -427,6 +427,11 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
       - name: Decode Firebase plist files
         env:
           GOOGLE_SERVICE_INFO_DEV_BASE64: ${{ secrets.GOOGLE_SERVICE_INFO_DEV_BASE64 }}
@@ -592,6 +597,9 @@ jobs:
       # The device (iphoneos) compile is covered by the ios-verify-release job;
       # this job proves the simulator build + test suite, so the app compiles
       # exactly once per job instead of twice.
+      - name: Verify Mixpanel build destinations
+        run: node scripts/ci/assert-mixpanel-build-settings.mjs
+
       - name: Run tests
         id: tests
         shell: bash
@@ -640,6 +648,11 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
       - name: Decode production Firebase plist
         env:
           GOOGLE_SERVICE_INFO_PRODUCTION_BASE64: ${{ secrets.GOOGLE_SERVICE_INFO_PRODUCTION_BASE64 }}
@@ -666,6 +679,9 @@ jobs:
       # configuration would otherwise compile. Building it unsigned here means
       # Release-only build errors surface on the PR, not on launch day. This is
       # also the job that proves the device (iphoneos) compile for PRs.
+      - name: Verify Mixpanel build destinations
+        run: node scripts/ci/assert-mixpanel-build-settings.mjs
+
       - name: Build app (Release, unsigned)
         id: build
         shell: bash
@@ -728,6 +744,32 @@ jobs:
             echo "::error file=AscendApp/Info.plist::Release bundle declares ITSAppUsesNonExemptEncryption=${encryption_value}; it must be boolean false. Built plist: ${built_info_plist}"
             exit 1
           fi
+
+      - name: Verify Release Mixpanel destination in the processed bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          built_info_plist="$(
+            xcodebuild \
+              -project AscendApp.xcodeproj \
+              -scheme "AscendApp" \
+              -configuration Release \
+              -sdk iphoneos \
+              -destination "generic/platform=iOS" \
+              CODE_SIGNING_ALLOWED=NO \
+              -showBuildSettings -json |
+              jq -er '
+                (map(select(.target == "AscendApp")) | first
+                  // error("no AscendApp target in -showBuildSettings output"))
+                | .buildSettings
+                | (.TARGET_BUILD_DIR // error("TARGET_BUILD_DIR is unset for the AscendApp target"))
+                  + "/"
+                  + (.INFOPLIST_PATH // error("INFOPLIST_PATH is unset for the AscendApp target"))
+              '
+          )"
+
+          node scripts/ci/assert-mixpanel-bundle.mjs Release "$built_info_plist"
 
       # A step killed by timeout-minutes reports `cancelled`, not `failure`, and
       # that is exactly the hung-runner case these logs exist to explain. An

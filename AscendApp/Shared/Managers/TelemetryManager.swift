@@ -17,6 +17,7 @@ final class TelemetryManager: @unchecked Sendable {
     private let sinks: [any TelemetrySink]
     private let crashlyticsReporter: any CrashlyticsReporting
     private let collectionEnabledOverride: Bool?
+    private let envelope: TelemetryEnvelope?
 
     var isCollectionEnabled: Bool {
         lock.withLock(\.isCollectionEnabled)
@@ -25,7 +26,8 @@ final class TelemetryManager: @unchecked Sendable {
     init(
         sinks: [any TelemetrySink]? = nil,
         crashlyticsReporter: (any CrashlyticsReporting)? = nil,
-        collectionEnabledOverride: Bool? = nil
+        collectionEnabledOverride: Bool? = nil,
+        buildMetadata: TelemetryBuildMetadata = .current
     ) {
         let reporter = crashlyticsReporter ?? CompositeCrashlyticsReporter(
             reporters: [
@@ -35,12 +37,13 @@ final class TelemetryManager: @unchecked Sendable {
         )
         self.crashlyticsReporter = reporter
         self.collectionEnabledOverride = collectionEnabledOverride
+        self.envelope = Self.makeEnvelope(from: buildMetadata)
         if let sinks {
             self.sinks = sinks
         } else {
             var defaultSinks: [any TelemetrySink] = [
                 FirebaseTelemetrySink(),
-                MixpanelTelemetrySink(),
+                MixpanelTelemetrySink(buildMetadata: buildMetadata),
                 CrashlyticsBreadcrumbSink(reporter: reporter)
             ]
 
@@ -169,41 +172,21 @@ final class TelemetryManager: @unchecked Sendable {
     }
 
     func track(_ record: TelemetryRecord) {
-        guard isCollectionEnabled else { return }
+        guard isCollectionEnabled, let envelope else { return }
 
-        let enrichedRecord = enrich(record)
+        let envelopedRecord = EnvelopedTelemetryRecord(record: record, envelope: envelope)
         sinks
-            .filter { !$0.supportedDestinations.isDisjoint(with: enrichedRecord.destinations) }
-            .forEach { $0.record(enrichedRecord) }
+            .filter { $0.supportedDestinations.isDisjoint(with: envelopedRecord.destinations) == false }
+            .forEach { $0.record(envelopedRecord) }
     }
 
     func track(screen: TelemetryScreen) {
-        guard isCollectionEnabled else { return }
+        guard isCollectionEnabled, let envelope else { return }
 
-        let enrichedScreen = enrich(screen)
+        let envelopedScreen = EnvelopedTelemetryScreen(screen: screen, envelope: envelope)
         sinks
             .filter { $0.supportedDestinations.contains(.analytics) }
-            .forEach { $0.record(screen: enrichedScreen) }
-    }
-
-    private func enrich(_ record: TelemetryRecord) -> TelemetryRecord {
-        var parameters = record.parameters
-        parameters["app_environment"] = .string(TelemetryBuildMetadata.current.appEnvironment)
-        return TelemetryRecord(
-            name: record.name,
-            parameters: parameters,
-            destinations: record.destinations
-        )
-    }
-
-    private func enrich(_ screen: TelemetryScreen) -> TelemetryScreen {
-        var parameters = screen.parameters
-        parameters["app_environment"] = .string(TelemetryBuildMetadata.current.appEnvironment)
-        return TelemetryScreen(
-            name: screen.name,
-            screenClass: screen.screenClass,
-            parameters: parameters
-        )
+            .forEach { $0.record(screen: envelopedScreen) }
     }
 
     // MARK: - Custom Keys (Native Types)
@@ -297,6 +280,18 @@ final class TelemetryManager: @unchecked Sendable {
 }
 
 private extension TelemetryManager {
+    static func makeEnvelope(from metadata: TelemetryBuildMetadata) -> TelemetryEnvelope? {
+        do {
+            return try TelemetryEnvelope(validating: metadata)
+        } catch {
+            #if DEBUG || STAGING
+            preconditionFailure("Telemetry envelope is invalid for this build configuration.")
+            #else
+            return nil
+            #endif
+        }
+    }
+
     struct State {
         var isCollectionEnabled = false
         var didConfigure = false

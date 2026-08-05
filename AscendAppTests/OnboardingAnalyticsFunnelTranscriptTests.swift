@@ -427,15 +427,15 @@ private extension OnboardingAnalyticsFunnelTranscriptTests {
 private extension OnboardingAnalyticsFunnelTranscriptTests {
     static let contextParameterKeys: Set<String> = [
         "flow_id", "flow_version", "segment_id", "step_id", "step_index", "step_count",
-        "screen_id", "app_environment"
+        "screen_id", "app_environment", "build_config", "app_version", "build_number"
     ]
 
-    static func subProperties(of record: TelemetryRecord) -> [String: TelemetryValue] {
+    static func subProperties(of record: EnvelopedTelemetryRecord) -> [String: TelemetryValue] {
         record.parameters.filter { !contextParameterKeys.contains($0.key) }
     }
 
     static func transcript(
-        records: [TelemetryRecord],
+        records: [EnvelopedTelemetryRecord],
         orderedScreenIDs: [String],
         title: String = "ONBOARDING FUNNEL TRANSCRIPT - events as delivered to MixpanelTelemetrySink"
     ) -> String {
@@ -491,7 +491,7 @@ private extension OnboardingAnalyticsFunnelTranscriptTests {
     /// The transcript shows the payload per screen; this shows the two things the funnel contract
     /// is counted on - how many of each event one clean pass emitted, and the canonical context
     /// every one of them carried.
-    static func contractSummary(records: [TelemetryRecord]) -> String {
+    static func contractSummary(records: [EnvelopedTelemetryRecord]) -> String {
         let onboardingRecords = records.filter { $0.name.hasPrefix("onboarding_") }
         var lines = [
             "",

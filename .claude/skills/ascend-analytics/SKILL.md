@@ -22,24 +22,30 @@ If an event wouldn't change a decision, don't log it. Volume of events != value 
 Multiple analytics destinations are sanctioned - each is best at a different job. Route events to the right destination through a single facade; never call providers directly from feature code.
 
 - **Firebase Analytics** - broad funnel, cohort, retention analysis. Most product events go here.
-- **Mixpanel** - product funnel, retention, and behavior analytics. The client sink is `MixpanelTelemetrySink`, configured from the `AscendMixpanelToken` Info.plist key; it is inert when no token is present. Client events from dev, staging, and production all report into one project and are separated by super-properties. Cloud Functions also export subscription lifecycle events straight to Mixpanel, routed per environment - see "Mixpanel environment tagging" and "Server-owned subscription lifecycle events" below.
+- **Mixpanel** - product funnel, retention, and behavior analytics.
+  The client sink is `MixpanelTelemetrySink`, configured from the `AscendMixpanelToken` and `AscendMixpanelProjectID` Info.plist keys.
+  Debug, Staging, and Release each report to a dedicated project, and the sink fails closed when the compiled environment and project ID disagree.
+  Cloud Functions also export subscription lifecycle events straight to Mixpanel, routed per environment - see "Mixpanel environment separation and event envelope" and "Server-owned subscription lifecycle events" below.
 - **SuperWall** - onboarding-flow step-level conversion + paywall presentation analytics (its specialty).
 - **Crashlytics** - crashes, fatal errors, stability metrics.
 - **Sentry** - error/crash diagnostics mirror alongside Crashlytics (non-fatal errors, app hangs, symbolicated traces). When reading, triaging, or updating Sentry issues/events, use the `sentry` skill.
 
 When evaluating new providers, justify them by what they uniquely measure that the existing set doesn't.
 
-## Mixpanel environment tagging
+## Mixpanel environment separation and event envelope
 
-Client events from dev, staging, and production share a single Mixpanel project (`4032860`).
-The app carries no per-environment token; environments are told apart by the `app_environment`, `build_config`, `app_version`, and `build_number` super-properties on every event.
-Those values come from `TelemetryBuildMetadata`, the same source Sentry tags its events with, so the two providers always agree for a given build.
+Debug reports to Development `4032860`, Staging reports to Staging `4051102`, and Release reports to Production `4051100`.
+`ASCEND_MIXPANEL_TOKEN` and `ASCEND_MIXPANEL_PROJECT_ID` are compile-time Xcode settings expanded through Info.plist.
+`scripts/ci/assert-mixpanel-build-settings.mjs` resolves all three configurations and rejects empty, incorrect, or duplicate destinations without printing token values.
+Archive workflows also inspect the processed app bundle with `scripts/ci/assert-mixpanel-bundle.mjs` before upload.
 
-The invariant: the super-properties are registered before any event can be tracked, and re-registered after anything that clears Mixpanel SDK state - `reset()` on sign-out, opting back in to collection, or a user property whose name collides with one of those reserved keys.
-`AscendAppTests/MixpanelTelemetrySinkTests.swift` enforces it.
+Every event and screen carries `app_environment`, `build_config`, `app_version`, and `build_number` directly in its payload through `TelemetryEnvelope`.
+The `TelemetrySink` boundary accepts only enveloped records, so a feature call site cannot omit those fields or spoof them with event parameters.
+Mixpanel still registers the same values as super-properties before first use and after SDK state resets as defense in depth.
+`AscendAppTests/TelemetryEnvelopeTests.swift`, `AscendAppTests/TelemetryManagerTests.swift`, and `AscendAppTests/MixpanelTelemetrySinkTests.swift` enforce the runtime contract.
 
 Events recorded before this tagging shipped carry none of these properties, and that history cannot be separated retroactively.
-Filter on `app_environment` when analyzing, and treat untagged events as unattributable rather than as clean production data.
+Treat historical untagged events in Development as unattributable rather than as clean production data.
 
 ## Server-owned subscription lifecycle events
 
@@ -48,8 +54,8 @@ Cloud Functions export them to Mixpanel from a durable Firestore outbox filled b
 Do not add a client event for a transition that stream already reports, and do not route these through `TelemetrySink`.
 
 They carry the same `app_environment`, `build_config`, `app_version`, and `build_number` envelope as client events, with the server's own values (`build_config=server`, `app_version=cloud_functions`).
-Unlike client events, they are routed by the deployed Firebase project into a separate Mixpanel project per environment, so staging and production server events never land in the shared client project.
-Filtering on `app_environment` alone is not enough to find them; pick the right project first.
+They are routed by the deployed Firebase project rather than by a compiled build setting, into the same per-environment Mixpanel project the matching client build reports to.
+Pick the right project first, then separate server from client events by `build_config=server`.
 
 `docs/revenuecat-server-entitlement-enforcement.md` owns that exporter - the exactly-once outbox contract, the destination map, the retention bound, and the captain-side Mixpanel service-account and secret setup.
 `functions/src/revenueCat/analyticsEnvironment.ts` and `LifecycleAnalyticsEventName` in `functions/src/revenueCat/analyticsTypes.ts` are the executable source of truth for the destinations and the event names; read them rather than a copy.

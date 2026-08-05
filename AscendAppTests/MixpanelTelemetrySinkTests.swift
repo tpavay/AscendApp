@@ -15,7 +15,10 @@ struct MixpanelTelemetrySinkTests {
         )
         let sink = MixpanelTelemetrySink(
             configuration: AnalyticsConfiguration(
-                infoDictionary: [AnalyticsConfiguration.mixpanelTokenInfoKey: "token"]
+                infoDictionary: [
+                    AnalyticsConfiguration.mixpanelTokenInfoKey: "token",
+                    AnalyticsConfiguration.mixpanelProjectIDInfoKey: "4051102"
+                ]
             ),
             buildMetadata: buildMetadata,
             makeClient: { _, _ in client }
@@ -23,7 +26,8 @@ struct MixpanelTelemetrySinkTests {
         let telemetry = TelemetryManager(
             sinks: [sink],
             crashlyticsReporter: NoopCrashlyticsReporter(),
-            collectionEnabledOverride: true
+            collectionEnabledOverride: true,
+            buildMetadata: buildMetadata
         )
 
         telemetry.configure()
@@ -39,10 +43,19 @@ struct MixpanelTelemetrySinkTests {
         )
         #expect(client.registeredSuperProperties == buildMetadata.properties)
         #expect(client.trackedEvents == ["first_event"])
+        let trackedProperties = client.trackedProperties.first
+        let appEnvironment = trackedProperties?["app_environment"] as? String
+        let buildConfig = trackedProperties?["build_config"] as? String
+        let appVersion = trackedProperties?["app_version"] as? String
+        let buildNumber = trackedProperties?["build_number"] as? String
+        #expect(appEnvironment == "staging")
+        #expect(buildConfig == "staging")
+        #expect(appVersion == "1.2.3")
+        #expect(buildNumber == "456")
     }
 
     @Test
-    func restoresBuildMetadataAfterIdentityReset() {
+    func restoresBuildMetadataAfterIdentityReset() throws {
         let client = RecordingMixpanelClient()
         let buildMetadata = TelemetryBuildMetadata(
             appEnvironment: "production",
@@ -53,14 +66,22 @@ struct MixpanelTelemetrySinkTests {
         )
         let sink = MixpanelTelemetrySink(
             configuration: AnalyticsConfiguration(
-                infoDictionary: [AnalyticsConfiguration.mixpanelTokenInfoKey: "token"]
+                infoDictionary: [
+                    AnalyticsConfiguration.mixpanelTokenInfoKey: "token",
+                    AnalyticsConfiguration.mixpanelProjectIDInfoKey: "4051100"
+                ]
             ),
             buildMetadata: buildMetadata,
             makeClient: { _, _ in client }
         )
 
         sink.setUserID(nil)
-        sink.record(TelemetryRecord(name: "signed_out_event"))
+        sink.record(
+            EnvelopedTelemetryRecord(
+                record: TelemetryRecord(name: "signed_out_event"),
+                envelope: try TelemetryEnvelope(validating: buildMetadata)
+            )
+        )
 
         #expect(client.calls == ["register_super_properties", "reset", "register_super_properties", "track"])
         #expect(client.registeredSuperProperties == buildMetadata.properties)
@@ -79,7 +100,10 @@ struct MixpanelTelemetrySinkTests {
         )
         let sink = MixpanelTelemetrySink(
             configuration: AnalyticsConfiguration(
-                infoDictionary: [AnalyticsConfiguration.mixpanelTokenInfoKey: "token"]
+                infoDictionary: [
+                    AnalyticsConfiguration.mixpanelTokenInfoKey: "token",
+                    AnalyticsConfiguration.mixpanelProjectIDInfoKey: "4051102"
+                ]
             ),
             buildMetadata: buildMetadata,
             makeClient: { _, _ in client }
@@ -98,6 +122,7 @@ private extension MixpanelTelemetrySinkTests {
         private(set) var calls: [String] = []
         private(set) var registeredSuperProperties: [String: String] = [:]
         private(set) var trackedEvents: [String] = []
+        private(set) var trackedProperties: [Properties] = []
 
         func setCollectionEnabled(_ enabled: Bool) {
             calls.append(enabled ? "opt_in" : "opt_out")
@@ -126,6 +151,7 @@ private extension MixpanelTelemetrySinkTests {
         func track(event: String, properties: Properties) {
             calls.append("track")
             trackedEvents.append(event)
+            trackedProperties.append(properties)
         }
 
         func flush(performFullFlush: Bool) {}

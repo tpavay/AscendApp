@@ -18,6 +18,10 @@ struct TelemetryBuildMetadata: Equatable, Sendable {
         ]
     }
 
+    var envelope: TelemetryEnvelope? {
+        try? TelemetryEnvelope(validating: self)
+    }
+
     var releaseName: String {
         "\(bundleIdentifier)@\(appVersion)+\(buildNumber)"
     }
@@ -37,8 +41,8 @@ struct TelemetryBuildMetadata: Equatable, Sendable {
         buildConfig = "release"
         #endif
 
-        appVersion = infoDictionary["CFBundleShortVersionString"] as? String ?? "unknown"
-        buildNumber = infoDictionary["CFBundleVersion"] as? String ?? "unknown"
+        appVersion = infoDictionary["CFBundleShortVersionString"] as? String ?? ""
+        buildNumber = infoDictionary["CFBundleVersion"] as? String ?? ""
         self.bundleIdentifier = bundleIdentifier
     }
 

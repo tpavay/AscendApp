@@ -42,7 +42,7 @@ struct DebugTelemetryConsoleEntry: Identifiable, Hashable {
     let destinations: [String]
     let destinationsSummary: String
 
-    init(record: TelemetryRecord, timestamp: Date = Date()) {
+    init(record: EnvelopedTelemetryRecord, timestamp: Date = Date()) {
         let kind: Kind = record.destinations.contains(.analytics) ? .analytics : .breadcrumb
         let metadata = Self.metadata(for: record.name, kind: kind)
         self.kind = kind
@@ -61,7 +61,7 @@ struct DebugTelemetryConsoleEntry: Identifiable, Hashable {
         self.destinationsSummary = Self.destinationsSummary(for: self.destinations)
     }
 
-    init(screen: TelemetryScreen, timestamp: Date = Date()) {
+    init(screen: EnvelopedTelemetryScreen, timestamp: Date = Date()) {
         self.kind = .screen
         let metadata = Self.metadata(for: screen.name, kind: .screen)
         self.rawName = screen.name
