@@ -40,6 +40,14 @@ enum WorkoutSyncPresentation: Equatable, Sendable {
         }
     }
 
+    /// Whether the row occupies any space at all.
+    ///
+    /// The row owns this rather than its callers, so a screen can mount it unconditionally and
+    /// keep the state that drives it out of an expensive body.
+    var showsRow: Bool {
+        self != .hidden
+    }
+
     var showsRetryControl: Bool {
         isWarning
     }

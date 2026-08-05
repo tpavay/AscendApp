@@ -17,7 +17,17 @@ struct WorkoutSyncStatusRow: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    // Rendering nothing is this row's own job, not its caller's, so the row can be mounted
+    // unconditionally. A caller that wrapped it in `if presentation != .hidden` would have to read
+    // the presentation in its own body, which is how the state driving one small row ends up
+    // invalidating a whole screen.
     var body: some View {
+        if presentation.showsRow {
+            statusContent
+        }
+    }
+
+    private var statusContent: some View {
         HStack(alignment: .center, spacing: 12) {
             if let iconName {
                 Image(systemName: iconName)

@@ -36,6 +36,49 @@ struct WorkoutSyncSurfaceEvidenceTests {
         }
     }
 
+    /// The row is mounted unconditionally, so `hidden` has to cost nothing.
+    ///
+    /// Its host owns the state that drives it precisely so the screen's expensive derivations do
+    /// not re-run when it changes; that only works if the caller never has to ask whether to place
+    /// it. A hidden row that still took a slot would add the stack's spacing to a screen showing
+    /// no row at all.
+    @Test
+    func aHiddenRowTakesNoSpaceSoItCanBeMountedUnconditionally() throws {
+        #expect(WorkoutSyncPresentation.hidden.showsRow == false)
+
+        for presentation in [
+            WorkoutSyncPresentation.syncing,
+            .couldNotSync,
+            .couldNotSyncOffline,
+            .couldNotSyncRetrying,
+            .synced
+        ] {
+            #expect(presentation.showsRow, "\(presentation) has something to say.")
+        }
+
+        let hiddenHeight = Self.renderedHeight(of: WorkoutSyncStatusRow(
+            presentation: .hidden,
+            effectiveColorScheme: .dark,
+            onRetry: {}
+        ))
+        let visibleHeight = Self.renderedHeight(of: WorkoutSyncStatusRow(
+            presentation: .couldNotSync,
+            effectiveColorScheme: .dark,
+            onRetry: {}
+        ))
+
+        #expect(visibleHeight > 0, "A row with something to say must draw.")
+        #expect(hiddenHeight == 0, "A hidden row must draw nothing at all.")
+    }
+
+    /// Zero for content that draws nothing - `ImageRenderer` produces no image for an empty view,
+    /// which is the same answer as a zero-height one for the question being asked here. The
+    /// visible case proves the renderer works, so a nil cannot pass vacuously.
+    @MainActor
+    private static func renderedHeight(of content: some View) -> CGFloat {
+        ImageRenderer(content: content.frame(width: 402)).uiImage?.size.height ?? 0
+    }
+
     private static func render(
         name: String,
         caption: String,
