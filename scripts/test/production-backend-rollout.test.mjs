@@ -89,6 +89,7 @@ test("declares every server collection-group field index", () => {
     fieldOverride.collectionGroup,
     fieldOverride.fieldPath,
     fieldOverride.indexes,
+    fieldOverride.ttl ?? false,
   ]);
 
   // A field override replaces the field's whole index configuration, so
@@ -96,12 +97,15 @@ test("declares every server collection-group field index", () => {
   // that the per-climb best-completion reads and the Cloud Function
   // reconciliation query run against. finishers and blocked are addressed by
   // document ID, so they need the collection-group index only. The entitlement
-  // expiry sweep orders active grants by accessUntil across every user.
+  // expiry sweep orders active grants by accessUntil across every user, and the
+  // webhook ledger is bounded by a TTL policy on its own future retention
+  // stamp rather than by any query.
   assert.deepEqual(signatures, [
     [
       "blocked",
       "blockedUid",
       [{order: "ASCENDING", queryScope: "COLLECTION_GROUP"}],
+      false,
     ],
     [
       "entries",
@@ -111,16 +115,25 @@ test("declares every server collection-group field index", () => {
         {order: "DESCENDING", queryScope: "COLLECTION"},
         {order: "ASCENDING", queryScope: "COLLECTION_GROUP"},
       ],
+      false,
     ],
     [
       "finishers",
       "userId",
       [{order: "ASCENDING", queryScope: "COLLECTION_GROUP"}],
+      false,
     ],
     [
       "entitlements",
       "accessUntil",
       [{order: "ASCENDING", queryScope: "COLLECTION_GROUP"}],
+      false,
+    ],
+    [
+      "_revenuecat_webhook_events",
+      "retainUntil",
+      [],
+      true,
     ],
   ]);
 });
@@ -820,6 +833,7 @@ test("function readiness rejects missing and inactive critical functions", () =>
     "onPublicProfileIdentityWritten",
     "onWorkoutWritten",
     "onWorkoutReplaySplitsWritten",
+    "reconcileAppAccess",
     "revenueCatWebhook",
     "unsubscribeFromEmails",
   ];
@@ -836,7 +850,7 @@ test("function readiness rejects missing and inactive critical functions", () =>
   assert.notEqual(incomplete.status, 0);
   assert.match(
     incomplete.stderr,
-    /expireRevenueCatEntitlements, onPublicIdentityPropagationJobWritten, onPublicProfileIdentityWritten, onWorkoutReplaySplitsWritten, revenueCatWebhook, unsubscribeFromEmails/
+    /expireRevenueCatEntitlements, onPublicIdentityPropagationJobWritten, onPublicProfileIdentityWritten, onWorkoutReplaySplitsWritten, reconcileAppAccess, revenueCatWebhook, unsubscribeFromEmails/
   );
 
   const completePayload = JSON.stringify({
@@ -881,6 +895,7 @@ test("production deploy waits for indexes and rolls the backend out in dependenc
   );
   assert.match(workflow, /onPublicIdentityPropagationJobWritten/);
   assert.match(workflow, /expireRevenueCatEntitlements/);
+  assert.match(workflow, /reconcileAppAccess/);
   assert.match(workflow, /revenueCatWebhook/);
   assert.doesNotMatch(workflow, /firestore:operations:list/);
   // The gate is only substantive if it polls the production project and the

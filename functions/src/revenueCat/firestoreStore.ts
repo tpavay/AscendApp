@@ -1,13 +1,22 @@
 import * as admin from "firebase-admin";
+import {shouldReplaceProjection} from "./projectionOrdering";
 import type {
   AppAccessProjection,
   RevenueCatEntitlementStore,
   RevenueCatWebhookEvent,
-  WebhookClaimOutcome,
+  WebhookClaim,
 } from "./types";
 
 const EVENT_COLLECTION = "_revenuecat_webhook_events";
 const PROCESSING_LEASE_MS = 2 * 60 * 1000;
+
+// RevenueCat currently retries a failed delivery five times over roughly 155
+// minutes, and dedupe only has to outlive that window. Thirty days keeps a
+// human-inspectable trail of what the server acted on while still bounding the
+// ledger, and the Firestore TTL policy on `retainUntil` does the deleting.
+// `receivedAt` cannot carry the policy: it is already in the past when it is
+// written, so every document would be eligible for deletion immediately.
+export const EVENT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 export class FirestoreRevenueCatEntitlementStore
 implements RevenueCatEntitlementStore {
@@ -17,13 +26,16 @@ implements RevenueCatEntitlementStore {
     event: RevenueCatWebhookEvent,
     payloadSha256: string,
     now: Date
-  ): Promise<WebhookClaimOutcome> {
+  ): Promise<WebhookClaim> {
     const eventRef = this.firestore.collection(EVENT_COLLECTION).doc(event.id);
     return this.firestore.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(eventRef);
       const nowTimestamp = admin.firestore.Timestamp.fromDate(now);
       const leaseExpiresAt = admin.firestore.Timestamp.fromMillis(
         now.getTime() + PROCESSING_LEASE_MS
+      );
+      const retainUntil = admin.firestore.Timestamp.fromMillis(
+        now.getTime() + EVENT_RETENTION_MS
       );
 
       if (!snapshot.exists) {
@@ -34,64 +46,79 @@ implements RevenueCatEntitlementStore {
           eventType: event.type,
           eventTimestampMs: event.eventTimestampMs,
           attemptCount: 1,
+          conflictingPayloadCount: 0,
           receivedAt: nowTimestamp,
           updatedAt: nowTimestamp,
+          retainUntil,
           leaseExpiresAt,
           completedAt: null,
           lastErrorCode: null,
         });
-        return "claimed";
+        return {outcome: "claimed", claimDigest: payloadSha256};
       }
 
-      const data = snapshot.data();
-      if (data?.payloadSha256 !== payloadSha256) {
-        return "conflict";
-      }
+      // First seen wins. The event's ledger entry keeps the digest and the
+      // metadata of the delivery that created it, so a redelivery with
+      // different bytes can neither rewrite history nor be refused forever:
+      // it completes against the canonical claim, and the projection it
+      // writes comes from a fresh subscriber fetch either way.
+      const data = snapshot.data() ?? {};
+      const claimDigest = typeof data.payloadSha256 === "string" ?
+        data.payloadSha256 : payloadSha256;
+      const conflictingPayloadCount =
+        (typeof data.conflictingPayloadCount === "number" ?
+          data.conflictingPayloadCount : 0) +
+        (claimDigest === payloadSha256 ? 0 : 1);
+      const recordConflict = () => {
+        if (claimDigest !== payloadSha256) {
+          transaction.update(eventRef, {conflictingPayloadCount});
+        }
+      };
+
       if (data.status === "completed") {
-        return "duplicate";
+        recordConflict();
+        return {outcome: "duplicate", claimDigest};
       }
       const existingLease = data.leaseExpiresAt;
       if (data.status === "processing" &&
         existingLease instanceof admin.firestore.Timestamp &&
         existingLease.toMillis() > now.getTime()) {
-        return "busy";
+        recordConflict();
+        return {outcome: "busy", claimDigest};
       }
 
       transaction.update(eventRef, {
         status: "processing",
         attemptCount: typeof data.attemptCount === "number" ?
           data.attemptCount + 1 : 1,
+        conflictingPayloadCount,
         updatedAt: nowTimestamp,
+        retainUntil,
         leaseExpiresAt,
         lastErrorCode: null,
       });
-      return "claimed";
+      return {outcome: "claimed", claimDigest};
     });
   }
 
   async completeEvent(
     event: RevenueCatWebhookEvent,
-    payloadSha256: string,
+    claimDigest: string,
     projections: AppAccessProjection[],
     now: Date
   ): Promise<void> {
     const eventRef = this.firestore.collection(EVENT_COLLECTION).doc(event.id);
-    const projectionRefs = projections.map((projection) =>
-      this.firestore.doc(
-        `users/${projection.uid}/entitlements/${projection.entitlementId}`
-      )
+    const projectionRefs = projections.map(
+      (projection) => this.activeGrantRef(projection)
     );
-    const statusRefs = projections.map((projection) =>
-      this.firestore.doc(
-        `users/${projection.uid}/entitlement_status/` +
-        projection.entitlementId
-      )
+    const statusRefs = projections.map(
+      (projection) => this.statusRef(projection)
     );
 
     await this.firestore.runTransaction(async (transaction) => {
       const eventSnapshot = await transaction.get(eventRef);
       if (!eventSnapshot.exists ||
-        eventSnapshot.get("payloadSha256") !== payloadSha256 ||
+        eventSnapshot.get("payloadSha256") !== claimDigest ||
         eventSnapshot.get("status") !== "processing") {
         throw new Error("RevenueCat event claim was lost before completion");
       }
@@ -99,21 +126,18 @@ implements RevenueCatEntitlementStore {
       const existingStatuses = statusRefs.length > 0 ?
         await transaction.getAll(...statusRefs) : [];
       projections.forEach((projection, index) => {
-        const existingRequestDate = existingStatuses[index]?.get(
-          "revenueCatRequestDateMs"
-        );
-        if (typeof existingRequestDate === "number" &&
-          existingRequestDate > projection.revenueCatRequestDateMs) {
+        if (!shouldReplaceProjection(
+          existingStatuses[index]?.get("revenueCatRequestDateMs"),
+          projection
+        )) {
           return;
         }
-
-        const serialized = serializeProjection(projection);
-        transaction.set(statusRefs[index], serialized);
-        if (projection.isActive) {
-          transaction.set(projectionRefs[index], serialized);
-        } else {
-          transaction.delete(projectionRefs[index]);
-        }
+        applyProjection(
+          transaction,
+          projection,
+          statusRefs[index],
+          projectionRefs[index]
+        );
       });
 
       const nowTimestamp = admin.firestore.Timestamp.fromDate(now);
@@ -121,6 +145,9 @@ implements RevenueCatEntitlementStore {
         status: "completed",
         completedAt: nowTimestamp,
         updatedAt: nowTimestamp,
+        retainUntil: admin.firestore.Timestamp.fromMillis(
+          now.getTime() + EVENT_RETENTION_MS
+        ),
         leaseExpiresAt: null,
         lastErrorCode: null,
         affectedUserCount: projections.length,
@@ -130,7 +157,7 @@ implements RevenueCatEntitlementStore {
 
   async failEvent(
     eventId: string,
-    payloadSha256: string,
+    claimDigest: string,
     errorCode: string,
     now: Date
   ): Promise<void> {
@@ -138,17 +165,113 @@ implements RevenueCatEntitlementStore {
     await this.firestore.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(eventRef);
       if (!snapshot.exists ||
-        snapshot.get("payloadSha256") !== payloadSha256 ||
+        snapshot.get("payloadSha256") !== claimDigest ||
         snapshot.get("status") !== "processing") {
         return;
       }
       transaction.update(eventRef, {
         status: "failed",
         updatedAt: admin.firestore.Timestamp.fromDate(now),
+        retainUntil: admin.firestore.Timestamp.fromMillis(
+          now.getTime() + EVENT_RETENTION_MS
+        ),
         leaseExpiresAt: null,
         lastErrorCode: errorCode,
       });
     });
+  }
+
+  /**
+   * Applies one server-derived projection outside the webhook ledger.
+   *
+   * The recovery path needs exactly the webhook's write, minus the event
+   * bookkeeping, and under exactly the webhook's ordering rule.
+   * @param {AppAccessProjection} projection - Freshly derived projection
+   * @return {Promise<boolean>} Whether it replaced what was stored
+   */
+  async writeProjection(projection: AppAccessProjection): Promise<boolean> {
+    const statusRef = this.statusRef(projection);
+    const grantRef = this.activeGrantRef(projection);
+
+    return this.firestore.runTransaction(async (transaction) => {
+      const existing = await transaction.get(statusRef);
+      if (!shouldReplaceProjection(
+        existing.get("revenueCatRequestDateMs"),
+        projection
+      )) {
+        return false;
+      }
+      applyProjection(transaction, projection, statusRef, grantRef);
+      return true;
+    });
+  }
+
+  /**
+   * Reserves the next self-service reconciliation for one Firebase user.
+   *
+   * The cooldown is server-owned so a modified client cannot turn the recovery
+   * path into an unbounded RevenueCat subscriber-API amplifier.
+   * @param {string} uid - Verified Firebase user id
+   * @param {Date} now - Reservation clock
+   * @param {number} cooldownMs - Minimum spacing between reconciliations
+   * @return {Promise<boolean>} Whether this caller may reconcile now
+   */
+  async claimReconciliation(
+    uid: string,
+    now: Date,
+    cooldownMs: number
+  ): Promise<boolean> {
+    const limitRef = this.firestore.doc(
+      `users/${uid}/entitlement_reconciliations/current`
+    );
+
+    return this.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(limitRef);
+      const lastReconciledAt = snapshot.get("lastReconciledAt");
+      if (lastReconciledAt instanceof admin.firestore.Timestamp &&
+        now.getTime() - lastReconciledAt.toMillis() < cooldownMs) {
+        return false;
+      }
+
+      const requestCount = snapshot.get("requestCount");
+      transaction.set(limitRef, {
+        schemaVersion: 1,
+        lastReconciledAt: admin.firestore.Timestamp.fromDate(now),
+        requestCount: typeof requestCount === "number" ? requestCount + 1 : 1,
+      });
+      return true;
+    });
+  }
+
+  private statusRef(
+    projection: AppAccessProjection
+  ): admin.firestore.DocumentReference {
+    return this.firestore.doc(
+      `users/${projection.uid}/entitlement_status/${projection.entitlementId}`
+    );
+  }
+
+  private activeGrantRef(
+    projection: AppAccessProjection
+  ): admin.firestore.DocumentReference {
+    return this.firestore.doc(
+      `users/${projection.uid}/entitlements/${projection.entitlementId}`
+    );
+  }
+}
+
+function applyProjection(
+  transaction: admin.firestore.Transaction,
+  projection: AppAccessProjection,
+  statusRef: admin.firestore.DocumentReference,
+  grantRef: admin.firestore.DocumentReference
+): void {
+  const serialized = serializeProjection(projection);
+  transaction.set(statusRef, serialized);
+  if (projection.isActive) {
+    transaction.set(grantRef, serialized);
+  } else {
+    transaction.delete(grantRef);
   }
 }
 

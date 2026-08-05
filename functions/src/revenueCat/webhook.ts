@@ -93,6 +93,12 @@ export async function handleRevenueCatWebhook(
     throw error;
   }
 
+  if (parsed.event.identityOverflowCount > 0) {
+    console.warn("RevenueCat webhook identity candidates truncated", {
+      overflowCount: parsed.event.identityOverflowCount,
+    });
+  }
+
   try {
     const outcome = await processRevenueCatWebhookEvent(
       parsed.event,
@@ -109,10 +115,6 @@ export async function handleRevenueCatWebhook(
     if (outcome === "busy") {
       response.set("Retry-After", "300");
       response.status(503).json({status: "retry"});
-      return;
-    }
-    if (outcome === "conflict") {
-      response.status(409).json({status: "event_id_conflict"});
       return;
     }
     response.status(200).json({status: outcome});

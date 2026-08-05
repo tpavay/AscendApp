@@ -11,6 +11,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
 
     private let entitlementService: any EntitlementServicing
     private let paywallPresenter: any PaywallPresenting
+    private let appAccessReconciler: any AppAccessReconciling
     private let telemetry: TelemetryManager
     private let userDefaults: UserDefaults
     @ObservationIgnored
@@ -67,12 +68,14 @@ final class MonetizationManager: MonetizationIdentityManaging {
         configuration: MonetizationConfiguration = .live,
         entitlementService: any EntitlementServicing = RevenueCatEntitlementService.shared,
         paywallPresenter: any PaywallPresenting = SuperwallPaywallPresenter.shared,
+        appAccessReconciler: any AppAccessReconciling = AppAccessReconciliationService.shared,
         telemetry: TelemetryManager = .shared,
         userDefaults: UserDefaults = .standard
     ) {
         self.configuration = configuration
         self.entitlementService = entitlementService
         self.paywallPresenter = paywallPresenter
+        self.appAccessReconciler = appAccessReconciler
         self.telemetry = telemetry
         self.userDefaults = userDefaults
         #if DEBUG
@@ -144,6 +147,21 @@ final class MonetizationManager: MonetizationIdentityManaging {
 
     func refreshEntitlements() async {
         await entitlementService.refreshCustomerInfo()
+        await reconcileServerAppAccess()
+    }
+
+    /// Asks the server to re-derive this user's paid access from RevenueCat.
+    ///
+    /// The device answer is responsive but not authoritative. A purchase can beat its webhook to
+    /// the backend, and a webhook that was never delivered would otherwise lock a real subscriber
+    /// out of every paid boundary forever, so an active device entitlement always prompts the
+    /// server to reconcile. It costs nothing when the projection is already current.
+    func reconcileServerAppAccess(force: Bool = false) async {
+        guard entitlementState.hasActiveEntitlement(
+            configuration.revenueCatEntitlementID
+        ) else { return }
+
+        await appAccessReconciler.reconcileAppAccess(force: force)
     }
 
     func retryIdentityResolution() async {
@@ -152,6 +170,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
 
     func restorePurchases() async throws {
         try await entitlementService.restorePurchases()
+        await reconcileServerAppAccess(force: true)
     }
 
     func presentPaywall(

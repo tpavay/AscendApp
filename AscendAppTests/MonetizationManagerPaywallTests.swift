@@ -346,6 +346,7 @@ final class EntitlementServiceStub: EntitlementServicing {
     private(set) var hasFailedIdentityResolution = false
     var isConfigured = true
     var identityResolution = MonetizationEntitlementState.inactive
+    var restoreError: (any Error)?
     private var revision: UInt = 0
     private var currentTransition: MonetizationIdentityTransition?
 
@@ -353,8 +354,12 @@ final class EntitlementServiceStub: EntitlementServicing {
         entitlementState = initialState
     }
 
-    init(entitlementState: MonetizationEntitlementState = .inactive) {
+    init(
+        entitlementState: MonetizationEntitlementState = .inactive,
+        restoreError: (any Error)? = nil
+    ) {
         self.entitlementState = entitlementState
+        self.restoreError = restoreError
     }
 
     /// Mirrors `RevenueCatEntitlementService.configure`, which needs a usable key.
@@ -385,7 +390,11 @@ final class EntitlementServiceStub: EntitlementServicing {
 
     func retryIdentityResolution() async {}
 
-    func restorePurchases() async throws {}
+    func restorePurchases() async throws {
+        if let restoreError {
+            throw restoreError
+        }
+    }
 
     private func prepare(userID: String?) -> MonetizationIdentityTransition {
         revision &+= 1

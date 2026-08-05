@@ -108,6 +108,15 @@ struct RootView: View {
                 await PushNotificationService.shared.synchronizeAuthenticatedDeviceIfNeeded()
             }
         }
+        // A purchase completing mid-session flips this through RevenueCat's customer-info stream
+        // without any refresh call, and that is exactly the moment the backend has not heard about
+        // the purchase yet.
+        .onChange(of: monetizationManager.hasAppAccess) { _, hasAccess in
+            guard hasAccess else { return }
+            Task {
+                await monetizationManager.reconcileServerAppAccess()
+            }
+        }
         .onChange(of: authVM.hasRemoteDisplayName) { _, _ in
             advancePostAuthOnboardingPastDisplayNameIfAvailable()
             completePostAuthOnboardingIfRemoteProfileExists()

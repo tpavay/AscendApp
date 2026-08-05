@@ -122,9 +122,13 @@ service firebase.storage {
       allow write: if false;
     }
 
-    // Climb landmark images are read-only from the app.
+    // Climb landmark images are read-only from the app, and deliberately stay
+    // readable before purchase. The `firstClimb` onboarding stage runs before
+    // the paywall and shows the recommended landmark's artwork, so gating this
+    // prefix would break the conversion path itself. Like the Hosting climb
+    // catalog, this is immutable product content with no user data.
     match /climb-images/{allPaths=**} {
-      allow read: if hasPaidAppAccess();
+      allow read: if isSignedIn();
       allow write: if false;
     }
 

@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import test, {before, beforeEach} from "node:test";
 import * as admin from "firebase-admin";
 import {
+  EVENT_RETENTION_MS,
   FirestoreRevenueCatEntitlementStore,
 } from "../../src/revenueCat/firestoreStore.js";
 import {
@@ -21,6 +22,9 @@ import type {
 } from "../../src/revenueCat/types.js";
 
 const NOW = new Date("2026-08-05T12:00:00.000Z");
+// RevenueCat's documented retry ladder finishes 155 minutes after the first
+// delivery, so dedupe evidence must comfortably outlive that window.
+const REVENUECAT_RETRY_WINDOW_MS = 155 * 60 * 1000;
 const uid = "firebase-user-1";
 const eventCollection = "_revenuecat_webhook_events";
 let db: admin.firestore.Firestore;
@@ -42,15 +46,16 @@ beforeEach(async () => {
   await clearCollection(eventCollection);
   await clearCollection(`users/${uid}/entitlements`);
   await clearCollection(`users/${uid}/entitlement_status`);
+  await clearCollection(`users/${uid}/entitlement_reconciliations`);
   await clearCollection("organizations/org-1/entitlements");
 });
 
 test("duplicate webhook delivery is durably idempotent", async () => {
   const event = webhookEvent("event-duplicate");
 
-  assert.equal(
+  assert.deepEqual(
     await store.claimEvent(event, "payload-digest", NOW),
-    "claimed"
+    {outcome: "claimed", claimDigest: "payload-digest"}
   );
   await store.completeEvent(
     event,
@@ -58,9 +63,9 @@ test("duplicate webhook delivery is durably idempotent", async () => {
     [projection(event, NOW.getTime())],
     NOW
   );
-  assert.equal(
+  assert.deepEqual(
     await store.claimEvent(event, "payload-digest", NOW),
-    "duplicate"
+    {outcome: "duplicate", claimDigest: "payload-digest"}
   );
 
   const eventSnapshot = await db.doc(`${eventCollection}/${event.id}`).get();
@@ -70,6 +75,118 @@ test("duplicate webhook delivery is durably idempotent", async () => {
   assert.equal(eventSnapshot.get("status"), "completed");
   assert.equal(eventSnapshot.get("attemptCount"), 1);
   assert.equal(entitlementSnapshot.get("sourceEventId"), event.id);
+});
+
+test("the ledger carries a future retention stamp for the TTL policy", async () => {
+  const event = webhookEvent("event-retention");
+
+  await store.claimEvent(event, "retention-payload", NOW);
+  const claimed = await db.doc(`${eventCollection}/${event.id}`).get();
+  await store.completeEvent(
+    event,
+    "retention-payload",
+    [projection(event, NOW.getTime())],
+    NOW
+  );
+  const completed = await db.doc(`${eventCollection}/${event.id}`).get();
+
+  for (const snapshot of [claimed, completed]) {
+    const retainUntil = snapshot.get("retainUntil");
+    assert.ok(retainUntil instanceof admin.firestore.Timestamp);
+    assert.equal(retainUntil.toMillis(), NOW.getTime() + EVENT_RETENTION_MS);
+    // `receivedAt` is already in the past, so it can never carry the policy.
+    assert.ok(
+      retainUntil.toMillis() - snapshot.get("receivedAt").toMillis() >
+        REVENUECAT_RETRY_WINDOW_MS
+    );
+  }
+});
+
+test("a completed event refuses a redelivery whose bytes differ", async () => {
+  const event = webhookEvent("event-conflicting-complete");
+
+  await store.claimEvent(event, "first-seen-digest", NOW);
+  await store.completeEvent(
+    event,
+    "first-seen-digest",
+    [projection(event, NOW.getTime())],
+    NOW
+  );
+
+  assert.deepEqual(
+    await store.claimEvent(event, "different-bytes-digest", NOW),
+    {outcome: "duplicate", claimDigest: "first-seen-digest"}
+  );
+  const snapshot = await db.doc(`${eventCollection}/${event.id}`).get();
+  assert.equal(snapshot.get("payloadSha256"), "first-seen-digest");
+  assert.equal(snapshot.get("eventType"), event.type);
+  assert.equal(snapshot.get("conflictingPayloadCount"), 1);
+});
+
+test("a failed event is reclaimable when its retry bytes differ", async () => {
+  const event = webhookEvent("event-conflicting-retry");
+
+  await store.claimEvent(event, "first-seen-digest", NOW);
+  await store.failEvent(
+    event.id,
+    "first-seen-digest",
+    "subscriber_fetch_failed",
+    NOW
+  );
+
+  const claim = await store.claimEvent(event, "different-bytes-digest", NOW);
+  assert.deepEqual(claim, {
+    outcome: "claimed",
+    claimDigest: "first-seen-digest",
+  });
+  await store.completeEvent(
+    event,
+    claim.claimDigest,
+    [projection(event, NOW.getTime())],
+    NOW
+  );
+
+  const snapshot = await db.doc(`${eventCollection}/${event.id}`).get();
+  assert.equal(snapshot.get("status"), "completed");
+  assert.equal(snapshot.get("payloadSha256"), "first-seen-digest");
+  assert.equal(snapshot.get("conflictingPayloadCount"), 1);
+  assert.equal(
+    (await db.doc(`users/${uid}/entitlements/app_access`).get()).exists,
+    true
+  );
+});
+
+test("reconciliation writes the same grant the webhook would have", async () => {
+  const recovered = projection(webhookEvent("recovered"), NOW.getTime());
+
+  assert.equal(await store.writeProjection(recovered), true);
+
+  const grant = await db.doc(`users/${uid}/entitlements/app_access`).get();
+  assert.equal(grant.get("isActive"), true);
+  assert.equal(grant.get("uid"), uid);
+
+  const stale = projection(webhookEvent("stale"), NOW.getTime() - 1_000);
+  assert.equal(await store.writeProjection(stale), false);
+  assert.equal(
+    (await db.doc(`users/${uid}/entitlements/app_access`).get())
+      .get("sourceEventId"),
+    "recovered"
+  );
+});
+
+test("reconciliation is rate limited per user by the server", async () => {
+  assert.equal(await store.claimReconciliation(uid, NOW, 60_000), true);
+  assert.equal(await store.claimReconciliation(uid, NOW, 60_000), false);
+  const afterCooldown = new Date(NOW.getTime() + 60_000);
+  assert.equal(
+    await store.claimReconciliation(uid, afterCooldown, 60_000),
+    true
+  );
+
+  const limit = await db.doc(
+    `users/${uid}/entitlement_reconciliations/current`
+  ).get();
+  assert.equal(limit.get("requestCount"), 2);
 });
 
 test("out-of-order webhook completion keeps newer RevenueCat truth", async () => {
@@ -175,6 +292,35 @@ test("the expiry sweep ignores unrelated entitlement collection groups", async (
   assert.equal((await unrelated.get()).exists, true);
 });
 
+test("an older unrelated document cannot starve a real expiry behind it", async () => {
+  // The collection-group query is ordered by accessUntil, so this document sits
+  // at the head of every page. A fixed window would spend its whole budget here
+  // and never reach the grant behind it.
+  const unrelated = db.doc("organizations/org-1/entitlements/app_access");
+  await unrelated.set({
+    accessUntil: admin.firestore.Timestamp.fromMillis(NOW.getTime() - 60_000),
+  });
+
+  const event = webhookEvent("starvation-event");
+  const expired = projection(event, NOW.getTime());
+  expired.expiresAt = new Date(NOW.getTime() - 1_000);
+  expired.accessUntil = new Date(NOW.getTime() - 1_000);
+  await store.claimEvent(event, "starvation-payload", NOW);
+  await store.completeEvent(event, "starvation-payload", [expired], NOW);
+
+  // A one-document page proves the sweep pages past what the filter rejects
+  // rather than discarding the rest of a fixed window.
+  assert.equal(
+    await expireRevenueCatAccessGrants(db, NOW, {pageSize: 1}),
+    1
+  );
+  assert.equal(
+    (await db.doc(`users/${uid}/entitlements/app_access`).get()).exists,
+    false
+  );
+  assert.equal((await unrelated.get()).exists, true);
+});
+
 function webhookEvent(id: string): RevenueCatWebhookEvent {
   return {
     id,
@@ -182,6 +328,7 @@ function webhookEvent(id: string): RevenueCatWebhookEvent {
     appId: "app123",
     eventTimestampMs: NOW.getTime(),
     appUserIds: [uid],
+    identityOverflowCount: 0,
   };
 }
 

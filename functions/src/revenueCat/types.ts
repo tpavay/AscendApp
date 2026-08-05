@@ -13,6 +13,7 @@ export interface RevenueCatWebhookEvent {
   appId: string;
   eventTimestampMs: number;
   appUserIds: string[];
+  identityOverflowCount: number;
 }
 
 export interface RevenueCatSubscriberResponse {
@@ -52,27 +53,36 @@ export interface AppAccessProjection {
 export type WebhookClaimOutcome =
   | "claimed"
   | "duplicate"
-  | "busy"
-  | "conflict";
+  | "busy";
+
+/**
+ * The ledger's first-seen digest is canonical, so a redelivery whose bytes
+ * differ still completes against the digest the ledger already holds.
+ */
+export interface WebhookClaim {
+  outcome: WebhookClaimOutcome;
+  claimDigest: string;
+}
 
 export interface RevenueCatEntitlementStore {
   claimEvent(
     event: RevenueCatWebhookEvent,
     payloadSha256: string,
     now: Date
-  ): Promise<WebhookClaimOutcome>;
+  ): Promise<WebhookClaim>;
   completeEvent(
     event: RevenueCatWebhookEvent,
-    payloadSha256: string,
+    claimDigest: string,
     projections: AppAccessProjection[],
     now: Date
   ): Promise<void>;
   failEvent(
     eventId: string,
-    payloadSha256: string,
+    claimDigest: string,
     errorCode: string,
     now: Date
   ): Promise<void>;
+  writeProjection(projection: AppAccessProjection): Promise<boolean>;
 }
 
 export interface RevenueCatSubscriberClient {
@@ -91,8 +101,15 @@ export interface RevenueCatWebhookDependencies {
   now: () => Date;
 }
 
+export interface RevenueCatReconciliationDependencies {
+  store: Pick<RevenueCatEntitlementStore, "writeProjection">;
+  subscriberClient: RevenueCatSubscriberClient;
+  userVerifier: FirebaseUserVerifier;
+  config: RevenueCatServerConfig;
+  now: () => Date;
+}
+
 export type RevenueCatProcessingOutcome =
   | "processed"
   | "duplicate"
-  | "busy"
-  | "conflict";
+  | "busy";

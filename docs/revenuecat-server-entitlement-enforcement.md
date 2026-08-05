@@ -95,9 +95,14 @@ Superwall remains the paywall presentation and conversion layer, while RevenueCa
 1. RevenueCat sends a POST request with the configured Authorization header and HMAC signature.
 2. `revenueCatWebhook` verifies method, raw-body size, content type, Authorization, signature, five-minute timestamp tolerance, JSON shape, event ID, event timestamp, and expected RevenueCat app ID.
 3. `_revenuecat_webhook_events/{event.id}` is transactionally claimed with a two-minute processing lease.
-The stored payload digest rejects an event ID reused with different bytes.
-4. The function extracts bounded Firebase UID candidates from `app_user_id`, `original_app_user_id`, aliases, and both sides of a transfer.
+First delivery wins: the ledger keeps the digest and event metadata of the delivery that created it, and a redelivery whose bytes differ never overwrites either.
+A conflicting redelivery of a completed event returns duplicate, while a conflicting retry of a failed or lease-expired event is allowed to re-fetch current subscriber truth and complete against the canonical claim.
+Only `conflictingPayloadCount` records that it happened.
+This is deliberate: the request is already Authorization- and HMAC-authenticated, and access is derived from a fresh subscriber fetch rather than from the payload, so refusing the retry forever would strand a real subscriber for a byte difference that changes nothing.
+4. The function extracts bounded Firebase UID candidates from `app_user_id`, `original_app_user_id`, both sides of a transfer, and then aliases.
 RevenueCat anonymous IDs are ignored and every candidate must exist in Firebase Authentication before any subscriber lookup.
+A subscriber who accumulated more than twenty distinct identities is truncated in that order rather than rejected, because a rejected delivery is not retried and would discard the real identities with the surplus aliases.
+Only the overflow count is logged.
 5. The function re-fetches current RevenueCat subscriber state for each verified Firebase UID.
 It does not award access from webhook event fields.
 6. One transaction writes `users/{uid}/entitlement_status/app_access` for audit and ordering.
@@ -109,13 +114,31 @@ The triggering event's order therefore cannot move subscriber state backward.
 A duplicate completed event returns HTTP 200 without a second RevenueCat lookup.
 9. `expireRevenueCatEntitlements` removes a still-present active grant within five minutes after its last verified expiration or grace-period timestamp.
 This fails closed if an expiration webhook is delayed and a concurrent renewal wins through Firestore transaction retry.
+The sweep pages past documents from any other `entitlements` subcollection until it has spent its budget on real `users/{uid}/entitlements/app_access` grants, because the query is ordered by `accessUntil` and a single foreign document with an ancient timestamp would otherwise sit at the head of a fixed window and starve every real expiry behind it.
 
 Webhook failures return a non-2xx response so RevenueCat retries them.
 RevenueCat currently documents five retries after 5, 10, 20, 40, and 80 minutes.
 The processor is safe after a crash because a failed attempt is reclaimable and an abandoned processing lease expires before RevenueCat's first retry.
 
-No raw webhook body, transaction identifier, API key, Authorization value, HMAC secret, or subscriber response is stored or logged.
+No raw webhook body, transaction identifier, API key, Authorization value, HMAC secret, Firebase UID, or subscriber response is stored or logged.
 The event ledger stores only event metadata, a payload digest, processing state, and counts.
+
+Each ledger entry carries `retainUntil`, an explicit thirty-day future timestamp, and a Firestore TTL field override deletes the entry when it passes.
+The dedupe evidence only has to outlive RevenueCat's roughly 155-minute retry ladder, so thirty days is generous while still bounding the collection.
+`receivedAt` cannot carry the policy: it is already in the past when it is written, so every entry would be eligible for deletion the moment it was created.
+
+## Recovering access the webhook never delivered
+
+The webhook is at-least-once, not exactly-once.
+A delivery that never arrived or exhausted RevenueCat's five retries would otherwise leave a paying subscriber locked out of every paid boundary with no in-app remedy, and a brand-new purchase races its very first delivery.
+
+`reconcileAppAccess` is an authenticated callable that re-derives one user's projection from the same RevenueCat subscriber API the webhook uses.
+It acts only on `request.auth.uid`, never reads `request.data`, and accepts no entitlement state, product, expiry, or identity from the caller, so it does not move the trust boundary.
+A server-owned per-user cooldown in `users/{uid}/entitlement_reconciliations/current` keeps a modified client from turning recovery into an unbounded subscriber-API amplifier; a throttled call returns without work and without an error.
+Ordering is the shared `request_date_ms` rule, so a slow reconciliation cannot move access backward.
+
+The app invokes it wherever an active device entitlement can outlive or race webhook delivery: after every entitlement refresh (launch, foreground, identity change), when access flips active mid-session from RevenueCat's customer-info stream, and unconditionally after either restore path.
+The device entitlement check, the hard paywall, and both restore surfaces are unchanged.
 
 ## Backend choke points
 
@@ -132,7 +155,11 @@ Firestore requires an active grant for:
 Storage requires an active grant for:
 
 - Workout photos, videos, and heart-rate sidecars on read, list, create, and update.
-- Share-card template assets, climb images, and Live Replay avatars.
+- Share-card template assets and Live Replay avatars.
+
+`climb-images/` deliberately stays readable to any signed-in caller.
+The `firstClimb` onboarding stage is the last stage before the paywall and shows the recommended landmark's artwork, so gating that prefix would break the conversion path itself.
+Like the Hosting climb catalog, it is immutable product content with no user data, mutable state, or compute authority.
 
 Owner deletes stay available after lapse so paid enforcement never traps user data.
 Account documents, authentication routing, public identity publication, profile-picture management, lifecycle state, communication preferences, notification devices, blocks, reports, feedback, and rate-limit records stay ungated because onboarding, restore, account management, support, and safety must work before purchase and after lapse.
@@ -140,6 +167,7 @@ Public profile identity is moderated public identity rather than paid fitness da
 
 The existing callable Functions are not paid compute choke points.
 Lifecycle and push calls support onboarding and account operation, while paid leaderboard and replay computation is triggered only after a rules-authorized paid data write.
+`reconcileAppAccess` is deliberately available to any signed-in caller, because refusing it to an unpaid caller would refuse it to exactly the subscriber whose grant is missing.
 Static Hosting climb catalog files remain public immutable product content and contain no user data, mutable state, or compute authority.
 
 Firestore's most expensive valid workout already reaches the 1,000-expression evaluation ceiling.
@@ -176,6 +204,7 @@ If it is unavailable, the webhook returns a retry response and preserves the las
 
 - Enabling paid rules before secrets, webhooks, IAM, and existing-subscriber reconciliation creates a backend-wide lockout for legitimate subscribers.
 - A new purchase can pass the device check before its server webhook finishes, causing a brief paid-data denial until the verified projection lands.
+`reconcileAppAccess` closes that window on the app's next refresh, but the two systems are still distributed and the first seconds after a purchase can deny paid data.
 - A refund or revocation before the stored expiration depends on Apple and RevenueCat webhook delivery.
 RevenueCat retries non-2xx deliveries, but a vendor outage can extend the last verified grant until the known expiration sweep removes it.
 - A wrong RevenueCat app filter can send an event to the wrong Firebase project.

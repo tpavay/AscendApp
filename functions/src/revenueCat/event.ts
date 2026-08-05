@@ -57,14 +57,15 @@ export function parseRevenueCatWebhook(
     throw new RevenueCatWebhookValidationError("invalid_event_timestamp");
   }
 
-  const appUserIds = collectAppUserIds(event);
+  const identities = collectAppUserIds(event);
   return {
     event: {
       id: event.id,
       type: event.type,
       appId: expectedAppId,
       eventTimestampMs: event.event_timestamp_ms,
-      appUserIds,
+      appUserIds: identities.appUserIds,
+      identityOverflowCount: identities.overflowCount,
     },
     payloadSha256: createHash("sha256").update(rawBody).digest("hex"),
   };
@@ -77,30 +78,46 @@ export class RevenueCatWebhookValidationError extends Error {
   }
 }
 
-function collectAppUserIds(event: Record<string, unknown>): string[] {
+/**
+ * Collects the bounded Firebase UID candidates an event can reconcile.
+ *
+ * Candidates are ordered by how much access depends on them: the current and
+ * original IDs, then both sides of a transfer, then historical aliases. A
+ * subscriber who accumulated more aliases than the bound is truncated rather
+ * than rejected, because rejecting the delivery would discard the real
+ * identities too and RevenueCat would not retry a 400.
+ * @param {Record<string, unknown>} event - Authenticated event object
+ * @return {{appUserIds: string[], overflowCount: number}} Bounded identities
+ */
+function collectAppUserIds(
+  event: Record<string, unknown>
+): {appUserIds: string[]; overflowCount: number} {
   const candidates: unknown[] = [
     event.app_user_id,
     event.original_app_user_id,
-    ...arrayOrEmpty(event.aliases),
     ...arrayOrEmpty(event.transferred_from),
     ...arrayOrEmpty(event.transferred_to),
+    ...arrayOrEmpty(event.aliases),
   ];
   const identities = new Set<string>();
+  const overflow = new Set<string>();
 
   for (const candidate of candidates) {
     if (typeof candidate !== "string" ||
       candidate.length === 0 ||
       candidate.length > 128 ||
-      candidate.startsWith("$RCAnonymousID:")) {
+      candidate.startsWith("$RCAnonymousID:") ||
+      identities.has(candidate)) {
+      continue;
+    }
+    if (identities.size >= MAX_IDENTITY_COUNT) {
+      overflow.add(candidate);
       continue;
     }
     identities.add(candidate);
-    if (identities.size > MAX_IDENTITY_COUNT) {
-      throw new RevenueCatWebhookValidationError("too_many_app_user_ids");
-    }
   }
 
-  return [...identities];
+  return {appUserIds: [...identities], overflowCount: overflow.size};
 }
 
 function arrayOrEmpty(value: unknown): unknown[] {

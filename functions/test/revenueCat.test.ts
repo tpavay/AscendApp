@@ -9,10 +9,14 @@ import {
   parseRevenueCatWebhook,
   RevenueCatWebhookValidationError,
 } from "../src/revenueCat/event";
+import {processRevenueCatWebhookEvent} from "../src/revenueCat/processor";
 import {
-  processRevenueCatWebhookEvent,
   shouldReplaceProjection,
-} from "../src/revenueCat/processor";
+} from "../src/revenueCat/projectionOrdering";
+import {
+  reconcileAppAccessForUser,
+  UnknownFirebaseUserError,
+} from "../src/revenueCat/reconciliation";
 import {buildAppAccessProjection} from "../src/revenueCat/subscriber";
 import type {
   AppAccessProjection,
@@ -22,7 +26,7 @@ import type {
   RevenueCatSubscriberClient,
   RevenueCatSubscriberResponse,
   RevenueCatWebhookEvent,
-  WebhookClaimOutcome,
+  WebhookClaim,
 } from "../src/revenueCat/types";
 
 const NOW = new Date("2026-08-05T12:00:00.000Z");
@@ -325,6 +329,217 @@ test("out-of-order delivery cannot replace newer subscriber truth", async () => 
   assert.equal(stored?.revenueCatRequestDateMs, NOW_MS + 2_000);
 });
 
+test("more identities than the bound truncate instead of dropping the event", () => {
+  const aliases = Array.from({length: 40}, (_, index) => `alias-${index}`);
+  const parsed = parseRevenueCatWebhook(eventBody({
+    type: "TRANSFER",
+    app_user_id: "firebase-user-1",
+    original_app_user_id: "firebase-user-1",
+    transferred_from: ["firebase-user-from"],
+    transferred_to: ["firebase-user-to"],
+    aliases,
+  }), CONFIG.appId);
+
+  assert.equal(parsed.event.appUserIds.length, 20);
+  // Both transfer sides survive an alias flood: they are collected first.
+  assert.deepEqual(parsed.event.appUserIds.slice(0, 3), [
+    "firebase-user-1",
+    "firebase-user-from",
+    "firebase-user-to",
+  ]);
+  assert.equal(parsed.event.identityOverflowCount, 23);
+  assert.equal(
+    new Set(parsed.event.appUserIds).size,
+    parsed.event.appUserIds.length
+  );
+});
+
+test("a completed event ignores a redelivery whose bytes differ", async () => {
+  const store = new InMemoryEntitlementStore();
+  const subscriberClient = new CountingSubscriberClient(
+    subscriberResponse({productId: "ascend_yearly"})
+  );
+  const dependencies = {
+    store,
+    subscriberClient,
+    userVerifier: new StubUserVerifier(),
+    config: CONFIG,
+    now: () => NOW,
+  };
+
+  assert.equal(await processRevenueCatWebhookEvent(
+    webhookEvent(),
+    "first-seen-digest",
+    dependencies
+  ), "processed");
+  assert.equal(await processRevenueCatWebhookEvent(
+    webhookEvent(),
+    "different-bytes-digest",
+    dependencies
+  ), "duplicate");
+
+  const ledgerEntry = store.events.get("event-123");
+  assert.equal(ledgerEntry?.payloadSha256, "first-seen-digest");
+  assert.equal(ledgerEntry?.conflictingPayloadCount, 1);
+  assert.equal(subscriberClient.fetchCount, 1);
+});
+
+test("a failed event still reconciles when its retry carries different bytes", async () => {
+  const store = new InMemoryEntitlementStore();
+  const subscriberClient = new CountingSubscriberClient(
+    subscriberResponse({productId: "ascend_yearly"})
+  );
+  subscriberClient.failNext = true;
+  const dependencies = {
+    store,
+    subscriberClient,
+    userVerifier: new StubUserVerifier(),
+    config: CONFIG,
+    now: () => NOW,
+  };
+
+  await assert.rejects(processRevenueCatWebhookEvent(
+    webhookEvent(),
+    "first-seen-digest",
+    dependencies
+  ));
+  assert.equal(await processRevenueCatWebhookEvent(
+    webhookEvent(),
+    "different-bytes-digest",
+    dependencies
+  ), "processed");
+
+  const ledgerEntry = store.events.get("event-123");
+  assert.equal(ledgerEntry?.payloadSha256, "first-seen-digest");
+  assert.equal(ledgerEntry?.status, "completed");
+  assert.equal(store.projections.get("firebase-user-1")?.isActive, true);
+});
+
+test("reconciliation recovers access the webhook never delivered", async () => {
+  const store = new InMemoryEntitlementStore();
+  const subscriberClient = new CountingSubscriberClient(
+    subscriberResponse({productId: "ascend_yearly"})
+  );
+
+  const result = await reconcileAppAccessForUser("firebase-user-1", {
+    store,
+    subscriberClient,
+    userVerifier: new StubUserVerifier(),
+    config: CONFIG,
+    now: () => NOW,
+  });
+
+  const stored = store.projections.get("firebase-user-1");
+  assert.equal(result.outcome, "active");
+  assert.equal(result.didReplaceProjection, true);
+  assert.equal(stored?.isActive, true);
+  assert.equal(stored?.uid, "firebase-user-1");
+  assert.equal(stored?.sourceEventType, "CLIENT_RECONCILIATION");
+});
+
+test("reconciliation refuses to grant access RevenueCat does not report", async () => {
+  const store = new InMemoryEntitlementStore();
+  const subscriberClient = new CountingSubscriberClient({
+    requestDateMs: NOW_MS,
+    subscriber: {entitlements: {}, subscriptions: {}},
+  });
+
+  const result = await reconcileAppAccessForUser("firebase-user-1", {
+    store,
+    subscriberClient,
+    userVerifier: new StubUserVerifier(),
+    config: CONFIG,
+    now: () => NOW,
+  });
+
+  assert.equal(result.outcome, "inactive");
+  assert.equal(store.projections.get("firebase-user-1")?.isActive, false);
+});
+
+test("reconciliation only ever derives the caller's own verified identity", async () => {
+  const store = new InMemoryEntitlementStore();
+  const subscriberClient = new RecordingSubscriberClient(
+    subscriberResponse({productId: "ascend_yearly"})
+  );
+
+  await reconcileAppAccessForUser("firebase-user-1", {
+    store,
+    subscriberClient,
+    userVerifier: new StubUserVerifier(),
+    config: CONFIG,
+    now: () => NOW,
+  });
+
+  assert.deepEqual(subscriberClient.requestedAppUserIds, ["firebase-user-1"]);
+  assert.deepEqual([...store.projections.keys()], ["firebase-user-1"]);
+});
+
+test("reconciliation rejects a subject Firebase Authentication does not know", async () => {
+  const store = new InMemoryEntitlementStore();
+  const subscriberClient = new CountingSubscriberClient(
+    subscriberResponse({productId: "ascend_yearly"})
+  );
+
+  await assert.rejects(reconcileAppAccessForUser("ghost-user", {
+    store,
+    subscriberClient,
+    userVerifier: new StubUserVerifier(false),
+    config: CONFIG,
+    now: () => NOW,
+  }), UnknownFirebaseUserError);
+  assert.equal(subscriberClient.fetchCount, 0);
+  assert.equal(store.projections.size, 0);
+});
+
+test("reconciliation surfaces a RevenueCat failure instead of guessing", async () => {
+  const store = new InMemoryEntitlementStore();
+  const subscriberClient = new CountingSubscriberClient(
+    subscriberResponse({productId: "ascend_yearly"})
+  );
+  subscriberClient.failNext = true;
+
+  await assert.rejects(reconcileAppAccessForUser("firebase-user-1", {
+    store,
+    subscriberClient,
+    userVerifier: new StubUserVerifier(),
+    config: CONFIG,
+    now: () => NOW,
+  }));
+  assert.equal(store.projections.size, 0);
+});
+
+test("reconciliation cannot move access back to older subscriber truth", async () => {
+  const store = new InMemoryEntitlementStore();
+  const newer = new CountingSubscriberClient(subscriberResponse({
+    requestDateMs: NOW_MS + 2_000,
+    productId: "ascend_yearly",
+  }));
+  const dependencies = {
+    store,
+    subscriberClient: newer,
+    userVerifier: new StubUserVerifier(),
+    config: CONFIG,
+    now: () => NOW,
+  };
+
+  await reconcileAppAccessForUser("firebase-user-1", dependencies);
+  newer.response = subscriberResponse({
+    requestDateMs: NOW_MS - 2_000,
+    productId: "ascend_yearly",
+    expiresDate: null,
+  });
+  const stale = await reconcileAppAccessForUser(
+    "firebase-user-1",
+    dependencies
+  );
+
+  assert.equal(stale.didReplaceProjection, false);
+  assert.equal(
+    store.projections.get("firebase-user-1")?.revenueCatRequestDateMs,
+    NOW_MS + 2_000
+  );
+});
+
 function signedHeader(body: Buffer, timestamp: number): string {
   const signature = createHmac("sha256", SIGNING_SECRET)
     .update(`${timestamp}.`, "utf8")
@@ -356,6 +571,7 @@ function webhookEvent(
     appId: CONFIG.appId,
     eventTimestampMs: NOW_MS,
     appUserIds: ["firebase-user-1"],
+    identityOverflowCount: 0,
     ...overrides,
   };
 }
@@ -387,8 +603,10 @@ function subscriberResponse(options: {
 }
 
 class StubUserVerifier implements FirebaseUserVerifier {
+  constructor(private readonly exists = true) {}
+
   async isFirebaseUser(): Promise<boolean> {
-    return true;
+    return this.exists;
   }
 }
 
@@ -408,44 +626,61 @@ class CountingSubscriberClient implements RevenueCatSubscriberClient {
   }
 }
 
+class RecordingSubscriberClient implements RevenueCatSubscriberClient {
+  readonly requestedAppUserIds: string[] = [];
+
+  constructor(private readonly response: RevenueCatSubscriberResponse) {}
+
+  async fetchSubscriber(
+    appUserId: string
+  ): Promise<RevenueCatSubscriberResponse> {
+    this.requestedAppUserIds.push(appUserId);
+    return this.response;
+  }
+}
+
 class InMemoryEntitlementStore implements RevenueCatEntitlementStore {
   readonly projections = new Map<string, AppAccessProjection>();
-  private readonly events = new Map<string, {
+  readonly events = new Map<string, {
     payloadSha256: string;
     status: "processing" | "completed" | "failed";
+    conflictingPayloadCount: number;
   }>();
 
   async claimEvent(
     event: RevenueCatWebhookEvent,
     payloadSha256: string
-  ): Promise<WebhookClaimOutcome> {
+  ): Promise<WebhookClaim> {
     const existing = this.events.get(event.id);
     if (!existing) {
-      this.events.set(event.id, {payloadSha256, status: "processing"});
-      return "claimed";
+      this.events.set(event.id, {
+        payloadSha256,
+        status: "processing",
+        conflictingPayloadCount: 0,
+      });
+      return {outcome: "claimed", claimDigest: payloadSha256};
     }
-    if (existing.payloadSha256 !== payloadSha256) {
-      return "conflict";
+
+    const claimDigest = existing.payloadSha256;
+    if (claimDigest !== payloadSha256) {
+      existing.conflictingPayloadCount += 1;
     }
     if (existing.status === "completed") {
-      return "duplicate";
+      return {outcome: "duplicate", claimDigest};
     }
     existing.status = "processing";
-    return "claimed";
+    return {outcome: "claimed", claimDigest};
   }
 
   async completeEvent(
     event: RevenueCatWebhookEvent,
-    payloadSha256: string,
+    claimDigest: string,
     projections: AppAccessProjection[]
   ): Promise<void> {
     const storedEvent = this.events.get(event.id);
-    assert.equal(storedEvent?.payloadSha256, payloadSha256);
+    assert.equal(storedEvent?.payloadSha256, claimDigest);
     for (const projection of projections) {
-      const existing = this.projections.get(projection.uid);
-      if (shouldReplaceProjection(existing, projection)) {
-        this.projections.set(projection.uid, projection);
-      }
+      await this.writeProjection(projection);
     }
     if (storedEvent) {
       storedEvent.status = "completed";
@@ -454,12 +689,24 @@ class InMemoryEntitlementStore implements RevenueCatEntitlementStore {
 
   async failEvent(
     eventId: string,
-    payloadSha256: string
+    claimDigest: string
   ): Promise<void> {
     const event = this.events.get(eventId);
-    assert.equal(event?.payloadSha256, payloadSha256);
+    assert.equal(event?.payloadSha256, claimDigest);
     if (event) {
       event.status = "failed";
     }
+  }
+
+  async writeProjection(projection: AppAccessProjection): Promise<boolean> {
+    const existing = this.projections.get(projection.uid);
+    if (!shouldReplaceProjection(
+      existing?.revenueCatRequestDateMs,
+      projection
+    )) {
+      return false;
+    }
+    this.projections.set(projection.uid, projection);
+    return true;
   }
 }

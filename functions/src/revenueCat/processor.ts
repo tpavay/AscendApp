@@ -1,5 +1,4 @@
 import type {
-  AppAccessProjection,
   RevenueCatProcessingOutcome,
   RevenueCatWebhookDependencies,
   RevenueCatWebhookEvent,
@@ -24,8 +23,8 @@ export async function processRevenueCatWebhookEvent(
     payloadSha256,
     startedAt
   );
-  if (claim !== "claimed") {
-    return claim;
+  if (claim.outcome !== "claimed") {
+    return claim.outcome;
   }
 
   try {
@@ -47,7 +46,7 @@ export async function processRevenueCatWebhookEvent(
     }));
     await dependencies.store.completeEvent(
       event,
-      payloadSha256,
+      claim.claimDigest,
       projections,
       dependencies.now()
     );
@@ -55,7 +54,7 @@ export async function processRevenueCatWebhookEvent(
   } catch (error) {
     await dependencies.store.failEvent(
       event.id,
-      payloadSha256,
+      claim.claimDigest,
       errorCode(error),
       dependencies.now()
     );
@@ -84,12 +83,4 @@ function errorCode(error: unknown): string {
     }
   }
   return "processing_failed";
-}
-
-export function shouldReplaceProjection(
-  existing: AppAccessProjection | undefined,
-  candidate: AppAccessProjection
-): boolean {
-  return !existing ||
-    candidate.revenueCatRequestDateMs >= existing.revenueCatRequestDateMs;
 }

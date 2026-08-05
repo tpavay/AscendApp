@@ -19,6 +19,7 @@ const paidUserId = 'paid-user-123';
 const unpaidUserId = 'unpaid-user-456';
 const leaderboardPath = 'leaderboard_stats/weekly_2026-W32_paid-user-123';
 const climbImagePath = 'climb-images/gateway-arch/hero.jpg';
+const shareCardTemplatePath = 'share-card-templates/podium/background.jpg';
 const imageBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
 
 let testEnv;
@@ -61,6 +62,11 @@ beforeEach(async () => {
       imageBytes,
       { contentType: 'image/jpeg' }
     );
+    await uploadBytes(
+      ref(adminContext.storage(), shareCardTemplatePath),
+      imageBytes,
+      { contentType: 'image/jpeg' }
+    );
   });
 });
 
@@ -80,16 +86,32 @@ test('a caller with active app_access can read the paid leaderboard', async () =
   await assertSucceeds(getDoc(doc(context.firestore(), leaderboardPath)));
 });
 
-test('an authenticated but unpaid caller cannot download paid climb media', async () => {
+test('an authenticated but unpaid caller cannot download paid media', async () => {
   const context = testEnv.authenticatedContext(unpaidUserId);
 
-  await assertFails(getBytes(ref(context.storage(), climbImagePath)));
+  await assertFails(getBytes(ref(context.storage(), shareCardTemplatePath)));
 });
 
-test('a caller with active app_access can download paid climb media', async () => {
+test('a caller with active app_access can download paid media', async () => {
   const context = testEnv.authenticatedContext(paidUserId);
 
+  await assertSucceeds(getBytes(ref(context.storage(), shareCardTemplatePath)));
+});
+
+// The `firstClimb` onboarding stage recommends a landmark and shows its artwork
+// before the paywall, so a brand-new unpaid account has to be able to finish
+// onboarding. Paid media above stays closed to the same caller.
+test('a new unpaid account can still load the onboarding climb artwork', async () => {
+  const context = testEnv.authenticatedContext(unpaidUserId);
+
   await assertSucceeds(getBytes(ref(context.storage(), climbImagePath)));
+  await assertFails(getBytes(ref(context.storage(), shareCardTemplatePath)));
+});
+
+test('an unauthenticated caller cannot load the onboarding climb artwork', async () => {
+  const context = testEnv.unauthenticatedContext();
+
+  await assertFails(getBytes(ref(context.storage(), climbImagePath)));
 });
 
 test('a caller cannot forge or inspect the server-owned access projection', async () => {
@@ -117,5 +139,12 @@ test('webhook dedupe records and inactive status are server-only', async () => {
   await assertFails(setDoc(
     doc(context.firestore(), '_revenuecat_webhook_events/forged-event'),
     { status: 'completed' }
+  ));
+  await assertFails(setDoc(
+    doc(
+      context.firestore(),
+      `users/${paidUserId}/entitlement_reconciliations/current`
+    ),
+    { lastReconciledAt: new Date('1970-01-01T00:00:00.000Z') }
   ));
 });
