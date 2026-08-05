@@ -24,10 +24,10 @@ The two missing Live Replay indexes are both collection-scoped `entries` indexes
 The current query filters per-climb and per-routine live races with `isBestForUser == true`, then reads the window ahead in ascending `stepsAtBucket` order and the window behind in descending order.
 Both matching definitions already exist exactly once in `firestore.indexes.json` after rebasing onto current `develop`, so this preparation does not add duplicates.
 
-Current `develop` declares 13 composite indexes because later work also added the `workouts(source, climbId)` projection index and the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index.
-It also declares five field overrides, for `blocked.blockedUid`, `entries.userId`, `finishers.userId`, `entitlements.accessUntil`, and `_revenuecat_webhook_events.retainUntil`.
+Current `develop` declares 15 composite indexes because later work also added the `workouts(source, climbId)` projection index, the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index, and the two `_revenuecat_analytics_outbox` delivery-queue indexes (`status + readyAt` and `status + processingStartedAt`).
+It also declares six field overrides, for `blocked.blockedUid`, `entries.userId`, `finishers.userId`, `entitlements.accessUntil`, `_revenuecat_webhook_events.retainUntil`, and `_revenuecat_analytics_outbox.retainUntil`.
 The first four carry a `COLLECTION_GROUP` scope, and `entries.userId` additionally restates its ascending and descending `COLLECTION`-scoped single-field indexes.
-`_revenuecat_webhook_events.retainUntil` declares no index at all: it exists to carry the TTL policy that expires the webhook dedupe ledger.
+The two `retainUntil` overrides declare no index at all: they exist to carry the TTL policies that expire the webhook dedupe ledger and the analytics outbox.
 That restatement is required because a field override replaces the field's entire index configuration, and the server's best-entry reconciliation still queries `entries` by `userId` inside a single leaderboard.
 The production workflow waits until every composite index and every scope inside every field override reports `READY` before Functions deploy.
 
@@ -108,9 +108,9 @@ The workflow performs the following order automatically:
 3. Build and retain the signed production IPA.
 4. Build the Functions and Hosting artifacts.
 5. Deploy Firestore indexes.
-6. Poll the Firestore Admin API until all 13 composite indexes and every declared query scope inside all five field overrides report `READY`.
+6. Poll the Firestore Admin API until all 15 composite indexes and every declared query scope inside all six field overrides report `READY`.
 7. Deploy Functions.
-8. Verify `cleanupDeletedUserData`, `expireRevenueCatEntitlements`, `onPublicIdentityPropagationJobWritten`, `onPublicProfileIdentityWritten`, `onWorkoutWritten`, `onWorkoutReplaySplitsWritten`, `reconcileAppAccess`, `revenueCatWebhook`, and `unsubscribeFromEmails` report `ACTIVE`.
+8. Verify `cleanupDeletedUserData`, `expireRevenueCatEntitlements`, `onPublicIdentityPropagationJobWritten`, `onPublicProfileIdentityWritten`, `onWorkoutWritten`, `onWorkoutReplaySplitsWritten`, `processRevenueCatAnalyticsOutbox`, `reconcileAppAccess`, `revenueCatWebhook`, and `unsubscribeFromEmails` report `ACTIVE`.
 9. Reconcile the whole deployed function set against this ref's `functions/src/index.ts` exports, failing on any missing, orphaned, or non-`ACTIVE` function.
 10. Deploy Firestore rules.
 11. Deploy Storage rules.
@@ -141,7 +141,7 @@ npx -y firebase-tools@15.22.1 deploy --project production \
 ```
 
 Verify the deployment does not request deletion of an unexpected index.
-Then wait for every declared index, including both `isBestForUser + stepsAtBucket` directions and all five field overrides, to become usable:
+Then wait for every declared index, including both `isBestForUser + stepsAtBucket` directions and all six field overrides, to become usable:
 
 ```sh
 firebase_bin="$(npm exec --yes --package=firebase-tools@15.22.1 -- which firebase)"
@@ -212,7 +212,7 @@ npx -y firebase-tools@15.22.1 deploy --project production \
 
 `--force` is intentionally scoped to Functions so the deployed set matches `functions/src/index.ts` without making rules, indexes, Storage, or Hosting destructive.
 
-Verify the nine gate-critical functions are active:
+Verify the ten gate-critical functions are active:
 
 ```sh
 npx -y firebase-tools@15.22.1 --json functions:list \
@@ -224,12 +224,13 @@ npx -y firebase-tools@15.22.1 --json functions:list \
       onPublicProfileIdentityWritten \
       onWorkoutWritten \
       onWorkoutReplaySplitsWritten \
+      processRevenueCatAnalyticsOutbox \
       reconcileAppAccess \
       revenueCatWebhook \
       unsubscribeFromEmails
 ```
 
-That list is curated, so it proves those nine exports and says nothing about the rest of the project.
+That list is curated, so it proves those ten exports and says nothing about the rest of the project.
 Then reconcile the whole deployed set against the checked-out source, which is what catches a function nobody thought to add to the curated list and one deleted from source but still serving traffic:
 
 ```sh
