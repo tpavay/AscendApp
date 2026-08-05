@@ -60,7 +60,7 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
     }
 }
 
-enum OnboardingFlowCompletionReason: String, Equatable, Sendable {
+enum OnboardingFlowCompletionReason: String, Codable, Equatable, Sendable {
     case purchase
     case restore
     case existingEntitlement = "existing_entitlement"

@@ -2,6 +2,28 @@ import Foundation
 import Testing
 @testable import AscendApp
 
+/// Grant provenance is persisted with the pass it describes, so any test that reads a completion
+/// reason has to own its storage rather than inherit whatever the simulator's shared defaults hold.
+@MainActor
+private struct OnboardingLifecycleFixture {
+    let suiteName: String
+    let defaults: UserDefaults
+
+    init() {
+        suiteName = "MonetizationManagerPaywallTests.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    func makeLifecycle() -> OnboardingFlowAnalyticsCoordinator {
+        OnboardingFlowAnalyticsCoordinator(userDefaults: defaults)
+    }
+
+    func cleanUp() {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+}
+
 @MainActor
 struct MonetizationManagerPaywallTests {
     @Test
@@ -36,6 +58,9 @@ struct MonetizationManagerPaywallTests {
 
     @Test
     func allowsAccessWithActiveAppAccessEntitlementWhenBuildSettingIsDisabled() {
+        let fixture = OnboardingLifecycleFixture()
+        defer { fixture.cleanUp() }
+
         let manager = MonetizationManager(
             configuration: MonetizationConfiguration(
                 infoDictionary: [
@@ -45,7 +70,8 @@ struct MonetizationManagerPaywallTests {
             entitlementService: EntitlementServiceStub(
                 entitlementState: .active(["app_access"])
             ),
-            paywallPresenter: PaywallPresenterSpy()
+            paywallPresenter: PaywallPresenterSpy(),
+            onboardingLifecycle: fixture.makeLifecycle()
         )
 
         #expect(manager.hasAppAccess)
@@ -54,11 +80,15 @@ struct MonetizationManagerPaywallTests {
 
     @Test
     func purchaseReasonIsAttributedFromTheReportedPaywallOutcome() {
+        let fixture = OnboardingLifecycleFixture()
+        defer { fixture.cleanUp() }
+
         let entitlementService = EntitlementServiceStub()
         let paywallPresenter = PaywallPresenterSpy()
         let manager = MonetizationManager(
             entitlementService: entitlementService,
-            paywallPresenter: paywallPresenter
+            paywallPresenter: paywallPresenter,
+            onboardingLifecycle: fixture.makeLifecycle()
         )
 
         manager.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
@@ -74,11 +104,15 @@ struct MonetizationManagerPaywallTests {
     /// real outcome arrives too late to correct.
     @Test
     func noReasonIsReportedWhileThePaywallOutcomeIsStillPending() {
+        let fixture = OnboardingLifecycleFixture()
+        defer { fixture.cleanUp() }
+
         let entitlementService = EntitlementServiceStub()
         let paywallPresenter = PaywallPresenterSpy()
         let manager = MonetizationManager(
             entitlementService: entitlementService,
-            paywallPresenter: paywallPresenter
+            paywallPresenter: paywallPresenter,
+            onboardingLifecycle: fixture.makeLifecycle()
         )
 
         manager.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
@@ -96,11 +130,15 @@ struct MonetizationManagerPaywallTests {
     /// still in flight, and the answer has to wait for what the restore itself reports.
     @Test
     func noReasonIsReportedWhileARestoreIsStillInFlight() async throws {
+        let fixture = OnboardingLifecycleFixture()
+        defer { fixture.cleanUp() }
+
         let entitlementService = EntitlementServiceStub()
         entitlementService.restoredState = .active(["app_access"])
         let manager = MonetizationManager(
             entitlementService: entitlementService,
-            paywallPresenter: PaywallPresenterSpy()
+            paywallPresenter: PaywallPresenterSpy(),
+            onboardingLifecycle: fixture.makeLifecycle()
         )
 
         entitlementService.onRestoreStarted = {
@@ -117,10 +155,14 @@ struct MonetizationManagerPaywallTests {
     /// the climber waits on a result that will never arrive.
     @Test
     func anUnpresentablePaywallClosesItsOwnRequest() {
+        let fixture = OnboardingLifecycleFixture()
+        defer { fixture.cleanUp() }
+
         let entitlementService = EntitlementServiceStub()
         let manager = MonetizationManager(
             entitlementService: entitlementService,
-            paywallPresenter: PaywallPresenterSpy(isConfigured: false)
+            paywallPresenter: PaywallPresenterSpy(isConfigured: false),
+            onboardingLifecycle: fixture.makeLifecycle()
         )
 
         manager.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
@@ -135,11 +177,15 @@ struct MonetizationManagerPaywallTests {
     /// what turned it on.
     @Test
     func accessGrantedAfterAPaywallOutcomeThatReportedNothingIsStillAPurchase() {
+        let fixture = OnboardingLifecycleFixture()
+        defer { fixture.cleanUp() }
+
         let entitlementService = EntitlementServiceStub()
         let paywallPresenter = PaywallPresenterSpy()
         let manager = MonetizationManager(
             entitlementService: entitlementService,
-            paywallPresenter: paywallPresenter
+            paywallPresenter: paywallPresenter,
+            onboardingLifecycle: fixture.makeLifecycle()
         )
 
         manager.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
@@ -151,10 +197,14 @@ struct MonetizationManagerPaywallTests {
 
     @Test
     func restoreThatFoundNothingDoesNotMakeALaterGrantLookPreExisting() async throws {
+        let fixture = OnboardingLifecycleFixture()
+        defer { fixture.cleanUp() }
+
         let entitlementService = EntitlementServiceStub()
         let manager = MonetizationManager(
             entitlementService: entitlementService,
-            paywallPresenter: PaywallPresenterSpy()
+            paywallPresenter: PaywallPresenterSpy(),
+            onboardingLifecycle: fixture.makeLifecycle()
         )
 
         try await manager.restorePurchases()
@@ -165,11 +215,15 @@ struct MonetizationManagerPaywallTests {
 
     @Test
     func restoreReasonIsRecordedOnlyAfterRestoredAccessIsActive() async throws {
+        let fixture = OnboardingLifecycleFixture()
+        defer { fixture.cleanUp() }
+
         let entitlementService = EntitlementServiceStub()
         entitlementService.restoredState = .active(["app_access"])
         let manager = MonetizationManager(
             entitlementService: entitlementService,
-            paywallPresenter: PaywallPresenterSpy()
+            paywallPresenter: PaywallPresenterSpy(),
+            onboardingLifecycle: fixture.makeLifecycle()
         )
 
         #expect(manager.onboardingCompletionReasonForActiveAccess == nil)
@@ -181,23 +235,22 @@ struct MonetizationManagerPaywallTests {
         #expect(manager.onboardingCompletionReasonForActiveAccess == .restore)
     }
 
-    /// An identity change starts a new pass, so nothing the previous identity's paywall did may
-    /// attribute the next climber's access.
+    /// A second account replaces the pass outright, and the grant provenance is part of that pass,
+    /// so nothing the previous climber's paywall did may attribute the next climber's access.
     @Test
-    func anIdentityChangeClearsTheGrantEvidenceOfThePreviousPass() {
-        let suiteName = "MonetizationManagerPaywallTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defaults.removePersistentDomain(forName: suiteName)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+    func replacingTheAccountClearsTheGrantEvidenceOfThePreviousPass() {
+        let fixture = OnboardingLifecycleFixture()
+        defer { fixture.cleanUp() }
 
         let entitlementService = EntitlementServiceStub()
         let paywallPresenter = PaywallPresenterSpy()
         let manager = MonetizationManager(
             entitlementService: entitlementService,
             paywallPresenter: paywallPresenter,
-            onboardingLifecycle: OnboardingFlowAnalyticsCoordinator(userDefaults: defaults)
+            onboardingLifecycle: fixture.makeLifecycle()
         )
 
+        manager.prepareIdentity(userId: "climber-a")
         manager.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
         paywallPresenter.send(.purchased)
 

@@ -255,6 +255,42 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
         #expect(fixture.records(named: "onboarding_flow_completed").count == 2)
     }
 
+    /// The StoreKit sheet is exactly where a climber backgrounds or kills the app, so the purchase
+    /// has to outlive the process that recorded it. Every runtime dependency is rebuilt here; only
+    /// the persisted pass carries the answer across.
+    @Test
+    func aPurchaseRecordedBeforeProcessDeathStillCompletesAsAPurchase() {
+        let fixture = makeFixture()
+        defer { fixture.cleanUp() }
+
+        fixture.startPassAndRecordPaywallOutcome(.purchased)
+
+        #expect(fixture.completionReasonAfterProcessRestart() == .string("purchase"))
+    }
+
+    @Test
+    func aRestoreRecordedBeforeProcessDeathStillCompletesAsARestore() {
+        let fixture = makeFixture()
+        defer { fixture.cleanUp() }
+
+        fixture.startPassAndRecordPaywallOutcome(.restored)
+
+        #expect(fixture.completionReasonAfterProcessRestart() == .string("restore"))
+    }
+
+    /// A request the process died holding can never report, so the next process closes it rather
+    /// than deferring a completion nothing is left to release - and the access it finds is still
+    /// the grant this pass asked for, never an entitlement the climber arrived with.
+    @Test
+    func aRequestLeftInFlightByADeadProcessStillCompletesAsAGrant() {
+        let fixture = makeFixture()
+        defer { fixture.cleanUp() }
+
+        fixture.startPassAndRecordPaywallOutcome(nil)
+
+        #expect(fixture.completionReasonAfterProcessRestart() == .string("purchase"))
+    }
+
     /// A completed pass gives way to the next one without a manual reset, so a climber who finishes
     /// onboarding and later walks the flow again is counted as a second pass rather than silence.
     @Test
@@ -338,6 +374,51 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
                 userDefaults: defaults,
                 telemetry: telemetry
             )
+        }
+
+        /// Opens a pass, reaches the paywall, and lets it report `outcome` - or nothing at all,
+        /// which is what a process that dies on the purchase sheet leaves behind.
+        @MainActor
+        func startPassAndRecordPaywallOutcome(_ outcome: PaywallPresentationOutcome?) {
+            coordinator.recordFlowStartedIfNeeded(context: OnboardingAnalyticsEvent.welcomeContext)
+
+            let paywallPresenter = PaywallPresenterSpy()
+            let monetization = MonetizationManager(
+                entitlementService: EntitlementServiceStub(),
+                paywallPresenter: paywallPresenter,
+                telemetry: telemetry,
+                onboardingLifecycle: coordinator
+            )
+            monetization.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
+
+            if let outcome {
+                paywallPresenter.send(outcome)
+            }
+        }
+
+        /// Rebuilds every runtime dependency over the persisted pass - the coordinator and the
+        /// monetization manager both - and completes from whatever the new process can work out.
+        @MainActor
+        func completionReasonAfterProcessRestart() -> TelemetryValue? {
+            let relaunchedCoordinator = makeRelaunchedCoordinator()
+            let relaunchedMonetization = MonetizationManager(
+                entitlementService: EntitlementServiceStub(
+                    entitlementState: .active(["app_access"])
+                ),
+                paywallPresenter: PaywallPresenterSpy(),
+                telemetry: telemetry,
+                onboardingLifecycle: relaunchedCoordinator
+            )
+
+            guard let reason = relaunchedMonetization.onboardingCompletionReasonForActiveAccess else {
+                return nil
+            }
+
+            relaunchedCoordinator.recordFlowCompletedIfNeeded(reason: reason)
+
+            let completed = records(named: "onboarding_flow_completed")
+            #expect(completed.count == 1)
+            return completed.first?.parameters["completion_reason"]
         }
 
         func cleanUp() {

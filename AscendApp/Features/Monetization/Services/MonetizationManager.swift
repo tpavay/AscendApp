@@ -23,10 +23,6 @@ final class MonetizationManager: MonetizationIdentityManaging {
     @ObservationIgnored
     private var preparedIdentityTransition: MonetizationIdentityTransition?
     private(set) var configuration: MonetizationConfiguration
-    /// Tracks whether this identity has asked to buy or restore access it does not yet have, and
-    /// what that request finally reported. Attribution is read from the request's own result, never
-    /// inferred from when the entitlement happened to turn active.
-    private var onboardingAccessGrantRequest: OnboardingAccessGrantRequest = .notRequested
     #if DEBUG
     private(set) var debugForcesAppAccessPaywall: Bool
     #endif
@@ -77,7 +73,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
             return nil
         }
 
-        switch onboardingAccessGrantRequest {
+        switch onboardingLifecycle.accessGrantProvenance {
         case .notRequested:
             // Access this pass never asked for is access the climber already held.
             return .existingEntitlement
@@ -127,11 +123,10 @@ final class MonetizationManager: MonetizationIdentityManaging {
         if identifiedUserID != userId {
             identifiedUserID = userId
             onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
-            onboardingAccessGrantRequest = .notRequested
         }
 
         // The pass that opened before auth belongs to whoever just claimed it; a different account
-        // retires it rather than inheriting its start.
+        // retires it, and the grant provenance it was carrying, rather than inheriting either.
         onboardingLifecycle.adoptPassOwner(userId)
 
         let transition = entitlementService.prepareIdentity(userId: userId)
@@ -163,7 +158,6 @@ final class MonetizationManager: MonetizationIdentityManaging {
         // change starts a new pass, so the recorder cannot outlive the identity it was filled for.
         identifiedUserID = nil
         onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
-        onboardingAccessGrantRequest = .notRequested
         onboardingLifecycle.retireAdoptedPass()
 
         let transition = entitlementService.prepareIdentityReset()
@@ -308,24 +302,22 @@ final class MonetizationManager: MonetizationIdentityManaging {
         )
     }
 
+    /// Access that is already active is access this pass never had to ask for, so the request is
+    /// only opened when there is something to grant.
     private func beginOnboardingAccessGrantRequest() {
         guard !entitlementStateForRouting.hasActiveEntitlement(
             configuration.revenueCatEntitlementID
         ) else { return }
 
-        onboardingAccessGrantRequest = .pending
+        onboardingLifecycle.beginAccessGrantRequest()
     }
 
     private func recordOnboardingAccessGranted(_ reason: OnboardingFlowCompletionReason) {
-        onboardingAccessGrantRequest = .resolved(reason)
+        onboardingLifecycle.recordAccessGranted(reason)
     }
 
-    /// Closes the pending request without attributing anything, so a climber whose paywall
-    /// reported nothing is never left waiting on a result that will not arrive.
     private func recordOnboardingAccessGrantRequestReportedNothing() {
-        guard onboardingAccessGrantRequest == .pending else { return }
-
-        onboardingAccessGrantRequest = .resolved(nil)
+        onboardingLifecycle.recordAccessGrantRequestReportedNothing()
     }
 
     /// Only an outcome that names how access was granted may attribute one. A dismissal, a skip or
@@ -343,11 +335,4 @@ final class MonetizationManager: MonetizationIdentityManaging {
             break
         }
     }
-}
-
-private enum OnboardingAccessGrantRequest: Equatable {
-    case notRequested
-    case pending
-    /// `nil` when the request closed without naming how access was granted.
-    case resolved(OnboardingFlowCompletionReason?)
 }
