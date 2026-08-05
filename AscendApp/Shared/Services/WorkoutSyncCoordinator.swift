@@ -10,19 +10,86 @@ final class WorkoutSyncCoordinator {
     private let heartRateStorageRepository: any WorkoutHeartRateStorageRepositoryProtocol
     private let featureFlags: RemoteFeatureFlagStore
     private let operationTimeoutSeconds: Double
+    private let connectivityService: NetworkConnectivityService
+    private let now: () -> Date
     private var isProcessingPendingWorkouts = false
     private var shouldProcessPendingWorkoutsAgain = false
+
+    /// Workouts the climber has personally asked to sync, and the ones currently in flight.
+    ///
+    /// Both live here rather than in a view's `@State` because a tab switch or a navigation would
+    /// otherwise discard them while the operation kept running - the surface would forget it had
+    /// been asked, and the control would unlock under a request that was still going.
+    private var manuallyRequestedWorkoutIds: Set<UUID> = []
+    private(set) var inFlightWorkoutIds: Set<UUID> = []
+
+    /// Workouts whose climber has seen the warning, so the transient `Synced` confirmation is only
+    /// ever shown to someone who was told there was a problem. In-memory on purpose: losing it on
+    /// relaunch costs a confirmation, never a warning.
+    private(set) var warnedWorkoutIds: Set<UUID> = []
 
     init(
         remoteRepository: any WorkoutRemoteRepositoryProtocol = WorkoutRemoteRepository.shared,
         heartRateStorageRepository: any WorkoutHeartRateStorageRepositoryProtocol = WorkoutHeartRateStorageRepository.shared,
         featureFlags: RemoteFeatureFlagStore = .shared,
-        operationTimeoutSeconds: Double = 15.0
+        operationTimeoutSeconds: Double = 15.0,
+        connectivityService: NetworkConnectivityService = .shared,
+        now: @escaping () -> Date = Date.init
     ) {
         self.remoteRepository = remoteRepository
         self.heartRateStorageRepository = heartRateStorageRepository
         self.featureFlags = featureFlags
         self.operationTimeoutSeconds = operationTimeoutSeconds
+        self.connectivityService = connectivityService
+        self.now = now
+    }
+
+    /// One tap, one Ascend-level attempt, unlimited and never exhausting.
+    ///
+    /// Deliberately does not touch the automatic series: a manual retry re-offers the same payload
+    /// revision, so resetting the schedule it bypasses would let taps launder the stopping policy.
+    func retryNow(
+        workoutId: UUID,
+        modelContext: ModelContext,
+        currentUserId: String
+    ) async {
+        guard !inFlightWorkoutIds.contains(workoutId) else { return }
+
+        manuallyRequestedWorkoutIds.insert(workoutId)
+        warnedWorkoutIds.insert(workoutId)
+        await processPendingWorkouts(modelContext: modelContext, currentUserId: currentUserId)
+        manuallyRequestedWorkoutIds.remove(workoutId)
+    }
+
+    /// What the surface renders, derived from whether the climb is in the cloud - never from what
+    /// the retry machinery happens to be doing.
+    func syncPresentation(
+        for workout: Workout,
+        modelContext: ModelContext
+    ) -> WorkoutSyncPresentation {
+        if workout.isSyncedToCloud {
+            return warnedWorkoutIds.contains(workout.id) ? .synced : .hidden
+        }
+
+        if inFlightWorkoutIds.contains(workout.id) {
+            // The row keeps saying `Couldn't sync this climb` while the control says `SYNCING`, so
+            // tapping can never make the warning disappear.
+            return warnedWorkoutIds.contains(workout.id) ? .couldNotSyncRetrying : .syncing
+        }
+
+        let entry = try? outboxEntry(
+            forWorkoutId: workout.id,
+            ownerUserId: workout.ownerUserId ?? "",
+            createIfMissing: false,
+            modelContext: modelContext
+        )
+
+        let needsAttention = workout.remoteSyncStatus == .rejected ||
+            (entry?.requiresAttention(now: now()) ?? false)
+        guard needsAttention else { return .syncing }
+
+        warnedWorkoutIds.insert(workout.id)
+        return connectivityService.isConnected ? .couldNotSync : .couldNotSyncOffline
     }
 
     func enqueuePendingDeletions(
@@ -74,8 +141,10 @@ final class WorkoutSyncCoordinator {
             return
         }
 
+        isProcessingPendingWorkouts = true
+        defer { isProcessingPendingWorkouts = false }
+
         repeat {
-            isProcessingPendingWorkouts = true
             shouldProcessPendingWorkoutsAgain = false
 
             do {
@@ -95,8 +164,15 @@ final class WorkoutSyncCoordinator {
                     : []
 
                 for snapshot in snapshots {
+                    inFlightWorkoutIds.insert(snapshot.workoutId)
+                    defer { inFlightWorkoutIds.remove(snapshot.workoutId) }
+
                     do {
                         let heartRateSeries = try await sync(snapshot)
+                        // Only a completed remote write gets here. Firestore's `setData` completion
+                        // does not fire while offline and fires only after the backend commits, so
+                        // reaching this line is the server acknowledgement - not merely a request
+                        // having been sent.
                         try markSynced(
                             workoutId: snapshot.workoutId,
                             userId: snapshot.userId,
@@ -104,9 +180,31 @@ final class WorkoutSyncCoordinator {
                             heartRateSeries: heartRateSeries,
                             modelContext: modelContext
                         )
+                        try clearOutboxEntry(forWorkoutId: snapshot.workoutId, modelContext: modelContext)
                     } catch {
-                        recordSyncFailure(error, workoutId: snapshot.workoutId)
-                        try? markFailed(
+                        let category = WorkoutSyncFailureClassifier.category(
+                            for: error,
+                            isConnected: connectivityService.isConnected
+                        )
+
+                        // A teardown is not a verdict. It consumes no attempt, reports nothing, and
+                        // abandons the rest of the pass rather than running it against a dying
+                        // task - recording these is what turned one stuck workout into 499 events.
+                        if category == .cancelled || Task.isCancelled {
+                            try? recordAttemptOutcome(
+                                category,
+                                workoutId: snapshot.workoutId,
+                                userId: snapshot.userId,
+                                expectedModifiedAt: snapshot.lastModifiedAt,
+                                errorMessage: error.localizedDescription,
+                                modelContext: modelContext
+                            )
+                            return
+                        }
+
+                        recordSyncFailure(error, workoutId: snapshot.workoutId, category: category)
+                        try? recordAttemptOutcome(
+                            category,
                             workoutId: snapshot.workoutId,
                             userId: snapshot.userId,
                             expectedModifiedAt: snapshot.lastModifiedAt,
@@ -116,10 +214,14 @@ final class WorkoutSyncCoordinator {
                     }
                 }
             } catch {
-                recordSyncFailure(error, workoutId: nil)
+                if WorkoutSyncFailureClassifier.category(
+                    for: error,
+                    isConnected: connectivityService.isConnected
+                ) == .cancelled || Task.isCancelled {
+                    return
+                }
+                recordSyncFailure(error, workoutId: nil, category: .transient)
             }
-
-            isProcessingPendingWorkouts = false
         } while shouldProcessPendingWorkoutsAgain
     }
 }
@@ -260,11 +362,26 @@ private extension WorkoutSyncCoordinator {
             sortBy: [SortDescriptor(\Workout.lastModifiedAt)]
         )
 
+        let now = self.now()
         let workouts = try modelContext.fetch(descriptor)
             .filter { workout in
                 guard !pendingDeletionIds.contains(workout.id) else { return false }
-                let status = workout.remoteSyncStatus
-                return status == .pendingUpsert || status == .failed
+                guard workout.remoteSyncStatus != .synced else { return false }
+
+                // A climber's tap bypasses the due date for exactly one attempt. Everything else
+                // waits for its persisted no-earlier-than time, which is what stops seven trigger
+                // surfaces from spending the whole series in one millisecond.
+                if manuallyRequestedWorkoutIds.contains(workout.id) { return true }
+                guard workout.remoteSyncStatus != .rejected else { return false }
+
+                let entry = try? outboxEntry(
+                    forWorkoutId: workout.id,
+                    ownerUserId: currentUserId,
+                    createIfMissing: false,
+                    modelContext: modelContext
+                )
+                guard let entry else { return true }
+                return entry.isDueForAutomaticAttempt(now: now)
             }
 
         var snapshots: [WorkoutRemoteSyncSnapshot] = []
@@ -283,6 +400,87 @@ private extension WorkoutSyncCoordinator {
         }
 
         return snapshots
+    }
+
+    /// The persisted schedule for one workout, created on first need.
+    ///
+    /// A workout that predates this build simply has no entry, which reads as "never attempted" -
+    /// the same state a brand-new workout is in, and correct.
+    func outboxEntry(
+        forWorkoutId workoutId: UUID,
+        ownerUserId: String,
+        createIfMissing: Bool,
+        modelContext: ModelContext
+    ) throws -> WorkoutSyncOutboxEntry? {
+        let descriptor = FetchDescriptor<WorkoutSyncOutboxEntry>(
+            predicate: #Predicate<WorkoutSyncOutboxEntry> { entry in
+                entry.workoutId == workoutId
+            }
+        )
+
+        if let existing = try modelContext.fetch(descriptor).first { return existing }
+        guard createIfMissing else { return nil }
+
+        let entry = WorkoutSyncOutboxEntry(
+            workoutId: workoutId,
+            ownerUserId: ownerUserId,
+            firstPendingAt: now()
+        )
+        modelContext.insert(entry)
+        return entry
+    }
+
+    /// Drops the schedule once the cloud has acknowledged the workout. Nothing is left to retry.
+    func clearOutboxEntry(forWorkoutId workoutId: UUID, modelContext: ModelContext) throws {
+        let descriptor = FetchDescriptor<WorkoutSyncOutboxEntry>(
+            predicate: #Predicate<WorkoutSyncOutboxEntry> { entry in
+                entry.workoutId == workoutId
+            }
+        )
+
+        for entry in try modelContext.fetch(descriptor) {
+            modelContext.delete(entry)
+        }
+        try modelContext.save()
+    }
+
+    /// Records a genuine remote outcome against the persisted schedule.
+    ///
+    /// Cancellation and offline deliberately reach here too, so the recorded blocker is accurate,
+    /// but they consume no attempt and do not move the due date.
+    func recordAttemptOutcome(
+        _ category: WorkoutSyncFailureCategory,
+        workoutId: UUID,
+        userId: String,
+        expectedModifiedAt: Date,
+        errorMessage: String,
+        modelContext: ModelContext
+    ) throws {
+        guard let workout = try Self.fetchWorkout(
+            workoutId: workoutId,
+            userId: userId,
+            modelContext: modelContext
+        ) else { return }
+
+        guard workout.lastModifiedAt <= expectedModifiedAt else { return }
+
+        let entry = try outboxEntry(
+            forWorkoutId: workoutId,
+            ownerUserId: userId,
+            createIfMissing: true,
+            modelContext: modelContext
+        )
+        entry?.recordFailure(category: category, now: now())
+
+        workout.lastRemoteSyncError = errorMessage
+        // `rejected` means only that the automatic series has stopped. It is not "unfixable" and
+        // never hides the workout: manual retry stays unlimited, and the surface reads
+        // `isSyncedToCloud`, so the warning survives whichever status this leaves behind.
+        workout.remoteSyncStatus = (entry?.hasStoppedAutomaticAttempts(now: now()) ?? false)
+            ? .rejected
+            : .failed
+
+        try modelContext.save()
     }
 
     func loadPendingDeletions(
@@ -319,25 +517,6 @@ private extension WorkoutSyncCoordinator {
         try modelContext.save()
     }
 
-    func markFailed(
-        workoutId: UUID,
-        userId: String,
-        expectedModifiedAt: Date,
-        errorMessage: String,
-        modelContext: ModelContext
-    ) throws {
-        guard let workout = try Self.fetchWorkout(
-            workoutId: workoutId,
-            userId: userId,
-            modelContext: modelContext
-        ) else { return }
-
-        guard workout.lastModifiedAt <= expectedModifiedAt else { return }
-
-        workout.markRemoteSyncFailed(errorMessage)
-        try modelContext.save()
-    }
-
     static func fetchWorkout(
         workoutId: UUID,
         userId: String,
@@ -351,8 +530,14 @@ private extension WorkoutSyncCoordinator {
         return try modelContext.fetch(descriptor).first
     }
 
-    func recordSyncFailure(_ error: Error, workoutId: UUID?) {
-        let additionalInfo = workoutId.map { ["workout_id": $0.uuidString] }
+    func recordSyncFailure(
+        _ error: Error,
+        workoutId: UUID?,
+        category: WorkoutSyncFailureCategory
+    ) {
+        var additionalInfo = workoutId.map { ["workout_id": $0.uuidString] } ?? [:]
+        additionalInfo["sync_failure_category"] = category.rawValue
+
         let context: TelemetryManager.ErrorContext
         let code: String
 
