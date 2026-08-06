@@ -402,7 +402,7 @@ struct RootView: View {
     }
 }
 
-private struct AccountDataConflictView: View {
+struct AccountDataConflictView: View {
     let conflict: AccountDataOwnershipConflict
     let onSignOut: () -> Void
 
