@@ -10,7 +10,7 @@ protocol ClimbDropNotificationStateClient: AnyObject {
     func authorizationStatus() async -> UNAuthorizationStatus
     func requestDuringOnboarding() async -> UNAuthorizationStatus
     func enable() async -> UNAuthorizationStatus
-    func disable() async
+    func disable() async -> UNAuthorizationStatus
     func openSystemNotificationSettings()
 }
 
@@ -21,23 +21,26 @@ final class LiveClimbDropNotificationStateClient: ClimbDropNotificationStateClie
     }
 
     func authorizationStatus() async -> UNAuthorizationStatus {
-        await ClimbDropNotificationPermissionController.authorizationStatus()
+        await PushNotificationService.shared.authorizationStatus()
     }
 
+    /// Requests permission from the onboarding opt-in screen. Unlike `enable`, a prior
+    /// denial must never deep-link to system settings - leaving the app mid-onboarding
+    /// strands the flow.
     func requestDuringOnboarding() async -> UNAuthorizationStatus {
-        await ClimbDropNotificationPermissionController.requestDuringOnboarding()
+        await PushNotificationService.shared.requestClimbDropNotifications(opensSettingsWhenDenied: false)
     }
 
     func enable() async -> UNAuthorizationStatus {
-        await ClimbDropNotificationPermissionController.enable()
+        await PushNotificationService.shared.requestClimbDropNotifications(opensSettingsWhenDenied: true)
     }
 
-    func disable() async {
-        await ClimbDropNotificationPermissionController.disable()
+    func disable() async -> UNAuthorizationStatus {
+        await PushNotificationService.shared.disableClimbDropNotifications()
     }
 
     func openSystemNotificationSettings() {
-        ClimbDropNotificationPermissionController.openSystemNotificationSettings()
+        PushNotificationService.shared.openSystemNotificationSettings()
     }
 }
 
@@ -46,6 +49,15 @@ final class LiveClimbDropNotificationStateClient: ClimbDropNotificationStateClie
 /// iOS authorization and the in-app climb-drop preference are separate inputs, but views must
 /// never interpret them independently. This state owns that interpretation and publishes every
 /// permission or preference transition to all mounted surfaces.
+///
+/// The two inputs never overwrite each other. The stored preference is what the climber asked
+/// for; iOS authorization is only whether the system will currently deliver it. A denial
+/// suppresses delivery and is reported as such, and leaves the preference exactly as chosen.
+///
+/// Reading iOS authorization costs a lifecycle callable, so surfaces never read it themselves and
+/// never own a refresh trigger of their own: this state reads once when the first surface needs an
+/// answer, once per foreground - the only way authorization changes behind the app's back - and
+/// once per mutation, however many surfaces are mounted.
 @MainActor
 @Observable
 final class ClimbDropNotificationState {
@@ -56,7 +68,11 @@ final class ClimbDropNotificationState {
     private(set) var isUpdating = false
 
     @ObservationIgnored private let client: any ClimbDropNotificationStateClient
-    @ObservationIgnored private var preferenceChangeCancellable: AnyCancellable?
+    @ObservationIgnored private var environmentChangeCancellables: Set<AnyCancellable> = []
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshGeneration = 0
+    @ObservationIgnored private var mutationTask: Task<UNAuthorizationStatus, Never>?
+    @ObservationIgnored private var mutationGeneration = 0
     @ObservationIgnored private var stateRevision = 0
 
     var isEnabled: Bool {
@@ -71,24 +87,95 @@ final class ClimbDropNotificationState {
         return isEnabled == false
     }
 
+    /// True when the climber asked for climb drops but iOS will not deliver them, so a surface can
+    /// say delivery is blocked rather than implying the preference is live.
+    var isBlockedBySystemSettings: Bool {
+        authorizationStatus == .denied
+    }
+
     init(
         client: any ClimbDropNotificationStateClient,
-        observesPreferenceChanges: Bool = true
+        observesEnvironmentChanges: Bool = true
     ) {
         self.client = client
         isPreferenceEnabled = client.isPreferenceEnabled
 
-        guard observesPreferenceChanges else { return }
-        preferenceChangeCancellable = NotificationCenter.default
+        guard observesEnvironmentChanges else { return }
+
+        NotificationCenter.default
             .publisher(for: .climbDropNotificationPreferenceDidChange)
             .sink { [weak self] _ in
                 Task { @MainActor [weak self] in
                     self?.synchronizePreferenceSnapshot()
                 }
             }
+            .store(in: &environmentChangeCancellables)
+
+        NotificationCenter.default
+            .publisher(for: UIApplication.willEnterForegroundNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.refresh()
+                }
+            }
+            .store(in: &environmentChangeCancellables)
+    }
+
+    /// Resolves authorization the first time a surface needs it, and stays quiet on every later
+    /// mount. What a surface reads afterwards is kept current by the foreground read and by the
+    /// mutations, so remounting is not a reason to pay for another read.
+    func refreshIfNeeded() async {
+        guard authorizationStatus == nil else { return }
+        await refresh()
     }
 
     func refresh() async {
+        if let refreshTask {
+            await refreshTask.value
+            return
+        }
+
+        refreshGeneration += 1
+        let generation = refreshGeneration
+        let task = Task { @MainActor in
+            await self.readAuthorizationStatus()
+        }
+        refreshTask = task
+        await task.value
+
+        if refreshGeneration == generation {
+            refreshTask = nil
+        }
+    }
+
+    @discardableResult
+    func requestDuringOnboarding() async -> UNAuthorizationStatus {
+        await performUpdate(.requestDuringOnboarding)
+    }
+
+    @discardableResult
+    func enable() async -> UNAuthorizationStatus {
+        await performUpdate(.enable)
+    }
+
+    @discardableResult
+    func disable() async -> UNAuthorizationStatus {
+        await performUpdate(.disable)
+    }
+
+    func openSystemNotificationSettings() {
+        client.openSystemNotificationSettings()
+    }
+
+    /// Drops the deleted account's preference so the next climber's first render asks fresh.
+    /// Deletion has already cleared the backing store; only this in-memory mirror survives it.
+    /// iOS authorization is device state rather than account state, so it is left alone.
+    func resetAfterAccountDeletion() {
+        stateRevision += 1
+        isPreferenceEnabled = client.isPreferenceEnabled
+    }
+
+    private func readAuthorizationStatus() async {
         guard isUpdating == false else { return }
         let revision = stateRevision
         let status = await client.authorizationStatus()
@@ -96,49 +183,42 @@ final class ClimbDropNotificationState {
         apply(status: status)
     }
 
-    @discardableResult
-    func requestDuringOnboarding() async -> UNAuthorizationStatus {
-        await performUpdate { client in
-            await client.requestDuringOnboarding()
+    /// Runs mutations one at a time, queueing rather than dropping. Onboarding branches its
+    /// telemetry and its user property on what comes back, so a request that never happened must
+    /// never return a status that reads like an answer.
+    private func performUpdate(_ mutation: Mutation) async -> UNAuthorizationStatus {
+        let precedingUpdate = mutationTask
+        let task = Task { @MainActor in
+            _ = await precedingUpdate?.value
+            return await self.run(mutation)
         }
-    }
 
-    @discardableResult
-    func enable() async -> UNAuthorizationStatus {
-        await performUpdate { client in
-            await client.enable()
-        }
-    }
-
-    func disable() async {
-        guard isUpdating == false else { return }
+        mutationTask = task
+        mutationGeneration += 1
+        let generation = mutationGeneration
         isUpdating = true
         stateRevision += 1
-        defer { isUpdating = false }
 
-        await client.disable()
-        isPreferenceEnabled = client.isPreferenceEnabled
-        authorizationStatus = await client.authorizationStatus()
-    }
+        let status = await task.value
 
-    func openSystemNotificationSettings() {
-        client.openSystemNotificationSettings()
-    }
-
-    private func performUpdate(
-        _ operation: (any ClimbDropNotificationStateClient) async -> UNAuthorizationStatus
-    ) async -> UNAuthorizationStatus {
-        guard isUpdating == false else {
-            return authorizationStatus ?? .notDetermined
+        if mutationGeneration == generation {
+            mutationTask = nil
+            isUpdating = false
         }
 
-        isUpdating = true
-        stateRevision += 1
-        defer { isUpdating = false }
-
-        let status = await operation(client)
         apply(status: status)
         return status
+    }
+
+    private func run(_ mutation: Mutation) async -> UNAuthorizationStatus {
+        switch mutation {
+        case .requestDuringOnboarding:
+            await client.requestDuringOnboarding()
+        case .enable:
+            await client.enable()
+        case .disable:
+            await client.disable()
+        }
     }
 
     private func apply(status: UNAuthorizationStatus) {
@@ -148,5 +228,11 @@ final class ClimbDropNotificationState {
 
     private func synchronizePreferenceSnapshot() {
         isPreferenceEnabled = client.isPreferenceEnabled
+    }
+
+    private enum Mutation {
+        case requestDuringOnboarding
+        case enable
+        case disable
     }
 }

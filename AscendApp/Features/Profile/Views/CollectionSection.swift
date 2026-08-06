@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 import UserNotifications
 
 struct CollectionSection: View {
@@ -121,13 +120,7 @@ struct ClimbsCollectionView: View {
         }
         .task {
             guard mode == .own else { return }
-            await notificationState.refresh()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            guard mode == .own else { return }
-            Task {
-                await notificationState.refresh()
-            }
+            await notificationState.refreshIfNeeded()
         }
     }
 

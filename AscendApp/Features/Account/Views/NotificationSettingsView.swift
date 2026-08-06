@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 import UserNotifications
 
 struct NotificationSettingsView: View {
@@ -46,12 +45,7 @@ struct NotificationSettingsView: View {
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .task {
-            await notificationState.refresh()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            Task {
-                await notificationState.refresh()
-            }
+            await notificationState.refreshIfNeeded()
         }
     }
 
@@ -67,9 +61,9 @@ struct NotificationSettingsView: View {
                     .font(.montserratSemiBold(size: 16))
                     .foregroundStyle(.white)
 
-                Text("A new landmark opens in the catalog.")
+                Text(climbDropDetail)
                     .font(.montserratRegular(size: 13))
-                    .foregroundStyle(.white.opacity(0.64))
+                    .foregroundStyle(notificationState.isBlockedBySystemSettings ? Color.orange : Color.white.opacity(0.64))
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -185,6 +179,16 @@ struct NotificationSettingsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    /// The stored preference stays exactly as the climber set it while iOS is refusing delivery,
+    /// so the row says delivery is blocked rather than letting an on toggle read as deliverable.
+    private var climbDropDetail: String {
+        guard notificationState.isBlockedBySystemSettings else {
+            return "A new landmark opens in the catalog."
+        }
+
+        return "Blocked in iOS. Nothing sends until you turn notifications back on."
     }
 
     private var shouldShowSystemSettingsAction: Bool {

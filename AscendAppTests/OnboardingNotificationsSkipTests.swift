@@ -31,7 +31,7 @@ struct OnboardingNotificationsSkipTests {
         let service = SkipRecordingEmailPreferencesService()
         let optIn = OnboardingEmailOptInViewModel(service: service)
 
-        let statusBefore = await ClimbDropNotificationPermissionController.authorizationStatus()
+        let statusBefore = await PushNotificationService.shared.authorizationStatus()
 
         try await hostNotificationsStep(emailOptIn: optIn) { root in
             #expect(optIn.isSelected, "The box ships ticked")
@@ -44,7 +44,7 @@ struct OnboardingNotificationsSkipTests {
         report("box left ticked, Skip pressed", recorded: decisions)
 
         // Skip declines push; it must not be a second way to ask for it.
-        let statusAfter = await ClimbDropNotificationPermissionController.authorizationStatus()
+        let statusAfter = await PushNotificationService.shared.authorizationStatus()
         #expect(statusAfter == statusBefore)
     }
 
@@ -81,44 +81,38 @@ struct OnboardingNotificationsSkipTests {
         let pushPreference = ClimbDropNotificationPreferenceStore.isEnabled
         defer { ClimbDropNotificationPreferenceStore.isEnabled = pushPreference }
 
-        // SwiftUI builds its accessibility tree only while an assistive
-        // technology is listening; with nothing listening a hosted screen
-        // publishes no elements at all and there is no control to press. The
-        // flag is process-wide, so it goes back off as soon as this step is
-        // done with it.
-        setAccessibilityAutomationEnabled(true)
-        defer { setAccessibilityAutomationEnabled(false) }
-
-        let size = CGSize(width: 402, height: 874)
-        let controller = UIHostingController(
-            rootView: PostAuthNotificationScreen(
-                stage: .notifications,
-                onBack: {},
-                onContinue: {},
-                emailOptIn: emailOptIn
+        try await withAccessibilityAutomation {
+            let size = CGSize(width: 402, height: 874)
+            let controller = UIHostingController(
+                rootView: PostAuthNotificationScreen(
+                    stage: .notifications,
+                    onBack: {},
+                    onContinue: {},
+                    emailOptIn: emailOptIn
+                )
+                .frame(width: size.width, height: size.height)
             )
-            .frame(width: size.width, height: size.height)
-        )
-        controller.view.frame = CGRect(origin: .zero, size: size)
+            controller.view.frame = CGRect(origin: .zero, size: size)
 
-        let window = UIWindow(frame: controller.view.frame)
-        window.overrideUserInterfaceStyle = .dark
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        defer { window.isHidden = true }
+            let window = UIWindow(frame: controller.view.frame)
+            window.overrideUserInterfaceStyle = .dark
+            window.rootViewController = controller
+            window.makeKeyAndVisible()
+            defer { window.isHidden = true }
 
-        for _ in 0..<8 {
-            controller.view.setNeedsLayout()
-            controller.view.layoutIfNeeded()
-            try await Task.sleep(for: .milliseconds(50))
-        }
+            for _ in 0..<8 {
+                controller.view.setNeedsLayout()
+                controller.view.layoutIfNeeded()
+                try await Task.sleep(for: .milliseconds(50))
+            }
 
-        try whileOnScreen(controller.view)
+            try whileOnScreen(controller.view)
 
-        // The button handlers hop through their own tasks before the write
-        // starts, so the screen stays up long enough for them to get there.
-        for _ in 0..<8 {
-            try await Task.sleep(for: .milliseconds(50))
+            // The button handlers hop through their own tasks before the write
+            // starts, so the screen stays up long enough for them to get there.
+            for _ in 0..<8 {
+                try await Task.sleep(for: .milliseconds(50))
+            }
         }
     }
 
@@ -169,50 +163,6 @@ struct OnboardingNotificationsSkipTests {
         )
 
         #expect(element.accessibilityActivate())
-    }
-
-    /// Turns the in-process accessibility runtime on, the way UI automation
-    /// does. There is no public switch for it, and without it a hosted SwiftUI
-    /// screen has no accessibility tree for a test to reach into.
-    private func setAccessibilityAutomationEnabled(_ isEnabled: Bool) {
-        typealias SetAutomationEnabled = @convention(c) (Bool) -> Void
-
-        guard
-            let library = dlopen("/usr/lib/libAccessibility.dylib", RTLD_NOW),
-            let symbol = dlsym(library, "_AXSSetAutomationEnabled")
-        else {
-            Issue.record("The accessibility runtime could not be started")
-            return
-        }
-
-        unsafeBitCast(symbol, to: SetAutomationEnabled.self)(isEnabled)
-    }
-
-    private func accessibilityElements(under root: UIView) -> [NSObject] {
-        var found: [NSObject] = []
-
-        func visit(_ node: NSObject) {
-            let count = node.accessibilityElementCount()
-            if count != NSNotFound {
-                for index in 0..<count {
-                    guard let child = node.accessibilityElement(at: index) as? NSObject else {
-                        continue
-                    }
-
-                    found.append(child)
-                    visit(child)
-                }
-            }
-
-            if let view = node as? UIView {
-                for subview in view.subviews {
-                    visit(subview)
-                }
-            }
-        }
-
-        visit(root)
-        return found
     }
 }
 

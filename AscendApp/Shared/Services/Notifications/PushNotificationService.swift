@@ -68,9 +68,12 @@ final class PushNotificationService: NSObject, MessagingDelegate {
         return status
     }
 
-    func disableClimbDropNotifications() async {
+    @discardableResult
+    func disableClimbDropNotifications() async -> UNAuthorizationStatus {
         ClimbDropNotificationPreferenceStore.isEnabled = false
-        await synchronizePreferenceAndDevice(authorizationStatus: await authorizationStatus())
+        let status = await authorizationStatus()
+        await synchronizePreferenceAndDevice(authorizationStatus: status)
+        return status
     }
 
     func synchronizeAuthenticatedDeviceIfNeeded() async {
@@ -85,13 +88,11 @@ final class PushNotificationService: NSObject, MessagingDelegate {
             return
         }
 
+        // The stored preference is what the climber asked for; the authorization status is
+        // whether iOS will currently deliver it. Both travel to the backend as they stand -
+        // a denial reports itself and never rewrites the answer it was refusing.
         let syncTask = Task {
             let status = await authorizationStatus()
-
-            if status == .denied, ClimbDropNotificationPreferenceStore.isEnabled {
-                ClimbDropNotificationPreferenceStore.isEnabled = false
-            }
-
             await synchronizePreferenceAndDevice(authorizationStatus: status)
         }
         inFlightSyncTask = syncTask

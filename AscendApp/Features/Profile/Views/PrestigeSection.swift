@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// Merged competitive-prestige shelf: First Ascents held + leaderboard achievement bands,
 /// shown as a horizontal row of earned badges rather than a stack of cards. When nothing is
@@ -68,13 +67,7 @@ struct PrestigeSection: View {
         }
         .task {
             guard mode == .own else { return }
-            await notificationState.refresh()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            guard mode == .own else { return }
-            Task {
-                await notificationState.refresh()
-            }
+            await notificationState.refreshIfNeeded()
         }
     }
 
@@ -210,7 +203,7 @@ struct PrestigeSection: View {
             return "No badges yet. Top a leaderboard or claim a First Ascent and your case starts filling."
         }
 
-        guard notificationState.shouldPromptForEnablement else {
+        guard mode == .own, notificationState.shouldPromptForEnablement else {
             return "\(open.count) First Ascents still open. Be first up when the next climb drops."
         }
 
