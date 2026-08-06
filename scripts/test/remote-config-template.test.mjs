@@ -41,6 +41,7 @@ function parameterSource(fileName) {
 
 const flagSource = parameterSource("RemoteFeatureFlag.swift");
 const settingSource = parameterSource("RemoteConfigSetting.swift");
+const appVersionSource = parameterSource("RemoteAppVersionParameter.swift");
 
 test("every checked-in parameter ships in its healthy shape", () => {
   assert.ok(Object.keys(templateParameters(localTemplate)).length > 0);
@@ -190,6 +191,15 @@ test("a setting is held to its own shape contract, not the kill-switch one", () 
   assert.ok(problems.some((problem) => problem.includes("healthy baseline")));
 });
 
+test("minimum and recommended app versions ship as inert strings", () => {
+  for (const key of ["minimum_supported_app_version", "recommended_app_version"]) {
+    assert.ok(isSettingParameter(key));
+    assert.ok(appFlagKeys(appVersionSource).includes(key));
+    assert.equal(localTemplate.parameters[key].valueType, "STRING");
+    assert.equal(localTemplate.parameters[key].defaultValue.value, "0.0.0");
+  }
+});
+
 test("a flag the app reads with no parameter behind it is reported", () => {
   const problems = flagParityProblems({parameters: {}}, 'case newSwitch = "new_switch_enabled"');
 
@@ -299,9 +309,9 @@ test("both RemoteConfig enums declare keys the published check covers", () => {
 test("a setting missing from the live backend fails the archive like a switch does", () => {
   const live = {
     parameters: Object.fromEntries(
-      appFlagKeys(flagSource).map((key) => [
+      [...appFlagKeys(flagSource), ...appFlagKeys(appVersionSource)].map((key) => [
         key,
-        { valueType: "BOOLEAN", defaultValue: { value: "true" } },
+        localTemplate.parameters[key],
       ]),
     ),
   };
@@ -313,6 +323,17 @@ test("a setting missing from the live backend fails the archive like a switch do
 
   assert.equal(problems.length, 1);
   assert.match(problems[0], /workout_sync_recovery_epoch is missing from the live template/);
+});
+
+test("captain-only version parameters remain mandatory in the live archive check", () => {
+  const versionKeys = appFlagKeys(appVersionSource);
+  const problems = unpublishedFlagProblems({}, versionKeys);
+
+  assert.equal(problems.length, 2);
+  for (const key of versionKeys) {
+    assert.ok(problems.some((problem) => problem.includes(key)));
+  }
+  assert.deepEqual(unpublishedFlagProblems(localTemplate, versionKeys), []);
 });
 
 test("a setting published at its own declared type is not reported as mistyped", () => {

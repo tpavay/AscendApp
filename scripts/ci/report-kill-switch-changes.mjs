@@ -28,6 +28,7 @@ import {annotate, summarize} from "../lib/ci-annotations.mjs";
 import {
   APP_PARAMETER_SOURCE_PATHS,
   flagParityProblems,
+  isAutomaticallyPublishedParameter,
   killSwitchChanges,
   templateParameters,
   templateShapeProblems,
@@ -98,7 +99,9 @@ function main() {
     process.exit(1);
   }
 
-  const currentKeys = Object.keys(templateParameters(localTemplate)).sort();
+  const currentKeys = Object.keys(templateParameters(localTemplate))
+    .filter(isAutomaticallyPublishedParameter)
+    .sort();
   const baseTemplate = templateAtBase(args.baseRef);
 
   if (baseTemplate === null) {

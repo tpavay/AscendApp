@@ -60,6 +60,18 @@ final class FirebaseRemoteFeatureFlagSource: RemoteFeatureFlagSource, @unchecked
         remoteSourcedValues()
     }
 
+    func appVersionValues() -> [String: String] {
+        var values: [String: String] = [:]
+
+        for parameter in RemoteAppVersionParameter.allCases {
+            let configValue = remoteConfig.configValue(forKey: parameter.key)
+            guard configValue.source == .remote else { continue }
+            values[parameter.key] = configValue.stringValue
+        }
+
+        return values
+    }
+
     func startListening(onUpdate: @escaping @Sendable ([String: Bool]) -> Void) {
         let newRegistration = remoteConfig.addOnConfigUpdateListener { [weak self] _, error in
             guard let self else { return }

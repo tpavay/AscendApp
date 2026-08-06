@@ -27,8 +27,27 @@ import {isDeepStrictEqual} from "node:util";
  * unstick the workouts a rules fix repairs.
  */
 export const SETTING_PARAMETERS = Object.freeze({
+  minimum_supported_app_version: Object.freeze({ valueType: "STRING", healthyDefault: "0.0.0" }),
+  recommended_app_version: Object.freeze({ valueType: "STRING", healthyDefault: "0.0.0" }),
   workout_sync_recovery_epoch: Object.freeze({ valueType: "NUMBER", healthyDefault: "0" }),
 });
+
+/**
+ * Parameters whose first publish and every later change are captain operations.
+ *
+ * The minimum version can lock out the installed base and App Review. The recommended version
+ * still changes launch UX for every matching build. They stay in the checked-in template and the
+ * archive-to-live validation, but the additive kill-switch workflow must never publish or report
+ * them as an automatic dev/staging addition.
+ */
+export const CAPTAIN_ONLY_PARAMETERS = Object.freeze([
+  "minimum_supported_app_version",
+  "recommended_app_version",
+]);
+
+export function isAutomaticallyPublishedParameter(key) {
+  return !CAPTAIN_ONLY_PARAMETERS.includes(key);
+}
 
 export function isSettingParameter(key) {
   return Object.hasOwn(SETTING_PARAMETERS, key);
@@ -37,13 +56,14 @@ export function isSettingParameter(key) {
 /**
  * Every Swift source whose enum raw values are Remote Config parameter keys.
  *
- * Repo-relative and exported so no caller has to remember there are two. `appFlagKeys` is
+ * Repo-relative and exported so no caller has to remember every catalog. `appFlagKeys` is
  * happy to parse one file, and a check that quietly parses only the flags is indistinguishable
  * from one that passes.
  */
 export const APP_PARAMETER_SOURCE_PATHS = Object.freeze([
   "AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift",
   "AscendApp/Shared/Services/RemoteConfig/RemoteConfigSetting.swift",
+  "AscendApp/Shared/Services/RemoteConfig/RemoteAppVersionParameter.swift",
 ]);
 
 /** The value type the live backend must declare for one managed parameter. */
@@ -111,13 +131,14 @@ export function templateVersionNumber(template) {
 export function findActiveKillSwitches(liveTemplate, localTemplate) {
   const liveParameters = templateParameters(liveTemplate);
   return Object.keys(templateParameters(localTemplate))
+    .filter((key) => !isSettingParameter(key))
     .filter((key) => isParameterOff(liveParameters[key]))
     .sort();
 }
 
 /**
  * The Remote Config parameter keys the app actually reads, parsed out of
- * `RemoteFeatureFlag.swift` and `RemoteConfigSetting.swift`. Both enums' raw values ARE the
+ * The Remote Config catalog enums. Their raw values ARE the
  * keys, so the Swift sources are the one authority on what the app looks for; deriving them
  * keeps every check honest when a flag or a setting is added.
  *
@@ -295,8 +316,12 @@ export function templateShapeProblems(localTemplate) {
  * switch dropped from this file stays in three consoles until somebody removes it by hand.
  */
 export function killSwitchChanges(baseTemplate, currentTemplate) {
-  const baseKeys = Object.keys(templateParameters(baseTemplate)).sort();
-  const currentKeys = Object.keys(templateParameters(currentTemplate)).sort();
+  const baseKeys = Object.keys(templateParameters(baseTemplate))
+    .filter(isAutomaticallyPublishedParameter)
+    .sort();
+  const currentKeys = Object.keys(templateParameters(currentTemplate))
+    .filter(isAutomaticallyPublishedParameter)
+    .sort();
 
   return {
     added: currentKeys.filter((key) => !baseKeys.includes(key)),
@@ -361,6 +386,7 @@ export function additiveMerge(liveTemplate, localTemplate) {
   const liveParameters = templateParameters(liveTemplate);
   const localParameters = templateParameters(localTemplate);
   const missingKeys = Object.keys(localParameters)
+    .filter(isAutomaticallyPublishedParameter)
     .filter((key) => liveParameters[key] === undefined)
     .sort();
 
@@ -395,7 +421,9 @@ export function additiveMerge(liveTemplate, localTemplate) {
 export function additivePublishPlan(liveTemplate, localTemplate) {
   const liveParameters = templateParameters(liveTemplate);
   const localParameters = templateParameters(localTemplate);
-  const managedKeys = Object.keys(localParameters).sort();
+  const managedKeys = Object.keys(localParameters)
+    .filter(isAutomaticallyPublishedParameter)
+    .sort();
 
   const {missingKeys, mergedTemplate} = additiveMerge(liveTemplate, localTemplate);
   const activeKillSwitches = findActiveKillSwitches(liveTemplate, localTemplate);

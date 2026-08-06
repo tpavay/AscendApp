@@ -12,13 +12,21 @@ final class RemoteFeatureFlagService {
 
     private let source: any RemoteFeatureFlagSource
     private let store: RemoteFeatureFlagStore
+    private let appVersionGateState: AppVersionGateState
+    private let appMarketingVersionProvider: AppMarketingVersionProvider
+    private let lifecycleCoordinator: RemoteFeatureFlagLifecycleCoordinator
     private let diagnostics: AppDiagnosticsRecorder
     private var refreshTask: Task<Void, Never>?
+    private var refreshGeneration: UInt64 = 0
     private var isListening = false
 
     /// Whether a fetch has ever succeeded on this launch. `false` means every flag is running on
     /// its shipped default or on a value the SDK persisted from a previous launch.
     private(set) var hasCompletedInitialFetch = false
+
+    /// Counts refresh requests synchronously, before their asynchronous fetch begins. This exposes
+    /// the lifecycle trigger boundary to deterministic tests without coupling them to task timing.
+    private(set) var refreshRequestCount = 0
 
     /// Whether any flag is currently resolved from a backend-supplied value, whether that arrived
     /// on this launch or was seeded from the SDK's persisted activation. Only used to say honestly
@@ -28,15 +36,25 @@ final class RemoteFeatureFlagService {
     init(
         source: any RemoteFeatureFlagSource,
         store: RemoteFeatureFlagStore = .shared,
+        appVersionGateState: AppVersionGateState = AppVersionGateState(),
+        appMarketingVersionProvider: AppMarketingVersionProvider = .init { nil },
+        lifecycleCoordinator: RemoteFeatureFlagLifecycleCoordinator = .init(),
         diagnostics: AppDiagnosticsRecorder = .shared
     ) {
         self.source = source
         self.store = store
+        self.appVersionGateState = appVersionGateState
+        self.appMarketingVersionProvider = appMarketingVersionProvider
+        self.lifecycleCoordinator = lifecycleCoordinator
         self.diagnostics = diagnostics
     }
 
     private convenience init() {
-        self.init(source: FirebaseRemoteFeatureFlagSource())
+        self.init(
+            source: FirebaseRemoteFeatureFlagSource(),
+            appVersionGateState: .shared,
+            appMarketingVersionProvider: .mainBundle
+        )
     }
 
     /// Seeds the store from the SDK's persisted activation, then starts the real-time listener and
@@ -48,30 +66,45 @@ final class RemoteFeatureFlagService {
     func configure() {
         seedFromPersistedActivation()
         startListeningIfNeeded()
+        lifecycleCoordinator.start { [weak self] in
+            self?.refresh()
+        }
         refresh()
     }
 
     /// Re-fetches the template. Cheap to call on every foreground: the SDK's `minimumFetchInterval`
     /// serves a cached answer without a network round trip inside the window, so this does not turn
     /// into a per-foreground billable fetch.
-    func refresh() {
+    @discardableResult
+    func refresh() -> Task<Void, Never> {
+        refreshRequestCount += 1
         refreshTask?.cancel()
-        refreshTask = Task { [weak self] in
-            await self?.performRefresh()
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.performRefresh(generation: generation)
         }
+        refreshTask = task
+        return task
     }
 
     /// ``refresh()`` plus the wait for its result. ``refresh()`` is the fire-and-forget form call
     /// sites use; this exists so a test can assert on the outcome without polling.
     func refreshAndWait() async {
-        refresh()
+        await refresh().value
+    }
+
+    func waitForCurrentRefresh() async {
         await refreshTask?.value
     }
 
     /// Tears down the real-time connection and cancels any in-flight refresh.
     func teardown() {
+        refreshGeneration &+= 1
         refreshTask?.cancel()
         refreshTask = nil
+        lifecycleCoordinator.stop()
         source.stopListening()
         isListening = false
     }
@@ -83,7 +116,7 @@ final class RemoteFeatureFlagService {
         apply(remoteValues: source.activatedValues(), trigger: "persisted_activation")
     }
 
-    private func performRefresh() async {
+    private func performRefresh(generation: UInt64) async {
         do {
             let remoteValues = try await source.fetchAndActivate()
             // Applied even when this task was superseded. The round trip is already paid for, the
@@ -91,8 +124,14 @@ final class RemoteFeatureFlagService {
             // is the wrong trade for a mechanism that exists for the worst day.
             hasCompletedInitialFetch = true
             apply(remoteValues: remoteValues, trigger: "fetch")
+            guard generation == refreshGeneration else { return }
+            appVersionGateState.resolve(
+                currentVersion: appMarketingVersionProvider.currentVersion(),
+                remoteValues: source.appVersionValues()
+            )
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, generation == refreshGeneration else { return }
+            appVersionGateState.failOpen()
             // Deliberately non-fatal. Every flag keeps whatever it already resolved to - the last
             // activated value the SDK persisted, or the shipped default - so a failed fetch never
             // changes app behaviour on its own.
