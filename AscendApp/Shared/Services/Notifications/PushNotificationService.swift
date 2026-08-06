@@ -40,30 +40,38 @@ final class PushNotificationService: NSObject, MessagingDelegate {
     func requestClimbDropNotifications(opensSettingsWhenDenied: Bool) async -> UNAuthorizationStatus {
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
-        LifecycleEventRecorder.shared.recordNotificationPermission(status: settings.authorizationStatus)
+        let initialStatus = settings.authorizationStatus
+        LifecycleEventRecorder.shared.recordNotificationPermission(status: initialStatus)
 
         let status: UNAuthorizationStatus
-        switch settings.authorizationStatus {
+        switch initialStatus {
         case .notDetermined:
             _ = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
             let updatedSettings = await center.notificationSettings()
             LifecycleEventRecorder.shared.recordNotificationPermission(status: updatedSettings.authorizationStatus)
             status = updatedSettings.authorizationStatus
         case .denied:
-            status = settings.authorizationStatus
+            status = initialStatus
         case .authorized, .provisional, .ephemeral:
-            status = settings.authorizationStatus
+            status = initialStatus
         @unknown default:
-            status = settings.authorizationStatus
+            status = initialStatus
         }
 
-        // Asking is the climber saying yes. Only they can take that back, so an
-        // iOS refusal is recorded as blocked delivery rather than as a no.
-        ClimbDropNotificationPreferenceStore.isEnabled = true
+        let decision = ClimbDropNotificationIntentPolicy.decision(
+            initialStatus: initialStatus,
+            resolvedStatus: status
+        )
+        if case .record(let isEnabled) = decision {
+            ClimbDropNotificationPreferenceStore.isEnabled = isEnabled
+        }
+
         await synchronizePreferenceAndDevice(authorizationStatus: status)
 
-        let isAllowed = status.allowsRemoteUserVisibleNotifications
-        if !isAllowed, opensSettingsWhenDenied, status == .denied {
+        // Only a denial that was already standing is a block this tap can go
+        // and resolve. A climber who just answered the alert with Don't Allow
+        // is not marched into Settings over it.
+        if opensSettingsWhenDenied, initialStatus == .denied, status == .denied {
             openSystemNotificationSettings()
         }
 

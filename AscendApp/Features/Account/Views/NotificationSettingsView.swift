@@ -49,7 +49,47 @@ struct NotificationSettingsView: View {
         }
     }
 
+    /// While iOS is refusing delivery the row stops being a switch. Flipping one would have to
+    /// leave for Settings to mean anything, so the row carries the screen's own Open iOS Settings
+    /// affordance instead of a control that appears to store an answer and then walks out.
+    @ViewBuilder
     private var climbDropRow: some View {
+        if notificationState.authorizationStatus == .denied {
+            Button {
+                notificationState.openSystemNotificationSettings()
+            } label: {
+                climbDropRowContent {
+                    AppIcon(token: .disclosureChevronRight, pointSize: 14, weight: .medium)
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens iOS Settings")
+        } else {
+            climbDropRowContent {
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { notificationState.isPreferenceEnabled },
+                        set: { isEnabled in
+                            Task {
+                                await setClimbDropEnabled(isEnabled)
+                            }
+                        }
+                    )
+                )
+                .labelsHidden()
+                .tint(.accent)
+                .disabled(notificationState.isUpdating)
+                .accessibilityLabel("New climb drops")
+            }
+        }
+    }
+
+    private func climbDropRowContent<Trailing: View>(
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
         HStack(spacing: 16) {
             AppIcon(token: .settingsNotifications, pointSize: 22, weight: .medium)
                 .foregroundStyle(.accent)
@@ -69,21 +109,7 @@ struct NotificationSettingsView: View {
 
             Spacer(minLength: 12)
 
-            Toggle(
-                "",
-                isOn: Binding(
-                    get: { notificationState.isPreferenceEnabled },
-                    set: { isEnabled in
-                        Task {
-                            await setClimbDropEnabled(isEnabled)
-                        }
-                    }
-                )
-            )
-            .labelsHidden()
-            .tint(.accent)
-            .disabled(notificationState.isUpdating)
-            .accessibilityLabel("New climb drops")
+            trailing()
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 18)

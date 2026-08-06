@@ -343,6 +343,95 @@ enum NotificationPromptSurface: String, CaseIterable, CustomStringConvertible {
     }
 }
 
+/// What the Push screen's climb-drop row says and offers while iOS is refusing delivery.
+@MainActor
+@Suite(.hostsAWindow)
+struct NotificationSettingsDeliveryStatusTests {
+    @Test("A blocked preference states its status and carries the iOS Settings route")
+    func blockedDeliveryIsStatedAndRoutedOut() async throws {
+        let client = StubClimbDropNotificationStateClient(
+            authorizationStatus: .denied,
+            isPreferenceEnabled: true
+        )
+        let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
+        await state.refresh()
+
+        try await withHostedNotificationSettings(notificationState: state) { root in
+            let elements = accessibilityElements(under: root)
+
+            #expect(elements.contains { label(of: $0).contains("On, but iOS is blocking delivery") })
+            #expect(elements.contains { $0.accessibilityHint == "Opens iOS Settings" })
+        }
+    }
+
+    @Test("A preference the climber turned off is never described as blocked")
+    func aDisabledPreferenceIsNotDescribedAsBlocked() async throws {
+        let client = StubClimbDropNotificationStateClient(
+            authorizationStatus: .denied,
+            isPreferenceEnabled: false
+        )
+        let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
+        await state.refresh()
+
+        try await withHostedNotificationSettings(notificationState: state) { root in
+            let elements = accessibilityElements(under: root)
+
+            #expect(elements.contains { label(of: $0).contains("blocking delivery") } == false)
+        }
+    }
+
+    @Test("An allowed permission leaves the row on its own description and switch")
+    func anAllowedPermissionKeepsTheSwitch() async throws {
+        let client = StubClimbDropNotificationStateClient(
+            authorizationStatus: .authorized,
+            isPreferenceEnabled: true
+        )
+        let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
+        await state.refresh()
+
+        try await withHostedNotificationSettings(notificationState: state) { root in
+            let elements = accessibilityElements(under: root)
+
+            #expect(elements.contains { label(of: $0).contains("blocking delivery") } == false)
+            #expect(elements.contains { $0.accessibilityHint == "Opens iOS Settings" } == false)
+            #expect(elements.contains { label(of: $0) == "New climb drops" })
+        }
+    }
+
+    private func label(of element: NSObject) -> String {
+        element.accessibilityLabel ?? ""
+    }
+
+    private func withHostedNotificationSettings(
+        notificationState: ClimbDropNotificationState,
+        _ whileOnScreen: (UIView) async throws -> Void
+    ) async throws {
+        try await withAccessibilityAutomation {
+            let size = CGSize(width: 402, height: 874)
+            let controller = UIHostingController(
+                rootView: NavigationStack {
+                    NotificationSettingsView(notificationState: notificationState)
+                }
+            )
+            controller.view.frame = CGRect(origin: .zero, size: size)
+
+            let window = UIWindow(frame: controller.view.frame)
+            window.overrideUserInterfaceStyle = .dark
+            window.rootViewController = controller
+            window.makeKeyAndVisible()
+            defer { window.isHidden = true }
+
+            for _ in 0..<4 {
+                await Task.yield()
+                controller.view.setNeedsLayout()
+                controller.view.layoutIfNeeded()
+            }
+
+            try await whileOnScreen(controller.view)
+        }
+    }
+}
+
 private struct NotificationPromptSurfaceHarness: View {
     let surface: NotificationPromptSurface
     let notificationState: ClimbDropNotificationState
