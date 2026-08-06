@@ -22,12 +22,31 @@ test("wipe deletes reviewed data while preserving the migration ledger", () => {
   );
 
   assert.deepEqual(plan.collectionsToDelete, [
+    "users",
     "leaderboard_periods",
     "notification_devices",
-    "users",
   ]);
   assert.deepEqual(plan.protectedCollections, ["_migrations"]);
   assert.deepEqual(plan.unknownCollections, []);
+});
+
+test("records are deleted before the projections their triggers rederive", () => {
+  const plan = classifyWipeCollections(
+    [
+      "live_replay_leaderboards",
+      "leaderboard_stats",
+      "users",
+      "leaderboard_periods",
+    ],
+    reviewedWipeCollectionIds(REPO_ROOT)
+  );
+
+  assert.equal(plan.collectionsToDelete[0], "users");
+  assert.deepEqual(plan.collectionsToDelete.slice(1), [
+    "leaderboard_periods",
+    "leaderboard_stats",
+    "live_replay_leaderboards",
+  ]);
 });
 
 test("a new unreviewed top-level collection still blocks the wipe", () => {
@@ -73,6 +92,44 @@ test("the rules parser returns direct database children only", () => {
   assert.ok(ids.includes("notification_campaigns"));
   assert.ok(!ids.includes("workouts"));
   assert.ok(!ids.includes("entries"));
+});
+
+test("the rules parser reads nesting from braces, not indentation", () => {
+  const reformatted = [
+    "rules_version = '2';",
+    "service cloud.firestore {",
+    "match /databases/{database}/documents {",
+    "    match /users/{userId} {",
+    "    match /workouts/{workoutId} {",
+    "      allow read: if false;",
+    "    }",
+    "    }",
+    "    match /leaderboard_stats/{docId} {",
+    "      allow read: if false;",
+    "    }",
+    "  }",
+    "}",
+    "",
+  ].join("\n");
+
+  assert.deepEqual(topLevelRuleCollectionIds(reformatted), [
+    "leaderboard_stats",
+    "users",
+  ]);
+});
+
+test("a root collection reached through admin.firestore() is still declared", () => {
+  const source = [
+    "const query = admin.firestore()",
+    "  .collection(\"notification_devices\")",
+    "  .where(\"active\", \"==\", true);",
+    "const other = getFirestore().collection(\"leaderboard_periods\");",
+  ].join("\n");
+
+  assert.deepEqual(sourceDeclaredTopLevelCollectionIds(source), [
+    "leaderboard_periods",
+    "notification_devices",
+  ]);
 });
 
 test("staging requires its own confirmation and rejects the dev confirmation", () => {

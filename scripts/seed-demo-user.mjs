@@ -1195,6 +1195,7 @@ function printPlan(projectId, seedPlan, args) {
     command: `seed-demo-user${args.dryRun ? " (dry run)" : ""}`,
     user: {
       uid: seedPlan.user.uid,
+      email: seedPlan.user.email,
       displayName: seedPlan.user.displayName,
     },
     scenario: args.scenario,

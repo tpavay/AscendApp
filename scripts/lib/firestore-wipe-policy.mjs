@@ -16,21 +16,75 @@ export const LEGACY_DELETABLE_WIPE_COLLECTION_IDS = Object.freeze([
   "oauthStates",
 ]);
 
+// Deleting these fires the Firestore triggers that rederive the public
+// projections, so they have to be deleted before the projections they feed.
+// Deleting a projection first only invites the trigger to write the row back,
+// which leaves rederived standings behind a wipe that reported success.
+export const WIPE_SOURCE_COLLECTION_IDS = Object.freeze([
+  "users",
+]);
+
+const DOCUMENTS_MATCH_PATTERN = /^match\s+\/databases\/\{[^{}]*\}\/documents\s*\{?$/;
+const COLLECTION_MATCH_PATTERN = /^match\s+\/([^/{}\s]+)\/\{[^{}]*\}\s*\{?$/;
+
 /**
  * Reads the direct child collection matches under the Firestore database.
  * Those matches are the reviewed top-level data contract for the app.
+ *
+ * Nesting is resolved from brace depth rather than indentation, so reformatting
+ * the rules cannot silently promote a subcollection into the deletable set.
  * @param {string} source Firestore rules source.
  * @return {string[]} Sorted top-level collection IDs.
  */
 export function topLevelRuleCollectionIds(source) {
   const ids = [];
-  const pattern = /^ {4}match \/([^/{}]+)\/\{[^}]+\} \{$/gm;
+  let depth = 0;
+  let documentsDepth = null;
 
-  for (const match of source.matchAll(pattern)) {
-    ids.push(match[1]);
+  for (const rawLine of source.split("\n")) {
+    const line = rawLine.replace(/\/\/.*$/, "").trim();
+    if (line !== "") {
+      if (documentsDepth === null && DOCUMENTS_MATCH_PATTERN.test(line)) {
+        documentsDepth = depth + 1;
+      } else if (depth === documentsDepth) {
+        const collection = COLLECTION_MATCH_PATTERN.exec(line);
+        if (collection) {
+          ids.push(collection[1]);
+        }
+      }
+
+      depth += braceDepthDelta(line);
+    }
   }
 
   return [...new Set(ids)].sort();
+}
+
+/**
+ * Net block-nesting change one rules line contributes.
+ *
+ * Brace pairs that open and close on the same line - path variables such as
+ * `{userId}` - change no nesting, so they are removed before counting.
+ * @param {string} line One comment-stripped rules line.
+ * @return {number} Net brace depth change.
+ */
+function braceDepthDelta(line) {
+  let remaining = line;
+  let previous = null;
+  while (remaining !== previous) {
+    previous = remaining;
+    remaining = remaining.replace(/\{[^{}]*\}/g, "");
+  }
+
+  let delta = 0;
+  for (const character of remaining) {
+    if (character === "{") {
+      delta += 1;
+    } else if (character === "}") {
+      delta -= 1;
+    }
+  }
+  return delta;
 }
 
 /**
@@ -65,14 +119,30 @@ export function classifyWipeCollections(
   const existing = [...new Set(existingIds)].sort();
 
   return {
-    collectionsToDelete: existing.filter(
+    collectionsToDelete: orderedForDeletion(existing.filter(
       (collectionId) => reviewed.has(collectionId) && !protectedSet.has(collectionId)
-    ),
+    )),
     protectedCollections: existing.filter((collectionId) => protectedSet.has(collectionId)),
     unknownCollections: existing.filter(
       (collectionId) => !reviewed.has(collectionId) && !protectedSet.has(collectionId)
     ),
   };
+}
+
+/**
+ * Orders one deletion set so every trigger source precedes the projections its
+ * triggers rederive. Everything else keeps its stable alphabetical order.
+ * @param {string[]} collectionIds Collections the wipe will delete.
+ * @return {string[]} The same collections in a safe deletion order.
+ */
+function orderedForDeletion(collectionIds) {
+  const sources = WIPE_SOURCE_COLLECTION_IDS.filter(
+    (collectionId) => collectionIds.includes(collectionId)
+  );
+  return [
+    ...sources,
+    ...collectionIds.filter((collectionId) => !sources.includes(collectionId)),
+  ];
 }
 
 /**
@@ -90,7 +160,7 @@ export function sourceDeclaredTopLevelCollectionIds(source) {
   }
 
   const ids = [];
-  const callPattern = /\b(?:db|firestore|this\.firestore)\s*\.collection\(\s*(?:["']([^"']+)["']|([A-Z][A-Z0-9_]*))\s*\)/g;
+  const callPattern = /(?:\b(?:admin\.firestore|getFirestore)\(\s*[^()]*\)|\b(?:db|firestore|this\.firestore))\s*\.collection\(\s*(?:["']([^"']+)["']|([A-Z][A-Z0-9_]*))\s*\)/g;
   for (const match of source.matchAll(callPattern)) {
     const collectionId = match[1] ?? constants.get(match[2]);
     if (collectionId) {

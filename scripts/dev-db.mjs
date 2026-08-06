@@ -844,6 +844,7 @@ async function wipeFirestore(projectId, args) {
 }
 
 function assertWipeConfirmation(projectId, args) {
+  assertSeedableProject(projectId, "wipe");
   if (args.confirmDevWipe && args.confirmStagingWipe) {
     throw new Error("wipe accepts exactly one environment-specific confirmation");
   }
