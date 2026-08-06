@@ -261,3 +261,19 @@ test('another climber cannot read, list, or delete owner-scoped workout media', 
     await assertFails(deleteObject(ref(storage, mediaPath(unentitledOwnerId, media))));
   }
 });
+
+// Relaxing `list` to isOwner is only safe while isOwner still implies signed in.
+// Nothing else drives an anonymous caller at the owner-scoped prefixes, so a
+// predicate that dropped the isSignedIn() conjunct would pass every other test.
+for (const media of accountDeletionMedia) {
+  test(`an unauthenticated visitor cannot list or delete owner-scoped ${media.prefix}`, async () => {
+    const storage = testEnv.unauthenticatedContext().storage();
+
+    await assertFails(getBytes(ref(storage, mediaPath(ownerId, media))));
+    await assertFails(listAll(ref(storage, `users/${ownerId}/${media.prefix}`)));
+    await assertFails(deleteObject(ref(storage, mediaPath(ownerId, media))));
+
+    await assertFails(listAll(ref(storage, `users/${unentitledOwnerId}/${media.prefix}`)));
+    await assertFails(deleteObject(ref(storage, mediaPath(unentitledOwnerId, media))));
+  });
+}
