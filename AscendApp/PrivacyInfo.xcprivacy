@@ -91,9 +91,9 @@
         <!--
           Other Data Types - private birth date, derived age band, declared
           gender, the notification preference, the first-climb result fields,
-          and the leaderboard age-group filter. The exact birth
-          date is never sent to analytics. The onboarding fitness answers belong
-          to the Fitness declaration below, not here.
+          and the leaderboard age-group filter. The exact birth date is never
+          sent to analytics. The onboarding fitness answers belong to the
+          Fitness declaration below, not here.
         -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>

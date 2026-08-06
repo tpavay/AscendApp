@@ -6,26 +6,23 @@ import Vision
 
 /// Visual evidence for the post-auth gender question copy.
 ///
-/// The question a climber reads has to say what the answer is for. `Choose your
+/// The question a climber reads has to name what it asks for. `Choose your
 /// division` asked about a word the app never defines, so this holds the plain
-/// version: the headline asks for the gender, the subtitle says the gender sets
-/// the leaderboard comparison, and the four answers stay Male / Female / Other /
-/// Prefer not to say.
+/// version: the headline asks for the gender and the four answers stay
+/// Male / Female / Other / Prefer not to say.
 ///
-/// The subtitle also has to survive the shell it renders in - 334pt wide, one
-/// short line - so `theSubtitleFitsOneLineAtTheOnboardingWidth` measures it
-/// rather than trusting that it looks fine on one simulator.
+/// The screen carries no subtitle on purpose. Gender drives no comparison group,
+/// no filter, and no profile field - it reaches a climber only as the `M` / `F`
+/// abbreviation in the leaderboard demographic row - so every public-context line
+/// proposed for it so far described behavior that does not exist. The negative
+/// assertions below are what keep one from coming back.
 @MainActor
 struct PostAuthGenderQuestionCopySnapshotTests {
     private static let expectedHeadline = "What's your gender?"
-    private static let expectedSubtitle = "Your gender sets your leaderboard comparison."
     private static let expectedOptions = ["Male", "Female", "Other", "Prefer not to say"]
 
-    /// The shell lays the headline and subtitle out in a 334pt column.
-    private static let copyColumnWidth: CGFloat = 334
-
     @Test
-    func theGenderStepAsksForGenderAndSaysWhatItIsFor() async throws {
+    func theGenderStepAsksForGenderWithoutClaimingAPublicUse() async throws {
         let image = try renderGenderStep()
         let text = try await recognizedText(in: image)
 
@@ -37,11 +34,6 @@ struct PostAuthGenderQuestionCopySnapshotTests {
             text.contains(Self.expectedHeadline.forOCRComparison),
             "Headline should read \"\(Self.expectedHeadline)\". Rendered text: \(text)"
         )
-        #expect(
-            text.contains(Self.expectedSubtitle.forOCRComparison),
-            "Subtitle should read \"\(Self.expectedSubtitle)\". Rendered text: \(text)"
-        )
-
         for option in Self.expectedOptions {
             #expect(
                 text.contains(option.forOCRComparison),
@@ -56,30 +48,15 @@ struct PostAuthGenderQuestionCopySnapshotTests {
         )
         #expect(
             !text.contains("your sex"),
-            "The subtitle should stay consistent with the gender question. Rendered text: \(text)"
-        )
-    }
-
-    @Test
-    func theSubtitleFitsOneLineAtTheOnboardingWidth() throws {
-        let font = try #require(
-            UIFont(name: "Montserrat-Medium", size: 11),
-            "Montserrat-Medium is not registered in the test host"
+            "The screen should stay consistent with the gender question. Rendered text: \(text)"
         )
 
-        let bounds = (Self.expectedSubtitle as NSString).boundingRect(
-            with: CGSize(width: Self.copyColumnWidth, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: font],
-            context: nil
-        )
-
+        // A claim the answer does not earn. Gender is not a comparison group,
+        // not a filter, and not a profile field, so a subtitle promising one
+        // would describe a feature the app does not have.
         #expect(
-            bounds.height <= font.lineHeight * 1.5,
-            """
-            Subtitle must wrap to one line at \(Self.copyColumnWidth)pt. \
-            Measured \(bounds.height)pt against a \(font.lineHeight)pt line.
-            """
+            !text.contains("comparison"),
+            "The screen should not claim gender drives a comparison. Rendered text: \(text)"
         )
     }
 
