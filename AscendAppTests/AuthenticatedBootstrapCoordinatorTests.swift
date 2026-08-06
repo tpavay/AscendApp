@@ -82,7 +82,8 @@ struct AuthenticatedBootstrapCoordinatorTests {
 
     @Test("A drain that outlives its bound does not stall deletion", .bug(id: 389))
     func drainReturnsWhenSessionWorkOutlivesItsBound() async {
-        let coordinator = AuthenticatedBootstrapCoordinator()
+        let diagnostics = SpyDiagnosticsRecorder()
+        let coordinator = AuthenticatedBootstrapCoordinator(diagnostics: diagnostics)
         let started = AsyncStream<Void>.makeStream()
         let release = AsyncStream<Void>.makeStream()
         let releaseStream = release.stream
@@ -108,13 +109,23 @@ struct AuthenticatedBootstrapCoordinatorTests {
         // Timing out is safe only because nothing new may start behind it.
         #expect(coordinator.isSuspended)
 
+        // The one state in which a straggler could still write inside deletion's staged window has
+        // to leave a trace, or a recurrence in the field is unattributable.
+        let timeouts = diagnostics.events.filter {
+            $0.name == "authenticated_session_drain_timed_out"
+        }
+        #expect(timeouts.count == 1)
+        #expect(timeouts.first?.level == .warning)
+        #expect(timeouts.first?.mirrorToCrashlytics == true)
+
         release.continuation.yield()
         release.continuation.finish()
     }
 
     @Test("Deletion cancels and drains writers outside the bootstrap chain", .bug(id: 389))
     func deletionQuiescesAutonomousSessionWorkers() async {
-        let coordinator = AuthenticatedBootstrapCoordinator()
+        let diagnostics = SpyDiagnosticsRecorder()
+        let coordinator = AuthenticatedBootstrapCoordinator(diagnostics: diagnostics)
         let worker = RecordingSessionWorker()
 
         let didDrain = await coordinator.suspendAndDrain(autonomousWorkers: [worker])
@@ -122,6 +133,8 @@ struct AuthenticatedBootstrapCoordinatorTests {
         #expect(didDrain)
         #expect(worker.didCancel)
         #expect(worker.didDrainAfterCancel == true)
+        // A drain that finished is not a defect, so it must not report one.
+        #expect(diagnostics.events.isEmpty)
     }
 
     @Test("Resuming and discarding both reopen the gate for autonomous writers", .bug(id: 389))

@@ -36,9 +36,12 @@ final class AuthenticatedBootstrapCoordinator {
 
     private var activeTask: Task<Void, Never>?
     private var latestOperation: Operation?
+    private let diagnostics: any AppDiagnosticsRecording
     private(set) var isSuspended = false
 
-    init() {}
+    init(diagnostics: any AppDiagnosticsRecording = AppDiagnosticsRecorder.shared) {
+        self.diagnostics = diagnostics
+    }
 
     func schedule(_ operation: @escaping Operation) {
         latestOperation = operation
@@ -61,6 +64,11 @@ final class AuthenticatedBootstrapCoordinator {
     /// Bounded on purpose, and safe to time out: `isSuspended` stays true so nothing new starts,
     /// everything drained here is already cancelled, and each step of the bootstrap chain re-checks
     /// cancellation and session identity before it writes.
+    ///
+    /// Timing out is recorded here rather than left to callers. It is the one state in which a
+    /// straggler could still write inside deletion's staged window, so a recurrence in the field has
+    /// to be attributable - and a caller that can only proceed anyway has no decision to make with
+    /// the result.
     ///
     /// - Returns: whether the work stopped within the bound.
     @discardableResult
@@ -86,7 +94,21 @@ final class AuthenticatedBootstrapCoordinator {
             }
         }
 
-        return await completed(drain, within: timeout)
+        let didDrain = await completed(drain, within: timeout)
+
+        if didDrain == false {
+            diagnostics.record(
+                "authenticated_session_drain_timed_out",
+                level: .warning,
+                details: [
+                    "timeout_seconds": "\(timeout.components.seconds)",
+                    "autonomous_workers": "\(autonomousWorkers.count)"
+                ],
+                mirrorToCrashlytics: true
+            )
+        }
+
+        return didDrain
     }
 
     /// Restarts the last requested bootstrap when deletion stopped before the auth account did.
