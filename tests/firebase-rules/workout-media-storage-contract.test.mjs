@@ -22,16 +22,54 @@ const storageRules = readFileSync(new URL('../../storage.rules', import.meta.url
 
 const ownerId = 'owner-123';
 const intruderId = 'intruder-456';
+const unentitledOwnerId = 'unentitled-owner-789';
+const emptyUnentitledOwnerId = 'empty-unentitled-owner-012';
 
 // A one-pixel JPEG is enough: the rules only inspect size and content type.
 const jpegBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00, 0xff, 0xd9]);
 const mp4Bytes = new Uint8Array([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]);
+const gzipBytes = new Uint8Array([0x1f, 0x8b, 0x08, 0x00]);
 
 const legacyPhotoPath = 'photos/2B3C4D5E-6F70-4812-9345-A6B7C8D9E0F1.jpg';
 const legacyVideoPath = 'videos/3C4D5E6F-7081-4923-A456-B7C8D9E0F1A2.mov';
 
 const ownedPhotoPath = `users/${ownerId}/photos/5E6F7081-92A3-4B45-C678-D9E0F1A2B3C4.jpg`;
 const ownedVideoPath = `users/${ownerId}/videos/6F708192-A3B4-4C56-D789-E0F1A2B3C4D5.mov`;
+
+const accountDeletionMedia = [
+  {
+    prefix: 'photos',
+    fileName: '7A8192B3-C4D5-4E67-F890-A1B2C3D4E5F6.jpg',
+    bytes: jpegBytes,
+    contentType: 'image/jpeg',
+    paidContent: true,
+  },
+  {
+    prefix: 'videos',
+    fileName: '8B92A3C4-D5E6-4F78-A901-B2C3D4E5F6A7.mov',
+    bytes: mp4Bytes,
+    contentType: 'video/quicktime',
+    paidContent: true,
+  },
+  {
+    prefix: 'profile_pictures',
+    fileName: '9CA3B4D5-E6F7-4089-B012-C3D4E5F6A7B8.jpg',
+    bytes: jpegBytes,
+    contentType: 'image/jpeg',
+    paidContent: false,
+  },
+  {
+    prefix: 'workout_heart_rate',
+    fileName: 'ad4c5e6f-7081-4923-a456-b7c8d9e0f1a2.json.gz',
+    bytes: gzipBytes,
+    contentType: 'application/gzip',
+    paidContent: true,
+  },
+];
+
+function mediaPath(userId, media) {
+  return `users/${userId}/${media.prefix}/${media.fileName}`;
+}
 
 let testEnv;
 
@@ -61,6 +99,15 @@ beforeEach(async () => {
     await uploadBytes(ref(storage, legacyVideoPath), mp4Bytes, { contentType: 'video/quicktime' });
     await uploadBytes(ref(storage, ownedPhotoPath), jpegBytes, { contentType: 'image/jpeg' });
     await uploadBytes(ref(storage, ownedVideoPath), mp4Bytes, { contentType: 'video/quicktime' });
+
+    for (const media of accountDeletionMedia) {
+      await uploadBytes(ref(storage, mediaPath(ownerId, media)), media.bytes, {
+        contentType: media.contentType,
+      });
+      await uploadBytes(ref(storage, mediaPath(unentitledOwnerId, media)), media.bytes, {
+        contentType: media.contentType,
+      });
+    }
   });
 });
 
@@ -159,6 +206,45 @@ test('an owner can read, list, upload, and delete their own workout media', asyn
   await assertSucceeds(deleteObject(ref(storage, ownedVideoPath)));
 });
 
+test('an entitled owner can list and delete every account-deletion Storage prefix', async () => {
+  const storage = testEnv.authenticatedContext(ownerId).storage();
+
+  for (const media of accountDeletionMedia) {
+    await assertSucceeds(listAll(ref(storage, `users/${ownerId}/${media.prefix}`)));
+    await assertSucceeds(deleteObject(ref(storage, mediaPath(ownerId, media))));
+  }
+});
+
+for (const media of accountDeletionMedia) {
+  test(`an unentitled owner can list and delete ${media.prefix} during account deletion`, async () => {
+    const storage = testEnv.authenticatedContext(unentitledOwnerId).storage();
+
+    await assertSucceeds(listAll(ref(storage, `users/${unentitledOwnerId}/${media.prefix}`)));
+    await assertSucceeds(deleteObject(ref(storage, mediaPath(unentitledOwnerId, media))));
+  });
+}
+
+test('an unentitled owner can list every account-deletion prefix when no files exist', async () => {
+  const storage = testEnv.authenticatedContext(emptyUnentitledOwnerId).storage();
+
+  for (const media of accountDeletionMedia) {
+    await assertSucceeds(listAll(ref(storage, `users/${emptyUnentitledOwnerId}/${media.prefix}`)));
+  }
+});
+
+test('listing for account deletion does not unlock paid media reads or uploads', async () => {
+  const storage = testEnv.authenticatedContext(unentitledOwnerId).storage();
+
+  for (const media of accountDeletionMedia.filter(({ paidContent }) => paidContent)) {
+    await assertFails(getBytes(ref(storage, mediaPath(unentitledOwnerId, media))));
+    await assertFails(
+      uploadBytes(ref(storage, mediaPath(unentitledOwnerId, media)), media.bytes, {
+        contentType: media.contentType,
+      })
+    );
+  }
+});
+
 test('another climber cannot read, list, or delete owner-scoped workout media', async () => {
   const storage = testEnv.authenticatedContext(intruderId).storage();
 
@@ -168,4 +254,10 @@ test('another climber cannot read, list, or delete owner-scoped workout media', 
   await assertFails(listAll(ref(storage, `users/${ownerId}/videos`)));
   await assertFails(deleteObject(ref(storage, ownedPhotoPath)));
   await assertFails(deleteObject(ref(storage, ownedVideoPath)));
+
+  for (const media of accountDeletionMedia) {
+    await assertFails(getBytes(ref(storage, mediaPath(unentitledOwnerId, media))));
+    await assertFails(listAll(ref(storage, `users/${unentitledOwnerId}/${media.prefix}`)));
+    await assertFails(deleteObject(ref(storage, mediaPath(unentitledOwnerId, media))));
+  }
 });
