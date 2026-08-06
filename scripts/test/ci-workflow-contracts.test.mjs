@@ -383,22 +383,30 @@ test("a failed derivation stops the deploy instead of exporting an empty build n
 });
 
 // Workflow concurrency serializes runs, not App Store Connect's ingestion of an
-// upload that skipped build processing. Without this wait the next queued run
-// derives against the pre-upload maximum and mints a duplicate.
-test("every uploadable workflow holds its concurrency group until the upload is visible", async () => {
+// upload that skipped build processing. The upload ledger is available before
+// the processed Build and reserves the number for the next allocator.
+test("every uploadable workflow holds its concurrency group until the upload is recorded", async () => {
   for (const {name, workflow} of await uploadableWorkflows()) {
     const uploadIndex = workflow.indexOf("bundle exec fastlane upload_testflight");
-    const waitIndex = workflow.indexOf("scripts/ci/await-build-visible.mjs");
+    const waitIndex = workflow.indexOf("scripts/ci/await-build-upload-recorded.mjs");
+    const downloadIndex = workflow.indexOf("uses: actions/download-artifact@v4");
+    const handoffIndex = workflow.indexOf("- name: Verify TestFlight build-number handoff");
 
     assert.notEqual(uploadIndex, -1, `${name} must upload to TestFlight`);
     assert.notEqual(
       waitIndex,
       -1,
-      `${name} must wait for the uploaded build to appear in App Store Connect`,
+      `${name} must wait for App Store Connect to record the uploaded build`,
     );
     assert.ok(uploadIndex < waitIndex, `${name} must wait after the upload, not before it`);
+    assert.ok(
+      downloadIndex < handoffIndex && handoffIndex < uploadIndex,
+      `${name} must verify the downloaded IPA and build-number handoff before uploading`,
+    );
 
-    const waitStep = stepBlock(workflow, "Wait for the uploaded build to be visible in App Store Connect");
+    const waitStep = stepBlock(workflow, "Confirm App Store Connect recorded the build upload");
+    const embeddedVerificationStep = stepBlock(workflow, "Verify embedded build number");
+    const handoffStep = stepBlock(workflow, "Verify TestFlight build-number handoff");
 
     assert.match(
       waitStep,
@@ -407,14 +415,29 @@ test("every uploadable workflow holds its concurrency group until the upload is 
     );
     assert.match(
       waitStep,
-      /await-build-visible\.mjs "\$APP_STORE_CONNECT_APP_ID" "\$APP_STORE_CONNECT_BUNDLE_ID" "\$BUILD_NUMBER"/,
+      /await-build-upload-recorded\.mjs "\$APP_STORE_CONNECT_APP_ID" "\$APP_STORE_CONNECT_BUNDLE_ID" "\$BUILD_NUMBER"/,
       name,
     );
-    assert.match(waitStep, /if \[ -z "\$BUILD_NUMBER" \]; then/, name);
+    assert.match(embeddedVerificationStep, /id: verify-embedded-build-number/, name);
+    assert.match(
+      embeddedVerificationStep,
+      /verify-ipa-build-number\.sh "\$IPA_PATH" "\$BUILD_NUMBER"/,
+      name,
+    );
+    assert.match(
+      handoffStep,
+      /BUILD_NUMBER: \$\{\{ needs\.build-ios\.outputs\.build-number \}\}/,
+      name,
+    );
+    assert.match(
+      handoffStep,
+      /verify-ipa-build-number\.sh "\$IPA_PATH" "\$BUILD_NUMBER"/,
+      name,
+    );
     assert.match(
       workflow,
-      /^    outputs:\n      build-number: \$\{\{ steps\.derive-build-number\.outputs\.build_number \}\}$/m,
-      `${name} must publish its derived build number as a job output`,
+      /^    outputs:\n      build-number: \$\{\{ steps\.verify-embedded-build-number\.outputs\.build_number \}\}$/m,
+      `${name} must publish its verified embedded build number as a job output`,
     );
   }
 });
