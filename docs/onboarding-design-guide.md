@@ -559,7 +559,6 @@ Break into low-friction screens unless the combined form remains clean:
 
 Gender:
 - Headline: `What's your gender?`
-- Body: `Shown on your profile`
 - Options map to `ProfileGender` cases and are titled:
   - `Male`
   - `Female`

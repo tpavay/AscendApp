@@ -330,7 +330,6 @@ private struct PostAuthGenderScreen: View {
         PostAuthProfileQuestionShell(
             stage: stage,
             headline: "What's your gender?",
-            subtitle: "Shown on your profile",
             primaryTitle: isSaving ? "SAVING..." : "CONTINUE",
             isContinueEnabled: selectedGender != nil && !isSaving,
             onBack: onBack,
