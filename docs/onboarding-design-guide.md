@@ -89,8 +89,9 @@ Why it works:
 - Sensitive inputs feel less invasive when the app explains why each one matters.
 
 Ascend translation:
-- Age, gender, weight, and location are public leaderboard context. Say that plainly.
-- Do not bury public-use context in legal copy. Use direct microcopy near the fields.
+- Age, weight, and location are public leaderboard context. Say that plainly.
+- Do not bury public-use context in legal copy. Use direct microcopy near the fields - but only where the claim is true. A field whose public use will not survive an honest one-line description ships without a subtitle rather than with an invented one.
+- Gender is the standing exception and carries no such line. See `21. Required Demographics`.
 
 ### Language Learning
 
@@ -564,12 +565,12 @@ Behavior:
 Break into low-friction screens unless the combined form remains clean:
 
 Gender:
-- Headline: `Choose your division.`
-- Body: `Gender helps place you in leaderboard context.`
-- Options use `ProfileGender` raw values:
-  - `Woman`
-  - `Man`
-  - `Non-binary`
+- Headline: `What's your gender?`
+- No subtitle. Gender drives no comparison group, filter, or profile field, so there is no honest public-context line to write - see the closing note in this section.
+- Options map to `ProfileGender` cases and are titled:
+  - `Male`
+  - `Female`
+  - `Other`
   - `Prefer not to say`
 
 Birthday:
@@ -588,7 +589,12 @@ Location:
 - Body: `Region gives the field a place.`
 - Input: country/region first, city optional only if product wants it.
 
-Use direct public-context copy. Do not hide that these fields may appear on profiles and leaderboard-adjacent surfaces.
+Use direct public-context copy where it is accurate. Do not hide that a field may appear on profiles and leaderboard-adjacent surfaces, and do not invent a public use a field does not have.
+
+Gender is the deliberate exception, not an oversight to fix.
+It ships with no subtitle because the value drives no comparison group, no filter, and no profile field.
+The only place a climber ever sees it is the `M` / `F` abbreviation in the demographic row of the Live Replay and per-climb completion leaderboards.
+Earlier copy calling it a division or a leaderboard comparison described behavior the app does not have; do not restore it.
 
 ### 22. Value Reveal
 
