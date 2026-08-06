@@ -239,7 +239,7 @@ private struct LiveReplayLeaderboardRowView: View {
                                 .padding(.vertical, 3)
                                 .background(
                                     Capsule(style: .continuous)
-                                        .fill(tint)
+                                        .fill(Color.accent)
                                 )
                         }
                     }

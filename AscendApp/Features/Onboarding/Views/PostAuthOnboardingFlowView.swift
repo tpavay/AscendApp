@@ -272,10 +272,8 @@ private struct PostAuthDisplayNameScreen: View {
         .onSubmit {
             if field == .firstName {
                 focusedField = .lastName
-            } else if isContinueEnabled {
-                saveName()
             } else {
-                validationMessage = nameInput.validationMessage
+                saveName()
             }
         }
         .accessibilityLabel(field.rawValue)
