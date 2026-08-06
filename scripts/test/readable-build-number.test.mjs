@@ -704,11 +704,45 @@ test("a deterministic upload-ledger rejection is fatal rather than retried", asy
         report: () => {},
       },
     ),
-    /upload-ledger query \(403\)/,
+    /APP_STORE_CREDENTIALS_REJECTED:.*upload-ledger query \(403\)/s,
   );
 
   assert.equal(ledgerRequests, 1);
   assert.deepEqual(clock.slept, []);
+});
+
+// A rejected key is deterministic like an unsupported filter, but naming the
+// query for it sends the operator hunting an Apple API change that never
+// happened - the exact misdiagnosis this change exists to remove.
+test("a rejected API key is diagnosed as a credential, not a broken query", async () => {
+  for (const status of [401, 403]) {
+    const refuse = async () => {
+      const error = new Error(
+        `App Store Connect GET /v1/apps/6759919365 failed (${status}): Not authorized`,
+      );
+      error.status = status;
+      throw error;
+    };
+
+    await assert.rejects(
+      fetchHighestUploadedBuildNumber(
+        {
+          token: "redacted-test-token",
+          appId: "6759919365",
+          expectedBundleId: "com.TylerPavay.AscendApp.staging",
+        },
+        refuse,
+      ),
+      (error) => {
+        assert.match(error.message, /APP_STORE_CREDENTIALS_REJECTED/, String(status));
+        assert.match(error.message, /APP_STORE_CONNECT_API_KEY_ID/, String(status));
+        assert.doesNotMatch(error.message, /assumption that stopped holding/, String(status));
+        assert.doesNotMatch(error.message, /APP_STORE_CONTRACT_REJECTED/, String(status));
+        assert.doesNotMatch(error.message, /redacted-test-token/, String(status));
+        return true;
+      },
+    );
+  }
 });
 
 // Apple reuses a number after a FAILED upload and the query declares no
@@ -963,7 +997,11 @@ test("an ownership check failure is fatal rather than retried", async () => {
         makeToken: () => "redacted-test-token",
         request: async () => {
           requests += 1;
-          throw new Error("App Store Connect GET /v1/apps/6759919365 failed (401): Unauthorized");
+          const error = new Error(
+            "App Store Connect GET /v1/apps/6759919365 failed (401): Unauthorized",
+          );
+          error.status = 401;
+          throw error;
         },
         sleep: clock.sleep,
         now: clock.now,
