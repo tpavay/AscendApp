@@ -66,13 +66,23 @@ struct CollectionSection: View {
     }
 }
 
-private struct ClimbsCollectionView: View {
+struct ClimbsCollectionView: View {
     let collection: ProfileCollectionSummary
     let mode: ProfileViewMode
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedComingSoonClimb: Climb?
-    @State private var isHandlingNotifications = false
+    @State private var notificationState: ClimbDropNotificationState
+
+    init(
+        collection: ProfileCollectionSummary,
+        mode: ProfileViewMode,
+        notificationState: ClimbDropNotificationState = .shared
+    ) {
+        self.collection = collection
+        self.mode = mode
+        _notificationState = State(initialValue: notificationState)
+    }
 
     private let launchedColumns = [
         GridItem(.flexible(), spacing: 12),
@@ -95,7 +105,7 @@ private struct ClimbsCollectionView: View {
                     comingSoonSection
                 }
 
-                if mode == .own {
+                if mode == .own, notificationState.shouldPromptForEnablement {
                     notificationsCTA
                 }
             }
@@ -108,6 +118,16 @@ private struct ClimbsCollectionView: View {
         .toolbar(.hidden, for: .navigationBar)
         .sheet(item: $selectedComingSoonClimb) { climb in
             CollectionComingSoonDetailSheet(climb: climb)
+        }
+        .task {
+            guard mode == .own else { return }
+            await notificationState.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            guard mode == .own else { return }
+            Task {
+                await notificationState.refresh()
+            }
         }
     }
 
@@ -230,7 +250,7 @@ private struct ClimbsCollectionView: View {
                     )
             }
             .buttonStyle(.plain)
-            .disabled(isHandlingNotifications)
+            .disabled(notificationState.isUpdating)
         }
         .padding(.top, 2)
     }
@@ -244,12 +264,8 @@ private struct ClimbsCollectionView: View {
     }
 
     private func handleNotificationsTap() {
-        guard !isHandlingNotifications else { return }
-        isHandlingNotifications = true
-
         Task {
-            await CollectionNotificationPermissionHandler.handleTurnOnNotifications()
-            isHandlingNotifications = false
+            await notificationState.enable()
         }
     }
 }
@@ -564,12 +580,5 @@ private struct CollectionComingSoonDetailSheet: View {
         .padding(20)
         .background(ProfileVisualStyle.background.ignoresSafeArea())
         .presentationDetents([.medium])
-    }
-}
-
-@MainActor
-private enum CollectionNotificationPermissionHandler {
-    static func handleTurnOnNotifications() async {
-        await ClimbDropNotificationPermissionController.enable()
     }
 }

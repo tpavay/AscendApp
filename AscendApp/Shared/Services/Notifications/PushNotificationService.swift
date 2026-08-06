@@ -230,7 +230,7 @@ final class PushNotificationService: NSObject, MessagingDelegate {
     }
 }
 
-private extension UNAuthorizationStatus {
+extension UNAuthorizationStatus {
     var allowsRemoteUserVisibleNotifications: Bool {
         switch self {
         case .authorized, .provisional, .ephemeral:

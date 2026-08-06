@@ -875,7 +875,7 @@ struct PostAuthNotificationScreen: View {
             // The email answer is the climber's either way, so it is written
             // down before the iOS prompt can change what they are looking at.
             emailOptIn.startRecordingDecision()
-            let status = await ClimbDropNotificationPermissionController.requestDuringOnboarding()
+            let status = await ClimbDropNotificationState.shared.requestDuringOnboarding()
             isRequesting = false
 
             let isAllowed = switch status {
@@ -907,7 +907,7 @@ struct PostAuthNotificationScreen: View {
             // Skip declines push, not email. The tick is a separate answer and
             // it is saved here exactly as it is saved by Enable.
             emailOptIn.startRecordingDecision()
-            await ClimbDropNotificationPermissionController.disable()
+            await ClimbDropNotificationState.shared.disable()
             isRequesting = false
 
             TelemetryManager.shared.track(

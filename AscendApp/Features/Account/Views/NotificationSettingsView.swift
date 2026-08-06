@@ -3,14 +3,16 @@ import UIKit
 import UserNotifications
 
 struct NotificationSettingsView: View {
-    @State private var authorizationStatus: UNAuthorizationStatus = .notDetermined
-    @State private var isClimbDropEnabled = ClimbDropNotificationPreferenceStore.isEnabled
-    @State private var isUpdating = false
+    @State private var notificationState: ClimbDropNotificationState
+
+    init(notificationState: ClimbDropNotificationState = .shared) {
+        _notificationState = State(initialValue: notificationState)
+    }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                if authorizationStatus == .denied {
+                if notificationState.authorizationStatus == .denied {
                     notificationsDisabledBanner
                 }
 
@@ -20,7 +22,7 @@ struct NotificationSettingsView: View {
                     }
                 }
 
-                if authorizationStatus != .denied {
+                if notificationState.authorizationStatus != .denied {
                     ProfileSection(title: "System") {
                         ProfileCardSurface {
                             VStack(spacing: 0) {
@@ -44,15 +46,12 @@ struct NotificationSettingsView: View {
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .task {
-            await refreshAuthorizationStatus()
+            await notificationState.refresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             Task {
-                await refreshAuthorizationStatus()
+                await notificationState.refresh()
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .climbDropNotificationPreferenceDidChange)) { _ in
-            isClimbDropEnabled = ClimbDropNotificationPreferenceStore.isEnabled
         }
     }
 
@@ -79,7 +78,7 @@ struct NotificationSettingsView: View {
             Toggle(
                 "",
                 isOn: Binding(
-                    get: { isClimbDropEnabled },
+                    get: { notificationState.isPreferenceEnabled },
                     set: { isEnabled in
                         Task {
                             await setClimbDropEnabled(isEnabled)
@@ -89,13 +88,13 @@ struct NotificationSettingsView: View {
             )
             .labelsHidden()
             .tint(.accent)
-            .disabled(isUpdating || authorizationStatus == .denied)
+            .disabled(notificationState.isUpdating || notificationState.authorizationStatus == .denied)
             .accessibilityLabel("New climb drops")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .opacity(isUpdating ? 0.68 : authorizationStatus == .denied ? 0.45 : 1)
+        .opacity(notificationState.isUpdating ? 0.68 : notificationState.authorizationStatus == .denied ? 0.45 : 1)
     }
 
     private var notificationsDisabledBanner: some View {
@@ -116,7 +115,7 @@ struct NotificationSettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 Button("Open iOS Settings") {
-                    ClimbDropNotificationPermissionController.openSystemNotificationSettings()
+                    notificationState.openSystemNotificationSettings()
                 }
                 .font(.montserratSemiBold(size: 13))
                 .foregroundStyle(.accent)
@@ -164,7 +163,7 @@ struct NotificationSettingsView: View {
 
     private var systemSettingsButton: some View {
         Button {
-            ClimbDropNotificationPermissionController.openSystemNotificationSettings()
+            notificationState.openSystemNotificationSettings()
         } label: {
             HStack(spacing: 16) {
                 AppIcon(token: .settingsNotifications, pointSize: 22, weight: .medium)
@@ -189,6 +188,8 @@ struct NotificationSettingsView: View {
     }
 
     private var shouldShowSystemSettingsAction: Bool {
+        guard let authorizationStatus = notificationState.authorizationStatus else { return false }
+
         switch authorizationStatus {
         case .authorized, .provisional, .ephemeral, .denied:
             return true
@@ -200,6 +201,10 @@ struct NotificationSettingsView: View {
     }
 
     private var permissionLabel: String {
+        guard let authorizationStatus = notificationState.authorizationStatus else {
+            return "Checking permission"
+        }
+
         switch authorizationStatus {
         case .authorized:
             return "Allowed"
@@ -217,6 +222,10 @@ struct NotificationSettingsView: View {
     }
 
     private var permissionColor: Color {
+        guard let authorizationStatus = notificationState.authorizationStatus else {
+            return .white.opacity(0.64)
+        }
+
         switch authorizationStatus {
         case .authorized, .provisional, .ephemeral:
             return .accent
@@ -229,29 +238,12 @@ struct NotificationSettingsView: View {
         }
     }
 
-    private func refreshAuthorizationStatus() async {
-        authorizationStatus = await ClimbDropNotificationPermissionController.authorizationStatus()
-        isClimbDropEnabled = ClimbDropNotificationPreferenceStore.isEnabled
-
-        if authorizationStatus == .denied && isClimbDropEnabled {
-            await ClimbDropNotificationPermissionController.disable()
-            isClimbDropEnabled = false
-        }
-    }
-
     private func setClimbDropEnabled(_ isEnabled: Bool) async {
-        guard !isUpdating else { return }
-        isUpdating = true
-        defer { isUpdating = false }
-
         if isEnabled {
-            authorizationStatus = await ClimbDropNotificationPermissionController.enable()
+            await notificationState.enable()
         } else {
-            await ClimbDropNotificationPermissionController.disable()
-            authorizationStatus = await ClimbDropNotificationPermissionController.authorizationStatus()
+            await notificationState.disable()
         }
-
-        isClimbDropEnabled = ClimbDropNotificationPreferenceStore.isEnabled
     }
 }
 
