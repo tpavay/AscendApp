@@ -92,6 +92,45 @@ struct AccountDeletionSessionWorkGateTests {
         #expect(released.first?.retryCount == 3)
     }
 
+    /// The gate has to hold every entry point the feature switch holds, at the same place.
+    ///
+    /// A retry resets its rows to `pending` and saves before any upload is attempted, so gating it
+    /// only at the queue below would still let that save land inside deletion's staged window.
+    @Test("Suspended session work holds a user-triggered upload retry", .bug(id: 389))
+    func suspendedSessionWorkHoldsAUserTriggeredRetry() async throws {
+        let modelContext = try Self.makeUploadModelContext()
+        let gate = AuthenticatedBootstrapCoordinator()
+        let photoRepository = CountingPhotoRepository()
+        let manager = MediaUploadManager(
+            photoRepo: photoRepository,
+            featureFlags: RemoteFeatureFlagStore(),
+            sessionWorkGate: gate
+        )
+
+        let workout = Self.makeUploadWorkout()
+        modelContext.insert(workout)
+        let pending = PendingMediaUpload(
+            workoutId: workout.id,
+            localFileName: "failed-media.jpg",
+            mediaType: "photo",
+            orderIndex: 0
+        )
+        pending.uploadStatus = .failed
+        pending.retryCount = 2
+        pending.lastError = "previous failure"
+        modelContext.insert(pending)
+        try modelContext.save()
+
+        await gate.suspendAndDrain(autonomousWorkers: [manager])
+        await manager.retryFailedUploads(for: workout.id, modelContext: modelContext)
+
+        #expect(await photoRepository.uploadCount() == 0)
+        let held = try modelContext.fetch(FetchDescriptor<PendingMediaUpload>())
+        #expect(held.first?.status == PendingUploadStatus.failed.rawValue)
+        #expect(held.first?.retryCount == 2)
+        #expect(held.first?.lastError == "previous failure")
+    }
+
     // MARK: - Fixture
 
     private static func makeUploadModelContext() throws -> ModelContext {

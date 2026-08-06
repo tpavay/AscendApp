@@ -83,7 +83,11 @@ struct AuthenticatedBootstrapCoordinatorTests {
     @Test("A drain that outlives its bound does not stall deletion", .bug(id: 389))
     func drainReturnsWhenSessionWorkOutlivesItsBound() async {
         let diagnostics = SpyDiagnosticsRecorder()
-        let coordinator = AuthenticatedBootstrapCoordinator(diagnostics: diagnostics)
+        let reporter = RecordingCrashlyticsReporter()
+        let coordinator = AuthenticatedBootstrapCoordinator(
+            diagnostics: diagnostics,
+            telemetry: makeTestTelemetry(reporter: reporter)
+        )
         let started = AsyncStream<Void>.makeStream()
         let release = AsyncStream<Void>.makeStream()
         let releaseStream = release.stream
@@ -112,11 +116,21 @@ struct AuthenticatedBootstrapCoordinatorTests {
         // The one state in which a straggler could still write inside deletion's staged window has
         // to leave a trace, or a recurrence in the field is unattributable.
         let timeouts = diagnostics.events.filter {
-            $0.name == "authenticated_session_drain_timed_out"
+            $0.name == AuthenticatedBootstrapCoordinator.drainTimeoutCode
         }
         #expect(timeouts.count == 1)
         #expect(timeouts.first?.level == .warning)
         #expect(timeouts.first?.mirrorToCrashlytics == true)
+
+        // And it has to leave that trace somewhere that outlives the deletion reporting it: the
+        // diagnostic's ring buffer is wiped two steps later and its Crashlytics half is a
+        // breadcrumb, so only the non-fatal reaches a dashboard when deletion then succeeds.
+        let nonFatals = reporter.recordedErrors.filter {
+            $0.code == AuthenticatedBootstrapCoordinator.drainTimeoutCode
+        }
+        #expect(nonFatals.count == 1)
+        #expect(nonFatals.first?.context == TelemetryManager.ErrorContext.auth.rawValue)
+        #expect(nonFatals.first?.additionalInfo?["timeout_seconds"] != nil)
 
         release.continuation.yield()
         release.continuation.finish()
@@ -125,7 +139,11 @@ struct AuthenticatedBootstrapCoordinatorTests {
     @Test("Deletion cancels and drains writers outside the bootstrap chain", .bug(id: 389))
     func deletionQuiescesAutonomousSessionWorkers() async {
         let diagnostics = SpyDiagnosticsRecorder()
-        let coordinator = AuthenticatedBootstrapCoordinator(diagnostics: diagnostics)
+        let reporter = RecordingCrashlyticsReporter()
+        let coordinator = AuthenticatedBootstrapCoordinator(
+            diagnostics: diagnostics,
+            telemetry: makeTestTelemetry(reporter: reporter)
+        )
         let worker = RecordingSessionWorker()
 
         let didDrain = await coordinator.suspendAndDrain(autonomousWorkers: [worker])
@@ -135,6 +153,7 @@ struct AuthenticatedBootstrapCoordinatorTests {
         #expect(worker.didDrainAfterCancel == true)
         // A drain that finished is not a defect, so it must not report one.
         #expect(diagnostics.events.isEmpty)
+        #expect(reporter.recordedErrors.isEmpty)
     }
 
     @Test("Resuming and discarding both reopen the gate for autonomous writers", .bug(id: 389))

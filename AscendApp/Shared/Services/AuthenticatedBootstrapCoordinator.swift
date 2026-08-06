@@ -34,13 +34,21 @@ final class AuthenticatedBootstrapCoordinator {
     /// for minutes and whose inner task does not inherit the outer cancellation.
     static let drainTimeout: Duration = .seconds(5)
 
+    /// One identifier for both the diagnostic and the non-fatal, so a field report is one search.
+    static let drainTimeoutCode = "authenticated_session_drain_timed_out"
+
     private var activeTask: Task<Void, Never>?
     private var latestOperation: Operation?
     private let diagnostics: any AppDiagnosticsRecording
+    private let telemetry: TelemetryManager
     private(set) var isSuspended = false
 
-    init(diagnostics: any AppDiagnosticsRecording = AppDiagnosticsRecorder.shared) {
+    init(
+        diagnostics: any AppDiagnosticsRecording = AppDiagnosticsRecorder.shared,
+        telemetry: TelemetryManager = .shared
+    ) {
         self.diagnostics = diagnostics
+        self.telemetry = telemetry
     }
 
     func schedule(_ operation: @escaping Operation) {
@@ -70,6 +78,12 @@ final class AuthenticatedBootstrapCoordinator {
     /// to be attributable - and a caller that can only proceed anyway has no decision to make with
     /// the result.
     ///
+    /// It is recorded as a non-fatal, not only as a diagnostic, because neither half of the
+    /// diagnostic survives the flow it reports on: the ring buffer lives in the app's UserDefaults
+    /// domain that deletion wipes two steps later, and the Crashlytics mirror is a breadcrumb that
+    /// only ships attached to some later crash. A deletion that times out and then succeeds is
+    /// exactly the case that must still reach the dashboard.
+    ///
     /// - Returns: whether the work stopped within the bound.
     @discardableResult
     func suspendAndDrain(
@@ -97,14 +111,22 @@ final class AuthenticatedBootstrapCoordinator {
         let didDrain = await completed(drain, within: timeout)
 
         if didDrain == false {
+            let details = [
+                "timeout_seconds": "\(timeout.components.seconds)",
+                "autonomous_workers": "\(autonomousWorkers.count)"
+            ]
+
             diagnostics.record(
-                "authenticated_session_drain_timed_out",
+                Self.drainTimeoutCode,
                 level: .warning,
-                details: [
-                    "timeout_seconds": "\(timeout.components.seconds)",
-                    "autonomous_workers": "\(autonomousWorkers.count)"
-                ],
+                details: details,
                 mirrorToCrashlytics: true
+            )
+            telemetry.recordError(
+                AuthenticatedSessionDrainTimeout(),
+                context: .auth,
+                code: Self.drainTimeoutCode,
+                additionalInfo: details
             )
         }
 
@@ -128,6 +150,9 @@ final class AuthenticatedBootstrapCoordinator {
         isSuspended = false
     }
 }
+
+/// The non-fatal raised when a drain gives up and deletion proceeds without its stragglers.
+struct AuthenticatedSessionDrainTimeout: Error {}
 
 /// Waits for `task`, giving up after `timeout` and reporting whether it finished.
 ///

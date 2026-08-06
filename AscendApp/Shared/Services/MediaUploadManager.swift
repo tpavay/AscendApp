@@ -187,6 +187,10 @@ final class MediaUploadManager: AuthenticatedSessionWorker {
         // would be a status change on work the switch says must sit exactly as it is.
         guard mediaUploadsAllowed(path: "MediaUploadManager.retryFailedUploads") else { return }
 
+        // The gate wants that reset held for its own reason: the save that follows it is a write
+        // into the window where deletion's staged sweep is still rollback-able.
+        guard sessionWorkGate.isSuspended == false else { return }
+
         // Reset failed uploads to pending
         let descriptor = FetchDescriptor<PendingMediaUpload>(
             predicate: #Predicate { $0.workoutId == workoutId && $0.status == "failed" }
@@ -211,6 +215,11 @@ final class MediaUploadManager: AuthenticatedSessionWorker {
         // Also gated here, above `processUploadsForWorkout`, because the orphaned-file cleanup at
         // the end of this sweep is local deletion the switch is meant to stop as well.
         guard mediaUploadsAllowed(path: "MediaUploadManager.processPendingUploads") else { return }
+
+        // The gate covers the same span for the same reason. Leaving it enforced only at the lower
+        // choke point lets a suspended sweep fall through to that same file deletion while deletion
+        // is quiescing this queue.
+        guard sessionWorkGate.isSuspended == false else { return }
 
         let descriptor = FetchDescriptor<PendingMediaUpload>(
             predicate: #Predicate { $0.status == "pending" || $0.status == "uploading" }
