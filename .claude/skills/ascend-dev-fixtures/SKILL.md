@@ -26,7 +26,9 @@ paths:
 - Use server-side seeding (Admin SDK / Cloud Function / CI job) for deterministic multi-user leaderboard fixtures.
 - For local-only iteration, use the Firestore emulator or seed only the authenticated user.
 - Use `scripts/dev-db.mjs` as the central dev/staging database tool for repeatable fixture workflows. It can seed, clear, or reset `profiles`, `leaderboard`, `live-replay`, or `all`, and it must keep refusing production (`ascend-prod-9c8f2`) and unknown Firebase projects.
-- Dev database cleanup should be target-scoped and metadata-driven. Do not hide an unrestricted project wipe behind a friendly `clear all` command; full destructive wipes need an explicit, separately guarded command and a reviewed collection list.
+- Dev database cleanup should be target-scoped and metadata-driven. Do not hide an unrestricted project wipe behind a friendly `clear all` command.
+  Full dev and staging wipes are separate commands with environment-specific confirmations.
+  Their reviewed collection set is derived from direct top-level matches in `firestore.rules`, while `_migrations` is recognized and preserved; any live collection declared in neither place still blocks the wipe.
 - Profile fixture data must include the full public profile contract: display name, age, gender, `weight_kg`, `location_country`, optional `location_region`, `joined_at`, public profile mirror, profile stats, achievements, and public workout summaries.
   Seeded public profile mirrors and leaderboard rows may retain authored fixture identity when they carry the trusted synthetic marker expected by their schema.
   Real-user fixture projections follow the same validated account identity and shared moderation boundary as production data (see `ascend-profile`).

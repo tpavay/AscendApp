@@ -27,31 +27,20 @@ import {getAuth} from "firebase-admin/auth";
 import {FieldValue, getFirestore, Timestamp} from "firebase-admin/firestore";
 import {
   DEV_PROJECT_ID,
+  STAGING_PROJECT_ID,
   assertSeedableProject,
   resolveProjectId as resolveFirebaseProjectId,
 } from "./seed/lib/environments.mjs";
+import {
+  classifyWipeCollections,
+  reviewedWipeCollectionIds,
+} from "./lib/firestore-wipe-policy.mjs";
 import {
   assertPublishablePublicIdentity,
 } from "./seed/lib/public-identity-contract.mjs";
 
 const BATCH_TARGET_ORDER = ["profiles", "leaderboard", "live-replay", "routine-templates"];
 const VALID_GENDERS = new Set(["woman", "man", "non_binary", "prefer_not_to_say"]);
-const WIPE_COLLECTION_IDS = [
-  "users",
-  "leaderboard_stats",
-  "live_replay_leaderboards",
-  "live_climb_community_stats",
-  "routine_templates",
-  "feedback",
-  "userRateLimits",
-  "config",
-  "email_jobs",
-  // Retained-data cleanup: nothing writes this any more, but rows written by the
-  // retired public endpoint are hashed requester IPs that need a deletion path.
-  "email_rate_limits",
-  "oauthStates",
-];
-
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 
@@ -115,6 +104,7 @@ function parseArgs(argv) {
     dryRun: false,
     skipClear: false,
     confirmDevWipe: false,
+    confirmStagingWipe: false,
     passthrough: [],
     userId: null,
     password: null,
@@ -160,6 +150,9 @@ function parseArgs(argv) {
         break;
       case "--confirm-dev-wipe":
         args.confirmDevWipe = true;
+        break;
+      case "--confirm-staging-wipe":
+        args.confirmStagingWipe = true;
         break;
       case "--source-user":
       case "--avatar-dir":
@@ -306,6 +299,7 @@ Usage:
   node scripts/dev-db.mjs clear --target profiles,leaderboard --project dev
   node scripts/dev-db.mjs reset --target all --project dev
   node scripts/dev-db.mjs wipe --project dev --confirm-dev-wipe
+  node scripts/dev-db.mjs wipe --project staging --confirm-staging-wipe
   node scripts/dev-db.mjs create-auth-user --project staging --email qa@example.com --display-name "QA Tester"
   node scripts/dev-db.mjs hydrate-user --project dev --user <uid> --display-name "Tyler P." --age 27 --gender man --height-in 70 --weight-lb 178 --country US --region IL
   node scripts/dev-db.mjs seed-demo-user --project staging --email person@example.com
@@ -316,7 +310,7 @@ Commands:
   audit         Read-only validation for one or more seeded targets.
   clear         Clear one or more targets.
   reset         Clear then seed one or more targets.
-  wipe          Delete all reviewed top-level Firestore collections in dev only.
+  wipe          Delete reviewed top-level Firestore collections in dev/staging.
   create-auth-user Create one Firebase Auth email/password user in dev/staging.
   hydrate-user  Merge complete profile identity/demographic fields into one dev/staging user.
   seed-demo-user Seed one real dev/staging Auth user with product-demo data.
@@ -334,6 +328,7 @@ Options:
   --dry-run                          Print plans without writing.
   --skip-clear                       Forwarded to seed targets that support it.
   --confirm-dev-wipe                 Required for wipe without --dry-run.
+  --confirm-staging-wipe             Required for a staging wipe without --dry-run.
   --source-user <uid>                Forwarded to live-replay seed.
   --avatar-dir <path>                Forwarded to live-replay seed.
   --seed-pack <id>                   Forwarded to seed targets that support it.
@@ -383,7 +378,7 @@ async function main() {
   }
 
   if (args.command === "wipe") {
-    await wipeDevFirestore(projectId, args);
+    await wipeFirestore(projectId, args);
     return;
   }
 
@@ -431,6 +426,7 @@ function printPlan() {
   console.log("  node scripts/dev-db.mjs reset --target all --project dev");
   console.log("  node scripts/dev-db.mjs audit --target all --project staging");
   console.log("  node scripts/dev-db.mjs wipe --project dev --confirm-dev-wipe");
+  console.log("  node scripts/dev-db.mjs wipe --project staging --confirm-staging-wipe");
   console.log("  node scripts/dev-db.mjs seed --target profiles,live-replay --project dev --dry-run");
   console.log("  node scripts/dev-db.mjs seed --target routine-templates --project dev");
   console.log("  node scripts/dev-db.mjs clear --target leaderboard --project dev");
@@ -807,45 +803,65 @@ function firebaseAuthErrorMessage(error) {
   return `${code}${error?.message ?? String(error)}`;
 }
 
-async function wipeDevFirestore(projectId, args) {
-  if (projectId !== DEV_PROJECT_ID) {
-    throw new Error(`wipe is dev-only. Refusing to wipe ${projectId}.`);
-  }
-  if (!args.dryRun && !args.confirmDevWipe) {
-    throw new Error("wipe requires --confirm-dev-wipe unless --dry-run is set");
-  }
+async function wipeFirestore(projectId, args) {
+  assertWipeConfirmation(projectId, args);
 
   initializeFirebaseAdmin(projectId);
   const db = getFirestore();
   const existingCollections = await db.listCollections();
   const existingIds = existingCollections.map((collection) => collection.id).sort();
-  const allowedIds = new Set(WIPE_COLLECTION_IDS);
-  const unknownIds = existingIds.filter((collectionId) => !allowedIds.has(collectionId));
-  if (unknownIds.length > 0) {
+  const plan = classifyWipeCollections(
+    existingIds,
+    reviewedWipeCollectionIds(REPO_ROOT)
+  );
+  if (plan.unknownCollections.length > 0) {
     throw new Error(
       "Refusing wipe because Firestore has unreviewed top-level collection(s): " +
-        unknownIds.join(", ")
+        plan.unknownCollections.join(", ")
     );
   }
 
-  const collectionsToDelete = WIPE_COLLECTION_IDS
-    .filter((collectionId) => existingIds.includes(collectionId));
-
   console.log(`Project: ${projectId}`);
   console.log(`Command: wipe${args.dryRun ? " (dry run)" : ""}`);
-  console.log(`Collections: ${collectionsToDelete.length > 0 ? collectionsToDelete.join(", ") : "(none)"}`);
+  console.log(
+    `Protected: ${plan.protectedCollections.length > 0 ? plan.protectedCollections.join(", ") : "(none)"}`
+  );
+  console.log(
+    `Collections: ${plan.collectionsToDelete.length > 0 ? plan.collectionsToDelete.join(", ") : "(none)"}`
+  );
 
   if (args.dryRun) {
     console.log("Dry run only. No Firestore documents were deleted.");
     return;
   }
 
-  for (const collectionId of collectionsToDelete) {
+  for (const collectionId of plan.collectionsToDelete) {
     console.log(`Deleting ${collectionId} recursively...`);
     await db.recursiveDelete(db.collection(collectionId));
   }
 
-  console.log(`Wiped ${collectionsToDelete.length} top-level collection(s) from ${projectId}.`);
+  console.log(`Wiped ${plan.collectionsToDelete.length} top-level collection(s) from ${projectId}.`);
+}
+
+function assertWipeConfirmation(projectId, args) {
+  if (args.confirmDevWipe && args.confirmStagingWipe) {
+    throw new Error("wipe accepts exactly one environment-specific confirmation");
+  }
+  if (args.confirmDevWipe && projectId !== DEV_PROJECT_ID) {
+    throw new Error(`--confirm-dev-wipe cannot authorize a wipe of ${projectId}`);
+  }
+  if (args.confirmStagingWipe && projectId !== STAGING_PROJECT_ID) {
+    throw new Error(`--confirm-staging-wipe cannot authorize a wipe of ${projectId}`);
+  }
+  if (args.dryRun) {
+    return;
+  }
+  if (projectId === DEV_PROJECT_ID && !args.confirmDevWipe) {
+    throw new Error("dev wipe requires --confirm-dev-wipe");
+  }
+  if (projectId === STAGING_PROJECT_ID && !args.confirmStagingWipe) {
+    throw new Error("staging wipe requires --confirm-staging-wipe");
+  }
 }
 
 async function hydrateUser(projectId, args) {

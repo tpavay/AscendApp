@@ -1520,6 +1520,14 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /notification_devices/{deviceId} {
+      allow read, write: if false;
+    }
+
+    match /notification_campaigns/{campaignId} {
+      allow read, write: if false;
+    }
+
     match /_public_identity_propagation_jobs/{userId} {
       allow read, write: if false;
 
