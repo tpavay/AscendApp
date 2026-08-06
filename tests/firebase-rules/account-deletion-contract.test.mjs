@@ -9,8 +9,10 @@ import {
 import { collection, deleteDoc, doc, getDocs, setDoc } from 'firebase/firestore';
 import { seedActiveAppAccess } from './paid-access-fixture.mjs';
 
-// Test files run concurrently against one emulator and `clearFirestore()` wipes a
-// whole project, so this suite owns its own project id.
+// `clearFirestore()` wipes a whole project, and this suite deletes the accounts it
+// seeds, so it owns a project id no other suite reads. Files run serially today
+// (`--test-concurrency=1` in package.json); the isolation is what keeps that a
+// scheduling detail rather than a correctness dependency.
 const projectId = 'demo-ascendapp-rules-account-deletion';
 const firestoreRules = readFileSync(new URL('../../firestore.rules', import.meta.url), 'utf8');
 
