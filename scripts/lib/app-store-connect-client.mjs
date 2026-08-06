@@ -91,12 +91,60 @@ export async function appStoreConnectRequest(
     const detail = parsed?.errors
       ?.map((error) => `${error.title}: ${error.detail}`)
       .join("; ");
-    throw new Error(
+    const error = new Error(
       `App Store Connect ${method} ${url.pathname} failed (${response.status}): ${detail ?? text}`,
     );
+    error.status = response.status;
+    throw error;
   }
 
   return parsed;
+}
+
+/**
+ * A rate limit or a server-side outage says nothing about the request; every
+ * other status says Apple understood it and refused it, and no amount of
+ * retrying changes that answer.
+ */
+export function isTransientAppStoreConnectFailure(error) {
+  return error?.status === undefined || error.status === 429 || error.status >= 500;
+}
+
+/**
+ * An expired, revoked, or wrongly scoped API key is the most common deterministic
+ * refusal there is, and it says nothing about the query it happened to refuse.
+ */
+export function isAppStoreConnectCredentialRejection(error) {
+  return error?.status === 401 || error?.status === 403;
+}
+
+/**
+ * Deterministic refusals are how an unsupported filter, a rejected query
+ * parameter, or a withdrawn relationship surfaces, and the raw status alone
+ * does not say which assumption stopped holding. A rejected credential is
+ * deterministic too, but blaming the query for it sends the operator hunting
+ * an Apple API change that never happened.
+ */
+export async function requestUnderContract(token, pathOrURL, request, assumption) {
+  try {
+    return await request(token, pathOrURL);
+  } catch (error) {
+    if (isTransientAppStoreConnectFailure(error)) throw error;
+
+    const failure = isAppStoreConnectCredentialRejection(error)
+      ? new Error(
+          `APP_STORE_CREDENTIALS_REJECTED: ${error.message}. App Store Connect refused the API ` +
+            "key itself, so no query assumption is implicated. Check that " +
+            "APP_STORE_CONNECT_API_KEY_ID, APP_STORE_CONNECT_API_ISSUER_ID and " +
+            "APP_STORE_CONNECT_API_KEY still name a current key with access to this app.",
+        )
+      : new Error(
+          `APP_STORE_CONTRACT_REJECTED: ${error.message}. ` +
+            `The App Store Connect assumption that stopped holding: ${assumption}.`,
+        );
+    failure.status = error.status;
+    throw failure;
+  }
 }
 
 /**
@@ -114,7 +162,12 @@ export async function assertAppOwnsBundleId(
     throw new Error(`Expected bundle ID is invalid, got '${expectedBundleId}'.`);
   }
 
-  const app = await request(token, `/apps/${appId}?fields%5Bapps%5D=bundleId,name`);
+  const app = await requestUnderContract(
+    token,
+    `/apps/${appId}?fields%5Bapps%5D=bundleId,name`,
+    request,
+    "GET /v1/apps/{id} accepts fields[apps]=bundleId,name",
+  );
   const actualBundleId = app?.data?.attributes?.bundleId;
   if (actualBundleId !== expectedBundleId) {
     throw new Error(
