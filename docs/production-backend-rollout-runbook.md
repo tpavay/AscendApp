@@ -116,7 +116,8 @@ The workflow performs the following order automatically:
 11. Deploy Storage rules.
 12. Deploy Hosting.
 13. Verify Hosting serves `/climbs/manifest.json` successfully.
-14. Upload the already-built IPA to TestFlight only after every backend step succeeds.
+14. Prove the downloaded IPA embeds the exact build number the build job published, then upload it to TestFlight only after every backend step succeeds.
+    A missing or mismatched build number fails the job before Apple is contacted, so it can never be confused with an upload or App Store Connect failure.
 15. Hold the upload job until App Store Connect records the exact build upload as `PROCESSING` or `COMPLETE`, so the next run's build number is derived from post-upload state.
     The allocator reads active upload records as well as processed builds, so this gate does not wait for Apple's later build-processing index.
     `scripts/ci/await-build-upload-recorded.mjs` owns the bounded upload-ledger wait and its distinct missing, failed, and timeout diagnostics.
