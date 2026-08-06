@@ -68,10 +68,11 @@ final class PushNotificationService: NSObject, MessagingDelegate {
 
         await synchronizePreferenceAndDevice(authorizationStatus: status)
 
-        // Only a denial that was already standing is a block this tap can go
-        // and resolve. A climber who just answered the alert with Don't Allow
-        // is not marched into Settings over it.
-        if opensSettingsWhenDenied, initialStatus == .denied, status == .denied {
+        let routesToSystemSettings = ClimbDropNotificationIntentPolicy.routesToSystemSettings(
+            initialStatus: initialStatus,
+            resolvedStatus: status
+        )
+        if opensSettingsWhenDenied, routesToSystemSettings {
             openSystemNotificationSettings()
         }
 

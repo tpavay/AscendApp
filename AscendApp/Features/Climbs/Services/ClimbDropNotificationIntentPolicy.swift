@@ -8,11 +8,13 @@ enum ClimbDropNotificationIntentDecision: Equatable {
     case preserve
 }
 
-/// Reads an enable request's outcome as the climber's intent.
+/// Reads an enable request's outcome as the climber's intent, and says where the request leaves
+/// them.
 ///
 /// Only the authorization status the request started from says whether iOS presented its
-/// first-time alert, and only that distinguishes a climber declining the alert - an explicit no -
-/// from a request a standing denial refused before anyone was asked anything.
+/// first-time alert. That is the whole difference between a climber declining the alert - an
+/// explicit no, recorded as one - and a climber asking again while a denial from some earlier day
+/// still stands, which is a fresh yes that iOS was never given the chance to answer.
 enum ClimbDropNotificationIntentPolicy {
     static func decision(
         initialStatus: UNAuthorizationStatus,
@@ -22,12 +24,19 @@ enum ClimbDropNotificationIntentPolicy {
         case .notDetermined:
             guard resolvedStatus != .notDetermined else { return .preserve }
             return .record(resolvedStatus.allowsRemoteUserVisibleNotifications)
-        case .denied:
-            return .preserve
-        case .authorized, .provisional, .ephemeral:
+        case .denied, .authorized, .provisional, .ephemeral:
             return .record(true)
         @unknown default:
             return .preserve
         }
+    }
+
+    /// True when iOS Settings is the only place left that can act on the answer just recorded.
+    /// A climber who declined the alert this moment is not marched anywhere over it.
+    static func routesToSystemSettings(
+        initialStatus: UNAuthorizationStatus,
+        resolvedStatus: UNAuthorizationStatus
+    ) -> Bool {
+        initialStatus == .denied && resolvedStatus == .denied
     }
 }

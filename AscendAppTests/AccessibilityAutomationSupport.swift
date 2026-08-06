@@ -49,6 +49,30 @@ func accessibilityElements(under root: UIView) -> [NSObject] {
     return found
 }
 
+/// Activates the control a climber would tap, through the same accessibility action VoiceOver uses.
+@MainActor
+func activateAccessibilityElement(
+    in root: UIView,
+    matching isMatch: (NSObject) -> Bool
+) throws {
+    let elements = accessibilityElements(under: root)
+    let match = elements.first(where: isMatch)
+    let element = try #require(
+        match,
+        """
+        No matching accessibility element on the hosted screen. \
+        Found: \(elements.map { "\(type(of: $0)): \($0.accessibilityLabel ?? "nil")" })
+        """
+    )
+
+    #expect(element.accessibilityActivate())
+}
+
+@MainActor
+func activateAccessibilityElement(labelled label: String, in root: UIView) throws {
+    try activateAccessibilityElement(in: root) { $0.accessibilityLabel == label }
+}
+
 @MainActor
 private func setAccessibilityAutomationEnabled(_ isEnabled: Bool) {
     typealias SetAutomationEnabled = @convention(c) (Bool) -> Void

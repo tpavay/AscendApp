@@ -148,21 +148,8 @@ struct OnboardingNotificationsSkipTests {
         print("Onboarding Skip - \(situation) -> wrote [\(written.isEmpty ? "nothing" : written)]")
     }
 
-    /// Activates the control a climber would tap, through the same
-    /// accessibility action VoiceOver uses. SwiftUI draws its controls rather
-    /// than backing them with `UIView`s, so the accessibility tree is the only
-    /// in-process handle on the real button.
     private func activateElement(labelled label: String, in root: UIView) throws {
-        let elements = accessibilityElements(under: root)
-        let element = try #require(
-            elements.first { $0.accessibilityLabel == label },
-            """
-            No accessibility element labelled "\(label)" on the hosted step. \
-            Found: \(elements.map { "\(type(of: $0)): \($0.accessibilityLabel ?? "nil")" })
-            """
-        )
-
-        #expect(element.accessibilityActivate())
+        try activateAccessibilityElement(labelled: label, in: root)
     }
 }
 

@@ -25,14 +25,39 @@ struct ClimbDropNotificationIntentPolicyTests {
         #expect(decision == .record(true))
     }
 
-    @Test("A standing denial answers nothing, so the stored intent stands", .bug(id: 397))
-    func aStandingDenialPreservesTheStoredIntent() {
+    @Test("Asking again while a denial stands is a fresh yes", .bug(id: 397))
+    func askingAgainUnderAStandingDenialRecordsYes() {
         let decision = ClimbDropNotificationIntentPolicy.decision(
             initialStatus: .denied,
             resolvedStatus: .denied
         )
 
-        #expect(decision == .preserve)
+        #expect(decision == .record(true))
+    }
+
+    @Test("Only a standing denial sends the climber to iOS Settings", .bug(id: 397))
+    func onlyAStandingDenialRoutesToSystemSettings() {
+        #expect(
+            ClimbDropNotificationIntentPolicy.routesToSystemSettings(
+                initialStatus: .denied,
+                resolvedStatus: .denied
+            )
+        )
+
+        // The climber answered the alert a moment ago; they are not marched anywhere over it.
+        #expect(
+            ClimbDropNotificationIntentPolicy.routesToSystemSettings(
+                initialStatus: .notDetermined,
+                resolvedStatus: .denied
+            ) == false
+        )
+
+        #expect(
+            ClimbDropNotificationIntentPolicy.routesToSystemSettings(
+                initialStatus: .authorized,
+                resolvedStatus: .authorized
+            ) == false
+        )
     }
 
     @Test("An alert that never appeared leaves the stored intent alone")

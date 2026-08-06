@@ -139,9 +139,10 @@ struct ClimbDropNotificationStateTests {
         )
         let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
 
-        async let enabling = state.enable()
-        async let disabling = state.disable()
-        let (enabled, disabled) = await (enabling, disabling)
+        let enabling = Task { await state.enable() }
+        await Task.yield()
+        let disabled = await state.disable()
+        let enabled = await enabling.value
 
         #expect(client.enableCount == 1)
         #expect(client.disableCount == 1)
@@ -151,10 +152,10 @@ struct ClimbDropNotificationStateTests {
         #expect(state.isEnabled == false)
     }
 
-    @Test("An enable iOS refuses still records the climber's intent")
-    func refusedEnableKeepsTheIntentAndReportsBlockedDelivery() async {
+    @Test("A standing denial does not answer the climber's fresh yes")
+    func enableUnderAStandingDenialRecordsTheIntentAndRoutesOut() async {
         let client = StubClimbDropNotificationStateClient(
-            authorizationStatus: .notDetermined,
+            authorizationStatus: .denied,
             isPreferenceEnabled: false,
             enableOutcome: .denied
         )
@@ -168,12 +169,13 @@ struct ClimbDropNotificationStateTests {
         #expect(state.isEnabled == false)
         #expect(state.isBlockedBySystemSettings)
         #expect(state.shouldPromptForEnablement)
+        #expect(client.openSettingsCount == 1)
     }
 
-    @Test("Granting in iOS Settings after a refusal clears the prompt without asking again")
-    func permissionGrantedAfterARefusalNeedsNoSecondTap() async {
+    @Test("Granting in iOS Settings after that yes needs no second tap")
+    func permissionGrantedAfterTheRoutedYesNeedsNoSecondTap() async {
         let client = StubClimbDropNotificationStateClient(
-            authorizationStatus: .notDetermined,
+            authorizationStatus: .denied,
             isPreferenceEnabled: false,
             enableOutcome: .denied
         )
@@ -188,6 +190,25 @@ struct ClimbDropNotificationStateTests {
         #expect(state.isBlockedBySystemSettings == false)
         #expect(state.shouldPromptForEnablement == false)
         #expect(client.enableCount == 1)
+    }
+
+    @Test("Declining the first-time iOS alert leaves the preference off")
+    func decliningTheFirstAlertRecordsNoAndKeepsThePrompt() async {
+        let client = StubClimbDropNotificationStateClient(
+            authorizationStatus: .notDetermined,
+            isPreferenceEnabled: false,
+            enableOutcome: .denied
+        )
+        let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
+        await state.refresh()
+
+        let result = await state.enable()
+
+        #expect(result == .denied)
+        #expect(state.isPreferenceEnabled == false)
+        #expect(state.isBlockedBySystemSettings == false)
+        #expect(state.shouldPromptForEnablement)
+        #expect(client.openSettingsCount == 0)
     }
 
     @Test("A preference the climber turned off is not reported as blocked")
@@ -347,8 +368,8 @@ enum NotificationPromptSurface: String, CaseIterable, CustomStringConvertible {
 @MainActor
 @Suite(.hostsAWindow)
 struct NotificationSettingsDeliveryStatusTests {
-    @Test("A blocked preference states its status and carries the iOS Settings route")
-    func blockedDeliveryIsStatedAndRoutedOut() async throws {
+    @Test("A blocked preference states its status and can still be turned off here")
+    func blockedDeliveryIsStatedAndStaysSwitchableOff() async throws {
         let client = StubClimbDropNotificationStateClient(
             authorizationStatus: .denied,
             isPreferenceEnabled: true
@@ -358,25 +379,47 @@ struct NotificationSettingsDeliveryStatusTests {
 
         try await withHostedNotificationSettings(notificationState: state) { root in
             let elements = accessibilityElements(under: root)
-
             #expect(elements.contains { label(of: $0).contains("On, but iOS is blocking delivery") })
-            #expect(elements.contains { $0.accessibilityHint == "Opens iOS Settings" })
+            // The row is the switch, not the route: turning this off is the climber's alone.
+            #expect(elements.contains { label(of: $0) == "New climb drops" })
+            #expect(elements.contains { $0.accessibilityHint == routingHint } == false)
+
+            await state.disable()
+            await renderNextUpdate(in: root)
+
+            #expect(state.isPreferenceEnabled == false)
+            #expect(client.disableCount == 1)
+            #expect(client.openSettingsCount == 0)
+
+            let afterTurningOff = accessibilityElements(under: root)
+            #expect(afterTurningOff.contains { label(of: $0).contains("blocking delivery") } == false)
+            #expect(afterTurningOff.contains { $0.accessibilityHint == routingHint })
         }
     }
 
-    @Test("A preference the climber turned off is never described as blocked")
-    func aDisabledPreferenceIsNotDescribedAsBlocked() async throws {
+    @Test("A preference the climber turned off says what turning it on needs")
+    func aDisabledPreferenceExplainsTheRouteWithoutClaimingToBeBlocked() async throws {
         let client = StubClimbDropNotificationStateClient(
             authorizationStatus: .denied,
-            isPreferenceEnabled: false
+            isPreferenceEnabled: false,
+            enableOutcome: .denied
         )
         let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
         await state.refresh()
 
         try await withHostedNotificationSettings(notificationState: state) { root in
             let elements = accessibilityElements(under: root)
-
             #expect(elements.contains { label(of: $0).contains("blocking delivery") } == false)
+            #expect(elements.contains { label(of: $0).contains("Off. Allow notifications in iOS first.") })
+
+            try activateAccessibilityElement(in: root) {
+                $0.accessibilityHint == routingHint
+            }
+            await renderNextUpdate(in: root)
+
+            #expect(state.isPreferenceEnabled)
+            #expect(client.enableCount == 1)
+            #expect(client.openSettingsCount == 1)
         }
     }
 
@@ -393,13 +436,25 @@ struct NotificationSettingsDeliveryStatusTests {
             let elements = accessibilityElements(under: root)
 
             #expect(elements.contains { label(of: $0).contains("blocking delivery") } == false)
-            #expect(elements.contains { $0.accessibilityHint == "Opens iOS Settings" } == false)
+            #expect(elements.contains { $0.accessibilityHint == routingHint } == false)
             #expect(elements.contains { label(of: $0) == "New climb drops" })
         }
     }
 
+    private var routingHint: String {
+        "Turns these on and opens iOS Settings"
+    }
+
     private func label(of element: NSObject) -> String {
         element.accessibilityLabel ?? ""
+    }
+
+    private func renderNextUpdate(in view: UIView) async {
+        for _ in 0..<4 {
+            await Task.yield()
+            view.setNeedsLayout()
+            view.layoutIfNeeded()
+        }
     }
 
     private func withHostedNotificationSettings(
@@ -473,6 +528,7 @@ private final class StubClimbDropNotificationStateClient: ClimbDropNotificationS
     private(set) var authorizationReadCount = 0
     private(set) var enableCount = 0
     private(set) var disableCount = 0
+    private(set) var openSettingsCount = 0
 
     var status: UNAuthorizationStatus
 
@@ -506,8 +562,27 @@ private final class StubClimbDropNotificationStateClient: ClimbDropNotificationS
     func enable() async -> UNAuthorizationStatus {
         await Task.yield()
         enableCount += 1
+
+        let initialStatus = status
         status = enableOutcome
-        isPreferenceEnabled = true
+
+        switch ClimbDropNotificationIntentPolicy.decision(
+            initialStatus: initialStatus,
+            resolvedStatus: status
+        ) {
+        case .record(let isEnabled):
+            isPreferenceEnabled = isEnabled
+        case .preserve:
+            break
+        }
+
+        if ClimbDropNotificationIntentPolicy.routesToSystemSettings(
+            initialStatus: initialStatus,
+            resolvedStatus: status
+        ) {
+            openSystemNotificationSettings()
+        }
+
         return status
     }
 
@@ -518,5 +593,7 @@ private final class StubClimbDropNotificationStateClient: ClimbDropNotificationS
         return status
     }
 
-    func openSystemNotificationSettings() {}
+    func openSystemNotificationSettings() {
+        openSettingsCount += 1
+    }
 }

@@ -49,14 +49,17 @@ struct NotificationSettingsView: View {
         }
     }
 
-    /// While iOS is refusing delivery the row stops being a switch. Flipping one would have to
-    /// leave for Settings to mean anything, so the row carries the screen's own Open iOS Settings
-    /// affordance instead of a control that appears to store an answer and then walks out.
+    /// Turning the preference off is always the climber's to make here and needs nothing from iOS,
+    /// so the switch stays. Turning it back on while iOS refuses delivery cannot finish on this
+    /// screen, so that one direction carries the screen's own Open iOS Settings affordance instead
+    /// of a switch that would flip, store an answer, and walk out.
     @ViewBuilder
     private var climbDropRow: some View {
-        if notificationState.authorizationStatus == .denied {
+        if notificationState.authorizationStatus == .denied, notificationState.isPreferenceEnabled == false {
             Button {
-                notificationState.openSystemNotificationSettings()
+                Task {
+                    await setClimbDropEnabled(true)
+                }
             } label: {
                 climbDropRowContent {
                     AppIcon(token: .disclosureChevronRight, pointSize: 14, weight: .medium)
@@ -65,7 +68,8 @@ struct NotificationSettingsView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityHint("Opens iOS Settings")
+            .disabled(notificationState.isUpdating)
+            .accessibilityHint("Turns these on and opens iOS Settings")
         } else {
             climbDropRowContent {
                 Toggle(
@@ -211,11 +215,15 @@ struct NotificationSettingsView: View {
     /// so the row reports its own status rather than letting an on toggle read as deliverable.
     /// The banner above carries the explanation and the route into iOS Settings.
     private var climbDropDetail: String {
-        guard notificationState.isBlockedBySystemSettings else {
-            return "A new landmark opens in the catalog."
+        if notificationState.isBlockedBySystemSettings {
+            return "On, but iOS is blocking delivery"
         }
 
-        return "On, but iOS is blocking delivery"
+        if notificationState.authorizationStatus == .denied {
+            return "Off. Allow notifications in iOS first."
+        }
+
+        return "A new landmark opens in the catalog."
     }
 
     private var shouldShowSystemSettingsAction: Bool {
