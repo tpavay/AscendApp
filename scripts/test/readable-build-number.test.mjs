@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync } from "node:fs";
+import {copyFileSync, mkdirSync, mkdtempSync, writeFileSync} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -14,7 +14,7 @@ import {
   fetchHighestUploadedBuildNumber,
   utcDateStamp,
 } from "../ci/derive-build-number.mjs";
-import {awaitBuildVisible} from "../ci/await-build-visible.mjs";
+import {awaitBuildUploadRecorded} from "../ci/await-build-upload-recorded.mjs";
 import {
   appStoreConnectRequest,
   readAppStoreConnectCredentials,
@@ -92,6 +92,23 @@ test("App Store Connect is paginated and the numeric maximum is used", async () 
       data: [{attributes: {version: "2026080302"}}],
       links: {next: null},
     },
+    {
+      data: [
+        {
+          attributes: {
+            cfBundleVersion: "2026080303",
+            state: {state: "PROCESSING"},
+          },
+        },
+        {
+          attributes: {
+            cfBundleVersion: "2026080399",
+            state: {state: "FAILED"},
+          },
+        },
+      ],
+      links: {next: null},
+    },
   ];
   const request = async (token, path) => {
     requests.push({token, path});
@@ -107,10 +124,11 @@ test("App Store Connect is paginated and the numeric maximum is used", async () 
     request,
   );
 
-  assert.equal(highest, "2026080302");
-  assert.equal(requests.length, 3);
+  assert.equal(highest, "2026080303");
+  assert.equal(requests.length, 4);
   assert.match(requests[1].path, /filter%5Bapp%5D=6759919365/);
   assert.equal(requests[2].path, "https://api.appstoreconnect.apple.com/v1/builds?cursor=next");
+  assert.match(requests[3].path, /apps\/6759919365\/buildUploads/);
 });
 
 test("the allocator refuses an App Store app and bundle mismatch", async () => {
@@ -181,8 +199,9 @@ test("the CI entrypoints still run from a path with spaces or a symlink", () => 
   mkdirSync(join(root, "scripts/lib"), {recursive: true});
   for (const file of [
     "scripts/ci/derive-build-number.mjs",
-    "scripts/ci/await-build-visible.mjs",
+    "scripts/ci/await-build-upload-recorded.mjs",
     "scripts/lib/app-store-connect-client.mjs",
+    "scripts/lib/app-store-connect-build-uploads.mjs",
     "scripts/lib/is-entrypoint.mjs",
   ]) {
     copyFileSync(join(repositoryRoot, file), join(root, file));
@@ -192,7 +211,7 @@ test("the CI entrypoints still run from a path with spaces or a symlink", () => 
 
   for (const [script, usage] of [
     ["derive-build-number.mjs", /::error::Usage: derive-build-number/],
-    ["await-build-visible.mjs", /::error::Usage: await-build-visible/],
+    ["await-build-upload-recorded.mjs", /::error::Usage: await-build-upload-recorded/],
   ]) {
     const result = spawnSync(process.execPath, [join(root, "scripts/ci", script)], {
       encoding: "utf8",
@@ -220,17 +239,39 @@ function testClock() {
   };
 }
 
-test("the upload holds the concurrency group until the exact build is listed", async () => {
+function isAppOwnershipRequest(path) {
+  return /^\/apps\/[^/]+\?/.test(path);
+}
+
+test("the upload holds the concurrency group until the exact upload is recorded", async () => {
   const paths = [];
   const responses = [
     {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}},
     {data: []},
-    {data: []},
-    {data: [{attributes: {version: "2026080301"}}]},
+    {
+      data: [
+        {
+          attributes: {
+            cfBundleVersion: "2026080301",
+            state: {state: "AWAITING_UPLOAD"},
+          },
+        },
+      ],
+    },
+    {
+      data: [
+        {
+          attributes: {
+            cfBundleVersion: "2026080301",
+            state: {state: "PROCESSING"},
+          },
+        },
+      ],
+    },
   ];
   const clock = testClock();
 
-  const attempt = await awaitBuildVisible(
+  const outcome = await awaitBuildUploadRecorded(
     {
       appId: "6759919365",
       expectedBundleId: "com.TylerPavay.AscendApp.staging",
@@ -250,20 +291,60 @@ test("the upload holds the concurrency group until the exact build is listed", a
     },
   );
 
-  assert.equal(attempt, 3);
+  assert.deepEqual(outcome, {attempt: 3, state: "PROCESSING"});
   assert.deepEqual(clock.slept, [15, 15]);
-  assert.match(paths[1], /filter%5Bapp%5D=6759919365/);
-  assert.match(paths[1], /filter%5Bversion%5D=2026080301/);
+  assert.match(paths[1], /apps\/6759919365\/buildUploads/);
+  assert.match(paths[1], /filter%5BcfBundleVersion%5D=2026080301/);
 });
+
+test(
+  "the IPA verifier rejects a missing or mismatched handoff and returns the embedded value",
+  {skip: process.platform !== "darwin"},
+  () => {
+    const root = mkdtempSync(join(tmpdir(), "ascend ipa build number "));
+    const appDirectory = join(root, "Payload", "AscendApp.app");
+    const ipaPath = join(root, "AscendApp.ipa");
+    const verifier = join(repositoryRoot, "scripts/ci/verify-ipa-build-number.sh");
+    mkdirSync(appDirectory, {recursive: true});
+    writeFileSync(
+      join(appDirectory, "Info.plist"),
+      `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+  <key>CFBundleVersion</key>
+  <string>2026080602</string>
+</dict>
+</plist>\n`,
+    );
+
+    const zipped = spawnSync("zip", ["-q", "-r", ipaPath, "Payload"], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    assert.equal(zipped.status, 0, zipped.stderr);
+
+    const missing = spawnSync(verifier, [ipaPath, ""], {encoding: "utf8"});
+    assert.notEqual(missing.status, 0);
+    assert.match(missing.stderr, /BUILD_NUMBER_HANDOFF_MISSING/);
+
+    const mismatch = spawnSync(verifier, [ipaPath, "2026080601"], {encoding: "utf8"});
+    assert.notEqual(mismatch.status, 0);
+    assert.match(mismatch.stderr, /BUILD_NUMBER_HANDOFF_MISMATCH/);
+
+    const verified = spawnSync(verifier, [ipaPath, "2026080602"], {encoding: "utf8"});
+    assert.equal(verified.status, 0, verified.stderr);
+    assert.equal(verified.stdout, "2026080602\n");
+  },
+);
 
 // TOKEN_LIFETIME_SECONDS equals the default poll budget, so a token minted once
 // up front expires mid-poll and turns a build that appears late into a 401.
-test("every poll attempt carries a freshly minted token", async () => {
+test("every upload-ledger poll attempt carries a freshly minted token", async () => {
   const tokens = [];
   const clock = testClock();
 
   await assert.rejects(
-    awaitBuildVisible(
+    awaitBuildUploadRecorded(
       {
         appId: "6759919365",
         expectedBundleId: "com.TylerPavay.AscendApp.staging",
@@ -278,7 +359,7 @@ test("every poll attempt carries a freshly minted token", async () => {
           return token;
         },
         request: async (token, path) => {
-          if (path.startsWith("/apps/")) {
+          if (isAppOwnershipRequest(path)) {
             return {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}};
           }
           assert.equal(token, tokens.at(-1), "a poll reused a stale token");
@@ -289,7 +370,7 @@ test("every poll attempt carries a freshly minted token", async () => {
         report: () => {},
       },
     ),
-    /still not listed/,
+    /APP_STORE_UPLOAD_RECORD_TIMEOUT/,
   );
 
   // One for the ownership check plus one per poll attempt.
@@ -297,21 +378,30 @@ test("every poll attempt carries a freshly minted token", async () => {
   assert.equal(new Set(tokens).size, tokens.length);
 });
 
-test("transient App Store Connect failures do not fail a completed upload", async () => {
+test("transient App Store Connect failures do not fail a recorded upload", async () => {
   const clock = testClock();
   const outcomes = [
     () => {
-      throw new Error("App Store Connect GET /v1/builds failed (503): Unavailable: Retry later");
+      throw new Error("App Store Connect GET /v1/buildUploads failed (503): Unavailable: Retry later");
     },
     () => {
-      throw new Error("App Store Connect GET /v1/builds failed (429): Too many requests");
+      throw new Error("App Store Connect GET /v1/buildUploads failed (429): Too many requests");
     },
     () => ({data: []}),
-    () => ({data: [{attributes: {version: "2026080301"}}]}),
+    () => ({
+      data: [
+        {
+          attributes: {
+            cfBundleVersion: "2026080301",
+            state: {state: "COMPLETE"},
+          },
+        },
+      ],
+    }),
   ];
   const reported = [];
 
-  const attempt = await awaitBuildVisible(
+  const outcome = await awaitBuildUploadRecorded(
     {
       appId: "6759919365",
       expectedBundleId: "com.TylerPavay.AscendApp.staging",
@@ -322,7 +412,7 @@ test("transient App Store Connect failures do not fail a completed upload", asyn
     {
       makeToken: () => "redacted-test-token",
       request: async (token, path) => {
-        if (path.startsWith("/apps/")) {
+        if (isAppOwnershipRequest(path)) {
           return {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}};
         }
         return outcomes.shift()();
@@ -333,19 +423,62 @@ test("transient App Store Connect failures do not fail a completed upload", asyn
     },
   );
 
-  assert.equal(attempt, 4);
+  assert.deepEqual(outcome, {attempt: 4, state: "COMPLETE"});
   assert.equal(outcomes.length, 0);
   assert.ok(reported.some((message) => /failed on attempt 1.*503/.test(message)));
   assert.ok(reported.some((message) => /failed on attempt 2.*429/.test(message)));
   assert.ok(reported.every((message) => !message.includes("redacted-test-token")));
 });
 
-test("an upload that never becomes visible fails loudly within a bounded timeout", async () => {
+test("a failed upload stops immediately with Apple's details", async () => {
+  const clock = testClock();
+
+  await assert.rejects(
+    awaitBuildUploadRecorded(
+      {
+        appId: "6759919365",
+        expectedBundleId: "com.TylerPavay.AscendApp.staging",
+        buildNumber: "2026080301",
+        timeoutSeconds: 900,
+        pollIntervalSeconds: 15,
+      },
+      {
+        makeToken: () => "redacted-test-token",
+        request: async (token, path) => {
+          if (isAppOwnershipRequest(path)) {
+            return {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}};
+          }
+          return {
+            data: [
+              {
+                attributes: {
+                  cfBundleVersion: "2026080301",
+                  state: {
+                    state: "FAILED",
+                    errors: [{code: "INVALID_BINARY", message: "Invalid binary"}],
+                  },
+                },
+              },
+            ],
+          };
+        },
+        sleep: clock.sleep,
+        now: clock.now,
+        report: () => {},
+      },
+    ),
+    /APP_STORE_UPLOAD_FAILED:.*Invalid binary.*permits reusing/s,
+  );
+
+  assert.deepEqual(clock.slept, []);
+});
+
+test("an upload absent from the ledger fails loudly within a bounded timeout", async () => {
   let polls = 0;
   const clock = testClock();
 
   await assert.rejects(
-    awaitBuildVisible(
+    awaitBuildUploadRecorded(
       {
         appId: "6759919365",
         expectedBundleId: "com.TylerPavay.AscendApp.staging",
@@ -356,7 +489,7 @@ test("an upload that never becomes visible fails loudly within a bounded timeout
       {
         makeToken: () => "redacted-test-token",
         request: async (token, path) => {
-          if (path.startsWith("/apps/")) {
+          if (isAppOwnershipRequest(path)) {
             return {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}};
           }
           polls += 1;
@@ -367,7 +500,7 @@ test("an upload that never becomes visible fails loudly within a bounded timeout
         report: () => {},
       },
     ),
-    /still not listed in \/v1\/builds after 45s across 4 attempts.*mint a duplicate/s,
+    /APP_STORE_UPLOAD_RECORD_TIMEOUT:.*not recorded as PROCESSING or COMPLETE after 45s across 4 attempts/s,
   );
 
   // The reported budget must be what actually elapsed, not one interval more.
@@ -379,7 +512,7 @@ test("a timeout spent entirely on transient errors names the last one", async ()
   const clock = testClock();
 
   await assert.rejects(
-    awaitBuildVisible(
+    awaitBuildUploadRecorded(
       {
         appId: "6759919365",
         expectedBundleId: "com.TylerPavay.AscendApp.staging",
@@ -390,7 +523,7 @@ test("a timeout spent entirely on transient errors names the last one", async ()
       {
         makeToken: () => "redacted-test-token",
         request: async (token, path) => {
-          if (path.startsWith("/apps/")) {
+          if (isAppOwnershipRequest(path)) {
             return {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}};
           }
           throw new Error("App Store Connect GET /v1/builds failed (500): Internal");
@@ -400,13 +533,47 @@ test("a timeout spent entirely on transient errors names the last one", async ()
         report: () => {},
       },
     ),
-    /after 30s across 3 attempts \(last error: .*500.*\).*mint a duplicate/s,
+    /after 30s across 3 attempts \(last error: .*500.*\)/s,
   );
+});
+
+test("a deterministic upload-ledger rejection is fatal rather than retried", async () => {
+  const clock = testClock();
+  let ledgerRequests = 0;
+
+  await assert.rejects(
+    awaitBuildUploadRecorded(
+      {
+        appId: "6759919365",
+        expectedBundleId: "com.TylerPavay.AscendApp.staging",
+        buildNumber: "2026080301",
+      },
+      {
+        makeToken: () => "redacted-test-token",
+        request: async (token, path) => {
+          if (isAppOwnershipRequest(path)) {
+            return {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}};
+          }
+          ledgerRequests += 1;
+          const error = new Error("App Store Connect rejected the upload-ledger query (403)");
+          error.status = 403;
+          throw error;
+        },
+        sleep: clock.sleep,
+        now: clock.now,
+        report: () => {},
+      },
+    ),
+    /upload-ledger query \(403\)/,
+  );
+
+  assert.equal(ledgerRequests, 1);
+  assert.deepEqual(clock.slept, []);
 });
 
 test("the wait refuses an app that does not own the expected bundle", async () => {
   await assert.rejects(
-    awaitBuildVisible(
+    awaitBuildUploadRecorded(
       {
         appId: "6757202987",
         expectedBundleId: "com.TylerPavay.AscendApp.staging",
@@ -429,7 +596,7 @@ test("an ownership check failure is fatal rather than retried", async () => {
   let requests = 0;
 
   await assert.rejects(
-    awaitBuildVisible(
+    awaitBuildUploadRecorded(
       {
         appId: "6759919365",
         expectedBundleId: "com.TylerPavay.AscendApp.staging",
@@ -458,7 +625,7 @@ test("an ownership check failure is fatal rather than retried", async () => {
 test("the wait refuses a missing or non-numeric build number", async () => {
   for (const buildNumber of ["", "1.2.3", undefined]) {
     await assert.rejects(
-      awaitBuildVisible(
+      awaitBuildUploadRecorded(
         {
           appId: "6759919365",
           expectedBundleId: "com.TylerPavay.AscendApp.staging",

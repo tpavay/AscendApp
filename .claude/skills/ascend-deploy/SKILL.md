@@ -183,23 +183,28 @@ Do not introduce a *new* long-lived JSON service-account key for deploy auth; th
 - `BUILD_NUMBER` is derived by `scripts/ci/derive-build-number.sh <app-store-connect-app-id> <bundle-id>` in a pre-archive "Derive build number" step, not from `github.run_id` or `github.run_number`.
   The step assigns the result to a variable first so a non-zero exit propagates under `set -e` before anything is written to `$GITHUB_ENV`, and rejects an empty value explicitly - a zero-exit-no-output derivation would otherwise archive an empty `CFBundleVersion`.
   A failed derivation stops the deploy instead of exporting an empty build number.
+- After Fastlane exports the signed IPA, `scripts/ci/verify-ipa-build-number.sh` reads its main app `CFBundleVersion` and proves it matches the allocator.
+  The build job publishes that verified artifact value as its job output, and the upload job verifies the downloaded IPA against the same output before contacting TestFlight.
+  Missing and mismatched handoffs therefore fail before upload with distinct `BUILD_NUMBER_HANDOFF_*` diagnostics.
 - The value uses `YYYYMMDDNN`: the UTC date plus the next two-digit sequence for that app on that day.
-  The allocator asks App Store Connect for every uploaded build on the configured app, validates that the app owns the expected bundle ID, and derives `01` or one more than today's highest suffix.
+  The allocator asks App Store Connect for every processed build and non-failed upload reservation on the configured app, validates that the app owns the expected bundle ID, and derives `01` or one more than today's highest suffix.
   An unreachable API, unexpected bundle, non-numeric historical build, future build, or exhausted `99` suffix fails closed.
 - Staging app `6759919365` (`com.TylerPavay.AscendApp.staging`) and production app `6757202987` (`com.TylerPavay.AscendApp`) have independent App Store Connect build-number spaces.
   Their workflows deliberately can emit the same date sequence because the signed IPAs upload to separate apps.
   The workflow-level app ID and bundle ID are also passed explicitly to Fastlane so allocation and upload cannot silently target different apps.
 - Uniqueness depends on each uploadable workflow declaring a **fixed, non-ref-scoped** per-app concurrency group (`deploy-staging`, `deploy-production`).
-  Cancelled runs and reruns consume no sequence value because App Store Connect, not workflow history, owns the state.
+  Runs cancelled before Apple creates an upload reservation consume no sequence value.
+  Once Apple creates a non-failed reservation, that number remains consumed even if the workflow is later cancelled, because App Store Connect rather than workflow history owns the state.
   `scripts/test/ci-workflow-contracts.test.mjs` enforces the fixed groups, the distinct app mappings, and the post-upload wait below.
 - **The concurrency group alone is not enough, and the reason is not obvious.** It serializes workflow *runs*, not Apple's ingestion.
-  `upload_to_testflight` keeps `skip_waiting_for_build_processing: true`, so the lane returns when the transporter accepts the binary - minutes before the Build record is queryable through `/v1/builds`, which is the allocator's only sequence state.
-  Left there, the next queued run would derive against the pre-upload maximum and mint the same `YYYYMMDDNN`, and Apple would reject it at the end of a full archive cycle.
-  `scripts/ci/await-build-visible.mjs` closes that window: the upload job polls `/v1/builds` for the exact build it just uploaded and does not exit - does not release the group - until the record is listed.
-  It waits for *visibility*, not for processing to finish, and fails loudly after a bounded 15 minutes rather than hanging or proceeding.
-  The derived number reaches that job as the `build-ios` job output `build-number`; an empty one is a hard failure, not a skipped wait.
-  Two properties of that poll are load-bearing and easy to regress: it mints a **fresh JWT per attempt**, because the token lifetime and the poll budget are both 900s and a once-minted token 401s exactly when a slow build finally appears; and it treats a per-attempt 429/5xx as **transient**, retrying for the remaining budget, because the binary is already accepted by the transporter and failing early only discards budget that might still have confirmed visibility.
-  Credential loading and the app-to-bundle ownership check stay fatal - the latter is what proves the poll is watching the right app.
+  `upload_to_testflight` keeps `skip_waiting_for_build_processing: true`, so the lane returns when Transporter accepts the binary, before the processed Build is queryable through `/v1/builds`.
+  The allocator therefore reads both processed Builds and the earlier `/v1/apps/{id}/buildUploads` ledger.
+  Every upload state except `FAILED` reserves its build number; Apple explicitly permits reusing the number of a failed upload.
+  `scripts/ci/await-build-upload-recorded.mjs` holds the group until the exact upload is `PROCESSING` or `COMPLETE`, which is sufficient for the next allocator without blocking on build processing.
+  Its 900-second budget covers upload-ledger visibility and transient API failures, not processing.
+  The 20 staging uploads inspected when this gate was introduced took at most 86 seconds from upload-record creation to `uploadedDate`, and the motivating upload record existed before the old post-upload waiter began.
+  A `FAILED` upload, an absent upload record, and a credential or app-ownership failure have distinct diagnostics.
+  The poll mints a fresh JWT per attempt and treats per-attempt 429/5xx responses as transient while the budget remains.
 - The allocator refuses a number at or below the legacy cutover floor, at or below the highest uploaded build, or above the App Store's 32-bit ceiling.
   `YYYYMMDDNN` remains below the ceiling through 4294 and fails rather than wrapping after that.
 - Legacy manual-signing CI secrets are deprecated:

@@ -90,7 +90,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 60
     outputs:
-      build-number: ${{ steps.derive-build-number.outputs.build_number }}
+      build-number: ${{ steps.verify-embedded-build-number.outputs.build_number }}
 
     steps:
       - name: Checkout repository
@@ -258,6 +258,19 @@ jobs:
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
         run: bundle exec fastlane build_staging
 
+      # Publish the number read back from the actual signed artifact, after
+      # proving it matches the allocator. The upload job therefore receives the
+      # build number the IPA contains, not a separately recomputed value.
+      - name: Verify embedded build number
+        id: verify-embedded-build-number
+        env:
+          IPA_PATH: fastlane/build/AscendApp-Staging.ipa
+        shell: bash
+        run: |
+          set -euo pipefail
+          verified_build_number="$(scripts/ci/verify-ipa-build-number.sh "$IPA_PATH" "$BUILD_NUMBER")"
+          printf 'build_number=%s\n' "$verified_build_number" >> "$GITHUB_OUTPUT"
+
       - name: Verify staging Mixpanel destination in the IPA
         run: node scripts/ci/assert-mixpanel-bundle.mjs Staging fastlane/build/AscendApp-Staging.ipa
 
@@ -376,6 +389,13 @@ jobs:
           name: AscendApp-Staging-IPA
           path: build
 
+      - name: Verify TestFlight build-number handoff
+        env:
+          IPA_PATH: build/AscendApp-Staging.ipa
+          BUILD_NUMBER: ${{ needs.build-ios.outputs.build-number }}
+        shell: bash
+        run: scripts/ci/verify-ipa-build-number.sh "$IPA_PATH" "$BUILD_NUMBER"
+
       - name: Upload artifact to TestFlight
         env:
           IPA_PATH: build/AscendApp-Staging.ipa
@@ -385,10 +405,10 @@ jobs:
         run: bundle exec fastlane upload_testflight
 
       # This job is the last one in the group, so it is what holds `deploy-staging`.
-      # The upload lane returns before App Store Connect lists the build, and the
-      # allocator's only sequence state is that listing - so releasing the group
-      # here would let the next run derive the same number. See the script.
-      - name: Wait for the uploaded build to be visible in App Store Connect
+      # The allocator reads active build-upload records as well as processed
+      # builds. Confirm this exact upload is recorded before releasing the group,
+      # without blocking on Apple's separate build-processing index.
+      - name: Confirm App Store Connect recorded the build upload
         env:
           BUILD_NUMBER: ${{ needs.build-ios.outputs.build-number }}
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
@@ -397,8 +417,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "$BUILD_NUMBER" ]; then
-            echo "::error::The build job published no derived build number to wait on."
-            exit 1
-          fi
-          node scripts/ci/await-build-visible.mjs "$APP_STORE_CONNECT_APP_ID" "$APP_STORE_CONNECT_BUNDLE_ID" "$BUILD_NUMBER"
+          node scripts/ci/await-build-upload-recorded.mjs "$APP_STORE_CONNECT_APP_ID" "$APP_STORE_CONNECT_BUNDLE_ID" "$BUILD_NUMBER"

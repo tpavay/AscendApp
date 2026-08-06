@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import {isEntrypoint} from "../lib/is-entrypoint.mjs";
+import {buildUploadReservesNumber} from "../lib/app-store-connect-build-uploads.mjs";
 import {
   BUILD_NUMBER_PATTERN,
   appStoreConnectRequest,
@@ -118,6 +119,35 @@ export async function fetchHighestUploadedBuildNumber(
 
   if (next) {
     throw new Error(`App Store Connect build listing exceeded ${MAX_PAGES} pages.`);
+  }
+
+  // `/v1/builds` contains only processed binaries. The upload ledger exists
+  // earlier and is the authoritative reservation while Apple is still
+  // processing a Transporter upload. Counting both prevents a queued run from
+  // reusing a number that has uploaded successfully but is not a Build yet.
+  next =
+    `/apps/${appId}/buildUploads?fields%5BbuildUploads%5D=` +
+    `cfBundleVersion,state&limit=${PAGE_LIMIT}`;
+
+  for (let page = 0; next && page < MAX_PAGES; page += 1) {
+    const result = await request(token, next);
+    for (const upload of result?.data ?? []) {
+      if (!buildUploadReservesNumber(upload)) continue;
+
+      const version = upload?.attributes?.cfBundleVersion;
+      if (!BUILD_NUMBER_PATTERN.test(String(version))) {
+        throw new Error(
+          `App Store Connect app ${appId} has non-numeric build upload number '${version}'. ` +
+            "Refusing to guess its ordering.",
+        );
+      }
+      versions.push(BigInt(version));
+    }
+    next = result?.links?.next ?? null;
+  }
+
+  if (next) {
+    throw new Error(`App Store Connect build upload listing exceeded ${MAX_PAGES} pages.`);
   }
 
   if (versions.length === 0) return null;

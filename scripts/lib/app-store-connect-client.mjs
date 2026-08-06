@@ -91,9 +91,11 @@ export async function appStoreConnectRequest(
     const detail = parsed?.errors
       ?.map((error) => `${error.title}: ${error.detail}`)
       .join("; ");
-    throw new Error(
+    const error = new Error(
       `App Store Connect ${method} ${url.pathname} failed (${response.status}): ${detail ?? text}`,
     );
+    error.status = response.status;
+    throw error;
   }
 
   return parsed;
