@@ -558,8 +558,8 @@ Copy:
 Break into low-friction screens unless the combined form remains clean:
 
 Gender:
-- Headline: `Choose your division.`
-- Body: `Gender helps place you in leaderboard context.`
+- Headline: `What's your gender?`
+- Body: `Your gender sets your leaderboard comparison.`
 - Options use `ProfileGender` raw values:
   - `Woman`
   - `Man`
