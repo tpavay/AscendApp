@@ -74,9 +74,7 @@ enum DisplayNamePolicy {
         guard !blockedTerms.contains(lettersOnly) else {
             throw DisplayNamePolicyError.objectionable
         }
-        guard !blockedTerms.contains(where: {
-            containsObscuredTerm($0, in: normalized)
-        }) else {
+        guard containsObscuredBlockedTerm(in: normalized) == false else {
             throw DisplayNamePolicyError.objectionable
         }
         guard !embeddedBlockedTerms.contains(where: lettersOnly.contains) else {
@@ -186,27 +184,33 @@ enum DisplayNamePolicy {
         }
     }
 
+    /// Screening runs on every keystroke of the onboarding name fields, so the
+    /// patterns are compiled once per process rather than once per check.
+    private static let longASCIILetterRunExpression = try? NSRegularExpression(
+        pattern: #"([a-z])\1{2,}"#
+    )
+
+    private static let obscuredBlockedTermExpressions: [NSRegularExpression] =
+        blockedTerms.compactMap { term in
+            let letters = term.map {
+                NSRegularExpression.escapedPattern(for: String($0))
+            }
+            let pattern = "(^|[^a-z])" +
+                letters.joined(separator: "[^a-z]*") +
+                "([^a-z]|$)"
+            return try? NSRegularExpression(pattern: pattern)
+        }
+
     private static func containsLongASCIILetterRun(_ value: String) -> Bool {
-        value.range(
-            of: #"([a-z])\1{2,}"#,
-            options: .regularExpression
-        ) != nil
+        guard let longASCIILetterRunExpression else { return false }
+        let range = NSRange(value.startIndex..., in: value)
+        return longASCIILetterRunExpression.firstMatch(in: value, range: range) != nil
     }
 
-    private static func containsObscuredTerm(
-        _ term: String,
-        in normalized: String
-    ) -> Bool {
-        let letters = term.map {
-            NSRegularExpression.escapedPattern(for: String($0))
-        }
-        let pattern = "(^|[^a-z])" +
-            letters.joined(separator: "[^a-z]*") +
-            "([^a-z]|$)"
-        guard let expression = try? NSRegularExpression(pattern: pattern) else {
-            return false
-        }
+    private static func containsObscuredBlockedTerm(in normalized: String) -> Bool {
         let range = NSRange(normalized.startIndex..., in: normalized)
-        return expression.firstMatch(in: normalized, range: range) != nil
+        return obscuredBlockedTermExpressions.contains { expression in
+            expression.firstMatch(in: normalized, range: range) != nil
+        }
     }
 }

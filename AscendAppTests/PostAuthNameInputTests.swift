@@ -74,6 +74,26 @@ struct PostAuthNameInputTests {
         #expect(PostAuthNameInput(firstName: "Maya", lastName: "Chen").canContinue)
     }
 
+    @Test("Rejected names read in onboarding's own words", .bug(id: 394))
+    func validationMessagesNeverNameTheDisplayNameField() {
+        let overlongPart = String(repeating: "Ab", count: DisplayNamePolicy.maximumLength / 2)
+
+        #expect(PostAuthNameInput().validationMessage == "Enter both a first and last name.")
+        #expect(
+            PostAuthNameInput(firstName: "Maya", lastName: "").validationMessage ==
+                "Enter both a first and last name."
+        )
+        #expect(
+            PostAuthNameInput(firstName: overlongPart, lastName: overlongPart).validationMessage ==
+                "That name is too long"
+        )
+        #expect(
+            PostAuthNameInput(firstName: "Maya", lastName: "Fucker").validationMessage ==
+                "That name cannot be used"
+        )
+        #expect(PostAuthNameInput(firstName: "Maya", lastName: "Chen").validationMessage == nil)
+    }
+
     @Test("Completed onboarding resolves the stored first and last name", .bug(id: 394))
     func completedOnboardingResolvesStoredName() {
         let storedProfile = UserDisplayNameData([

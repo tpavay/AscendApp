@@ -194,7 +194,7 @@ private struct PostAuthDisplayNameScreen: View {
             stage: stage,
             headline: "What's your\nname?",
             primaryTitle: isSaving ? "SAVING..." : "CONTINUE",
-            isContinueEnabled: nameInput.canContinue && !isSaving,
+            isContinueEnabled: isContinueEnabled,
             onBack: handleBack,
             onContinue: saveName
         ) { metrics in
@@ -272,11 +272,17 @@ private struct PostAuthDisplayNameScreen: View {
         .onSubmit {
             if field == .firstName {
                 focusedField = .lastName
-            } else {
+            } else if isContinueEnabled {
                 saveName()
+            } else {
+                validationMessage = nameInput.validationMessage
             }
         }
         .accessibilityLabel(field.rawValue)
+    }
+
+    private var isContinueEnabled: Bool {
+        nameInput.canContinue && !isSaving
     }
 
     private var fieldBorderColor: Color {
@@ -300,16 +306,8 @@ private struct PostAuthDisplayNameScreen: View {
     }
 
     private func saveName() {
-        guard !isSaving else { return }
-
-        do {
-            _ = try DisplayNamePolicy.composedBoardName(
-                firstName: nameInput.firstName,
-                lastName: nameInput.lastName
-            )
-        } catch {
-            validationMessage = (error as? LocalizedError)?.errorDescription
-                ?? "Enter your first and last name to continue."
+        guard isContinueEnabled else {
+            validationMessage = nameInput.validationMessage
             return
         }
 
