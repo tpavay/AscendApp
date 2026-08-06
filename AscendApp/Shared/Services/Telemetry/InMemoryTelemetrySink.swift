@@ -18,11 +18,11 @@ final class InMemoryTelemetrySink: TelemetrySink, @unchecked Sendable {
         lock.withLock(\.userIDs)
     }
 
-    var records: [TelemetryRecord] {
+    var records: [EnvelopedTelemetryRecord] {
         lock.withLock(\.records)
     }
 
-    var screens: [TelemetryScreen] {
+    var screens: [EnvelopedTelemetryScreen] {
         lock.withLock(\.screens)
     }
 
@@ -34,11 +34,11 @@ final class InMemoryTelemetrySink: TelemetrySink, @unchecked Sendable {
         lock.withLock { $0.userIDs.append(userID) }
     }
 
-    func record(_ record: TelemetryRecord) {
+    func record(_ record: EnvelopedTelemetryRecord) {
         lock.withLock { $0.records.append(record) }
     }
 
-    func record(screen: TelemetryScreen) {
+    func record(screen: EnvelopedTelemetryScreen) {
         lock.withLock { $0.screens.append(screen) }
     }
 }
@@ -47,7 +47,7 @@ private extension InMemoryTelemetrySink {
     struct State {
         var collectionEnabledValues: [Bool] = []
         var userIDs: [String?] = []
-        var records: [TelemetryRecord] = []
-        var screens: [TelemetryScreen] = []
+        var records: [EnvelopedTelemetryRecord] = []
+        var screens: [EnvelopedTelemetryScreen] = []
     }
 }

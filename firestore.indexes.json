@@ -1,6 +1,34 @@
 {
   "indexes": [
     {
+      "collectionGroup": "_revenuecat_analytics_outbox",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "readyAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "_revenuecat_analytics_outbox",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "processingStartedAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "workouts",
       "queryScope": "COLLECTION",
       "fields": [
@@ -249,6 +277,28 @@
           "queryScope": "COLLECTION_GROUP"
         }
       ]
+    },
+    {
+      "collectionGroup": "entitlements",
+      "fieldPath": "accessUntil",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION_GROUP"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "_revenuecat_webhook_events",
+      "fieldPath": "retainUntil",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "_revenuecat_analytics_outbox",
+      "fieldPath": "retainUntil",
+      "ttl": true,
+      "indexes": []
     }
   ]
 }

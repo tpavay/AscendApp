@@ -17,6 +17,7 @@ final class TelemetryManager: @unchecked Sendable {
     private let sinks: [any TelemetrySink]
     private let crashlyticsReporter: any CrashlyticsReporting
     private let collectionEnabledOverride: Bool?
+    private let envelope: TelemetryEnvelope
 
     var isCollectionEnabled: Bool {
         lock.withLock(\.isCollectionEnabled)
@@ -25,7 +26,8 @@ final class TelemetryManager: @unchecked Sendable {
     init(
         sinks: [any TelemetrySink]? = nil,
         crashlyticsReporter: (any CrashlyticsReporting)? = nil,
-        collectionEnabledOverride: Bool? = nil
+        collectionEnabledOverride: Bool? = nil,
+        buildMetadata: TelemetryBuildMetadata = .current
     ) {
         let reporter = crashlyticsReporter ?? CompositeCrashlyticsReporter(
             reporters: [
@@ -35,12 +37,13 @@ final class TelemetryManager: @unchecked Sendable {
         )
         self.crashlyticsReporter = reporter
         self.collectionEnabledOverride = collectionEnabledOverride
+        self.envelope = TelemetryEnvelope(resolving: buildMetadata)
         if let sinks {
             self.sinks = sinks
         } else {
             var defaultSinks: [any TelemetrySink] = [
                 FirebaseTelemetrySink(),
-                MixpanelTelemetrySink(),
+                MixpanelTelemetrySink(buildMetadata: buildMetadata),
                 CrashlyticsBreadcrumbSink(reporter: reporter)
             ]
 
@@ -171,45 +174,26 @@ final class TelemetryManager: @unchecked Sendable {
     func track(_ record: TelemetryRecord) {
         guard isCollectionEnabled else { return }
 
-        let enrichedRecord = enrich(record)
+        let envelopedRecord = EnvelopedTelemetryRecord(record: record, envelope: envelope)
         sinks
-            .filter { !$0.supportedDestinations.isDisjoint(with: enrichedRecord.destinations) }
-            .forEach { $0.record(enrichedRecord) }
+            .filter { $0.supportedDestinations.isDisjoint(with: envelopedRecord.destinations) == false }
+            .forEach { $0.record(envelopedRecord) }
     }
 
     func track(screen: TelemetryScreen) {
         guard isCollectionEnabled else { return }
 
-        let enrichedScreen = enrich(screen)
+        let envelopedScreen = EnvelopedTelemetryScreen(screen: screen, envelope: envelope)
         sinks
             .filter { $0.supportedDestinations.contains(.analytics) }
-            .forEach { $0.record(screen: enrichedScreen) }
-    }
-
-    private func enrich(_ record: TelemetryRecord) -> TelemetryRecord {
-        var parameters = record.parameters
-        parameters["app_environment"] = .string(TelemetryBuildMetadata.current.appEnvironment)
-        return TelemetryRecord(
-            name: record.name,
-            parameters: parameters,
-            destinations: record.destinations
-        )
-    }
-
-    private func enrich(_ screen: TelemetryScreen) -> TelemetryScreen {
-        var parameters = screen.parameters
-        parameters["app_environment"] = .string(TelemetryBuildMetadata.current.appEnvironment)
-        return TelemetryScreen(
-            name: screen.name,
-            screenClass: screen.screenClass,
-            parameters: parameters
-        )
+            .forEach { $0.record(screen: envelopedScreen) }
     }
 
     // MARK: - Custom Keys (Native Types)
 
     enum Key: String {
         case hasAppAccess = "has_app_access"
+        case appEnvironment = "app_environment"
         case buildConfig = "build_config"
         case appVersion = "app_version"
         case buildNumber = "build_number"
@@ -233,10 +217,10 @@ final class TelemetryManager: @unchecked Sendable {
 
     func setAppMetadata() {
         guard isCollectionEnabled else { return }
-        let metadata = TelemetryBuildMetadata.current
-        set(.buildConfig, value: metadata.buildConfig)
-        set(.appVersion, value: metadata.appVersion)
-        set(.buildNumber, value: metadata.buildNumber)
+        set(.appEnvironment, value: envelope.appEnvironment)
+        set(.buildConfig, value: envelope.buildConfig)
+        set(.appVersion, value: envelope.appVersion)
+        set(.buildNumber, value: envelope.buildNumber)
     }
 
     // MARK: - Breadcrumbs (Structured Tokens)

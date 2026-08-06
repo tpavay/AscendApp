@@ -200,6 +200,9 @@ jobs:
             exit 1
           fi
 
+      - name: Verify Mixpanel build destinations
+        run: node scripts/ci/assert-mixpanel-build-settings.mjs
+
       # A placeholder RevenueCat or Superwall key would archive and upload
       # cleanly while leaving every staging tester behind an unresolvable
       # paywall, so fail before the archive instead.
@@ -255,6 +258,9 @@ jobs:
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
         run: bundle exec fastlane build_staging
 
+      - name: Verify staging Mixpanel destination in the IPA
+        run: node scripts/ci/assert-mixpanel-bundle.mjs Staging fastlane/build/AscendApp-Staging.ipa
+
       - name: Upload staging IPA artifact
         uses: actions/upload-artifact@v4
         with:
@@ -289,10 +295,34 @@ jobs:
       - name: Build web app
         run: npm --prefix web run build
 
-      - name: Deploy Functions, Rules, Indexes, Storage, and Hosting
+      # The entitlement functions and their expiry index must exist before the
+      # paid rules can close access. A missing RevenueCat secret now stops this
+      # job before rules deploy instead of shipping a backend-wide lockout.
+      - name: Deploy Firestore indexes
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-        run: npx -y firebase-tools@15.22.1 deploy --project ascend-staging-fa7d5 --only functions,firestore:rules,firestore:indexes,storage,hosting --non-interactive --force --token "$FIREBASE_TOKEN"
+        run: npx -y firebase-tools@15.22.1 deploy --project ascend-staging-fa7d5 --only firestore:indexes --non-interactive --token "$FIREBASE_TOKEN"
+
+      - name: Wait for every declared Firestore index
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          FIRESTORE_INDEX_STRUCTURAL_GRACE_MS: ${{ vars.FIRESTORE_INDEX_STRUCTURAL_GRACE_MS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          firebase_bin="$(npm exec --yes --package=firebase-tools@15.22.1 -- which firebase)"
+          firebase_tools_root="$(cd "$(dirname "$firebase_bin")/../firebase-tools" && pwd -P)"
+          FIREBASE_TOOLS_ROOT="$firebase_tools_root" \
+            node scripts/ci/wait-for-firestore-indexes.mjs \
+              firestore.indexes.json \
+              ascend-staging-fa7d5 \
+              "(default)"
+
+      - name: Deploy Functions
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx -y firebase-tools@15.22.1 deploy --project ascend-staging-fa7d5 --only functions --non-interactive --force --token "$FIREBASE_TOKEN"
 
       # Staging is where a functions drift should be caught, not production.
       # The reconciliation is against the checked-out ref, so this asserts that
@@ -301,6 +331,21 @@ jobs:
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: node scripts/verify-deployed-functions.mjs --project ascend-staging-fa7d5
+
+      - name: Deploy Firestore rules
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx -y firebase-tools@15.22.1 deploy --project ascend-staging-fa7d5 --only firestore:rules --non-interactive --token "$FIREBASE_TOKEN"
+
+      - name: Deploy Storage rules
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx -y firebase-tools@15.22.1 deploy --project ascend-staging-fa7d5 --only storage --non-interactive --token "$FIREBASE_TOKEN"
+
+      - name: Deploy Hosting
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx -y firebase-tools@15.22.1 deploy --project ascend-staging-fa7d5 --only hosting --non-interactive --token "$FIREBASE_TOKEN"
 
   upload-testflight:
     name: Upload to TestFlight (Staging)

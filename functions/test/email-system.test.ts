@@ -44,15 +44,26 @@ test("rating prompt email automation uses one-send user dedupe", () => {
   assert.equal(buildEmailJobId(dedupeKey), buildEmailJobId(dedupeKey));
 });
 
-test("lifecycle email automation respects explicit opt-out", () => {
-  assert.equal(isLifecycleEmailAllowed(null), true);
-  assert.equal(isLifecycleEmailAllowed({}), true);
+test("lifecycle email automation requires a recorded opt-in", () => {
+  // A missing preference used to mean yes, so every address Ascend held was
+  // one it could not evidence consent for. Silence is now a no.
+  assert.equal(isLifecycleEmailAllowed(null), false);
+  assert.equal(isLifecycleEmailAllowed({}), false);
   assert.equal(
     isLifecycleEmailAllowed({lifecycleEmailsEnabled: true}),
     true
   );
   assert.equal(
     isLifecycleEmailAllowed({lifecycleEmailsEnabled: false}),
+    false
+  );
+});
+
+test("a preference document about something else is not consent", () => {
+  // The document is shared: a push preference write creates it without ever
+  // asking the climber about email.
+  assert.equal(
+    isLifecycleEmailAllowed({pushClimbDropsEnabled: true, schemaVersion: 1}),
     false
   );
 });

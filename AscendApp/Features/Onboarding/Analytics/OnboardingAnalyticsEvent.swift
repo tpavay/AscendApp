@@ -1,55 +1,89 @@
 import Foundation
 
 struct OnboardingAnalyticsContext: Sendable, Hashable {
+    static let flowID = "onboarding"
     static let currentFlowVersion = "v1"
+    static let orderedStepIDs = [
+        "welcome",
+        "watch_yourself_get_better",
+        "reason_to_come_back",
+        "auth",
+        "displayName",
+        "stair_stepper_baseline",
+        "exercise_level",
+        "goal",
+        "motivation",
+        "plan",
+        "summit_landmarks",
+        "real_time",
+        "daily_climbs",
+        "gender",
+        "age",
+        "weight",
+        "location",
+        "notifications",
+        "loading",
+        "first_climb",
+        "paywall"
+    ]
 
-    let flowID: String
+    /// The index reported for a step that is not part of the canonical flow. Contexts are built
+    /// from content arrays, so an added carousel page or guide screen can drift out of the ordered
+    /// list - and onboarding is the one flow a user has no way around, so instrumentation drift
+    /// must never be able to terminate the app. Drift fails loudly in development and degrades to
+    /// an out-of-band index in production instead.
+    static let unknownStepIndex = -1
+
+    let segmentID: String
     let flowVersion: String
     let stepID: String
     let stepIndex: Int
     let stepCount: Int
 
     init(
-        flowID: String,
+        segmentID: String,
         flowVersion: String = Self.currentFlowVersion,
-        stepID: String,
-        stepIndex: Int,
-        stepCount: Int
+        stepID: String
     ) {
-        self.flowID = flowID
+        let canonicalStepIndex = Self.canonicalStepIndex(for: stepID)
+        assert(canonicalStepIndex != nil, "Unknown onboarding analytics step: \(stepID)")
+
+        self.segmentID = segmentID
         self.flowVersion = flowVersion
         self.stepID = stepID
-        self.stepIndex = stepIndex
-        self.stepCount = stepCount
+        stepIndex = canonicalStepIndex ?? Self.unknownStepIndex
+        stepCount = Self.orderedStepIDs.count
     }
+
+    static func canonicalStepIndex(for stepID: String) -> Int? {
+        orderedStepIDs.firstIndex(of: stepID)
+    }
+}
+
+enum OnboardingFlowCompletionReason: String, Codable, Equatable, Sendable {
+    case purchase
+    case restore
+    case existingEntitlement = "existing_entitlement"
 }
 
 enum OnboardingAnalyticsEvent: TelemetryEvent {
     static let welcomeContext = OnboardingAnalyticsContext(
-        flowID: "pre_auth_welcome",
-        stepID: "welcome",
-        stepIndex: 0,
-        stepCount: 1
+        segmentID: "pre_auth_welcome",
+        stepID: "welcome"
     )
 
     static let authContext = OnboardingAnalyticsContext(
-        flowID: "pre_auth_auth",
-        stepID: "auth",
-        stepIndex: 0,
-        stepCount: 1
+        segmentID: "pre_auth_auth",
+        stepID: "auth"
     )
 
-    // The paywall closes the post-auth funnel but is not a `PostAuthOnboardingStage`, so it
-    // continues the stage sequence by index and counts itself into the flow length.
     static let paywallContext = OnboardingAnalyticsContext(
-        flowID: PostAuthOnboardingStage.flowID,
-        stepID: "paywall",
-        stepIndex: PostAuthOnboardingStage.plannedStepCount,
-        stepCount: PostAuthOnboardingStage.plannedStepCount + 1
+        segmentID: PostAuthOnboardingStage.segmentID,
+        stepID: "paywall"
     )
 
-    case flowStarted(context: OnboardingAnalyticsContext)
-    case screenViewed(context: OnboardingAnalyticsContext)
+    case flowStarted(context: OnboardingAnalyticsContext, resume: Bool)
+    case screenViewed(context: OnboardingAnalyticsContext, resume: Bool = false)
     case screenCompleted(
         context: OnboardingAnalyticsContext,
         inputType: String,
@@ -71,21 +105,23 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
     case authCompleted(provider: String)
     case authFailed(provider: String, reason: String)
     case paywallReached(placement: String, source: String?)
-    case flowCompleted(context: OnboardingAnalyticsContext)
+    case flowCompleted(context: OnboardingAnalyticsContext, completionReason: OnboardingFlowCompletionReason)
 
     var record: TelemetryRecord {
         switch self {
-        case .flowStarted(let context):
+        case .flowStarted(let context, let resume):
             return makeRecord(
                 name: "onboarding_flow_started",
-                context: context
+                context: context,
+                parameters: ["resume": .bool(resume)]
             )
-        case .screenViewed(let context):
+        case .screenViewed(let context, let resume):
             return makeRecord(
                 name: "onboarding_screen_viewed",
                 context: context,
                 parameters: [
                     "screen_id": .string(context.stepID),
+                    "resume": .bool(resume),
                     "viewed": .bool(true)
                 ]
             )
@@ -210,10 +246,11 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                 context: Self.paywallContext,
                 parameters: parameters
             )
-        case .flowCompleted(let context):
+        case .flowCompleted(let context, let completionReason):
             return makeRecord(
                 name: "onboarding_flow_completed",
-                context: context
+                context: context,
+                parameters: ["completion_reason": .string(completionReason.rawValue)]
             )
         }
     }
@@ -236,8 +273,9 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
 private extension OnboardingAnalyticsContext {
     var parameters: [String: TelemetryValue] {
         [
-            "flow_id": .string(flowID),
+            "flow_id": .string(Self.flowID),
             "flow_version": .string(flowVersion),
+            "segment_id": .string(segmentID),
             "step_id": .string(stepID),
             "step_index": .int(stepIndex),
             "step_count": .int(stepCount)

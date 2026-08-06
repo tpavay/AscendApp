@@ -20,6 +20,7 @@ interface FakePortOptions {
   moderationReports?: number;
   incomingBlockDocuments?: number;
   lifecycleEmailJobs?: number;
+  revenueCatAnalyticsOutbox?: number;
   failOn?: string[];
   failListing?: boolean;
 }
@@ -129,6 +130,14 @@ function makeFakePort(options: FakePortOptions = {}): {
       }
       deleted.push("email_jobs");
       return options.lifecycleEmailJobs ?? 0;
+    },
+
+    async deleteRevenueCatAnalyticsOutbox() {
+      if (failOn.has("revenuecat_analytics_outbox")) {
+        throw new Error("cannot delete revenuecat_analytics_outbox");
+      }
+      deleted.push("revenuecat_analytics_outbox");
+      return options.revenueCatAnalyticsOutbox ?? 0;
     },
 
     async deleteRateLimitDocument() {
@@ -835,6 +844,15 @@ test("removes queued lifecycle email jobs holding a raw email", async () => {
 
   assert.equal(summary.deletedLifecycleEmailJobs, 1);
   assert.ok(deleted.includes("email_jobs"));
+});
+
+test("removes RevenueCat analytics outbox rows holding the uid", async () => {
+  const {deleted, port} = makeFakePort({revenueCatAnalyticsOutbox: 2});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedRevenueCatAnalyticsOutbox, 2);
+  assert.ok(deleted.includes("revenuecat_analytics_outbox"));
 });
 
 test("one failing subcollection does not abandon other PII", async () => {

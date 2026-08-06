@@ -38,19 +38,6 @@ struct PostAuthOnboardingStore {
 
     func reset(for userId: String) {
         userDefaults.removeObject(forKey: storageKey(for: userId))
-        userDefaults.removeObject(forKey: flowStartStorageKey(for: userId))
-    }
-
-    /// Tracks `onboarding_flow_started` emission separately from the snapshot so the funnel
-    /// counts one start per user even when they quit and resume mid-flow. Kept out of
-    /// `PostAuthOnboardingSnapshot` because adding a non-optional field there would fail to
-    /// decode existing snapshots and silently reset a user's onboarding progress.
-    func hasRecordedFlowStart(for userId: String) -> Bool {
-        userDefaults.bool(forKey: flowStartStorageKey(for: userId))
-    }
-
-    func markFlowStartRecorded(for userId: String) {
-        userDefaults.set(true, forKey: flowStartStorageKey(for: userId))
     }
 
     func markComplete(for userId: String) {
@@ -79,7 +66,6 @@ struct PostAuthOnboardingStore {
         )
 
         save(snapshot, for: userId)
-        userDefaults.removeObject(forKey: flowStartStorageKey(for: userId))
         userDefaults.set(true, forKey: debugReplayStorageKey(for: userId))
     }
 
@@ -94,10 +80,6 @@ struct PostAuthOnboardingStore {
 
     private func storageKey(for userId: String) -> String {
         "postAuthOnboarding.v1.\(userId)"
-    }
-
-    private func flowStartStorageKey(for userId: String) -> String {
-        "postAuthOnboarding.flowStarted.v1.\(userId)"
     }
 
     #if DEBUG

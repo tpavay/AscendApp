@@ -8,6 +8,7 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
     private static let logger = Logger(subsystem: "com.ascendapp.app", category: "Paywall")
 
     private(set) var isConfigured = false
+    private let transactionContextStore = PaywallTransactionContextStore.shared
     private let purchaseController = RevenueCatPurchaseController()
 
     func configure(configuration: MonetizationConfiguration = .live) {
@@ -131,9 +132,15 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
     func handleSuperwallEvent(withInfo eventInfo: SuperwallEventInfo) {
         switch eventInfo.event {
         case .transactionStart(let product, let paywallInfo):
+            let context = PaywallAnalyticsContext(paywallInfo: paywallInfo)
+            transactionContextStore.record(
+                placement: context.placement,
+                presentationID: context.presentationID,
+                productID: product.productIdentifier
+            )
             TelemetryManager.shared.track(
                 PaywallAnalyticsEvent.transactionStarted(
-                    context: PaywallAnalyticsContext(paywallInfo: paywallInfo),
+                    context: context,
                     productID: product.productIdentifier
                 )
             )

@@ -15,6 +15,7 @@ import {
 import {renderUnsubscribePage} from "../src/email/unsubscribe";
 import {
   buildNextCommunicationPreferences,
+  isAppLifecycleEmailConsentSource,
   isEmailJobSuppressed,
   isLifecycleEmailAllowed,
 } from "../src/email/preferences";
@@ -219,7 +220,7 @@ test("unsubscribe page keeps crawlers out", () => {
 test("unsubscribing blocks further lifecycle email sends", () => {
   const preferences = buildNextCommunicationPreferences(
     {},
-    {lifecycleEmailsEnabled: false},
+    {lifecycleEmailsEnabled: false, lifecycleEmailsSource: "email_link"},
     stubTimestamp(1000)
   );
 
@@ -229,12 +230,12 @@ test("unsubscribing blocks further lifecycle email sends", () => {
 test("resubscribing re-opens lifecycle email sends", () => {
   const unsubscribed = buildNextCommunicationPreferences(
     {},
-    {lifecycleEmailsEnabled: false},
+    {lifecycleEmailsEnabled: false, lifecycleEmailsSource: "email_link"},
     stubTimestamp(1000)
   );
   const resubscribed = buildNextCommunicationPreferences(
     unsubscribed,
-    {lifecycleEmailsEnabled: true},
+    {lifecycleEmailsEnabled: true, lifecycleEmailsSource: "settings"},
     stubTimestamp(2000)
   );
 
@@ -338,13 +339,15 @@ test("a job for a still-subscribed user sends", async () => {
   assert.equal(suppressed, false);
 });
 
-test("a job for a user with no stored preferences sends", async () => {
+test("a job for a user who never chose is suppressed", async () => {
+  // The send-time gate has to reach the same verdict as the queue-time one:
+  // an unrecorded answer is not permission at either end of the queue.
   const suppressed = await isEmailJobSuppressed(
     {recipientUid: "user_123"},
     async () => null
   );
 
-  assert.equal(suppressed, false);
+  assert.equal(suppressed, true);
 });
 
 test("mail with no recipient uid sends unconditionally", async () => {
@@ -393,7 +396,7 @@ test("changing an email preference preserves the push preference", () => {
 
   const next = buildNextCommunicationPreferences(
     existing,
-    {lifecycleEmailsEnabled: false},
+    {lifecycleEmailsEnabled: false, lifecycleEmailsSource: "settings"},
     stubTimestamp(1000)
   );
 
@@ -406,7 +409,7 @@ test("communication preferences keep the original createdAt", () => {
   const now = stubTimestamp(1000);
   const next = buildNextCommunicationPreferences(
     {createdAt, pushClimbDropsEnabled: false},
-    {lifecycleEmailsEnabled: false},
+    {lifecycleEmailsEnabled: false, lifecycleEmailsSource: "settings"},
     now
   );
 
@@ -418,7 +421,7 @@ test("communication preferences stamp createdAt on first write", () => {
   const now = stubTimestamp(1000);
   const next = buildNextCommunicationPreferences(
     {},
-    {lifecycleEmailsEnabled: false},
+    {lifecycleEmailsEnabled: false, lifecycleEmailsSource: "onboarding"},
     now
   );
 
@@ -426,15 +429,94 @@ test("communication preferences stamp createdAt on first write", () => {
   assert.equal(next.schemaVersion, 1);
 });
 
+test("only the app's own consent sources are accepted", () => {
+  assert.equal(isAppLifecycleEmailConsentSource("onboarding"), true);
+  assert.equal(isAppLifecycleEmailConsentSource("settings"), true);
+  // A client may not claim the unsubscribe link made the decision, nor write
+  // free text into a field Ascend means to rely on as evidence.
+  assert.equal(isAppLifecycleEmailConsentSource("email_link"), false);
+  assert.equal(isAppLifecycleEmailConsentSource("whatever they like"), false);
+  assert.equal(isAppLifecycleEmailConsentSource(true), false);
+  assert.equal(isAppLifecycleEmailConsentSource(undefined), false);
+});
+
+test("unsubscribing records where the decision was made", () => {
+  const now = stubTimestamp(1000);
+  const next = buildNextCommunicationPreferences(
+    {},
+    {
+      lifecycleEmailsEnabled: false,
+      lifecycleEmailsSource: "email_link",
+      unsubscribedAt: now,
+      unsubscribedVia: "email_link",
+    },
+    now
+  );
+
+  assert.equal(next.lifecycleEmailsSource, "email_link");
+  assert.equal(next.lifecycleEmailsDecidedAt, now);
+  assert.equal(isLifecycleEmailAllowed(next), false);
+});
+
+test("a consent decision is stamped with when it was made", () => {
+  // beehiiv can ask for the timestamp behind an address. updatedAt cannot
+  // answer it: every other writer of this shared document moves that field.
+  const now = stubTimestamp(1000);
+
+  const next = buildNextCommunicationPreferences(
+    {},
+    {lifecycleEmailsEnabled: true, lifecycleEmailsSource: "onboarding"},
+    now
+  );
+
+  assert.equal(next.lifecycleEmailsDecidedAt, now);
+  assert.equal(next.lifecycleEmailsSource, "onboarding");
+});
+
+test("an unrelated preference write does not restamp the consent record", () => {
+  // Turning climb-drop push on says nothing about email, so it must not look
+  // like the climber re-answered the email question today.
+  const decidedAt = stubTimestamp(1000);
+  const existing = buildNextCommunicationPreferences(
+    {},
+    {lifecycleEmailsEnabled: true, lifecycleEmailsSource: "onboarding"},
+    decidedAt
+  );
+
+  const later = stubTimestamp(5000);
+  const next = buildNextCommunicationPreferences(
+    existing,
+    {pushClimbDropsEnabled: true},
+    later
+  );
+
+  assert.equal(next.lifecycleEmailsDecidedAt, decidedAt);
+  assert.equal(next.updatedAt, later);
+});
+
 test("communication preferences only change the supplied keys", () => {
   const next = buildNextCommunicationPreferences(
     {climbDropEmailsEnabled: true, lifecycleEmailsEnabled: true},
-    {lifecycleEmailsEnabled: false},
+    {lifecycleEmailsEnabled: false, lifecycleEmailsSource: "settings"},
     stubTimestamp(1000)
   );
 
   assert.equal(next.climbDropEmailsEnabled, true);
   assert.equal(next.lifecycleEmailsEnabled, false);
+});
+
+test("a consent decision without a source is refused", () => {
+  // Otherwise the stored record reads "granted, decided today, via email_link"
+  // - a combination that never happened, because the link only ever declines.
+  // Provenance that can be inherited from the previous answer is not evidence.
+  assert.throws(
+    () => buildNextCommunicationPreferences(
+      {lifecycleEmailsEnabled: false, lifecycleEmailsSource: "email_link"},
+      {lifecycleEmailsEnabled: true},
+      stubTimestamp(2000)
+    ),
+    /must carry the source/
+  );
 });
 
 /**

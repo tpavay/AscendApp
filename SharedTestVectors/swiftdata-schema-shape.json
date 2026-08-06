@@ -1,12 +1,12 @@
 {
-  "currentSchema": "AscendSchemaV3",
+  "currentSchema": "AscendSchemaV4",
   "versionIdentifier": [
-    3,
+    4,
     0,
     0
   ],
   "customStageCount": 1,
-  "lightweightStageCount": 1,
+  "lightweightStageCount": 2,
   "models": {
     "ActiveHeadphoneWorkoutDraft": {
       "climbId": {
@@ -1047,6 +1047,48 @@
         "type": "Workout?",
         "optional": true,
         "hasDefault": false
+      }
+    },
+    "WorkoutSyncOutboxEntry": {
+      "automaticAttemptCount": {
+        "type": "Int",
+        "optional": false,
+        "hasDefault": true
+      },
+      "failureCategoryRawValue": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "firstPendingAt": {
+        "type": "Date?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "lastAttemptAt": {
+        "type": "Date?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "nextEligibleAttemptAt": {
+        "type": "Date?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "ownerUserId": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "refusalCount": {
+        "type": "Int",
+        "optional": false,
+        "hasDefault": true
+      },
+      "workoutId": {
+        "type": "UUID",
+        "optional": false,
+        "hasDefault": true
       }
     }
   },

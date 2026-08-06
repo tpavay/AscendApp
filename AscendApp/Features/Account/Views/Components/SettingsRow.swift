@@ -34,6 +34,7 @@ struct SettingsRow: View {
             AppIcon(token: option.icon, pointSize: 20, weight: .medium)
                 .foregroundStyle(option.iconColor)
                 .frame(width: 24, height: 24)
+                .accessibilityHidden(true)
             
             // Title
             Text(option.title)
@@ -49,12 +50,15 @@ struct SettingsRow: View {
             } else {
                 AppIcon(token: .disclosureChevronRight, pointSize: 14, weight: .medium)
                     .foregroundStyle(option.isDestructive ? .red.opacity(0.6) : .white.opacity(0.6))
+                    .accessibilityHidden(true)
             }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
+        .frame(minHeight: 44)
         .contentShape(Rectangle())
         .opacity(option.isEnabled ? 1 : 0.6)
+        .accessibilityElement(children: .combine)
     }
 }
 

@@ -4,6 +4,7 @@ Last verified: July 28, 2026
 
 This file is the authoritative repository guide for Ascend's launch subscription configuration.
 The repo-controlled contract is enforced by `scripts/test/subscription-launch-offer.test.mjs`.
+Server-side enforcement, RevenueCat webhook setup, App Store Server Notification URLs, and the required vendor actions are owned by `docs/revenuecat-server-entitlement-enforcement.md`.
 
 ## Launch Offer
 

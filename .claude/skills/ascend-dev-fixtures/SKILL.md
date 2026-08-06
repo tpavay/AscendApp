@@ -16,6 +16,7 @@ paths:
 - XcodeBuildMCP simulator automation should inject `ASC_INTERNAL_QA_EMAIL` and `ASC_INTERNAL_QA_PASSWORD` through `session_set_defaults(env: ...)` or `launch_app_sim(env: ...)` instead of relying on user-local Xcode scheme environment inheritance.
 - Do not persist Internal QA credentials in repo-local `.xcodebuildmcp/config.yaml`; keep them in user-local scheme settings or pass them into the MCP session at runtime.
 - Never commit QA credentials, never bundle them into production builds, and never use the internal QA path to bypass Firestore/Storage/Auth server enforcement.
+- A QA account is signed in, not paid. Staging rules require a server-owned `app_access` grant for paid data, so a QA session that has never completed a reconciled sandbox purchase gets `PERMISSION_DENIED` on workouts, routines, leaderboards, and workout media - that is enforcement working, not a broken fixture. `docs/revenuecat-server-entitlement-enforcement.md` owns the grant path; Admin SDK seeding is unaffected because it bypasses rules.
 
 ## Leaderboard Seeding Policy (Debug / CI)
 - Firestore rules deny every client write to `leaderboard_stats`; standings are derived server-side from the canonical workouts (`functions/src/leaderboardStats.ts`). A seed that writes a standing must use the Admin SDK, and it must then choose one of two shapes, because the derivation owns every row it is not told to leave alone:

@@ -17,14 +17,21 @@ struct TelemetryManagerTests {
         let telemetry = TelemetryManager(
             sinks: [analyticsSink, crashlyticsSink],
             crashlyticsReporter: NoopCrashlyticsReporter(),
-            collectionEnabledOverride: true
+            collectionEnabledOverride: true,
+            buildMetadata: Self.stagingBuildMetadata
         )
 
         telemetry.configure()
         telemetry.track(
             TelemetryRecord(
                 name: "test_event",
-                parameters: ["result": .string("success")],
+                parameters: [
+                    "result": .string("success"),
+                    "app_environment": .string("spoofed"),
+                    "build_config": .string("spoofed"),
+                    "app_version": .string("spoofed"),
+                    "build_number": .string("spoofed")
+                ],
                 destinations: [.analytics, .crashlytics]
             )
         )
@@ -41,7 +48,70 @@ struct TelemetryManagerTests {
         #expect(crashlyticsSink.records.count == 1)
         #expect(analyticsSink.screens.count == 1)
         #expect(crashlyticsSink.screens.isEmpty)
-        #expect(analyticsSink.records.first?.parameters["app_environment"] != nil)
+        #expect(analyticsSink.records.first?.parameters["app_environment"] == .string("staging"))
+        #expect(analyticsSink.records.first?.parameters["build_config"] == .string("staging"))
+        #expect(analyticsSink.records.first?.parameters["app_version"] == .string("1.2.3"))
+        #expect(analyticsSink.records.first?.parameters["build_number"] == .string("456"))
+        #expect(analyticsSink.screens.first?.parameters["app_environment"] == .string("staging"))
+        #expect(analyticsSink.screens.first?.parameters["build_config"] == .string("staging"))
+        #expect(analyticsSink.screens.first?.parameters["app_version"] == .string("1.2.3"))
+        #expect(analyticsSink.screens.first?.parameters["build_number"] == .string("456"))
+    }
+
+    /// Only Mixpanel routes by environment, so a bundle missing a version key
+    /// must degrade to a placeholder rather than silence Firebase, screen views,
+    /// and every Crashlytics breadcrumb for the life of the install.
+    @Test
+    func aBundleMissingItsVersionKeysStillShipsACompleteEnvelope() {
+        let analyticsSink = InMemoryTelemetrySink(destination: .analytics)
+        let crashlyticsSink = InMemoryTelemetrySink(destination: .crashlytics)
+        let telemetry = TelemetryManager(
+            sinks: [analyticsSink, crashlyticsSink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            buildMetadata: TelemetryBuildMetadata(
+                appEnvironment: "production",
+                buildConfig: "release",
+                appVersion: "",
+                buildNumber: "",
+                bundleIdentifier: "com.tylerpavay.AscendApp"
+            )
+        )
+
+        telemetry.configure()
+        telemetry.track(TelemetryRecord(name: "test_event", destinations: [.analytics, .crashlytics]))
+        telemetry.track(screen: TelemetryScreen(name: "test_screen", screenClass: "TestScreen"))
+
+        #expect(analyticsSink.records.count == 1)
+        #expect(crashlyticsSink.records.count == 1)
+        #expect(analyticsSink.screens.count == 1)
+        #expect(analyticsSink.records.first?.parameters["app_environment"] == .string("production"))
+        #expect(analyticsSink.records.first?.parameters["app_version"] == .string("unknown"))
+        #expect(analyticsSink.records.first?.parameters["build_number"] == .string("unknown"))
+        #expect(analyticsSink.screens.first?.parameters["app_version"] == .string("unknown"))
+    }
+
+    @Test
+    func breadcrumbsOmitTheEnvelopeTheyAlreadyCarryAsCustomKeys() {
+        let record = EnvelopedTelemetryRecord(
+            record: TelemetryRecord(
+                name: "auth:session_restored",
+                destinations: [.crashlytics]
+            ),
+            envelope: TelemetryEnvelope(resolving: Self.stagingBuildMetadata)
+        )
+        let parameterized = EnvelopedTelemetryRecord(
+            record: TelemetryRecord(
+                name: "workout_import_finished",
+                parameters: ["outcome": .string("success")],
+                destinations: [.crashlytics]
+            ),
+            envelope: TelemetryEnvelope(resolving: Self.stagingBuildMetadata)
+        )
+
+        #expect(record.crashlyticsMessage == "auth:session_restored")
+        #expect(parameterized.crashlyticsMessage == "workout_import_finished outcome=success")
+        #expect(record.parameters.count == 4)
     }
 
     @Test
@@ -105,8 +175,8 @@ struct TelemetryManagerTests {
             userDefaults: defaults
         )
 
-        #expect(!disabled)
-        #expect(!persisted)
+        #expect(disabled == false)
+        #expect(persisted == false)
     }
 
     @Test
@@ -147,9 +217,9 @@ struct TelemetryManagerTests {
             userDefaults: defaults
         )
 
-        #expect(!enabledArgumentUnderTests)
-        #expect(!enabledEnvironmentUnderTests)
-        #expect(!persistedAfterTestRuns)
+        #expect(enabledArgumentUnderTests == false)
+        #expect(enabledEnvironmentUnderTests == false)
+        #expect(persistedAfterTestRuns == false)
     }
 
     @Test
@@ -163,7 +233,7 @@ struct TelemetryManagerTests {
             userDefaults: defaults
         )
 
-        #expect(!enabled)
+        #expect(enabled == false)
     }
 
     private func makeDefaults() throws -> (UserDefaults, String) {
@@ -173,4 +243,12 @@ struct TelemetryManagerTests {
         return (defaults, suiteName)
     }
     #endif
+
+    private static let stagingBuildMetadata = TelemetryBuildMetadata(
+        appEnvironment: "staging",
+        buildConfig: "staging",
+        appVersion: "1.2.3",
+        buildNumber: "456",
+        bundleIdentifier: "com.tylerpavay.AscendApp.staging"
+    )
 }

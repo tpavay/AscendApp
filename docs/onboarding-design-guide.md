@@ -566,10 +566,11 @@ Gender:
   - `Non-binary`
   - `Prefer not to say`
 
-Age:
-- Headline: `How old are you?`
-- Body: `Age keeps leaderboard context honest.`
-- Input: bounded 13 through 120.
+Birthday:
+- Headline: `When were you born?`
+- Body: `Your age keeps leaderboard context honest.`
+- Input: date wheel bounded to birthdays that produce an age from 13 through 120.
+- Ascend stores the birthday privately and publishes only the derived age - see `ascend-profile`.
 
 Weight:
 - Headline: `What is your body weight?`
@@ -604,7 +605,11 @@ Copy:
 
 Visual:
 - First Ascent badge plus clock/drop card.
-- This is a single ask. Do not bundle other permission requests.
+- Push is the only permission asked here.
+  Do not bundle other permission requests.
+- A pre-ticked `Email me when climbs drop.` checkbox sits between the copy block and the CTA stack.
+  It is an independent answer: the CTA never ticks it, unticking it never suppresses the iOS prompt, and either button saves whatever state it is in.
+  It is the `onboarding` source of the recorded email consent - see `functions/EMAIL_SETUP.md` for the consent record it writes.
 
 ### 24. Paywall
 
@@ -1146,12 +1151,12 @@ Verify:
 
 Ship:
 - Display name.
-- Gender, age, weight, and location capture.
+- Gender, birthday, weight, and location capture.
 - Value reveal.
 - Notification opt-in framed around First Ascent drops.
 
 Verify:
-- Profile fields match `ProfileGender` raw values and age bounds.
+- Profile fields match `ProfileGender` raw values, and the birthday resolves to an age inside the bounds.
 - Firestore rules allow only the intended profile fields.
 - Native notification prompt is served after the in-app value frame, not before.
 

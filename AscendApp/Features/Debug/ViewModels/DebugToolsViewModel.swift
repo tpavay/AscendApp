@@ -216,6 +216,7 @@ class DebugToolsViewModel {
             case ActionTitle.resetPostAuthOnboarding:
                 let userId = try currentUserId()
                 PostAuthOnboardingStore().reset(for: userId)
+                OnboardingFlowAnalyticsCoordinator.shared.resetPass()
                 NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
                 successMessage = "Reset post-auth onboarding for this user."
 
@@ -227,12 +228,14 @@ class DebugToolsViewModel {
             case ActionTitle.replayPostAuthOnboarding:
                 let userId = try currentUserId()
                 PostAuthOnboardingStore().beginDebugReplay(for: userId)
+                OnboardingFlowAnalyticsCoordinator.shared.resetPass()
                 NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
                 successMessage = "Started onboarding replay for this user."
 
             case ActionTitle.replayFullOnboardingFromLanding:
                 let userId = try currentUserId()
                 PostAuthOnboardingStore().beginDebugReplay(for: userId)
+                OnboardingFlowAnalyticsCoordinator.shared.resetPass()
                 NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
                 authVM.signOut()
                 successMessage = "Replay is ready. Sign back into this account from the landing screen."

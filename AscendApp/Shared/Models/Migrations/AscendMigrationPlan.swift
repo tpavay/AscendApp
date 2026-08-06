@@ -15,12 +15,26 @@ import SwiftData
 /// workout - no enrichment, no Live Climb attempt, while `integrityLevel` still claims verified.
 enum AscendMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [AscendSchemaV1.self, AscendSchemaV2.self, AscendSchemaV3.self]
+        [AscendSchemaV1.self, AscendSchemaV2.self, AscendSchemaV3.self, AscendSchemaV4.self]
     }
 
     static var stages: [MigrationStage] {
-        [migrateV1toV2, migrateV2toV3]
+        [migrateV1toV2, migrateV2toV3, migrateV3toV4]
     }
+
+    /// Adds `WorkoutSyncOutboxEntry`, the persisted retry schedule for a workout that is not yet
+    /// in the cloud.
+    ///
+    /// Lightweight, and deliberately so: this runs inside `ModelContainer.init` on the launch path
+    /// where no kill switch reaches it, so the only safe work here is work with nothing to
+    /// interpret. The stage adds one brand-new model and changes no existing one, so there are no
+    /// rows to default and nothing to compute per record. A workout that was already waiting simply
+    /// has no entry yet, and the coordinator creates one the first time it looks - which is the
+    /// same as having never attempted it, and correct.
+    static let migrateV3toV4 = MigrationStage.lightweight(
+        fromVersion: AscendSchemaV3.self,
+        toVersion: AscendSchemaV4.self
+    )
 
     /// Adds cloud-backup state to `Routine` and `RoutineFolder`, and the
     /// `PendingRoutineDeletion` tombstone queue.

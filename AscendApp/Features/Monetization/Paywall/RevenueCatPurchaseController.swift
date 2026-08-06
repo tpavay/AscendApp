@@ -3,21 +3,73 @@ import RevenueCat
 import StoreKit
 import SuperwallKit
 
+/// Copy a climber can be shown, so the diagnostic detail stays in telemetry's bounded `error_type`
+/// and never in the message.
+///
+/// Superwall renders `errorDescription` verbatim in its purchase-failure alert, and Ascend's own
+/// account-settings and app-access-gate restore surfaces render the matching copy. Superwall's
+/// *restore*-failure alert is the exception: it presents `options.paywalls.restoreFailed` and
+/// discards the error it was handed, so `noPurchasesFound` never reaches a climber on the paywall.
 enum RevenueCatPurchaseControllerError: LocalizedError {
     case missingStoreKitProduct
+    case monetizationUnavailable
+    case entitlementUnconfirmed
+    case noPurchasesFound
 
     var errorDescription: String? {
         switch self {
         case .missingStoreKitProduct:
-            return "Superwall did not provide a StoreKit 2 product for RevenueCat to purchase."
+            return "Ascend couldn't start that purchase. Try again in a moment."
+        case .monetizationUnavailable:
+            return "Ascend could not reach the App Store. Check your connection and try again."
+        case .entitlementUnconfirmed:
+            return "Ascend couldn't confirm your subscription. Check your connection and try again."
+        case .noPurchasesFound:
+            return "No purchases found to restore."
         }
     }
 }
 
+@MainActor
 final class RevenueCatPurchaseController: PurchaseController {
-    private var subscriptionStatusTask: Task<Void, Never>?
+    private let applySuperwallStatus: @MainActor (SuperwallKit.SubscriptionStatus) -> Void
 
-    @MainActor
+    private var subscriptionStatusTask: Task<Void, Never>?
+    private let executor: RevenueCatPurchaseExecutor
+    private let restoreService: AppAccessRestoreService
+
+    init(
+        // Resolved on use, not at init: `MonetizationManager.shared` owns the Superwall presenter
+        // that owns this controller, so reading it here would re-enter a running static initializer.
+        coordinator: @escaping @MainActor () -> any PaywallPurchaseCoordinating = {
+            MonetizationManager.shared
+        },
+        applySuperwallStatus: @escaping @MainActor (SuperwallKit.SubscriptionStatus) -> Void = {
+            Superwall.shared.subscriptionStatus = $0
+        },
+        executor: RevenueCatPurchaseExecutor? = nil,
+        restoreService: AppAccessRestoreService? = nil
+    ) {
+        self.applySuperwallStatus = applySuperwallStatus
+        self.executor = executor ?? RevenueCatPurchaseExecutor(
+            applySubscriptionStatus: { entitlementIDs in
+                applySuperwallStatus(Self.subscriptionStatus(for: entitlementIDs))
+            },
+            refreshEntitlementState: {
+                // A purchase can land mid sign-in, and the climber is already waiting on the
+                // transaction spinner, so this one refresh waits out an unresolved identity rather
+                // than reporting the transitional answer as the verdict.
+                await coordinator().refreshEntitlements(
+                    force: true,
+                    waitsForPendingIdentity: true
+                )
+            }
+        )
+        self.restoreService = restoreService ?? AppAccessRestoreService(
+            restorer: { coordinator() }
+        )
+    }
+
     func syncSubscriptionStatus() {
         guard Purchases.isConfigured else { return }
 
@@ -37,78 +89,51 @@ final class RevenueCatPurchaseController: PurchaseController {
         }
     }
 
-    @MainActor
     func purchase(product: SuperwallKit.StoreProduct) async -> PurchaseResult {
-        do {
-            guard let sk2Product = product.sk2Product else {
-                throw RevenueCatPurchaseControllerError.missingStoreKitProduct
-            }
+        guard let sk2Product = product.sk2Product else {
+            let error = RevenueCatPurchaseControllerError.missingStoreKitProduct
+            return executor.failPurchaseBeforeRevenueCatCall(
+                productID: product.productIdentifier,
+                error: error,
+                errorType: .missingStoreProduct
+            )
+        }
 
-            let storeProduct = RevenueCat.StoreProduct(sk2Product: sk2Product)
+        let storeProduct = RevenueCat.StoreProduct(sk2Product: sk2Product)
+        return await executor.executePurchase(productID: product.productIdentifier) {
             let result = try await Purchases.shared.purchase(product: storeProduct)
-            let outcome = result.userCancelled ? "cancelled" : "purchased"
-
-            if !result.userCancelled {
-                applySubscriptionStatus(from: result.customerInfo)
-                await RevenueCatEntitlementService.shared.refreshCustomerInfo()
-            }
-
-            TelemetryManager.shared.track(
-                PaywallAnalyticsEvent.purchaseControllerCompleted(
-                    productID: product.productIdentifier,
-                    outcome: outcome
-                )
+            return RevenueCatPurchaseExecutor.PurchaseResponse(
+                userCancelled: result.userCancelled
             )
-
-            return result.userCancelled ? .cancelled : .purchased
-        } catch let error as ErrorCode {
-            let outcome = error == .paymentPendingError ? "pending" : "failed"
-            TelemetryManager.shared.track(
-                PaywallAnalyticsEvent.purchaseControllerCompleted(
-                    productID: product.productIdentifier,
-                    outcome: outcome
-                )
-            )
-
-            return error == .paymentPendingError ? .pending : .failed(error)
-        } catch {
-            TelemetryManager.shared.track(
-                PaywallAnalyticsEvent.purchaseControllerCompleted(
-                    productID: product.productIdentifier,
-                    outcome: "failed"
-                )
-            )
-
-            return .failed(error)
         }
     }
 
-    @MainActor
     func restorePurchases() async -> RestorationResult {
-        do {
-            let customerInfo = try await Purchases.shared.restorePurchases()
-            applySubscriptionStatus(from: customerInfo)
-            await RevenueCatEntitlementService.shared.refreshCustomerInfo()
-            TelemetryManager.shared.track(
-                PaywallAnalyticsEvent.restoreControllerCompleted(outcome: "restored")
-            )
+        switch await restoreService.restore() {
+        case .restored(let entitlementIDs):
+            applySuperwallStatus(Self.subscriptionStatus(for: entitlementIDs))
             return .restored
-        } catch {
-            TelemetryManager.shared.track(
-                PaywallAnalyticsEvent.restoreControllerCompleted(outcome: "failed")
-            )
+        case .notFound:
+            // Superwall has no "nothing to restore" result, and `.restored` would claim access this
+            // climber does not have, so the failure it does have is the truthful answer. Superwall
+            // shows its own restore-failed alert here; only telemetry and Ascend's own restore
+            // surfaces carry the nothing-found reason.
+            return .failed(RevenueCatPurchaseControllerError.noPurchasesFound)
+        case .failed(let error):
             return .failed(error)
         }
     }
 
-    @MainActor
     private func applySubscriptionStatus(from customerInfo: RevenueCat.CustomerInfo) {
-        let entitlements = customerInfo.entitlements.activeInCurrentEnvironment.keys.map {
-            SuperwallKit.Entitlement(id: $0)
-        }
+        let entitlementIDs = Set(customerInfo.entitlements.activeInCurrentEnvironment.keys)
 
-        Superwall.shared.subscriptionStatus = entitlements.isEmpty
-            ? .inactive
-            : .active(Set(entitlements))
+        applySuperwallStatus(Self.subscriptionStatus(for: entitlementIDs))
+    }
+
+    private static func subscriptionStatus(for entitlementIDs: Set<String>)
+        -> SuperwallKit.SubscriptionStatus {
+        let entitlements = entitlementIDs.map { SuperwallKit.Entitlement(id: $0) }
+
+        return entitlements.isEmpty ? .inactive : .active(Set(entitlements))
     }
 }

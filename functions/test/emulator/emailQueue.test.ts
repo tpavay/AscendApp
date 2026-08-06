@@ -193,10 +193,29 @@ async function readJob(jobId: string): Promise<EmailJobDocument> {
 
 /**
  * Seeds the signed-in climber the lifecycle event belongs to.
+ *
+ * The recorded consent is part of the seed, not a detail: lifecycle email now
+ * requires an explicit yes at both the queue-time and send-time gates, so a
+ * climber with no stored decision is one this suite would never mail.
  * @return {Promise<void>}
  */
 async function seedUser(): Promise<void> {
+  const now = admin.firestore.Timestamp.now();
+
   await db.collection("users").doc(uid).set({email: recipientEmail});
+  await db
+    .collection("users")
+    .doc(uid)
+    .collection("communication_preferences")
+    .doc("current")
+    .set({
+      createdAt: now,
+      lifecycleEmailsDecidedAt: now,
+      lifecycleEmailsEnabled: true,
+      lifecycleEmailsSource: "settings",
+      schemaVersion: 1,
+      updatedAt: now,
+    });
 }
 
 /**

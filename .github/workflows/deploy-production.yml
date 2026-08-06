@@ -197,6 +197,9 @@ jobs:
             exit 1
           fi
 
+      - name: Verify Mixpanel build destinations
+        run: node scripts/ci/assert-mixpanel-build-settings.mjs
+
       # A placeholder RevenueCat or Superwall key would archive and upload
       # cleanly while locking every App Store user behind an unresolvable
       # paywall, so fail before the archive instead.
@@ -246,6 +249,9 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
         run: bundle exec fastlane build_production
+
+      - name: Verify production Mixpanel destination in the IPA
+        run: node scripts/ci/assert-mixpanel-bundle.mjs Release fastlane/build/AscendApp-Production.ipa
 
       - name: Upload production IPA artifact
         uses: actions/upload-artifact@v4
@@ -325,10 +331,14 @@ jobs:
           npx -y firebase-tools@15.22.1 --json functions:list --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --token "$FIREBASE_TOKEN" \
             | node scripts/ci/assert-firebase-functions-active.mjs \
                 cleanupDeletedUserData \
+                expireRevenueCatEntitlements \
                 onPublicIdentityPropagationJobWritten \
                 onPublicProfileIdentityWritten \
                 onWorkoutWritten \
                 onWorkoutReplaySplitsWritten \
+                processRevenueCatAnalyticsOutbox \
+                reconcileAppAccess \
+                revenueCatWebhook \
                 unsubscribeFromEmails
 
       # The step above proves a curated set of critical functions is healthy.

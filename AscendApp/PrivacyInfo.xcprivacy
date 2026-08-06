@@ -89,10 +89,11 @@
         </dict>
 
         <!--
-          Other Data Types - declared gender or division and age band, the
-          notification preference, the first-climb result fields, and the
-          leaderboard age-group filter. The onboarding fitness answers belong to
-          the Fitness declaration below, not here.
+          Other Data Types - private birth date, derived age band, declared
+          gender or division, the notification preference, the first-climb
+          result fields, and the leaderboard age-group filter. The exact birth
+          date is never sent to analytics. The onboarding fitness answers belong
+          to the Fitness declaration below, not here.
         -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
@@ -314,7 +315,9 @@
           model, OS version, app/build version. Analytics is declared because the
           `paywall_skipped` reason and `paywall_error` error descriptions built in
           SuperwallPaywallPresenter use TelemetryRecord's default
-          `destinations: [.analytics]`, so they reach Firebase Analytics and Mixpanel.
+          `destinations: [.analytics]`, so they reach Firebase Analytics and Mixpanel,
+          and because TelemetryEnvelope stamps `app_environment`, `build_config`,
+          `app_version`, and `build_number` onto every analytics event and screen view.
         -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>

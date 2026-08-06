@@ -275,6 +275,18 @@ class Workout {
         set { remoteSyncStatusRawValue = newValue.rawValue }
     }
 
+    /// Whether this climb's current payload is in the cloud.
+    ///
+    /// The one question the sync surface is allowed to ask. Gating on the retry machinery instead -
+    /// `== .rejected`, or a view-local in-flight flag - is what made the warning vanish the instant
+    /// a climber tapped retry, and vanish again when that retry was refused. `pendingUpsert`,
+    /// `failed` and `rejected` are all "not in the cloud", so none of them can unmount it.
+    ///
+    /// Computed, so it adds no column and needs no migration.
+    var isSyncedToCloud: Bool {
+        remoteSyncStatus == .synced
+    }
+
     func markPendingRemoteUpsert(ownerUserId: String, modifiedAt: Date = Date()) {
         self.ownerUserId = ownerUserId
         lastModifiedAt = modifiedAt

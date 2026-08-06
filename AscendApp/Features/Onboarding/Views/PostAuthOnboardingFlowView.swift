@@ -31,7 +31,7 @@ struct PostAuthOnboardingFlowView: View {
                     onContinue: onContinue
                 )
             case .age:
-                PostAuthAgeScreen(
+                PostAuthBirthdayScreen(
                     stage: stage,
                     onBack: onBack,
                     onContinue: onContinue
@@ -156,7 +156,10 @@ private struct PostAuthSurveyQuestionStageScreen: View {
             context: stage.analyticsContext,
             selectedOptionIDs: selectedOptionIDs
         )
-        trackPostAuthInput(stage: stage)
+        trackPostAuthInput(
+            stage: stage,
+            properties: ["answer_count": .int(selectedOptionIDs.count)]
+        )
         onContinue()
     }
 }
@@ -167,7 +170,7 @@ private struct PostAuthFeatureGuideStageScreen: View {
 
     var body: some View {
         OnboardingFeatureGuideFlowScreen(
-            flowID: "post_auth_features",
+            segmentID: "post_auth_features",
             onBackFromFirstScreen: onBack
         ) {
             onContinue()
@@ -385,35 +388,35 @@ private struct PostAuthGenderScreen: View {
     }
 }
 
-private struct PostAuthAgeScreen: View {
+private struct PostAuthBirthdayScreen: View {
     @Environment(AuthenticationViewModel.self) private var authVM
 
     let stage: PostAuthOnboardingStage
     let onBack: () -> Void
     let onContinue: () -> Void
 
-    @State private var selectedAge = 32
+    @State private var selectedBirthday = Calendar.current.date(
+        byAdding: .year,
+        value: -32,
+        to: .now
+    ) ?? .now
     @State private var isSaving = false
 
     var body: some View {
         PostAuthProfileQuestionShell(
             stage: stage,
-            headline: "How old are you?",
-            subtitle: "Age keeps leaderboard context honest",
+            headline: "When were you born?",
+            subtitle: "Your age keeps leaderboard context honest",
             primaryTitle: isSaving ? "SAVING..." : "CONTINUE",
             isContinueEnabled: !isSaving,
             onBack: onBack,
-            onContinue: saveAge
+            onContinue: saveBirthday
         ) { metrics in
             VStack(spacing: metrics.height(12)) {
-                PostAuthAgeWheelPicker(
-                    selectedAge: $selectedAge,
+                PostAuthBirthdayWheelPicker(
+                    selectedBirthday: $selectedBirthday,
                     metrics: metrics
                 )
-
-                Text("13 - 120")
-                    .font(.montserratBold(size: metrics.font(8)))
-                    .foregroundStyle(.white.opacity(0.54))
 
                 if let message = authVM.errorMessage {
                     Text(message)
@@ -428,20 +431,26 @@ private struct PostAuthAgeScreen: View {
         }
     }
 
-    private func saveAge() {
+    private func saveBirthday() {
         guard !isSaving else { return }
 
         Task { @MainActor in
+            let birthday = ProfileBirthday(date: selectedBirthday)
+            guard let age = birthday.age(), ProfileBirthday.validAgeRange.contains(age) else {
+                authVM.errorMessage = "Choose a birthday for an age from 13 to 120"
+                return
+            }
+
             isSaving = true
-            let didSave = await authVM.updateOnboardingAge(selectedAge)
+            let didSave = await authVM.updateOnboardingBirthday(birthday)
             isSaving = false
 
             if didSave {
                 TelemetryManager.shared.setUserProperty("age_inputted", value: "true")
-                OnboardingAnalyticsUserProperties.setAgeGroup(age: selectedAge)
+                OnboardingAnalyticsUserProperties.setAgeGroup(age: age)
                 trackPostAuthInput(
                     stage: stage,
-                    properties: ["profile_age_group": .string(OnboardingAnalyticsUserProperties.ageGroupValue(for: selectedAge))]
+                    properties: ["profile_age_group": .string(OnboardingAnalyticsUserProperties.ageGroupValue(for: age))]
                 )
                 onContinue()
             }
@@ -725,12 +734,29 @@ private struct PostAuthLocationScreen: View {
     }
 }
 
-private struct PostAuthNotificationScreen: View {
+struct PostAuthNotificationScreen: View {
     let stage: PostAuthOnboardingStage
     let onBack: () -> Void
     let onContinue: () -> Void
 
     @State private var isRequesting = false
+    @State private var emailOptIn: OnboardingEmailOptInViewModel
+
+    /// `emailOptIn` is defaulted to the view model this screen has always built,
+    /// so every production call site is unchanged. Only tests pass one, to watch
+    /// what Skip actually writes when the real control is pressed.
+    @MainActor
+    init(
+        stage: PostAuthOnboardingStage,
+        onBack: @escaping () -> Void,
+        onContinue: @escaping () -> Void,
+        emailOptIn: OnboardingEmailOptInViewModel = OnboardingEmailOptInViewModel()
+    ) {
+        self.stage = stage
+        self.onBack = onBack
+        self.onContinue = onContinue
+        _emailOptIn = State(initialValue: emailOptIn)
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -769,7 +795,30 @@ private struct PostAuthNotificationScreen: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(width: metrics.width(342))
-                .offset(x: metrics.x(24), y: metrics.y(507))
+                .offset(x: metrics.x(24), y: metrics.y(470))
+
+                // Email is a separate answer from push. Enabling notifications
+                // must never tick this, and unticking it must never stop the
+                // iOS prompt: bundling them is what makes consent unspecific.
+                Toggle(isOn: emailOptInBinding) {
+                    Text("Email me when climbs drop.")
+                        .font(.montserratMedium(size: metrics.font(14)))
+                        .foregroundStyle(.white.opacity(0.82))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .toggleStyle(
+                    OnboardingCheckboxToggleStyle(
+                        boxSize: metrics.width(22),
+                        cornerRadius: metrics.radius(6),
+                        spacing: metrics.width(12),
+                        // The design coordinates scale with the screen; 44pt
+                        // does not. A small phone gets the same target.
+                        minimumTargetHeight: max(44, metrics.height(44))
+                    )
+                )
+                .disabled(isRequesting)
+                .frame(width: metrics.width(334))
+                .position(x: metrics.x(195), y: metrics.y(651))
 
                 VStack(spacing: metrics.height(14)) {
                     Button(action: requestNotifications) {
@@ -798,11 +847,24 @@ private struct PostAuthNotificationScreen: View {
                     .disabled(isRequesting)
                 }
                 .frame(width: metrics.width(334), alignment: .center)
-                .position(x: metrics.x(195), y: metrics.y(725))
+                .position(x: metrics.x(195), y: metrics.y(744))
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .ignoresSafeArea()
+        .task {
+            // A climber who already answered this question keeps their answer,
+            // even on a phone that has never seen it. Nothing here waits on the
+            // read: the box stays pre-ticked until and unless it returns one.
+            await emailOptIn.adoptStoredDecision()
+        }
+    }
+
+    private var emailOptInBinding: Binding<Bool> {
+        Binding(
+            get: { emailOptIn.isSelected },
+            set: { _ in emailOptIn.toggle() }
+        )
     }
 
     private func requestNotifications() {
@@ -810,6 +872,9 @@ private struct PostAuthNotificationScreen: View {
 
         Task { @MainActor in
             isRequesting = true
+            // The email answer is the climber's either way, so it is written
+            // down before the iOS prompt can change what they are looking at.
+            emailOptIn.startRecordingDecision()
             let status = await ClimbDropNotificationPermissionController.requestDuringOnboarding()
             isRequesting = false
 
@@ -826,7 +891,10 @@ private struct PostAuthNotificationScreen: View {
             )
             TelemetryManager.shared.setUserProperty("notifications_inputted", value: "true")
             OnboardingAnalyticsUserProperties.setNotificationChoice(isAllowed ? "allow" : "decline")
-            trackPostAuthInput(stage: stage)
+            trackPostAuthInput(
+                stage: stage,
+                properties: ["status": .string(isAllowed ? "allow" : "decline")]
+            )
             onContinue()
         }
     }
@@ -836,6 +904,9 @@ private struct PostAuthNotificationScreen: View {
 
         Task { @MainActor in
             isRequesting = true
+            // Skip declines push, not email. The tick is a separate answer and
+            // it is saved here exactly as it is saved by Enable.
+            emailOptIn.startRecordingDecision()
             await ClimbDropNotificationPermissionController.disable()
             isRequesting = false
 
@@ -847,7 +918,10 @@ private struct PostAuthNotificationScreen: View {
             )
             TelemetryManager.shared.setUserProperty("notifications_inputted", value: "true")
             OnboardingAnalyticsUserProperties.setNotificationChoice("skip")
-            trackPostAuthInput(stage: stage)
+            trackPostAuthInput(
+                stage: stage,
+                properties: ["status": .string("skip")]
+            )
             onContinue()
         }
     }
@@ -1446,7 +1520,13 @@ private struct PostAuthFirstClimbRevealScreen: View {
                         climbName: firstClimb.name
                     )
                 )
-                trackPostAuthInput(stage: stage)
+                trackPostAuthInput(
+                    stage: stage,
+                    properties: [
+                        "climb_id": .string(firstClimb.id),
+                        "climb_name": .string(firstClimb.name)
+                    ]
+                )
                 onContinue()
             }
         }
@@ -1675,38 +1755,37 @@ private struct PostAuthBodyMetricColumn<Content: View>: View {
     }
 }
 
-private struct PostAuthAgeWheelPicker: View {
-    @Binding var selectedAge: Int
+private struct PostAuthBirthdayWheelPicker: View {
+    @Binding var selectedBirthday: Date
     let metrics: PostAuthProfileMetrics
-
-    private let ageRange = Array(13...120)
 
     var body: some View {
         ZStack {
-            Picker("Age", selection: $selectedAge) {
-                ForEach(ageRange, id: \.self) { age in
-                    Text(age.formatted())
-                        .font(.montserratBold(size: metrics.font(34)))
-                        .foregroundStyle(.white)
-                        .monospacedDigit()
-                        .tag(age)
-                }
-            }
-            .pickerStyle(.wheel)
+            DatePicker(
+                "Birthday",
+                selection: $selectedBirthday,
+                in: allowedRange,
+                displayedComponents: .date
+            )
+            .datePickerStyle(.wheel)
             .labelsHidden()
-            .frame(width: metrics.width(142), height: metrics.height(150))
+            .frame(width: metrics.width(320), height: metrics.height(200))
             .clipped()
             .colorScheme(.dark)
-
-            RoundedRectangle(cornerRadius: metrics.radius(8), style: .continuous)
-                .stroke(OnboardingValuePalette.lime.opacity(0.9), lineWidth: 1)
-                .allowsHitTesting(false)
         }
-        .frame(width: metrics.width(150), height: metrics.height(156), alignment: .center)
+        .frame(width: metrics.width(320), height: metrics.height(200), alignment: .center)
         .background(PostAuthProfilePalette.fieldBackground)
         .clipShape(RoundedRectangle(cornerRadius: metrics.radius(8), style: .continuous))
-        .accessibilityLabel("Age")
-        .accessibilityValue("\(selectedAge)")
+        .accessibilityLabel("Birthday")
+        .accessibilityValue(selectedBirthday.formatted(date: .long, time: .omitted))
+    }
+
+    private var allowedRange: ClosedRange<Date> {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let oldest = calendar.date(byAdding: .year, value: -120, to: today) ?? today
+        let youngest = calendar.date(byAdding: .year, value: -13, to: today) ?? today
+        return oldest...youngest
     }
 }
 

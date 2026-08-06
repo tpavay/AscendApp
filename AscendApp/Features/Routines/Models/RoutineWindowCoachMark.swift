@@ -18,7 +18,12 @@ enum RoutineWindowCoachMark {
         stepCount: 1,
         stepIndex: 0,
         primaryActionTitle: "Got it",
-        showsSkip: false
+        showsSkip: false,
+        // The window it names is already a lime rounded rect. A spotlight ring around the strip
+        // put a second lime outline around the first, and the box in a box obscured the one
+        // element the card exists to point at. This mark alone opts out; the walkthrough's
+        // three targets carry no outline of their own and keep theirs.
+        drawsSpotlightRing: false
     )
 
     /// Once, the first time the window arrives - and never over the first-open walkthrough,

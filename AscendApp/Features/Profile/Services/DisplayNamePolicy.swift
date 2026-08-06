@@ -90,6 +90,23 @@ enum DisplayNamePolicy {
         (try? validated(candidate)) != nil
     }
 
+    /// The public board name a climber's two required name halves compose into.
+    ///
+    /// Both halves are required: composing from one would republish a partial
+    /// name over the one a legacy climber already ranks under.
+    static func composedBoardName(firstName: String, lastName: String) throws -> String {
+        let first = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let last = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !first.isEmpty, !last.isEmpty else {
+            throw DisplayNamePolicyError.incompleteName
+        }
+        return try validated("\(first) \(last)")
+    }
+
+    static func composesAllowedBoardName(firstName: String, lastName: String) -> Bool {
+        (try? composedBoardName(firstName: firstName, lastName: lastName)) != nil
+    }
+
     /// Case, diacritic, and confusable-letter folding only.
     ///
     /// Digits stay digits here so the repeated-character check cannot invent a

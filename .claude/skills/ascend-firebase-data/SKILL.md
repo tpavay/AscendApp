@@ -1,6 +1,6 @@
 ---
 name: ascend-firebase-data
-description: Use when adding, renaming, or removing any Firestore field - including from a Swift model or repository, which requires a matching firestore.rules update first - and when changing security rules or indexes, writing user media to Firebase Storage, deleting an account or sweeping its data, or handling offline/connectivity state in Ascend. Covers the strict hasOnly/hasAll rules contract, the required rules-first change order, user-scoped Storage prefixes, the account-deletion ordering contract, and the single-source-of-truth connectivity rule.
+description: Use when adding, renaming, or removing any Firestore field - including from a Swift model or repository, which requires a matching firestore.rules update first - and when changing security rules or indexes, writing user media to Firebase Storage, deleting an account or sweeping its data, or handling offline/connectivity state in Ascend. Covers the strict hasOnly/hasAll rules contract, the required rules-first change order, the server-enforced paid-access predicate and what stays open before purchase, user-scoped Storage prefixes, the account-deletion ordering contract, and the single-source-of-truth connectivity rule.
 ---
 
 # Ascend Firestore + Storage
@@ -37,6 +37,21 @@ The Storage emulator holds exactly one global ruleset - `PUT /internal/setRules`
 While the swap is in flight the emulator answers *every* storage request with a blanket 403 that skips the auth check entirely, so a parallel run both fails owner-only setup like `clearStorage()` and turns `assertFails` assertions green for the wrong reason.
 Giving each file its own `projectId` does not help; the buckets are separate but the ruleset is not.
 
+## Paid access is a rules predicate, not a screen
+
+The paywall is enforced at the backend boundary: `firestore.rules` and `storage.rules` require `users/{uid}/entitlements/app_access` to exist, and only the RevenueCat webhook and its reconciliation callable can create it.
+`docs/revenuecat-server-entitlement-enforcement.md` owns that system - the webhook contract, the vendor setup, the choke-point list, and the deploy ordering that keeps a missing secret from locking subscribers out.
+What matters while editing rules:
+
+- Use `isPaidOwner(userId)` / `hasPaidAppAccess()` for anything that is the paid product: private workouts, routines and folders, the public projections derived from them, global leaderboards and replay indexes, and workout media in Storage.
+- Keep `isOwner(userId)` for deletes and for everything that has to work before purchase and after lapse - onboarding, auth, restore, account management, support and safety, identity publication, and account deletion.
+  Paid enforcement must never trap a user's data or their exit.
+- `climb-images/` and the Hosting climb catalog deliberately stay open to any signed-in caller: the `firstClimb` onboarding stage runs before the paywall and renders that artwork.
+- `entitlements`, `entitlement_status`, and `entitlement_reconciliations` are `allow read, write: if false`.
+  A client that could write any of them could mint its own paid access or defeat the reconciliation cooldown.
+- The paid predicate costs one document access per Firestore request, and one *billable cross-service Firestore read* per Storage request.
+  The Storage side also depends on the Firebase Storage service account holding `Firebase Rules Firestore Service Agent`; remove that role and Storage fails closed.
+
 ## Schema versions are ranges in the rules, never equalities
 
 `schemaVersion` and `objectSchemaVersion` go through `isSupportedSchemaVersion`, which accepts a bounded range rather than one exact number.
@@ -53,9 +68,21 @@ The rules being permissive does not make every bump free on the client: the hear
 ## The workout write rule has almost no expression budget left
 
 Firestore aborts rule evaluation at 1000 expressions and returns a plain `PERMISSION_DENIED`, so an over-budget document silently never reaches the cloud backup.
+That is not hypothetical: the workout rule outgrew the budget and refused one climber's Live Climb for four days, indistinguishably from a deliberate denial (ASCEND-IOS-1J, issue #295).
 Rules functions inline their arguments, so each `item.` dereference inside a per-element validator re-evaluates the whole `request.resource.data.<list>[i]` chain - the cost scales with the number of distinct field references per element, not with the number of comparisons.
-The workout rule is already over budget well below its own declared list caps (issue #295), so before adding any check to that path, exercise it against a document with several nested list elements rather than the single-element fixtures.
 Enum validators there take their value untyped on purpose: membership in a list of string literals already excludes non-strings, so a preceding `is string` is a no-op the budget cannot afford.
+
+**Hoist every repeated subexpression.** Because arguments are inlined, a validator that re-derives `request.resource.data.keys()` or `list.size()` pays for that derivation on every branch mentioning it - `keys()` alone was being recomputed once per optional workout field.
+`isValidWorkoutDocument` therefore binds the payload and its key set once with `let`, and the per-element validators take the element's key set and the list's size as parameters, so neither is ever re-derived.
+A validator that takes a hoisted parameter must be *called* with it everywhere: the routine rule kept calling `isValidWorkoutWeightConfiguration` with one argument after it grew a second, which the emulator reports as an evaluation error inside a bare `PERMISSION_DENIED` - so a routine carrying default weights simply stopped backing up.
+Adding the paid check to that path was affordable for the same reason: `isPaidOwner` replaced the signed-in half of the old owner predicate with the grant lookup instead of adding a third term.
+
+**Measure before adding anything to that path.** `tests/firebase-rules/workout-expression-budget.test.mjs` exercises every declared cap against a fully-populated document, so a check that no longer fits fails there rather than in the field. Single-element fixtures prove nothing.
+
+Two rules the recovery left behind, both in the rule's own header comment - read it before editing:
+
+- **The rule enforces authorization and the trust boundary, not owner-private hygiene.** A workout document is read by its owner and by Cloud Functions. What stays checked: ownership, canonical identity, the strict `hasOnly`/`hasAll` key contract, bounded list sizes, the Storage path binding on the heart-rate sidecar, `startedAt`'s type, and the participation fields a function trusts as written. What went: scalar ranges, string lengths, media and weight-entry internals, timestamp ordering. The test for dropping a field's type check is not "a function reads it" - it is whether that function *rejects* what it reads (fail-closed, so the rule need not) or *coerces* it (so the rule is the only guard).
+- **A declared cap must never exceed the client constant that enforces it.** The rule declared eight participations, could evaluate one, and the client emitted however many the workout had. `WorkoutRemoteSyncLimits` now mirrors the rule by hand; changing a number means changing both and re-running the budget test in the same change.
 
 **Measured, so nobody has to re-derive it.** The user-routine rule (issue #304) was benchmarked against the emulator with a real document: a full per-element validator - `hasOnly`/`hasAll` plus ten typed fields - fits **two** list elements; narrowed to four typed fields it fits **eleven**; `item is map` alone fits **twenty-four**.
 That is the whole budget, for one list, in a rule with about twenty other scalar checks.
@@ -83,9 +110,20 @@ Ordering is the whole game. Every delete in `firestore.rules` is gated on `isOwn
 `AccountDeletionService` therefore re-authenticates, revokes the Apple token, deletes all remote data, then deletes the auth user last. Its ordering is locked in by `AscendAppTests/AccountDeletionServiceTests.swift`; if you add a remote record, add its deletion before the auth step and extend those tests.
 
 - Firebase calls live behind `AccountDeletionGateway`, and on-device cleanup behind `AccountDeletionLocalCleanup`, so the sequence is testable and tests never touch the host's UserDefaults.
+- **Quiescing the device is part of the ordering, not a cleanup detail.**
+  Right after re-auth and before the first destructive step, deletion suspends and drains every writer of account-scoped local state through `AuthenticatedBootstrapCoordinator.suspendAndDrain`: the one bootstrap chain plus the autonomous `AuthenticatedSessionWorker`s (`WorkoutImportCoordinator`, `MediaUploadManager`) that a drain alone cannot reach, because a HealthKit observer or an upload retry starts on its own schedule.
+  Draining only stops what already started, so `isSuspended` stays raised for the whole flow and those workers refuse to begin a new pass while it is - that refusal is the second half of the guarantee, not a redundancy.
+  The drain is bounded by `AuthenticatedBootstrapCoordinator.drainTimeout` and is safe to time out, and a timeout is recorded as both a diagnostic and a non-fatal under `authenticated_session_drain_timed_out` because the UserDefaults ring buffer that would otherwise hold it is wiped two steps later.
+- **A deletion that stops short of `user.delete()` resumes the suspended work; one that gets past it discards it.**
+  Anything still running afterwards would write the deleted uid's rows back into a store that has just been emptied, and the sign-in ownership gate then correctly blocks the replacement account with the full-screen data-mismatch wall (#389).
+  Fix the source state and the lifecycle when that wall appears - never weaken the gate, which is the only thing protecting a different climber's unsynced work.
+- **Clearing the persistent domain is not clearing the settings.**
+  `SettingsManager.shared` is process memory that survives `removePersistentDomain`, so deletion also calls `SettingsManager.resetInMemoryAfterAccountDeletion()`; without it a same-session re-signup inherits the deleted account's units, Apple Health auto-import, and base-level onboarding state.
+  That reset deliberately suppresses its own `didSet` writes so it cannot repopulate the domain deletion just cleared.
+  Coverage: `AscendAppTests/AccountDeletionSessionWorkGateTests.swift`, `AccountDeletionSettingsTests.swift`, `AuthenticatedBootstrapCoordinatorTests.swift`.
 - Deleting a Sign in with Apple account must revoke the Apple token via `Auth.auth().revokeToken(withAuthorizationCode:)`, immediately after re-auth rather than just before `user.delete()`: the authorization code expires in about five minutes and the sweeps in between can outlast that window, so revoking later can silently no-op. The code is single-use and is captured during re-auth by `AuthenticationService.reauthenticateWithApple()`, which is the only place it is available. Revocation is deliberately best-effort: failing to delete is a worse guideline violation than a lingering token.
 - Re-authentication prefers Apple whenever `apple.com` is linked, even alongside another provider. Firebase's "link accounts that use the same email" setting puts several providers on one uid, and only an Apple authorization yields the code revocation needs, so any other choice silently skips revocation. `AccountDeletionReauthenticationProvider.preferred(forProviderIDs:)` owns that decision so it stays unit-testable.
-- Clients can only delete what the rules allow. Server-owned subcollections (`achievements`, `lifecycle`, `lifecycle_events`, `communication_preferences`, `notification_devices`, `integrations`, `liveClimbPublishStatuses`) are `allow write: if false` and are unreachable from any client.
+- Clients can only delete what the rules allow. Server-owned subcollections (`achievements`, `lifecycle`, `lifecycle_events`, `communication_preferences`, `notification_devices`, `integrations`, `liveClimbPublishStatuses`, and the entitlement projections above) are closed to every client and are unreachable from one.
 - The `cleanupDeletedUserData` Cloud Function (`functions/src/accountCleanup.ts`) is the authoritative sweep, not just a safety net. It triggers on delete of `users/{uid}`, discovers subcollections via `listCollections()` rather than a hardcoded list, and retries on failure.
 - Discovery only reaches the `users/{uid}` subtree.
   User-keyed data stored outside it needs an explicit step in the sweep - top-level collections, the collection-group replay `entries`, another user's `blocked` subcollection holding the deleted uid, and denormalized fields such as `firstAscent*` all qualify.

@@ -29,7 +29,8 @@ extension View {
 }
 
 /// One spotlight and one card. The dim is punched out over the target so the control being
-/// described stays legible underneath.
+/// described stays legible underneath, and a ring outlines it unless the presentation says the
+/// target already outlines itself - see `drawsSpotlightRing`.
 struct RoutineBuilderCoachMarkOverlay: View {
     let presentation: RoutineCoachMarkPresentation
     let targetRect: CGRect?
@@ -50,7 +51,7 @@ struct RoutineBuilderCoachMarkOverlay: View {
         ZStack(alignment: .topLeading) {
             dimmedBackdrop
 
-            if let spotlightRect {
+            if let spotlightRect, presentation.drawsSpotlightRing {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .stroke(Color.accent, lineWidth: 2)
                     .frame(width: spotlightRect.width, height: spotlightRect.height)

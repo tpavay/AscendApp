@@ -78,6 +78,9 @@ enum AscendLocalStoreFixture {
             inserter(PendingWorkoutDeletion.self) {
                 PendingWorkoutDeletion(workoutId: UUID(), ownerUserId: "fixture-user")
             },
+            inserter(WorkoutSyncOutboxEntry.self) {
+                WorkoutSyncOutboxEntry(workoutId: UUID(), ownerUserId: "fixture-user")
+            },
             inserter(PendingRoutineDeletion.self) {
                 PendingRoutineDeletion(
                     recordId: UUID(),

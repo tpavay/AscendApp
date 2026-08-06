@@ -9,6 +9,23 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    // RevenueCat is reconciled into a server-owned active-grant document.
+    // Existence deliberately replaces the old signed-in predicate instead of
+    // adding another expression: valid workouts already consume Firestore's
+    // 1000-expression evaluation ceiling.
+    function hasPaidAppAccess() {
+      return exists(
+        /databases/$(database)/documents/users/$(request.auth.uid)/entitlements/app_access
+      );
+    }
+
+    function isPaidOwner(userId) {
+      return request.auth.uid == userId &&
+        exists(
+          /databases/$(database)/documents/users/$(request.auth.uid)/entitlements/app_access
+        );
+    }
+
     function isNonNegativeNumber(value) {
       return (value is int || value is float) && value >= 0;
     }
@@ -213,6 +230,7 @@ service cloud.firestore {
           "displayName",
           "profilePictureURL",
           "age",
+          "birth_date",
           "gender",
           "weight_kg",
           "height_cm",
@@ -246,6 +264,14 @@ service cloud.firestore {
           (request.resource.data.age is int &&
             request.resource.data.age >= 13 &&
             request.resource.data.age <= 120)) &&
+        (!request.resource.data.keys().hasAny(["birth_date"]) ||
+          (request.resource.data.birth_date is string &&
+            request.resource.data.birth_date.matches(
+              "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$") &&
+            int(request.resource.data.birth_date.split("-")[0]) <=
+              request.time.year() - 13 &&
+            int(request.resource.data.birth_date.split("-")[0]) >=
+              request.time.year() - 121)) &&
         (!request.resource.data.keys().hasAny(["gender"]) ||
           (request.resource.data.gender is string &&
             request.resource.data.gender in [
@@ -560,22 +586,62 @@ service cloud.firestore {
       return level in ["verified", "unverified"];
     }
 
-    function isValidWorkoutId(workoutId) {
-      return workoutId.matches("^[0-9a-fA-F-]{36}$");
-    }
-
     // A workout document id has exactly one spelling: the uppercase UUID string. Any other
     // casing creates a second document for the same workout, so the server rejects it.
     function isCanonicalWorkoutId(workoutId) {
       return workoutId.matches("^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$");
     }
 
-    function isValidWorkoutMediaId(mediaId) {
-      return isValidWorkoutId(mediaId);
+    // How many participations one workout may back up.
+    //
+    // Four, and four is the whole story: it is what this rule can actually evaluate, it is what
+    // the rule declares, and it is what `WorkoutRemoteSyncLimits.maximumParticipations` refuses to
+    // exceed on the writing side. The three used to disagree. The rule said eight, could evaluate
+    // one, and the client emitted however many it had - so the ceiling moved depending on which
+    // *other* optional fields a workout happened to carry, and the failure arrived as a bare
+    // PERMISSION_DENIED with no way to tell a refusal from an abort (ASCEND-IOS-1J).
+    //
+    // Today nothing can reach even two: `WorkoutParticipationService` has exactly two producers,
+    // a routine one and a climb-attempt one, and every path creates a workout with one or the
+    // other, never both. Four is four times the reachable maximum. Raising it means re-running
+    // `tests/firebase-rules/workout-expression-budget.test.mjs` and moving the Swift constant in
+    // the same change - not editing this number alone.
+    function maxWorkoutParticipations() {
+      return 4;
     }
 
-    function isValidWorkoutMediaType(type) {
-      return type in ["photo", "video"];
+    // What this rule is for, and what it deliberately stopped doing.
+    //
+    // A workout document is private to one climber: nobody else reads it. Firestore aborts at 1000
+    // expressions and reports the abort as a bare PERMISSION_DENIED, so an over-budget rule does
+    // not fail loudly - it silently stops being able to accept legitimate documents as they grow.
+    // Per-field hygiene here was spending that budget on values no reader trusts.
+    //
+    // The test for dropping a field's type check is NOT "a Cloud Function reads it". It is whether
+    // that function REJECTS or COERCES what it reads:
+    //
+    //   - REJECTS, so the rule need not check it. `steps` and `floors` go through
+    //     `nonNegativeIntegerValue` / `nonNegativeInteger`, and `durationSeconds` through
+    //     `nonNegativeNumberValue` / `finiteNumber`, in `leaderboardStats`, `climbCompletions` and
+    //     `liveReplayLeaderboard`. Each guards on `typeof` and returns null, and null is
+    //     fail-closed - the workout simply does not count.
+    //   - COERCES, so the rule is the only thing standing between a client and a malformed
+    //     server-derived projection. `startedAt` is the one: `timestampMillis` in both
+    //     `climbCompletions` and `leaderboardStats` accepts a raw finite `number` as epoch millis,
+    //     and `climbCompletions` re-serialises it through `Timestamp.fromMillis` into the landmark
+    //     projection. `onWorkoutWritten` retries, so an out-of-range number there is a retry storm
+    //     against a projection that never converges. It stays typed here.
+    //
+    // What stays is authorization and the trust boundary: ownership, canonical identity, the
+    // strict top-level key contract, bounded list sizes, the Storage path binding that stops one
+    // climber pointing at another's heart-rate sidecar, `startedAt`'s type, and every participation
+    // field a Cloud Function reads without re-deriving. What went is owner-private hygiene - scalar
+    // ranges, string lengths, media and weight-entry internals, and the timestamp ordering nothing
+    // reads.
+    //
+    // Measure before adding anything here. Do not assume there is room.
+    function isValidWorkoutId(workoutId) {
+      return workoutId.matches("^[0-9a-fA-F-]{36}$");
     }
 
     function isValidWorkoutWeightEquipmentType(type) {
@@ -588,55 +654,10 @@ service cloud.firestore {
       ];
     }
 
-    function isValidWorkoutMediaItem(item) {
-      return item is map &&
-        item.keys().hasOnly([
-          "id",
-          "url",
-          "uploadedAt",
-          "type",
-          "durationSeconds"
-        ]) &&
-        item.keys().hasAll([
-          "id",
-          "url",
-          "uploadedAt",
-          "type"
-        ]) &&
-        item.id is string &&
-        isValidWorkoutMediaId(item.id) &&
-        item.url is string &&
-        item.url.size() > 0 &&
-        item.url.size() <= 2048 &&
-        item.uploadedAt is timestamp &&
-        isValidWorkoutMediaType(item.type) &&
-        (!item.keys().hasAny(["durationSeconds"]) ||
-          (isNonNegativeNumber(item.durationSeconds) &&
-            item.type == "video"));
-    }
-
-    function mediaListContainsId(media, mediaId) {
-      return media is list &&
-        media.size() > 0 &&
-        (
-          media[0].id == mediaId ||
-          (media.size() > 1 && media[1].id == mediaId) ||
-          (media.size() > 2 && media[2].id == mediaId)
-        );
-    }
-
-    function isValidWorkoutMediaList(media) {
-      return media is list &&
-        media.size() <= 3 &&
-        (media.size() == 0 || isValidWorkoutMediaItem(media[0])) &&
-        (media.size() <= 1 || isValidWorkoutMediaItem(media[1])) &&
-        (media.size() <= 2 || isValidWorkoutMediaItem(media[2]));
-    }
-
-    function isValidWorkoutWeightEntry(entry) {
+    function isValidWorkoutWeightEntry(entry, entryKeys) {
       return entry is map &&
-        entry.keys().size() == 4 &&
-        entry.keys().hasAll([
+        entryKeys.size() == 4 &&
+        entryKeys.hasAll([
           "id",
           "equipmentType",
           "weightValue",
@@ -649,36 +670,54 @@ service cloud.firestore {
         entry.isEnabled is bool;
     }
 
-    function hasUniqueWorkoutWeightEquipmentTypes(entries) {
+    function hasUniqueWorkoutWeightEquipmentTypes(entries, count) {
       return
-        (entries.size() <= 1 || entries[0].equipmentType != entries[1].equipmentType) &&
-        (entries.size() <= 2 || entries[0].equipmentType != entries[2].equipmentType) &&
-        (entries.size() <= 3 || entries[0].equipmentType != entries[3].equipmentType) &&
-        (entries.size() <= 4 || entries[0].equipmentType != entries[4].equipmentType) &&
-        (entries.size() <= 2 || entries[1].equipmentType != entries[2].equipmentType) &&
-        (entries.size() <= 3 || entries[1].equipmentType != entries[3].equipmentType) &&
-        (entries.size() <= 4 || entries[1].equipmentType != entries[4].equipmentType) &&
-        (entries.size() <= 3 || entries[2].equipmentType != entries[3].equipmentType) &&
-        (entries.size() <= 4 || entries[2].equipmentType != entries[4].equipmentType) &&
-        (entries.size() <= 4 || entries[3].equipmentType != entries[4].equipmentType);
+        (count <= 1 || entries[0].equipmentType != entries[1].equipmentType) &&
+        (count <= 2 || entries[0].equipmentType != entries[2].equipmentType) &&
+        (count <= 3 || entries[0].equipmentType != entries[3].equipmentType) &&
+        (count <= 4 || entries[0].equipmentType != entries[4].equipmentType) &&
+        (count <= 2 || entries[1].equipmentType != entries[2].equipmentType) &&
+        (count <= 3 || entries[1].equipmentType != entries[3].equipmentType) &&
+        (count <= 4 || entries[1].equipmentType != entries[4].equipmentType) &&
+        (count <= 3 || entries[2].equipmentType != entries[3].equipmentType) &&
+        (count <= 4 || entries[2].equipmentType != entries[4].equipmentType) &&
+        (count <= 4 || entries[3].equipmentType != entries[4].equipmentType);
     }
 
-    function isValidWorkoutWeightEntryList(entries) {
+    function isValidWorkoutWeightEntryList(entries, count) {
       return entries is list &&
-        entries.size() <= 5 &&
-        (entries.size() == 0 || isValidWorkoutWeightEntry(entries[0])) &&
-        (entries.size() <= 1 || isValidWorkoutWeightEntry(entries[1])) &&
-        (entries.size() <= 2 || isValidWorkoutWeightEntry(entries[2])) &&
-        (entries.size() <= 3 || isValidWorkoutWeightEntry(entries[3])) &&
-        (entries.size() <= 4 || isValidWorkoutWeightEntry(entries[4])) &&
-        hasUniqueWorkoutWeightEquipmentTypes(entries);
+        count <= 5 &&
+        (count == 0 || isValidWorkoutWeightEntry(entries[0], entries[0].keys())) &&
+        (count <= 1 || isValidWorkoutWeightEntry(entries[1], entries[1].keys())) &&
+        (count <= 2 || isValidWorkoutWeightEntry(entries[2], entries[2].keys())) &&
+        (count <= 3 || isValidWorkoutWeightEntry(entries[3], entries[3].keys())) &&
+        (count <= 4 || isValidWorkoutWeightEntry(entries[4], entries[4].keys())) &&
+        hasUniqueWorkoutWeightEquipmentTypes(entries, count);
     }
 
-    function isValidWorkoutWeightConfiguration(config) {
+    // Validated in full for ONE caller: the routine rule's `defaultWeightConfiguration`. Routines
+    // are nowhere near the expression ceiling, so they keep the per-entry contract they have always
+    // had. The workout rule deliberately does NOT use this - it bounds the list size inline and
+    // stops there, because it has no budget left and nothing but the owner reads a workout's
+    // weights. Deleting this as dead code would silently break routine backup for any routine
+    // carrying default weights.
+    function isValidWorkoutWeightConfiguration(config, configKeys) {
       return config is map &&
-        config.keys().size() == 1 &&
-        config.keys().hasAll(["entries"]) &&
-        isValidWorkoutWeightEntryList(config.entries);
+        configKeys.size() == 1 &&
+        configKeys.hasAll(["entries"]) &&
+        isValidWorkoutWeightEntryList(config.entries, config.entries.size());
+    }
+
+    function isValidWorkoutParticipationContextType(type) {
+      return type in [
+        "routine_template",
+        "routine",
+        "climb_attempt",
+        "challenge",
+        "group_challenge",
+        "program_session",
+        "achievement"
+      ];
     }
 
     function isValidWorkoutHeartRateSeriesReference(userId, workoutId, reference) {
@@ -700,60 +739,29 @@ service cloud.firestore {
           "seriesStartAt",
           "seriesEndAt"
         ]) &&
-        reference.storagePath is string &&
-        reference.storagePath.size() <= 256 &&
+        // The one cross-user boundary in this document: without it a climber could point their
+        // workout at somebody else's sidecar object and read it back through the restore path.
         reference.storagePath ==
           "users/" + userId + "/workout_heart_rate/" + workoutId + ".json.gz" &&
         reference.encoding == "json+gzip" &&
         reference.sampleCount is int &&
-        reference.sampleCount > 0 &&
-        reference.get("sha256", "").matches("^([0-9a-f]{64})?$") &&
-        isSupportedSchemaVersion(reference.get("objectSchemaVersion", 1)) &&
-        reference.get("compressedByteCount", 1) is int &&
-        reference.seriesStartAt is timestamp &&
-        reference.seriesEndAt is timestamp &&
-        reference.seriesEndAt >= reference.seriesStartAt;
+        reference.sampleCount > 0;
     }
 
-    function isValidWorkoutParticipationContextType(type) {
-      return type in [
-        "routine_template",
-        "routine",
-        "climb_attempt",
-        "challenge",
-        "group_challenge",
-        "program_session",
-        "achievement"
-      ];
-    }
-
-    function isValidWorkoutParticipationRole(role) {
-      return role in ["primary", "secondary", "passive_earned"];
-    }
-
-    function isValidWorkoutParticipationVerificationTier(tier) {
-      return tier in ["unverified", "provider_verified", "sensor_verified"];
-    }
-
-    function isValidWorkoutParticipationMetricsSnapshot(snapshot) {
-      return snapshot is map &&
-        snapshot.keys().size() == 5 &&
-        snapshot.keys().hasAll([
-          "startedAt",
-          "durationSeconds",
-          "steps",
-          "floors",
-          "stepsPerMinute"
-        ]) &&
-        snapshot.startedAt is timestamp &&
-        isNonNegativeNumber(snapshot.durationSeconds) &&
-        snapshot.steps is int &&
-        snapshot.steps >= 0 &&
-        snapshot.floors is int &&
-        snapshot.floors >= 0 &&
-        isNonNegativeNumber(snapshot.stepsPerMinute);
-    }
-
+    // Only the fields a Cloud Function reads without re-deriving them.
+    //
+    // `contextType`, `contextId` and `leaderboardEligible` are the three
+    // `liveReplayLeaderboard.hasEligibleParticipation` trusts as written to decide whether a
+    // routine-template board publishes a row, so they are a real trust boundary and stay checked
+    // here. The climb modes re-derive eligibility from the workout's own evidence and ignore the
+    // client's assertion, but the climb-attempt coupling below is the standing guarantee that a
+    // Live Climb completion can only come from a live sensor flow - that one is not re-derivable
+    // from this document alone, so it stays.
+    //
+    // `id`, `contextVersion`, `rulesVersion`, `role`, `verificationTier` outside that coupling,
+    // and everything inside `metricsSnapshot` are read by nobody but the owner's own device, and
+    // `metricsSnapshot` in particular is never read server-side at all - the replay function
+    // recomputes from the workout's own `durationSeconds`, `steps` and `sourceMetadata`.
     function isValidWorkoutParticipationItem(userId, workoutId, item, workoutSource) {
       return item is map &&
         item.keys().size() == 12 &&
@@ -771,25 +779,13 @@ service cloud.firestore {
           "metricsSnapshot",
           "createdAt"
         ]) &&
-        item.id is string &&
-        isValidWorkoutId(item.id) &&
         item.workoutId == workoutId &&
         item.userId == userId &&
         isValidWorkoutParticipationContextType(item.contextType) &&
         item.contextId is string &&
         item.contextId.size() > 0 &&
         item.contextId.size() <= 160 &&
-        item.contextVersion is int &&
-        item.contextVersion > 0 &&
-        item.contextVersion <= 1000 &&
-        item.rulesVersion is int &&
-        item.rulesVersion > 0 &&
-        item.rulesVersion <= 1000 &&
-        isValidWorkoutParticipationRole(item.role) &&
         item.leaderboardEligible is bool &&
-        isValidWorkoutParticipationVerificationTier(item.verificationTier) &&
-        isValidWorkoutParticipationMetricsSnapshot(item.metricsSnapshot) &&
-        item.createdAt is timestamp &&
         (
           item.contextType != "climb_attempt" ||
           (
@@ -802,7 +798,7 @@ service cloud.firestore {
 
     function isValidWorkoutParticipationList(userId, workoutId, participations, workoutSource) {
       return participations is list &&
-        participations.size() <= 8 &&
+        participations.size() <= maxWorkoutParticipations() &&
         (participations.size() == 0 ||
           isValidWorkoutParticipationItem(userId, workoutId, participations[0], workoutSource)) &&
         (participations.size() <= 1 ||
@@ -810,20 +806,14 @@ service cloud.firestore {
         (participations.size() <= 2 ||
           isValidWorkoutParticipationItem(userId, workoutId, participations[2], workoutSource)) &&
         (participations.size() <= 3 ||
-          isValidWorkoutParticipationItem(userId, workoutId, participations[3], workoutSource)) &&
-        (participations.size() <= 4 ||
-          isValidWorkoutParticipationItem(userId, workoutId, participations[4], workoutSource)) &&
-        (participations.size() <= 5 ||
-          isValidWorkoutParticipationItem(userId, workoutId, participations[5], workoutSource)) &&
-        (participations.size() <= 6 ||
-          isValidWorkoutParticipationItem(userId, workoutId, participations[6], workoutSource)) &&
-        (participations.size() <= 7 ||
-          isValidWorkoutParticipationItem(userId, workoutId, participations[7], workoutSource));
+          isValidWorkoutParticipationItem(userId, workoutId, participations[3], workoutSource));
     }
 
     function isValidWorkoutDocument(userId, workoutId) {
+      let data = request.resource.data;
+      let keys = data.keys();
       return isCanonicalWorkoutId(workoutId) &&
-        request.resource.data.keys().hasOnly([
+        keys.hasOnly([
           "userId",
           "schemaVersion",
           "name",
@@ -853,7 +843,7 @@ service cloud.firestore {
           "heartRateSeries",
           "participations"
         ]) &&
-        request.resource.data.keys().hasAll([
+        keys.hasAll([
           "userId",
           "schemaVersion",
           "name",
@@ -868,86 +858,34 @@ service cloud.firestore {
           "createdAt",
           "updatedAt"
         ]) &&
-        request.resource.data.userId == userId &&
-        isSupportedSchemaVersion(request.resource.data.schemaVersion) &&
-        request.resource.data.name is string &&
-        request.resource.data.name.size() > 0 &&
-        request.resource.data.name.size() <= 120 &&
-        request.resource.data.startedAt is timestamp &&
-        isNonNegativeNumber(request.resource.data.durationSeconds) &&
-        request.resource.data.steps is int &&
-        request.resource.data.steps >= 0 &&
-        request.resource.data.floors is int &&
-        request.resource.data.floors >= 0 &&
-        request.resource.data.stepsPerFloor is int &&
-        request.resource.data.stepsPerFloor > 0 &&
-        request.resource.data.stepsPerFloor <= 100 &&
-        request.resource.data.notes is string &&
-        request.resource.data.notes.size() <= 5000 &&
-        isValidWorkoutSource(request.resource.data.source) &&
-        (!request.resource.data.keys().hasAny(["climbId"]) ||
-          (request.resource.data.source == "headphone_motion" &&
-            request.resource.data.climbId is string &&
-            request.resource.data.climbId.size() > 0 &&
-            request.resource.data.climbId.size() <= 160)) &&
-        isValidIntegrityLevel(request.resource.data.integrityLevel) &&
-        request.resource.data.createdAt is timestamp &&
-        request.resource.data.updatedAt is timestamp &&
-        (!request.resource.data.keys().hasAny(["avgHeartRateBpm"]) ||
-          (request.resource.data.avgHeartRateBpm is int &&
-            request.resource.data.avgHeartRateBpm >= 25 &&
-            request.resource.data.avgHeartRateBpm <= 240)) &&
-        (!request.resource.data.keys().hasAny(["maxHeartRateBpm"]) ||
-          (request.resource.data.maxHeartRateBpm is int &&
-            request.resource.data.maxHeartRateBpm >= 25 &&
-            request.resource.data.maxHeartRateBpm <= 240)) &&
-        (!request.resource.data.keys().hasAny(["caloriesBurned"]) ||
-          (request.resource.data.caloriesBurned is int &&
-            request.resource.data.caloriesBurned >= 0)) &&
-        (!request.resource.data.keys().hasAny(["effortRating"]) ||
-          (isNonNegativeNumber(request.resource.data.effortRating) &&
-            request.resource.data.effortRating <= 5)) &&
-        (!request.resource.data.keys().hasAny(["averageMETs"]) ||
-          isNonNegativeNumber(request.resource.data.averageMETs)) &&
-        (!request.resource.data.keys().hasAny(["deviceModel"]) ||
-          (request.resource.data.deviceModel is string &&
-            request.resource.data.deviceModel.size() <= 120)) &&
-        (!request.resource.data.keys().hasAny(["sourceMetadata"]) ||
-          (request.resource.data.sourceMetadata is string &&
-            request.resource.data.sourceMetadata.size() <= 4000)) &&
-        (!request.resource.data.keys().hasAny(["healthKitUUID"]) ||
-          (request.resource.data.healthKitUUID is string &&
-            request.resource.data.healthKitUUID.size() <= 128)) &&
-        (!request.resource.data.keys().hasAny(["hevyWorkoutId"]) ||
-          (request.resource.data.hevyWorkoutId is string &&
-            request.resource.data.hevyWorkoutId.size() <= 128)) &&
-        (!request.resource.data.keys().hasAny(["media"]) ||
-          isValidWorkoutMediaList(request.resource.data.media)) &&
-        (!request.resource.data.keys().hasAny(["highlightedMediaId"]) ||
-          (request.resource.data.highlightedMediaId is string &&
-            isValidWorkoutMediaId(request.resource.data.highlightedMediaId) &&
-            request.resource.data.keys().hasAny(["media"]) &&
-            mediaListContainsId(
-              request.resource.data.media,
-              request.resource.data.highlightedMediaId
-            ))) &&
-        (!request.resource.data.keys().hasAny(["weightConfiguration"]) ||
-          isValidWorkoutWeightConfiguration(
-            request.resource.data.weightConfiguration
-          )) &&
-        (!request.resource.data.keys().hasAny(["heartRateSeries"]) ||
-          isValidWorkoutHeartRateSeriesReference(
-            userId,
-            workoutId,
-            request.resource.data.heartRateSeries
-          )) &&
-        (!request.resource.data.keys().hasAny(["participations"]) ||
-          isValidWorkoutParticipationList(
-            userId,
-            workoutId,
-            request.resource.data.participations,
-            request.resource.data.source
-          ));
+        data.userId == userId &&
+        isSupportedSchemaVersion(data.schemaVersion) &&
+        // The one scalar type check the budget still buys, because `climbCompletions` coerces this
+        // value rather than rejecting it - see the philosophy block above.
+        data.startedAt is timestamp &&
+        isValidWorkoutSource(data.source) &&
+        isValidIntegrityLevel(data.integrityLevel) &&
+        // A climb query key only means anything on an in-app sensor workout, and
+        // `climbCompletions` reads it to decide which landmark a session counted toward.
+        (!keys.hasAny(["climbId"]) ||
+          (data.source == "headphone_motion" &&
+            data.climbId is string &&
+            data.climbId.size() > 0 &&
+            data.climbId.size() <= 160)) &&
+        // Bounded because two Cloud Functions parse it, not to police its contents.
+        (!keys.hasAny(["sourceMetadata"]) ||
+          (data.sourceMetadata is string && data.sourceMetadata.size() <= 4000)) &&
+        (!keys.hasAny(["media"]) ||
+          (data.media is list && data.media.size() <= 3)) &&
+        (!keys.hasAny(["weightConfiguration"]) ||
+          (data.weightConfiguration is map &&
+            data.weightConfiguration.keys().hasOnly(["entries"]) &&
+            data.weightConfiguration.entries is list &&
+            data.weightConfiguration.entries.size() <= 5)) &&
+        (!keys.hasAny(["heartRateSeries"]) ||
+          isValidWorkoutHeartRateSeriesReference(userId, workoutId, data.heartRateSeries)) &&
+        (!keys.hasAny(["participations"]) ||
+          isValidWorkoutParticipationList(userId, workoutId, data.participations, data.source));
     }
 
     // A user-authored routine or folder lives at one document id spelling: the
@@ -1073,7 +1011,8 @@ service cloud.firestore {
             request.resource.data.estimatedCalories >= 0)) &&
         (!request.resource.data.keys().hasAny(["defaultWeightConfiguration"]) ||
           isValidWorkoutWeightConfiguration(
-            request.resource.data.defaultWeightConfiguration
+            request.resource.data.defaultWeightConfiguration,
+            request.resource.data.defaultWeightConfiguration.keys()
           )) &&
         request.resource.data.completionCount is int &&
         request.resource.data.completionCount >= 0 &&
@@ -1354,16 +1293,33 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // Paid access is a server-owned RevenueCat projection. Clients cannot
+      // read or forge the timestamp that the rules evaluate.
+      match /entitlements/{entitlementId} {
+        allow read, write: if false;
+      }
+
+      match /entitlement_status/{entitlementId} {
+        allow read, write: if false;
+      }
+
+      // Server-owned cooldown for the self-service reconciliation callable.
+      // A client that could write it could turn recovery into an unbounded
+      // RevenueCat subscriber-API amplifier.
+      match /entitlement_reconciliations/{docId} {
+        allow read, write: if false;
+      }
+
       match /workouts/{workoutId} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId) &&
+        allow read: if isPaidOwner(userId);
+        allow create: if isPaidOwner(userId) &&
           isValidWorkoutDocument(userId, workoutId);
         // The stored schema version may only move forward. Equality would make
         // every stored document un-updatable the day the number is bumped, since
         // an updated client always emits the new number. Writes are whole-document
         // `setData`, so allowing it to move backward would instead let an older
         // build drop the fields a newer schema added.
-        allow update: if isOwner(userId) &&
+        allow update: if isPaidOwner(userId) &&
           isValidWorkoutDocument(userId, workoutId) &&
           request.resource.data.userId == resource.data.userId &&
           request.resource.data.schemaVersion >= resource.data.schemaVersion &&
@@ -1377,14 +1333,14 @@ service cloud.firestore {
       // away from the top-level `routine_templates`, which is server-owned
       // published content and must stay read-only to every client.
       match /routines/{routineId} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId) &&
+        allow read: if isPaidOwner(userId);
+        allow create: if isPaidOwner(userId) &&
           isValidUserRoutineDocument(userId, routineId);
         // Same forward-only schema version rule as workouts, and for the same
         // reason: writes are whole-document `setData`, so letting the stored
         // version move backward would let an older build drop the fields a
         // newer schema added.
-        allow update: if isOwner(userId) &&
+        allow update: if isPaidOwner(userId) &&
           isValidUserRoutineDocument(userId, routineId) &&
           request.resource.data.userId == resource.data.userId &&
           request.resource.data.schemaVersion >= resource.data.schemaVersion &&
@@ -1393,10 +1349,10 @@ service cloud.firestore {
       }
 
       match /routine_folders/{folderId} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId) &&
+        allow read: if isPaidOwner(userId);
+        allow create: if isPaidOwner(userId) &&
           isValidRoutineFolderDocument(userId, folderId);
-        allow update: if isOwner(userId) &&
+        allow update: if isPaidOwner(userId) &&
           isValidRoutineFolderDocument(userId, folderId) &&
           request.resource.data.userId == resource.data.userId &&
           request.resource.data.schemaVersion >= resource.data.schemaVersion &&
@@ -1405,7 +1361,7 @@ service cloud.firestore {
       }
 
       match /liveClimbPublishStatuses/{workoutId} {
-        allow read: if isOwner(userId);
+        allow read: if isPaidOwner(userId);
         allow write: if false;
       }
 
@@ -1415,7 +1371,7 @@ service cloud.firestore {
       // ever read their own. Same "client reads its own, only the server
       // writer writes" shape as achievements / liveClimbPublishStatuses.
       match /landmarkResults/{landmarkId} {
-        allow read: if isOwner(userId);
+        allow read: if isPaidOwner(userId);
         allow write: if false;
       }
 
@@ -1433,23 +1389,23 @@ service cloud.firestore {
       }
 
       match /profile_stats/{docId} {
-        allow read: if isSignedIn() && docId == "current";
-        allow create, update: if isOwner(userId) &&
+        allow read: if hasPaidAppAccess() && docId == "current";
+        allow create, update: if isPaidOwner(userId) &&
           docId == "current" &&
           isValidProfileStatsDocument();
         allow delete: if isOwner(userId) && docId == "current";
       }
 
       match /profile_workouts/{workoutId} {
-        allow read: if isSignedIn();
-        allow create, update: if isOwner(userId) &&
+        allow read: if hasPaidAppAccess();
+        allow create, update: if isPaidOwner(userId) &&
           isCanonicalWorkoutId(workoutId) &&
           isValidProfileWorkoutSummary();
         allow delete: if isOwner(userId);
       }
 
       match /achievements/{achievementId} {
-        allow read: if isSignedIn();
+        allow read: if hasPaidAppAccess();
         allow write: if false;
       }
 
@@ -1470,9 +1426,9 @@ service cloud.firestore {
     // reach this collection: the totals here are what the nightly finalizer
     // freezes into permanent achievements, and validating a client-authored
     // aggregate's shape is not validating its evidence (issue #307). Reads stay
-    // open to every signed-in climber - the board is the conversation.
+    // open to every paid climber - the board is the conversation.
     match /leaderboard_stats/{docId} {
-      allow read: if isSignedIn();
+      allow read: if hasPaidAppAccess();
       allow write: if false;
     }
 
@@ -1483,7 +1439,7 @@ service cloud.firestore {
     // Remote routine templates are content-managed and server-owned.
     // Clients can only read published templates.
     match /routine_templates/{templateId} {
-      allow read: if isSignedIn() &&
+      allow read: if hasPaidAppAccess() &&
         resource.data.status == "published";
       allow write: if false;
     }
@@ -1491,33 +1447,33 @@ service cloud.firestore {
     // Time-aligned replay leaderboard indexes are server-published from saved attempts.
     // Clients only read tiny window buckets during live sessions.
     match /live_replay_leaderboards/{contextKey} {
-      allow read: if isSignedIn();
+      allow read: if hasPaidAppAccess();
       allow write: if false;
 
       match /splitBuckets/{bucketId} {
-        allow read: if isSignedIn();
+        allow read: if hasPaidAppAccess();
         allow write: if false;
 
         match /entries/{entryId} {
-          allow read: if isSignedIn();
+          allow read: if hasPaidAppAccess();
           allow write: if false;
         }
       }
 
       match /finishers/{userId} {
-        allow read: if isSignedIn();
+        allow read: if hasPaidAppAccess();
         allow write: if false;
       }
 
       match /completionSnapshots/{workoutId} {
-        allow read: if isSignedIn();
+        allow read: if hasPaidAppAccess();
         allow write: if false;
       }
     }
 
     // Global Live Climb community stats are server-owned aggregates.
     match /live_climb_community_stats/{docId} {
-      allow read: if isSignedIn() && docId == "global";
+      allow read: if hasPaidAppAccess() && docId == "global";
       allow write: if false;
 
       // Per-user dedupe markers are server-only and are not client-readable.
@@ -1553,9 +1509,9 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Remote share-card template manifest is read-only for authenticated users.
+    // Remote share-card template manifest is read-only for paid users.
     match /config/{docId} {
-      allow read: if isSignedIn() && docId == "shareCardTemplates";
+      allow read: if hasPaidAppAccess() && docId == "shareCardTemplates";
       allow write: if false;
     }
 
@@ -1570,6 +1526,14 @@ service cloud.firestore {
       match /kinds/{kind} {
         allow read, write: if false;
       }
+    }
+
+    match /_revenuecat_webhook_events/{eventId} {
+      allow read, write: if false;
+    }
+
+    match /_revenuecat_analytics_outbox/{eventId} {
+      allow read, write: if false;
     }
 
   }

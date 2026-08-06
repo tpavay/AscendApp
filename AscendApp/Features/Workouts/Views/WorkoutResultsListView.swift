@@ -15,6 +15,9 @@ struct WorkoutResultsListView: View {
     let effectiveColorScheme: ColorScheme
     let selectedWorkouts: Set<UUID>
     let toggleSelection: (UUID) -> Void
+    /// Resolved once by the owner rather than per row, so the render path stays a set lookup
+    /// instead of a store query inside `body`.
+    var couldNotSyncWorkoutIds: Set<UUID> = []
     @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
 
     var body: some View {
@@ -40,7 +43,8 @@ struct WorkoutResultsListView: View {
                             Button { toggleSelection(workout.id) } label: {
                                 WorkoutRowView(
                                     workout: workout,
-                                    bestEffort: primaryBestEffortsByWorkoutID[workout.id]
+                                    bestEffort: primaryBestEffortsByWorkoutID[workout.id],
+                                    showsCouldNotSyncBadge: couldNotSyncWorkoutIds.contains(workout.id)
                                 )
                             }
                             .buttonStyle(.plain)
@@ -48,7 +52,8 @@ struct WorkoutResultsListView: View {
                             NavigationLink(destination: WorkoutDetailView(workout: workout)) {
                                 WorkoutRowView(
                                     workout: workout,
-                                    bestEffort: primaryBestEffortsByWorkoutID[workout.id]
+                                    bestEffort: primaryBestEffortsByWorkoutID[workout.id],
+                                    showsCouldNotSyncBadge: couldNotSyncWorkoutIds.contains(workout.id)
                                 )
                             }
                             .buttonStyle(PlainButtonStyle())

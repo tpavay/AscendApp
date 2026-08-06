@@ -85,6 +85,16 @@ jobs:
             scripts:
               - "scripts/**"
               - "SharedTestVectors/**"
+              # The Mixpanel build-configuration suite reads every Swift file
+              # under AscendApp/ to prove `import Mixpanel` reaches only the
+              # telemetry adapter and that session replay is never enabled, and
+              # either mistake can be made in any file. So, exactly like the
+              # `swiftdata_schema` filter below, this is the whole app tree on
+              # purpose and is never narrowed to the folders the telemetry code
+              # lives in today. The narrower app paths below stay listed: they
+              # are each some suite's declared input, and this entry going away
+              # must not silently take them with it.
+              - "AscendApp/**"
               # The monetization build-configuration suite reads all three, so a
               # key, Info.plist, or placeholder-contract edit must run it.
               - "AscendApp.xcodeproj/**"
@@ -427,6 +437,11 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
       - name: Decode Firebase plist files
         env:
           GOOGLE_SERVICE_INFO_DEV_BASE64: ${{ secrets.GOOGLE_SERVICE_INFO_DEV_BASE64 }}
@@ -589,6 +604,9 @@ jobs:
           echo "Selected simulator ${simulator_id} on ${runtime}."
           echo "id=$simulator_id" >> "$GITHUB_OUTPUT"
 
+      - name: Verify Mixpanel build destinations
+        run: node scripts/ci/assert-mixpanel-build-settings.mjs
+
       # The device (iphoneos) compile is covered by the ios-verify-release job;
       # this job proves the simulator build + test suite, so the app compiles
       # exactly once per job instead of twice.
@@ -640,6 +658,11 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
       - name: Decode production Firebase plist
         env:
           GOOGLE_SERVICE_INFO_PRODUCTION_BASE64: ${{ secrets.GOOGLE_SERVICE_INFO_PRODUCTION_BASE64 }}
@@ -661,6 +684,9 @@ jobs:
           key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-spm-
+
+      - name: Verify Mixpanel build destinations
+        run: node scripts/ci/assert-mixpanel-build-settings.mjs
 
       # The production deploy pipeline is the first place the Release
       # configuration would otherwise compile. Building it unsigned here means
@@ -728,6 +754,32 @@ jobs:
             echo "::error file=AscendApp/Info.plist::Release bundle declares ITSAppUsesNonExemptEncryption=${encryption_value}; it must be boolean false. Built plist: ${built_info_plist}"
             exit 1
           fi
+
+      - name: Verify Release Mixpanel destination in the processed bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          built_info_plist="$(
+            xcodebuild \
+              -project AscendApp.xcodeproj \
+              -scheme "AscendApp" \
+              -configuration Release \
+              -sdk iphoneos \
+              -destination "generic/platform=iOS" \
+              CODE_SIGNING_ALLOWED=NO \
+              -showBuildSettings -json |
+              jq -er '
+                (map(select(.target == "AscendApp")) | first
+                  // error("no AscendApp target in -showBuildSettings output"))
+                | .buildSettings
+                | (.TARGET_BUILD_DIR // error("TARGET_BUILD_DIR is unset for the AscendApp target"))
+                  + "/"
+                  + (.INFOPLIST_PATH // error("INFOPLIST_PATH is unset for the AscendApp target"))
+              '
+          )"
+
+          node scripts/ci/assert-mixpanel-bundle.mjs Release "$built_info_plist"
 
       # A step killed by timeout-minutes reports `cancelled`, not `failure`, and
       # that is exactly the hung-runner case these logs exist to explain. An

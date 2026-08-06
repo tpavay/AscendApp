@@ -81,7 +81,7 @@ test("declares both filtered Live Replay window indexes", () => {
   );
 });
 
-test("declares every cleanup and propagation collection-group field index", () => {
+test("declares every server collection-group field index", () => {
   const config = JSON.parse(
     readFileSync(join(repositoryRoot, "firestore.indexes.json"), "utf8")
   );
@@ -89,18 +89,23 @@ test("declares every cleanup and propagation collection-group field index", () =
     fieldOverride.collectionGroup,
     fieldOverride.fieldPath,
     fieldOverride.indexes,
+    fieldOverride.ttl ?? false,
   ]);
 
   // A field override replaces the field's whole index configuration, so
   // entries.userId has to restate the COLLECTION-scoped single-field indexes
   // that the per-climb best-completion reads and the Cloud Function
   // reconciliation query run against. finishers and blocked are addressed by
-  // document ID, so they need the collection-group index only.
+  // document ID, so they need the collection-group index only. The entitlement
+  // expiry sweep orders active grants by accessUntil across every user, and the
+  // webhook ledger and the analytics outbox are each bounded by a TTL policy on
+  // their own future retention stamp rather than by any query.
   assert.deepEqual(signatures, [
     [
       "blocked",
       "blockedUid",
       [{order: "ASCENDING", queryScope: "COLLECTION_GROUP"}],
+      false,
     ],
     [
       "entries",
@@ -110,11 +115,31 @@ test("declares every cleanup and propagation collection-group field index", () =
         {order: "DESCENDING", queryScope: "COLLECTION"},
         {order: "ASCENDING", queryScope: "COLLECTION_GROUP"},
       ],
+      false,
     ],
     [
       "finishers",
       "userId",
       [{order: "ASCENDING", queryScope: "COLLECTION_GROUP"}],
+      false,
+    ],
+    [
+      "entitlements",
+      "accessUntil",
+      [{order: "ASCENDING", queryScope: "COLLECTION_GROUP"}],
+      false,
+    ],
+    [
+      "_revenuecat_webhook_events",
+      "retainUntil",
+      [],
+      true,
+    ],
+    [
+      "_revenuecat_analytics_outbox",
+      "retainUntil",
+      [],
+      true,
     ],
   ]);
 });
@@ -809,10 +834,13 @@ test("index wait rejects structural state errors without retrying", async () => 
 test("function readiness rejects missing and inactive critical functions", () => {
   const expected = [
     "cleanupDeletedUserData",
+    "expireRevenueCatEntitlements",
     "onPublicIdentityPropagationJobWritten",
     "onPublicProfileIdentityWritten",
     "onWorkoutWritten",
     "onWorkoutReplaySplitsWritten",
+    "reconcileAppAccess",
+    "revenueCatWebhook",
     "unsubscribeFromEmails",
   ];
   const payload = JSON.stringify({
@@ -828,7 +856,7 @@ test("function readiness rejects missing and inactive critical functions", () =>
   assert.notEqual(incomplete.status, 0);
   assert.match(
     incomplete.stderr,
-    /onPublicIdentityPropagationJobWritten, onPublicProfileIdentityWritten, onWorkoutReplaySplitsWritten, unsubscribeFromEmails/
+    /expireRevenueCatEntitlements, onPublicIdentityPropagationJobWritten, onPublicProfileIdentityWritten, onWorkoutReplaySplitsWritten, reconcileAppAccess, revenueCatWebhook, unsubscribeFromEmails/
   );
 
   const completePayload = JSON.stringify({
@@ -872,6 +900,9 @@ test("production deploy waits for indexes and rolls the backend out in dependenc
     /--only functions,firestore:rules,firestore:indexes,storage,hosting/
   );
   assert.match(workflow, /onPublicIdentityPropagationJobWritten/);
+  assert.match(workflow, /expireRevenueCatEntitlements/);
+  assert.match(workflow, /reconcileAppAccess/);
+  assert.match(workflow, /revenueCatWebhook/);
   assert.doesNotMatch(workflow, /firestore:operations:list/);
   // The gate is only substantive if it polls the production project and the
   // default database, so both positional arguments are pinned here.
@@ -885,6 +916,36 @@ test("production deploy waits for indexes and rolls the backend out in dependenc
       `firebase-tools@${PINNED_FIREBASE_TOOLS_VERSION.replaceAll(".", "\\.")}` +
         " -- which firebase"
     )
+  );
+});
+
+test("staging deploys entitlement dependencies before paid rules", () => {
+  const workflow = readFileSync(
+    join(repositoryRoot, ".github/workflows/deploy-staging.yml"),
+    "utf8"
+  );
+  const orderedSteps = [
+    "      - name: Deploy Firestore indexes\n",
+    "      - name: Wait for every declared Firestore index\n",
+    "      - name: Deploy Functions\n",
+    "      - name: Verify deployed functions match this ref\n",
+    "      - name: Deploy Firestore rules\n",
+    "      - name: Deploy Storage rules\n",
+    "      - name: Deploy Hosting\n",
+  ];
+  const positions = orderedSteps.map((step) => workflow.indexOf(step));
+
+  for (const [index, position] of positions.entries()) {
+    assert.notEqual(
+      position,
+      -1,
+      `Missing staging rollout step: ${orderedSteps[index]}`
+    );
+  }
+  assert.deepEqual(positions, [...positions].sort((left, right) => left - right));
+  assert.doesNotMatch(
+    workflow,
+    /--only functions,firestore:rules,firestore:indexes,storage,hosting/
   );
 });
 

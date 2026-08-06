@@ -17,9 +17,9 @@ Start from what is actually here.
 
 | Thing | Where |
 |---|---|
-| The shapes older installs wrote, frozen | `AscendApp/Shared/Models/Migrations/AscendSchemaV1.swift`, `AscendSchemaV2.swift` |
-| The shape the app writes now | `AscendApp/Shared/Models/Migrations/AscendSchemaV3.swift` |
-| The plan that carries V1 forward to V3 | `AscendApp/Shared/Models/Migrations/AscendMigrationPlan.swift` |
+| The shapes older installs wrote | `AscendApp/Shared/Models/Migrations/AscendSchemaV1.swift`, `AscendSchemaV2.swift`, `AscendSchemaV3.swift` |
+| The shape the app writes now | `AscendApp/Shared/Models/Migrations/AscendSchemaV4.swift` |
+| The plan that carries V1 forward to V4 | `AscendApp/Shared/Models/Migrations/AscendMigrationPlan.swift` |
 | The one declaration of which schema is live, read by everything that must cover the whole store | `AscendApp/Shared/Models/AscendLocalStore.swift` (`currentSchema`) |
 | Where the container is opened, and the interrupted-migration retry | `AscendApp/App/AscendApp.swift` (`createModelContainer`, `finishInterruptedMigrationIfNeeded`) |
 | Proof it works against a real V1 store | `AscendAppTests/WorkoutSourceSchemaMigrationTests.swift` |
@@ -29,8 +29,10 @@ Start from what is actually here.
 `AscendSchemaV1` is `Schema.Version(1, 0, 0)` and is frozen.
 It declares its own copies of `Workout`, `WorkoutSourceLink`, `WorkoutParticipation`, `Routine` and `RoutineFolder` so the migration can *read* what is on disk.
 `AscendSchemaV2` is `Schema.Version(2, 0, 0)` and is frozen too; it carries its own `Routine` and `RoutineFolder`, unchanged from V1, because those two gained columns in V3.
-`AscendSchemaV3` is `Schema.Version(3, 0, 0)` and lists the thirteen live models.
-`AscendMigrationPlan.stages` holds two stages: `migrateV1toV2`, a `.custom` stage, and `migrateV2toV3`, a lightweight one.
+`AscendSchemaV3` is `Schema.Version(3, 0, 0)` and lists thirteen models.
+It needs no frozen copies of its own, because V4 changed no existing model - it only added one.
+`AscendSchemaV4` is `Schema.Version(4, 0, 0)` and lists the fourteen live models: V3's thirteen plus `WorkoutSyncOutboxEntry`, the persisted retry schedule for a workout that is not yet in the cloud.
+`AscendMigrationPlan.stages` holds three stages: `migrateV1toV2`, a `.custom` stage, then `migrateV2toV3` and `migrateV3toV4`, both lightweight.
 
 **Read `migrateV1toV2` before you write a migration of your own.**
 It is the worked example of the hardest case in the decision procedure below, and it is real code in this repository rather than a paraphrase of Apple's documentation.

@@ -70,7 +70,8 @@ npx -y firebase-tools@15.22.1 deploy --only firestore:rules,firestore:indexes,fu
 - Links point at `/api/unsubscribe`, a Hosting rewrite to the `unsubscribeFromEmails` function, and carry an HMAC token signed with `unsubscribeSigningKey`. Tokens do not expire, so links outlive the message.
 - `GET` renders a confirmation page and does not act; `POST` performs the opt-out and sets `lifecycleEmailsEnabled: false`. See CLAUDE.md, Firebase Hosting, for why that split is load-bearing.
 - The write merges into `users/{uid}/communication_preferences/current`, so the push notification preference survives.
-- The in-app toggle at Settings, Notifications writes the same preference.
+- The app writes the same preference through `recordLifecycleEvent` from two places: the switch on the Email screen, reached from Settings, Notifications, and the opt-in checkbox on the onboarding notifications step.
+- Every write of `lifecycleEmailsEnabled` carries `lifecycleEmailsSource` and is stamped with a server-derived `lifecycleEmailsDecidedAt`. That trio is the consent record beehiiv can ask to see: the answer, where it was given, and when. A write that carries the flag without a source is rejected, so a decision can never inherit the source of the one before it. The app may only claim `onboarding` or `settings`; `email_link` is written server-side by the unsubscribe endpoint and no client can claim it.
 
 ## Lifecycle email automation
 
@@ -79,7 +80,7 @@ npx -y firebase-tools@15.22.1 deploy --only firestore:rules,firestore:indexes,fu
 - If the user answered `yes`, it queues `rating_positive_followup`.
 - If the user answered `no`, it queues `rating_negative_feedback`.
 - The job ID is deterministic from `rating-prompt-answer-email:{uid}`, so the prompt can only enqueue one follow-up email per user.
-- The automation skips the queue when `users/{uid}/communication_preferences/current.lifecycleEmailsEnabled` is explicitly `false`.
+- The automation queues only when `users/{uid}/communication_preferences/current.lifecycleEmailsEnabled` is explicitly `true`. An absent preference is not consent: nobody answered, so nothing is sent, and the gate must never be softened back to `!== false`.
 - The scheduled `processEmailJobs` worker re-reads that same preference right before it sends, and sends the queued email through Resend only if it still passes. Both gates are required: a retrying job can be hours old, so the user may have unsubscribed since it was queued.
 - A job suppressed at send time gets the terminal `skipped` status, never `failed`. Nothing went wrong and there is nothing to retry.
 - The gate applies only to jobs carrying a `recipientUid`.

@@ -39,7 +39,7 @@ enum UploadError: LocalizedError {
 /// - Persists uploads across app restarts
 @MainActor
 @Observable
-final class MediaUploadManager {
+final class MediaUploadManager: AuthenticatedSessionWorker {
     static let shared = MediaUploadManager()
 
     // MARK: - Observable State
@@ -70,12 +70,18 @@ final class MediaUploadManager {
     /// Server-controlled off switch for the background queue below.
     private let featureFlags: RemoteFeatureFlagStore
 
+    /// The account-scoped work gate. Deletion raises it before it drains, so it is what keeps the
+    /// queue from starting an item the drain never agreed to wait for.
+    private let sessionWorkGate: AuthenticatedBootstrapCoordinator
+
     init(
         photoRepo: any PhotoRepositoryProtocol = FirebasePhotoRepository(),
-        featureFlags: RemoteFeatureFlagStore = .shared
+        featureFlags: RemoteFeatureFlagStore = .shared,
+        sessionWorkGate: AuthenticatedBootstrapCoordinator = .shared
     ) {
         self.photoRepo = photoRepo
         self.featureFlags = featureFlags
+        self.sessionWorkGate = sessionWorkGate
     }
 
     // MARK: - Public API
@@ -181,6 +187,10 @@ final class MediaUploadManager {
         // would be a status change on work the switch says must sit exactly as it is.
         guard mediaUploadsAllowed(path: "MediaUploadManager.retryFailedUploads") else { return }
 
+        // The gate wants that reset held for its own reason: the save that follows it is a write
+        // into the window where deletion's staged sweep is still rollback-able.
+        guard sessionWorkGate.isSuspended == false else { return }
+
         // Reset failed uploads to pending
         let descriptor = FetchDescriptor<PendingMediaUpload>(
             predicate: #Predicate { $0.workoutId == workoutId && $0.status == "failed" }
@@ -206,6 +216,11 @@ final class MediaUploadManager {
         // the end of this sweep is local deletion the switch is meant to stop as well.
         guard mediaUploadsAllowed(path: "MediaUploadManager.processPendingUploads") else { return }
 
+        // The gate covers the same span for the same reason. Leaving it enforced only at the lower
+        // choke point lets a suspended sweep fall through to that same file deletion while deletion
+        // is quiescing this queue.
+        guard sessionWorkGate.isSuspended == false else { return }
+
         let descriptor = FetchDescriptor<PendingMediaUpload>(
             predicate: #Predicate { $0.status == "pending" || $0.status == "uploading" }
         )
@@ -226,6 +241,32 @@ final class MediaUploadManager {
         // Clean up orphaned local files
         let allFilenames = Set(pending.map { $0.localFileName })
         await LocalMediaStorage.cleanupOrphanedFiles(validFilenames: allFilenames)
+    }
+
+    /// Stops every in-flight upload so account deletion can quiesce this queue.
+    ///
+    /// Each item runs in its own inner task that does not inherit the caller's cancellation, so
+    /// cancelling the sweep only stops the queue between items. Without this, an upload already in
+    /// flight kept writing - `processUpload` saves the context on both its success and failure
+    /// paths - and one of those saves lands inside deletion's staged window.
+    func cancelInFlightWork() {
+        for task in activeUploadTasks.values {
+            task.cancel()
+        }
+    }
+
+    /// Waits out every upload still running, including one the queue started after this began.
+    ///
+    /// A single pass over a snapshot would return while an item started a moment later was still
+    /// writing, which is the whole failure the drain exists to prevent. Each upload is waited for at
+    /// most once, so this converges even without the gate holding the queue shut.
+    func drainInFlightWork() async {
+        var drainedUploadIDs: Set<UUID> = []
+
+        while let inFlight = activeUploadTasks.first(where: { drainedUploadIDs.contains($0.key) == false }) {
+            drainedUploadIDs.insert(inFlight.key)
+            _ = await inFlight.value.value
+        }
     }
 
     /// Cancel all pending uploads for a workout (when workout is deleted)
@@ -272,6 +313,12 @@ final class MediaUploadManager {
         // `PendingMediaUpload` rows are left exactly as they are and drain when the flag returns.
         guard mediaUploadsAllowed(path: "MediaUploadManager.processUploadsForWorkout") else { return }
 
+        // Same choke point, same reasoning, for account deletion: `processUpload` saves the context
+        // on both its entry and its failure path, and one of those saves landing inside deletion's
+        // staged window commits a sweep that was left unsaved so it could roll back. The rows wait
+        // for the gate exactly as they wait for the switch.
+        guard sessionWorkGate.isSuspended == false else { return }
+
         guard !processingWorkoutIds.contains(workoutId) else { return }
         processingWorkoutIds.insert(workoutId)
 
@@ -309,6 +356,8 @@ final class MediaUploadManager {
             guard mediaUploadsAllowed(path: "MediaUploadManager.processUploadsForWorkout.item") else {
                 break
             }
+
+            guard sessionWorkGate.isSuspended == false else { break }
 
             // Update status to show progress
             let total = pendingUploads.count

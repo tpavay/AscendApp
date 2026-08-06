@@ -24,9 +24,10 @@ The two missing Live Replay indexes are both collection-scoped `entries` indexes
 The current query filters per-climb and per-routine live races with `isBestForUser == true`, then reads the window ahead in ascending `stepsAtBucket` order and the window behind in descending order.
 Both matching definitions already exist exactly once in `firestore.indexes.json` after rebasing onto current `develop`, so this preparation does not add duplicates.
 
-Current `develop` declares 13 composite indexes because later work also added the `workouts(source, climbId)` projection index and the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index.
-It also declares three field overrides, for `blocked.blockedUid`, `entries.userId`, and `finishers.userId`.
-All three carry a `COLLECTION_GROUP` scope, and `entries.userId` additionally restates its ascending and descending `COLLECTION`-scoped single-field indexes.
+Current `develop` declares 15 composite indexes because later work also added the `workouts(source, climbId)` projection index, the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index, and the two `_revenuecat_analytics_outbox` delivery-queue indexes (`status + readyAt` and `status + processingStartedAt`).
+It also declares six field overrides, for `blocked.blockedUid`, `entries.userId`, `finishers.userId`, `entitlements.accessUntil`, `_revenuecat_webhook_events.retainUntil`, and `_revenuecat_analytics_outbox.retainUntil`.
+The first four carry a `COLLECTION_GROUP` scope, and `entries.userId` additionally restates its ascending and descending `COLLECTION`-scoped single-field indexes.
+The two `retainUntil` overrides declare no index at all: they exist to carry the TTL policies that expire the webhook dedupe ledger and the analytics outbox.
 That restatement is required because a field override replaces the field's entire index configuration, and the server's best-entry reconciliation still queries `entries` by `userId` inside a single leaderboard.
 The production workflow waits until every composite index and every scope inside every field override reports `READY` before Functions deploy.
 
@@ -59,6 +60,9 @@ Complete every item before starting the production workflow.
    No deploy workflow publishes it to production; dev and staging receive new switches automatically, production stays a captain-only publish.
    See "Remote Config kill switches" below for the command, and `npm run remoteconfig:drift` for what is live in all three right now.
    The production `build-ios` job now refuses to archive while any flag the build reads is unreachable in `ascend-prod-9c8f2`, so a missed publish stops the release rather than shipping a decorative lever.
+10. Complete every production captain action for server-side entitlement enforcement before this rollout: the `REVENUECAT_SERVER_CONFIG` Functions secret, the project-scoped `MIXPANEL_SERVER_CONFIG` service-account secret, the production RevenueCat webhook destination and its credentials, the App Store Server Notification URLs, the cross-service Storage-to-Firestore IAM role, and a reconciled grant for every account that already has paid access.
+    Firestore and Storage rules deny paid data to a signed-in account with no server-owned grant, so a missed step here is a subscriber lockout rather than a degraded feature.
+    `docs/revenuecat-server-entitlement-enforcement.md` owns the full action list; do not restate it here.
 
 Use these read-only GitHub checks:
 
@@ -104,9 +108,9 @@ The workflow performs the following order automatically:
 3. Build and retain the signed production IPA.
 4. Build the Functions and Hosting artifacts.
 5. Deploy Firestore indexes.
-6. Poll the Firestore Admin API until all 13 composite indexes and every declared query scope inside all three field overrides report `READY`.
+6. Poll the Firestore Admin API until all 15 composite indexes and every declared query scope inside all six field overrides report `READY`.
 7. Deploy Functions.
-8. Verify `cleanupDeletedUserData`, `onPublicIdentityPropagationJobWritten`, `onPublicProfileIdentityWritten`, `onWorkoutWritten`, `onWorkoutReplaySplitsWritten`, and `unsubscribeFromEmails` report `ACTIVE`.
+8. Verify `cleanupDeletedUserData`, `expireRevenueCatEntitlements`, `onPublicIdentityPropagationJobWritten`, `onPublicProfileIdentityWritten`, `onWorkoutWritten`, `onWorkoutReplaySplitsWritten`, `processRevenueCatAnalyticsOutbox`, `reconcileAppAccess`, `revenueCatWebhook`, and `unsubscribeFromEmails` report `ACTIVE`.
 9. Reconcile the whole deployed function set against this ref's `functions/src/index.ts` exports, failing on any missing, orphaned, or non-`ACTIVE` function.
 10. Deploy Firestore rules.
 11. Deploy Storage rules.
@@ -118,6 +122,7 @@ The workflow performs the following order automatically:
 16. Assert the run reached a real outcome, so a run that deployed nothing fails instead of reporting green.
 
 This ordering makes indexes available before `onWorkoutWritten` can execute its `source + climbId` query.
+It also puts the entitlement Functions and the `entitlements.accessUntil` expiry index in place before the Firestore and Storage rules that require a server-owned paid grant, so a missing RevenueCat secret stops the rollout instead of locking every subscriber out of the backend - `docs/revenuecat-server-entitlement-enforcement.md` owns that system.
 It makes Functions available before Hosting publishes the rewrite to `unsubscribeFromEmails`.
 It keeps the backend ahead of the binary because `upload-testflight` depends on the complete `deploy-firebase` job.
 
@@ -136,7 +141,7 @@ npx -y firebase-tools@15.22.1 deploy --project production \
 ```
 
 Verify the deployment does not request deletion of an unexpected index.
-Then wait for every declared index, including both `isBestForUser + stepsAtBucket` directions and all three field overrides, to become usable:
+Then wait for every declared index, including both `isBestForUser + stepsAtBucket` directions and all six field overrides, to become usable:
 
 ```sh
 firebase_bin="$(npm exec --yes --package=firebase-tools@15.22.1 -- which firebase)"
@@ -207,21 +212,25 @@ npx -y firebase-tools@15.22.1 deploy --project production \
 
 `--force` is intentionally scoped to Functions so the deployed set matches `functions/src/index.ts` without making rules, indexes, Storage, or Hosting destructive.
 
-Verify the six gate-critical functions are active:
+Verify the ten gate-critical functions are active:
 
 ```sh
 npx -y firebase-tools@15.22.1 --json functions:list \
   --project production \
   | node scripts/ci/assert-firebase-functions-active.mjs \
       cleanupDeletedUserData \
+      expireRevenueCatEntitlements \
       onPublicIdentityPropagationJobWritten \
       onPublicProfileIdentityWritten \
       onWorkoutWritten \
       onWorkoutReplaySplitsWritten \
+      processRevenueCatAnalyticsOutbox \
+      reconcileAppAccess \
+      revenueCatWebhook \
       unsubscribeFromEmails
 ```
 
-That list is curated, so it proves those six exports and says nothing about the rest of the project.
+That list is curated, so it proves those ten exports and says nothing about the rest of the project.
 Then reconcile the whole deployed set against the checked-out source, which is what catches a function nobody thought to add to the curated list and one deleted from source but still serving traffic:
 
 ```sh
@@ -244,6 +253,7 @@ npx -y firebase-tools@15.22.1 deploy --project production \
 
 Verify the command reports a successful rules release.
 Then use the production-signed smoke account to read and write its allowed private documents and confirm an unauthenticated client cannot read them.
+The smoke account needs a reconciled `users/{uid}/entitlements/app_access` grant for that check: private workouts, routines, and `profile_stats` are paid boundaries, so a signed-in account without a grant is denied by design.
 Also confirm the current `profile_stats` write succeeds before uploading the binary.
 
 Rollback: redeploy only `firestore:rules` from the last known good production SHA.
@@ -258,6 +268,7 @@ npx -y firebase-tools@15.22.1 deploy --project production \
 
 Verify the command reports a successful rules release.
 Using the production-signed smoke account, upload and delete one file beneath that account's `users/{uid}/...` prefix and confirm a second account cannot read or write it.
+Workout media and heart-rate sidecars authorize through a cross-service Firestore read of the same paid grant, so this check fails closed if that IAM role is missing or the smoke account has no grant; owner deletes stay available either way.
 
 Rollback: redeploy only `storage` from the last known good production SHA.
 
@@ -306,9 +317,9 @@ node scripts/deploy-remote-config.mjs --env prod --confirm-production ascend-pro
 
 Both read the live template first and refuse to publish while any managed flag is switched off.
 Production was first published on 2026-08-02 and read back parameter by parameter; `remote-config-kill-switches.md` holds that record and owns the publish contract.
-Re-run this whenever a flag is added - the production archive fails while any flag the build reads is unreachable on the backend.
+Re-run this whenever a parameter is added - a kill switch or an operator setting - because the production archive fails while any parameter the build reads is unreachable on the backend.
 
-Rollback: there is nothing to roll back - the checked-in template is the healthy state, with every switch on.
+Rollback: there is nothing to roll back - the checked-in template is the healthy state, with every switch on and every setting at its baseline.
 To *use* a switch, flip it to `false` in the Firebase console. See `remote-config-kill-switches.md`.
 
 ## Rollback worktree

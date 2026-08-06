@@ -93,8 +93,8 @@ Visual rules the chosen template must satisfy:
 - Full-bleed **dark** background, **thin top progress indicator**, **one large product
   hero**, short copy at the bottom, **exactly one CTA per screen**.
 - **No skip affordances. No card chrome or boxed surfaces.**
-- Must collect required profile fields post-auth (display name + demographics: age 13–120,
-  gender).
+- Must collect required profile fields post-auth (display name + demographics: birthday,
+  bounded to ages 13–120, and gender).
 - Notifications opt-in is anchored to a concrete value prop ("never miss a climb drop / get
   24-hour advance notice on new First Ascent opportunities") — never generic "enable
   notifications" housekeeping.

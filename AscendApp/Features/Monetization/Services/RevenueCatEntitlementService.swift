@@ -15,6 +15,9 @@ final class RevenueCatEntitlementService: EntitlementServicing {
     var hasFailedIdentityResolution: Bool {
         identityTransitionState.hasFailedIdentityResolution
     }
+    var identityGeneration: MonetizationIdentityTransition? {
+        identityTransitionState.refreshToken()
+    }
     private(set) var isConfigured: Bool
     var scheduledIdentityMutationCount: Int {
         identityMutationTasks.count
@@ -75,39 +78,58 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         }
     }
 
-    func refreshCustomerInfo() async {
+    @discardableResult
+    func refreshCustomerInfo(
+        waitsForPendingIdentity: Bool
+    ) async -> MonetizationEntitlementRefresh {
         guard isConfigured else {
-            return
+            return .unavailable(.notConfigured)
         }
 
         if let pendingIdentityMutation {
-            let transition = pendingIdentityMutation.transition
-            guard identityMutationTasks[transition] == nil else {
-                return
+            // A background pass has nothing to decide from a transitional answer, so it neither
+            // waits for identity work nor re-drives it - `retryIdentityResolution` owns that, and
+            // its caller can show recovery instead of stalling a launch or foreground chain.
+            guard waitsForPendingIdentity else {
+                return .unavailable(.identityUnresolved)
             }
 
-            let mutationTask = scheduleIdentityMutation(
+            let transition = pendingIdentityMutation.transition
+            let identityWork = identityMutationTasks[transition] ?? scheduleIdentityMutation(
                 transition: transition,
                 mutation: pendingIdentityMutation.mutation
             )
-            await mutationTask.value
-            return
+
+            await identityWork.value
         }
 
         guard let refreshToken = identityTransitionState.refreshToken() else {
-            return
+            return .unavailable(.identityUnresolved)
         }
 
         do {
             let state = try await provider.customerInfoState()
-            applyRefreshState(state, for: refreshToken)
-            await auditLaunchOfferingIfNeeded()
+
+            // The identity can move on while that call is suspended. An answer the transition state
+            // refuses describes a superseded identity, so reporting it as refreshed would put the
+            // verdict and the entitlement this app actually holds back into disagreement.
+            guard applyRefreshState(state, for: refreshToken) else {
+                return .unavailable(.identityUnresolved)
+            }
+
+            // Nothing may suspend between accepting the state and reporting it, or the identity
+            // could move on again and reopen the window that guard just closed. The catalog audit
+            // is unrelated to this verdict, so it runs on its own rather than inside it.
+            Task { await auditLaunchOfferingIfNeeded() }
+            return .refreshed(state)
         } catch {
             // A refresh that could not reach RevenueCat is not evidence that the entitlement
-            // lapsed, so the already-resolved answer stands until something can ask again.
+            // lapsed, so the already-resolved answer stands until something can ask again - but the
+            // caller is told nothing current was established rather than reading that stale answer.
             Self.logger.error(
                 "Could not refresh RevenueCat customer info: \(error.localizedDescription, privacy: .public)"
             )
+            return .unavailable(.providerFailed)
         }
     }
 
@@ -199,14 +221,20 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         await mutationTask.value
     }
 
-    func restorePurchases() async throws {
-        guard isConfigured else { return }
+    /// A pending or superseded identity transition refuses the stored state, but it does not make
+    /// the restore's own answer wrong. The resolved state is returned either way so a caller that
+    /// asked for the restore can act on what RevenueCat actually said.
+    @discardableResult
+    func restorePurchases() async throws -> MonetizationEntitlementState {
+        guard isConfigured else { return .unknown }
         let refreshToken = identityTransitionState.refreshToken()
         let state = try await provider.restorePurchasesState()
 
         if let refreshToken {
             applyRefreshState(state, for: refreshToken)
         }
+
+        return state
     }
 
     private func prepareIdentityMutation(
@@ -314,15 +342,17 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         applyRefreshState(state, for: refreshToken)
     }
 
+    @discardableResult
     private func applyRefreshState(
         _ state: MonetizationEntitlementState,
         for refreshToken: MonetizationIdentityTransition
-    ) {
+    ) -> Bool {
         guard identityTransitionState.applyRefresh(state, for: refreshToken) else {
-            return
+            return false
         }
 
         updateTelemetry(for: state)
+        return true
     }
 
     private func updateTelemetry(for state: MonetizationEntitlementState) {

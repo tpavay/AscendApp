@@ -97,13 +97,17 @@ final class LifecycleEventRecorder {
     /// Unlike the other lifecycle events, this one backs a settings control the
     /// user is watching, so it reports failure instead of swallowing it.
     func recordCommunicationPreferences(
-        lifecycleEmailsEnabled: Bool? = nil,
+        lifecycleEmails: (isEnabled: Bool, source: LifecycleEmailConsentSource)? = nil,
         productUpdatesEnabled: Bool? = nil,
         climbDropEmailsEnabled: Bool? = nil
     ) async throws {
         var payload: [String: Any] = [:]
-        if let lifecycleEmailsEnabled {
-            payload["lifecycleEmailsEnabled"] = lifecycleEmailsEnabled
+        // The flag and where it was answered travel as one value: a decision
+        // written without its source silently inherits the source of the last
+        // one, and the server rejects the pair anyway.
+        if let lifecycleEmails {
+            payload["lifecycleEmailsEnabled"] = lifecycleEmails.isEnabled
+            payload["lifecycleEmailsSource"] = lifecycleEmails.source.rawValue
         }
         if let productUpdatesEnabled {
             payload["productUpdatesEnabled"] = productUpdatesEnabled

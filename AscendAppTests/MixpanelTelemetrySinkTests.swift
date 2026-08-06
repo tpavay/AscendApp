@@ -15,7 +15,10 @@ struct MixpanelTelemetrySinkTests {
         )
         let sink = MixpanelTelemetrySink(
             configuration: AnalyticsConfiguration(
-                infoDictionary: [AnalyticsConfiguration.mixpanelTokenInfoKey: "token"]
+                infoDictionary: [
+                    AnalyticsConfiguration.mixpanelTokenInfoKey: "token",
+                    AnalyticsConfiguration.mixpanelProjectIDInfoKey: "4051102"
+                ]
             ),
             buildMetadata: buildMetadata,
             makeClient: { _, _ in client }
@@ -23,7 +26,8 @@ struct MixpanelTelemetrySinkTests {
         let telemetry = TelemetryManager(
             sinks: [sink],
             crashlyticsReporter: NoopCrashlyticsReporter(),
-            collectionEnabledOverride: true
+            collectionEnabledOverride: true,
+            buildMetadata: buildMetadata
         )
 
         telemetry.configure()
@@ -39,10 +43,19 @@ struct MixpanelTelemetrySinkTests {
         )
         #expect(client.registeredSuperProperties == buildMetadata.properties)
         #expect(client.trackedEvents == ["first_event"])
+        let trackedProperties = client.trackedProperties.first
+        let appEnvironment = trackedProperties?["app_environment"] as? String
+        let buildConfig = trackedProperties?["build_config"] as? String
+        let appVersion = trackedProperties?["app_version"] as? String
+        let buildNumber = trackedProperties?["build_number"] as? String
+        #expect(appEnvironment == "staging")
+        #expect(buildConfig == "staging")
+        #expect(appVersion == "1.2.3")
+        #expect(buildNumber == "456")
     }
 
     @Test
-    func restoresBuildMetadataAfterIdentityReset() {
+    func restoresBuildMetadataAfterIdentityReset() throws {
         let client = RecordingMixpanelClient()
         let buildMetadata = TelemetryBuildMetadata(
             appEnvironment: "production",
@@ -53,14 +66,22 @@ struct MixpanelTelemetrySinkTests {
         )
         let sink = MixpanelTelemetrySink(
             configuration: AnalyticsConfiguration(
-                infoDictionary: [AnalyticsConfiguration.mixpanelTokenInfoKey: "token"]
+                infoDictionary: [
+                    AnalyticsConfiguration.mixpanelTokenInfoKey: "token",
+                    AnalyticsConfiguration.mixpanelProjectIDInfoKey: "4051100"
+                ]
             ),
             buildMetadata: buildMetadata,
             makeClient: { _, _ in client }
         )
 
         sink.setUserID(nil)
-        sink.record(TelemetryRecord(name: "signed_out_event"))
+        sink.record(
+            EnvelopedTelemetryRecord(
+                record: TelemetryRecord(name: "signed_out_event"),
+                envelope: try TelemetryEnvelope(validating: buildMetadata)
+            )
+        )
 
         #expect(client.calls == ["register_super_properties", "reset", "register_super_properties", "track"])
         #expect(client.registeredSuperProperties == buildMetadata.properties)
@@ -79,7 +100,10 @@ struct MixpanelTelemetrySinkTests {
         )
         let sink = MixpanelTelemetrySink(
             configuration: AnalyticsConfiguration(
-                infoDictionary: [AnalyticsConfiguration.mixpanelTokenInfoKey: "token"]
+                infoDictionary: [
+                    AnalyticsConfiguration.mixpanelTokenInfoKey: "token",
+                    AnalyticsConfiguration.mixpanelProjectIDInfoKey: "4051102"
+                ]
             ),
             buildMetadata: buildMetadata,
             makeClient: { _, _ in client }
@@ -90,6 +114,103 @@ struct MixpanelTelemetrySinkTests {
         #expect(client.calls == ["register_super_properties", "set_user_property", "register_super_properties"])
         #expect(client.registeredSuperProperties == buildMetadata.properties)
     }
+
+    /// A padded MARKETING_VERSION or CURRENT_PROJECT_VERSION must not make the
+    /// stamped envelope differ from the one the sink validates against, or every
+    /// Mixpanel event would drop while Firebase and Crashlytics kept flowing.
+    @Test
+    func aPaddedBundleVersionStillReachesMixpanel() {
+        let client = RecordingMixpanelClient()
+        let buildMetadata = TelemetryBuildMetadata(
+            appEnvironment: "staging",
+            buildConfig: "staging",
+            appVersion: " 1.2.3 ",
+            buildNumber: " 456 ",
+            bundleIdentifier: "com.tylerpavay.AscendApp.staging"
+        )
+        let sink = MixpanelTelemetrySink(
+            configuration: AnalyticsConfiguration(
+                infoDictionary: [
+                    AnalyticsConfiguration.mixpanelTokenInfoKey: "token",
+                    AnalyticsConfiguration.mixpanelProjectIDInfoKey: "4051102"
+                ]
+            ),
+            buildMetadata: buildMetadata,
+            makeClient: { _, _ in client }
+        )
+        let telemetry = TelemetryManager(
+            sinks: [sink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            buildMetadata: buildMetadata
+        )
+
+        telemetry.configure()
+        telemetry.track(TelemetryRecord(name: "padded_version_event"))
+
+        #expect(client.trackedEvents == ["padded_version_event"])
+        let trackedProperties = client.trackedProperties.first
+        #expect(trackedProperties?["app_version"] as? String == "1.2.3")
+        #expect(trackedProperties?["build_number"] as? String == "456")
+    }
+
+    #if !DEBUG
+    /// Shipping builds must degrade analytics, never terminate: the trap that
+    /// catches destination drift is a DEBUG-only development aid.
+    @Test
+    func aShippingBuildGoesSilentInsteadOfTrappingOnDestinationDrift() throws {
+        let mismatchedClient = RecordingMixpanelClient()
+        let mismatchedDestination = MixpanelTelemetrySink(
+            configuration: AnalyticsConfiguration(
+                infoDictionary: [
+                    AnalyticsConfiguration.mixpanelTokenInfoKey: "token",
+                    AnalyticsConfiguration.mixpanelProjectIDInfoKey: "4051100"
+                ]
+            ),
+            buildMetadata: Self.stagingBuildMetadata,
+            makeClient: { _, _ in mismatchedClient }
+        )
+
+        let unvalidatableClient = RecordingMixpanelClient()
+        let unvalidatableEnvelope = MixpanelTelemetrySink(
+            configuration: AnalyticsConfiguration(
+                infoDictionary: [
+                    AnalyticsConfiguration.mixpanelTokenInfoKey: "token",
+                    AnalyticsConfiguration.mixpanelProjectIDInfoKey: "4051102"
+                ]
+            ),
+            buildMetadata: TelemetryBuildMetadata(
+                appEnvironment: "staging",
+                buildConfig: "staging",
+                appVersion: "",
+                buildNumber: "",
+                bundleIdentifier: "com.tylerpavay.AscendApp.staging"
+            ),
+            makeClient: { _, _ in unvalidatableClient }
+        )
+
+        let record = EnvelopedTelemetryRecord(
+            record: TelemetryRecord(name: "dropped_event"),
+            envelope: try TelemetryEnvelope(validating: Self.stagingBuildMetadata)
+        )
+
+        mismatchedDestination.setCollectionEnabled(true)
+        mismatchedDestination.record(record)
+        unvalidatableEnvelope.setCollectionEnabled(true)
+        unvalidatableEnvelope.record(record)
+
+        #expect(mismatchedClient.calls.isEmpty)
+        #expect(unvalidatableClient.calls.isEmpty)
+    }
+    #endif
+
+    private static let stagingBuildMetadata = TelemetryBuildMetadata(
+        appEnvironment: "staging",
+        buildConfig: "staging",
+        appVersion: "1.2.3",
+        buildNumber: "456",
+        bundleIdentifier: "com.tylerpavay.AscendApp.staging"
+    )
 }
 
 private extension MixpanelTelemetrySinkTests {
@@ -98,6 +219,7 @@ private extension MixpanelTelemetrySinkTests {
         private(set) var calls: [String] = []
         private(set) var registeredSuperProperties: [String: String] = [:]
         private(set) var trackedEvents: [String] = []
+        private(set) var trackedProperties: [Properties] = []
 
         func setCollectionEnabled(_ enabled: Bool) {
             calls.append(enabled ? "opt_in" : "opt_out")
@@ -126,6 +248,7 @@ private extension MixpanelTelemetrySinkTests {
         func track(event: String, properties: Properties) {
             calls.append("track")
             trackedEvents.append(event)
+            trackedProperties.append(properties)
         }
 
         func flush(performFullFlush: Bool) {}

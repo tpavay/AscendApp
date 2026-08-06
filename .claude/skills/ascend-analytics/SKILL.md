@@ -1,9 +1,10 @@
 ---
 name: ascend-analytics
-description: Use when working on Ascend analytics or telemetry - event definitions, the analytics facade, telemetry sinks (Firebase Analytics, Mixpanel, SuperWall, Crashlytics, Sentry), screen tracking, funnel/engagement/quality measurement, event parameter privacy, or the debug telemetry console. Covers what is worth logging, which destination owns which job, and the low-cardinality parameter rule.
+description: Use when working on Ascend analytics or telemetry - event definitions, the analytics facade, telemetry sinks (Firebase Analytics, Mixpanel, SuperWall, Crashlytics, Sentry), screen tracking, funnel/engagement/quality measurement, event parameter privacy, the server-exported subscription lifecycle events, or the debug telemetry console. Covers what is worth logging, which destination owns which job, and the low-cardinality parameter rule.
 paths:
   - AscendApp/Shared/Services/Telemetry/**
   - AscendApp/Features/*/Analytics/**
+  - functions/src/revenueCat/analytics*.ts
 ---
 
 # Analytics Architecture
@@ -21,24 +22,50 @@ If an event wouldn't change a decision, don't log it. Volume of events != value 
 Multiple analytics destinations are sanctioned - each is best at a different job. Route events to the right destination through a single facade; never call providers directly from feature code.
 
 - **Firebase Analytics** - broad funnel, cohort, retention analysis. Most product events go here.
-- **Mixpanel** - product funnel, retention, and behavior analytics. Implemented as `MixpanelTelemetrySink`, configured from the `AscendMixpanelToken` Info.plist key; the sink is inert when no token is present. Dev, staging, and production all report into one project and are separated by super-properties - see "Mixpanel environment tagging" below.
+- **Mixpanel** - product funnel, retention, and behavior analytics.
+  The client sink is `MixpanelTelemetrySink`, configured from the `AscendMixpanelToken` and `AscendMixpanelProjectID` Info.plist keys.
+  Debug, Staging, and Release each report to a dedicated project, and the sink fails closed when the compiled environment and project ID disagree.
+  Cloud Functions also export subscription lifecycle events straight to Mixpanel, routed per environment - see "Mixpanel environment separation and event envelope" and "Server-owned subscription lifecycle events" below.
 - **SuperWall** - onboarding-flow step-level conversion + paywall presentation analytics (its specialty).
 - **Crashlytics** - crashes, fatal errors, stability metrics.
 - **Sentry** - error/crash diagnostics mirror alongside Crashlytics (non-fatal errors, app hangs, symbolicated traces). When reading, triaging, or updating Sentry issues/events, use the `sentry` skill.
 
 When evaluating new providers, justify them by what they uniquely measure that the existing set doesn't.
 
-## Mixpanel environment tagging
+## Mixpanel environment separation and event envelope
 
-Dev, staging, and production share a single Mixpanel project (`4032860`).
-There are no per-environment projects or tokens; environments are told apart by the `app_environment`, `build_config`, `app_version`, and `build_number` super-properties on every event.
-Those values come from `TelemetryBuildMetadata`, the same source Sentry tags its events with, so the two providers always agree for a given build.
+Debug reports to Development `4032860`, Staging reports to Staging `4051102`, and Release reports to Production `4051100`.
+`ASCEND_MIXPANEL_TOKEN` and `ASCEND_MIXPANEL_PROJECT_ID` are compile-time Xcode settings expanded through Info.plist.
+`scripts/ci/assert-mixpanel-build-settings.mjs` resolves all three configurations and rejects empty, incorrect, or duplicate destinations without printing token values.
+Archive workflows also inspect the processed app bundle with `scripts/ci/assert-mixpanel-bundle.mjs` before upload.
+`scripts/test/mixpanel-build-configuration.test.mjs` pins the same contract offline against `project.pbxproj` and `Info.plist`, holds the Mixpanel SDK import inside the three adapter files, and keeps session replay disabled.
+Replay stays off because Ascend handles health data: turning it on means masking date of birth, weight, exact location, and heart-rate values before capture.
 
-The invariant: the super-properties are registered before any event can be tracked, and re-registered after anything that clears Mixpanel SDK state - `reset()` on sign-out, opting back in to collection, or a user property whose name collides with one of those reserved keys.
-`AscendAppTests/MixpanelTelemetrySinkTests.swift` enforces it.
+Every event and screen carries `app_environment`, `build_config`, `app_version`, and `build_number` directly in its payload through `TelemetryEnvelope`.
+The `TelemetrySink` boundary accepts only enveloped records, so a feature call site cannot omit those fields or spoof them with event parameters.
+Mixpanel still registers the same values as super-properties before first use and after SDK state resets as defense in depth.
+`AscendAppTests/TelemetryEnvelopeTests.swift`, `AscendAppTests/TelemetryManagerTests.swift`, and `AscendAppTests/MixpanelTelemetrySinkTests.swift` enforce the runtime contract.
+
+Only Mixpanel routes by environment, so only Mixpanel demands the *validated* envelope: it goes silent when the environment, the build configuration, and the compiled project ID stop agreeing.
+Every other sink takes the resolved envelope, which substitutes `unknown` for a missing bundle version rather than dropping the event, so one blank Info.plist key can never cost a build its Firebase events, screen views, and Crashlytics breadcrumbs.
+`scripts/ci/assert-mixpanel-bundle.mjs` rejects an archive missing either version key, so that fallback stays unreachable in a shipped build.
+Destination drift traps under `DEBUG` only - a shipping build degrades analytics, it never terminates on a telemetry misconfiguration.
 
 Events recorded before this tagging shipped carry none of these properties, and that history cannot be separated retroactively.
-Filter on `app_environment` when analyzing, and treat untagged events as unattributable rather than as clean production data.
+Treat historical untagged events in Development as unattributable rather than as clean production data.
+
+## Server-owned subscription lifecycle events
+
+Subscription transitions mostly happen while the app is closed - renewal, cancellation, uncancellation, billing issue, expiration, refund, product change - so the client cannot observe them.
+Cloud Functions export them to Mixpanel from a durable Firestore outbox filled by the RevenueCat webhook, never from device code.
+Do not add a client event for a transition that stream already reports, and do not route these through `TelemetrySink`.
+
+They carry the same `app_environment`, `build_config`, `app_version`, and `build_number` envelope as client events, with the server's own values (`build_config=server`, `app_version=cloud_functions`).
+They are routed by the deployed Firebase project rather than by a compiled build setting, into the same per-environment Mixpanel project the matching client build reports to.
+Pick the right project first, then separate server from client events by `build_config=server`.
+
+`docs/revenuecat-server-entitlement-enforcement.md` owns that exporter - the exactly-once outbox contract, the destination map, the retention bound, and the captain-side Mixpanel service-account and secret setup.
+`functions/src/revenueCat/analyticsEnvironment.ts` and `LifecycleAnalyticsEventName` in `functions/src/revenueCat/analyticsTypes.ts` are the executable source of truth for the destinations and the event names; read them rather than a copy.
 
 ## Implementation principles
 - One analytics facade. Feature code never imports a provider directly; it logs through the facade, which routes to the right destination. Sinks conform to `TelemetrySink` under `AscendApp/Shared/Services/Telemetry/`.
@@ -57,14 +84,18 @@ DEBUG builds expose a developer-visible analytics console so events and screen v
 Onboarding is the one funnel measured screen-by-screen, so it has a fixed contract: **21 visible screens, each emitting exactly one `onboarding_screen_viewed`**, plus a decision event on every interactive screen.
 Read this before adding, removing, reordering, or renaming an onboarding screen - changing the flow means changing this table and the tests that enforce it.
 
-Enforcement lives in `AscendAppTests/OnboardingAnalyticsEventTests.swift` (ordered screen coverage, dedupe, per-screen properties) and `AscendAppTests/OnboardingAnalyticsFunnelTranscriptTests.swift` (renders the whole funnel as a transcript from real emissions).
+Enforcement lives in `AscendAppTests/OnboardingAnalyticsEventTests.swift` (ordered screen coverage, dedupe, per-screen properties), `AscendAppTests/OnboardingAnalyticsFunnelTranscriptTests.swift` (renders the whole funnel as a transcript from real emissions, and asserts the clean-pass event counts plus the resumed and back-navigation paths), and `AscendAppTests/OnboardingFlowAnalyticsCoordinatorTests.swift` (the one lifecycle pair: pass persistence, account ownership, and completion attribution).
 Those tests are the executable source of truth; this table is the readable one.
 
 ### The 21 screens, in order
 
-`screen_id` equals `step_id` on every event. Every event also carries `flow_id`, `flow_version` (`v1`), `step_index`, `step_count`, and `app_environment`.
+`screen_id` equals `step_id` on every event.
+Every event also carries `flow_id=onboarding`, `flow_version=v1`, `segment_id`, `step_index`, `step_count=21`, and the four `TelemetryEnvelope` fields every event carries.
+The segment labels identify nested implementation sections and never replace the user-level flow ID.
+`step_index` is zero-based against that ordered list, so the paywall reports `step_index` 20 with `step_count` 21.
+`onboarding_flow_started` and `onboarding_screen_viewed` also carry `resume`, and `onboarding_flow_completed` carries `completion_reason`.
 
-| # | screen_id | flow_id | Events beyond the view | Interactive sub-properties |
+| # | screen_id | segment_id | Events beyond the view | Interactive sub-properties |
 | --- | --- | --- | --- | --- |
 | 1 | `welcome` | `pre_auth_welcome` | `onboarding_screen_completed` | `action_id` (`get_started` / `sign_in` for the returning-climber route), `input_type=button` |
 | 2 | `watch_yourself_get_better` | `pre_auth_value_onboarding` | `onboarding_screen_completed`, `onboarding_back_tapped` | `action_id` (`continue` / `swipe_forward`), `input_type` (`button` / `gesture`) |
@@ -86,7 +117,7 @@ Those tests are the executable source of truth; this table is the readable one.
 | 18 | `notifications` | `post_auth_onboarding` | `onboarding_question_answered`, `onboarding_screen_completed` | `question_id=notifications`, `status`/`answer_id` (`allow` / `decline` / `skip`) |
 | 19 | `loading` | `post_auth_onboarding` | `onboarding_screen_completed` | none - the only non-interactive screen |
 | 20 | `first_climb` | `post_auth_onboarding` | `onboarding_question_answered` (`question_id=first_climb`), `onboarding_screen_completed` | `climb_id`, `climb_name` |
-| 21 | `paywall` | `post_auth_onboarding` | `onboarding_paywall_reached`, `revenuecat_purchase_completed`, `revenuecat_restore_completed` | `placement`, `source`, `product_id`, `outcome` |
+| 21 | `paywall` | `post_auth_onboarding` | `onboarding_paywall_reached`, `revenuecat_purchase_started`, one of `revenuecat_purchase_completed` / `_cancelled` / `_pending` / `_failed`, `revenuecat_restore_started`, one of `revenuecat_restore_completed` / `_not_found` / `_failed` | `placement`, `presentation_id`, `source`, `product_id`, `outcome`, `entitlement_id`, `entitlement_active`, `error_type` |
 
 ### Invariants that are easy to break
 
@@ -94,8 +125,24 @@ Those tests are the executable source of truth; this table is the readable one.
 - **The `features` stage is a container, not a screen.** It emits no view of its own - its three guide screens (`summit_landmarks`, `real_time`, `daily_climbs`) each report theirs, so counting the container would inflate the funnel with a screen nobody sees. `PostAuthOnboardingStage.visibleScreenAnalyticsContext` returns `nil` for it and only for it.
 - **Views dedupe by `step_id`.** `OnboardingScreenViewRecorder` emits once per distinct step for the lifetime of the flow, so back-navigation and re-renders re-emit nothing. The dedupe is in-memory, so a relaunch mid-flow re-emits the current step.
 - **Conditional screens report only when actually shown.** Never pre-emit a view for a screen the user may skip.
+- **`step_index` is derived from `OnboardingAnalyticsContext.orderedStepIDs`, never passed in.** Contexts are built from content arrays, so a page added to a carousel or guide can drift out of that list; onboarding is the one flow a user cannot route around, so drift asserts in development and reports `step_index` `-1` in production rather than terminating the app. A `-1` in the funnel means a screen was added without being added to the ordered list.
 - **The routed `appAccessGate` joins this funnel.** `MonetizationManager.trackPaywallReached` emits `onboarding_paywall_reached` and records the `paywall` screen view through the same recorder for both `onboardingPaywall` and `appAccessGate`, so a retry through the placeholder never banks a second view.
-- **The paywall is not a `PostAuthOnboardingStage`.** It continues the stage sequence by index and counts itself into `step_count` (`OnboardingAnalyticsEvent.paywallContext`).
+- **The paywall is not a `PostAuthOnboardingStage`.** It is still the canonical user-level last screen through `OnboardingAnalyticsEvent.paywallContext`, which resolves its index from the same ordered list every other screen uses.
+- **Only `OnboardingFlowAnalyticsCoordinator` owns the lifecycle pair.** It starts at the first onboarding screen the install shows - welcome on a clean run, the resumed step when a reinstall keeps the Keychain session but not `UserDefaults` - persists that start across relaunch, and completes only after active access routes the app to Home. A pass that opens past the first canonical step says `resume=true` on its start and on the one screen it comes back to; nothing else in the pass does.
+- **A pass belongs to one account.** A pass opened before auth is adopted by the account that finishes it; a different account, a sign-out of the account that adopted it, an account deletion, or a debug replay retires it, so one climber's abandoned start can never be closed by the next climber's completion.
+- **Losing the authenticated identity is not a sign-out.** Firebase reports "no user" on every signed-out cold launch too, and that report reaches `MonetizationManager.prepareIdentityReset` before any screen renders, so only `retireAdoptedPass` may run there: a pass no account has claimed survives the relaunch and re-emits nothing.
+- **`completion_reason` is attributed from evidence, never from timing.** `existing_entitlement` means this pass never asked for a grant. While a paywall presentation or a restore is in flight, there is no reason to report at all - the entitlement can turn active before the outcome says how. Once the request reports, `purchase`/`restore` come from that result, and a request that reported nothing still means whatever turns access on afterwards was that grant.
+- **Grant provenance is part of the pass, not of the process.** `OnboardingAccessGrantProvenance` is persisted inside the same `PassState` it describes and is retired with it, because the app can die on the StoreKit sheet between the purchase and the route to Home. A request the process died holding is settled to "reported nothing" when the next process loads the pass - it can never report, and deferring forever would cost the completion entirely.
+- **Nested owners are segments.** The value carousel, auth surface, post-auth stages, and feature guide set `segment_id`; none may emit `onboarding_flow_started` or `onboarding_flow_completed`.
+- **Every RevenueCat purchase and restore emits exactly one terminal, and `completed` means verified.**
+  A purchase or restore reports `started` only when a RevenueCat call actually happens - a missing StoreKit product or an unconfigured build emits the failure terminal alone.
+  `revenuecat_purchase_completed` requires `app_access` in the *refreshed RevenueCat entitlement state* - the device answer, whose refresh also triggers server reconciliation but which is not itself server-derived - never the pre-refresh purchase response.
+  A refresh that established nothing is reported as a failure with the matching bounded `error_type` - unconfigured, unresolved identity (including an answer that landed after the identity moved on), RevenueCat unreachable, or the verdict budget expiring - and the stored entitlement is never read in its place. `MonetizationEntitlementRefresh` is what makes that distinction expressible.
+  That budget is **one 10-second total** (`MonetizationVerdictBudget`) spanning identity serialization, the customer-info fetch and server reconciliation together, never one per segment; whichever segment exhausts it collapses the whole attempt to `entitlement_refresh_timeout`.
+  Restore has **three mutually exclusive terminals**: `revenuecat_restore_completed` for an active `app_access` (`entitlement_active=true`), `revenuecat_restore_not_found` for a conclusive negative (`outcome=no_entitlement`, `entitlement_active=false`), and `revenuecat_restore_failed` for an unresolved operation - bounded `error_type`, and **no** `entitlement_active`, because unknown is not negative.
+  Only `revenuecat_restore_completed` may be accompanied by `paywall_restore_completed`.
+  `AppAccessRestoreService` owns this for all three restore surfaces (paywall, account settings, app-access gate); `RevenueCatPurchaseExecutor` owns it for purchase.
+  Enforced by `AscendAppTests/PaywallPurchaseAnalyticsContractTests.swift`.
 
 ## Reference
 - `docs/sentry-setup.md` - Sentry role and app configuration.

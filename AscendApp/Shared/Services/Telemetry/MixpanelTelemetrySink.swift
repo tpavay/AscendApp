@@ -6,6 +6,7 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
 
     private let configuration: AnalyticsConfiguration
     private let buildMetadata: TelemetryBuildMetadata
+    private let validatedEnvelope: TelemetryEnvelope?
     private let makeClient: (String, Double) -> any MixpanelClient
     private let lock = NSLock()
     private var client: (any MixpanelClient)?
@@ -19,6 +20,7 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
     ) {
         self.configuration = configuration
         self.buildMetadata = buildMetadata
+        self.validatedEnvelope = try? TelemetryEnvelope(validating: buildMetadata)
         self.makeClient = makeClient
     }
 
@@ -52,7 +54,9 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
         }
     }
 
-    func record(_ record: TelemetryRecord) {
+    func record(_ record: EnvelopedTelemetryRecord) {
+        guard accepts(record.envelope) else { return }
+
         withConfiguredClient { client in
             client.track(
                 event: record.name,
@@ -62,7 +66,9 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
         }
     }
 
-    func record(screen: TelemetryScreen) {
+    func record(screen: EnvelopedTelemetryScreen) {
+        guard accepts(screen.envelope) else { return }
+
         withConfiguredClient { client in
             var properties = screen.parameters.mixpanelProperties
             properties["screen_name"] = screen.name
@@ -77,7 +83,7 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
     }
 
     private func withConfiguredClient(_ action: (any MixpanelClient) -> Void) {
-        guard let token = configuration.mixpanelToken else { return }
+        guard let token = validatedToken() else { return }
 
         lock.lock()
         defer { lock.unlock() }
@@ -94,6 +100,40 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
         client.registerSuperProperties(buildMetadata.properties)
         self.client = client
         action(client)
+    }
+
+    // Every guard below fails closed outside DEBUG: an analytics misconfiguration
+    // must silence Mixpanel, never terminate a tester's or a customer's app.
+    private func validatedToken() -> String? {
+        guard let validatedEnvelope else {
+            #if DEBUG
+            preconditionFailure("Telemetry envelope is invalid for this build configuration.")
+            #else
+            return nil
+            #endif
+        }
+
+        do {
+            return try configuration.validatedMixpanelToken(for: validatedEnvelope)
+        } catch {
+            #if DEBUG
+            preconditionFailure("Mixpanel destination does not match this build configuration.")
+            #else
+            return nil
+            #endif
+        }
+    }
+
+    private func accepts(_ envelope: TelemetryEnvelope) -> Bool {
+        guard let validatedEnvelope, envelope == validatedEnvelope else {
+            #if DEBUG
+            preconditionFailure("Mixpanel received an envelope for a different build configuration.")
+            #else
+            return false
+            #endif
+        }
+
+        return true
     }
 
     private var flushInterval: Double {

@@ -429,20 +429,19 @@ struct PreAuthOnboardingSurveyStore {
 struct OnboardingFeatureGuideFlowScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var stepIndex = 0
-    @State private var didRecordFlowStart = false
 
-    let flowID: String
+    let segmentID: String
     let onBackFromFirstScreen: (() -> Void)?
     let onFinish: () -> Void
 
     private let screens = PreAuthGuideScreen.all
 
     init(
-        flowID: String = "onboarding_features",
+        segmentID: String = "onboarding_features",
         onBackFromFirstScreen: (() -> Void)? = nil,
         onFinish: @escaping () -> Void
     ) {
-        self.flowID = flowID
+        self.segmentID = segmentID
         self.onBackFromFirstScreen = onBackFromFirstScreen
         self.onFinish = onFinish
     }
@@ -455,9 +454,6 @@ struct OnboardingFeatureGuideFlowScreen: View {
         )
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
-        .onAppear {
-            recordFlowStartIfNeeded()
-        }
         .trackOnboardingScreenView(analyticsContext(at: stepIndex))
     }
 
@@ -495,36 +491,22 @@ struct OnboardingFeatureGuideFlowScreen: View {
         if stepIndex < screens.count - 1 {
             stepIndex += 1
         } else {
-            TelemetryManager.shared.track(
-                OnboardingAnalyticsEvent.flowCompleted(context: context)
-            )
             onFinish()
         }
     }
 
-    private func recordFlowStartIfNeeded() {
-        guard !didRecordFlowStart else { return }
-
-        didRecordFlowStart = true
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.flowStarted(context: analyticsContext(at: stepIndex))
-        )
-    }
-
     private func analyticsContext(at index: Int) -> OnboardingAnalyticsContext {
-        let contexts = Self.analyticsContexts(flowID: flowID)
+        let contexts = Self.analyticsContexts(segmentID: segmentID)
         return contexts[min(max(index, 0), contexts.count - 1)]
     }
 
     /// The one place a guide-flow step context is built, so the ordered set the funnel is measured
     /// against and the contexts the running flow emits can never drift apart.
-    nonisolated static func analyticsContexts(flowID: String) -> [OnboardingAnalyticsContext] {
-        PreAuthGuideScreen.all.enumerated().map { index, screen in
+    nonisolated static func analyticsContexts(segmentID: String) -> [OnboardingAnalyticsContext] {
+        PreAuthGuideScreen.all.map { screen in
             OnboardingAnalyticsContext(
-                flowID: flowID,
-                stepID: screen.id,
-                stepIndex: index,
-                stepCount: PreAuthGuideScreen.all.count
+                segmentID: segmentID,
+                stepID: screen.id
             )
         }
     }

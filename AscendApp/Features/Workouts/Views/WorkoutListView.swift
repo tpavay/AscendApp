@@ -15,6 +15,7 @@ struct WorkoutListView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @State private var themeManager = ThemeManager.shared
     @State private var importCoordinator = WorkoutImportCoordinator.shared
+    @State private var syncCoordinator = WorkoutSyncCoordinator.shared
     @State private var filterState = WorkoutListFilterState()
 
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
@@ -25,6 +26,9 @@ struct WorkoutListView: View {
     @State private var showingDeleteError = false
     @State private var deleteErrorMessage = ""
     @State private var isDeleting = false
+    /// Which climbs the climber is meant to know about, resolved once per refresh rather than in
+    /// the render path.
+    @State private var couldNotSyncWorkoutIds: Set<UUID> = []
     @State private var isCancelling = false
     @State private var deleteTask: Task<Void, Never>? = nil
 
@@ -102,7 +106,8 @@ struct WorkoutListView: View {
                         isInDeleteMode: isInDeleteMode,
                         effectiveColorScheme: effectiveColorScheme,
                         selectedWorkouts: selectedWorkouts,
-                        toggleSelection: toggleWorkoutSelection
+                        toggleSelection: toggleWorkoutSelection,
+                        couldNotSyncWorkoutIds: couldNotSyncWorkoutIds
                     )
                 }
             }
@@ -170,7 +175,39 @@ struct WorkoutListView: View {
             }
             .task {
                 importCoordinator.configure(modelContext: modelContext)
+                refreshCouldNotSyncWorkoutIds()
             }
+            // Without this the badge is a snapshot taken once: a climb that lands keeps its
+            // warning, and one that starts failing never gets one. Keyed on the coordinator's
+            // per-pass counter rather than on the workout store's own churn - a pass saves once
+            // per workout outcome, so watching the store would recompute the whole screen once
+            // per synced climb, and the first sign-in restore is when that backlog is largest.
+            .onChange(of: syncCoordinator.completedPassCount) { _, _ in
+                refreshCouldNotSyncWorkoutIds()
+            }
+    }
+
+    /// Bounded by construction: only workouts that are not in the cloud are asked about, and a
+    /// climb still working through its quiet automatic series is deliberately not counted.
+    ///
+    /// One store query for the whole screen, never one per workout - the per-workout form is a
+    /// query whose count grows with the climber's history, on the render entry path.
+    private func refreshCouldNotSyncWorkoutIds() {
+        let unsynced = workouts.filter { !$0.isSyncedToCloud }
+
+        guard !unsynced.isEmpty else {
+            couldNotSyncWorkoutIds = []
+            return
+        }
+
+        // Publishes, then reads back what was published - the same call the detail row's presentation
+        // comes from, so the badge and that row cannot disagree about one climb.
+        syncCoordinator.syncPresentations(for: unsynced, modelContext: modelContext)
+        couldNotSyncWorkoutIds = Set(
+            unsynced.lazy
+                .filter { syncCoordinator.presentation(for: $0).isWarning }
+                .map(\.id)
+        )
     }
 
     private var areAllWorkoutsSelected: Bool {

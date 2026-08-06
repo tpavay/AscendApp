@@ -53,6 +53,35 @@ struct AppAccessPaywallPlaceholderSnapshotTests {
         #expect(sink.records.contains { $0.name == "paywall_reached" })
     }
 
+    /// Visual evidence for the restore surface the gate draws under its Restore control, including
+    /// the conclusive negative and the unresolved failure, which must not read alike.
+    @Test
+    func rendersEveryRestoreStateFromTheRealView() throws {
+        let manager = MonetizationManager(
+            entitlementService: EntitlementServiceStub(),
+            paywallPresenter: PaywallPresenterSpy(),
+            telemetry: makeTestTelemetry(sink: InMemoryTelemetrySink(destination: .analytics))
+        )
+        let renderer = ImageRenderer(content: AppAccessGateRestoreStatesProof(monetizationManager: manager))
+        renderer.scale = 2
+
+        let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
+        let png = try #require(image.pngData(), "UIImage produced no PNG data")
+
+        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
+            ?? NSTemporaryDirectory()
+        let url = URL(filePath: directory).appending(path: "app-access-gate-restore-states.png")
+        try png.write(to: url)
+
+        #expect(png.count > 5_000)
+    }
+
+    @Test
+    func theRestoreProofCoversEveryStateTheRestoreControlCanBeIn() {
+        #expect(Set(restoreScenarios.map(\.state)) == Set(AppAccessRestoreState.allCases))
+        #expect(restoreScenarios.count == AppAccessRestoreState.allCases.count)
+    }
+
     @Test
     func theHandOffStatesDrawNoControls() {
         #expect(AppAccessPaywallPresentationState.presenting.showsRecoveryActions == false)
@@ -86,6 +115,60 @@ private let gateScenarios: [GateScenario] = [
     .init(id: "retry", outcome: "Dismissed without purchase · onSkip", state: .readyToRetry),
     .init(id: "failed", outcome: "Configuration failure · onError", state: .failed)
 ]
+
+/// The restore outcome that lands the control in each state, paired with the real state value.
+private struct RestoreScenario: Identifiable {
+    let id: String
+    let outcome: String
+    let state: AppAccessRestoreState
+}
+
+private let restoreScenarios: [RestoreScenario] = [
+    .init(id: "idle", outcome: "Gate opened · restore not attempted", state: .idle),
+    .init(id: "restoring", outcome: "Restore call in flight", state: .restoring),
+    .init(id: "restored", outcome: "app_access restored · gate unlocks", state: .restored),
+    .init(id: "notFound", outcome: "Conclusive negative · no app_access to restore", state: .noPurchasesFound),
+    .init(id: "failed", outcome: "Unresolved · restore never answered", state: .failed)
+]
+
+private struct AppAccessGateRestoreStatesProof: View {
+    let monetizationManager: MonetizationManager
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            Text("App access gate · every restore state")
+                .font(.montserratBold(size: 20))
+                .foregroundStyle(.white)
+                .fixedSize(horizontal: false, vertical: true)
+
+            ForEach(restoreScenarios) { scenario in
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(scenario.outcome.uppercased())
+                        .font(.montserratSemiBold(size: 11))
+                        .foregroundStyle(Color.ascendAccent.opacity(0.9))
+
+                    AppAccessPaywallPlaceholderView(
+                        initialPresentationState: .readyToRetry,
+                        initialRestoreState: scenario.state
+                    )
+                    .environment(monetizationManager)
+                    // Taller than the presentation-state rows: the status line the restore surface
+                    // adds must not squeeze the headline into a truncation the real screen never shows.
+                    .frame(width: 340, height: 470)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(.white.opacity(0.05))
+                )
+            }
+        }
+        .padding(28)
+        .frame(width: 428)
+        .background(Color.black)
+    }
+}
 
 private struct AppAccessGateStatesProof: View {
     let monetizationManager: MonetizationManager

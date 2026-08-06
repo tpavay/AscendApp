@@ -28,14 +28,18 @@ struct AccountView: View {
                 ProfileHeaderView(
                     photoURL: authVM.displayPhotoURL,
                     displayName: authVM.displayName,
+                    email: authVM.user?.email,
                     onEditTap: {
                         isShowingEditProfile = true
                     }
                 )
 
                 sectionView(title: "Profile", options: profileOptions)
+                sectionView(title: "Notifications", options: notificationOptions)
+                sectionView(title: "Preferences", options: preferenceOptions)
                 sectionView(title: "Subscription", options: subscriptionOptions)
                 sectionView(title: "Support", options: supportOptions)
+                sectionView(title: "Privacy", options: privacyOptions)
                 sectionView(title: "Developer", options: developerOptions)
 
                 SignOutButton {
@@ -97,7 +101,7 @@ struct AccountView: View {
         .alert(item: $restorePurchases.result) { result in
             Alert(
                 title: Text(result.title),
-                message: Text(result.message),
+                message: result.message.map { Text($0) },
                 dismissButton: .default(Text("Done"))
             )
         }
@@ -127,16 +131,36 @@ struct AccountView: View {
                 action: {
                     isShowingEditProfile = true
                 }
-            ),
+            )
+        ]
+    }
+
+    private var notificationOptions: [SettingsOption] {
+        [
             SettingsOption(
                 icon: .settingsNotifications,
-                title: "Notifications",
+                title: "Push",
                 destination: NotificationSettingsView()
             ),
             SettingsOption(
-                icon: .settingsBlockedClimbers,
-                title: "Blocked climbers",
-                destination: BlockedClimbersView()
+                icon: .settingsContactUs,
+                title: "Email",
+                destination: EmailPreferencesView()
+            )
+        ]
+    }
+
+    private var preferenceOptions: [SettingsOption] {
+        [
+            SettingsOption(
+                icon: .settingsMeasurementSystem,
+                title: "Units",
+                destination: MeasurementSystemSelectionView()
+            ),
+            SettingsOption(
+                icon: .settingsIntegrations,
+                title: "Integrations",
+                destination: IntegrationsView()
             )
         ]
     }
@@ -207,6 +231,16 @@ struct AccountView: View {
                 icon: .settingsContactUs,
                 title: "Contact Us",
                 destination: ContactUsView()
+            )
+        ]
+    }
+
+    private var privacyOptions: [SettingsOption] {
+        [
+            SettingsOption(
+                icon: .settingsBlockedClimbers,
+                title: "Blocked climbers",
+                destination: BlockedClimbersView()
             )
         ]
     }

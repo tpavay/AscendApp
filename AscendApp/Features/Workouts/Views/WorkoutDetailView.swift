@@ -340,6 +340,13 @@ struct WorkoutDetailView: View {
     /// Content sections after the title (shared between both layouts)
     private func workoutContentSectionsWithoutTitle(_ derived: WorkoutDetailDerivedContent) -> some View {
         Group {
+            // Above the stats on purpose. Whether this climb reached the climber's account is not
+            // a footnote about the session - it is whether the session exists anywhere but here.
+            WorkoutSyncStatusSection(
+                workout: workout,
+                effectiveColorScheme: effectiveColorScheme
+            )
+
             // Notes (blockquote style)
             if !workout.notes.isEmpty {
                 NotesBlockquote(

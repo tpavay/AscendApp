@@ -36,6 +36,9 @@ enum AppIconToken: Hashable, Sendable {
     case settingsNotifications
     case settingsRestorePurchases
     case settingsBlockedClimbers
+    case profileBirthday
+    case profileGender
+    case profileWeight
 
     case disclosureChevronRight
     case bestEffortTrophy
@@ -104,6 +107,12 @@ enum AppIconToken: Hashable, Sendable {
             return .systemSymbol("arrow.clockwise")
         case .settingsBlockedClimbers:
             return .systemSymbol("person.crop.circle.badge.xmark")
+        case .profileBirthday:
+            return .systemSymbol("calendar")
+        case .profileGender:
+            return .systemSymbol("person.crop.circle")
+        case .profileWeight:
+            return .systemSymbol("scalemass")
 
         case .disclosureChevronRight:
             return .asset("ph-disclosure-chevron-right")

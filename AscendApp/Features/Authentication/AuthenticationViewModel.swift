@@ -171,6 +171,12 @@ class AuthenticationViewModel {
                         )
                     }
 
+                    // Signing back in is what repairs credentials that were failing workout
+                    // syncs, and this is the only place the app sees the signed-out half of that
+                    // transition - including when Firebase revokes a session rather than the
+                    // climber tapping sign out.
+                    WorkoutSyncCoordinator.shared.forgetAuthenticatedIdentity()
+
                     self.displayName = ""
                     self.customProfilePictureURL = nil
                     self.hasRemoteDisplayName = false
@@ -406,7 +412,8 @@ extension AuthenticationViewModel {
             firstName: existingData?.firstName,
             lastName: existingData?.lastName,
             displayName: existingData?.displayName,
-            age: existingData?.age,
+            age: existingData?.legacyAge,
+            birthday: existingData?.birthday,
             gender: existingData?.gender,
             weightKg: existingData?.weightKg,
             heightCm: existingData?.heightCm,
@@ -497,6 +504,23 @@ extension AuthenticationViewModel {
         return "\(fallback): \(error.localizedDescription)"
     }
 
+    /// Runs a profile mutation and hands its failure back to the caller instead
+    /// of leaving it on `errorMessage`.
+    ///
+    /// `errorMessage` is app-wide: the Settings root renders it inline, so a
+    /// message a pushed editor left behind follows the climber back out and
+    /// sits there under an unrelated screen.
+    func scopedProfileUpdate(
+        fallback: String,
+        _ update: () async -> Bool
+    ) async -> String? {
+        errorMessage = nil
+        let didSucceed = await update()
+        let failure = errorMessage
+        errorMessage = nil
+        return didSucceed ? nil : (failure ?? fallback)
+    }
+
     var displayPhotoURL: URL? {
         // Prioritize custom profile picture, then fall back to OAuth provider photo
         return customProfilePictureURL ?? photoURL
@@ -546,7 +570,7 @@ extension AuthenticationViewModel {
     }
 
     @discardableResult
-    func updateOnboardingProfile(displayName newDisplayName: String, age: Int, gender: ProfileGender) async -> Bool {
+    func updateProfileName(firstName: String, lastName: String) async -> Bool {
         errorMessage = nil
 
         guard let user else {
@@ -554,8 +578,53 @@ extension AuthenticationViewModel {
             return false
         }
 
-        guard (13...120).contains(age) else {
-            errorMessage = "Enter an age from 13 to 120"
+        let normalizedFirstName = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedLastName = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let previousDisplayName = displayName
+
+        do {
+            let composedDisplayName = try DisplayNamePolicy.composedBoardName(
+                firstName: normalizedFirstName,
+                lastName: normalizedLastName
+            )
+            displayName = composedDisplayName
+
+            try await authenticationService.updateUserDisplayName(
+                displayName: composedDisplayName
+            )
+            try await UserDataRepository.shared.updateProfileName(
+                userId: user.uid,
+                email: user.email,
+                firstName: normalizedFirstName,
+                lastName: normalizedLastName
+            )
+            hasRemoteDisplayName = true
+            return true
+        } catch {
+            displayName = previousDisplayName
+            errorMessage = profileUpdateFailureMessage(
+                error,
+                fallback: "Failed to update name"
+            )
+            return false
+        }
+    }
+
+    @discardableResult
+    func updateOnboardingProfile(
+        displayName newDisplayName: String,
+        birthday: ProfileBirthday,
+        gender: ProfileGender
+    ) async -> Bool {
+        errorMessage = nil
+
+        guard let user else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        guard birthday.hasValidProfileAge() else {
+            errorMessage = "Choose a birthday for an age from 13 to 120"
             return false
         }
 
@@ -575,7 +644,7 @@ extension AuthenticationViewModel {
                 userId: user.uid,
                 email: user.email,
                 displayName: validatedDisplayName,
-                age: age,
+                birthday: birthday,
                 gender: gender
             )
             hasRemoteDisplayName = true
@@ -615,7 +684,7 @@ extension AuthenticationViewModel {
     }
 
     @discardableResult
-    func updateOnboardingAge(_ age: Int) async -> Bool {
+    func updateOnboardingBirthday(_ birthday: ProfileBirthday) async -> Bool {
         errorMessage = nil
 
         guard let user else {
@@ -623,8 +692,8 @@ extension AuthenticationViewModel {
             return false
         }
 
-        guard (13...120).contains(age) else {
-            errorMessage = "Enter an age from 13 to 120"
+        guard birthday.hasValidProfileAge() else {
+            errorMessage = "Choose a birthday for an age from 13 to 120"
             return false
         }
 
@@ -633,11 +702,41 @@ extension AuthenticationViewModel {
                 userId: user.uid,
                 email: user.email,
                 displayName: displayName,
-                age: age
+                birthday: birthday
             )
             return true
         } catch {
             errorMessage = "Failed to update profile: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func updateBirthday(_ birthday: ProfileBirthday) async -> Bool {
+        errorMessage = nil
+
+        guard let user else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        guard birthday.hasValidProfileAge() else {
+            errorMessage = "Choose a birthday for an age from 13 to 120"
+            return false
+        }
+
+        do {
+            try await UserDataRepository.shared.updateBirthday(
+                userId: user.uid,
+                email: user.email,
+                birthday: birthday
+            )
+            return true
+        } catch {
+            errorMessage = profileUpdateFailureMessage(
+                error,
+                fallback: "Failed to update birthday"
+            )
             return false
         }
     }

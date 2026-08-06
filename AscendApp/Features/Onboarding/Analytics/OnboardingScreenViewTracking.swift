@@ -7,13 +7,18 @@ extension View {
     /// than persisted: a relaunch mid-flow starts a fresh set and re-emits the current step. A
     /// `nil` context emits nothing, which lets callers whose step is index-derived pass an
     /// out-of-bounds state through.
-    func trackOnboardingScreenView(_ context: OnboardingAnalyticsContext?) -> some View {
-        modifier(OnboardingScreenViewTracker(context: context))
+    @MainActor
+    func trackOnboardingScreenView(
+        _ context: OnboardingAnalyticsContext?,
+        lifecycle: OnboardingFlowAnalyticsCoordinator = .shared
+    ) -> some View {
+        modifier(OnboardingScreenViewTracker(context: context, lifecycle: lifecycle))
     }
 }
 
 private struct OnboardingScreenViewTracker: ViewModifier {
     let context: OnboardingAnalyticsContext?
+    let lifecycle: OnboardingFlowAnalyticsCoordinator
 
     @State private var recorder = OnboardingScreenViewRecorder()
 
@@ -28,7 +33,17 @@ private struct OnboardingScreenViewTracker: ViewModifier {
     }
 
     private func recordScreenViewIfNeeded() {
-        recorder.recordIfNeeded(context)
+        guard let context else { return }
+
+        // Any onboarding screen can be the first one a pass shows: a reinstall keeps the Keychain
+        // session while `UserDefaults` starts empty, so a climber who signed in but never finished
+        // resumes mid-flow and never sees welcome.
+        lifecycle.recordFlowStartedIfNeeded(context: context)
+
+        recorder.recordIfNeeded(
+            context,
+            resume: lifecycle.consumeScreenResumeFlag()
+        )
     }
 }
 
@@ -37,12 +52,13 @@ struct OnboardingScreenViewRecorder {
 
     mutating func recordIfNeeded(
         _ context: OnboardingAnalyticsContext?,
+        resume: Bool = false,
         telemetry: TelemetryManager = .shared
     ) {
         guard let context, viewedStepIDs.insert(context.stepID).inserted else { return }
 
         telemetry.track(
-            OnboardingAnalyticsEvent.screenViewed(context: context)
+            OnboardingAnalyticsEvent.screenViewed(context: context, resume: resume)
         )
     }
 }

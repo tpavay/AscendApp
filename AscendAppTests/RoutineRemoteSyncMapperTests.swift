@@ -587,12 +587,16 @@ struct RoutineRemoteSyncMapperTests {
             )
         )
         #expect(rules.contains("request.resource.data.estimatedCalories >= 0"))
+        // The entry-list rule hoists `entries.size()` into a `count` parameter so the
+        // list is measured once instead of on every bounded index, which is what keeps
+        // a maximal workout under Firestore's 1000-expression ceiling. The cap number
+        // is what this pins; `&&` disambiguates it from the bounded index comparisons.
         #expect(
-            rules.contains("entries.size() <= \(FirestoreWorkoutWeightConfiguration.maxEntries)")
+            rules.contains("count <= \(FirestoreWorkoutWeightConfiguration.maxEntries) &&")
         )
         // The unique-equipment-type half of the entry-list rule has no number to
         // pin, so pin the helper the rule calls instead.
-        #expect(rules.contains("hasUniqueWorkoutWeightEquipmentTypes(entries)"))
+        #expect(rules.contains("hasUniqueWorkoutWeightEquipmentTypes(entries, count)"))
         #expect(rules.contains("isNonNegativeNumber(entry.weightValue)"))
         #expect(
             rules.contains(
