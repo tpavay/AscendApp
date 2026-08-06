@@ -81,10 +81,20 @@ final class AccountDeletionService {
         var completedSteps = 0
         var hasStagedLocalDeletion = false
         var hasCommittedLocalDeletion = false
+        var hasSuspendedAuthenticatedSessionWork = false
+        var hasDeletedAuthAccount = false
 
         defer {
             if hasStagedLocalDeletion && !hasCommittedLocalDeletion {
                 modelContext.rollback()
+            }
+
+            if hasSuspendedAuthenticatedSessionWork {
+                if hasDeletedAuthAccount {
+                    localCleanup.discardAuthenticatedSessionWork()
+                } else {
+                    localCleanup.resumeAuthenticatedSessionWork()
+                }
             }
         }
 
@@ -105,6 +115,13 @@ final class AccountDeletionService {
         updateProgress("Verifying your identity...")
         let reauthentication = try await ensureFreshAuthentication()
         completedSteps += 1
+        try Task.checkCancellation()
+
+        // No account-scoped hydration, upload, or derived-state rebuild may still be running when
+        // deletion starts. Otherwise an old task can save the deleted uid back into SwiftData after
+        // the local sweep and make the ownership guard block the replacement account.
+        await localCleanup.suspendAuthenticatedSessionWork()
+        hasSuspendedAuthenticatedSessionWork = true
         try Task.checkCancellation()
 
         // ── From this point on, every step is non-interactive. ──
@@ -195,16 +212,18 @@ final class AccountDeletionService {
         // from Step 1, Apple token already revoked right after reauth).
         updateProgress("Deleting account...")
         try await deleteAuthAccount()
+        hasDeletedAuthAccount = true
         completedSteps += 1
-        try Task.checkCancellation()
 
         // Step 11: Commit local deletion and clear caches
         updateProgress("Finalizing local cleanup...")
         try commitStagedLocalDeletion(modelContext: modelContext)
         hasCommittedLocalDeletion = true
-        try await clearLocalPendingUploadFiles()
         localCleanup.clearUserDefaults()
         localCleanup.clearImageCache()
+        localCleanup.discardAuthenticatedSessionWork()
+        hasSuspendedAuthenticatedSessionWork = false
+        try await clearLocalPendingUploadFiles()
         completedSteps += 1
 
         updateProgress("Account deleted successfully")

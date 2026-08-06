@@ -167,6 +167,53 @@ struct AccountDeletionServiceTests {
         #expect(routines.count == 1, "Expected staged local deletion to roll back.")
     }
 
+    @Test("Drains authenticated work before deletion and discards it after success", .bug(id: 389))
+    func drainsAndDiscardsAuthenticatedSessionWork() async throws {
+        let gateway = RecordingAccountDeletionGateway()
+        let cleanup = RecordingLocalCleanup()
+        let service = AccountDeletionService(gateway: gateway, localCleanup: cleanup)
+
+        try await service.deleteAccount(modelContext: try makeModelContext())
+
+        #expect(cleanup.steps == [
+            .suspendAuthenticatedWork,
+            .clearUserDefaults,
+            .clearImageCache,
+            .discardAuthenticatedWork,
+            .clearPendingUploadFiles,
+        ])
+    }
+
+    @Test("Restarts authenticated work when deletion fails before the auth account is removed", .bug(id: 389))
+    func resumesAuthenticatedSessionWorkAfterPreAuthDeletionFailure() async throws {
+        let gateway = RecordingAccountDeletionGateway()
+        gateway.authDeletionError = TestError.remoteFailure
+        let cleanup = RecordingLocalCleanup()
+        let service = AccountDeletionService(gateway: gateway, localCleanup: cleanup)
+
+        await #expect(throws: AccountDeletionService.DeletionError.self) {
+            try await service.deleteAccount(modelContext: try makeModelContext())
+        }
+
+        #expect(cleanup.steps == [.suspendAuthenticatedWork, .resumeAuthenticatedWork])
+    }
+
+    @Test("Cancellation after auth deletion cannot skip the local commit", .bug(id: 389))
+    func cancellationAfterAuthDeletionStillCommitsLocalCleanup() async throws {
+        let gateway = RecordingAccountDeletionGateway()
+        gateway.cancelTaskAfterAuthDeletion = true
+        let cleanup = RecordingLocalCleanup()
+        let service = AccountDeletionService(gateway: gateway, localCleanup: cleanup)
+        let modelContext = try makeModelContext()
+        try AscendLocalStoreFixture.insertOneOfEach(into: modelContext)
+
+        try await service.deleteAccount(modelContext: modelContext)
+
+        let remainingCounts = try AscendLocalStoreFixture.storedCountsByModelName(in: modelContext)
+        #expect(remainingCounts.values.allSatisfy { $0 == 0 })
+        #expect(cleanup.steps.contains(.discardAuthenticatedWork))
+    }
+
     // MARK: - Local store sweep
 
     @Test("Empties every model in the live schema", .bug(id: 348))
@@ -247,6 +294,36 @@ struct AccountDeletionServiceTests {
     }
 
     // MARK: - What the next account on this device sees
+
+    @Test("Delete then re-sign-up in the same session passes the ownership guard", .bug(id: 389))
+    func deleteThenResignupInSameSessionPassesOwnershipGuard() async throws {
+        let suiteName = "AccountDeletionServiceTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let sessionStore = AccountSessionStore(userDefaults: defaults)
+        sessionStore.recordLocalDataOwner(userId: "deleted-account")
+        let modelContext = try makeModelContext()
+        try AscendLocalStoreFixture.insertOneOfEach(into: modelContext)
+        let cleanup = UserDefaultsClearingLocalCleanup(
+            userDefaults: defaults,
+            persistentDomainName: suiteName
+        )
+        let service = AccountDeletionService(
+            gateway: RecordingAccountDeletionGateway(),
+            localCleanup: cleanup
+        )
+
+        try await service.deleteAccount(modelContext: modelContext)
+
+        let decision = try AccountDataOwnershipService.evaluateAccess(
+            modelContext: modelContext,
+            signedInUserId: "replacement-account",
+            sessionStore: sessionStore
+        )
+        #expect(decision == .allowed)
+    }
 
     @Test("Leaves no completed climbs or resumable session for the next account", .bug(id: 348))
     func leavesNothingForTheNextAccountToClaim() async throws {
@@ -390,8 +467,66 @@ private enum TestError: Error {
 /// shared image cache.
 @MainActor
 private struct StubLocalCleanup: AccountDeletionLocalCleanup {
+    func suspendAuthenticatedSessionWork() async {}
+    func resumeAuthenticatedSessionWork() {}
+    func discardAuthenticatedSessionWork() {}
     func clearPendingUploadFiles() async throws {}
     func clearUserDefaults() {}
+    func clearImageCache() {}
+}
+
+@MainActor
+private final class RecordingLocalCleanup: AccountDeletionLocalCleanup {
+    enum Step: Equatable {
+        case suspendAuthenticatedWork
+        case resumeAuthenticatedWork
+        case discardAuthenticatedWork
+        case clearPendingUploadFiles
+        case clearUserDefaults
+        case clearImageCache
+    }
+
+    private(set) var steps: [Step] = []
+
+    func suspendAuthenticatedSessionWork() async {
+        steps.append(.suspendAuthenticatedWork)
+    }
+
+    func resumeAuthenticatedSessionWork() {
+        steps.append(.resumeAuthenticatedWork)
+    }
+
+    func discardAuthenticatedSessionWork() {
+        steps.append(.discardAuthenticatedWork)
+    }
+
+    func clearPendingUploadFiles() async throws {
+        steps.append(.clearPendingUploadFiles)
+    }
+
+    func clearUserDefaults() {
+        steps.append(.clearUserDefaults)
+    }
+
+    func clearImageCache() {
+        steps.append(.clearImageCache)
+    }
+}
+
+@MainActor
+private struct UserDefaultsClearingLocalCleanup: AccountDeletionLocalCleanup {
+    let userDefaults: UserDefaults
+    let persistentDomainName: String
+
+    func suspendAuthenticatedSessionWork() async {}
+    func resumeAuthenticatedSessionWork() {}
+    func discardAuthenticatedSessionWork() {}
+    func clearPendingUploadFiles() async throws {}
+
+    func clearUserDefaults() {
+        userDefaults.removePersistentDomain(forName: persistentDomainName)
+    }
+
     func clearImageCache() {}
 }
 
@@ -420,6 +555,7 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
         .success(ReauthenticationResult(appleAuthorizationCode: nil))
     var revocationError: Error?
     var authDeletionError: Error?
+    var cancelTaskAfterAuthDeletion = false
 
     func reauthenticate() async throws -> ReauthenticationResult {
         steps.append(.reauthenticate)
@@ -466,6 +602,11 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
         steps.append(.deleteAuthAccount)
         if let authDeletionError {
             throw authDeletionError
+        }
+        if cancelTaskAfterAuthDeletion {
+            withUnsafeCurrentTask { task in
+                task?.cancel()
+            }
         }
     }
 }

@@ -127,6 +127,10 @@ struct MonetizationManagerServerReconciliationTests {
     func anIdentityChangeDuringReconciliationRefusesThePreReconcileAnswer() async {
         let reconciler = SuspendingAppAccessReconciler()
         let entitlementService = EntitlementServiceStub(entitlementState: .active(["app_access"]))
+        // The budget is held open rather than left on the wall clock. What the identity change
+        // produces is the assertion; a parallel test run that starves this refresh past ten real
+        // seconds would collapse it to `.refreshTimedOut` and prove nothing either way.
+        let budget = ControlledBudgetSleeper()
         let manager = MonetizationManager(
             configuration: MonetizationConfiguration(
                 infoDictionary: [
@@ -135,7 +139,8 @@ struct MonetizationManagerServerReconciliationTests {
             ),
             entitlementService: entitlementService,
             paywallPresenter: PaywallPresenterSpy(),
-            appAccessReconciler: reconciler
+            appAccessReconciler: reconciler,
+            verdictBudget: MonetizationVerdictBudget(sleeper: budget.sleep)
         )
 
         let refresh = Task {

@@ -19,6 +19,7 @@ struct RootView: View {
     @State private var tabRouter = TabRouter()
     @State private var accountDataConflict: AccountDataOwnershipConflict?
     @State private var profileCompletionCheckTask: Task<Void, Never>?
+    private let authenticatedBootstrapCoordinator = AuthenticatedBootstrapCoordinator.shared
 
     var body: some View {
         Group {
@@ -52,11 +53,7 @@ struct RootView: View {
             importCoordinator.configure(modelContext: modelContext)
             postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
             advancePostAuthOnboardingPastDisplayNameIfAvailable()
-            await monetizationManager.refreshEntitlements()
-            // Resume any pending uploads from previous session
-            await uploadManager.processPendingUploads(modelContext: modelContext)
-            await bootstrapAuthenticatedLocalState()
-            await PushNotificationService.shared.synchronizeAuthenticatedDeviceIfNeeded()
+            scheduleAuthenticatedSessionWork()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             AppDiagnosticsRecorder.shared.record(
@@ -69,13 +66,8 @@ struct RootView: View {
             // on the next pass.
             RemoteFeatureFlagService.shared.refresh()
             // Retry pending uploads when app comes to foreground (network may have restored)
-            Task {
-                importCoordinator.configure(modelContext: modelContext)
-                await monetizationManager.refreshEntitlements()
-                await uploadManager.processPendingUploads(modelContext: modelContext)
-                await bootstrapAuthenticatedLocalState()
-                await PushNotificationService.shared.synchronizeAuthenticatedDeviceIfNeeded()
-            }
+            importCoordinator.configure(modelContext: modelContext)
+            scheduleAuthenticatedSessionWork()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
             AppDiagnosticsRecorder.shared.record(
@@ -99,14 +91,10 @@ struct RootView: View {
                     "route": rootRoute.diagnosticName
                 ]
             )
-            Task {
-                postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
-                advancePostAuthOnboardingPastDisplayNameIfAvailable()
-                completePostAuthOnboardingIfRemoteProfileExists()
-                await monetizationManager.refreshEntitlements()
-                await bootstrapAuthenticatedLocalState()
-                await PushNotificationService.shared.synchronizeAuthenticatedDeviceIfNeeded()
-            }
+            postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
+            advancePostAuthOnboardingPastDisplayNameIfAvailable()
+            completePostAuthOnboardingIfRemoteProfileExists()
+            scheduleAuthenticatedSessionWork()
         }
         // A purchase completing mid-session flips this through RevenueCat's customer-info stream
         // without any refresh call, and that is exactly the moment the backend has not heard about
@@ -199,16 +187,41 @@ struct RootView: View {
     }
 
     @MainActor
-    private func bootstrapAuthenticatedLocalState() async {
-        guard let user = authVM.user else {
+    private func scheduleAuthenticatedSessionWork() {
+        let expectedUserId = authVM.user?.uid
+
+        authenticatedBootstrapCoordinator.schedule {
+            guard let expectedUserId,
+                  isCurrentAuthenticatedSession(expectedUserId) else {
+                accountDataConflict = nil
+                moderationStore.clear()
+                return
+            }
+
+            await monetizationManager.refreshEntitlements()
+            guard isCurrentAuthenticatedSession(expectedUserId) else { return }
+
+            await uploadManager.processPendingUploads(modelContext: modelContext)
+            guard isCurrentAuthenticatedSession(expectedUserId) else { return }
+
+            await bootstrapAuthenticatedLocalState(expectedUserId: expectedUserId)
+            guard isCurrentAuthenticatedSession(expectedUserId) else { return }
+
+            await PushNotificationService.shared.synchronizeAuthenticatedDeviceIfNeeded()
+        }
+    }
+
+    private func bootstrapAuthenticatedLocalState(expectedUserId currentUserId: String) async {
+        guard isCurrentAuthenticatedSession(currentUserId),
+              let user = authVM.user else {
             accountDataConflict = nil
             moderationStore.clear()
             return
         }
-        let currentUserId = user.uid
 
         do {
             await moderationStore.hydrate(for: currentUserId)
+            guard isCurrentAuthenticatedSession(currentUserId) else { return }
 
             switch try AccountDataOwnershipService.evaluateAccess(
                 modelContext: modelContext,
@@ -237,9 +250,12 @@ struct RootView: View {
                     modelContext: modelContext,
                     currentUserId: currentUserId
                 )
+            } catch is CancellationError {
+                return
             } catch {
                 debugLog("Workout hydration failed: \(error)")
             }
+            guard isCurrentAuthenticatedSession(currentUserId) else { return }
 
             // Restoring routines is independent of workouts, so a failure on
             // either side must not take the other down with it.
@@ -248,9 +264,12 @@ struct RootView: View {
                     modelContext: modelContext,
                     currentUserId: currentUserId
                 )
+            } catch is CancellationError {
+                return
             } catch {
                 debugLog("Routine hydration failed: \(error)")
             }
+            guard isCurrentAuthenticatedSession(currentUserId) else { return }
 
             // Pull the server-derived completed-climb projection into the cache
             // so the globe / Collection / totalClimbsCompleted are correct on an
@@ -260,16 +279,19 @@ struct RootView: View {
                 userId: currentUserId,
                 modelContext: modelContext
             )
+            guard isCurrentAuthenticatedSession(currentUserId) else { return }
 
             await WorkoutSyncCoordinator.shared.processPendingWorkouts(
                 modelContext: modelContext,
                 currentUserId: currentUserId
             )
+            guard isCurrentAuthenticatedSession(currentUserId) else { return }
 
             await RoutineSyncCoordinator.shared.processPendingRoutines(
                 modelContext: modelContext,
                 currentUserId: currentUserId
             )
+            guard isCurrentAuthenticatedSession(currentUserId) else { return }
 
             let leaderboardService = LeaderboardService.shared
             leaderboardService.configure(modelContext: modelContext)
@@ -296,9 +318,15 @@ struct RootView: View {
                 userId: currentUserId,
                 joinedAt: user.metadata.creationDate
             )
+        } catch is CancellationError {
+            return
         } catch {
             debugLog("Authenticated bootstrap failed: \(error)")
         }
+    }
+
+    private func isCurrentAuthenticatedSession(_ expectedUserId: String) -> Bool {
+        Task.isCancelled == false && authVM.user?.uid == expectedUserId
     }
 
     @MainActor
@@ -374,7 +402,7 @@ struct RootView: View {
     }
 }
 
-private struct AccountDataConflictView: View {
+struct AccountDataConflictView: View {
     let conflict: AccountDataOwnershipConflict
     let onSignOut: () -> Void
 
@@ -394,7 +422,7 @@ private struct AccountDataConflictView: View {
                     .lineLimit(2)
                     .minimumScaleFactor(0.82)
 
-                Text("This device already has Ascend data for another account. Sign in with the original account to protect your workouts and rankings.")
+                Text("This device holds Ascend data created by another account. Sign out to keep it intact, then sign in with that account.")
                     .font(.montserratMedium(size: 15))
                     .foregroundStyle(.white.opacity(0.68))
                     .lineSpacing(4)
@@ -402,7 +430,7 @@ private struct AccountDataConflictView: View {
             }
 
             Button(action: onSignOut) {
-                Text("Sign Out")
+                Text("Sign Out and Keep Data")
                     .font(.montserratBold(size: 16))
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
@@ -413,7 +441,7 @@ private struct AccountDataConflictView: View {
                     )
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Sign Out")
+            .accessibilityLabel("Sign Out and Keep Data")
 
             Spacer()
         }

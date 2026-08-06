@@ -39,6 +39,7 @@ A single arriving workout is not narrated.
 - Concurrent refreshes coalesce onto one shared unstructured task, so it does not inherit cancellation for free - `refreshPendingImports` wires it up explicitly.
 - Only the caller that *started* a pass may cancel it. A caller that merely joined stops waiting without stopping the pass, so dismissing the import sheet never kills the backfill Home started.
 - Cancellation is always safe: imported workouts are saved individually and the next entry resumes from there.
+- The coordinator is an `AuthenticatedSessionWorker`, so `refreshPendingImports` and the legacy backfill also refuse to start while account-scoped work is suspended, and account deletion can cancel and drain them. Rationale and the rest of that contract live in `ascend-firebase-data` -> Account deletion.
 
 ## Background freshness
 - Prefer system-provided background delivery (e.g. HealthKit observers) when available; fall back to launch/foreground incremental refresh.
