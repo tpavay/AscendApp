@@ -67,7 +67,7 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Ascend uses your location once to set your profile city for leaderboard context.</string>
 	<key>NSMotionUsageDescription</key>
-	<string>Ascend uses motion from your headphones to count steps during Live Climbs, Just Climb sessions, and routines.</string>
+	<string>Ascend uses motion from compatible headphones to count steps during Live Climbs, Just Climb sessions, and routines.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Ascend connects to your Bluetooth heart rate monitor to show live heart rate and effort zones while you climb.</string>
 	<key>UIBackgroundModes</key>
