@@ -145,7 +145,12 @@ export async function assertAppOwnsBundleId(
     throw new Error(`Expected bundle ID is invalid, got '${expectedBundleId}'.`);
   }
 
-  const app = await request(token, `/apps/${appId}?fields%5Bapps%5D=bundleId,name`);
+  const app = await requestUnderContract(
+    token,
+    `/apps/${appId}?fields%5Bapps%5D=bundleId,name`,
+    request,
+    "GET /v1/apps/{id} accepts fields[apps]=bundleId,name",
+  );
   const actualBundleId = app?.data?.attributes?.bundleId;
   if (actualBundleId !== expectedBundleId) {
     throw new Error(

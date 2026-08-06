@@ -143,7 +143,7 @@ export async function fetchHighestUploadedBuildNumber(
 ) {
   await assertAppOwnsBundleId({token, appId, expectedBundleId}, request);
 
-  const versions = await collectVersions({
+  const buildVersions = await collectVersions({
     token,
     request,
     appId,
@@ -159,22 +159,24 @@ export async function fetchHighestUploadedBuildNumber(
   // earlier and is the authoritative reservation while Apple is still
   // processing a Transporter upload. Counting both prevents a queued run from
   // reusing a number that has uploaded successfully but is not a Build yet.
-  versions.push(
-    ...(await collectVersions({
-      token,
-      request,
-      appId,
-      firstPage:
-        `/apps/${appId}/buildUploads?fields%5BbuildUploads%5D=` +
-        `cfBundleVersion,state&limit=${PAGE_LIMIT}`,
-      reservesNumber: buildUploadReservesNumber,
-      readVersion: (upload) => upload?.attributes?.cfBundleVersion,
-      label: "build upload",
-      contract:
-        "GET /v1/apps/{id}/buildUploads accepts fields[buildUploads]=cfBundleVersion,state " +
-        `and limit=${PAGE_LIMIT}`,
-    })),
-  );
+  const uploadVersions = await collectVersions({
+    token,
+    request,
+    appId,
+    firstPage:
+      `/apps/${appId}/buildUploads?fields%5BbuildUploads%5D=` +
+      `cfBundleVersion,state&limit=${PAGE_LIMIT}`,
+    reservesNumber: buildUploadReservesNumber,
+    readVersion: (upload) => upload?.attributes?.cfBundleVersion,
+    label: "build upload",
+    contract:
+      "GET /v1/apps/{id}/buildUploads accepts fields[buildUploads]=cfBundleVersion,state " +
+      `and limit=${PAGE_LIMIT}`,
+  });
+
+  // Both listings are bounded at MAX_PAGES x PAGE_LIMIT records, which is far
+  // past the engine's argument-count limit for a spread call.
+  const versions = buildVersions.concat(uploadVersions);
 
   if (versions.length === 0) return null;
   return versions.reduce((highest, version) => version > highest ? version : highest).toString();

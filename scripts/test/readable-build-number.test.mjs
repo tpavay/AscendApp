@@ -149,6 +149,45 @@ test("the allocator refuses an App Store app and bundle mismatch", async () => {
   );
 });
 
+// Ownership is the check that proves both scripts are looking at the right
+// app, so its deterministic refusal must name its own assumption rather than
+// arrive as a bare status alongside the listings that already do.
+test("a deterministic ownership refusal names the assumption that broke", async () => {
+  const refuseOwnership = async () => {
+    const error = new Error("App Store Connect GET /v1/apps/6759919365 failed (400): Parameter error");
+    error.status = 400;
+    throw error;
+  };
+
+  await assert.rejects(
+    fetchHighestUploadedBuildNumber(
+      {
+        token: "redacted-test-token",
+        appId: "6759919365",
+        expectedBundleId: "com.TylerPavay.AscendApp.staging",
+      },
+      refuseOwnership,
+    ),
+    /APP_STORE_CONTRACT_REJECTED:.*fields\[apps\]=bundleId,name/s,
+  );
+
+  await assert.rejects(
+    awaitBuildUploadRecorded(
+      {
+        appId: "6759919365",
+        expectedBundleId: "com.TylerPavay.AscendApp.staging",
+        buildNumber: "2026080301",
+      },
+      {
+        makeToken: () => "redacted-test-token",
+        request: refuseOwnership,
+        report: () => {},
+      },
+    ),
+    /APP_STORE_CONTRACT_REJECTED:.*fields\[apps\]=bundleId,name/s,
+  );
+});
+
 // The allocator sweeps the whole upload history, so one record Apple starts
 // reporting differently must cost a build number, never every future deploy.
 test("an unknown or missing upload state still reserves its build number", async () => {
