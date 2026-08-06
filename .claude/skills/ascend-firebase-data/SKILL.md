@@ -43,8 +43,14 @@ The paywall is enforced at the backend boundary: `firestore.rules` and `storage.
 `docs/revenuecat-server-entitlement-enforcement.md` owns that system - the webhook contract, the vendor setup, the choke-point list, and the deploy ordering that keeps a missing secret from locking subscribers out.
 What matters while editing rules:
 
-- Use `isPaidOwner(userId)` / `hasPaidAppAccess()` for anything that is the paid product: private workouts, routines and folders, the public projections derived from them, global leaderboards and replay indexes, and workout media in Storage.
+- Gate by operation, not by collection.
+  `isPaidOwner(userId)` / `hasPaidAppAccess()` guards create and update on the paid product, another climber's copy of a public projection, shared paid content like global leaderboards and replay indexes, and the object bytes of workout media in Storage.
+  The per-collection choke-point list lives in the doc named above; read it there rather than inferring it from a summary here.
 - Keep `isOwner(userId)` for deletes and for everything that has to work before purchase and after lapse - onboarding, auth, restore, account management, support and safety, identity publication, and account deletion.
+  That carve-out covers enumerating an owner's own data, not just deleting it.
+  Account deletion sweeps a collection by listing it and deleting what comes back, and Firestore evaluates a list rule against the query rather than against the stored documents, so a paid read gate refuses an unentitled owner's sweep even when the collection is empty.
+  Read on `users/{uid}/workouts`, `routines`, and `routine_folders` and `list` on the `users/{uid}` Storage media prefixes therefore match their owner-gated delete, while `profile_workouts` adds the owner to its paid read gate instead of replacing it.
+  Re-tightening any of those to `isPaidOwner` reintroduces a guideline 5.1.1(v) deletion blocker; `tests/firebase-rules/account-deletion-contract.test.mjs` is the suite that catches it.
   Paid enforcement must never trap a user's data or their exit.
 - `climb-images/` and the Hosting climb catalog deliberately stay open to any signed-in caller: the `firstClimb` onboarding stage runs before the paywall and renders that artwork.
 - `entitlements`, `entitlement_status`, and `entitlement_reconciliations` are `allow read, write: if false`.

@@ -9,10 +9,12 @@ import {
 import { collection, deleteDoc, doc, getDocs, setDoc } from 'firebase/firestore';
 import { seedActiveAppAccess } from './paid-access-fixture.mjs';
 
-// `clearFirestore()` wipes a whole project, and this suite deletes the accounts it
-// seeds, so it owns a project id no other suite reads. Files run serially today
-// (`--test-concurrency=1` in package.json); the isolation is what keeps that a
-// scheduling detail rather than a correctness dependency.
+// `clearFirestore()` wipes a whole project and this suite deletes the accounts it
+// seeds, so it owns a Firestore project id no other suite reads. That is data
+// isolation only - it buys no concurrency. The whole rules suite still has to run
+// one file at a time under `--test-concurrency=1`, because the Storage emulator
+// holds a single global ruleset; see `ascend-firebase-data` for why a parallel run
+// turns `assertFails` green for the wrong reason.
 const projectId = 'demo-ascendapp-rules-account-deletion';
 const firestoreRules = readFileSync(new URL('../../firestore.rules', import.meta.url), 'utf8');
 
