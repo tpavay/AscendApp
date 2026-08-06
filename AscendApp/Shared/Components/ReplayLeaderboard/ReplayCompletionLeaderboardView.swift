@@ -233,7 +233,7 @@ private struct ReplayCompletionLeaderboardRowView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 7) {
-                    Text(row.isCurrentUser ? "You" : row.identity.displayName)
+                    Text(row.identity.displayName)
                         .font(.montserratBold(size: 15))
                         .foregroundStyle(primaryColor)
                         .lineLimit(1)
@@ -417,8 +417,8 @@ private struct ReplayCompletionLeaderboardRowView: View {
                     .font(.system(size: 16, weight: .semibold))
                     .accessibilityHidden(true)
             } else {
-                Text(row.isCurrentUser ? "YOU" : row.identity.avatarToken)
-                    .font(.montserratBold(size: row.isCurrentUser ? 11 : 13))
+                Text(row.identity.avatarToken)
+                    .font(.montserratBold(size: 13))
             }
         }
             .foregroundStyle(row.isCurrentUser ? .black : .white)

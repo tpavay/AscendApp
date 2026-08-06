@@ -26,6 +26,7 @@ final class LeaderboardViewModel {
     private let demographicFilterFetchLimit = 1_000
     private(set) var visibleEntryLimit = 25
     private var currentUserId: String?
+    private var currentUserDisplayName: String?
     private var currentUserPhotoURL: URL?
     private var currentUserProfile: LeaderboardProfileSnapshot?
     private var rawLeaderboardStats: [FirestoreLeaderboardStats] = []
@@ -38,8 +39,9 @@ final class LeaderboardViewModel {
         self.service = service
     }
 
-    func configure(userId: String, modelContext: ModelContext) {
+    func configure(userId: String, displayName: String?, modelContext: ModelContext) {
         currentUserId = userId
+        currentUserDisplayName = displayName
         service.configure(modelContext: modelContext)
     }
 
@@ -302,19 +304,20 @@ final class LeaderboardViewModel {
         reapplyCurrentStats()
     }
 
-    func updateCurrentUserProfile(userId: String?, photoURL: URL?) {
+    func updateCurrentUserProfile(userId: String?, displayName: String?, photoURL: URL?) {
         guard let userId else { return }
+        currentUserDisplayName = displayName
         currentUserPhotoURL = photoURL
 
         if let index = leaderboardEntries.firstIndex(where: { $0.userId == userId }) {
             leaderboardEntries[index] = leaderboardEntries[index].withProfile(
-                displayName: "You",
+                displayName: displayName,
                 photoURL: photoURL
             )
         }
 
         if let entry = userStanding?.rankedEntry, entry.userId == userId {
-            userStanding = .ranked(entry.withProfile(displayName: "You", photoURL: photoURL))
+            userStanding = .ranked(entry.withProfile(displayName: displayName, photoURL: photoURL))
         }
     }
 
@@ -406,6 +409,7 @@ final class LeaderboardViewModel {
             stats,
             metric: selectedMetric,
             userId: userId,
+            displayName: currentUserDisplayName,
             localStats: localStats
         )
         return applyCurrentUserProfile(to: reconciled, userId: userId)

@@ -6,7 +6,10 @@ description: Use when working on Ascend profiles - own vs other-user profile sur
 # Profile
 
 ## Profile Demographics
-- Post-auth onboarding captures display name and declared demographics on `users/{uid}`. Gender must use the `ProfileGender` raw values: `woman`, `man`, `non_binary`, or `prefer_not_to_say`.
+- Post-auth onboarding captures separate required `firstName` and `lastName` fields plus declared demographics on `users/{uid}`.
+  Public identity composes both fields into `displayName` at the validated publication boundary.
+  A legacy record with only `displayName` remains untouched until the climber supplies both parts in Edit Profile - never split, infer, or backfill it.
+  Gender must use the `ProfileGender` raw values: `woman`, `man`, `non_binary`, or `prefer_not_to_say`.
 - **Age is derived, never stored fresh.**
   The stored field is `birth_date`, a private `YYYY-MM-DD` calendar string on `users/{uid}`, bounded so the derived age lands between 13 and 120.
   `ProfileBirthday` (`AscendApp/Shared/Models/`) parses it and computes age on device, and `functions/src/leaderboardStats.ts` derives the same number server-side for board demographics.
@@ -19,6 +22,8 @@ description: Use when working on Ascend profiles - own vs other-user profile sur
 - Custom display names and profile photos are public account identity only while App Review Guideline 1.2 moderation remains enforced.
   `PublicClimberIdentity` (`AscendApp/Shared/Models/`) resolves account-authored identity, a stable UID-derived fallback, synthetic fixture identity, and the deleted-account `Anonymous Climber` sentinel.
   Every cross-user view must pass that presentation through `ResolvedUserIdentity.Resolver`, which replaces only a blocked climber's name and photo while preserving rank, metrics, and demographics.
+  The signed-in climber is not an exception: their own row renders the same resolved name and derived initials as every other climber's, falling back to the same stable placeholder identity when the account has no name yet, and a `YOU` chip beside the name is the only marker of whose row it is.
+  Never substitute the literal string `You` for a name or `YOU` for an avatar token.
   Public profile, leaderboard, Live Replay, finisher, and First Ascent mirrors store validated identity, and the server propagation trigger keeps existing projections current.
   Production has no identity backfill to run: the propagation trigger and its indexes must be deployed before the binary that publishes identity. Rollout order: `docs/production-backend-rollout-runbook.md`.
   Dev and staging do hold pre-policy rows, and the only sanctioned repair writes the public profile mirror and lets that same trigger fan it out - never `leaderboard_stats` directly, which rules make server-owned outright. See `ascend-dev-fixtures`.

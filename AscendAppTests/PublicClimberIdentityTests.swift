@@ -100,7 +100,7 @@ struct PublicClimberIdentityTests {
     }
 
     @Test
-    func currentUserKeepsPrivatePhotoAndYouLabel() {
+    func currentUserKeepsPrivatePhotoAndStoredName() {
         let privatePhoto = URL(string: "https://example.com/private-profile.jpg")
         let identity = PublicClimberIdentity.resolve(
             userId: "user-123",
@@ -110,9 +110,9 @@ struct PublicClimberIdentityTests {
             currentUserPhotoURL: privatePhoto
         )
 
-        #expect(identity.displayName == "You")
+        #expect(identity.displayName == "Private Name")
         #expect(identity.photoURL == privatePhoto)
-        #expect(identity.avatarToken == "YOU")
+        #expect(identity.avatarToken == "PN")
         #expect(identity.usesGenericAvatar == false)
     }
 

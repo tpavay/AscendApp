@@ -374,7 +374,7 @@ final class HomeDashboardViewModel {
                 displayName: resolvedDisplayName,
                 photoURL: photoURLString
             ) ?? UnresolvedUserIdentity(
-                displayName: resolvedDisplayName ?? "You",
+                displayName: resolvedDisplayName ?? PublicClimberIdentity.systemHandle(for: userId),
                 photoURL: photoURLString.flatMap(URL.init(string:))
             )
             return FirestoreLeaderboardStats(

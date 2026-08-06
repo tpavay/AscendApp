@@ -171,6 +171,10 @@ final class LiveClimbSessionViewModel {
     private let backgroundSessionService: LiveClimbBackgroundSessionService
     private let draftStore: ActiveHeadphoneWorkoutDraftStore
     private let heartRateRecorder: LiveHeartRateRecorder
+    /// Read once per session. `leaderboardRows` is rebuilt on every step and
+    /// elapsed tick, so the climber's name cannot be resolved from the cache
+    /// inside it.
+    private let currentUserDisplayName = UserDataRepository.shared.getCachedDisplayName()
 
     private(set) var phase: LiveClimbSessionPhase = .idle
     private(set) var recordedResult: HeadphoneMotionSessionResult?
@@ -348,14 +352,16 @@ final class LiveClimbSessionViewModel {
             return [
                 LiveReplayLeaderboardRow.currentUser(
                     rank: nil,
-                    steps: totalRecordedSteps
+                    steps: totalRecordedSteps,
+                    displayName: currentUserDisplayName
                 )
             ]
         }
 
         return leaderboardWindow.locallyRankedRows(
             currentSteps: totalRecordedSteps,
-            currentElapsedSeconds: Int(displayedDuration.rounded(.down))
+            currentElapsedSeconds: Int(displayedDuration.rounded(.down)),
+            displayName: currentUserDisplayName
         )
     }
 

@@ -71,6 +71,17 @@ struct UnresolvedUserIdentity:
         )
     }
 
+    /// Unlike `applyingOverrides`, a nil photo here clears the photo: removing
+    /// one is an edit the climber can make, so it must survive the round trip.
+    func replacingPhotoURL(_ photoURL: URL?) -> UnresolvedUserIdentity {
+        UnresolvedUserIdentity(
+            displayName: displayName,
+            photoURL: photoURL,
+            avatarToken: avatarToken,
+            isSynthetic: isSynthetic
+        )
+    }
+
     fileprivate func publicationFields() throws -> (
         displayName: String,
         photoURL: URL?

@@ -102,7 +102,7 @@ struct LeaderboardViewModelTests {
         let stats = [
             makeRemoteStat(userId: "aaa", displayName: "Leader", totalSteps: 9_000),
             makeRemoteStat(userId: "mmm", displayName: "Rival", totalSteps: 5_000),
-            makeRemoteStat(userId: "zzz", displayName: "You", totalSteps: 5_000)
+            makeRemoteStat(userId: "zzz", displayName: "Maya Chen", totalSteps: 5_000)
         ]
         await cache.setDetailEntries(stats, for: .climb, timeFrame: .weekly)
 
@@ -127,13 +127,14 @@ struct LeaderboardViewModelTests {
         let stats = [
             makeRemoteStat(userId: "aaa", displayName: "Leader", totalSteps: 9_000),
             makeRemoteStat(userId: "mmm", displayName: "Rival", totalSteps: 5_000),
-            makeRemoteStat(userId: "zzz", displayName: "You", totalSteps: 5_000)
+            makeRemoteStat(userId: "zzz", displayName: "Maya Chen", totalSteps: 5_000)
         ]
         await cache.setDetailEntries(stats, for: .climb, timeFrame: .weekly)
 
         await viewModel.loadLeaderboard(userId: "zzz")
         viewModel.updateCurrentUserProfile(
             userId: "zzz",
+            displayName: "Maya Chen",
             photoURL: URL(string: "https://example.com/avatar.jpg")
         )
 
@@ -152,7 +153,7 @@ struct LeaderboardViewModelTests {
                 isBlockListHydrated: true
             )
         }
-        #expect(moderatedListEntry?.identity.displayName == "You")
+        #expect(moderatedListEntry?.identity.displayName == "Maya Chen")
         #expect(
             moderatedListEntry?.identity.photoURL ==
                 URL(string: "https://example.com/avatar.jpg")
@@ -162,12 +163,12 @@ struct LeaderboardViewModelTests {
         #expect(listEntry?.isCurrentUser == true)
         #expect(viewModel.userStanding?.rankedEntry?.rank == listEntry?.rank)
         #expect(viewModel.userStanding?.rankedEntry?.isTied == listEntry?.isTied)
-        #expect(moderatedUserEntry?.identity.displayName == "You")
+        #expect(moderatedUserEntry?.identity.displayName == "Maya Chen")
     }
 
     @Test
     func profileSyncLeavesTheSessionCachePopulated() async {
-        // Cached remote stats carry published public identity; "You" and the private
+        // Cached remote stats carry published public identity; the current name and private
         // photo are resolved at build time, so a profile sync must not force a refetch.
         let cache = LeaderboardSessionCache()
 
@@ -181,6 +182,7 @@ struct LeaderboardViewModelTests {
         await viewModel.loadLeaderboard(userId: "zzz")
         viewModel.updateCurrentUserProfile(
             userId: "zzz",
+            displayName: "Maya Chen",
             photoURL: URL(string: "https://example.com/avatar.jpg")
         )
         await Task.yield()
@@ -250,7 +252,11 @@ struct LeaderboardViewModelTests {
         let viewModel = LeaderboardViewModel(sessionCache: cache, service: service)
         viewModel.selectedMetric = .climb
         viewModel.selectedTimeFrame = .weekly
-        viewModel.configure(userId: userId, modelContext: modelContext)
+        viewModel.configure(
+            userId: userId,
+            displayName: "Maya Chen",
+            modelContext: modelContext
+        )
 
         // No workouts at all: every current period rebuilds to zero.
         try service.rebuildCurrentStats(for: userId, workouts: [])
@@ -281,7 +287,11 @@ struct LeaderboardViewModelTests {
         let viewModel = LeaderboardViewModel(sessionCache: cache, service: service)
         viewModel.selectedMetric = .climb
         viewModel.selectedTimeFrame = .weekly
-        viewModel.configure(userId: userId, modelContext: modelContext)
+        viewModel.configure(
+            userId: userId,
+            displayName: "Maya Chen",
+            modelContext: modelContext
+        )
 
         let now = Date()
         let workout = Workout(
