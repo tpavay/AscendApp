@@ -74,6 +74,62 @@ struct PushDeviceSyncQueueTests {
         #expect(work.finishCount == 1)
     }
 
+    @Test("A refresh arriving during a mutation takes its own reading afterwards")
+    func aRefreshNeverStandsInForAMutationSync() async {
+        let queue = PushDeviceSyncQueue()
+        let mutation = GatedSyncWork()
+        let refresh = GatedSyncWork()
+
+        queue.enqueue { await mutation.run() }
+        await settle()
+
+        let refreshing = Task { await queue.coalesce { await refresh.run() } }
+        await settle()
+
+        // The mutation carries the status captured when the climber answered, so the refresh
+        // waits its turn rather than joining it and inheriting that reading.
+        #expect(mutation.startCount == 1)
+        #expect(refresh.startCount == 0)
+
+        mutation.releaseAll()
+        await settle()
+
+        #expect(refresh.startCount == 1)
+        #expect(refresh.overlapped == false)
+
+        refresh.releaseAll()
+        await refreshing.value
+
+        #expect(refresh.finishCount == 1)
+    }
+
+    @Test("Refreshes waiting behind a mutation still coalesce with each other")
+    func refreshesQueuedBehindAMutationJoinOneRun() async {
+        let queue = PushDeviceSyncQueue()
+        let mutation = GatedSyncWork()
+        let refresh = GatedSyncWork()
+
+        queue.enqueue { await mutation.run() }
+        await settle()
+
+        let first = Task { await queue.coalesce { await refresh.run() } }
+        await settle()
+        let second = Task { await queue.coalesce { await refresh.run() } }
+        await settle()
+
+        mutation.releaseAll()
+        await settle()
+
+        #expect(refresh.startCount == 1)
+
+        refresh.releaseAll()
+        await first.value
+        await second.value
+
+        #expect(refresh.startCount == 1)
+        #expect(refresh.finishCount == 1)
+    }
+
     @Test("A sync queued while one is running still runs after it")
     func aQueuedSyncFollowsACoalescedOne() async {
         let queue = PushDeviceSyncQueue()
