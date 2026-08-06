@@ -10,8 +10,24 @@ struct PrestigeSection: View {
     let achievementRecords: [ProfileAchievementRecord]
     let mode: ProfileViewMode
 
-    @State private var isHandlingNotifications = false
+    @State private var notificationState: ClimbDropNotificationState
     @State private var selectedAchievementBand: ProfileAchievementRankBand?
+
+    init(
+        held: [ProfileFirstAscentSummary],
+        open: [ProfileFirstAscentSummary],
+        achievements: ProfileAchievementCounts,
+        achievementRecords: [ProfileAchievementRecord],
+        mode: ProfileViewMode,
+        notificationState: ClimbDropNotificationState = .shared
+    ) {
+        self.held = held
+        self.open = open
+        self.achievements = achievements
+        self.achievementRecords = achievementRecords
+        self.mode = mode
+        _notificationState = State(initialValue: notificationState)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -48,6 +64,10 @@ struct PrestigeSection: View {
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
+        }
+        .task {
+            guard mode == .own else { return }
+            await notificationState.refreshIfNeeded()
         }
     }
 
@@ -167,13 +187,13 @@ struct PrestigeSection: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if mode == .own {
+            if mode == .own, notificationState.shouldPromptForEnablement {
                 Button("Turn on notifications") {
                     handleNotificationsTap()
                 }
                 .buttonStyle(ProfileActionButtonStyle())
-                .disabled(isHandlingNotifications)
-                .opacity(isHandlingNotifications ? 0.72 : 1)
+                .disabled(notificationState.isUpdating)
+                .opacity(notificationState.isUpdating ? 0.72 : 1)
             }
         }
     }
@@ -182,16 +202,17 @@ struct PrestigeSection: View {
         if open.isEmpty {
             return "No badges yet. Top a leaderboard or claim a First Ascent and your case starts filling."
         }
+
+        guard mode == .own, notificationState.shouldPromptForEnablement else {
+            return "\(open.count) First Ascents still open. Be first up when the next climb drops."
+        }
+
         return "\(open.count) First Ascents still open. Turn on notifications and be first up when the next climb drops."
     }
 
     private func handleNotificationsTap() {
-        guard !isHandlingNotifications else { return }
-        isHandlingNotifications = true
-
         Task {
-            await ClimbDropNotificationPermissionController.enable()
-            isHandlingNotifications = false
+            await notificationState.enable()
         }
     }
 }

@@ -171,3 +171,87 @@ test("unregistering deactivates the caller's token and mirror", async () => {
   );
   assert.deepEqual(created, []);
 });
+
+test("a denied device leaves the climb-drop audience without losing intent", () => {
+  const registrations = [
+    {
+      data: {
+        authorizationStatus: "authorized",
+        climbDropPushEnabled: true,
+        fcmToken: "token-allowed",
+      },
+      tokenHash: "hash-allowed",
+    },
+    {
+      data: {
+        authorizationStatus: "denied",
+        climbDropPushEnabled: true,
+        fcmToken: "token-denied",
+      },
+      tokenHash: "hash-denied",
+    },
+    {
+      data: {
+        authorizationStatus: "not_determined",
+        climbDropPushEnabled: true,
+        fcmToken: "token-unasked",
+      },
+      tokenHash: "hash-unasked",
+    },
+  ];
+
+  const devices =
+    pushNotificationTestHooks.selectDeliverableClimbDropDevices(registrations);
+
+  // The denial costs delivery, never the stored preference.
+  assert.deepEqual(devices, [
+    {fcmToken: "token-allowed", tokenHash: "hash-allowed"},
+  ]);
+  assert.equal(registrations[1].data.climbDropPushEnabled, true);
+});
+
+test("a device rejoins the audience when authorization returns", () => {
+  const registration = {
+    data: {
+      authorizationStatus: "denied",
+      climbDropPushEnabled: true,
+      fcmToken: "token-1",
+    },
+    tokenHash: "hash-1",
+  };
+
+  assert.deepEqual(
+    pushNotificationTestHooks.selectDeliverableClimbDropDevices([registration]),
+    []
+  );
+
+  registration.data.authorizationStatus = "authorized";
+
+  assert.deepEqual(
+    pushNotificationTestHooks.selectDeliverableClimbDropDevices([registration]),
+    [{fcmToken: "token-1", tokenHash: "hash-1"}]
+  );
+});
+
+test("quiet authorizations still count as deliverable", () => {
+  const devices = pushNotificationTestHooks.selectDeliverableClimbDropDevices([
+    {
+      data: {
+        authorizationStatus: "provisional",
+        climbDropPushEnabled: true,
+        fcmToken: "token-provisional",
+      },
+      tokenHash: "hash-provisional",
+    },
+    {
+      data: {
+        authorizationStatus: "ephemeral",
+        climbDropPushEnabled: true,
+        fcmToken: "token-ephemeral",
+      },
+      tokenHash: "hash-ephemeral",
+    },
+  ]);
+
+  assert.equal(devices.length, 2);
+});
