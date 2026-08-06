@@ -527,49 +527,6 @@ extension AuthenticationViewModel {
     }
     
     @discardableResult
-    func updateDisplayName(_ newDisplayName: String) async -> Bool {
-        errorMessage = nil
-        
-        guard let user = user else {
-            errorMessage = "User not authenticated"
-            return false
-        }
-        
-        let previousDisplayName = displayName
-
-        do {
-            let validatedDisplayName = try DisplayNamePolicy.validated(
-                newDisplayName
-            )
-
-            // Update local state immediately for responsive UI
-            displayName = validatedDisplayName
-
-            try await authenticationService.updateUserDisplayName(
-                displayName: validatedDisplayName
-            )
-            
-            // Save to Firestore user document
-            try await UserDataRepository.shared.updateDisplayName(
-                userId: user.uid,
-                email: user.email,
-                displayName: validatedDisplayName
-            )
-            hasRemoteDisplayName = true
-
-            return true
-            
-        } catch {
-            displayName = previousDisplayName
-            errorMessage = profileUpdateFailureMessage(
-                error,
-                fallback: "Failed to update display name"
-            )
-            return false
-        }
-    }
-
-    @discardableResult
     func updateProfileName(firstName: String, lastName: String) async -> Bool {
         errorMessage = nil
 

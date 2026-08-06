@@ -361,18 +361,6 @@ final class UserDataRepository: Sendable {
         return getCachedProfilePictureURL()
     }
     
-    func updateDisplayName(userId: String, email: String? = nil, displayName: String) async throws {
-        let displayName = try DisplayNamePolicy.validated(displayName)
-        try await updateUserAndPublicProfile(
-            userId: userId,
-            email: email,
-            userFields: ["displayName": displayName],
-            alwaysPublish: true
-        )
-
-        cacheDisplayName(displayName)
-    }
-
     func updateProfileName(
         userId: String,
         email: String? = nil,
