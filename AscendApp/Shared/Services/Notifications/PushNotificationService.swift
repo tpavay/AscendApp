@@ -12,7 +12,7 @@ final class PushNotificationService: NSObject, MessagingDelegate {
     private let functions = Functions.functions(region: "us-central1")
     private var isConfigured = false
     private var lastRegisteredToken: String?
-    private var inFlightSyncTask: Task<Void, Never>?
+    private let deviceSyncQueue = PushDeviceSyncQueue()
 
     private override init() {
         super.init()
@@ -48,8 +48,8 @@ final class PushNotificationService: NSObject, MessagingDelegate {
             recordIntent: { ClimbDropNotificationPreferenceStore.isEnabled = $0 },
             openSystemNotificationSettings: { self.openSystemNotificationSettings() },
             synchronizeInBackground: { status in
-                Task {
-                    await self.synchronizePreferenceAndDevice(authorizationStatus: status)
+                self.deviceSyncQueue.enqueue { [self] in
+                    await synchronizePreferenceAndDevice(authorizationStatus: status)
                 }
             }
         )
@@ -61,7 +61,9 @@ final class PushNotificationService: NSObject, MessagingDelegate {
     func disableClimbDropNotifications() async -> UNAuthorizationStatus {
         ClimbDropNotificationPreferenceStore.isEnabled = false
         let status = await authorizationStatus()
-        await synchronizePreferenceAndDevice(authorizationStatus: status)
+        await deviceSyncQueue.enqueue { [self] in
+            await synchronizePreferenceAndDevice(authorizationStatus: status)
+        }.value
         return status
     }
 
@@ -69,24 +71,17 @@ final class PushNotificationService: NSObject, MessagingDelegate {
         guard Auth.auth().currentUser != nil else { return }
 
         // Launch fires this from several hooks at once (root task, APNS
-        // callback, FCM token refresh). Concurrent registerPushDevice calls
-        // contend on the same Firestore documents server-side, so overlapping
-        // requests join the in-flight sync instead of starting another.
-        if let inFlightSyncTask {
-            await inFlightSyncTask.value
-            return
-        }
-
+        // callback, FCM token refresh), and every foreground fires it again -
+        // which is also what carries a mutation's sync when the app was
+        // suspended before it landed.
+        //
         // The stored preference is what the climber asked for; the authorization status is
         // whether iOS will currently deliver it. Both travel to the backend as they stand -
         // a denial reports itself and never rewrites the answer it was refusing.
-        let syncTask = Task {
+        await deviceSyncQueue.coalesce { [self] in
             let status = await authorizationStatus()
             await synchronizePreferenceAndDevice(authorizationStatus: status)
         }
-        inFlightSyncTask = syncTask
-        await syncTask.value
-        inFlightSyncTask = nil
     }
 
     func unregisterCurrentDevice() async {
