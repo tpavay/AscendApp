@@ -5,8 +5,12 @@ export const BUILD_UPLOAD_STATES = new Set([
   "COMPLETE",
 ]);
 
+export function readBuildUploadState(upload) {
+  return upload?.attributes?.state?.state;
+}
+
 export function buildUploadState(upload) {
-  const state = upload?.attributes?.state?.state;
+  const state = readBuildUploadState(upload);
   if (!BUILD_UPLOAD_STATES.has(state)) {
     throw new Error(
       `App Store Connect returned unknown build upload state '${state ?? "(missing)"}'.`,
@@ -27,7 +31,10 @@ export function buildUploadFailureSummary(upload) {
 
 // Apple explicitly permits reusing the build number of a failed upload.
 // Every other state is an active or completed reservation that a later
-// allocator must not collide with.
+// allocator must not collide with. An unknown or missing state is read as a
+// reservation rather than a fault: the allocator sweeps the whole upload
+// history, so one record Apple starts reporting differently would otherwise
+// block every deploy for the app instead of costing a single build number.
 export function buildUploadReservesNumber(upload) {
-  return buildUploadState(upload) !== "FAILED";
+  return readBuildUploadState(upload) !== "FAILED";
 }

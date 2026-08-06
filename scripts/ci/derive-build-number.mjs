@@ -8,6 +8,7 @@ import {
   assertAppOwnsBundleId,
   makeAppStoreConnectToken,
   readAppStoreConnectCredentials,
+  requestUnderContract,
 } from "../lib/app-store-connect-client.mjs";
 
 export const MAX_BUILD_NUMBER = 4_294_967_295;
@@ -92,63 +93,88 @@ export function deriveReadableBuildNumber(dateStamp, highestUploadedBuildNumber)
   return Number(candidate);
 }
 
+async function collectVersions({
+  token,
+  request,
+  appId,
+  firstPage,
+  readVersion,
+  label,
+  contract,
+  reservesNumber = () => true,
+}) {
+  const versions = [];
+  let next = firstPage;
+
+  for (let page = 0; next && page < MAX_PAGES; page += 1) {
+    const result = await requestUnderContract(token, next, request, contract);
+    if (!Array.isArray(result?.data)) {
+      throw new Error(
+        `APP_STORE_CONTRACT_UNEXPECTED_SHAPE: The App Store Connect ${label} listing for app ` +
+          `${appId} returned no 'data' array. Refusing to allocate against an unread listing.`,
+      );
+    }
+
+    for (const record of result.data) {
+      if (!reservesNumber(record)) continue;
+
+      const version = readVersion(record);
+      if (!BUILD_NUMBER_PATTERN.test(String(version))) {
+        throw new Error(
+          `App Store Connect app ${appId} has non-numeric ${label} number '${version}'. ` +
+            "Refusing to guess its ordering.",
+        );
+      }
+      versions.push(BigInt(version));
+    }
+    next = result?.links?.next ?? null;
+  }
+
+  if (next) {
+    throw new Error(`App Store Connect ${label} listing exceeded ${MAX_PAGES} pages.`);
+  }
+
+  return versions;
+}
+
 export async function fetchHighestUploadedBuildNumber(
   {token, appId, expectedBundleId},
   request = appStoreConnectRequest,
 ) {
   await assertAppOwnsBundleId({token, appId, expectedBundleId}, request);
 
-  const versions = [];
-  let next =
-    `/builds?filter%5Bapp%5D=${appId}&fields%5Bbuilds%5D=version&limit=${PAGE_LIMIT}`;
-
-  for (let page = 0; next && page < MAX_PAGES; page += 1) {
-    const result = await request(token, next);
-    for (const build of result?.data ?? []) {
-      const version = build?.attributes?.version;
-      if (!BUILD_NUMBER_PATTERN.test(String(version))) {
-        throw new Error(
-          `App Store Connect app ${appId} has non-numeric build number '${version}'. ` +
-            "Refusing to guess its ordering.",
-        );
-      }
-      versions.push(BigInt(version));
-    }
-    next = result?.links?.next ?? null;
-  }
-
-  if (next) {
-    throw new Error(`App Store Connect build listing exceeded ${MAX_PAGES} pages.`);
-  }
+  const versions = await collectVersions({
+    token,
+    request,
+    appId,
+    firstPage: `/builds?filter%5Bapp%5D=${appId}&fields%5Bbuilds%5D=version&limit=${PAGE_LIMIT}`,
+    readVersion: (build) => build?.attributes?.version,
+    label: "build",
+    contract:
+      "GET /v1/builds accepts filter[app], fields[builds]=version and " +
+      `limit=${PAGE_LIMIT}`,
+  });
 
   // `/v1/builds` contains only processed binaries. The upload ledger exists
   // earlier and is the authoritative reservation while Apple is still
   // processing a Transporter upload. Counting both prevents a queued run from
   // reusing a number that has uploaded successfully but is not a Build yet.
-  next =
-    `/apps/${appId}/buildUploads?fields%5BbuildUploads%5D=` +
-    `cfBundleVersion,state&limit=${PAGE_LIMIT}`;
-
-  for (let page = 0; next && page < MAX_PAGES; page += 1) {
-    const result = await request(token, next);
-    for (const upload of result?.data ?? []) {
-      if (!buildUploadReservesNumber(upload)) continue;
-
-      const version = upload?.attributes?.cfBundleVersion;
-      if (!BUILD_NUMBER_PATTERN.test(String(version))) {
-        throw new Error(
-          `App Store Connect app ${appId} has non-numeric build upload number '${version}'. ` +
-            "Refusing to guess its ordering.",
-        );
-      }
-      versions.push(BigInt(version));
-    }
-    next = result?.links?.next ?? null;
-  }
-
-  if (next) {
-    throw new Error(`App Store Connect build upload listing exceeded ${MAX_PAGES} pages.`);
-  }
+  versions.push(
+    ...(await collectVersions({
+      token,
+      request,
+      appId,
+      firstPage:
+        `/apps/${appId}/buildUploads?fields%5BbuildUploads%5D=` +
+        `cfBundleVersion,state&limit=${PAGE_LIMIT}`,
+      reservesNumber: buildUploadReservesNumber,
+      readVersion: (upload) => upload?.attributes?.cfBundleVersion,
+      label: "build upload",
+      contract:
+        "GET /v1/apps/{id}/buildUploads accepts fields[buildUploads]=cfBundleVersion,state " +
+        `and limit=${PAGE_LIMIT}`,
+    })),
+  );
 
   if (versions.length === 0) return null;
   return versions.reduce((highest, version) => version > highest ? version : highest).toString();

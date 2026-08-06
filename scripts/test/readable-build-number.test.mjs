@@ -149,6 +149,76 @@ test("the allocator refuses an App Store app and bundle mismatch", async () => {
   );
 });
 
+// The allocator sweeps the whole upload history, so one record Apple starts
+// reporting differently must cost a build number, never every future deploy.
+test("an unknown or missing upload state still reserves its build number", async () => {
+  const responses = [
+    {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}},
+    {data: [{attributes: {version: "2026080301"}}], links: {next: null}},
+    {
+      data: [
+        {attributes: {cfBundleVersion: "2026080304", state: {state: "QUARANTINED"}}},
+        {attributes: {cfBundleVersion: "2026080303"}},
+        {attributes: {cfBundleVersion: "2026080399", state: {state: "FAILED"}}},
+      ],
+      links: {next: null},
+    },
+  ];
+
+  const highest = await fetchHighestUploadedBuildNumber(
+    {
+      token: "redacted-test-token",
+      appId: "6759919365",
+      expectedBundleId: "com.TylerPavay.AscendApp.staging",
+    },
+    async () => responses.shift(),
+  );
+
+  assert.equal(highest, "2026080304");
+});
+
+test("a deterministic allocator rejection names the assumption that broke", async () => {
+  const responses = [{data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}}];
+
+  await assert.rejects(
+    fetchHighestUploadedBuildNumber(
+      {
+        token: "redacted-test-token",
+        appId: "6759919365",
+        expectedBundleId: "com.TylerPavay.AscendApp.staging",
+      },
+      async () => {
+        const queued = responses.shift();
+        if (queued) return queued;
+
+        const error = new Error("App Store Connect GET /v1/builds failed (400): Parameter error");
+        error.status = 400;
+        throw error;
+      },
+    ),
+    /APP_STORE_CONTRACT_REJECTED:.*fields\[builds\]=version/s,
+  );
+});
+
+test("an allocator listing without a data array refuses to allocate", async () => {
+  const responses = [
+    {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}},
+    {links: {next: null}},
+  ];
+
+  await assert.rejects(
+    fetchHighestUploadedBuildNumber(
+      {
+        token: "redacted-test-token",
+        appId: "6759919365",
+        expectedBundleId: "com.TylerPavay.AscendApp.staging",
+      },
+      async () => responses.shift(),
+    ),
+    /APP_STORE_CONTRACT_UNEXPECTED_SHAPE.*build listing/s,
+  );
+});
+
 test("the allocator refuses non-numeric remote build numbers", async () => {
   const responses = [
     {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}},
@@ -297,14 +367,45 @@ test("the upload holds the concurrency group until the exact upload is recorded"
   assert.match(paths[1], /filter%5BcfBundleVersion%5D=2026080301/);
 });
 
+const ipaVerifier = join(repositoryRoot, "scripts/ci/verify-ipa-build-number.sh");
+
+// The verifier decides whether a deploy uploads at all, so its argument
+// handling is asserted on every runner. Only the CFBundleVersion extraction
+// needs macOS, and that half lives in the test below.
+test("the IPA verifier refuses a missing, non-numeric, or unreadable handoff", () => {
+  const root = mkdtempSync(join(tmpdir(), "ascend ipa handoff "));
+  const absentIpa = join(root, "AscendApp.ipa");
+
+  const missing = spawnSync(ipaVerifier, [absentIpa, ""], {encoding: "utf8"});
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /BUILD_NUMBER_HANDOFF_MISSING/);
+  assert.equal(missing.stdout, "");
+
+  const noArguments = spawnSync(ipaVerifier, [], {encoding: "utf8"});
+  assert.notEqual(noArguments.status, 0);
+  assert.match(noArguments.stderr, /BUILD_NUMBER_HANDOFF_MISSING/);
+
+  for (const invalid of ["1.2.3", "2026080601a", " 2026080601"]) {
+    const rejected = spawnSync(ipaVerifier, [absentIpa, invalid], {encoding: "utf8"});
+    assert.notEqual(rejected.status, 0, invalid);
+    assert.match(rejected.stderr, /BUILD_NUMBER_HANDOFF_INVALID/, invalid);
+    assert.equal(rejected.stdout, "", invalid);
+  }
+
+  // A valid number against an IPA that never arrived must name the artifact
+  // problem, not the handoff.
+  const unavailable = spawnSync(ipaVerifier, [absentIpa, "2026080601"], {encoding: "utf8"});
+  assert.notEqual(unavailable.status, 0);
+  assert.match(unavailable.stderr, /IPA_BUILD_NUMBER_UNAVAILABLE/);
+});
+
 test(
-  "the IPA verifier rejects a missing or mismatched handoff and returns the embedded value",
+  "the IPA verifier rejects a mismatched handoff and returns the embedded value",
   {skip: process.platform !== "darwin"},
   () => {
     const root = mkdtempSync(join(tmpdir(), "ascend ipa build number "));
     const appDirectory = join(root, "Payload", "AscendApp.app");
     const ipaPath = join(root, "AscendApp.ipa");
-    const verifier = join(repositoryRoot, "scripts/ci/verify-ipa-build-number.sh");
     mkdirSync(appDirectory, {recursive: true});
     writeFileSync(
       join(appDirectory, "Info.plist"),
@@ -323,15 +424,15 @@ test(
     });
     assert.equal(zipped.status, 0, zipped.stderr);
 
-    const missing = spawnSync(verifier, [ipaPath, ""], {encoding: "utf8"});
+    const missing = spawnSync(ipaVerifier, [ipaPath, ""], {encoding: "utf8"});
     assert.notEqual(missing.status, 0);
     assert.match(missing.stderr, /BUILD_NUMBER_HANDOFF_MISSING/);
 
-    const mismatch = spawnSync(verifier, [ipaPath, "2026080601"], {encoding: "utf8"});
+    const mismatch = spawnSync(ipaVerifier, [ipaPath, "2026080601"], {encoding: "utf8"});
     assert.notEqual(mismatch.status, 0);
     assert.match(mismatch.stderr, /BUILD_NUMBER_HANDOFF_MISMATCH/);
 
-    const verified = spawnSync(verifier, [ipaPath, "2026080602"], {encoding: "utf8"});
+    const verified = spawnSync(ipaVerifier, [ipaPath, "2026080602"], {encoding: "utf8"});
     assert.equal(verified.status, 0, verified.stderr);
     assert.equal(verified.stdout, "2026080602\n");
   },
@@ -568,6 +669,221 @@ test("a deterministic upload-ledger rejection is fatal rather than retried", asy
   );
 
   assert.equal(ledgerRequests, 1);
+  assert.deepEqual(clock.slept, []);
+});
+
+// Apple reuses a number after a FAILED upload and the query declares no
+// ordering, so the record that answers must be the one that names this build.
+test("a reused build number resolves on the live record, not the failed one", async () => {
+  const clock = testClock();
+
+  const outcome = await awaitBuildUploadRecorded(
+    {
+      appId: "6759919365",
+      expectedBundleId: "com.TylerPavay.AscendApp.staging",
+      buildNumber: "2026080301",
+      timeoutSeconds: 900,
+      pollIntervalSeconds: 15,
+    },
+    {
+      makeToken: () => "redacted-test-token",
+      request: async (token, path) => {
+        if (isAppOwnershipRequest(path)) {
+          return {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}};
+        }
+        return {
+          data: [
+            {
+              attributes: {
+                cfBundleVersion: "2026080301",
+                state: {state: "FAILED", errors: [{message: "Invalid binary"}]},
+              },
+            },
+            {
+              attributes: {
+                cfBundleVersion: "2026080301",
+                state: {state: "PROCESSING"},
+              },
+            },
+          ],
+        };
+      },
+      sleep: clock.sleep,
+      now: clock.now,
+      report: () => {},
+    },
+  );
+
+  assert.deepEqual(outcome, {attempt: 1, state: "PROCESSING"});
+  assert.deepEqual(clock.slept, []);
+});
+
+test("the wait does not poll without a limit clamped to one record", async () => {
+  const paths = [];
+  const clock = testClock();
+
+  await assert.rejects(
+    awaitBuildUploadRecorded(
+      {
+        appId: "6759919365",
+        expectedBundleId: "com.TylerPavay.AscendApp.staging",
+        buildNumber: "2026080301",
+        timeoutSeconds: 15,
+        pollIntervalSeconds: 15,
+      },
+      {
+        makeToken: () => "redacted-test-token",
+        request: async (token, path) => {
+          paths.push(path);
+          if (isAppOwnershipRequest(path)) {
+            return {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}};
+          }
+          return {data: []};
+        },
+        sleep: clock.sleep,
+        now: clock.now,
+        report: () => {},
+      },
+    ),
+    /APP_STORE_UPLOAD_RECORD_TIMEOUT/,
+  );
+
+  assert.match(paths[1], /limit=200/);
+  assert.doesNotMatch(paths[1], /limit=1(?!\d)/);
+});
+
+test("an ignored cfBundleVersion filter is a fatal contract break, not a wait", async () => {
+  const clock = testClock();
+  let ledgerRequests = 0;
+
+  await assert.rejects(
+    awaitBuildUploadRecorded(
+      {
+        appId: "6759919365",
+        expectedBundleId: "com.TylerPavay.AscendApp.staging",
+        buildNumber: "2026080301",
+        timeoutSeconds: 900,
+        pollIntervalSeconds: 15,
+      },
+      {
+        makeToken: () => "redacted-test-token",
+        request: async (token, path) => {
+          if (isAppOwnershipRequest(path)) {
+            return {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}};
+          }
+          ledgerRequests += 1;
+          return {
+            data: [
+              {attributes: {cfBundleVersion: "2026080299", state: {state: "COMPLETE"}}},
+            ],
+          };
+        },
+        sleep: clock.sleep,
+        now: clock.now,
+        report: () => {},
+      },
+    ),
+    /APP_STORE_CONTRACT_FILTER_IGNORED:.*filter\[cfBundleVersion\]/s,
+  );
+
+  assert.equal(ledgerRequests, 1);
+  assert.deepEqual(clock.slept, []);
+});
+
+test("an upload-ledger response without a data array is a fatal contract break", async () => {
+  const clock = testClock();
+
+  await assert.rejects(
+    awaitBuildUploadRecorded(
+      {
+        appId: "6759919365",
+        expectedBundleId: "com.TylerPavay.AscendApp.staging",
+        buildNumber: "2026080301",
+        timeoutSeconds: 900,
+        pollIntervalSeconds: 15,
+      },
+      {
+        makeToken: () => "redacted-test-token",
+        request: async (token, path) => {
+          if (isAppOwnershipRequest(path)) {
+            return {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}};
+          }
+          return {data: {attributes: {cfBundleVersion: "2026080301"}}};
+        },
+        sleep: clock.sleep,
+        now: clock.now,
+        report: () => {},
+      },
+    ),
+    /APP_STORE_CONTRACT_UNEXPECTED_SHAPE/,
+  );
+
+  assert.deepEqual(clock.slept, []);
+});
+
+test("an unknown state on the exact upload stops the wait", async () => {
+  const clock = testClock();
+
+  await assert.rejects(
+    awaitBuildUploadRecorded(
+      {
+        appId: "6759919365",
+        expectedBundleId: "com.TylerPavay.AscendApp.staging",
+        buildNumber: "2026080301",
+        timeoutSeconds: 900,
+        pollIntervalSeconds: 15,
+      },
+      {
+        makeToken: () => "redacted-test-token",
+        request: async (token, path) => {
+          if (isAppOwnershipRequest(path)) {
+            return {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}};
+          }
+          return {
+            data: [
+              {attributes: {cfBundleVersion: "2026080301", state: {state: "QUARANTINED"}}},
+            ],
+          };
+        },
+        sleep: clock.sleep,
+        now: clock.now,
+        report: () => {},
+      },
+    ),
+    /unknown build upload state 'QUARANTINED'/,
+  );
+
+  assert.deepEqual(clock.slept, []);
+});
+
+test("a deterministic ledger rejection names the assumption that broke", async () => {
+  const clock = testClock();
+
+  await assert.rejects(
+    awaitBuildUploadRecorded(
+      {
+        appId: "6759919365",
+        expectedBundleId: "com.TylerPavay.AscendApp.staging",
+        buildNumber: "2026080301",
+      },
+      {
+        makeToken: () => "redacted-test-token",
+        request: async (token, path) => {
+          if (isAppOwnershipRequest(path)) {
+            return {data: {attributes: {bundleId: "com.TylerPavay.AscendApp.staging"}}};
+          }
+          const error = new Error("App Store Connect GET /v1/apps/6759919365/buildUploads failed (400): Parameter error");
+          error.status = 400;
+          throw error;
+        },
+        sleep: clock.sleep,
+        now: clock.now,
+        report: () => {},
+      },
+    ),
+    /APP_STORE_CONTRACT_REJECTED:.*filter\[cfBundleVersion\]/s,
+  );
+
   assert.deepEqual(clock.slept, []);
 });
 

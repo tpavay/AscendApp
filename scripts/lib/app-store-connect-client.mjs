@@ -102,6 +102,35 @@ export async function appStoreConnectRequest(
 }
 
 /**
+ * A rate limit or a server-side outage says nothing about the request; every
+ * other status says Apple understood it and refused it, and no amount of
+ * retrying changes that answer.
+ */
+export function isTransientAppStoreConnectFailure(error) {
+  return error?.status === undefined || error.status === 429 || error.status >= 500;
+}
+
+/**
+ * Deterministic refusals are how an unsupported filter, a rejected query
+ * parameter, or a withdrawn relationship surfaces, and the raw status alone
+ * does not say which assumption stopped holding.
+ */
+export async function requestUnderContract(token, pathOrURL, request, assumption) {
+  try {
+    return await request(token, pathOrURL);
+  } catch (error) {
+    if (isTransientAppStoreConnectFailure(error)) throw error;
+
+    const contractError = new Error(
+      `APP_STORE_CONTRACT_REJECTED: ${error.message}. ` +
+        `The App Store Connect assumption that stopped holding: ${assumption}.`,
+    );
+    contractError.status = error.status;
+    throw contractError;
+  }
+}
+
+/**
  * An app ID is an opaque number, so a wrong one reads as a working configuration
  * right up to the point it allocates or inspects the wrong app's builds.
  */

@@ -29,12 +29,49 @@ import {
   BUILD_NUMBER_PATTERN,
   appStoreConnectRequest,
   assertAppOwnsBundleId,
+  isTransientAppStoreConnectFailure,
   makeAppStoreConnectToken,
   readAppStoreConnectCredentials,
+  requestUnderContract,
 } from "../lib/app-store-connect-client.mjs";
 
 export const DEFAULT_TIMEOUT_SECONDS = 900;
 export const DEFAULT_POLL_INTERVAL_SECONDS = 15;
+
+const LEDGER_PAGE_LIMIT = 200;
+const LEDGER_CONTRACT =
+  "GET /v1/apps/{id}/buildUploads accepts filter[cfBundleVersion], " +
+  `fields[buildUploads]=cfBundleVersion,state,uploadedDate and limit=${LEDGER_PAGE_LIMIT}`;
+
+/**
+ * Apple reuses a build number after a FAILED upload, so a build number can name
+ * several ledger records and the query declares no ordering. Trusting whichever
+ * record Apple happens to return first - or trusting that it applied the filter
+ * at all - is how this gate would release the concurrency group over a
+ * different upload than the one the deploy just made.
+ */
+function matchingUploads({result, appId, buildNumber}) {
+  if (!Array.isArray(result.data)) {
+    throw new Error(
+      `APP_STORE_CONTRACT_UNEXPECTED_SHAPE: GET /v1/apps/${appId}/buildUploads returned no ` +
+        "'data' array. This gate cannot identify the upload without it.",
+    );
+  }
+
+  const matching = result.data.filter(
+    (upload) => String(upload?.attributes?.cfBundleVersion) === String(buildNumber),
+  );
+  if (matching.length === 0 && result.data.length > 0) {
+    throw new Error(
+      `APP_STORE_CONTRACT_FILTER_IGNORED: GET /v1/apps/${appId}/buildUploads returned ` +
+        `${result.data.length} record(s), none of them build ${buildNumber}. App Store Connect ` +
+        "did not honor filter[cfBundleVersion], so no returned record can be trusted to be " +
+        "this upload.",
+    );
+  }
+
+  return matching;
+}
 
 export async function awaitBuildUploadRecorded(
   {
@@ -65,7 +102,7 @@ export async function awaitBuildUploadRecorded(
 
   const query =
     `/apps/${appId}/buildUploads?filter%5BcfBundleVersion%5D=${buildNumber}` +
-    "&fields%5BbuildUploads%5D=cfBundleVersion,state,uploadedDate&limit=1";
+    `&fields%5BbuildUploads%5D=cfBundleVersion,state,uploadedDate&limit=${LEDGER_PAGE_LIMIT}`;
   const startedAt = now();
   const deadline = startedAt + timeoutSeconds * 1_000;
   const elapsedSeconds = () => Math.round((now() - startedAt) / 1_000);
@@ -75,16 +112,17 @@ export async function awaitBuildUploadRecorded(
 
   for (;;) {
     attempt += 1;
+    // A poll that outlives TOKEN_LIFETIME_SECONDS cannot 401 only because every
+    // attempt mints its own token; hoisting this single ECDSA signature out of
+    // the loop reintroduces that failure exactly when a slow upload appears.
     const token = makeToken();
     let result = null;
 
     try {
-      result = await request(token, query);
+      result = await requestUnderContract(token, query, request, LEDGER_CONTRACT);
       lastFailure = null;
     } catch (error) {
-      const isTransient =
-        error.status === undefined || error.status === 429 || error.status >= 500;
-      if (!isTransient) throw error;
+      if (!isTransientAppStoreConnectFailure(error)) throw error;
 
       lastFailure = error.message;
       report(
@@ -93,29 +131,43 @@ export async function awaitBuildUploadRecorded(
       );
     }
 
-    const upload = result?.data?.[0];
-    if (upload) {
-      const state = buildUploadState(upload);
-      if (state === "PROCESSING" || state === "COMPLETE") {
-        report(
-          `Build upload ${buildNumber} is recorded in App Store Connect as ${state} ` +
-            `(attempt ${attempt}).`,
-        );
-        return {attempt, state};
+    if (result) {
+      const matching = matchingUploads({result, appId, buildNumber});
+
+      let sawFailure = false;
+      let sawPending = false;
+      for (const upload of matching) {
+        // Fatal on an unrecognized state: this is the exact upload the deploy
+        // just made, so guessing what Apple means by it risks releasing the
+        // concurrency group over a binary that never landed.
+        const state = buildUploadState(upload);
+        if (state === "PROCESSING" || state === "COMPLETE") {
+          report(
+            `Build upload ${buildNumber} is recorded in App Store Connect as ${state} ` +
+              `(attempt ${attempt}).`,
+          );
+          return {attempt, state};
+        }
+        if (state === "FAILED") sawFailure = true;
+        else sawPending = true;
       }
-      if (state === "FAILED") {
+
+      if (sawFailure && !sawPending) {
+        const summary = matching.map(buildUploadFailureSummary).join(" | ");
         throw new Error(
           `APP_STORE_UPLOAD_FAILED: Build upload ${buildNumber} for App Store Connect app ` +
-            `${appId} failed: ${buildUploadFailureSummary(upload)}. Apple permits reusing a ` +
-            "failed upload's build number.",
+            `${appId} failed: ${summary}. Apple permits reusing a failed upload's build number.`,
         );
       }
 
-      report(
-        `Build upload ${buildNumber} is ${state} on attempt ${attempt}; waiting for the file upload.`,
-      );
-    } else if (result) {
-      report(`Build upload ${buildNumber} is not in the upload ledger yet (attempt ${attempt}).`);
+      if (matching.length > 0) {
+        report(
+          `Build upload ${buildNumber} is not uploaded yet on attempt ${attempt} ` +
+            `(${matching.length} matching record(s)); waiting for the file upload.`,
+        );
+      } else {
+        report(`Build upload ${buildNumber} is not in the upload ledger yet (attempt ${attempt}).`);
+      }
     }
 
     const remainingMilliseconds = deadline - now();
