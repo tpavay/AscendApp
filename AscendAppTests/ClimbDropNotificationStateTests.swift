@@ -157,7 +157,9 @@ struct ClimbDropNotificationStateTests {
         let client = StubClimbDropNotificationStateClient(
             authorizationStatus: .denied,
             isPreferenceEnabled: false,
-            enableOutcome: .denied
+            enableOutcome: .denied,
+            enableRecordsPreference: true,
+            enableOpensSettings: true
         )
         let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
         await state.refresh()
@@ -177,7 +179,9 @@ struct ClimbDropNotificationStateTests {
         let client = StubClimbDropNotificationStateClient(
             authorizationStatus: .denied,
             isPreferenceEnabled: false,
-            enableOutcome: .denied
+            enableOutcome: .denied,
+            enableRecordsPreference: true,
+            enableOpensSettings: true
         )
         let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
         await state.enable()
@@ -197,7 +201,8 @@ struct ClimbDropNotificationStateTests {
         let client = StubClimbDropNotificationStateClient(
             authorizationStatus: .notDetermined,
             isPreferenceEnabled: false,
-            enableOutcome: .denied
+            enableOutcome: .denied,
+            enableRecordsPreference: false
         )
         let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
         await state.refresh()
@@ -402,7 +407,9 @@ struct NotificationSettingsDeliveryStatusTests {
         let client = StubClimbDropNotificationStateClient(
             authorizationStatus: .denied,
             isPreferenceEnabled: false,
-            enableOutcome: .denied
+            enableOutcome: .denied,
+            enableRecordsPreference: true,
+            enableOpensSettings: true
         )
         let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
         await state.refresh()
@@ -532,18 +539,26 @@ private final class StubClimbDropNotificationStateClient: ClimbDropNotificationS
 
     var status: UNAuthorizationStatus
 
-    /// What iOS answers an enable request with. Production records the ask as intent either way
-    /// and reports the answer as delivery capability, so the stub does the same.
+    /// What one enable request does, scripted per scenario rather than re-derived: the status iOS
+    /// ends up reporting, the answer the request writes down (`nil` leaves the stored one alone),
+    /// and whether it hands the climber to iOS Settings. `ClimbDropNotificationEnableRequestTests`
+    /// is what proves the shipping request produces these combinations.
     private let enableOutcome: UNAuthorizationStatus
+    private let enableRecordsPreference: Bool?
+    private let enableOpensSettings: Bool
 
     init(
         authorizationStatus: UNAuthorizationStatus,
         isPreferenceEnabled: Bool,
-        enableOutcome: UNAuthorizationStatus = .authorized
+        enableOutcome: UNAuthorizationStatus = .authorized,
+        enableRecordsPreference: Bool? = true,
+        enableOpensSettings: Bool = false
     ) {
         status = authorizationStatus
         self.isPreferenceEnabled = isPreferenceEnabled
         self.enableOutcome = enableOutcome
+        self.enableRecordsPreference = enableRecordsPreference
+        self.enableOpensSettings = enableOpensSettings
     }
 
     /// The real read is a callable round trip, so it suspends here too - a stub that answers
@@ -562,24 +577,13 @@ private final class StubClimbDropNotificationStateClient: ClimbDropNotificationS
     func enable() async -> UNAuthorizationStatus {
         await Task.yield()
         enableCount += 1
-
-        let initialStatus = status
         status = enableOutcome
 
-        switch ClimbDropNotificationIntentPolicy.decision(
-            initialStatus: initialStatus,
-            resolvedStatus: status
-        ) {
-        case .record(let isEnabled):
-            isPreferenceEnabled = isEnabled
-        case .preserve:
-            break
+        if let enableRecordsPreference {
+            isPreferenceEnabled = enableRecordsPreference
         }
 
-        if ClimbDropNotificationIntentPolicy.routesToSystemSettings(
-            initialStatus: initialStatus,
-            resolvedStatus: status
-        ) {
+        if enableOpensSettings {
             openSystemNotificationSettings()
         }
 

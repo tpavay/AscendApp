@@ -38,45 +38,23 @@ final class PushNotificationService: NSObject, MessagingDelegate {
 
     @discardableResult
     func requestClimbDropNotifications(opensSettingsWhenDenied: Bool) async -> UNAuthorizationStatus {
-        let center = UNUserNotificationCenter.current()
-        let settings = await center.notificationSettings()
-        let initialStatus = settings.authorizationStatus
-        LifecycleEventRecorder.shared.recordNotificationPermission(status: initialStatus)
-
-        let status: UNAuthorizationStatus
-        switch initialStatus {
-        case .notDetermined:
-            _ = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
-            let updatedSettings = await center.notificationSettings()
-            LifecycleEventRecorder.shared.recordNotificationPermission(status: updatedSettings.authorizationStatus)
-            status = updatedSettings.authorizationStatus
-        case .denied:
-            status = initialStatus
-        case .authorized, .provisional, .ephemeral:
-            status = initialStatus
-        @unknown default:
-            status = initialStatus
-        }
-
-        let decision = ClimbDropNotificationIntentPolicy.decision(
-            initialStatus: initialStatus,
-            resolvedStatus: status
+        let request = ClimbDropNotificationEnableRequest(
+            currentAuthorizationStatus: { await self.authorizationStatus() },
+            presentSystemAuthorizationAlert: {
+                let center = UNUserNotificationCenter.current()
+                _ = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
+                return await self.authorizationStatus()
+            },
+            recordIntent: { ClimbDropNotificationPreferenceStore.isEnabled = $0 },
+            openSystemNotificationSettings: { self.openSystemNotificationSettings() },
+            synchronizeInBackground: { status in
+                Task {
+                    await self.synchronizePreferenceAndDevice(authorizationStatus: status)
+                }
+            }
         )
-        if case .record(let isEnabled) = decision {
-            ClimbDropNotificationPreferenceStore.isEnabled = isEnabled
-        }
 
-        await synchronizePreferenceAndDevice(authorizationStatus: status)
-
-        let routesToSystemSettings = ClimbDropNotificationIntentPolicy.routesToSystemSettings(
-            initialStatus: initialStatus,
-            resolvedStatus: status
-        )
-        if opensSettingsWhenDenied, routesToSystemSettings {
-            openSystemNotificationSettings()
-        }
-
-        return status
+        return await request.run(opensSettingsWhenDenied: opensSettingsWhenDenied)
     }
 
     @discardableResult
