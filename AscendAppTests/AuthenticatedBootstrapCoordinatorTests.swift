@@ -1,6 +1,12 @@
 import Testing
 @testable import AscendApp
 
+/// A bound far past any scheduling delay, for the tests that assert what a drain which *finished*
+/// does. The shipped bound is wall-clock, and a parallel test run can starve this drain's
+/// main-actor hop for longer than five seconds - so asserting against the default would be
+/// asserting that the machine won a race, not that the coordinator drained.
+private let unraceableDrainBound: Duration = .seconds(3_600)
+
 @MainActor
 struct AuthenticatedBootstrapCoordinatorTests {
     @Test("Account deletion drains an old bootstrap before local cleanup", .bug(id: 389))
@@ -25,7 +31,7 @@ struct AuthenticatedBootstrapCoordinatorTests {
         var startedIterator = started.stream.makeAsyncIterator()
         _ = await startedIterator.next()
 
-        await coordinator.suspendAndDrain()
+        await coordinator.suspendAndDrain(timeout: unraceableDrainBound)
         coordinator.discard()
 
         #expect(didWriteDeletedOwnersData == false)
@@ -44,10 +50,10 @@ struct AuthenticatedBootstrapCoordinatorTests {
         }
         var runIterator = runs.stream.makeAsyncIterator()
         _ = await runIterator.next()
-        await coordinator.suspendAndDrain()
+        await coordinator.suspendAndDrain(timeout: unraceableDrainBound)
         coordinator.resumeLatest()
         _ = await runIterator.next()
-        await coordinator.suspendAndDrain()
+        await coordinator.suspendAndDrain(timeout: unraceableDrainBound)
 
         #expect(runCount == 2)
     }
@@ -74,7 +80,7 @@ struct AuthenticatedBootstrapCoordinatorTests {
         coordinator.schedule {
             replacementRan = true
         }
-        await coordinator.suspendAndDrain()
+        await coordinator.suspendAndDrain(timeout: unraceableDrainBound)
 
         #expect(firstFinished)
         #expect(replacementRan == false)
@@ -146,7 +152,10 @@ struct AuthenticatedBootstrapCoordinatorTests {
         )
         let worker = RecordingSessionWorker()
 
-        let didDrain = await coordinator.suspendAndDrain(autonomousWorkers: [worker])
+        let didDrain = await coordinator.suspendAndDrain(
+            autonomousWorkers: [worker],
+            timeout: unraceableDrainBound
+        )
 
         #expect(didDrain)
         #expect(worker.didCancel)
@@ -161,13 +170,13 @@ struct AuthenticatedBootstrapCoordinatorTests {
         let coordinator = AuthenticatedBootstrapCoordinator()
 
         coordinator.schedule {}
-        await coordinator.suspendAndDrain()
+        await coordinator.suspendAndDrain(timeout: unraceableDrainBound)
         #expect(coordinator.isSuspended)
 
         coordinator.resumeLatest()
         #expect(coordinator.isSuspended == false)
 
-        await coordinator.suspendAndDrain()
+        await coordinator.suspendAndDrain(timeout: unraceableDrainBound)
         coordinator.discard()
         #expect(coordinator.isSuspended == false)
     }

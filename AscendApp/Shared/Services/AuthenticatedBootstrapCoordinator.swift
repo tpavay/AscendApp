@@ -160,7 +160,9 @@ struct AuthenticatedSessionDrainTimeout: Error {}
 /// is not interruptible by the awaiting task's own cancellation, so a group would keep waiting for
 /// exactly the work the bound exists to escape.
 private func completed(_ task: Task<Void, Never>, within timeout: Duration) async -> Bool {
-    await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+    var timer: Task<Void, Never>?
+
+    let didComplete = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
         let resumer = BoundedWaitResumer(continuation)
 
         Task {
@@ -168,11 +170,15 @@ private func completed(_ task: Task<Void, Never>, within timeout: Duration) asyn
             resumer.resume(returning: true)
         }
 
-        Task {
+        timer = Task {
             try? await Task.sleep(for: timeout)
             resumer.resume(returning: false)
         }
     }
+
+    // A drain that won the race leaves nothing behind still counting down against it.
+    timer?.cancel()
+    return didComplete
 }
 
 /// Resumes a continuation exactly once, whichever of the drain and its timeout wins.
