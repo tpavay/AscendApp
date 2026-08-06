@@ -39,7 +39,9 @@ struct OtherUserProfileView: View {
         let trimmed = authVM.displayName.trimmingCharacters(
             in: .whitespacesAndNewlines
         )
-        return trimmed.isEmpty ? "You" : trimmed
+        return trimmed.isEmpty
+            ? PublicClimberIdentity.systemHandle(for: authVM.user?.uid)
+            : trimmed
     }
 
     private var viewerSnapshot: ProfileSnapshot {
@@ -245,7 +247,7 @@ private struct ProfileComparisonHeader: View {
             competitor(
                 identity: viewerIdentity,
                 tint: Color.ascendAccent,
-                fallbackName: "You",
+                fallbackName: "Climber",
                 isLoading: isViewerLoading
             )
 

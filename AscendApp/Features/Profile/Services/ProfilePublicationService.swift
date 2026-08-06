@@ -27,7 +27,7 @@ enum ProfilePublicationService {
             let storedPhotoURL = storedProfile.profilePictureURL.flatMap(URL.init(string:))
             let publicIdentity = PublicClimberIdentity.resolve(
                 userId: userId,
-                storedDisplayName: storedProfile.displayName,
+                storedDisplayName: storedProfile.resolvedDisplayName,
                 storedPhotoURL: storedPhotoURL
             )
             let displayName = try DisplayNamePolicy.validated(publicIdentity.displayName)

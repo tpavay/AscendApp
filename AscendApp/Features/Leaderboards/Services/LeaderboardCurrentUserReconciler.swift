@@ -4,6 +4,7 @@ enum LeaderboardCurrentUserReconciler {
     static func reconcilePreviewStats(
         _ statsByMetric: [LeaderboardMetric: [FirestoreLeaderboardStats]],
         userId: String,
+        displayName: String,
         localStats: LeaderboardStats
     ) -> [LeaderboardMetric: [FirestoreLeaderboardStats]] {
         var resolved = statsByMetric
@@ -13,6 +14,7 @@ enum LeaderboardCurrentUserReconciler {
                 resolved[metric] ?? [],
                 metric: metric,
                 userId: userId,
+                displayName: displayName,
                 localStats: localStats
             )
         }
@@ -24,12 +26,14 @@ enum LeaderboardCurrentUserReconciler {
         _ stats: [FirestoreLeaderboardStats],
         metric: LeaderboardMetric,
         userId: String,
+        displayName: String,
         localStats: LeaderboardStats
     ) -> [FirestoreLeaderboardStats] {
         reconcileStats(
             stats,
             metric: metric,
             userId: userId,
+            displayName: displayName,
             localStats: localStats
         )
     }
@@ -38,6 +42,7 @@ enum LeaderboardCurrentUserReconciler {
         _ stats: [FirestoreLeaderboardStats],
         metric: LeaderboardMetric,
         userId: String,
+        displayName: String,
         localStats: LeaderboardStats
     ) -> [FirestoreLeaderboardStats] {
         var resolved = stats
@@ -50,7 +55,10 @@ enum LeaderboardCurrentUserReconciler {
             let existing = resolved[currentIndex]
             resolved[currentIndex] = FirestoreLeaderboardStats(
                 userId: existing.userId,
-                unresolvedIdentity: existing.unresolvedIdentity,
+                unresolvedIdentity: existing.identityApplyingOverrides(
+                    displayName: displayName,
+                    photoURL: nil
+                ),
                 identityPolicyVersion: existing.identityPolicyVersion,
                 identityChangedAt: existing.identityChangedAt,
                 timeFrame: existing.timeFrame,
@@ -73,7 +81,7 @@ enum LeaderboardCurrentUserReconciler {
             resolved.append(
                 FirestoreLeaderboardStats(
                     userId: userId,
-                    displayName: "You",
+                    displayName: displayName,
                     photoURL: nil,
                     timeFrame: localStats.timeFrameEnum.rawValue,
                     schemaVersion: localStats.schemaVersion,

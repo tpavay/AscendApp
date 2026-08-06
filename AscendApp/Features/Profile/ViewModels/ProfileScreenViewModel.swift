@@ -66,6 +66,7 @@ final class ProfileScreenViewModel {
 
         standings = await standingService.loadOwnStandings(
             userId: userId,
+            displayName: displayName,
             modelContext: modelContext
         )
         let loadedAchievementSnapshot = await loadedAchievements
@@ -254,7 +255,7 @@ final class ProfileScreenViewModel {
         joinedAt: Date?
     ) async -> ProfileUserIdentity {
         let storedProfile = try? await UserDataRepository.shared.getUserFromFirestore(userId: userId)
-        let storedDisplayName = storedProfile?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let storedDisplayName = storedProfile?.resolvedDisplayName
         let resolvedDisplayName: String
         if let storedDisplayName, !storedDisplayName.isEmpty {
             resolvedDisplayName = storedDisplayName

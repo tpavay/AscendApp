@@ -389,18 +389,28 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     static func currentUser(
         rank: Int?,
         steps: Int,
-        avatarToken: String = "YOU",
+        displayName: String? = nil,
+        avatarToken: String? = nil,
         photoURL: URL? = nil,
         isPersonalBest: Bool = false,
         gender: String? = nil,
         age: Int? = nil,
         locationCity: String? = nil
     ) -> LiveReplayLeaderboardRow {
-        LiveReplayLeaderboardRow(
+        let cachedDisplayName = UserDataRepository.shared.getCachedDisplayName()?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedDisplayName = displayName?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty ?? cachedDisplayName?.nilIfEmpty ?? "Climber"
+        let resolvedAvatarToken = avatarToken ?? String(
+            resolvedDisplayName.split(separator: " ").prefix(2).compactMap(\.first)
+        ).uppercased()
+
+        return LiveReplayLeaderboardRow(
             id: "current-user",
             rank: rank,
-            displayName: "You",
-            avatarToken: avatarToken,
+            displayName: resolvedDisplayName,
+            avatarToken: resolvedAvatarToken,
             photoURL: photoURL,
             stepsAtBucket: max(steps, 0),
             finalSteps: max(steps, 0),

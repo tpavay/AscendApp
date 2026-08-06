@@ -482,6 +482,7 @@ struct LeaderboardView: View {
             case .unranked(let value, let formattedValue):
                 LeaderboardUserRowView(
                     unrankedFormattedValue: formattedValue,
+                    displayName: authVM.displayName,
                     photoURL: authVM.displayPhotoURL,
                     metric: viewModel.selectedMetric,
                     crownGapText: crownGapText(
@@ -747,7 +748,11 @@ struct LeaderboardView: View {
         if let lockedMetric {
             viewModel.selectedMetric = lockedMetric
         }
-        viewModel.configure(userId: userId, modelContext: modelContext)
+        viewModel.configure(
+            userId: userId,
+            displayName: authVM.displayName,
+            modelContext: modelContext
+        )
         await loadData()
         syncCurrentUserEntry()
     }
@@ -780,6 +785,7 @@ struct LeaderboardView: View {
     private func syncCurrentUserEntry() {
         viewModel.updateCurrentUserProfile(
             userId: authVM.user?.uid,
+            displayName: authVM.displayName,
             photoURL: authVM.displayPhotoURL
         )
     }

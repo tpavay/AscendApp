@@ -180,49 +180,38 @@ private struct PostAuthFeatureGuideStageScreen: View {
 
 private struct PostAuthDisplayNameScreen: View {
     @Environment(AuthenticationViewModel.self) private var authVM
-    @FocusState private var isNameFocused: Bool
+    @FocusState private var focusedField: ProfileNameField?
 
     let stage: PostAuthOnboardingStage
     let onContinue: () -> Void
 
-    @State private var displayName = ""
+    @State private var nameInput = PostAuthNameInput()
     @State private var isSaving = false
     @State private var validationMessage: String?
 
     var body: some View {
         PostAuthProfileQuestionShell(
             stage: stage,
-            headline: "What should we call\nyou?",
+            headline: "What's your\nname?",
             primaryTitle: isSaving ? "SAVING..." : "CONTINUE",
-            isContinueEnabled: !isContinueDisabled,
+            isContinueEnabled: nameInput.canContinue && !isSaving,
             onBack: handleBack,
-            onContinue: saveDisplayName
+            onContinue: saveName
         ) { metrics in
-            VStack(alignment: .leading, spacing: metrics.height(8)) {
-                TextField(
-                    "",
-                    text: $displayName,
-                    prompt: Text("Enter your name")
-                        .foregroundStyle(.white.opacity(0.48))
+            VStack(alignment: .leading, spacing: metrics.height(12)) {
+                nameField(
+                    field: .firstName,
+                    text: $nameInput.firstName,
+                    submitLabel: .next,
+                    metrics: metrics
                 )
-                .font(.montserratMedium(size: metrics.font(12)))
-                .foregroundStyle(.white)
-                .tint(OnboardingValuePalette.lime)
-                .textInputAutocapitalization(.words)
-                .autocorrectionDisabled()
-                .submitLabel(.continue)
-                .focused($isNameFocused)
-                .padding(.horizontal, metrics.width(14))
-                .frame(width: metrics.width(334), height: metrics.height(52), alignment: .leading)
-                .background(PostAuthProfilePalette.fieldBackground)
-                .clipShape(RoundedRectangle(cornerRadius: metrics.radius(6), style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: metrics.radius(6), style: .continuous)
-                        .stroke(fieldBorderColor, lineWidth: 1)
-                }
-                .onSubmit {
-                    saveDisplayName()
-                }
+
+                nameField(
+                    field: .lastName,
+                    text: $nameInput.lastName,
+                    submitLabel: .continue,
+                    metrics: metrics
+                )
 
                 Text("This is the name climbers see on leaderboards.")
                     .font(.montserratMedium(size: metrics.font(11)))
@@ -237,28 +226,57 @@ private struct PostAuthDisplayNameScreen: View {
                 }
             }
             .frame(width: metrics.width(334), alignment: .topLeading)
-            .offset(x: metrics.x(28), y: metrics.y(326))
-            .onAppear {
-                if displayName.isEmpty {
-                    displayName = authVM.displayName
-                }
-            }
-            .onChange(of: displayName) { _, newValue in
+            .offset(x: metrics.x(28), y: metrics.y(294))
+            .onChange(of: nameInput.firstName) { _, newValue in
                 validationMessage = nil
-                normalizeDisplayName(newValue)
+                normalizeNamePart(newValue, field: .firstName)
+            }
+            .onChange(of: nameInput.lastName) { _, newValue in
+                validationMessage = nil
+                normalizeNamePart(newValue, field: .lastName)
             }
         }
         .keyboardDoneToolbar {
-            isNameFocused = false
+            focusedField = nil
         }
     }
 
-    private var trimmedDisplayName: String {
-        displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var isContinueDisabled: Bool {
-        isSaving || trimmedDisplayName.isEmpty
+    private func nameField(
+        field: ProfileNameField,
+        text: Binding<String>,
+        submitLabel: SubmitLabel,
+        metrics: PostAuthProfileMetrics
+    ) -> some View {
+        TextField(
+            "",
+            text: text,
+            prompt: Text(field.rawValue)
+                .foregroundStyle(.white.opacity(0.48))
+        )
+        .font(.montserratMedium(size: metrics.font(12)))
+        .foregroundStyle(.white)
+        .tint(OnboardingValuePalette.lime)
+        .textContentType(field == .firstName ? .givenName : .familyName)
+        .textInputAutocapitalization(.words)
+        .autocorrectionDisabled()
+        .submitLabel(submitLabel)
+        .focused($focusedField, equals: field)
+        .padding(.horizontal, metrics.width(14))
+        .frame(width: metrics.width(334), height: metrics.height(52), alignment: .leading)
+        .background(PostAuthProfilePalette.fieldBackground)
+        .clipShape(RoundedRectangle(cornerRadius: metrics.radius(6), style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: metrics.radius(6), style: .continuous)
+                .stroke(fieldBorderColor, lineWidth: 1)
+        }
+        .onSubmit {
+            if field == .firstName {
+                focusedField = .lastName
+            } else {
+                saveName()
+            }
+        }
+        .accessibilityLabel(field.rawValue)
     }
 
     private var fieldBorderColor: Color {
@@ -269,29 +287,32 @@ private struct PostAuthDisplayNameScreen: View {
         validationMessage ?? authVM.errorMessage
     }
 
-    private func normalizeDisplayName(_ value: String) {
-        let singleLine = value
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: " ")
-
-        let normalized = String(singleLine.prefix(80))
+    private func normalizeNamePart(_ value: String, field: ProfileNameField) {
+        let normalized = PostAuthNameInput.singleLinePart(value)
         if normalized != value {
-            displayName = normalized
+            switch field {
+            case .firstName:
+                nameInput.firstName = normalized
+            case .lastName:
+                nameInput.lastName = normalized
+            }
         }
     }
 
-    private func saveDisplayName() {
+    private func saveName() {
         guard !isSaving else { return }
 
-        let name = trimmedDisplayName
-        guard !name.isEmpty else {
-            validationMessage = "Enter a name to continue."
+        guard nameInput.canContinue else {
+            validationMessage = "Enter your first and last name to continue."
             return
         }
 
         Task { @MainActor in
             isSaving = true
-            let didSave = await authVM.updateDisplayName(name)
+            let didSave = await authVM.updateProfileName(
+                firstName: nameInput.normalizedFirstName,
+                lastName: nameInput.normalizedLastName
+            )
             isSaving = false
 
             if didSave {

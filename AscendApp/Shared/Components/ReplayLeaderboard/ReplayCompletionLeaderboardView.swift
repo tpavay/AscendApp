@@ -233,7 +233,7 @@ private struct ReplayCompletionLeaderboardRowView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 7) {
-                    Text(row.isCurrentUser ? "You" : row.identity.displayName)
+                    Text(row.identity.displayName)
                         .font(.montserratBold(size: 15))
                         .foregroundStyle(primaryColor)
                         .lineLimit(1)

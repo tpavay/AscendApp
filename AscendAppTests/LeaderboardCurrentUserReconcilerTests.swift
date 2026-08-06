@@ -27,6 +27,7 @@ struct LeaderboardCurrentUserReconcilerTests {
         let reconciled = LeaderboardCurrentUserReconciler.reconcilePreviewStats(
             original,
             userId: "me",
+            displayName: "Maya Chen",
             localStats: localStats
         )
 
@@ -34,7 +35,7 @@ struct LeaderboardCurrentUserReconcilerTests {
         let identity = resolvedIdentity(for: climbStats[0], currentUserId: "me")
         #expect(climbStats.count == 2)
         #expect(climbStats[0].userId == "me")
-        #expect(identity.displayName == "You")
+        #expect(identity.displayName == "Maya Chen")
         #expect(identity.photoURL == nil)
         #expect(climbStats[0].totalSteps == 200)
     }
@@ -62,6 +63,7 @@ struct LeaderboardCurrentUserReconcilerTests {
             original,
             metric: .climb,
             userId: "me",
+            displayName: "Maya Chen",
             localStats: localStats
         )
 
@@ -92,6 +94,7 @@ struct LeaderboardCurrentUserReconcilerTests {
         let reconciled = LeaderboardCurrentUserReconciler.reconcilePreviewStats(
             original,
             userId: "me",
+            displayName: "Maya Chen",
             localStats: localStats
         )
 
@@ -99,7 +102,7 @@ struct LeaderboardCurrentUserReconcilerTests {
         let identity = resolvedIdentity(for: climbStats[0], currentUserId: "me")
         #expect(climbStats.count == 2)
         #expect(climbStats[0].userId == "me")
-        #expect(identity.displayName == "You")
+        #expect(identity.displayName == "Maya Chen")
         #expect(climbStats[0].totalSteps == 80)
     }
 

@@ -16,7 +16,7 @@ struct LeaderboardUserRowView: View {
     /// assemble a row that carries a rank and an unranked treatment at the same time.
     enum Standing {
         case ranked(ModeratedLeaderboardEntry)
-        case unranked(formattedValue: String, photoURL: URL?)
+        case unranked(displayName: String, formattedValue: String, photoURL: URL?)
     }
 
     @Environment(\.colorScheme) private var colorScheme
@@ -37,11 +37,16 @@ struct LeaderboardUserRowView: View {
 
     init(
         unrankedFormattedValue: String,
+        displayName: String,
         photoURL: URL?,
         metric: LeaderboardMetric,
         crownGapText: String? = nil
     ) {
-        self.standing = .unranked(formattedValue: unrankedFormattedValue, photoURL: photoURL)
+        self.standing = .unranked(
+            displayName: displayName,
+            formattedValue: unrankedFormattedValue,
+            photoURL: photoURL
+        )
         self.metric = metric
         self.crownGapText = crownGapText
     }
@@ -50,8 +55,8 @@ struct LeaderboardUserRowView: View {
         switch standing {
         case .ranked(let entry):
             return entry.identity.displayName
-        case .unranked:
-            return "You"
+        case .unranked(let displayName, _, _):
+            return displayName
         }
     }
 
@@ -59,7 +64,7 @@ struct LeaderboardUserRowView: View {
         switch standing {
         case .ranked(let entry):
             return entry.identity.photoURL
-        case .unranked(_, let photoURL):
+        case .unranked(_, _, let photoURL):
             return photoURL
         }
     }
@@ -68,7 +73,7 @@ struct LeaderboardUserRowView: View {
         switch standing {
         case .ranked(let entry):
             return entry.formattedValue
-        case .unranked(let formattedValue, _):
+        case .unranked(_, let formattedValue, _):
             return formattedValue
         }
     }
@@ -250,6 +255,7 @@ struct LeaderboardUserRowView: View {
 #Preview("Unranked") {
     LeaderboardUserRowView(
         unrankedFormattedValue: "0",
+        displayName: "Maya Chen",
         photoURL: nil,
         metric: .climb,
         crownGapText: "48,000 STEPS TO CROWN"

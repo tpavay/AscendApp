@@ -289,6 +289,7 @@ struct TiedRankRenderEvidenceTests {
 
                 LeaderboardUserRowView(
                     unrankedFormattedValue: "0",
+                    displayName: "Maya Chen",
                     photoURL: nil,
                     metric: .climb,
                     crownGapText: "48,000 STEPS TO CROWN"

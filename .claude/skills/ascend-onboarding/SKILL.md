@@ -23,7 +23,9 @@ The planned onboarding sequence, in order:
 This sequence will evolve as we learn from SuperWall and RevenueCat funnel analytics. Treat it as the current plan, not a permanent contract.
 
 ## Required profile capture
-- Post-auth onboarding must collect the required profile fields before the user reaches the main app: display name plus declared demographics when that stage is enabled. `ascend-profile` owns the full demographics contract - the stored birthday, the derived age and its bounds, and the gender raw values.
+- Post-auth onboarding must collect separate required first-name and last-name fields before the user reaches the main app, plus declared demographics when that stage is enabled.
+  The public board name is composed from both fields, never split or inferred from a single name input.
+  `ascend-profile` owns the full demographics contract - the stored birthday, the derived age and its bounds, and the gender raw values.
 
 ## Routing & resolver
 - Sign-in is a routing transition, not a sheet dismissal - auth screens should not dismiss themselves after provider sign-in; the auth surface is replaced by the authenticated root.

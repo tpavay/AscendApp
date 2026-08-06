@@ -6,7 +6,10 @@ description: Use when working on Ascend profiles - own vs other-user profile sur
 # Profile
 
 ## Profile Demographics
-- Post-auth onboarding captures display name and declared demographics on `users/{uid}`. Gender must use the `ProfileGender` raw values: `woman`, `man`, `non_binary`, or `prefer_not_to_say`.
+- Post-auth onboarding captures separate required `firstName` and `lastName` fields plus declared demographics on `users/{uid}`.
+  Public identity composes both fields into `displayName` at the validated publication boundary.
+  A legacy record with only `displayName` remains untouched until the climber supplies both parts in Edit Profile - never split, infer, or backfill it.
+  Gender must use the `ProfileGender` raw values: `woman`, `man`, `non_binary`, or `prefer_not_to_say`.
 - **Age is derived, never stored fresh.**
   The stored field is `birth_date`, a private `YYYY-MM-DD` calendar string on `users/{uid}`, bounded so the derived age lands between 13 and 120.
   `ProfileBirthday` (`AscendApp/Shared/Models/`) parses it and computes age on device, and `functions/src/leaderboardStats.ts` derives the same number server-side for board demographics.

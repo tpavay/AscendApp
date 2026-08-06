@@ -42,9 +42,12 @@ struct ResolvedUserIdentity: Equatable, Sendable {
             if isCurrentUser {
                 return ResolvedUserIdentity(
                     userId: userId,
-                    displayName: normalizedName(displayName, fallback: "You"),
+                    displayName: normalizedName(
+                        displayName,
+                        fallback: PublicClimberIdentity.systemHandle(for: userId)
+                    ),
                     photoURL: photoURL,
-                    avatarToken: normalizedName(avatarToken, fallback: "YOU"),
+                    avatarToken: normalizedName(avatarToken, fallback: "CL"),
                     isHidden: false
                 )
             }

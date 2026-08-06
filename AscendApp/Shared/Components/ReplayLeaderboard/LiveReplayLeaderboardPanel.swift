@@ -224,7 +224,7 @@ private struct LiveReplayLeaderboardRowView: View {
                 avatarView
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(row.isCurrentUser ? "You" : row.identity.displayName)
+                    Text(row.identity.displayName)
                         .font(.montserratBold(size: 17))
                         .foregroundStyle(primaryColor)
                         .lineLimit(1)

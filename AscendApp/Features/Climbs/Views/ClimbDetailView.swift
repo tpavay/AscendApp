@@ -1153,7 +1153,7 @@ struct ClimbDetailView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 7) {
-                    Text(row.isCurrentUser ? "You" : row.identity.displayName)
+                    Text(row.identity.displayName)
                         .font(.montserratBold(size: 15))
                         .foregroundStyle(leaderboardPrimaryTextColor)
                         .lineLimit(1)
@@ -1673,7 +1673,7 @@ struct ClimbDetailView: View {
             return authDisplayName
         }
 
-        return "You"
+        return PublicClimberIdentity.systemHandle(for: Auth.auth().currentUser?.uid)
     }
 
     private var currentUserPhotoURL: URL? {
@@ -1721,7 +1721,7 @@ struct ClimbDetailView: View {
                 effectiveColorScheme: effectiveColorScheme
             )
             .accessibilityLabel(
-                avatar.isCurrentUser ? "You" : avatar.identity.displayName
+                avatar.identity.displayName
             )
         }
     }

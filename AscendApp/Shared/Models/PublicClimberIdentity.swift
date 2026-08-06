@@ -69,10 +69,11 @@ enum PublicClimberIdentity {
         currentUserPhotoURL: URL? = nil
     ) -> Presentation {
         if isCurrentUser {
+            let name = nonEmpty(storedDisplayName) ?? systemHandle(for: userId)
             return Presentation(
-                displayName: "You",
+                displayName: name,
                 photoURL: currentUserPhotoURL ?? storedPhotoURL,
-                avatarToken: "YOU",
+                avatarToken: avatarToken(for: name),
                 usesGenericAvatar: currentUserPhotoURL == nil && storedPhotoURL == nil
             )
         }

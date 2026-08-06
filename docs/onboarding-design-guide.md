@@ -544,14 +544,20 @@ Visual:
 - Use angular A mark and/or `AscendWordmark`.
 - Keep provider buttons familiar and high contrast.
 
-### 20. Display Name
+### 20. Name
 
 Copy:
 - Eyebrow: `FIRST THINGS FIRST`
-- Headline: `What should we call you?`
-- Placeholder: `Enter your name`
+- Headline: `What's your name?`
+- First field: `First name`
+- Last field: `Last name`
 - Microcopy: `This is the name climbers see on leaderboards.`
 - CTA: `Continue`
+
+Behavior:
+- Both fields are required.
+- Do not split, infer, or backfill either field from a legacy display name.
+- Existing legacy display names remain untouched until the climber supplies both fields in Edit Profile.
 
 ### 21. Required Demographics
 
@@ -1150,7 +1156,7 @@ Verify:
 ### Phase 3 — Required Profile And Permission Serve
 
 Ship:
-- Display name.
+- First name and last name.
 - Gender, birthday, weight, and location capture.
 - Value reveal.
 - Notification opt-in framed around First Ascent drops.
@@ -1219,7 +1225,7 @@ Track analytics by workflow so the dashboard can answer where the app is losing 
 - First-climb detail opened.
 
 ### Profile And Permissions
-- Display name completed.
+- First and last name completed.
 - Demographics completed by field, no raw PII in analytics.
 - Notification pre-prompt shown.
 - Native notification prompt accepted or declined.

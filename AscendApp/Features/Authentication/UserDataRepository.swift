@@ -80,6 +80,23 @@ struct UserDisplayNameData: Sendable {
         }
         return legacyAge
     }
+
+    var resolvedDisplayName: String? {
+        if let firstName,
+           let lastName,
+           let composedName = try? DisplayNamePolicy.composedBoardName(
+               firstName: firstName,
+               lastName: lastName
+           ) {
+            return composedName
+        }
+
+        guard let displayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              displayName.isEmpty == false else {
+            return nil
+        }
+        return displayName
+    }
 }
 
 final class UserDataRepository: Sendable {
@@ -123,7 +140,7 @@ final class UserDataRepository: Sendable {
     func getDisplayName(userId: String) async -> String? {
         do {
             let userData = try await getUserFromFirestore(userId: userId)
-            let displayName = userData.displayName ?? ""
+            let displayName = userData.resolvedDisplayName ?? ""
             if !displayName.isEmpty {
                 cacheDisplayName(displayName)
                 return displayName
@@ -583,7 +600,7 @@ final class UserDataRepository: Sendable {
         let storedProfile = UserDisplayNameData(userData)
         let publicIdentity = PublicClimberIdentity.resolve(
             userId: userId,
-            storedDisplayName: storedProfile.displayName,
+            storedDisplayName: storedProfile.resolvedDisplayName,
             storedPhotoURL: storedProfile.profilePictureURL.flatMap(URL.init(string:))
         )
 
