@@ -302,8 +302,14 @@ private struct PostAuthDisplayNameScreen: View {
     private func saveName() {
         guard !isSaving else { return }
 
-        guard nameInput.canContinue else {
-            validationMessage = "Enter your first and last name to continue."
+        do {
+            _ = try DisplayNamePolicy.composedBoardName(
+                firstName: nameInput.firstName,
+                lastName: nameInput.lastName
+            )
+        } catch {
+            validationMessage = (error as? LocalizedError)?.errorDescription
+                ?? "Enter your first and last name to continue."
             return
         }
 

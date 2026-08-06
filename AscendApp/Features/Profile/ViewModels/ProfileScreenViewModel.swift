@@ -66,7 +66,6 @@ final class ProfileScreenViewModel {
 
         standings = await standingService.loadOwnStandings(
             userId: userId,
-            displayName: displayName,
             modelContext: modelContext
         )
         let loadedAchievementSnapshot = await loadedAchievements

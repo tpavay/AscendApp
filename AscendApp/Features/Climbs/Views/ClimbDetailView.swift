@@ -1744,18 +1744,6 @@ struct ClimbDetailView: View {
         effectiveColorScheme == .dark ? .white.opacity(0.62) : .black.opacity(0.58)
     }
 
-    private static func avatarToken(for displayName: String) -> String {
-        let token = displayName
-            .split(separator: " ")
-            .prefix(2)
-            .compactMap(\.first)
-            .map(String.init)
-            .joined()
-            .uppercased()
-
-        return token.isEmpty ? "YOU" : token
-    }
-
     private func historyMetric(value: String, label: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(value)

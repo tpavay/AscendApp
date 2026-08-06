@@ -47,7 +47,10 @@ struct ResolvedUserIdentity: Equatable, Sendable {
                         fallback: PublicClimberIdentity.systemHandle(for: userId)
                     ),
                     photoURL: photoURL,
-                    avatarToken: normalizedName(avatarToken, fallback: "CL"),
+                    avatarToken: normalizedName(
+                        avatarToken,
+                        fallback: PublicClimberIdentity.fallbackAvatarToken
+                    ),
                     isHidden: false
                 )
             }

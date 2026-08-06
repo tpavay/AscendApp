@@ -106,6 +106,66 @@ struct LeaderboardCurrentUserReconcilerTests {
         #expect(climbStats[0].totalSteps == 80)
     }
 
+    @Test("An empty injected name keeps the published board identity", .bug(id: 394))
+    func detailReconciliationKeepsPublishedNameWhenInjectedNameIsEmpty() {
+        let period = LeaderboardTimeFrame.weekly.currentPeriod(referenceDate: utcDate(year: 2026, month: 4, day: 14))
+        let localStats = LeaderboardStats(
+            userId: "me",
+            timeFrame: .weekly,
+            period: period,
+            totalSteps: 200,
+            totalFloors: 10,
+            totalWorkouts: 2,
+            totalDuration: 1_200,
+            stepsPerMinute: 10
+        )
+
+        let original = [
+            makeRemoteStat(userId: "me", displayName: "Maya Chen", steps: 123, period: period)
+        ]
+
+        for injectedName in [nil, "", "   "] as [String?] {
+            let reconciled = LeaderboardCurrentUserReconciler.reconcileDetailStats(
+                original,
+                metric: .climb,
+                userId: "me",
+                displayName: injectedName,
+                localStats: localStats
+            )
+
+            let identity = resolvedIdentity(for: reconciled[0], currentUserId: "me")
+            #expect(identity.displayName == "Maya Chen")
+            #expect(identity.avatarToken == "MC")
+        }
+    }
+
+    @Test("An inserted row without a known name falls back to the system handle", .bug(id: 394))
+    func detailReconciliationFallsBackToSystemHandleForInsertedRow() {
+        let period = LeaderboardTimeFrame.weekly.currentPeriod(referenceDate: utcDate(year: 2026, month: 4, day: 14))
+        let localStats = LeaderboardStats(
+            userId: "me",
+            timeFrame: .weekly,
+            period: period,
+            totalSteps: 80,
+            totalFloors: 8,
+            totalWorkouts: 1,
+            totalDuration: 900,
+            stepsPerMinute: 5.3
+        )
+
+        let reconciled = LeaderboardCurrentUserReconciler.reconcileDetailStats(
+            [],
+            metric: .climb,
+            userId: "me",
+            displayName: nil,
+            localStats: localStats
+        )
+
+        let identity = resolvedIdentity(for: reconciled[0], currentUserId: "me")
+        #expect(identity.displayName == PublicClimberIdentity.systemHandle(for: "me"))
+        #expect(identity.displayName.isEmpty == false)
+    }
+
     private func resolvedIdentity(
         for stats: FirestoreLeaderboardStats,
         currentUserId: String

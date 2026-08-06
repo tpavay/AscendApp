@@ -128,6 +128,9 @@ struct LeaderboardView: View {
         .onChange(of: authVM.displayPhotoURL) { _, _ in
             syncCurrentUserEntry()
         }
+        .onChange(of: authVM.displayName) { _, _ in
+            syncCurrentUserEntry()
+        }
     }
 
     private var header: some View {
@@ -482,7 +485,7 @@ struct LeaderboardView: View {
             case .unranked(let value, let formattedValue):
                 LeaderboardUserRowView(
                     unrankedFormattedValue: formattedValue,
-                    displayName: authVM.displayName,
+                    displayName: currentUserDisplayName,
                     photoURL: authVM.displayPhotoURL,
                     metric: viewModel.selectedMetric,
                     crownGapText: crownGapText(
@@ -750,7 +753,7 @@ struct LeaderboardView: View {
         }
         viewModel.configure(
             userId: userId,
-            displayName: authVM.displayName,
+            displayName: currentUserNameOverride,
             modelContext: modelContext
         )
         await loadData()
@@ -785,9 +788,21 @@ struct LeaderboardView: View {
     private func syncCurrentUserEntry() {
         viewModel.updateCurrentUserProfile(
             userId: authVM.user?.uid,
-            displayName: authVM.displayName,
+            displayName: currentUserNameOverride,
             photoURL: authVM.displayPhotoURL
         )
+    }
+
+    /// Nil until the account actually has a name. A fresh device reaches
+    /// `.authenticated` before the profile fetch lands, and an empty override
+    /// would replace the climber's published board name with a system handle.
+    private var currentUserNameOverride: String? {
+        let trimmed = authVM.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var currentUserDisplayName: String {
+        currentUserNameOverride ?? PublicClimberIdentity.systemHandle(for: authVM.user?.uid)
     }
 }
 

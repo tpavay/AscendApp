@@ -61,6 +61,19 @@ struct PostAuthNameInputTests {
         #expect(PostAuthNameInput(firstName: " Maya ", lastName: " Chen ").canContinue)
     }
 
+    @Test("Continue gates on the same policy Edit Profile saves behind", .bug(id: 394))
+    func continueGatesOnTheSharedDisplayNamePolicy() {
+        let overlongPart = String(repeating: "Ab", count: DisplayNamePolicy.maximumLength / 2)
+        #expect(
+            PostAuthNameInput(firstName: overlongPart, lastName: overlongPart)
+                .canContinue == false
+        )
+        #expect(
+            PostAuthNameInput(firstName: "Maya", lastName: "Fucker").canContinue == false
+        )
+        #expect(PostAuthNameInput(firstName: "Maya", lastName: "Chen").canContinue)
+    }
+
     @Test("Completed onboarding resolves the stored first and last name", .bug(id: 394))
     func completedOnboardingResolvesStoredName() {
         let storedProfile = UserDisplayNameData([

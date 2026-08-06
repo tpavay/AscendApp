@@ -26,7 +26,7 @@ final class LeaderboardViewModel {
     private let demographicFilterFetchLimit = 1_000
     private(set) var visibleEntryLimit = 25
     private var currentUserId: String?
-    private var currentUserDisplayName = ""
+    private var currentUserDisplayName: String?
     private var currentUserPhotoURL: URL?
     private var currentUserProfile: LeaderboardProfileSnapshot?
     private var rawLeaderboardStats: [FirestoreLeaderboardStats] = []
@@ -39,7 +39,7 @@ final class LeaderboardViewModel {
         self.service = service
     }
 
-    func configure(userId: String, displayName: String, modelContext: ModelContext) {
+    func configure(userId: String, displayName: String?, modelContext: ModelContext) {
         currentUserId = userId
         currentUserDisplayName = displayName
         service.configure(modelContext: modelContext)
@@ -304,7 +304,7 @@ final class LeaderboardViewModel {
         reapplyCurrentStats()
     }
 
-    func updateCurrentUserProfile(userId: String?, displayName: String, photoURL: URL?) {
+    func updateCurrentUserProfile(userId: String?, displayName: String?, photoURL: URL?) {
         guard let userId else { return }
         currentUserDisplayName = displayName
         currentUserPhotoURL = photoURL

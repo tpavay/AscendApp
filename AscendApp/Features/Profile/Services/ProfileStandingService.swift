@@ -23,20 +23,14 @@ final class ProfileStandingService: Sendable {
 
     func loadOwnStandings(
         userId: String,
-        displayName: String,
         modelContext: ModelContext
     ) async -> [ProfileStanding] {
         leaderboardService.configure(modelContext: modelContext)
-        return await loadStandings(
-            userId: userId,
-            displayName: displayName,
-            includesLocalStats: true
-        )
+        return await loadStandings(userId: userId, includesLocalStats: true)
     }
 
     private func loadStandings(
         userId: String,
-        displayName: String = "",
         includesLocalStats: Bool = false
     ) async -> [ProfileStanding] {
         var standings: [ProfileStanding] = []
@@ -52,7 +46,6 @@ final class ProfileStandingService: Sendable {
                 let resolvedStats = reconciledStats(
                     stats,
                     userId: userId,
-                    displayName: displayName,
                     timeFrame: timeFrame,
                     includesLocalStats: includesLocalStats
                 )
@@ -60,7 +53,6 @@ final class ProfileStandingService: Sendable {
             } catch {
                 standings.append(fallbackStanding(
                     for: userId,
-                    displayName: displayName,
                     timeFrame: timeFrame,
                     includesLocalStats: includesLocalStats
                 ))
@@ -73,7 +65,6 @@ final class ProfileStandingService: Sendable {
     private func reconciledStats(
         _ stats: [FirestoreLeaderboardStats],
         userId: String,
-        displayName: String,
         timeFrame: LeaderboardTimeFrame,
         includesLocalStats: Bool
     ) -> [FirestoreLeaderboardStats] {
@@ -87,14 +78,13 @@ final class ProfileStandingService: Sendable {
             stats,
             metric: .climb,
             userId: userId,
-            displayName: displayName,
+            displayName: nil,
             localStats: localStats
         )
     }
 
     private func fallbackStanding(
         for userId: String,
-        displayName: String,
         timeFrame: LeaderboardTimeFrame,
         includesLocalStats: Bool
     ) -> ProfileStanding {
@@ -105,7 +95,7 @@ final class ProfileStandingService: Sendable {
                 [],
                 metric: .climb,
                 userId: userId,
-                displayName: displayName,
+                displayName: nil,
                 localStats: localStats
             )
             return standing(for: userId, timeFrame: timeFrame, stats: localOnlyStats)

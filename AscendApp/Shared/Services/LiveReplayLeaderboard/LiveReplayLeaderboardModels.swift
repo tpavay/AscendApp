@@ -397,14 +397,12 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         age: Int? = nil,
         locationCity: String? = nil
     ) -> LiveReplayLeaderboardRow {
-        let cachedDisplayName = UserDataRepository.shared.getCachedDisplayName()?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedDisplayName = displayName?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .nilIfEmpty ?? cachedDisplayName?.nilIfEmpty ?? "Climber"
-        let resolvedAvatarToken = avatarToken ?? String(
-            resolvedDisplayName.split(separator: " ").prefix(2).compactMap(\.first)
-        ).uppercased()
+            .nilIfEmpty ?? "Climber"
+        let resolvedAvatarToken = avatarToken?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty ?? PublicClimberIdentity.avatarToken(for: resolvedDisplayName)
 
         return LiveReplayLeaderboardRow(
             id: "current-user",
@@ -558,9 +556,13 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
         bucketIndex * context.bucketIntervalSeconds
     }
 
+    /// `displayName` is passed down from the session view model rather than
+    /// resolved here: this runs on every step and elapsed tick of a live
+    /// session, so it must not reach a repository.
     func locallyRankedRows(
         currentSteps liveCurrentSteps: Int,
-        currentElapsedSeconds: Int
+        currentElapsedSeconds: Int,
+        displayName: String? = nil
     ) -> [LiveReplayLeaderboardRow] {
         let clampedCurrentSteps = max(liveCurrentSteps, 0)
         let projectedCompetitorRows = rows.map {
@@ -586,7 +588,8 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
         }
         let currentUserRow = LiveReplayLeaderboardRow.currentUser(
             rank: adjustedCurrentRank,
-            steps: clampedCurrentSteps
+            steps: clampedCurrentSteps,
+            displayName: displayName
         )
         let competitorRows = projectedCompetitorRows.map {
             $0.rebased(currentSteps: clampedCurrentSteps)

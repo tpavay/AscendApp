@@ -56,11 +56,14 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
 
     /// A copy carrying a refreshed profile identity. Every ranking field is preserved:
     /// a profile edit must never move the climber's rank or drop their tie marker.
-    func withProfile(displayName: String, photoURL: URL?) -> LeaderboardEntry {
+    /// A nil `displayName` keeps the published identity: the signed-in account
+    /// has no name to offer yet, which is not the same as being renamed to one.
+    func withProfile(displayName: String?, photoURL: URL?) -> LeaderboardEntry {
         LeaderboardEntry(
             userId: userId,
-            displayName: displayName,
-            photoURL: photoURL,
+            unresolvedIdentity: unresolvedIdentity
+                .applyingOverrides(displayName: displayName, photoURL: nil)
+                .replacingPhotoURL(photoURL),
             rank: rank,
             value: value,
             formattedValue: formattedValue,

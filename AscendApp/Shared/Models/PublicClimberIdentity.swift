@@ -22,6 +22,7 @@ enum PublicClimberIdentity {
 
     static let anonymousDisplayName = "Anonymous Climber"
     static let genericAvatarSystemName = "person.fill"
+    static let fallbackAvatarToken = "CL"
 
     /// Every letter here is absent from every screened term, so no six-character
     /// token can spell one. The generator also never repeats a character back to
@@ -164,12 +165,16 @@ enum PublicClimberIdentity {
         return value
     }
 
-    private static func avatarToken(for displayName: String) -> String {
+    /// The one derivation of a climber's initials. Every avatar surface reads it
+    /// here so a name shape the rule does not yet handle cannot render one way
+    /// during a Live Climb and another on the completion screen.
+    static func avatarToken(for displayName: String) -> String {
         let token = displayName
             .split(separator: " ")
             .prefix(2)
             .compactMap(\.first)
 
-        return String(token).uppercased()
+        let derived = String(token).uppercased()
+        return derived.isEmpty ? fallbackAvatarToken : derived
     }
 }

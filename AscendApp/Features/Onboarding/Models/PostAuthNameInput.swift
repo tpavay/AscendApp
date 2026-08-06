@@ -4,8 +4,14 @@ struct PostAuthNameInput: Equatable, Sendable {
     var firstName = ""
     var lastName = ""
 
+    /// The same gate Edit Profile saves behind. Requiring both halves is only
+    /// part of it: a composed name that the policy would reject must keep
+    /// CONTINUE disabled rather than fail after the tap.
     var canContinue: Bool {
-        normalizedFirstName.isEmpty == false && normalizedLastName.isEmpty == false
+        DisplayNamePolicy.composesAllowedBoardName(
+            firstName: firstName,
+            lastName: lastName
+        )
     }
 
     var normalizedFirstName: String {

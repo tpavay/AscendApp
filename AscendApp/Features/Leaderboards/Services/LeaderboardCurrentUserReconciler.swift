@@ -4,7 +4,7 @@ enum LeaderboardCurrentUserReconciler {
     static func reconcilePreviewStats(
         _ statsByMetric: [LeaderboardMetric: [FirestoreLeaderboardStats]],
         userId: String,
-        displayName: String,
+        displayName: String?,
         localStats: LeaderboardStats
     ) -> [LeaderboardMetric: [FirestoreLeaderboardStats]] {
         var resolved = statsByMetric
@@ -26,7 +26,7 @@ enum LeaderboardCurrentUserReconciler {
         _ stats: [FirestoreLeaderboardStats],
         metric: LeaderboardMetric,
         userId: String,
-        displayName: String,
+        displayName: String?,
         localStats: LeaderboardStats
     ) -> [FirestoreLeaderboardStats] {
         reconcileStats(
@@ -42,7 +42,7 @@ enum LeaderboardCurrentUserReconciler {
         _ stats: [FirestoreLeaderboardStats],
         metric: LeaderboardMetric,
         userId: String,
-        displayName: String,
+        displayName: String?,
         localStats: LeaderboardStats
     ) -> [FirestoreLeaderboardStats] {
         var resolved = stats
@@ -51,12 +51,18 @@ enum LeaderboardCurrentUserReconciler {
             return resolved
         }
 
+        /// Only a name the climber actually has overrides the published one.
+        /// An empty override is not an edit - a fresh device is signed in
+        /// before the profile fetch lands - and applying it would blank the
+        /// climber's own row down to a system handle.
+        let nameOverride = normalizedOverride(displayName)
+
         if let currentIndex = resolved.firstIndex(where: { $0.userId == userId }) {
             let existing = resolved[currentIndex]
             resolved[currentIndex] = FirestoreLeaderboardStats(
                 userId: existing.userId,
                 unresolvedIdentity: existing.identityApplyingOverrides(
-                    displayName: displayName,
+                    displayName: nameOverride,
                     photoURL: nil
                 ),
                 identityPolicyVersion: existing.identityPolicyVersion,
@@ -81,7 +87,7 @@ enum LeaderboardCurrentUserReconciler {
             resolved.append(
                 FirestoreLeaderboardStats(
                     userId: userId,
-                    displayName: displayName,
+                    displayName: nameOverride ?? PublicClimberIdentity.systemHandle(for: userId),
                     photoURL: nil,
                     timeFrame: localStats.timeFrameEnum.rawValue,
                     schemaVersion: localStats.schemaVersion,
@@ -107,5 +113,13 @@ enum LeaderboardCurrentUserReconciler {
         }
 
         return resolved
+    }
+
+    private static func normalizedOverride(_ displayName: String?) -> String? {
+        guard let trimmed = displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 }
