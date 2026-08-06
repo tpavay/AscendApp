@@ -559,11 +559,11 @@ Break into low-friction screens unless the combined form remains clean:
 
 Gender:
 - Headline: `What's your gender?`
-- Body: `Your gender sets your leaderboard comparison.`
-- Options use `ProfileGender` raw values:
-  - `Woman`
-  - `Man`
-  - `Non-binary`
+- Body: `Shown on your profile`
+- Options map to `ProfileGender` cases and are titled:
+  - `Male`
+  - `Female`
+  - `Other`
   - `Prefer not to say`
 
 Birthday:
