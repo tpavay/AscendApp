@@ -57,10 +57,12 @@ final class PushNotificationService: NSObject, MessagingDelegate {
             status = settings.authorizationStatus
         }
 
-        let isAllowed = status.allowsRemoteUserVisibleNotifications
-        ClimbDropNotificationPreferenceStore.isEnabled = isAllowed
+        // Asking is the climber saying yes. Only they can take that back, so an
+        // iOS refusal is recorded as blocked delivery rather than as a no.
+        ClimbDropNotificationPreferenceStore.isEnabled = true
         await synchronizePreferenceAndDevice(authorizationStatus: status)
 
+        let isAllowed = status.allowsRemoteUserVisibleNotifications
         if !isAllowed, opensSettingsWhenDenied, status == .denied {
             openSystemNotificationSettings()
         }
@@ -142,11 +144,12 @@ final class PushNotificationService: NSObject, MessagingDelegate {
 
         await updateBackendPreference()
 
-        guard authorizationStatus.allowsRemoteUserVisibleNotifications else {
-            return
+        // A device that stops being allowed to deliver has to say so, or the
+        // send audience keeps its last authorized answer and pushes into a
+        // system that will drop them.
+        if authorizationStatus.allowsRemoteUserVisibleNotifications {
+            UIApplication.shared.registerForRemoteNotifications()
         }
-
-        UIApplication.shared.registerForRemoteNotifications()
 
         guard let token = await fetchFCMToken() else {
             return

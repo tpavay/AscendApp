@@ -70,7 +70,6 @@ final class ClimbDropNotificationState {
     @ObservationIgnored private let client: any ClimbDropNotificationStateClient
     @ObservationIgnored private var environmentChangeCancellables: Set<AnyCancellable> = []
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
-    @ObservationIgnored private var refreshGeneration = 0
     @ObservationIgnored private var mutationTask: Task<UNAuthorizationStatus, Never>?
     @ObservationIgnored private var mutationGeneration = 0
     @ObservationIgnored private var stateRevision = 0
@@ -88,9 +87,10 @@ final class ClimbDropNotificationState {
     }
 
     /// True when the climber asked for climb drops but iOS will not deliver them, so a surface can
-    /// say delivery is blocked rather than implying the preference is live.
+    /// say delivery is blocked rather than implying the preference is live. A preference the
+    /// climber turned off is not blocked by anything.
     var isBlockedBySystemSettings: Bool {
-        authorizationStatus == .denied
+        authorizationStatus == .denied && isPreferenceEnabled
     }
 
     init(
@@ -135,17 +135,12 @@ final class ClimbDropNotificationState {
             return
         }
 
-        refreshGeneration += 1
-        let generation = refreshGeneration
         let task = Task { @MainActor in
             await self.readAuthorizationStatus()
         }
         refreshTask = task
         await task.value
-
-        if refreshGeneration == generation {
-            refreshTask = nil
-        }
+        refreshTask = nil
     }
 
     @discardableResult
@@ -204,9 +199,9 @@ final class ClimbDropNotificationState {
         if mutationGeneration == generation {
             mutationTask = nil
             isUpdating = false
+            apply(status: status)
         }
 
-        apply(status: status)
         return status
     }
 

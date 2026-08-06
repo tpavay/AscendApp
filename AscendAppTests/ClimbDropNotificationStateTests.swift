@@ -151,6 +151,59 @@ struct ClimbDropNotificationStateTests {
         #expect(state.isEnabled == false)
     }
 
+    @Test("An enable iOS refuses still records the climber's intent")
+    func refusedEnableKeepsTheIntentAndReportsBlockedDelivery() async {
+        let client = StubClimbDropNotificationStateClient(
+            authorizationStatus: .notDetermined,
+            isPreferenceEnabled: false,
+            enableOutcome: .denied
+        )
+        let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
+        await state.refresh()
+
+        let result = await state.enable()
+
+        #expect(result == .denied)
+        #expect(state.isPreferenceEnabled)
+        #expect(state.isEnabled == false)
+        #expect(state.isBlockedBySystemSettings)
+        #expect(state.shouldPromptForEnablement)
+    }
+
+    @Test("Granting in iOS Settings after a refusal clears the prompt without asking again")
+    func permissionGrantedAfterARefusalNeedsNoSecondTap() async {
+        let client = StubClimbDropNotificationStateClient(
+            authorizationStatus: .notDetermined,
+            isPreferenceEnabled: false,
+            enableOutcome: .denied
+        )
+        let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
+        await state.enable()
+        #expect(state.shouldPromptForEnablement)
+
+        client.status = .authorized
+        await state.refresh()
+
+        #expect(state.isEnabled)
+        #expect(state.isBlockedBySystemSettings == false)
+        #expect(state.shouldPromptForEnablement == false)
+        #expect(client.enableCount == 1)
+    }
+
+    @Test("A preference the climber turned off is not reported as blocked")
+    func deniedWithThePreferenceOffIsNotBlocked() async {
+        let client = StubClimbDropNotificationStateClient(
+            authorizationStatus: .denied,
+            isPreferenceEnabled: false
+        )
+        let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
+
+        await state.refresh()
+
+        #expect(state.isBlockedBySystemSettings == false)
+        #expect(state.shouldPromptForEnablement)
+    }
+
     @Test("Account deletion drops the deleted climber's preference")
     func resetAfterAccountDeletionClearsThePreferenceSnapshot() async {
         let client = StubClimbDropNotificationStateClient(
@@ -332,14 +385,20 @@ private final class StubClimbDropNotificationStateClient: ClimbDropNotificationS
     private(set) var enableCount = 0
     private(set) var disableCount = 0
 
-    private var status: UNAuthorizationStatus
+    var status: UNAuthorizationStatus
+
+    /// What iOS answers an enable request with. Production records the ask as intent either way
+    /// and reports the answer as delivery capability, so the stub does the same.
+    private let enableOutcome: UNAuthorizationStatus
 
     init(
         authorizationStatus: UNAuthorizationStatus,
-        isPreferenceEnabled: Bool
+        isPreferenceEnabled: Bool,
+        enableOutcome: UNAuthorizationStatus = .authorized
     ) {
         status = authorizationStatus
         self.isPreferenceEnabled = isPreferenceEnabled
+        self.enableOutcome = enableOutcome
     }
 
     /// The real read is a callable round trip, so it suspends here too - a stub that answers
@@ -358,7 +417,7 @@ private final class StubClimbDropNotificationStateClient: ClimbDropNotificationS
     func enable() async -> UNAuthorizationStatus {
         await Task.yield()
         enableCount += 1
-        status = .authorized
+        status = enableOutcome
         isPreferenceEnabled = true
         return status
     }

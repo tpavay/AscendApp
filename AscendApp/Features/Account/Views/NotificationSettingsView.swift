@@ -82,13 +82,13 @@ struct NotificationSettingsView: View {
             )
             .labelsHidden()
             .tint(.accent)
-            .disabled(notificationState.isUpdating || notificationState.authorizationStatus == .denied)
+            .disabled(notificationState.isUpdating)
             .accessibilityLabel("New climb drops")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .opacity(notificationState.isUpdating ? 0.68 : notificationState.authorizationStatus == .denied ? 0.45 : 1)
+        .opacity(notificationState.isUpdating ? 0.68 : 1)
     }
 
     private var notificationsDisabledBanner: some View {
@@ -182,13 +182,14 @@ struct NotificationSettingsView: View {
     }
 
     /// The stored preference stays exactly as the climber set it while iOS is refusing delivery,
-    /// so the row says delivery is blocked rather than letting an on toggle read as deliverable.
+    /// so the row reports its own status rather than letting an on toggle read as deliverable.
+    /// The banner above carries the explanation and the route into iOS Settings.
     private var climbDropDetail: String {
         guard notificationState.isBlockedBySystemSettings else {
             return "A new landmark opens in the catalog."
         }
 
-        return "Blocked in iOS. Nothing sends until you turn notifications back on."
+        return "On, but iOS is blocking delivery"
     }
 
     private var shouldShowSystemSettingsAction: Bool {
