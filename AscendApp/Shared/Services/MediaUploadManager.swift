@@ -39,7 +39,7 @@ enum UploadError: LocalizedError {
 /// - Persists uploads across app restarts
 @MainActor
 @Observable
-final class MediaUploadManager {
+final class MediaUploadManager: AuthenticatedSessionWorker {
     static let shared = MediaUploadManager()
 
     // MARK: - Observable State
@@ -226,6 +226,24 @@ final class MediaUploadManager {
         // Clean up orphaned local files
         let allFilenames = Set(pending.map { $0.localFileName })
         await LocalMediaStorage.cleanupOrphanedFiles(validFilenames: allFilenames)
+    }
+
+    /// Stops every in-flight upload so account deletion can quiesce this queue.
+    ///
+    /// Each item runs in its own inner task that does not inherit the caller's cancellation, so
+    /// cancelling the sweep only stops the queue between items. Without this, an upload already in
+    /// flight kept writing - `processUpload` saves the context on both its success and failure
+    /// paths - and one of those saves lands inside deletion's staged window.
+    func cancelInFlightWork() {
+        for task in activeUploadTasks.values {
+            task.cancel()
+        }
+    }
+
+    func drainInFlightWork() async {
+        for task in activeUploadTasks.values {
+            _ = await task.value
+        }
     }
 
     /// Cancel all pending uploads for a workout (when workout is deleted)

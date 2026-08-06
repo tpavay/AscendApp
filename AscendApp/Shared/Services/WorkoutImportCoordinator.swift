@@ -119,7 +119,7 @@ final class AppleHealthEnrichmentRetryStore {
 
 @MainActor
 @Observable
-final class WorkoutImportCoordinator {
+final class WorkoutImportCoordinator: AuthenticatedSessionWorker {
     static let shared = WorkoutImportCoordinator()
 
     enum ImportInboxResolution {
@@ -157,6 +157,7 @@ final class WorkoutImportCoordinator {
     private let reviewStateStore: WorkoutAutoImportReviewStateStore
     private let ignoredAppleHealthWorkoutStore: IgnoredAppleHealthWorkoutStore
     private let enrichmentRetryStore: AppleHealthEnrichmentRetryStore
+    private let sessionWorkGate: AuthenticatedBootstrapCoordinator
 
     private var modelContext: ModelContext?
     private var lastAutomaticCheckAt: Date?
@@ -183,7 +184,8 @@ final class WorkoutImportCoordinator {
         settingsManager: SettingsManager = .shared,
         reviewStateStore: WorkoutAutoImportReviewStateStore = WorkoutAutoImportReviewStateStore(),
         ignoredAppleHealthWorkoutStore: IgnoredAppleHealthWorkoutStore = IgnoredAppleHealthWorkoutStore(),
-        enrichmentRetryStore: AppleHealthEnrichmentRetryStore = AppleHealthEnrichmentRetryStore()
+        enrichmentRetryStore: AppleHealthEnrichmentRetryStore = AppleHealthEnrichmentRetryStore(),
+        sessionWorkGate: AuthenticatedBootstrapCoordinator = .shared
     ) {
         self.authorizationController = authorizationController
         self.workoutReader = workoutReader
@@ -193,6 +195,7 @@ final class WorkoutImportCoordinator {
         self.reviewStateStore = reviewStateStore
         self.ignoredAppleHealthWorkoutStore = ignoredAppleHealthWorkoutStore
         self.enrichmentRetryStore = enrichmentRetryStore
+        self.sessionWorkGate = sessionWorkGate
         self.lastCheckAt = HealthKitSyncState.lastSuccessfulCheckAt
     }
 
@@ -262,6 +265,7 @@ final class WorkoutImportCoordinator {
     /// Runs the legacy source-link backfill once, in the background, at most one task at a time.
     private func startLegacySourceLinkBackfillIfNeeded(modelContext: ModelContext) {
         guard legacySourceLinkBackfillTask == nil,
+              sessionWorkGate.isSuspended == false,
               !WorkoutSourceMigrationService.hasCompletedBackfill else {
             return
         }
@@ -323,7 +327,14 @@ final class WorkoutImportCoordinator {
     /// caring about the result when it is cancelled, but the surface that asked for the pass is
     /// still watching it: dismissing the import sheet must not stop the backfill Home started.
     /// A cancelled joiner still returns straight away - it stops waiting without stopping the pass.
+    ///
+    /// Refuses to start while account-scoped work is suspended. A HealthKit observer fires this on
+    /// its own schedule, so account deletion cannot stop it by draining alone: without the gate a
+    /// pass started a millisecond later still imports the deleted account's workouts back into the
+    /// store deletion is emptying.
     func refreshPendingImports(trigger: ImportRefreshTrigger) async {
+        guard sessionWorkGate.isSuspended == false else { return }
+
         if refreshTask != nil {
             let activeRefreshTrigger = activeRefreshTrigger
             await joinInFlightRefresh()
@@ -414,6 +425,11 @@ final class WorkoutImportCoordinator {
     func cancelInFlightWork() {
         refreshTask?.cancel()
         legacySourceLinkBackfillTask?.cancel()
+    }
+
+    func drainInFlightWork() async {
+        await refreshTask?.value
+        await legacySourceLinkBackfillTask?.value
     }
 
     private func performRefreshPendingImports(trigger: ImportRefreshTrigger) async {

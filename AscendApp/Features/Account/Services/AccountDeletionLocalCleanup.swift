@@ -27,21 +27,32 @@ struct AppAccountDeletionLocalCleanup: AccountDeletionLocalCleanup {
     private let persistentDomainName: String?
     private let settingsManager: SettingsManager
     private let bootstrapCoordinator: AuthenticatedBootstrapCoordinator
+    private let autonomousSessionWorkers: [any AuthenticatedSessionWorker]
 
     init(
         userDefaults: UserDefaults = .standard,
         persistentDomainName: String? = Bundle.main.bundleIdentifier,
         settingsManager: SettingsManager = .shared,
-        bootstrapCoordinator: AuthenticatedBootstrapCoordinator = .shared
+        bootstrapCoordinator: AuthenticatedBootstrapCoordinator = .shared,
+        autonomousSessionWorkers: [any AuthenticatedSessionWorker] = [
+            WorkoutImportCoordinator.shared,
+            MediaUploadManager.shared
+        ]
     ) {
         self.userDefaults = userDefaults
         self.persistentDomainName = persistentDomainName
         self.settingsManager = settingsManager
         self.bootstrapCoordinator = bootstrapCoordinator
+        self.autonomousSessionWorkers = autonomousSessionWorkers
     }
 
+    /// Quiesces every writer of account-scoped local state, not just the bootstrap chain.
+    ///
+    /// A HealthKit observer's auto-import reaches the same `ModelContext` from outside that chain,
+    /// so leaving it running let one imported workout land inside deletion's staged window - which
+    /// both saved the staged sweep early and left a row owned by the account being deleted.
     func suspendAuthenticatedSessionWork() async {
-        await bootstrapCoordinator.suspendAndDrain()
+        await bootstrapCoordinator.suspendAndDrain(autonomousWorkers: autonomousSessionWorkers)
     }
 
     func resumeAuthenticatedSessionWork() {

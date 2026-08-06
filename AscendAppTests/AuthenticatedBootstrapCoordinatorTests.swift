@@ -79,4 +79,80 @@ struct AuthenticatedBootstrapCoordinatorTests {
         #expect(firstFinished)
         #expect(replacementRan == false)
     }
+
+    @Test("A drain that outlives its bound does not stall deletion", .bug(id: 389))
+    func drainReturnsWhenSessionWorkOutlivesItsBound() async {
+        let coordinator = AuthenticatedBootstrapCoordinator()
+        let started = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        let releaseStream = release.stream
+
+        coordinator.schedule {
+            started.continuation.yield()
+
+            // Stands in for a media upload: the per-item work runs in an inner task that does not
+            // inherit the chain's cancellation, and awaiting it is not a cancellation point either.
+            let inFlightUpload = Task<Void, Never> {
+                var iterator = releaseStream.makeAsyncIterator()
+                _ = await iterator.next()
+            }
+            await inFlightUpload.value
+        }
+
+        var startedIterator = started.stream.makeAsyncIterator()
+        _ = await startedIterator.next()
+
+        let didDrain = await coordinator.suspendAndDrain(timeout: .milliseconds(50))
+
+        #expect(didDrain == false)
+        // Timing out is safe only because nothing new may start behind it.
+        #expect(coordinator.isSuspended)
+
+        release.continuation.yield()
+        release.continuation.finish()
+    }
+
+    @Test("Deletion cancels and drains writers outside the bootstrap chain", .bug(id: 389))
+    func deletionQuiescesAutonomousSessionWorkers() async {
+        let coordinator = AuthenticatedBootstrapCoordinator()
+        let worker = RecordingSessionWorker()
+
+        let didDrain = await coordinator.suspendAndDrain(autonomousWorkers: [worker])
+
+        #expect(didDrain)
+        #expect(worker.didCancel)
+        #expect(worker.didDrainAfterCancel == true)
+    }
+
+    @Test("Resuming and discarding both reopen the gate for autonomous writers", .bug(id: 389))
+    func gateReopensAfterDeletionResolves() async {
+        let coordinator = AuthenticatedBootstrapCoordinator()
+
+        coordinator.schedule {}
+        await coordinator.suspendAndDrain()
+        #expect(coordinator.isSuspended)
+
+        coordinator.resumeLatest()
+        #expect(coordinator.isSuspended == false)
+
+        await coordinator.suspendAndDrain()
+        coordinator.discard()
+        #expect(coordinator.isSuspended == false)
+    }
+}
+
+/// Stands in for a HealthKit-observer import pass or a media upload queue: account-scoped work the
+/// bootstrap chain does not own.
+@MainActor
+private final class RecordingSessionWorker: AuthenticatedSessionWorker {
+    private(set) var didCancel = false
+    private(set) var didDrainAfterCancel: Bool?
+
+    func cancelInFlightWork() {
+        didCancel = true
+    }
+
+    func drainInFlightWork() async {
+        didDrainAfterCancel = didCancel
+    }
 }
