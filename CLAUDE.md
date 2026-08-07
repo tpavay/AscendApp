@@ -234,7 +234,7 @@ Resolve work to a GitHub issue before implementing:
 - `.github/workflows/ci.yml` - PR validation; `ci-required-check-fallback.yml` routes the required checks for PRs that change no CI-relevant path (`ascend-deploy`)
 - `.github/workflows/deploy-staging.yml`, `deploy-production.yml` - deploy pipelines (prod gated)
 - `Gemfile`, `fastlane/Appfile`, `fastlane/Fastfile`, `fastlane/Matchfile` - build/signing/TestFlight
-- `remoteconfig.template.json` - the kill-switch parameters; CI publishes new ones additively to dev and staging only, full replaces stay manual via `scripts/deploy-remote-config.mjs` (`docs/remote-config-kill-switches.md`)
+- `remoteconfig.template.json` - the kill-switch parameters, plus the captain-only version thresholds no automation publishes anywhere; CI publishes new switches additively to dev and staging only, full replaces stay manual via `scripts/deploy-remote-config.mjs` (`docs/remote-config-kill-switches.md`)
 - `docs/dependency-security.md` - deliberate dependency pins and overrides; read before bumping any npm dependency
 
 ## Project Context File (All AI Providers)
