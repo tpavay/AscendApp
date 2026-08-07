@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 import UIKit
 @testable import AscendApp
@@ -7,9 +8,13 @@ import UIKit
 ///
 /// The message is the only part of that alert Ascend owns, and it is read straight from
 /// `Bundle.main` here - the built app bundle - so the PNG cannot drift from the string iOS will
-/// actually show. The surrounding chrome is a real `UIAlertController`, the same component the
-/// system alert is drawn with; its title and buttons are supplied by iOS on device and are
-/// reproduced here so the message can be reviewed at its real width and line breaks.
+/// actually show. The chrome around it is a reproduction at the system alert's own metrics: 270pt
+/// panel, SF at the alert's title and message sizes, and the title and buttons iOS supplies on
+/// device. That reproduction is deliberate - a live `UIAlertController` is presented in its own
+/// window and draws through a hierarchy neither `drawHierarchy` nor `layer.render(in:)` can reach
+/// in a test host with no screen, so photographing one yields an empty backdrop rather than an
+/// alert. Drawing the panel puts the shipped sentence in front of a reviewer at its real width and
+/// line breaks, with no screen involved and the same pixels on every machine.
 @MainActor
 struct MotionUsageDescriptionEvidenceTests {
     /// What the alert said before this fix: two of the three features that read the sensor were
@@ -34,14 +39,14 @@ struct MotionUsageDescriptionEvidenceTests {
     }
 
     @Test
-    func rendersTheMotionPermissionAlertTheClimberWillSee() async throws {
+    func rendersTheMotionPermissionAlertTheClimberWillSee() throws {
         let shipped = try Self.shippedUsageDescription()
 
-        let shippedAlert = try await Self.renderAlert(
+        let shippedAlert = try Self.renderAlert(
             message: shipped,
             fileName: "motion-permission-alert-shipped.png"
         )
-        let previousAlert = try await Self.renderAlert(
+        let previousAlert = try Self.renderAlert(
             message: Self.previousUsageDescription,
             fileName: "motion-permission-alert-previous.png"
         )
@@ -57,82 +62,121 @@ struct MotionUsageDescriptionEvidenceTests {
     }
 
     @discardableResult
-    private static func renderAlert(message: String, fileName: String) async throws -> Data {
-        // The alert has to be in a window the simulator is actually drawing, or
-        // `drawHierarchy(afterScreenUpdates:)` captures nothing.
-        let scene = try #require(
-            UIApplication.shared.connectedScenes.first as? UIWindowScene,
-            "The test host has no window scene to render into"
+    private static func renderAlert(message: String, fileName: String) throws -> Data {
+        let renderer = ImageRenderer(
+            content: MotionPermissionAlertProof(title: alertTitle, message: message)
         )
-        let window = UIWindow(windowScene: scene)
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
-        window.backgroundColor = .black
-        window.overrideUserInterfaceStyle = .dark
+        renderer.scale = 3
 
-        let host = UIViewController()
-        host.view.backgroundColor = UIColor(white: 0.06, alpha: 1)
-        window.rootViewController = host
-        window.makeKeyAndVisible()
-
-        let alert = UIAlertController(title: alertTitle, message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Don\u{2019}t Allow", style: .cancel))
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-
-        await withCheckedContinuation { continuation in
-            host.present(alert, animated: false) {
-                continuation.resume()
-            }
-        }
-
-        window.layoutIfNeeded()
-        try await Task.sleep(for: .milliseconds(250))
-
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 2
-        let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
-            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-        }
-
+        let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
         let png = try #require(image.pngData(), "UIImage produced no PNG data")
+
         let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
             ?? NSTemporaryDirectory()
         try png.write(to: URL(filePath: directory).appending(path: fileName))
 
         #expect(png.count > 5_000, "\(fileName) rendered an implausibly small image")
-        // A window that never reached the screen renders blank white, which is
-        // still a valid PNG - the dark alert is the proof that it did.
+        // A capture that drew no panel is still a valid PNG of the flat backdrop, so the proof
+        // that the alert is in the picture is that the picture is not one flat colour.
         #expect(
-            averageLuminance(of: image) < 0.5,
-            "\(fileName) rendered blank instead of the alert"
+            luminanceSpread(of: image) > 0.05,
+            "\(fileName) rendered the bare backdrop instead of the alert"
         )
-
-        await withCheckedContinuation { continuation in
-            alert.dismiss(animated: false) { continuation.resume() }
-        }
-        window.isHidden = true
 
         return png
     }
 
-    private static func averageLuminance(of image: UIImage) -> Double {
-        var pixel: [UInt8] = [0, 0, 0, 0]
-        let context = CGContext(
-            data: &pixel,
-            width: 1,
-            height: 1,
-            bitsPerComponent: 8,
-            bytesPerRow: 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        )
+    /// The difference between the brightest and darkest cell of a coarse downsample of the capture.
+    /// A backdrop with nothing drawn over it scores zero; the alert's panel and white copy score
+    /// far above the threshold.
+    private static func luminanceSpread(of image: UIImage) -> Double {
+        let side = 32
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
 
-        guard let context, let cgImage = image.cgImage else {
-            return 1
+        guard let cgImage = image.cgImage else {
+            return 0
         }
 
-        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        pixels.withUnsafeMutableBytes { buffer in
+            let context = CGContext(
+                data: buffer.baseAddress,
+                width: side,
+                height: side,
+                bitsPerComponent: 8,
+                bytesPerRow: side * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+            context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: side, height: side))
+        }
 
-        return (0.2126 * Double(pixel[0]) + 0.7152 * Double(pixel[1]) + 0.0722 * Double(pixel[2]))
-            / 255
+        var darkest = Double.greatestFiniteMagnitude
+        var brightest = -Double.greatestFiniteMagnitude
+
+        for index in stride(from: 0, to: pixels.count, by: 4) {
+            let red = Double(pixels[index])
+            let green = Double(pixels[index + 1])
+            let blue = Double(pixels[index + 2])
+            let luminance = (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255
+
+            darkest = min(darkest, luminance)
+            brightest = max(brightest, luminance)
+        }
+
+        return brightest - darkest
+    }
+}
+
+// MARK: - Views
+
+/// The Motion & Fitness alert at the system's own metrics, in the dark appearance Ascend runs in.
+/// Every colour is stated rather than resolved from the environment, so the proof renders the same
+/// picture wherever it runs.
+private struct MotionPermissionAlertProof: View {
+    let title: String
+    let message: String
+
+    private static let panelWidth: CGFloat = 270
+    private static let separator = Color.white.opacity(0.16)
+
+    var body: some View {
+        ZStack {
+            Color(white: 0.06)
+
+            VStack(spacing: 0) {
+                VStack(spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 17, weight: .semibold))
+
+                    Text(message)
+                        .font(.system(size: 13))
+                }
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.top, 19)
+                .padding(.bottom, 20)
+
+                Self.separator.frame(height: 0.5)
+
+                HStack(spacing: 0) {
+                    button("Don\u{2019}t Allow", weight: .regular)
+                    Self.separator.frame(width: 0.5)
+                    button("OK", weight: .semibold)
+                }
+                .frame(height: 44)
+            }
+            .frame(width: Self.panelWidth)
+            .background(Color(white: 0.13))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .frame(width: 402, height: 420)
+    }
+
+    private func button(_ label: String, weight: Font.Weight) -> some View {
+        Text(label)
+            .font(.system(size: 17, weight: weight))
+            .foregroundStyle(Color(red: 0.04, green: 0.52, blue: 1))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
