@@ -8,6 +8,7 @@ import {
   additiveMerge,
   additiveMergeViolations,
   additivePublishPlan,
+  captainOnlyParameterChanges,
   isAutomaticallyPublishedParameter,
   killSwitchChanges,
   publishedParameterMismatches,
@@ -358,6 +359,40 @@ test("captain-only version parameters are excluded from automatic change reporti
   };
 
   assert.deepEqual(killSwitchChanges(base, current), {added: [], removed: []});
+});
+
+test("a captain-only parameter a change adds is still reported, under its own instruction", () => {
+  // Excluded from automatic publication is not excluded from the reviewer's report: nothing
+  // publishes these, and the next staging archive stops until a captain does it by hand.
+  const base = {parameters: {a_flag_enabled: {}}};
+  const current = {
+    parameters: {
+      a_flag_enabled: {},
+      minimum_supported_app_version: {},
+      recommended_app_version: {},
+    },
+  };
+
+  assert.deepEqual(captainOnlyParameterChanges(base, current), {
+    added: ["minimum_supported_app_version", "recommended_app_version"],
+    removed: [],
+  });
+  assert.deepEqual(captainOnlyParameterChanges(current, base), {
+    added: [],
+    removed: ["minimum_supported_app_version", "recommended_app_version"],
+  });
+  assert.deepEqual(captainOnlyParameterChanges(current, current), {added: [], removed: []});
+});
+
+test("the pull request report names the captain-only parameters even when nothing changed", () => {
+  const report = readFileSync(
+    new URL("../ci/report-kill-switch-changes.mjs", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(report, /captainOnlyParameterChanges/);
+  assert.match(report, /must be published by hand in every project/);
+  assert.match(report, /No automated path publishes these/);
 });
 
 test("the pull request report reads this ref and finds nothing wrong with it", () => {

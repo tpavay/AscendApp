@@ -49,6 +49,33 @@ func accessibilityElements(under root: UIView) -> [NSObject] {
     return found
 }
 
+/// The same tree, read once it is actually there.
+///
+/// SwiftUI publishes its accessibility tree on its own schedule after automation starts listening,
+/// so a single read straight after `layoutIfNeeded()` can land on an empty tree whenever another
+/// suite is competing for the main actor. The hosted screen then reads as having no controls and no
+/// modal at all, which fails as though the view were wrong. Polls until `isReady` holds, and returns
+/// whatever the tree holds at the deadline so the caller's own assertion reports the real shortfall.
+@MainActor
+func settledAccessibilityElements(
+    under root: UIView,
+    waitingUpTo timeout: Duration = .seconds(5),
+    until isReady: ([NSObject]) -> Bool = { $0.isEmpty == false }
+) async throws -> [NSObject] {
+    let deadline = ContinuousClock.now.advanced(by: timeout)
+
+    while true {
+        let elements = accessibilityElements(under: root)
+        if isReady(elements) || ContinuousClock.now >= deadline {
+            return elements
+        }
+
+        root.setNeedsLayout()
+        root.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(20))
+    }
+}
+
 /// Activates the control a climber would tap, through the same accessibility action VoiceOver uses.
 @MainActor
 func activateAccessibilityElement(

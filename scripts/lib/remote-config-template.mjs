@@ -125,13 +125,18 @@ export function templateVersionNumber(template) {
 }
 
 /**
- * The managed flags that are currently switched off in the live project - the ones
- * republishing the checked-in template would silently switch back on.
+ * The automatically published parameters that are currently switched off in the live project -
+ * the ones republishing the checked-in template would silently switch back on.
+ *
+ * A setting stays in scope: the client reads `stringValue` and never inspects `valueType`, so a
+ * setting parked at `"false"` is honoured exactly like a switch and must stop an automated
+ * republish the same way. Only the captain-only parameters are excluded, because no automated
+ * path publishes them at all.
  */
 export function findActiveKillSwitches(liveTemplate, localTemplate) {
   const liveParameters = templateParameters(liveTemplate);
   return Object.keys(templateParameters(localTemplate))
-    .filter((key) => !isSettingParameter(key))
+    .filter(isAutomaticallyPublishedParameter)
     .filter((key) => isParameterOff(liveParameters[key]))
     .sort();
 }
@@ -322,6 +327,30 @@ export function killSwitchChanges(baseTemplate, currentTemplate) {
   const currentKeys = Object.keys(templateParameters(currentTemplate))
     .filter(isAutomaticallyPublishedParameter)
     .sort();
+
+  return {
+    added: currentKeys.filter((key) => !baseKeys.includes(key)),
+    removed: baseKeys.filter((key) => !currentKeys.includes(key)),
+  };
+}
+
+/**
+ * The captain-only parameters this change adds or removes.
+ *
+ * Reported apart from `killSwitchChanges` because the two carry opposite instructions, not
+ * because one matters less. An added kill switch lands in dev and staging on merge; an added
+ * captain-only parameter lands nowhere at all, and the next staging archive refuses until a
+ * captain has published it by hand. Suppressing it entirely would leave the reviewer reading
+ * "this change adds none" about the one parameter that will stop the build.
+ */
+export function captainOnlyParameterChanges(baseTemplate, currentTemplate) {
+  const captainOnlyKeys = (template) =>
+    Object.keys(templateParameters(template))
+      .filter((key) => !isAutomaticallyPublishedParameter(key))
+      .sort();
+
+  const baseKeys = captainOnlyKeys(baseTemplate);
+  const currentKeys = captainOnlyKeys(currentTemplate);
 
   return {
     added: currentKeys.filter((key) => !baseKeys.includes(key)),

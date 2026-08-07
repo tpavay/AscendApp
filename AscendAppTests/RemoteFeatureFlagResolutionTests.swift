@@ -282,7 +282,7 @@ struct RemoteFeatureFlagServiceTests {
                 RemoteAppVersionParameter.recommended.key: "99.0.0"
             ]
         )
-        let gateState = AppVersionGateState(presentation: .required)
+        let gateState = AppVersionGateState(presentation: .recommended)
         let service = RemoteFeatureFlagService(
             source: source,
             store: RemoteFeatureFlagStore(),
@@ -293,6 +293,26 @@ struct RemoteFeatureFlagServiceTests {
         await service.refreshAndWait()
 
         #expect(gateState.presentation == nil)
+        #expect(source.appVersionValuesCallCount == 0)
+    }
+
+    @Test("A failed foreground fetch cannot release an armed required lockout", .bug(id: 319))
+    func failedFetchCannotReleaseAnArmedRequiredLockout() async {
+        let source = FakeRemoteFeatureFlagSource(
+            fetchResult: .failure(RemoteFeatureFlagSourceError.fetchFailed)
+        )
+        let gateState = AppVersionGateState(presentation: .required)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: RemoteFeatureFlagStore(),
+            appVersionGateState: gateState,
+            appMarketingVersionProvider: .init { "1.0" }
+        )
+
+        await service.refreshAndWait()
+        await service.refreshAndWait()
+
+        #expect(gateState.presentation == .required)
         #expect(source.appVersionValuesCallCount == 0)
     }
 
@@ -460,7 +480,7 @@ struct RemoteFeatureFlagLifecycleIntegrationTests {
 
         service.configure()
         await service.waitForCurrentRefresh()
-        #expect(service.refreshRequestCount == 1)
+        #expect(service.refreshGeneration == 1)
         #expect(source.fetchCallCount == 1)
         #expect(gateState.presentation == .required)
 
@@ -470,19 +490,18 @@ struct RemoteFeatureFlagLifecycleIntegrationTests {
         ])
 
         notificationCenter.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
-        #expect(service.refreshRequestCount == 1)
+        #expect(service.refreshGeneration == 1)
         #expect(source.fetchCallCount == 1)
         #expect(gateState.presentation == .required)
 
         notificationCenter.post(name: UIApplication.willEnterForegroundNotification, object: nil)
-        #expect(service.refreshRequestCount == 2)
+        #expect(service.refreshGeneration == 2)
         await service.waitForCurrentRefresh()
         #expect(source.fetchCallCount == 2)
         #expect(gateState.presentation == .recommended)
 
         service.teardown()
         notificationCenter.post(name: UIApplication.willEnterForegroundNotification, object: nil)
-        #expect(service.refreshRequestCount == 2)
         #expect(source.fetchCallCount == 2)
     }
 }

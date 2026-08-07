@@ -27,6 +27,7 @@ import {fileURLToPath} from "node:url";
 import {annotate, summarize} from "../lib/ci-annotations.mjs";
 import {
   APP_PARAMETER_SOURCE_PATHS,
+  captainOnlyParameterChanges,
   flagParityProblems,
   isAutomaticallyPublishedParameter,
   killSwitchChanges,
@@ -99,25 +100,40 @@ function main() {
     process.exit(1);
   }
 
-  const currentKeys = Object.keys(templateParameters(localTemplate))
-    .filter(isAutomaticallyPublishedParameter)
-    .sort();
+  const allKeys = Object.keys(templateParameters(localTemplate)).sort();
+  const currentKeys = allKeys.filter(isAutomaticallyPublishedParameter);
+  const captainOnlyKeys = allKeys.filter((key) => !isAutomaticallyPublishedParameter(key));
+  // Named in every outcome, including the quiet one. A count that silently omitted them would
+  // read as full coverage of a template that carries parameters no automation ever publishes.
+  const captainOnlyNote =
+    captainOnlyKeys.length > 0
+      ? ` ${captainOnlyKeys.length} captain-only parameter(s) (${captainOnlyKeys.join(", ")}) ` +
+        "are excluded from automatic publication and must be published by hand in every project."
+      : "";
   const baseTemplate = templateAtBase(args.baseRef);
 
   if (baseTemplate === null) {
     console.log(
       `All ${currentKeys.length} kill switch(es) are declared in both the app and the template. ` +
-        "No base ref to compare against, so nothing to report about this change.",
+        "No base ref to compare against, so nothing to report about this change." +
+        captainOnlyNote,
     );
     return;
   }
 
   const {added, removed} = killSwitchChanges(baseTemplate, localTemplate);
+  const captainOnly = captainOnlyParameterChanges(baseTemplate, localTemplate);
 
-  if (added.length === 0 && removed.length === 0) {
+  if (
+    added.length === 0 &&
+    removed.length === 0 &&
+    captainOnly.added.length === 0 &&
+    captainOnly.removed.length === 0
+  ) {
     console.log(
       `All ${currentKeys.length} kill switch(es) are declared in both the app and the template, ` +
-        "and this change adds or removes none.",
+        "and this change adds or removes none." +
+        captainOnlyNote,
     );
     return;
   }
@@ -140,6 +156,25 @@ function main() {
     );
   }
 
+  if (captainOnly.added.length > 0) {
+    annotate(
+      "warning",
+      `This pull request adds ${captainOnly.added.length} captain-only parameter(s): ` +
+        `${captainOnly.added.join(", ")}. No automated path publishes these - not dev, not ` +
+        "staging, not production. A captain must publish them to all three by hand, and the " +
+        "staging archive preflight refuses to build against any project still missing them.",
+    );
+  }
+
+  if (captainOnly.removed.length > 0) {
+    annotate(
+      "warning",
+      `This pull request removes ${captainOnly.removed.length} captain-only parameter(s) from ` +
+        `the template: ${captainOnly.removed.join(", ")}. Nothing deletes them from a live ` +
+        "project, so they stay in each console until a captain removes them by hand.",
+    );
+  }
+
   // Falls back to the console on purpose: this one is run by hand as often as by CI, and a
   // local run that printed nothing would read as "this change touches no switch".
   summarize(
@@ -148,6 +183,8 @@ function main() {
       "",
       ...added.map((key) => `- **Added** \`${key}\``),
       ...removed.map((key) => `- **Removed** \`${key}\``),
+      ...captainOnly.added.map((key) => `- **Added, captain-only** \`${key}\``),
+      ...captainOnly.removed.map((key) => `- **Removed, captain-only** \`${key}\``),
       "",
       ...(added.length > 0
         ? [
@@ -158,6 +195,13 @@ function main() {
             "| `ascend-prod-9c8f2` (production) | **By hand.** `cd scripts && npm run remoteconfig:publish-new:production -- --apply` |",
             "",
             "The automated publish only ever adds a parameter the project has never held, and refuses to write at all while any switch is off.",
+            "See `docs/remote-config-kill-switches.md`.",
+          ]
+        : []),
+      ...(captainOnly.added.length > 0
+        ? [
+            "**The captain-only parameters above are published by no automation, in any project.**",
+            "A captain must review and publish the full template to dev, staging and production by hand before the next archive of each.",
             "See `docs/remote-config-kill-switches.md`.",
           ]
         : []),

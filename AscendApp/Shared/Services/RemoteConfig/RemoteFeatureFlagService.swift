@@ -17,16 +17,15 @@ final class RemoteFeatureFlagService {
     private let lifecycleCoordinator: RemoteFeatureFlagLifecycleCoordinator
     private let diagnostics: AppDiagnosticsRecorder
     private var refreshTask: Task<Void, Never>?
-    private var refreshGeneration: UInt64 = 0
     private var isListening = false
+
+    /// Increments synchronously on every refresh request and on ``teardown()``, so a fetch that
+    /// lands late can tell whether it is still the current one before it publishes anything.
+    private(set) var refreshGeneration: UInt64 = 0
 
     /// Whether a fetch has ever succeeded on this launch. `false` means every flag is running on
     /// its shipped default or on a value the SDK persisted from a previous launch.
     private(set) var hasCompletedInitialFetch = false
-
-    /// Counts refresh requests synchronously, before their asynchronous fetch begins. This exposes
-    /// the lifecycle trigger boundary to deterministic tests without coupling them to task timing.
-    private(set) var refreshRequestCount = 0
 
     /// Whether any flag is currently resolved from a backend-supplied value, whether that arrived
     /// on this launch or was seeded from the SDK's persisted activation. Only used to say honestly
@@ -36,8 +35,8 @@ final class RemoteFeatureFlagService {
     init(
         source: any RemoteFeatureFlagSource,
         store: RemoteFeatureFlagStore = .shared,
-        appVersionGateState: AppVersionGateState = AppVersionGateState(),
-        appMarketingVersionProvider: AppMarketingVersionProvider = .init { nil },
+        appVersionGateState: AppVersionGateState = .shared,
+        appMarketingVersionProvider: AppMarketingVersionProvider = .mainBundle,
         lifecycleCoordinator: RemoteFeatureFlagLifecycleCoordinator = .init(),
         diagnostics: AppDiagnosticsRecorder = .shared
     ) {
@@ -50,11 +49,7 @@ final class RemoteFeatureFlagService {
     }
 
     private convenience init() {
-        self.init(
-            source: FirebaseRemoteFeatureFlagSource(),
-            appVersionGateState: .shared,
-            appMarketingVersionProvider: .mainBundle
-        )
+        self.init(source: FirebaseRemoteFeatureFlagSource())
     }
 
     /// Seeds the store from the SDK's persisted activation, then starts the real-time listener and
@@ -77,7 +72,6 @@ final class RemoteFeatureFlagService {
     /// into a per-foreground billable fetch.
     @discardableResult
     func refresh() -> Task<Void, Never> {
-        refreshRequestCount += 1
         refreshTask?.cancel()
         refreshGeneration &+= 1
         let generation = refreshGeneration

@@ -53,7 +53,9 @@ struct AppUpdateSheetHostingTests {
             sheetController.view.setNeedsLayout()
             sheetController.view.layoutIfNeeded()
 
-            let elements = accessibilityElements(under: sheetController.view)
+            let elements = try await settledAccessibilityElements(under: sheetController.view) {
+                $0.contains { $0.accessibilityViewIsModal }
+            }
             let buttonLabels = elements
                 .filter { $0.accessibilityTraits.contains(.button) }
                 .compactMap(\.accessibilityLabel)

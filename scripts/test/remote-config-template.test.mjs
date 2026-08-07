@@ -270,6 +270,29 @@ test("a parameter missing from the live project is not mistaken for a kill switc
   assert.deepEqual(findActiveKillSwitches({ parameters: {} }, localTemplate), []);
 });
 
+test("a setting an operator parked at false still refuses an automated republish", () => {
+  // The client reads `stringValue` and never inspects `valueType`, so a setting holding "false"
+  // is honoured exactly like a switch. Excluding settings wholesale would let the automated
+  // publisher restate it as its healthy baseline mid-incident.
+  const live = {
+    parameters: {
+      workout_sync_recovery_epoch: { defaultValue: { value: "false" } },
+    },
+  };
+
+  assert.deepEqual(findActiveKillSwitches(live, localTemplate), ["workout_sync_recovery_epoch"]);
+});
+
+test("a captain-only parameter is never treated as an automated publish's blocker", () => {
+  const live = {
+    parameters: {
+      minimum_supported_app_version: { defaultValue: { value: "false" } },
+    },
+  };
+
+  assert.deepEqual(findActiveKillSwitches(live, localTemplate), []);
+});
+
 test("an empty live template is reported as every switch being unreachable", () => {
   // This is #318 exactly, and the reason the gap survived: the checked-in template was
   // right, RemoteFeatureFlag.swift was right, and CI compared those two to each other

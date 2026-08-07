@@ -14,7 +14,7 @@ struct AppUpdateSheet: View {
         } footer: {
             VStack(spacing: 10) {
                 Button("Update on the App Store", action: onOpenAppStore)
-                    .appSheetButtonStyle(tone: .appUpdate)
+                    .appSheetButtonStyle(tone: .accentContrast)
                     .accessibilityHint("Opens Ascend in the App Store.")
 
                 if presentation.showsLaterAction {

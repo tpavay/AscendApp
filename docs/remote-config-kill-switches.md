@@ -43,8 +43,39 @@ The catalog is `AscendApp/Shared/Services/RemoteConfig/RemoteConfigSetting.swift
 | `workout_sync_recovery_epoch` | NUMBER | `0`, only ever increased | Grants every workout whose automatic sync series has stopped exactly one more attempt, fleet-wide, with no binary. `firestore.rules` deploys independently of app releases, so after a rules fix this is the only lever that unsticks the workouts that fix repairs. Gated by `workout_sync_recovery_reopen_enabled` |
 
 An unfetched setting resolves to its `shippedDefault` for the same reason a flag does - only `RemoteConfigValue.source == .remote` counts - and zero is that baseline deliberately, so a device's first successful fetch cannot read as a bump.
-Everything else in this document applies to settings too: they are published the same way, and the archive preflight refuses a build whose setting is unreachable exactly as it does for a switch.
+Everything else in this document applies to settings too: `workout_sync_recovery_epoch` is published the same way, and the archive preflight refuses a build whose setting is unreachable exactly as it does for a switch.
 The one difference is the type contract - a setting is held to its own declared type and baseline, not to `BOOLEAN` / `true`.
+
+### The version policy parameters, which are captain-only
+
+Two settings are deliberately **not** published by any automation, in any project.
+Their catalog is `AscendApp/Shared/Services/RemoteConfig/RemoteAppVersionParameter.swift`, read through `AppVersionGateState` rather than either of the pipelines above.
+
+| Parameter | Type | Baseline | What moving it does |
+|---|---|---|---|
+| `minimum_supported_app_version` | STRING | `0.0.0` | Every installed build below this version is locked behind a non-dismissible update sheet with one App Store action. There is no Later and no escape |
+| `recommended_app_version` | STRING | `0.0.0` | Every installed build below this version is prompted to update and may defer with Later |
+
+Both are compared semantically against `CFBundleShortVersionString`, so `1.10.0` is newer than `1.9.0`, and both ship inert at `0.0.0`.
+Each threshold is judged on its own: an absent or malformed recommendation cannot suppress an armed minimum, and an absent or malformed minimum cannot suppress the recommendation.
+Anything unparseable - a missing value, an empty string, `1.0-beta`, a current version the app cannot read - fails open for that threshold alone.
+
+**They are excluded from the additive publisher on purpose** (`CAPTAIN_ONLY_PARAMETERS` in `scripts/lib/remote-config-template.mjs`).
+Merging to `develop` publishes new *kill switches* to dev and staging automatically; it publishes neither of these anywhere.
+A captain publishes them to dev, staging and production by hand, through the full replace below, and the pull request report says so by name at review time.
+The archive preflight still requires them: a build that reads them refuses to archive against any project where they are unreachable, exactly as for a switch.
+
+**Arming the minimum, mid-incident.**
+This is the highest-blast-radius lever in the app, because a wrong value locks out the installed base and App Review with no binary to roll back to.
+
+1. **Never set the minimum above the highest version that has already passed review and shipped.**
+   A climber cannot update to a build that does not exist on the App Store yet, and neither can a reviewer.
+   Anything higher is a fleet-wide lockout with no exit.
+2. **Scope it with a Firebase App version condition**, so the block reaches the builds the incident is actually about rather than everything below the number.
+3. **Rehearse on Staging first** - the exact condition and the App Store link, on a real device, before touching production.
+   The link is Ascend's production product `6757202987` in every environment, so a Staging rehearsal exercises the real destination.
+4. Return the parameter to `0.0.0` when the incident closes.
+   Flip it, do not delete it: a deleted parameter blocks the next archive, for the reason under "Flipping one".
 
 ### What is deliberately not gated
 
@@ -144,6 +175,8 @@ The alias names are read out of `scripts/package.json` and the workflow list is 
 `scripts/publish-new-kill-switches.mjs` publishes only parameters the target project has never held, and it is what `deploy-staging.yml` runs against dev and staging on every push to `develop`.
 It exists because publishing was a separate manual act nobody remembers: #367 added three switches, the repository was correct, nothing was published, and the 2026-08-03 staging archive stopped on `routine_cloud_backup_writes_enabled is missing from the live template`.
 
+It publishes the automatically published parameters only; the captain-only version thresholds are excluded from its plan entirely, so a merge to `develop` never puts them into any project.
+
 It cannot re-enable a switch, in two independent layers:
 
 1. **The payload is built from the live template, never from the checked-in one.** Existing parameters, conditions and parameter groups cross over verbatim, so there is no code path that writes a checked-in value over a live one. Only keys the project has never held are added, and nothing is ever deleted - a retired parameter no current flag reads stays where it is.
@@ -196,7 +229,7 @@ The comparison nobody made was against the live backend, which was empty in dev,
 
 `scripts/ci/assert-remote-config-published.mjs <dev|staging|prod>` closes that.
 It reads the live template and fails the staging and production archives when a parameter the build reads is unreachable on the backend it will talk to.
-"A parameter the build reads" is both enums - `RemoteFeatureFlag.swift` and `RemoteConfigSetting.swift`.
+"A parameter the build reads" is every catalog enum - `RemoteFeatureFlag.swift`, `RemoteConfigSetting.swift` and `RemoteAppVersionParameter.swift`, listed once in `APP_PARAMETER_SOURCE_PATHS`.
 An operator setting that exists only in the checked-in template is worse than no lever, because it is believed in: `workout_sync_recovery_epoch` is what unsticks a fleet after a rules fix, and it is reached for mid-incident.
 
 Unreachable is wider than absent.
@@ -215,11 +248,14 @@ Two things it deliberately does **not** do:
 ### What a pull request is told
 
 The archive preflight cannot run on a pull request: a flag added there is not published anywhere yet, by definition, and never should be.
-So `scripts/ci/report-kill-switch-changes.mjs` runs instead, and asserts the half that needs no backend - `RemoteFeatureFlag.swift`, `RemoteConfigSetting.swift` and `remoteconfig.template.json` declare the same keys, and each parameter ships with a description in its healthy shape: a `BOOLEAN` that is on for a switch, the declared type at the declared baseline for a setting.
+So `scripts/ci/report-kill-switch-changes.mjs` runs instead, and asserts the half that needs no backend - every catalog enum and `remoteconfig.template.json` declare the same keys, and each parameter ships with a description in its healthy shape: a `BOOLEAN` that is on for a switch, the declared type at the declared baseline for a setting.
 
 The rest is reporting.
 A pull request that adds a switch says so in its checks, naming the switch, where it lands automatically, and that production does not.
 That is the difference between learning about a new switch at review time and learning about it from a staging archive that failed hours after the merge.
+
+A captain-only parameter is reported under its own heading rather than suppressed, because its instruction is the opposite one: nothing publishes it anywhere, and the next staging archive stops until a captain has.
+Excluding it from *publication* is the design; excluding it from the *report* would leave the reviewer reading "this change adds none" about the one parameter that will break the build.
 
 ### Publish and verification record
 

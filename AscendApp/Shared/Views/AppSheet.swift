@@ -25,7 +25,7 @@ enum AppSheetCardTone {
 
 enum AppSheetButtonTone {
     case primary
-    case appUpdate
+    case accentContrast
     case secondary
     case subtle
     case destructive
@@ -236,8 +236,8 @@ private struct AppSheetButtonModifier: ViewModifier {
         switch tone {
         case .primary, .destructive:
             return .white
-        case .appUpdate:
-            return AppUpdateButtonColors.foreground
+        case .accentContrast:
+            return AppSheetAccentContrastColors.foreground
         case .secondary:
             return palette.primaryText
         case .subtle:
@@ -249,8 +249,8 @@ private struct AppSheetButtonModifier: ViewModifier {
         switch tone {
         case .primary:
             return .accent
-        case .appUpdate:
-            return AppUpdateButtonColors.background
+        case .accentContrast:
+            return AppSheetAccentContrastColors.background
         case .secondary:
             return .clear
         case .subtle:
@@ -262,7 +262,7 @@ private struct AppSheetButtonModifier: ViewModifier {
 
     private var strokeColor: Color {
         switch tone {
-        case .primary, .appUpdate, .destructive:
+        case .primary, .accentContrast, .destructive:
             return .clear
         case .secondary:
             return .white.opacity(0.28)
