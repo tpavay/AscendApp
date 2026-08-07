@@ -46,6 +46,9 @@ An unfetched setting resolves to its `shippedDefault` for the same reason a flag
 Everything else in this document applies to settings too: `workout_sync_recovery_epoch` is published the same way, and the archive preflight refuses a build whose setting is unreachable exactly as it does for a switch.
 The one difference is the type contract - a setting is held to its own declared type and baseline, not to `BOOLEAN` / `true`.
 
+A moved setting is protected from the full replace exactly as an off switch is: the guard compares the live parameter against the checked-in one, so a bumped epoch stops the publish rather than being restated as `0`.
+That matters more here than for a switch, because the epoch is only ever increased - a client that already stored `3` would ignore every later bump until one exceeded it.
+
 ### The version policy parameters, which are captain-only
 
 Two settings are deliberately **not** published by any automation, in any project.
@@ -80,6 +83,7 @@ This is the highest-blast-radius lever in the app, because a wrong value locks o
 **Arm and disarm in the console, not through the full replace.**
 The checked-in template is pinned to the inert `0.0.0`, so publishing it is the one thing that can silently end a lockout: the payload restates `0.0.0`, and a condition scoping the block disappears with it.
 `deploy-remote-config.mjs` therefore refuses while either threshold is armed - live parameter not identical to the checked-in one, conditions included - and names it the same way it names a kill switch that is off.
+The same guard covers every setting, so a bumped `workout_sync_recovery_epoch` stops the publish too.
 Overriding that refusal takes `--allow-overwriting-active-kill-switch <key>`, spelled out per parameter.
 Adding a new *switch* to a project mid-incident is what the additive publisher is for, and it never touches these two at all.
 
@@ -163,7 +167,9 @@ There are two publish paths, and the difference between them is the whole safety
 `scripts/deploy-remote-config.mjs` publishes the checked-in template as it stands.
 That is the right thing for a person who has read the diff, and it is what puts a project into the healthy state after any divergence.
 It reads the live template first and **refuses** while any lever is in use, unless you name each one you mean to overwrite.
-Two shapes count: a managed flag currently off, and a captain-only version threshold armed away from its inert baseline - which has no "off" value to recognise, so it is caught by comparing the live parameter against the checked-in one in full, conditions included.
+Two shapes count: a managed flag currently off, and a **setting** moved away from its healthy baseline.
+A setting has no "off" value to recognise - it is in use at whatever value an operator moved it to - so it is caught by comparing the live parameter against the checked-in one in full, conditions included.
+That covers every entry in `SETTING_PARAMETERS`, enumerated from the catalog rather than named one by one: an armed version threshold, and a bumped `workout_sync_recovery_epoch`, whose reset to `0` is worse than a no-op because a client that already stored the higher value ignores every later bump until one exceeds it.
 
 ```bash
 cd scripts

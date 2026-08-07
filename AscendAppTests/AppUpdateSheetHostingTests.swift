@@ -139,30 +139,37 @@ struct AppUpdateSheetHostingTests {
             window.makeKeyAndVisible()
             await recorder.waitForAppearance(of: .recommended)
 
-            let recommendedSheet = try #require(
-                await presentedSheet(on: controller) { $0.contains("Later") },
-                "The recommended prompt never presented its Later action"
+            _ = try #require(
+                await presentedSheet(on: controller) { sheet, buttonLabels in
+                    buttonLabels.contains("Later") && sheet.isModalInPresentation == false
+                },
+                "The recommended prompt never settled on a dismissible sheet with a Later action"
             )
-            #expect(recommendedSheet.isModalInPresentation == false)
 
             gateState.presentation = .required
 
-            let requiredSheet = try #require(
-                await presentedSheet(on: controller) { $0 == ["Update on the App Store"] },
-                "The sheet never escalated to the required lockout's single action"
+            _ = try #require(
+                await presentedSheet(on: controller) { sheet, buttonLabels in
+                    buttonLabels == ["Update on the App Store"] && sheet.isModalInPresentation
+                },
+                "The sheet never escalated to the lockout's single non-dismissible action"
             )
-            #expect(requiredSheet.isModalInPresentation)
             #expect(recorder.laterCount == 0)
         }
     }
 
-    /// The presented sheet once its accessibility tree settles on `isSettled`, or `nil` at the
-    /// deadline. Bounded on purpose: a sheet that never swaps has to fail this test rather than
-    /// hang it, and the dismiss-and-re-present pass leaves `presentedViewController` briefly nil.
+    /// The presented sheet once it settles on `isSettled`, or `nil` at the deadline.
+    ///
+    /// Bounded on purpose: a sheet that never swaps has to fail this test rather than hang it, and
+    /// the dismiss-and-re-present pass leaves `presentedViewController` briefly nil. `isSettled`
+    /// takes the controller as well as its labels so every property a caller means to assert is
+    /// part of the settle condition - a swap publishes the new accessibility tree and the new
+    /// `isModalInPresentation` on their own render passes, so asserting either one outside this
+    /// loop is a race that fails on a sheet that is correct a frame later.
     private func presentedSheet(
         on controller: UIViewController,
         waitingUpTo timeout: Duration = .seconds(5),
-        settlingWhen isSettled: ([String]) -> Bool
+        settlingWhen isSettled: (UIViewController, [String]) -> Bool
     ) async throws -> UIViewController? {
         let deadline = ContinuousClock.now.advanced(by: timeout)
 
@@ -175,7 +182,7 @@ struct AppUpdateSheetHostingTests {
                     .filter { $0.accessibilityTraits.contains(.button) }
                     .compactMap(\.accessibilityLabel)
 
-                if isSettled(buttonLabels) {
+                if isSettled(presented, buttonLabels) {
                     return presented
                 }
             }

@@ -4,9 +4,10 @@ import test from "node:test";
 
 import {
   APP_PARAMETER_SOURCE_PATHS,
+  SETTING_PARAMETERS,
   appFlagKeys,
   findActiveKillSwitches,
-  findArmedVersionThresholds,
+  findArmedSettings,
   flagParityProblems,
   isParameterOff,
   isSettingParameter,
@@ -41,7 +42,7 @@ function parameterSource(fileName) {
 }
 
 // A live project in the healthy state: exactly what publishing the checked-in template produces,
-// which is the baseline `findArmedVersionThresholds` compares against.
+// which is the baseline `findArmedSettings` compares against.
 function liveTemplateMatchingCheckedIn() {
   return structuredClone({ parameters: templateParameters(localTemplate) });
 }
@@ -296,7 +297,7 @@ test("an armed minimum version stops the full replace that would return it to 0.
   const live = liveTemplateMatchingCheckedIn();
   live.parameters.minimum_supported_app_version.defaultValue.value = "1.4.0";
 
-  assert.deepEqual(findArmedVersionThresholds(live, localTemplate), [
+  assert.deepEqual(findArmedSettings(live, localTemplate), [
     "minimum_supported_app_version",
   ]);
 });
@@ -309,25 +310,47 @@ test("a threshold armed only through a condition is caught as well", () => {
     "iOS build 1.3.0": { value: "1.4.0" },
   };
 
-  assert.deepEqual(findArmedVersionThresholds(live, localTemplate), [
+  assert.deepEqual(findArmedSettings(live, localTemplate), [
     "minimum_supported_app_version",
   ]);
 });
 
-test("thresholds published at their inert baseline let the full replace proceed", () => {
-  assert.deepEqual(findArmedVersionThresholds(liveTemplateMatchingCheckedIn(), localTemplate), []);
+test("a bumped sync recovery epoch stops the full replace the same way", () => {
+  // Same shape as an armed threshold, and the reason the guard covers every setting rather than
+  // the captain-only two: the epoch is documented as only ever increased, so restating "0" does
+  // not merely close the re-open window - a client that already stored 3 then ignores every
+  // later bump until one exceeds it.
+  const live = liveTemplateMatchingCheckedIn();
+  live.parameters.workout_sync_recovery_epoch.defaultValue.value = "3";
+
+  assert.deepEqual(findArmedSettings(live, localTemplate), ["workout_sync_recovery_epoch"]);
 });
 
-test("a project that has never held the thresholds is not reported as armed", () => {
+test("every setting is covered by the full replace guard, not a named subset", () => {
+  // Enumerated from the catalog, so a setting added later is guarded without being wired in
+  // here - the drift that left the epoch uncovered when the guard was written for thresholds.
+  for (const key of Object.keys(SETTING_PARAMETERS)) {
+    const live = liveTemplateMatchingCheckedIn();
+    live.parameters[key].defaultValue.value = "an operator moved this";
+
+    assert.deepEqual(findArmedSettings(live, localTemplate), [key]);
+  }
+});
+
+test("settings published at their healthy baseline let the full replace proceed", () => {
+  assert.deepEqual(findArmedSettings(liveTemplateMatchingCheckedIn(), localTemplate), []);
+});
+
+test("a project that has never held the settings is not reported as moved", () => {
   // The first publish, which is exactly what a captain runs this script to do.
-  assert.deepEqual(findArmedVersionThresholds({ parameters: {} }, localTemplate), []);
+  assert.deepEqual(findArmedSettings({ parameters: {} }, localTemplate), []);
 });
 
-test("the full replace refuses on an armed threshold, not just on an off switch", () => {
+test("the full replace refuses on a moved setting, not just on an off switch", () => {
   const deploy = repositoryText("scripts/deploy-remote-config.mjs");
 
-  assert.match(deploy, /findArmedVersionThresholds/);
-  assert.match(deploy, /armed away from its checked-in baseline/);
+  assert.match(deploy, /findArmedSettings/);
+  assert.match(deploy, /moved away from its checked-in baseline/);
   assert.match(deploy, /--allow-overwriting-active-kill-switch/);
 });
 
