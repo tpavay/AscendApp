@@ -148,6 +148,7 @@ Baseline for every change. If a loaded skill prescribes something more specific,
 - **Clarity over cleverness.** If a future reader won't immediately understand a line, the code is wrong.
 - **Delete before you defend.** Dead code, commented-out experiments, "just in case" abstractions - remove them; a deprecated path may only stay if it carries a written deprecation/removal date. Git history is the backup.
 - **Comments explain WHY, not WHAT.** They earn space only for a non-obvious constraint, workaround, or invariant.
+- **Backend contract compatibility.** Read `docs/backend-contract-compatibility.md` before changing Firestore shapes or rules, callable Function signatures, or Remote Config keys.
 
 ## Tripwires
 
