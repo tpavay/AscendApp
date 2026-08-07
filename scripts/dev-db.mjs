@@ -13,6 +13,7 @@
  *   node scripts/dev-db.mjs clear --target profiles,leaderboard --project dev
  *   node scripts/dev-db.mjs reset --target all --project dev
  *   node scripts/dev-db.mjs wipe --project dev --confirm-dev-wipe
+ *   node scripts/dev-db.mjs wipe --project staging --confirm-staging-wipe
  *   node scripts/dev-db.mjs create-auth-user --project staging --email qa@example.com --display-name "QA Tester"
  *   node scripts/dev-db.mjs hydrate-user --project dev --user <uid> --display-name "Tyler P." --age 27 --gender man --height-in 70 --weight-lb 178 --country US --region IL
  *   node scripts/dev-db.mjs seed-demo-user --project staging --email person@example.com
@@ -327,7 +328,7 @@ Options:
   --target <list>                    Comma-separated target list. Defaults to all.
   --dry-run                          Print plans without writing.
   --skip-clear                       Forwarded to seed targets that support it.
-  --confirm-dev-wipe                 Required for wipe without --dry-run.
+  --confirm-dev-wipe                 Required for a dev wipe without --dry-run.
   --confirm-staging-wipe             Required for a staging wipe without --dry-run.
   --source-user <uid>                Forwarded to live-replay seed.
   --avatar-dir <path>                Forwarded to live-replay seed.
