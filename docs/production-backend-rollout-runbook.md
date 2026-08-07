@@ -255,7 +255,8 @@ npx -y firebase-tools@15.22.1 deploy --project production \
 
 Verify the command reports a successful rules release.
 Then use the production-signed smoke account to read and write its allowed private documents and confirm an unauthenticated client cannot read them.
-The smoke account needs a reconciled `users/{uid}/entitlements/app_access` grant for that check: private workouts, routines, and `profile_stats` are paid boundaries, so a signed-in account without a grant is denied by design.
+The smoke account needs a reconciled `users/{uid}/entitlements/app_access` grant for that check: writing private workouts and routines, and reading or writing `profile_stats`, are paid boundaries, so a signed-in account without a grant is denied by design.
+Reading, enumerating, and deleting an owner's own workouts and routines deliberately are not, which is what keeps account deletion working after a lapse; `docs/revenuecat-server-entitlement-enforcement.md` owns the per-operation gate list.
 Also confirm the current `profile_stats` write succeeds before uploading the binary.
 
 Rollback: redeploy only `firestore:rules` from the last known good production SHA.
@@ -270,7 +271,7 @@ npx -y firebase-tools@15.22.1 deploy --project production \
 
 Verify the command reports a successful rules release.
 Using the production-signed smoke account, upload and delete one file beneath that account's `users/{uid}/...` prefix and confirm a second account cannot read or write it.
-Workout media and heart-rate sidecars authorize through a cross-service Firestore read of the same paid grant, so this check fails closed if that IAM role is missing or the smoke account has no grant; owner deletes stay available either way.
+Workout media and heart-rate sidecars authorize their object reads and uploads through a cross-service Firestore read of the same paid grant, so this check fails closed if that IAM role is missing or the smoke account has no grant; listing and deleting an owner's own prefixes stays available either way.
 
 Rollback: redeploy only `storage` from the last known good production SHA.
 

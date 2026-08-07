@@ -208,22 +208,27 @@ The paid check belongs where a modified client reaches durable paid data, paid s
 
 Firestore requires an active grant for:
 
-- Private workouts, user routines, and routine folders on read, create, and update.
+- Private workouts, user routines, and routine folders on create and update.
 - Live Climb publish status and completed-landmark projections.
-- Profile statistics, public workout summaries, and achievements.
+- Profile statistics, achievements, and another climber's public workout summaries.
 - Global leaderboards, published routine templates, Live Replay indexes, and global Live Climb community statistics.
 - The remote share-card template manifest.
 
 Storage requires an active grant for:
 
-- Workout photos, videos, and heart-rate sidecars on read, list, create, and update.
+- Workout photos, videos, and heart-rate sidecars on object read, create, and update.
 - Share-card template assets and Live Replay avatars.
 
 `climb-images/` deliberately stays readable to any signed-in caller.
 The `firstClimb` onboarding stage is the last stage before the paywall and shows the recommended landmark's artwork, so gating that prefix would break the conversion path itself.
 Like the Hosting climb catalog, it is immutable product content with no user data, mutable state, or compute authority.
 
-Owner deletes stay available after lapse so paid enforcement never traps user data.
+Owner deletes stay available after lapse so paid enforcement never traps user data, and so does the enumeration that finds what to delete.
+Account deletion sweeps a collection by listing it and deleting what comes back, and Firestore evaluates a list rule against the query rather than against the stored documents, so a paid read gate refuses an unentitled owner's sweep even when the collection is empty and turns guideline 5.1.1(v) deletion into a permission error the moment a subscription lapses.
+Read on the owner-private collections that sweep enumerates - `users/{uid}/workouts`, `routines`, and `routine_folders` - therefore matches their owner-gated delete, and `list` on the `users/{uid}` Storage media prefixes does the same.
+Splitting `get` from `list` would buy nothing on the Firestore side, because a list returns full document bodies; Storage objects are separable, so their bytes stay paid while enumeration does not.
+`profile_workouts` is the one swept collection any entitled climber may read, so the owner is added to its paid gate rather than replacing it and every other climber still needs an active grant.
+Create and update stay paid throughout, so a lapsed account can enumerate and remove what it already has without being able to add more.
 Account documents, authentication routing, public identity publication, profile-picture management, lifecycle state, communication preferences, notification devices, blocks, reports, feedback, and rate-limit records stay ungated because onboarding, restore, account management, support, and safety must work before purchase and after lapse.
 Public profile identity is moderated public identity rather than paid fitness data.
 

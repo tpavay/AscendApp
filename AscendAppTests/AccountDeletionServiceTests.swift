@@ -149,6 +149,33 @@ struct AccountDeletionServiceTests {
         #expect(gateway.steps == [.reauthenticate])
     }
 
+    @Test("Storage failure stops deletion before Firestore or Auth cleanup")
+    func storageFailureLeavesTheAccountAuthenticatedAndRetryable() async throws {
+        let gateway = RecordingAccountDeletionGateway()
+        gateway.storageDeletionError = StoragePermissionTestError()
+        let cleanup = RecordingLocalCleanup()
+        let service = AccountDeletionService(gateway: gateway, localCleanup: cleanup)
+        let modelContext = try makeModelContext()
+        modelContext.insert(Routine(name: "Local Routine"))
+        try modelContext.save()
+
+        do {
+            try await service.deleteAccount(modelContext: modelContext)
+            Issue.record("Expected the Storage permission failure to stop account deletion.")
+        } catch let error as AccountDeletionService.DeletionError {
+            #expect(
+                error.errorDescription ==
+                    "Failed to delete stored files: User does not have permission to access stored files."
+            )
+        } catch {
+            Issue.record("Expected DeletionError, received \(error).")
+        }
+
+        #expect(gateway.steps == [.reauthenticate, .deleteAllUserStorage])
+        #expect(cleanup.steps == [.suspendAuthenticatedWork, .resumeAuthenticatedWork])
+        #expect(try modelContext.fetchCount(FetchDescriptor<Routine>()) == 1)
+    }
+
     @Test
     func keepsLocalDataWhenTheAuthDeletionFails() async throws {
         let gateway = RecordingAccountDeletionGateway()
@@ -463,6 +490,12 @@ private enum TestError: Error {
     case remoteFailure
 }
 
+private struct StoragePermissionTestError: LocalizedError {
+    var errorDescription: String? {
+        "User does not have permission to access stored files."
+    }
+}
+
 /// Keeps the tests off the test host's UserDefaults, documents directory, and
 /// shared image cache.
 @MainActor
@@ -554,6 +587,7 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
     var reauthenticationResult: Result<ReauthenticationResult, Error> =
         .success(ReauthenticationResult(appleAuthorizationCode: nil))
     var revocationError: Error?
+    var storageDeletionError: Error?
     var authDeletionError: Error?
     var cancelTaskAfterAuthDeletion = false
 
@@ -564,6 +598,9 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
 
     func deleteAllUserStorage(userId: String) async throws {
         steps.append(.deleteAllUserStorage)
+        if let storageDeletionError {
+            throw storageDeletionError
+        }
     }
 
     func deleteWorkoutBackups(userId: String) async throws {
