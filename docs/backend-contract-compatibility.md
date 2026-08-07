@@ -37,8 +37,8 @@ Each one can break a released binary even when the newest source compiles and ev
 
 ### Security rules are the one surface where additive checks are not free
 
-Cloud Firestore Security Rules currently limit a request to 1,000 expressions evaluated, and exceeding that limit denies the request.
-This repository observes that abort as a bare `PERMISSION_DENIED`, which is indistinguishable from a rule that deliberately refused the write, so an over-budget rule reads as a correct denial and can go undiagnosed.
+Firestore aborts rule evaluation once a request exceeds its expression budget, and the abort arrives as a bare `PERMISSION_DENIED` that is indistinguishable from a rule which deliberately refused the write, so an over-budget rule reads as a correct denial and can go undiagnosed.
+The [`ascend-firebase-data` skill](../.claude/skills/ascend-firebase-data/SKILL.md) owns that budget, its measured per-check costs, and the hoisting rules that keep a validator affordable.
 Every widening that adds validation therefore has to be measured, not assumed, with `tests/firebase-rules/workout-expression-budget.test.mjs` as the pattern to follow.
 Measure every maximum valid document shape the affected rule can be asked to evaluate, including the largest shape each live client version can legitimately build, because a rule that still accepts small documents can already be refusing large ones.
 If the additive validation cannot fit inside the budget, the change must move the new contract to a separately matched path or document version with its own evaluation budget, or complete the retirement loop below before narrowing the old contract.
@@ -80,6 +80,7 @@ The standing rule is "make the backend accept everything required by all live ap
 [Deploy Staging](../.github/workflows/deploy-staging.yml) runs on manual dispatch and on pushes to `develop` that touch one of its listed app, Functions, web, Firebase, rules, scripts, signing, or workflow paths.
 Once triggered, its Firebase job always deploys indexes, waits for them, deploys Functions, verifies Functions, deploys Firestore rules, deploys Storage rules, and deploys Hosting in that order.
 The Firebase job has no dependency on the iOS build and runs in parallel with it, so staging can change before the archive finishes or even when the archive fails.
+That parallelism is a known CI safety gap tracked by [issue #202](https://github.com/tpavay/AscendApp/issues/202) rather than settled design, and the `ascend-deploy` skill owns the job graph it belongs to.
 The TestFlight upload depends on both jobs, so a successful staging binary is not uploaded until the compatible backend deployment has succeeded.
 
 [Deploy Production](../.github/workflows/deploy-production.yml) runs on manual dispatch and on pushes to `main` that touch one of its listed app, Functions, web, Firebase, rules, scripts, signing, or workflow paths.
