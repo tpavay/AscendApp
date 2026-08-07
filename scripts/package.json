@@ -14,6 +14,7 @@
     "db:reset": "node dev-db.mjs reset --project dev",
     "db:reset:staging": "node dev-db.mjs reset --project staging",
     "db:wipe": "node dev-db.mjs wipe --project dev --confirm-dev-wipe",
+    "db:wipe:staging": "node dev-db.mjs wipe --project staging --confirm-staging-wipe",
     "db:create-auth-user": "node dev-db.mjs create-auth-user --project dev",
     "db:create-auth-user:staging": "node dev-db.mjs create-auth-user --project staging",
     "db:hydrate-user": "node dev-db.mjs hydrate-user --project dev",

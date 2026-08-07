@@ -13,6 +13,8 @@ Load the `vibe-security` skill for any auth/authz/trust-boundary change, and `fi
 
 Server-owned collections are the exception: they are `allow write: if false` and validate no fields, because no client can write them at all. Adding a field to one (for example the `live_replay_leaderboards` subtree, written only by Cloud Functions and Admin SDK scripts) needs no rules change.
 
+A *new* top-level server-owned collection still needs its own `allow read, write: if false` match. The checked-in top-level matches are also the reviewed deletion contract for dev/staging resets, so an undeclared one blocks `npm run db:wipe` fail-closed - see `ascend-dev-fixtures`.
+
 ## Which collections must be server-owned
 
 **Shape validation is not evidence validation.** A rule can prove a document has the right fields, the right types, and the right author, and still have no idea whether the numbers in it happened. Decide by what reads the document, not by who writes it:

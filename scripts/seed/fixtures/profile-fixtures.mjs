@@ -6,6 +6,7 @@ export {PUBLIC_PHOTO_URL_PATTERN};
 export {currentPeriod};
 
 export const PROFILE_SEED_PACK_ID = "v1-profile-test";
+const DEFAULT_JOINED_OFFSET_DAYS = -60;
 export const PROFILE_SEED_SOURCE = "seed-test-users";
 export const PROFILE_SCHEMA_VERSION = 2;
 const PUBLIC_IDENTITY_STATE_PUBLISHED = "published";
@@ -133,7 +134,7 @@ export function buildProfileSeedWrites({
   const writes = [];
 
   for (const persona of PROFILE_SEED_PERSONAS) {
-    const joinedAt = daysFromNow(persona.joinedOffsetDays ?? -60, now);
+    const joinedAt = daysFromNow(persona.joinedOffsetDays ?? DEFAULT_JOINED_OFFSET_DAYS, now);
     const userRef = db.collection("users").doc(persona.id);
     const publicRef = userRef.collection("public_profile").doc("current");
     const statsRef = userRef.collection("profile_stats").doc("current");
@@ -281,13 +282,36 @@ export function expectedProfileUserIds() {
   return PROFILE_SEED_PERSONAS.map((persona) => persona.id);
 }
 
-export function expectedLeaderboardDocIds() {
+export function expectedLeaderboardDocIds(now = new Date()) {
   return PROFILE_SEED_PERSONAS.flatMap((persona) =>
     LEADERBOARD_TIME_FRAMES.map((timeFrame) => {
-      const period = currentPeriod(timeFrame);
+      const period = currentPeriod(timeFrame, now);
       return leaderboardDocId(persona.id, timeFrame, period.key);
     })
   );
+}
+
+/**
+ * Recovers the instant a profile pack was seeded from the data it left behind.
+ *
+ * A leaderboard document id embeds the period that was current when the pack was
+ * written, so rebuilding the expected ids from the reader's own clock reports
+ * every daily row as missing whenever a seed and the audit that follows it
+ * straddle UTC midnight. `joined_at` is a fixed per-persona offset from the
+ * seeding instant, so it carries that instant back exactly.
+ *
+ * @param {Map<string, {toDate?: () => Date}|Date>} joinedAtByUserId Published
+ *   `joined_at` values keyed by persona id.
+ * @returns {Date|null} The seeding instant, or null when no persona published one.
+ */
+export function seedAsOfInstant(joinedAtByUserId) {
+  for (const persona of PROFILE_SEED_PERSONAS) {
+    const joinedAt = joinedAtByUserId.get(persona.id);
+    const joinedAtDate = typeof joinedAt?.toDate === "function" ? joinedAt.toDate() : joinedAt;
+    if (!(joinedAtDate instanceof Date) || Number.isNaN(joinedAtDate.getTime())) continue;
+    return daysFromNow(-(persona.joinedOffsetDays ?? DEFAULT_JOINED_OFFSET_DAYS), joinedAtDate);
+  }
+  return null;
 }
 
 export function legacyLeaderboardDocIds() {
