@@ -6,7 +6,8 @@
  * Deploying a template is a full replace, so a naive deploy would republish every kill
  * switch as `true` - silently undoing whatever an operator had just switched off. That is
  * the exact failure this whole mechanism exists to prevent, so this script reads the live
- * template first and refuses when any managed flag is currently `false`.
+ * template first and refuses while any lever is in use: a managed flag currently `false`, or
+ * a captain-only version threshold armed away from the inert baseline the template carries.
  *
  * The kill switches are deliberately NOT part of the CI deploy (`deploy-staging.yml` and
  * `deploy-production.yml` do not pass `remoteconfig` to `--only`). Publishing the template
@@ -17,16 +18,20 @@
  *   node scripts/deploy-remote-config.mjs --env staging
  *   node scripts/deploy-remote-config.mjs --env prod --confirm-production ascend-prod-9c8f2
  *
- * Dry-run is the default; pass --apply to publish. A flag that is intentionally off stays
- * off unless you also pass --allow-overwriting-active-kill-switch, which needs the flag
- * keys spelled out so it cannot be a reflex.
+ * Dry-run is the default; pass --apply to publish. A lever in use - a flag that is
+ * intentionally off, or a version threshold armed away from its inert baseline - stays as it
+ * is unless you also pass --allow-overwriting-active-kill-switch, which needs the keys
+ * spelled out so it cannot be a reflex.
  */
 
 import {execFileSync} from "node:child_process";
 import {readFileSync} from "node:fs";
 import {fileURLToPath} from "node:url";
 import {dirname, resolve} from "node:path";
-import {findActiveKillSwitches} from "./lib/remote-config-template.mjs";
+import {
+  findActiveKillSwitches,
+  findArmedVersionThresholds,
+} from "./lib/remote-config-template.mjs";
 
 const FIREBASE_TOOLS = "firebase-tools@15.22.1";
 
@@ -117,7 +122,9 @@ function main() {
 
   const liveTemplate = fetchLiveTemplate(projectId);
   const activeKillSwitches = findActiveKillSwitches(liveTemplate, localTemplate);
-  const unacknowledged = activeKillSwitches.filter(
+  const armedThresholds = findArmedVersionThresholds(liveTemplate, localTemplate);
+  const leversInUse = [...activeKillSwitches, ...armedThresholds];
+  const unacknowledged = leversInUse.filter(
     (key) => !args.allowedOverwrites.includes(key),
   );
 
@@ -125,11 +132,17 @@ function main() {
     console.error(
       [
         "",
-        `REFUSING: ${unacknowledged.length} kill switch(es) are currently OFF in ${projectId}:`,
-        ...unacknowledged.map((key) => `  - ${key}`),
+        `REFUSING: ${unacknowledged.length} lever(s) are in use in ${projectId}:`,
+        ...unacknowledged.map((key) =>
+          armedThresholds.includes(key)
+            ? `  - ${key} is armed away from its checked-in baseline`
+            : `  - ${key} is currently OFF`,
+        ),
         "",
-        "Publishing this template would switch them back on. If that is what you want,",
-        "re-run naming each one:",
+        "Publishing this template restates the checked-in value over every one of them -",
+        "switching a kill switch back on, and returning an armed version threshold to 0.0.0,",
+        "which ends the lockout for the whole fleet. If that is what you want, re-run naming",
+        "each one:",
         ...unacknowledged.map(
           (key) => `  --allow-overwriting-active-kill-switch ${key}`,
         ),
@@ -140,9 +153,9 @@ function main() {
     return;
   }
 
-  if (activeKillSwitches.length > 0) {
+  if (leversInUse.length > 0) {
     console.log(
-      `Acknowledged re-enabling: ${activeKillSwitches.join(", ")}`,
+      `Acknowledged overwriting: ${leversInUse.join(", ")}`,
     );
   }
 

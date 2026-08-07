@@ -142,6 +142,32 @@ export function findActiveKillSwitches(liveTemplate, localTemplate) {
 }
 
 /**
+ * The captain-only thresholds the live project holds in a state the checked-in template does not.
+ *
+ * A version threshold has no "off" value `isParameterOff` could recognise. An armed lockout is a
+ * version string, or a condition scoping one to the builds an incident is about, while
+ * `templateShapeProblems` pins the checked-in value to the inert baseline - so a full replace can
+ * only ever write `0.0.0` back over it. The one honest question left is whether the live parameter
+ * still matches the baseline the publish would restate; anything else is a captain's deliberate
+ * arming, and restating over it silently ends a fleet-wide lockout mid-incident.
+ *
+ * Compared structurally and in full, so a lockout scoped through `conditionalValues` counts even
+ * when its default is still the baseline - which is the shape the documented App Review guidance
+ * tells a captain to arm.
+ */
+export function findArmedVersionThresholds(liveTemplate, localTemplate) {
+  const liveParameters = templateParameters(liveTemplate);
+  const localParameters = templateParameters(localTemplate);
+
+  return CAPTAIN_ONLY_PARAMETERS.filter(
+    (key) =>
+      localParameters[key] !== undefined &&
+      liveParameters[key] !== undefined &&
+      !isDeepStrictEqual(liveParameters[key], localParameters[key]),
+  ).sort();
+}
+
+/**
  * The Remote Config parameter keys the app actually reads, parsed out of
  * The Remote Config catalog enums. Their raw values ARE the
  * keys, so the Swift sources are the one authority on what the app looks for; deriving them

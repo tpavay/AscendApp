@@ -128,7 +128,11 @@ struct RemoteFeatureFlagServiceTests {
             fetchResult: .success([RemoteFeatureFlag.workoutCloudBackupWrites.key: false])
         )
         let store = RemoteFeatureFlagStore()
-        let service = RemoteFeatureFlagService(source: source, store: store)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: store,
+            appVersionGateState: AppVersionGateState()
+        )
 
         await service.refreshAndWait()
 
@@ -321,7 +325,11 @@ struct RemoteFeatureFlagServiceTests {
     func aFailedFetchLeavesEveryFlagOnItsShippedDefault() async {
         let source = FakeRemoteFeatureFlagSource(fetchResult: .failure(RemoteFeatureFlagSourceError.fetchFailed))
         let store = RemoteFeatureFlagStore()
-        let service = RemoteFeatureFlagService(source: source, store: store)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: store,
+            appVersionGateState: AppVersionGateState()
+        )
 
         await service.refreshAndWait()
 
@@ -337,7 +345,11 @@ struct RemoteFeatureFlagServiceTests {
             fetchResult: .success([RemoteFeatureFlag.workoutCloudBackupWrites.key: false])
         )
         let store = RemoteFeatureFlagStore()
-        let service = RemoteFeatureFlagService(source: source, store: store)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: store,
+            appVersionGateState: AppVersionGateState()
+        )
         await service.refreshAndWait()
 
         source.setFetchResult(.failure(RemoteFeatureFlagSourceError.fetchFailed))
@@ -354,7 +366,11 @@ struct RemoteFeatureFlagServiceTests {
             fetchResult: .success([RemoteFeatureFlag.workoutCloudBackupWrites.key: false])
         )
         let store = RemoteFeatureFlagStore()
-        let service = RemoteFeatureFlagService(source: source, store: store)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: store,
+            appVersionGateState: AppVersionGateState()
+        )
         await service.refreshAndWait()
 
         source.setFetchResult(.success([:]))
@@ -374,7 +390,11 @@ struct RemoteFeatureFlagServiceTests {
             activatedValues: [RemoteFeatureFlag.workoutMediaUploads.key: false]
         )
         let store = RemoteFeatureFlagStore()
-        let service = RemoteFeatureFlagService(source: source, store: store)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: store,
+            appVersionGateState: AppVersionGateState()
+        )
 
         service.configure()
         await service.refreshAndWait()
@@ -396,7 +416,11 @@ struct RemoteFeatureFlagServiceTests {
             activatedValues: [RemoteFeatureFlag.workoutRemoteDeletes.key: false]
         )
         let store = RemoteFeatureFlagStore()
-        let service = RemoteFeatureFlagService(source: source, store: store)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: store,
+            appVersionGateState: AppVersionGateState()
+        )
 
         service.configure()
 
@@ -410,7 +434,11 @@ struct RemoteFeatureFlagServiceTests {
     func aDeviceWithNothingPersistedStaysOnShippedDefaults() {
         let source = FakeRemoteFeatureFlagSource(fetchResult: .success([:]))
         let store = RemoteFeatureFlagStore()
-        let service = RemoteFeatureFlagService(source: source, store: store)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: store,
+            appVersionGateState: AppVersionGateState()
+        )
 
         service.configure()
 
@@ -421,7 +449,11 @@ struct RemoteFeatureFlagServiceTests {
     func configureStartsTheRealTimeListenerAndARealTimeUpdateLandsWithoutAFetch() async {
         let source = FakeRemoteFeatureFlagSource(fetchResult: .success([:]))
         let store = RemoteFeatureFlagStore()
-        let service = RemoteFeatureFlagService(source: source, store: store)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: store,
+            appVersionGateState: AppVersionGateState()
+        )
 
         service.configure()
         await service.refreshAndWait()
@@ -436,7 +468,11 @@ struct RemoteFeatureFlagServiceTests {
     @Test
     func teardownStopsListening() async {
         let source = FakeRemoteFeatureFlagSource(fetchResult: .success([:]))
-        let service = RemoteFeatureFlagService(source: source, store: RemoteFeatureFlagStore())
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: RemoteFeatureFlagStore(),
+            appVersionGateState: AppVersionGateState()
+        )
 
         service.configure()
         #expect(source.isListening == true)
@@ -448,7 +484,11 @@ struct RemoteFeatureFlagServiceTests {
     @Test
     func configuringTwiceOpensOnlyOneListener() async {
         let source = FakeRemoteFeatureFlagSource(fetchResult: .success([:]))
-        let service = RemoteFeatureFlagService(source: source, store: RemoteFeatureFlagStore())
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: RemoteFeatureFlagStore(),
+            appVersionGateState: AppVersionGateState()
+        )
 
         service.configure()
         service.configure()

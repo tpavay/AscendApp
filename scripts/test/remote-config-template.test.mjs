@@ -6,6 +6,7 @@ import {
   APP_PARAMETER_SOURCE_PATHS,
   appFlagKeys,
   findActiveKillSwitches,
+  findArmedVersionThresholds,
   flagParityProblems,
   isParameterOff,
   isSettingParameter,
@@ -37,6 +38,12 @@ function parameterSource(fileName) {
   const source = parameterSourceByFileName.get(fileName);
   assert.ok(source, `${fileName} is not listed in APP_PARAMETER_SOURCE_PATHS`);
   return source;
+}
+
+// A live project in the healthy state: exactly what publishing the checked-in template produces,
+// which is the baseline `findArmedVersionThresholds` compares against.
+function liveTemplateMatchingCheckedIn() {
+  return structuredClone({ parameters: templateParameters(localTemplate) });
 }
 
 const flagSource = parameterSource("RemoteFeatureFlag.swift");
@@ -281,6 +288,47 @@ test("a setting an operator parked at false still refuses an automated republish
   };
 
   assert.deepEqual(findActiveKillSwitches(live, localTemplate), ["workout_sync_recovery_epoch"]);
+});
+
+test("an armed minimum version stops the full replace that would return it to 0.0.0", () => {
+  // The hazard the Boolean guard cannot see: a threshold has no "false" to recognise, and the
+  // checked-in template is pinned to the inert baseline, so publishing it IS the disarm.
+  const live = liveTemplateMatchingCheckedIn();
+  live.parameters.minimum_supported_app_version.defaultValue.value = "1.4.0";
+
+  assert.deepEqual(findArmedVersionThresholds(live, localTemplate), [
+    "minimum_supported_app_version",
+  ]);
+});
+
+test("a threshold armed only through a condition is caught as well", () => {
+  // The shape the App Review guidance tells a captain to use: the default stays inert and the
+  // lockout rides on a Firebase App version condition, which a full replace would drop.
+  const live = liveTemplateMatchingCheckedIn();
+  live.parameters.minimum_supported_app_version.conditionalValues = {
+    "iOS build 1.3.0": { value: "1.4.0" },
+  };
+
+  assert.deepEqual(findArmedVersionThresholds(live, localTemplate), [
+    "minimum_supported_app_version",
+  ]);
+});
+
+test("thresholds published at their inert baseline let the full replace proceed", () => {
+  assert.deepEqual(findArmedVersionThresholds(liveTemplateMatchingCheckedIn(), localTemplate), []);
+});
+
+test("a project that has never held the thresholds is not reported as armed", () => {
+  // The first publish, which is exactly what a captain runs this script to do.
+  assert.deepEqual(findArmedVersionThresholds({ parameters: {} }, localTemplate), []);
+});
+
+test("the full replace refuses on an armed threshold, not just on an off switch", () => {
+  const deploy = repositoryText("scripts/deploy-remote-config.mjs");
+
+  assert.match(deploy, /findArmedVersionThresholds/);
+  assert.match(deploy, /armed away from its checked-in baseline/);
+  assert.match(deploy, /--allow-overwriting-active-kill-switch/);
 });
 
 test("a captain-only parameter is never treated as an automated publish's blocker", () => {

@@ -77,6 +77,12 @@ This is the highest-blast-radius lever in the app, because a wrong value locks o
 4. Return the parameter to `0.0.0` when the incident closes.
    Flip it, do not delete it: a deleted parameter blocks the next archive, for the reason under "Flipping one".
 
+**Arm and disarm in the console, not through the full replace.**
+The checked-in template is pinned to the inert `0.0.0`, so publishing it is the one thing that can silently end a lockout: the payload restates `0.0.0`, and a condition scoping the block disappears with it.
+`deploy-remote-config.mjs` therefore refuses while either threshold is armed - live parameter not identical to the checked-in one, conditions included - and names it the same way it names a kill switch that is off.
+Overriding that refusal takes `--allow-overwriting-active-kill-switch <key>`, spelled out per parameter.
+Adding a new *switch* to a project mid-incident is what the additive publisher is for, and it never touches these two at all.
+
 ### What is deliberately not gated
 
 The line is **automatic and bulk** versus **user-initiated and singular**, not "writes to Firestore".
@@ -156,7 +162,8 @@ There are two publish paths, and the difference between them is the whole safety
 
 `scripts/deploy-remote-config.mjs` publishes the checked-in template as it stands.
 That is the right thing for a person who has read the diff, and it is what puts a project into the healthy state after any divergence.
-It reads the live template first and **refuses** while any managed flag is currently off, unless you name each one you mean to re-enable.
+It reads the live template first and **refuses** while any lever is in use, unless you name each one you mean to overwrite.
+Two shapes count: a managed flag currently off, and a captain-only version threshold armed away from its inert baseline - which has no "off" value to recognise, so it is caught by comparing the live parameter against the checked-in one in full, conditions included.
 
 ```bash
 cd scripts
