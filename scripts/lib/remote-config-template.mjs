@@ -27,23 +27,81 @@ import {isDeepStrictEqual} from "node:util";
  * unstick the workouts a rules fix repairs.
  */
 export const SETTING_PARAMETERS = Object.freeze({
-  workout_sync_recovery_epoch: Object.freeze({ valueType: "NUMBER", healthyDefault: "0" }),
+  minimum_supported_app_version: Object.freeze({ valueType: "STRING", healthyDefault: "0.0.0" }),
+  recommended_app_version: Object.freeze({ valueType: "STRING", healthyDefault: "0.0.0" }),
+  workout_sync_recovery_epoch: Object.freeze({
+    valueType: "NUMBER",
+    healthyDefault: "0",
+    // Only ever increased, so its checked-in value is a floor rather than a desired state: once
+    // an operator has bumped it, no publish of this template can restate it correctly. That makes
+    // the full replace's refusal permanent by design, and the way out is to put the live value
+    // back afterwards rather than to leave the project at the floor.
+    monotonic: true,
+  }),
 });
+
+/**
+ * Parameters whose first publish and every later change are captain operations.
+ *
+ * The minimum version can lock out the installed base and App Review. The recommended version
+ * still changes launch UX for every matching build. They stay in the checked-in template and the
+ * archive-to-live validation, but the additive kill-switch workflow must never publish or report
+ * them as an automatic dev/staging addition.
+ */
+export const CAPTAIN_ONLY_PARAMETERS = Object.freeze([
+  "minimum_supported_app_version",
+  "recommended_app_version",
+]);
+
+export function isAutomaticallyPublishedParameter(key) {
+  return !CAPTAIN_ONLY_PARAMETERS.includes(key);
+}
 
 export function isSettingParameter(key) {
   return Object.hasOwn(SETTING_PARAMETERS, key);
 }
 
+/** Whether this setting is only ever increased, so restating its checked-in floor is a move. */
+export function isMonotonicSetting(key) {
+  return SETTING_PARAMETERS[key]?.monotonic === true;
+}
+
+/**
+ * What a captain must do in the console after overriding the refusal for `key`.
+ *
+ * `null` for a setting that returns to parity on its own - a threshold disarms back to the
+ * checked-in baseline, so publishing it is the disarm and needs no follow-up. A monotonic setting
+ * never returns to parity, so the override is the only way past the guard and it leaves the
+ * project at the floor; the value has to be put back by hand, and the tool knows what it was.
+ */
+export function overrideRecoveryStep(key, liveTemplate) {
+  if (!isMonotonicSetting(key)) {
+    return null;
+  }
+
+  const liveValue = templateParameters(liveTemplate)[key]?.defaultValue?.value;
+
+  return (
+    `${key} is only ever increased, and publishing restates ` +
+    `"${SETTING_PARAMETERS[key].healthyDefault}" over the live ${JSON.stringify(liveValue)}. ` +
+    "The client compares the recovery basis for difference rather than magnitude, so that " +
+    "reset is itself a basis change and re-opens every stopped sync series fleet-wide at a " +
+    `moment nobody chose. Immediately after publishing, set ${key} back to at least ` +
+    `${JSON.stringify(liveValue)} in the console.`
+  );
+}
+
 /**
  * Every Swift source whose enum raw values are Remote Config parameter keys.
  *
- * Repo-relative and exported so no caller has to remember there are two. `appFlagKeys` is
+ * Repo-relative and exported so no caller has to remember every catalog. `appFlagKeys` is
  * happy to parse one file, and a check that quietly parses only the flags is indistinguishable
  * from one that passes.
  */
 export const APP_PARAMETER_SOURCE_PATHS = Object.freeze([
   "AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift",
   "AscendApp/Shared/Services/RemoteConfig/RemoteConfigSetting.swift",
+  "AscendApp/Shared/Services/RemoteConfig/RemoteAppVersionParameter.swift",
 ]);
 
 /** The value type the live backend must declare for one managed parameter. */
@@ -105,19 +163,61 @@ export function templateVersionNumber(template) {
 }
 
 /**
- * The managed flags that are currently switched off in the live project - the ones
- * republishing the checked-in template would silently switch back on.
+ * The automatically published parameters that are currently switched off in the live project -
+ * the ones republishing the checked-in template would silently switch back on.
+ *
+ * A setting stays in scope: the client reads `stringValue` and never inspects `valueType`, so a
+ * setting parked at `"false"` is honoured exactly like a switch and must stop an automated
+ * republish the same way. Only the captain-only parameters are excluded, because no automated
+ * path publishes them at all.
  */
 export function findActiveKillSwitches(liveTemplate, localTemplate) {
   const liveParameters = templateParameters(liveTemplate);
   return Object.keys(templateParameters(localTemplate))
+    .filter(isAutomaticallyPublishedParameter)
     .filter((key) => isParameterOff(liveParameters[key]))
     .sort();
 }
 
 /**
+ * The settings the live project holds in a state the checked-in template does not.
+ *
+ * A setting has no "off" value `isParameterOff` could recognise. It is in use at whatever value an
+ * operator moved it to - a version threshold armed to `1.4.0`, a condition scoping that lockout to
+ * the builds an incident is about, a sync recovery epoch bumped to 3 - while `templateShapeProblems`
+ * pins every checked-in setting to its healthy baseline. So a full replace can only ever write the
+ * baseline back over it. The one honest question left is whether the live parameter still matches
+ * the value the publish would restate; anything else is a deliberate move, and restating over it
+ * silently ends a fleet-wide lockout or closes a re-open window mid-incident.
+ *
+ * Every setting, not only the captain-only two: the epoch is pinned to `"0"` and is documented as
+ * only ever increased, so restating it is not a no-op. The client compares the recovery basis for
+ * difference rather than magnitude, so the reset re-opens every stopped sync series fleet-wide -
+ * `RemoteConfigSetting.workoutSyncRecoveryEpoch`'s "re-open on the way back down for no stated
+ * reason". A monotonic setting also never returns to parity, so this refusal is permanent once it
+ * fires; `overrideRecoveryStep` is what makes the way past it safe.
+ *
+ * Compared structurally and in full, so a lockout scoped through `conditionalValues` counts even
+ * when its default is still the baseline - which is the shape the documented App Review guidance
+ * tells a captain to arm.
+ */
+export function findArmedSettings(liveTemplate, localTemplate) {
+  const liveParameters = templateParameters(liveTemplate);
+  const localParameters = templateParameters(localTemplate);
+
+  return Object.keys(SETTING_PARAMETERS)
+    .filter(
+      (key) =>
+        localParameters[key] !== undefined &&
+        liveParameters[key] !== undefined &&
+        !isDeepStrictEqual(liveParameters[key], localParameters[key]),
+    )
+    .sort();
+}
+
+/**
  * The Remote Config parameter keys the app actually reads, parsed out of
- * `RemoteFeatureFlag.swift` and `RemoteConfigSetting.swift`. Both enums' raw values ARE the
+ * The Remote Config catalog enums. Their raw values ARE the
  * keys, so the Swift sources are the one authority on what the app looks for; deriving them
  * keeps every check honest when a flag or a setting is added.
  *
@@ -295,8 +395,36 @@ export function templateShapeProblems(localTemplate) {
  * switch dropped from this file stays in three consoles until somebody removes it by hand.
  */
 export function killSwitchChanges(baseTemplate, currentTemplate) {
-  const baseKeys = Object.keys(templateParameters(baseTemplate)).sort();
-  const currentKeys = Object.keys(templateParameters(currentTemplate)).sort();
+  const baseKeys = Object.keys(templateParameters(baseTemplate))
+    .filter(isAutomaticallyPublishedParameter)
+    .sort();
+  const currentKeys = Object.keys(templateParameters(currentTemplate))
+    .filter(isAutomaticallyPublishedParameter)
+    .sort();
+
+  return {
+    added: currentKeys.filter((key) => !baseKeys.includes(key)),
+    removed: baseKeys.filter((key) => !currentKeys.includes(key)),
+  };
+}
+
+/**
+ * The captain-only parameters this change adds or removes.
+ *
+ * Reported apart from `killSwitchChanges` because the two carry opposite instructions, not
+ * because one matters less. An added kill switch lands in dev and staging on merge; an added
+ * captain-only parameter lands nowhere at all, and the next staging archive refuses until a
+ * captain has published it by hand. Suppressing it entirely would leave the reviewer reading
+ * "this change adds none" about the one parameter that will stop the build.
+ */
+export function captainOnlyParameterChanges(baseTemplate, currentTemplate) {
+  const captainOnlyKeys = (template) =>
+    Object.keys(templateParameters(template))
+      .filter((key) => !isAutomaticallyPublishedParameter(key))
+      .sort();
+
+  const baseKeys = captainOnlyKeys(baseTemplate);
+  const currentKeys = captainOnlyKeys(currentTemplate);
 
   return {
     added: currentKeys.filter((key) => !baseKeys.includes(key)),
@@ -361,6 +489,7 @@ export function additiveMerge(liveTemplate, localTemplate) {
   const liveParameters = templateParameters(liveTemplate);
   const localParameters = templateParameters(localTemplate);
   const missingKeys = Object.keys(localParameters)
+    .filter(isAutomaticallyPublishedParameter)
     .filter((key) => liveParameters[key] === undefined)
     .sort();
 
@@ -395,7 +524,9 @@ export function additiveMerge(liveTemplate, localTemplate) {
 export function additivePublishPlan(liveTemplate, localTemplate) {
   const liveParameters = templateParameters(liveTemplate);
   const localParameters = templateParameters(localTemplate);
-  const managedKeys = Object.keys(localParameters).sort();
+  const managedKeys = Object.keys(localParameters)
+    .filter(isAutomaticallyPublishedParameter)
+    .sort();
 
   const {missingKeys, mergedTemplate} = additiveMerge(liveTemplate, localTemplate);
   const activeKillSwitches = findActiveKillSwitches(liveTemplate, localTemplate);

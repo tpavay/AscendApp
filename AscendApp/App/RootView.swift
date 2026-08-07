@@ -14,6 +14,8 @@ struct RootView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(MediaUploadManager.self) private var uploadManager
     @Environment(ModerationStore.self) private var moderationStore
+    @Environment(\.openURL) private var openURL
+    @State private var appVersionGateState = AppVersionGateState.shared
     @State private var importCoordinator = WorkoutImportCoordinator.shared
     @State private var postAuthOnboardingCoordinator = PostAuthOnboardingCoordinator()
     @State private var tabRouter = TabRouter()
@@ -45,6 +47,13 @@ struct RootView: View {
         .environment(tabRouter)
         .animation(.easeInOut(duration: 0.25), value: rootRoute)
         .themeAware()
+        .sheet(item: $appVersionGateState.presentation) { presentation in
+            AppUpdateSheet(
+                presentation: presentation,
+                onOpenAppStore: openAscendInAppStore,
+                onLater: appVersionGateState.dismissRecommended
+            )
+        }
         .task {
             AppDiagnosticsRecorder.shared.record(
                 "app_root_task_started",
@@ -60,11 +69,6 @@ struct RootView: View {
                 "app_will_enter_foreground",
                 details: ["route": rootRoute.diagnosticName]
             )
-            // Backstop for a real-time connection dropped while suspended. Deliberately not
-            // awaited: the bootstrap below runs on the already-resolved values rather than waiting
-            // out a network fetch, and a switch flipped while the app slept lands moments later or
-            // on the next pass.
-            RemoteFeatureFlagService.shared.refresh()
             // Retry pending uploads when app comes to foreground (network may have restored)
             importCoordinator.configure(modelContext: modelContext)
             scheduleAuthenticatedSessionWork()
@@ -121,6 +125,11 @@ struct RootView: View {
             guard let reason else { return }
             OnboardingFlowAnalyticsCoordinator.shared.recordFlowCompletedIfNeeded(reason: reason)
         }
+    }
+
+    private func openAscendInAppStore() {
+        guard let url = AscendAppStoreDestination.productURL else { return }
+        openURL(url)
     }
 
     private var rootRoute: AppRootRoute {

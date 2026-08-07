@@ -25,6 +25,7 @@ import process from "node:process";
 import {annotate} from "../lib/ci-annotations.mjs";
 import {
   APP_PARAMETER_SOURCE_PATHS,
+  CAPTAIN_ONLY_PARAMETERS,
   appFlagKeys,
   unpublishedFlagProblems,
 } from "../lib/remote-config-template.mjs";
@@ -136,11 +137,24 @@ if (problems.length > 0) {
     `${problems.length} of ${appKeys.length} Remote Config parameter(s) this build reads are ` +
       `unreachable in ${projectId}. Publish the template before archiving.`,
   );
-  console.error(`  cd scripts && npm run ${additivePublishScript} -- --apply`);
-  console.error(
-    "  That adds only the switches this project has never held, and refuses to write at all " +
-      "while any switch is off - so it cannot re-enable one mid-incident.",
+  const captainOnlyProblems = problems.filter((problem) =>
+    CAPTAIN_ONLY_PARAMETERS.some((key) => problem.startsWith(`${key} `)),
   );
+  const automaticProblems = problems.filter((problem) => !captainOnlyProblems.includes(problem));
+
+  if (automaticProblems.length > 0) {
+    console.error(`  cd scripts && npm run ${additivePublishScript} -- --apply`);
+    console.error(
+      "  That adds only the automatic switches this project has never held, and refuses to " +
+        "write at all while any switch is off - so it cannot re-enable one mid-incident.",
+    );
+  }
+  if (captainOnlyProblems.length > 0) {
+    console.error(
+      `  The version policy parameters are captain-only and the additive publisher excludes ` +
+        `them. A captain must review and publish the full template for ${projectId}.`,
+    );
+  }
   console.error(
     `  If ${projectId} has genuinely diverged and needs the whole template rewritten, that is ` +
       "the full replace, and it is a human's call after reading the diff:",

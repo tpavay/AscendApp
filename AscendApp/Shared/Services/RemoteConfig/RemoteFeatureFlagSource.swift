@@ -17,6 +17,13 @@ protocol RemoteFeatureFlagSource: Sendable {
     /// flag on its shipped default while the SDK still held the `false` an operator published.
     func activatedValues() -> [String: Bool]
 
+    /// Reads version strings from the activation produced by the most recent successful fetch.
+    ///
+    /// The service calls this only after ``fetchAndActivate()`` succeeds. It is intentionally not
+    /// part of persisted launch seeding, because a cached threshold or an SDK default must never
+    /// block a launch whose fetch has not resolved successfully.
+    func appVersionValues() -> [String: String]
+
     /// Opens a real-time connection and reports every activated update.
     ///
     /// Calling this twice replaces the previous registration rather than stacking a second one.
