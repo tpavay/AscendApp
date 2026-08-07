@@ -32,6 +32,7 @@ import {dirname, resolve} from "node:path";
 import {
   findActiveKillSwitches,
   findArmedSettings,
+  overrideRecoveryStep,
 } from "./lib/remote-config-template.mjs";
 
 const FIREBASE_TOOLS = "firebase-tools@15.22.1";
@@ -114,6 +115,22 @@ function fetchLiveTemplate(projectId) {
   }
 }
 
+/**
+ * The console follow-up each overridden lever needs, for the levers that need one.
+ *
+ * A kill switch and a version threshold return to parity by themselves, so publishing them is the
+ * whole operation. A monotonic setting does not, and leaving the project at the checked-in floor
+ * is a fleet-wide event rather than a tidy-up - so the step is spelled out with the live value
+ * rather than left to a document nobody opens mid-incident.
+ */
+function recoverySteps(keys, liveTemplate) {
+  const steps = keys
+    .map((key) => overrideRecoveryStep(key, liveTemplate))
+    .filter((step) => step !== null);
+
+  return steps.length > 0 ? [...steps.map((step) => `NOTE: ${step}`), ""] : [];
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const projectId = resolveProjectId(args);
@@ -141,13 +158,13 @@ function main() {
         ),
         "",
         "Publishing this template restates the checked-in value over every one of them -",
-        "switching a kill switch back on, returning an armed version threshold to 0.0.0, and",
-        "resetting a bumped sync recovery epoch to 0. If that is what you want, re-run naming",
-        "each one:",
+        "switching a kill switch back on, and returning an armed version threshold to 0.0.0.",
+        "If that is what you want, re-run naming each one:",
         ...unacknowledged.map(
           (key) => `  --allow-overwriting-active-kill-switch ${key}`,
         ),
         "",
+        ...recoverySteps(unacknowledged, liveTemplate),
       ].join("\n"),
     );
     process.exitCode = 1;
@@ -158,6 +175,11 @@ function main() {
     console.log(
       `Acknowledged overwriting: ${leversInUse.join(", ")}`,
     );
+    // Repeated on the way through, not only on the way back: this is the last line printed
+    // before the publish that makes the follow-up necessary.
+    for (const step of recoverySteps(leversInUse, liveTemplate)) {
+      console.log(step);
+    }
   }
 
   const parameterCount = Object.keys(localTemplate.parameters).length;

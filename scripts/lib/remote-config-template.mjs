@@ -29,7 +29,15 @@ import {isDeepStrictEqual} from "node:util";
 export const SETTING_PARAMETERS = Object.freeze({
   minimum_supported_app_version: Object.freeze({ valueType: "STRING", healthyDefault: "0.0.0" }),
   recommended_app_version: Object.freeze({ valueType: "STRING", healthyDefault: "0.0.0" }),
-  workout_sync_recovery_epoch: Object.freeze({ valueType: "NUMBER", healthyDefault: "0" }),
+  workout_sync_recovery_epoch: Object.freeze({
+    valueType: "NUMBER",
+    healthyDefault: "0",
+    // Only ever increased, so its checked-in value is a floor rather than a desired state: once
+    // an operator has bumped it, no publish of this template can restate it correctly. That makes
+    // the full replace's refusal permanent by design, and the way out is to put the live value
+    // back afterwards rather than to leave the project at the floor.
+    monotonic: true,
+  }),
 });
 
 /**
@@ -51,6 +59,36 @@ export function isAutomaticallyPublishedParameter(key) {
 
 export function isSettingParameter(key) {
   return Object.hasOwn(SETTING_PARAMETERS, key);
+}
+
+/** Whether this setting is only ever increased, so restating its checked-in floor is a move. */
+export function isMonotonicSetting(key) {
+  return SETTING_PARAMETERS[key]?.monotonic === true;
+}
+
+/**
+ * What a captain must do in the console after overriding the refusal for `key`.
+ *
+ * `null` for a setting that returns to parity on its own - a threshold disarms back to the
+ * checked-in baseline, so publishing it is the disarm and needs no follow-up. A monotonic setting
+ * never returns to parity, so the override is the only way past the guard and it leaves the
+ * project at the floor; the value has to be put back by hand, and the tool knows what it was.
+ */
+export function overrideRecoveryStep(key, liveTemplate) {
+  if (!isMonotonicSetting(key)) {
+    return null;
+  }
+
+  const liveValue = templateParameters(liveTemplate)[key]?.defaultValue?.value;
+
+  return (
+    `${key} is only ever increased, and publishing restates ` +
+    `"${SETTING_PARAMETERS[key].healthyDefault}" over the live ${JSON.stringify(liveValue)}. ` +
+    "The client compares the recovery basis for difference rather than magnitude, so that " +
+    "reset is itself a basis change and re-opens every stopped sync series fleet-wide at a " +
+    `moment nobody chose. Immediately after publishing, set ${key} back to at least ` +
+    `${JSON.stringify(liveValue)} in the console.`
+  );
 }
 
 /**
@@ -153,8 +191,11 @@ export function findActiveKillSwitches(liveTemplate, localTemplate) {
  * silently ends a fleet-wide lockout or closes a re-open window mid-incident.
  *
  * Every setting, not only the captain-only two: the epoch is pinned to `"0"` and is documented as
- * only ever increased, so restating it is worse than a no-op - a client that already stored the
- * higher value ignores every later bump until one exceeds it.
+ * only ever increased, so restating it is not a no-op. The client compares the recovery basis for
+ * difference rather than magnitude, so the reset re-opens every stopped sync series fleet-wide -
+ * `RemoteConfigSetting.workoutSyncRecoveryEpoch`'s "re-open on the way back down for no stated
+ * reason". A monotonic setting also never returns to parity, so this refusal is permanent once it
+ * fires; `overrideRecoveryStep` is what makes the way past it safe.
  *
  * Compared structurally and in full, so a lockout scoped through `conditionalValues` counts even
  * when its default is still the baseline - which is the shape the documented App Review guidance

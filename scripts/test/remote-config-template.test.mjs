@@ -9,8 +9,10 @@ import {
   findActiveKillSwitches,
   findArmedSettings,
   flagParityProblems,
+  isMonotonicSetting,
   isParameterOff,
   isSettingParameter,
+  overrideRecoveryStep,
   templateParameters,
   templateShapeProblems,
   templateVersionNumber,
@@ -317,13 +319,53 @@ test("a threshold armed only through a condition is caught as well", () => {
 
 test("a bumped sync recovery epoch stops the full replace the same way", () => {
   // Same shape as an armed threshold, and the reason the guard covers every setting rather than
-  // the captain-only two: the epoch is documented as only ever increased, so restating "0" does
-  // not merely close the re-open window - a client that already stored 3 then ignores every
-  // later bump until one exceeds it.
+  // the captain-only two. The client compares the recovery basis for difference rather than
+  // magnitude, so restating "0" does not strand the lever - it fires it, re-opening every stopped
+  // sync series fleet-wide at a moment nobody chose.
   const live = liveTemplateMatchingCheckedIn();
   live.parameters.workout_sync_recovery_epoch.defaultValue.value = "3";
 
   assert.deepEqual(findArmedSettings(live, localTemplate), ["workout_sync_recovery_epoch"]);
+});
+
+test("overriding the epoch's permanent refusal comes with the value to put back", () => {
+  // The epoch never returns to the checked-in floor, so unlike a switch or a threshold its
+  // refusal is permanent and the override is the only way past it. That makes the follow-up part
+  // of the operation rather than a tidy-up, so the tool names it with the live number.
+  const live = liveTemplateMatchingCheckedIn();
+  live.parameters.workout_sync_recovery_epoch.defaultValue.value = "3";
+
+  const step = overrideRecoveryStep("workout_sync_recovery_epoch", live);
+
+  assert.match(step, /workout_sync_recovery_epoch/);
+  assert.match(step, /"3"/);
+  assert.match(step, /back to at least/);
+});
+
+test("a lever that returns to parity on its own needs no follow-up step", () => {
+  // A threshold disarms back to the checked-in baseline, so publishing it IS the disarm. Only a
+  // monotonic setting is left below where it was.
+  const live = liveTemplateMatchingCheckedIn();
+  live.parameters.minimum_supported_app_version.defaultValue.value = "1.4.0";
+
+  assert.equal(overrideRecoveryStep("minimum_supported_app_version", live), null);
+  assert.equal(overrideRecoveryStep("workout_cloud_backup_writes_enabled", live), null);
+});
+
+test("only settings marked monotonic carry the permanent-refusal follow-up", () => {
+  assert.ok(isMonotonicSetting("workout_sync_recovery_epoch"));
+  assert.equal(isMonotonicSetting("minimum_supported_app_version"), false);
+  assert.equal(isMonotonicSetting("workout_cloud_backup_writes_enabled"), false);
+});
+
+test("the full replace prints the follow-up on refusal and on the way through", () => {
+  // Printed on both paths on purpose: the acknowledged run is the last output before the publish
+  // that makes the follow-up necessary, and is the run that will not be read twice.
+  const deploy = repositoryText("scripts/deploy-remote-config.mjs");
+
+  assert.match(deploy, /overrideRecoveryStep/);
+  assert.match(deploy, /recoverySteps\(unacknowledged, liveTemplate\)/);
+  assert.match(deploy, /recoverySteps\(leversInUse, liveTemplate\)/);
 });
 
 test("every setting is covered by the full replace guard, not a named subset", () => {
