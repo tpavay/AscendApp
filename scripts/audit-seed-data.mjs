@@ -33,6 +33,7 @@ import {
   PROFILE_SEED_PERSONAS,
   publicIdentityMismatchFields,
   publishedPublicIdentity,
+  seedAsOfInstant,
   statsFromWorkoutDocuments,
   validateDocumentKeys,
 } from "./seed/fixtures/profile-fixtures.mjs";
@@ -214,17 +215,21 @@ async function auditProfiles(db, failures) {
 }
 
 async function auditLeaderboard(db, catalog, failures) {
-  const publicIdentities = await readPublishedPublicIdentities(db, failures);
+  const {identities: publicIdentities, joinedAt} = await readPublishedPublicIdentities(db, failures);
   if (publicIdentities.size !== PROFILE_SEED_PERSONAS.length) {
     return "leaderboard: 0 rows checked; public identity prerequisites failed";
   }
 
+  // Period keys are pinned to when the pack was seeded, not to when it is read,
+  // so a seed and the audit that follows it can straddle UTC midnight.
+  const seededAt = seedAsOfInstant(joinedAt) ?? new Date();
   const expectedWrites = buildLeaderboardSeedWrites({
     db,
     catalog,
     Timestamp,
     FieldValue,
     publicIdentities,
+    now: seededAt,
   });
   const expectedIds = new Set(expectedWrites.map((item) => item.ref.id));
   let checked = 0;
@@ -251,7 +256,7 @@ async function auditLeaderboard(db, catalog, failures) {
       failures.push(`${path} schemaVersion must be 2`);
     }
     if (data.timeFrame) {
-      const period = currentPeriod(data.timeFrame);
+      const period = currentPeriod(data.timeFrame, seededAt);
       if (data.periodKey !== period.key) {
         failures.push(`${path} has stale periodKey ${data.periodKey}; expected ${period.key}`);
       }
@@ -266,7 +271,7 @@ async function auditLeaderboard(db, catalog, failures) {
     }
   }
 
-  for (const docId of expectedLeaderboardDocIds()) {
+  for (const docId of expectedLeaderboardDocIds(seededAt)) {
     if (expectedIds.has(docId)) continue;
     const snapshot = await db.collection("leaderboard_stats").doc(docId).get();
     if (snapshot.exists) {
@@ -291,11 +296,12 @@ async function auditLeaderboard(db, catalog, failures) {
     }
   }
 
-  return `leaderboard: ${checked} current persona rows checked`;
+  return `leaderboard: ${checked} persona rows checked, seeded ${seededAt.toISOString()}`;
 }
 
 async function readPublishedPublicIdentities(db, failures) {
   const identities = new Map();
+  const joinedAt = new Map();
   const snapshots = await Promise.all(
     PROFILE_SEED_PERSONAS.map((persona) =>
       db
@@ -317,6 +323,8 @@ async function readPublishedPublicIdentities(db, failures) {
       continue;
     }
 
+    joinedAt.set(userId, snapshot.data()?.joined_at);
+
     try {
       identities.set(
         userId,
@@ -327,7 +335,7 @@ async function readPublishedPublicIdentities(db, failures) {
     }
   }
 
-  return identities;
+  return {identities, joinedAt};
 }
 
 function auditLeaderboardIdentity(data, identity, path, failures) {
