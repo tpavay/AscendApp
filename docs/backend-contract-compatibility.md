@@ -30,9 +30,19 @@ Every backend contract change is additive until the retirement loop below is com
 - Widen security rules to admit the new valid operation or shape while continuing to admit every valid operation and shape used by a live client.
 - Preserve old required-field sets when widening strict `hasOnly` and `hasAll` validation, so an old client can still write a document that omits the new field.
 - Keep old callable entry points and old Remote Config keys live even after the newest app stops using them.
+- Keep a callable that any shipped client still needs exported from `functions/src/index.ts`, and keep it accepting its old request signature and returning its old response contract, because `scripts/verify-deployed-functions.mjs` reconciles the deployed function set exactly against this ref's exports and both deploy workflows run it.
 
 Changing an optional field to required, narrowing an accepted enum, rejecting a previously accepted document version, changing a callable response type, or changing a Remote Config key's meaning is a narrowing.
 Each one can break a released binary even when the newest source compiles and every current test passes.
+
+### Security rules are the one surface where additive checks are not free
+
+Cloud Firestore Security Rules currently limit a request to 1,000 expressions evaluated, and exceeding that limit denies the request.
+This repository observes that abort as a bare `PERMISSION_DENIED`, which is indistinguishable from a rule that deliberately refused the write, so an over-budget rule reads as a correct denial and can go undiagnosed.
+Every widening that adds validation therefore has to be measured, not assumed, with `tests/firebase-rules/workout-expression-budget.test.mjs` as the pattern to follow.
+Measure every maximum valid document shape the affected rule can be asked to evaluate, including the largest shape each live client version can legitimately build, because a rule that still accepts small documents can already be refusing large ones.
+If the additive validation cannot fit inside the budget, the change must move the new contract to a separately matched path or document version with its own evaluation budget, or complete the retirement loop below before narrowing the old contract.
+Never break an active snapshot to buy room, and never assume checks can accumulate on a single matched path without cost.
 
 ### Worked replacement example
 
@@ -76,6 +86,7 @@ The TestFlight upload depends on both jobs, so a successful staging binary is no
 It first checks `PRODUCTION_READY`, then requests the workflow's single protected-environment approval before any build or deploy work begins.
 After approval, it builds the production IPA, deploys indexes, Functions, Firestore rules, Storage rules, and Hosting in dependency order, and only then uploads the IPA to TestFlight.
 The production widening therefore lands after the artifact is built but before that artifact is uploaded.
+The summary above is deliberately short, and [the production backend rollout runbook](production-backend-rollout-runbook.md) is the authoritative deploy procedure with the full step-by-step ordering.
 
 Both workflows deploy rules when any path in their push allowlist triggers the workflow, not only when a rules file changed.
 A documentation-only push does not trigger either deploy workflow because `docs/**`, `CLAUDE.md`, and its `AGENTS.md` symlink are not in those allowlists.
