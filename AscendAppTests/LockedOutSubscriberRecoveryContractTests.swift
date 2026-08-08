@@ -1,0 +1,121 @@
+import Foundation
+import Testing
+@testable import AscendApp
+
+/// The three surfaces a subscriber whose card was declined has to pass through.
+///
+/// Apple's billing grace period is off for this app, so a routine decline drops an authenticated,
+/// onboarded climber onto the app-access gate for as long as Apple keeps retrying. Everything that
+/// climber is entitled to do from there - delete the account, learn that Apple keeps billing, reach
+/// Apple's own subscription management - is asserted here, because each one is a written App Store
+/// requirement rather than a preference that may be traded away in a later redesign.
+struct LockedOutSubscriberRecoveryContractTests {
+    /// Guideline 5.1.1(v) admits no paid-status exception: the gate is the only screen this climber
+    /// can reach, so account deletion has to leave from it.
+    @Test
+    func theAppAccessGateRoutesToAccountDeletion() throws {
+        let gate = try source(
+            at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
+        )
+
+        #expect(gate.contains("onDeleteAccount: @escaping () -> Void"))
+        #expect(gate.contains("Button(action: onDeleteAccount)"))
+        #expect(gate.contains("Text(\"Delete account\")"))
+        #expect(gate.contains(".accessibilityIdentifier(\"appAccessDeleteAccount\")"))
+    }
+
+    /// Signing back in with the same Apple ID returns to this same screen, so a sign-out control
+    /// solves nothing and only offers an escape that is not one.
+    @Test
+    func theAppAccessGateOffersNoSignOut() throws {
+        let gate = try source(
+            at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
+        )
+
+        #expect(!gate.localizedCaseInsensitiveContains("signOut"))
+        #expect(!gate.localizedCaseInsensitiveContains("sign out"))
+    }
+
+    /// The deletion link stays subordinate to subscribe and restore: it is the way out, not the
+    /// offer. A promoted button here would read as the gate's recommended action.
+    @Test
+    func theDeletionLinkStaysQuieterThanSubscribeAndRestore() throws {
+        let gate = try source(
+            at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
+        )
+
+        let restoreIndex = try #require(gate.range(of: "Button(action: restorePurchases)")).lowerBound
+        let deleteIndex = try #require(gate.range(of: "Button(action: onDeleteAccount)")).lowerBound
+        #expect(restoreIndex < deleteIndex, "Deletion must sit beneath Restore Purchases")
+
+        let link = try #require(gate.range(of: "Button(action: onDeleteAccount)"))
+        let linkBlock = String(gate[link.lowerBound...].prefix(400))
+        #expect(linkBlock.contains("montserratMedium(size: 13)"))
+        #expect(!linkBlock.contains("Color.ascendAccent"))
+        // A 44pt row keeps the quiet type from shrinking the tap target below the HIG minimum.
+        #expect(linkBlock.contains(".frame(height: 44)"))
+    }
+
+    @Test
+    func theRootRouteWiresTheGateToTheRealDeletionSheet() throws {
+        let root = try source(at: "AscendApp/App/RootView.swift")
+
+        #expect(root.contains("onDeleteAccount: { isShowingGateAccountDeletion = true }"))
+        #expect(root.contains(".sheet(isPresented: $isShowingGateAccountDeletion)"))
+        #expect(root.contains("DeleteAccountConfirmationView(onAccountDeleted: {})"))
+    }
+
+    /// Apple's "Offering account deletion in your app" asks by name that a subscriber be told
+    /// billing continues through Apple and be asked to cancel first.
+    @Test
+    func deletionCopySaysTheAppStoreSubscriptionKeepsBilling() throws {
+        let confirmation = try source(
+            at: "AscendApp/Features/Account/Views/DeleteAccountConfirmationView.swift"
+        )
+        let copy = try #require(
+            confirmation
+                .range(of: "This will permanently delete your account")
+                .map { String(confirmation[$0.lowerBound...].prefix(500)) }
+        )
+
+        #expect(copy.localizedCaseInsensitiveContains("billed by Apple"))
+        #expect(copy.localizedCaseInsensitiveContains("keeps renewing"))
+        #expect(copy.localizedCaseInsensitiveContains("cancel it"))
+        // The existing promises stay: deletion is permanent and reauth may be asked for.
+        #expect(copy.contains("This action cannot be undone."))
+        #expect(copy.localizedCaseInsensitiveContains("sign in again"))
+    }
+
+    /// The actual fix for an ordinary lapse: the one place the climber's problem is solvable has to
+    /// be reachable from inside Ascend, through Apple's own sheet rather than a guessed URL.
+    @Test
+    func settingsReachesAppleSubscriptionManagementThroughTheFirstPartySheet() throws {
+        let account = try source(at: "AscendApp/Features/Account/Views/AccountView.swift")
+
+        #expect(account.contains("import StoreKit"))
+        #expect(account.contains("title: \"Manage Subscription\""))
+        #expect(
+            account.contains(".manageSubscriptionsSheet(isPresented: $isShowingManageSubscriptions)")
+        )
+        #expect(!account.contains("account/subscriptions"))
+
+        let section = try #require(account.range(of: "private var subscriptionOptions"))
+        let body = String(account[section.lowerBound...].prefix(700))
+        let manageIndex = try #require(body.range(of: "Manage Subscription")).lowerBound
+        let restoreIndex = try #require(body.range(of: "Restore Purchases")).lowerBound
+        #expect(manageIndex < restoreIndex, "Managing the plan leads the Subscription section")
+    }
+
+    private var projectRoot: URL {
+        URL(filePath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private func source(at relativePath: String) throws -> String {
+        try String(
+            contentsOf: projectRoot.appending(path: relativePath),
+            encoding: .utf8
+        )
+    }
+}

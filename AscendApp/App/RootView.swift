@@ -20,6 +20,7 @@ struct RootView: View {
     @State private var postAuthOnboardingCoordinator = PostAuthOnboardingCoordinator()
     @State private var tabRouter = TabRouter()
     @State private var accountDataConflict: AccountDataOwnershipConflict?
+    @State private var isShowingGateAccountDeletion = false
     @State private var profileCompletionCheckTask: Task<Void, Never>?
     private let authenticatedBootstrapCoordinator = AuthenticatedBootstrapCoordinator.shared
 
@@ -187,7 +188,15 @@ struct RootView: View {
                 )
 
             case .paywall:
-                AppAccessPaywallPlaceholderView()
+                AppAccessPaywallPlaceholderView(
+                    onDeleteAccount: { isShowingGateAccountDeletion = true }
+                )
+                .sheet(isPresented: $isShowingGateAccountDeletion) {
+                    // Deleting the Firebase Auth account moves `authVM` to unauthenticated on its own,
+                    // which routes this view back to the landing screen - there is nothing left here to
+                    // dismiss the way Settings does.
+                    DeleteAccountConfirmationView(onAccountDeleted: {})
+                }
 
             case .mainApp:
                 MainTabView(tabRouter: tabRouter)
