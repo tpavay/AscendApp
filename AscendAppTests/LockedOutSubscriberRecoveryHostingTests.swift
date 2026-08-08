@@ -109,8 +109,17 @@ struct LockedOutSubscriberRecoveryHostingTests {
                         """
                     )
 
+                    // Read again rather than reusing `elements`: those were published against the
+                    // preset's 180pt floor, and `settledScrollView` has since laid the dialog out
+                    // at its measured height. Frames from the earlier tree describe a sheet that no
+                    // longer exists, so comparing them to this viewport fails on nothing.
+                    let laidOut = try await settledAccessibilityElements(under: sheet.view) { published in
+                        published.contains {
+                            $0.accessibilityLabel == "Cancel" && $0.accessibilityFrame.height > 0
+                        }
+                    }
                     let viewport = scrollView.convert(scrollView.bounds, to: nil)
-                    for element in elements where element.accessibilityLabel != nil {
+                    for element in laidOut where element.accessibilityLabel != nil {
                         #expect(
                             viewport.insetBy(dx: -0.5, dy: -0.5).contains(element.accessibilityFrame),
                             """
