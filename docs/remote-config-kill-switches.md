@@ -69,12 +69,13 @@ Their catalog is `AscendApp/Shared/Services/RemoteConfig/RemoteAppVersionParamet
 
 | Parameter | Type | Baseline | What moving it does |
 |---|---|---|---|
-| `minimum_supported_app_version` | STRING | `0.0.0` | Every installed build below this version is locked behind a non-dismissible update sheet with one App Store action. There is no Later and no escape |
+| `minimum_supported_app_version` | STRING | `0.0.0` | Every installed build below this version is locked behind a full-screen refusal with one App Store action. There is no Later and no escape |
 | `recommended_app_version` | STRING | `0.0.0` | Every installed build below this version is prompted to update and may defer with Later |
 
 Both are compared semantically against `CFBundleShortVersionString`, so `1.10.0` is newer than `1.9.0`, and both ship inert at `0.0.0`.
 Each threshold is judged on its own: an absent or malformed recommendation cannot suppress an armed minimum, and an absent or malformed minimum cannot suppress the recommendation.
 Anything unparseable - a missing value, an empty string, `1.0-beta`, a current version the app cannot read - fails open for that threshold alone.
+The minimum is enforced as a route resolved above authentication rather than as a sheet, so nothing presented over the app - the paywall included - can cover it (`AscendApp/App/AppRootRoute.swift`); the recommendation stays a dismissible sheet.
 
 **They are excluded from the additive publisher on purpose** (`CAPTAIN_ONLY_PARAMETERS` in `scripts/lib/remote-config-template.mjs`).
 Merging to `develop` publishes new *kill switches* to dev and staging automatically; it publishes neither of these anywhere.
@@ -92,6 +93,11 @@ This is the highest-blast-radius lever in the app, because a wrong value locks o
    The link is Ascend's production product `6757202987` in every environment, so a Staging rehearsal exercises the real destination.
 4. Return the parameter to `0.0.0` when the incident closes.
    Flip it, do not delete it: a deleted parameter blocks the next archive, for the reason under "Flipping one".
+
+**A floor is durable once seen, exactly like a switch.**
+Each device enforces the last floor the backend actually gave it, seeded from the SDK's persisted activation at launch before any fetch is attempted - so a climber who would hit the lockout online hits it offline too, and losing the network is not a bypass.
+Only a device the backend has never answered has no floor to enforce.
+The consequence at step 4 is that returning the parameter to `0.0.0` releases a locked device only once that device reaches Remote Config again.
 
 **Arm and disarm in the console, not through the full replace.**
 The checked-in template is pinned to the inert `0.0.0`, so publishing it is the one thing that can silently end a lockout: the payload restates `0.0.0`, and a condition scoping the block disappears with it.

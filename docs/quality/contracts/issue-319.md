@@ -5,6 +5,12 @@
 - Change type: feature
 - Owner: orchestrator
 
+> **Partly superseded by #429.**
+> The hard lockout is now a route resolved above authentication (`AppRootRoute.updateRequired`), not a sheet on `RootView`, and the floor a device enforces is the last one the backend gave it rather than one that only survives a successful fetch.
+> That replaces the presentation clause of AC-3, the "only after a successful fetch" clause of AC-2, and the fail-open half of AC-8 and of the fetch-failure row of the state matrix below, which are kept here as the record of what #319 delivered.
+> AC-9's trigger set also widened: the gate now resolves from the persisted activation at launch and on every real-time update, not only after a resolved launch or foreground fetch.
+> Current behaviour is owned by `docs/remote-config-kill-switches.md` under "The version policy parameters, which are captain-only".
+
 ## User outcome
 
 After a successful Remote Config resolution at launch or foreground, a climber below the minimum supported app version must update before continuing, while a climber below only the recommended version may update or defer the prompt.
@@ -62,8 +68,8 @@ Capture the required and recommended prompts on an iPhone 16 Pro simulator in da
 Verify the one-button required state, the two-action recommended state, VoiceOver labels and modal behavior, Dynamic Type layout, and the absence of an interactive dismissal path for the required state.
 
 **Also verify the `.paywall` route.**
-The gate presents through a single `.sheet` on `RootView`, and Superwall presents its paywall outside that hierarchy.
-An unentitled climber who cold-starts below the minimum is exactly the population that hands off to Superwall on `onAppear`, so confirm on a device that the required sheet is visible and not occluded before relying on the lockout mid-incident.
+The required state shipped as a `.sheet` on `RootView`, and Superwall presents its paywall outside that hierarchy, so an unentitled climber who cold-started below the minimum could never see it.
+#429 resolved that by making the lockout a route above authentication instead; the occlusion check this section called for no longer applies to the required state, and `AscendAppTests/AppRootRouteResolverTests.swift` pins the ordering.
 
 ## Risk and rollout
 
