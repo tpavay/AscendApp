@@ -15,6 +15,10 @@ struct AppSheetConfiguration {
 enum AppSheetSizing {
     case detents(Set<PresentationDetent>)
     case contentHeight(minHeight: CGFloat = 150, extraPadding: CGFloat = 0)
+    /// Content-tracking like ``contentHeight``, but the content is hosted in a scroll view so a
+    /// detent the system has to clamp - Dynamic Type at an accessibility size on a short device -
+    /// leaves the overflow reachable instead of clipped.
+    case scrollingContentHeight(minHeight: CGFloat = 180)
 }
 
 enum AppSheetCardTone {
@@ -52,6 +56,7 @@ enum AppSheetPreset {
     case large
     case mediumLarge
     case fitted(dragIndicator: Visibility = .visible)
+    case fittedScrolling(minHeight: CGFloat = 180, dragIndicator: Visibility = .visible)
     case height(CGFloat, dragIndicator: Visibility = .visible)
     case fraction(CGFloat, dragIndicator: Visibility = .visible)
     case detents(Set<PresentationDetent>, dragIndicator: Visibility = .visible)
@@ -86,6 +91,8 @@ enum AppSheetPreset {
             return AppSheetConfiguration(sizing: .detents([.medium, .large]), dragIndicator: .visible)
         case .fitted(let dragIndicator):
             return AppSheetConfiguration(sizing: .contentHeight(minHeight: 180, extraPadding: -12), dragIndicator: dragIndicator)
+        case .fittedScrolling(let minHeight, let dragIndicator):
+            return AppSheetConfiguration(sizing: .scrollingContentHeight(minHeight: minHeight), dragIndicator: dragIndicator)
         case .fraction(let value, let dragIndicator):
             return AppSheetConfiguration(sizing: .detents([.fraction(value)]), dragIndicator: dragIndicator)
         case .detents(let detents, let dragIndicator):
@@ -110,7 +117,28 @@ private struct AppSheetModifier: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        let base = content
+        switch configuration.sizing {
+        case .detents(let detents):
+            chrome(content)
+                .presentationDetents(detents)
+        case .contentHeight(let minHeight, let extraPadding):
+            chrome(measuringHeight(content))
+                .presentationDetents([.height(max(measuredContentHeight + extraPadding, minHeight))])
+        case .scrollingContentHeight(let minHeight):
+            // The measurement sits *inside* the scroll view so it reports the content's own height
+            // rather than the viewport's, which is what the viewport is derived from.
+            chrome(
+                ScrollView {
+                    measuringHeight(content)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+            )
+            .presentationDetents([.height(max(measuredContentHeight, minHeight))])
+        }
+    }
+
+    private func measuringHeight(_ view: some View) -> some View {
+        view
             .background(
                 GeometryReader { proxy in
                     Color.clear
@@ -121,16 +149,13 @@ private struct AppSheetModifier: ViewModifier {
                 guard abs(height - measuredContentHeight) > 1 else { return }
                 measuredContentHeight = height
             }
+    }
+
+    private func chrome(_ view: some View) -> some View {
+        view
             .presentationDragIndicator(configuration.dragIndicator)
             .presentationBackground(palette.background)
             .interactiveDismissDisabled(isInteractiveDismissDisabled)
-
-        switch configuration.sizing {
-        case .detents(let detents):
-            base.presentationDetents(detents)
-        case .contentHeight(let minHeight, let extraPadding):
-            base.presentationDetents([.height(max(measuredContentHeight + extraPadding, minHeight))])
-        }
     }
 }
 

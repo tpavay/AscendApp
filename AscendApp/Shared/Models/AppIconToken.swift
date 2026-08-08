@@ -35,6 +35,7 @@ enum AppIconToken: Hashable, Sendable {
     case settingsDeleteAccount
     case settingsNotifications
     case settingsRestorePurchases
+    case settingsManageSubscription
     case settingsBlockedClimbers
     case profileBirthday
     case profileGender
@@ -105,6 +106,8 @@ enum AppIconToken: Hashable, Sendable {
             return .asset("ph-settings-notifications")
         case .settingsRestorePurchases:
             return .systemSymbol("arrow.clockwise")
+        case .settingsManageSubscription:
+            return .systemSymbol("creditcard")
         case .settingsBlockedClimbers:
             return .systemSymbol("person.crop.circle.badge.xmark")
         case .profileBirthday:

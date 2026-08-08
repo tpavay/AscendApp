@@ -7,12 +7,20 @@ struct AppAccessPaywallPlaceholderView: View {
     @State private var presentationState: AppAccessPaywallPresentationState
     @State private var restoreState: AppAccessRestoreState
 
+    /// Guideline 5.1.1(v) admits no paid-status exception, and this gate is the only screen an
+    /// authenticated-but-unentitled climber can reach - so deletion has to be reachable from here.
+    /// The presentation is required, not defaulted: a gate that cannot route to deletion is the
+    /// violation this parameter exists to prevent.
+    private let onDeleteAccount: () -> Void
+
     init(
         initialPresentationState: AppAccessPaywallPresentationState = .presenting,
-        initialRestoreState: AppAccessRestoreState = .idle
+        initialRestoreState: AppAccessRestoreState = .idle,
+        onDeleteAccount: @escaping () -> Void
     ) {
         _presentationState = State(initialValue: initialPresentationState)
         _restoreState = State(initialValue: initialRestoreState)
+        self.onDeleteAccount = onDeleteAccount
     }
 
     var body: some View {
@@ -127,6 +135,17 @@ struct AppAccessPaywallPlaceholderView: View {
                         .accessibilityIdentifier("appAccessRestoreStatus")
                 }
 
+                Button(action: onDeleteAccount) {
+                    Text("Delete account")
+                        .font(.montserratMedium(size: 13))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Permanently deletes your Ascend account and all of its data.")
+                .accessibilityIdentifier("appAccessDeleteAccount")
+
                 #if DEBUG
                 if monetizationManager.debugForcesAppAccessPaywall {
                     Button(action: clearDebugGateOverride) {
@@ -189,6 +208,6 @@ struct AppAccessPaywallPlaceholderView: View {
 }
 
 #Preview {
-    AppAccessPaywallPlaceholderView()
+    AppAccessPaywallPlaceholderView(onDeleteAccount: {})
         .environment(MonetizationManager())
 }

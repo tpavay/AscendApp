@@ -20,6 +20,9 @@ struct RootView: View {
     @State private var postAuthOnboardingCoordinator = PostAuthOnboardingCoordinator()
     @State private var tabRouter = TabRouter()
     @State private var accountDataConflict: AccountDataOwnershipConflict?
+    @State private var isShowingGateAccountDeletion = false
+    @State private var isGateDeletionUnresolved = false
+    @State private var isGateDeletionDismissPending = false
     @State private var profileCompletionCheckTask: Task<Void, Never>?
     private let authenticatedBootstrapCoordinator = AuthenticatedBootstrapCoordinator.shared
 
@@ -52,6 +55,18 @@ struct RootView: View {
                 presentation: presentation,
                 onOpenAppStore: openAscendInAppStore,
                 onLater: appVersionGateState.dismissRecommended
+            )
+        }
+        // Deliberately outside the route switch: an entitlement refresh mid-deletion flips the
+        // route, and unmounting this sheet would cancel the deletion partway through its sweep
+        // with the failure alert on a view that is no longer on screen.
+        .sheet(isPresented: $isShowingGateAccountDeletion, onDismiss: resetGateAccountDeletionState) {
+            // Deleting the Firebase Auth account moves `authVM` to unauthenticated on its own,
+            // which routes back to the landing screen - there is nothing left here to dismiss the
+            // way Settings does.
+            DeleteAccountConfirmationView(
+                onAccountDeleted: {},
+                onDeletionUnresolvedChange: gateAccountDeletionDidChangeResolution
             )
         }
         .task {
@@ -87,6 +102,11 @@ struct RootView: View {
             )
         }
         .onChange(of: authVM.user?.uid) { _, _ in
+            // The sheet belongs to the session that opened it, or it re-presents itself unprompted
+            // over the next climber's gate. But deletion ends the session at the auth step, several
+            // steps before the local sweep finishes, so the clear waits for the dialog to say it is
+            // done rather than for the session to end.
+            dismissGateAccountDeletionWhenResolved()
             moderationStore.clear()
             AppDiagnosticsRecorder.shared.record(
                 "auth_user_changed",
@@ -125,6 +145,31 @@ struct RootView: View {
             guard let reason else { return }
             OnboardingFlowAnalyticsCoordinator.shared.recordFlowCompletedIfNeeded(reason: reason)
         }
+    }
+
+    @MainActor
+    private func dismissGateAccountDeletionWhenResolved() {
+        guard isGateDeletionUnresolved else {
+            isShowingGateAccountDeletion = false
+            return
+        }
+
+        isGateDeletionDismissPending = true
+    }
+
+    @MainActor
+    private func gateAccountDeletionDidChangeResolution(_ isUnresolved: Bool) {
+        isGateDeletionUnresolved = isUnresolved
+        guard !isUnresolved, isGateDeletionDismissPending else { return }
+
+        isGateDeletionDismissPending = false
+        isShowingGateAccountDeletion = false
+    }
+
+    @MainActor
+    private func resetGateAccountDeletionState() {
+        isGateDeletionUnresolved = false
+        isGateDeletionDismissPending = false
     }
 
     private func openAscendInAppStore() {
@@ -187,7 +232,9 @@ struct RootView: View {
                 )
 
             case .paywall:
-                AppAccessPaywallPlaceholderView()
+                AppAccessPaywallPlaceholderView(
+                    onDeleteAccount: { isShowingGateAccountDeletion = true }
+                )
 
             case .mainApp:
                 MainTabView(tabRouter: tabRouter)
