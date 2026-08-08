@@ -56,6 +56,38 @@ struct LockedOutSubscriberRecoveryContractTests {
         #expect(linkBlock.contains(".frame(height: 44)"))
     }
 
+    /// The lockout resolves above the entitlement gate and absorbs the whole app, so the same
+    /// guideline reaches it. It shares the gate's one deletion sheet rather than growing a second
+    /// presentation path, and offers the link only where there is an account to delete - above
+    /// authentication the route is reachable with no session at all.
+    @Test(.bug(id: 429))
+    func theUpdateLockoutRoutesToAccountDeletionOnlyWhenAuthenticated() throws {
+        let lockout = try source(at: "AscendApp/Shared/Views/AppUpdateRequiredView.swift")
+
+        #expect(lockout.contains("var onDeleteAccount: (() -> Void)?"))
+        #expect(lockout.contains("Text(\"Delete account\")"))
+        #expect(lockout.contains(".accessibilityIdentifier(\"appUpdateRequiredDeleteAccount\")"))
+        #expect(!lockout.localizedCaseInsensitiveContains("sign out"))
+        #expect(!lockout.localizedCaseInsensitiveContains("manage subscription"))
+
+        let link = try #require(lockout.range(of: "private func deleteAccountLink("))
+        let linkBlock = String(lockout[link.lowerBound...].prefix(500))
+        #expect(linkBlock.contains("montserratMedium(size: 13)"))
+        #expect(!linkBlock.contains("Color.ascendAccent"))
+        // At least the HIG minimum, and free to grow so AXXXL never clips the link.
+        #expect(linkBlock.contains(".frame(minHeight: 44)"))
+
+        let root = try source(at: "AscendApp/App/RootView.swift")
+        #expect(root.contains("onDeleteAccount: gateAccountDeletionAction"))
+        let action = try #require(
+            root
+                .range(of: "private var gateAccountDeletionAction: (() -> Void)?")
+                .map { String(root[$0.lowerBound...].prefix(200)) }
+        )
+        #expect(action.contains("guard authVM.user != nil else { return nil }"))
+        #expect(action.contains("isShowingGateAccountDeletion = true"))
+    }
+
     @Test
     func theRootRouteWiresTheGateToTheRealDeletionSheet() throws {
         let root = try source(at: "AscendApp/App/RootView.swift")

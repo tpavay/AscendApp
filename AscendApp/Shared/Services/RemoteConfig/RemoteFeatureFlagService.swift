@@ -170,6 +170,11 @@ final class RemoteFeatureFlagService {
                 guard let self else { return }
                 self.hasCompletedInitialFetch = true
                 self.apply(remoteValues: remoteValues, trigger: "realtime_update")
+                // The listener activates the new config before handing it over, so the floor it
+                // carries has to be re-read here too. Waiting for the next foreground would leave a
+                // floor an operator just armed - or lowered to release a lockout - unhonoured for up
+                // to the production fetch interval, which is the delay this listener exists to avoid.
+                self.resolveAppVersionGate()
             }
         }
     }

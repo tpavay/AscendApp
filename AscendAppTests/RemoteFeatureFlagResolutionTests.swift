@@ -550,6 +550,42 @@ struct RemoteFeatureFlagServiceTests {
         #expect(await waitUntil { store.isEnabled(.publicProfilePublishing) == false })
     }
 
+    /// The listener is what makes an armed floor land within seconds. The source activates the new
+    /// config before it hands the flags over, so the version gate has to be re-derived on that
+    /// callback too - otherwise a floor an operator just published, or just lowered to release a
+    /// lockout, waits for the next foreground behind the production fetch interval.
+    @Test("A real-time update re-derives the version floor without a fetch", .bug(id: 429))
+    func aRealTimeUpdateReDerivesTheVersionFloor() async {
+        let source = FakeRemoteFeatureFlagSource(fetchResult: .success([:]))
+        let gateState = AppVersionGateState()
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: RemoteFeatureFlagStore(),
+            appVersionGateState: gateState,
+            appMarketingVersionProvider: .init { "1.0" }
+        )
+
+        service.configure()
+        await service.refreshAndWait()
+        #expect(gateState.presentation == nil)
+
+        source.setAppVersionValues([
+            RemoteAppVersionParameter.minimumSupported.key: "1.1.0",
+            RemoteAppVersionParameter.recommended.key: "1.2.0"
+        ])
+        source.emitUpdate([:])
+        #expect(await waitUntil { gateState.presentation == .required })
+
+        // And the release direction: lowering the floor through the same path clears the lockout
+        // without waiting for a foreground.
+        source.setAppVersionValues([
+            RemoteAppVersionParameter.minimumSupported.key: "0.9.0",
+            RemoteAppVersionParameter.recommended.key: "0.9.0"
+        ])
+        source.emitUpdate([:])
+        #expect(await waitUntil { gateState.presentation == nil })
+    }
+
     /// The listener is a long-lived connection; it must not outlive the service that opened it.
     @Test
     func teardownStopsListening() async {

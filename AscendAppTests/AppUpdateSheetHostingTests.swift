@@ -144,78 +144,130 @@ struct AppUpdateSheetHostingTests {
         }
     }
 
-    /// The lockout as it actually ships: a full screen, one action, and no way past it. Hosted with
-    /// nothing presenting over it, because as a route there is no presenter left to occlude it.
+    /// The lockout as it actually ships above authentication: a full screen, one action, and no way
+    /// past it. Hosted with nothing presenting over it, because as a route there is no presenter
+    /// left to occlude it. There is no session here, so deletion would be a dead end rather than an
+    /// exit - the refusal offers the App Store and nothing else.
     @Test("The lockout owns the whole screen and offers only the App Store", .bug(id: 429))
     func lockoutRouteOffersOnlyTheAppStoreAction() async throws {
         try await withAccessibilityAutomation {
             let recorder = AppUpdateSheetActionRecorder()
-            let controller = UIHostingController(
-                rootView: AppUpdateRequiredView(onOpenAppStore: recorder.recordAppStoreOpen)
-            )
-            controller.overrideUserInterfaceStyle = .dark
-            controller.traitOverrides.preferredContentSizeCategory =
-                .accessibilityExtraExtraExtraLarge
+            try await hostingTheLockout(
+                view: AppUpdateRequiredView(onOpenAppStore: recorder.recordAppStoreOpen),
+                evidenceName: "app-update-lockout-route"
+            ) { controller, buttonLabels, labels in
+                // Deduplicated: the scroll container republishes the controls it holds, so the same
+                // button legitimately appears twice in the tree. What matters is that no *other*
+                // action exists - there is exactly one way off this screen.
+                #expect(Set(buttonLabels) == ["Update on the App Store"])
 
-            let windowScene = try #require(
-                UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-            )
-            let window = UIWindow(windowScene: windowScene)
-            window.frame = CGRect(origin: .zero, size: Self.iPhone16ProSize)
-            window.overrideUserInterfaceStyle = .dark
-            window.rootViewController = controller
+                #expect(labels.contains(AppUpdatePresentation.required.title))
+                #expect(labels.contains(AppUpdatePresentation.required.message))
 
-            let animationsWereEnabled = UIView.areAnimationsEnabled
-            UIView.setAnimationsEnabled(false)
-            defer {
-                UIView.setAnimationsEnabled(animationsWereEnabled)
-                window.isHidden = true
-                window.rootViewController = nil
-                window.windowScene = nil
+                try activateAccessibilityElement(
+                    labelled: "Update on the App Store",
+                    in: controller.view
+                )
+                #expect(recorder.appStoreOpenCount == 1)
             }
-
-            window.makeKeyAndVisible()
-            controller.view.setNeedsLayout()
-            controller.view.layoutIfNeeded()
-
-            // Nothing is presented over the root: the refusal *is* the root.
-            #expect(controller.presentedViewController == nil)
-
-            let elements = try await settledAccessibilityElements(under: controller.view) {
-                $0.contains { $0.accessibilityTraits.contains(.button) }
-            }
-            let buttonLabels = elements
-                .filter { $0.accessibilityTraits.contains(.button) }
-                .compactMap(\.accessibilityLabel)
-
-            // Deduplicated: the scroll container republishes the controls it holds, so the same
-            // button legitimately appears twice in the tree. What matters is that no *other*
-            // action exists - there is exactly one way off this screen.
-            #expect(Set(buttonLabels) == ["Update on the App Store"])
-
-            let labels = elements.compactMap(\.accessibilityLabel)
-            #expect(labels.contains(AppUpdatePresentation.required.title))
-            #expect(labels.contains(AppUpdatePresentation.required.message))
-
-            try captureEvidence(
-                window: window,
-                controller: controller,
-                name: "app-update-lockout-route",
-                contrast: .normal
-            )
-            try captureEvidence(
-                window: window,
-                controller: controller,
-                name: "app-update-lockout-route",
-                contrast: .high
-            )
-
-            try activateAccessibilityElement(
-                labelled: "Update on the App Store",
-                in: controller.view
-            )
-            #expect(recorder.appStoreOpenCount == 1)
         }
+    }
+
+    /// The lockout absorbs the whole app for a signed-in climber, including the declined subscriber
+    /// parked at the entitlement gate. Guideline 5.1.1(v) admits no exception, so deletion has to
+    /// leave from here too - subordinate to the update, never instead of it.
+    @Test("An authenticated lockout also routes to account deletion", .bug(id: 429))
+    func lockoutRouteOffersDeletionToAnAuthenticatedClimber() async throws {
+        try await withAccessibilityAutomation {
+            let recorder = AppUpdateSheetActionRecorder()
+            let deletionRequests = DeletionRequestRecorder()
+
+            try await hostingTheLockout(
+                view: AppUpdateRequiredView(
+                    onOpenAppStore: recorder.recordAppStoreOpen,
+                    onDeleteAccount: deletionRequests.record
+                ),
+                evidenceName: "app-update-lockout-route-authenticated"
+            ) { controller, buttonLabels, labels in
+                #expect(Set(buttonLabels) == ["Update on the App Store", "Delete account"])
+
+                #expect(labels.contains(AppUpdatePresentation.required.title))
+                #expect(labels.contains(AppUpdatePresentation.required.message))
+
+                // The primary action stays reachable at AXXXL: deletion may not push it under the
+                // fold, and the screen scrolls rather than truncating either one.
+                try activateAccessibilityElement(
+                    labelled: "Update on the App Store",
+                    in: controller.view
+                )
+                #expect(recorder.appStoreOpenCount == 1)
+
+                try activateAccessibilityElement(
+                    labelled: "Delete account",
+                    in: controller.view
+                )
+                #expect(deletionRequests.count == 1)
+            }
+        }
+    }
+
+    /// Hosts `view` full-screen, dark, at AXXXL, captures both contrast evidence renders, and hands
+    /// the settled accessibility tree to `assertions`.
+    private func hostingTheLockout(
+        view: AppUpdateRequiredView,
+        evidenceName: String,
+        assertions: (UIViewController, [String], [String]) throws -> Void
+    ) async throws {
+        let controller = UIHostingController(rootView: view)
+        controller.overrideUserInterfaceStyle = .dark
+        controller.traitOverrides.preferredContentSizeCategory =
+            .accessibilityExtraExtraExtraLarge
+
+        let windowScene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        )
+        let window = UIWindow(windowScene: windowScene)
+        window.frame = CGRect(origin: .zero, size: Self.iPhone16ProSize)
+        window.overrideUserInterfaceStyle = .dark
+        window.rootViewController = controller
+
+        let animationsWereEnabled = UIView.areAnimationsEnabled
+        UIView.setAnimationsEnabled(false)
+        defer {
+            UIView.setAnimationsEnabled(animationsWereEnabled)
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+
+        window.makeKeyAndVisible()
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+
+        // Nothing is presented over the root: the refusal *is* the root.
+        #expect(controller.presentedViewController == nil)
+
+        let elements = try await settledAccessibilityElements(under: controller.view) {
+            $0.contains { $0.accessibilityTraits.contains(.button) }
+        }
+        let buttonLabels = elements
+            .filter { $0.accessibilityTraits.contains(.button) }
+            .compactMap(\.accessibilityLabel)
+
+        try captureEvidence(
+            window: window,
+            controller: controller,
+            name: evidenceName,
+            contrast: .normal
+        )
+        try captureEvidence(
+            window: window,
+            controller: controller,
+            name: evidenceName,
+            contrast: .high
+        )
+
+        try assertions(controller, buttonLabels, elements.compactMap(\.accessibilityLabel))
     }
 
     /// Whether `condition` holds before the deadline. Bounded so a sheet that never goes away fails
@@ -306,6 +358,15 @@ struct AppUpdateSheetHostingTests {
         #expect(didDraw)
         #expect(png.count > 5_000)
         print("Update surface evidence: \(url.path())")
+    }
+}
+
+@MainActor
+private final class DeletionRequestRecorder {
+    private(set) var count = 0
+
+    func record() {
+        count += 1
     }
 }
 
