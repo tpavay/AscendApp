@@ -9,14 +9,12 @@ struct AppUpdateSheetHostingTests {
     private static let iPhone16ProSize = CGSize(width: 402, height: 874)
 
     @Test(
-        "Parent-presented update sheets enforce their action and dismissal contracts",
-        .bug(id: 319),
-        arguments: [AppUpdatePresentation.required, .recommended]
+        "The recommended nudge keeps its dismissible sheet and its Later action",
+        .bug(id: 319)
     )
-    func presentedSheetEnforcesItsContract(
-        presentation: AppUpdatePresentation
-    ) async throws {
+    func presentedSheetEnforcesItsContract() async throws {
         try await withAccessibilityAutomation {
+            let presentation = AppUpdatePresentation.recommended
             let recorder = AppUpdateSheetActionRecorder()
             let controller = UIHostingController(
                 rootView: AppUpdateSheetPresentationHarness(
@@ -59,27 +57,22 @@ struct AppUpdateSheetHostingTests {
             let buttonLabels = elements
                 .filter { $0.accessibilityTraits.contains(.button) }
                 .compactMap(\.accessibilityLabel)
-            let modalElement = try #require(elements.first { $0.accessibilityViewIsModal })
 
             #expect(buttonLabels.contains("Update on the App Store"))
-            #expect(buttonLabels.contains("Later") == presentation.showsLaterAction)
-            #expect(buttonLabels.count == (presentation.showsLaterAction ? 2 : 1))
-
-            #expect(
-                sheetController.isModalInPresentation
-                    == (presentation.allowsInteractiveDismissal == false)
-            )
+            #expect(buttonLabels.contains("Later"))
+            #expect(buttonLabels.count == 2)
+            #expect(sheetController.isModalInPresentation == false)
 
             try captureEvidence(
                 window: window,
-                sheetController: sheetController,
-                presentation: presentation,
+                controller: sheetController,
+                name: "app-update-\(presentation.rawValue)",
                 contrast: .normal
             )
             try captureEvidence(
                 window: window,
-                sheetController: sheetController,
-                presentation: presentation,
+                controller: sheetController,
+                name: "app-update-\(presentation.rawValue)",
                 contrast: .high
             )
 
@@ -89,25 +82,18 @@ struct AppUpdateSheetHostingTests {
             )
             #expect(recorder.appStoreOpenCount == 1)
 
-            if presentation == .required {
-                #expect(modalElement.accessibilityPerformEscape() == false)
-                #expect(controller.presentedViewController === sheetController)
-                #expect(recorder.laterCount == 0)
-            } else {
-                try activateAccessibilityElement(labelled: "Later", in: sheetController.view)
-                await recorder.waitForDismissal()
-                #expect(controller.presentedViewController == nil)
-                #expect(recorder.laterCount == 1)
-            }
+            try activateAccessibilityElement(labelled: "Later", in: sheetController.view)
+            await recorder.waitForDismissal()
+            #expect(controller.presentedViewController == nil)
+            #expect(recorder.laterCount == 1)
         }
     }
 
     /// The escalation an incident actually performs: arm the recommendation, then the minimum.
-    /// `AppUpdatePresentation.id` is `self`, so this changes the bound item's identity while a
-    /// sheet is already on screen and SwiftUI has to swap it rather than leave the dismissible
-    /// prompt - and its Later button - in front of a locked-out climber.
-    @Test("A recommended prompt escalates in place into the required lockout", .bug(id: 319))
-    func recommendedPromptEscalatesIntoTheRequiredLockout() async throws {
+    /// The lockout is a route now, so escalating has to take the dismissible prompt - and its Later
+    /// button - off the screen entirely rather than leaving two update surfaces stacked.
+    @Test("Escalating to the lockout retires the nudge sheet", .bug(id: 429))
+    func escalatingToTheLockoutRetiresTheNudgeSheet() async throws {
         try await withAccessibilityAutomation {
             let recorder = AppUpdateSheetActionRecorder()
             let gateState = AppVersionGateState(presentation: .recommended)
@@ -148,13 +134,102 @@ struct AppUpdateSheetHostingTests {
 
             gateState.presentation = .required
 
-            _ = try #require(
-                await presentedSheet(on: controller) { sheet, buttonLabels in
-                    buttonLabels == ["Update on the App Store"] && sheet.isModalInPresentation
-                },
-                "The sheet never escalated to the lockout's single non-dismissible action"
+            #expect(
+                try await settles { controller.presentedViewController == nil },
+                "The nudge sheet outlived the escalation and would have covered the lockout route"
             )
+            #expect(gateState.nudgePresentation == nil)
+            #expect(gateState.isUpdateRequired)
             #expect(recorder.laterCount == 0)
+        }
+    }
+
+    /// The lockout as it actually ships: a full screen, one action, and no way past it. Hosted with
+    /// nothing presenting over it, because as a route there is no presenter left to occlude it.
+    @Test("The lockout owns the whole screen and offers only the App Store", .bug(id: 429))
+    func lockoutRouteOffersOnlyTheAppStoreAction() async throws {
+        try await withAccessibilityAutomation {
+            let recorder = AppUpdateSheetActionRecorder()
+            let controller = UIHostingController(
+                rootView: AppUpdateRequiredView(onOpenAppStore: recorder.recordAppStoreOpen)
+            )
+            controller.overrideUserInterfaceStyle = .dark
+            controller.traitOverrides.preferredContentSizeCategory =
+                .accessibilityExtraExtraExtraLarge
+
+            let windowScene = try #require(
+                UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+            )
+            let window = UIWindow(windowScene: windowScene)
+            window.frame = CGRect(origin: .zero, size: Self.iPhone16ProSize)
+            window.overrideUserInterfaceStyle = .dark
+            window.rootViewController = controller
+
+            let animationsWereEnabled = UIView.areAnimationsEnabled
+            UIView.setAnimationsEnabled(false)
+            defer {
+                UIView.setAnimationsEnabled(animationsWereEnabled)
+                window.isHidden = true
+                window.rootViewController = nil
+                window.windowScene = nil
+            }
+
+            window.makeKeyAndVisible()
+            controller.view.setNeedsLayout()
+            controller.view.layoutIfNeeded()
+
+            // Nothing is presented over the root: the refusal *is* the root.
+            #expect(controller.presentedViewController == nil)
+
+            let elements = try await settledAccessibilityElements(under: controller.view) {
+                $0.contains { $0.accessibilityTraits.contains(.button) }
+            }
+            let buttonLabels = elements
+                .filter { $0.accessibilityTraits.contains(.button) }
+                .compactMap(\.accessibilityLabel)
+
+            // Deduplicated: the scroll container republishes the controls it holds, so the same
+            // button legitimately appears twice in the tree. What matters is that no *other*
+            // action exists - there is exactly one way off this screen.
+            #expect(Set(buttonLabels) == ["Update on the App Store"])
+
+            let labels = elements.compactMap(\.accessibilityLabel)
+            #expect(labels.contains(AppUpdatePresentation.required.title))
+            #expect(labels.contains(AppUpdatePresentation.required.message))
+
+            try captureEvidence(
+                window: window,
+                controller: controller,
+                name: "app-update-lockout-route",
+                contrast: .normal
+            )
+            try captureEvidence(
+                window: window,
+                controller: controller,
+                name: "app-update-lockout-route",
+                contrast: .high
+            )
+
+            try activateAccessibilityElement(
+                labelled: "Update on the App Store",
+                in: controller.view
+            )
+            #expect(recorder.appStoreOpenCount == 1)
+        }
+    }
+
+    /// Whether `condition` holds before the deadline. Bounded so a sheet that never goes away fails
+    /// the test rather than hanging it.
+    private func settles(
+        waitingUpTo timeout: Duration = .seconds(5),
+        _ condition: () -> Bool
+    ) async throws -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+
+        while true {
+            if condition() { return true }
+            if ContinuousClock.now >= deadline { return false }
+            try await Task.sleep(for: .milliseconds(20))
         }
     }
 
@@ -197,15 +272,15 @@ struct AppUpdateSheetHostingTests {
 
     private func captureEvidence(
         window: UIWindow,
-        sheetController: UIViewController,
-        presentation: AppUpdatePresentation,
+        controller: UIViewController,
+        name: String,
         contrast: UIAccessibilityContrast
     ) throws {
-        sheetController.traitOverrides.accessibilityContrast = contrast
-        #expect(sheetController.traitCollection.accessibilityContrast == contrast)
+        controller.traitOverrides.accessibilityContrast = contrast
+        #expect(controller.traitCollection.accessibilityContrast == contrast)
 
-        sheetController.view.setNeedsLayout()
-        sheetController.view.layoutIfNeeded()
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
 
         let format = UIGraphicsImageRendererFormat.preferred()
         format.scale = 3
@@ -216,7 +291,7 @@ struct AppUpdateSheetHostingTests {
         ).image { _ in
             didDraw = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
-        let png = try #require(image.pngData(), "Update sheet evidence did not encode as PNG")
+        let png = try #require(image.pngData(), "Update surface evidence did not encode as PNG")
 
         let directory = URL(
             filePath: ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
@@ -225,14 +300,12 @@ struct AppUpdateSheetHostingTests {
         )
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let contrastName = contrast == .high ? "increased-contrast" : "normal-contrast"
-        let url = directory.appending(
-            path: "app-update-\(presentation.rawValue)-dark-AXXXL-\(contrastName).png"
-        )
+        let url = directory.appending(path: "\(name)-dark-AXXXL-\(contrastName).png")
         try png.write(to: url)
 
         #expect(didDraw)
         #expect(png.count > 5_000)
-        print("Issue #319 update sheet evidence: \(url.path())")
+        print("Update surface evidence: \(url.path())")
     }
 }
 
@@ -285,8 +358,8 @@ private final class AppUpdateSheetActionRecorder {
     }
 }
 
-/// Bound to the real ``AppVersionGateState`` rather than a local copy, so the escalation case
-/// drives the sheet through the same published property `RootView` binds to.
+/// Bound to the real ``AppVersionGateState`` through the same `nudgePresentation` binding `RootView`
+/// uses, so the escalation case proves the lockout leaves the sheet layer rather than joining it.
 private struct AppUpdateSheetPresentationHarness: View {
     @Bindable var gateState: AppVersionGateState
     let recorder: AppUpdateSheetActionRecorder
@@ -294,7 +367,7 @@ private struct AppUpdateSheetPresentationHarness: View {
     var body: some View {
         Color.black
             .ignoresSafeArea()
-            .sheet(item: $gateState.presentation, onDismiss: recorder.recordDismissal) { presentation in
+            .sheet(item: $gateState.nudgePresentation, onDismiss: recorder.recordDismissal) { presentation in
                 AppUpdateSheet(
                     presentation: presentation,
                     onOpenAppStore: recorder.recordAppStoreOpen,

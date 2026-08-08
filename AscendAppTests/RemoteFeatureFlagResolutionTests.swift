@@ -277,8 +277,10 @@ struct RemoteFeatureFlagServiceTests {
         #expect(gateState.presentation == .recommended)
     }
 
-    @Test("Fetch failure fails open without reading persisted version values", .bug(id: 319))
-    func failedFetchClearsTheVersionGateWithoutReadingVersionValues() async {
+    /// A fetch that never reached the backend learned nothing about the floor, so it changes
+    /// nothing about the verdict the seed or the last successful fetch already reached.
+    @Test("A failed fetch leaves the resolved verdict alone", .bug(id: 429))
+    func failedFetchLeavesTheResolvedVerdictAlone() async {
         let source = FakeRemoteFeatureFlagSource(
             fetchResult: .failure(RemoteFeatureFlagSourceError.fetchFailed),
             appVersionValues: [
@@ -296,8 +298,92 @@ struct RemoteFeatureFlagServiceTests {
 
         await service.refreshAndWait()
 
-        #expect(gateState.presentation == nil)
+        #expect(gateState.presentation == .recommended)
         #expect(source.appVersionValuesCallCount == 0)
+    }
+
+    /// The policy the captain set: if a climber would hit the lockout online, they hit it offline.
+    /// Nothing on this launch reaches the network, so the only thing that can carry the floor
+    /// across the cold start is the activation a previous launch persisted.
+    @Test("A cached floor locks out a launch that never fetches", .bug(id: 429))
+    func aCachedFloorLocksOutALaunchWithNoSuccessfulFetch() async {
+        let source = FakeRemoteFeatureFlagSource(
+            fetchResult: .failure(RemoteFeatureFlagSourceError.fetchFailed),
+            appVersionValues: [
+                RemoteAppVersionParameter.minimumSupported.key: "1.1.0",
+                RemoteAppVersionParameter.recommended.key: "1.2.0"
+            ]
+        )
+        let gateState = AppVersionGateState()
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: RemoteFeatureFlagStore(),
+            appVersionGateState: gateState,
+            appMarketingVersionProvider: .init { "1.0" }
+        )
+
+        service.configure()
+
+        // Seeded before any fetch is attempted, or an offline launch would run unlocked for as
+        // long as the fetch took to fail - which on a dead network is the whole session.
+        #expect(gateState.presentation == .required)
+        #expect(source.fetchCallCount == 0)
+
+        await service.waitForCurrentRefresh()
+        #expect(gateState.presentation == .required)
+        #expect(service.hasCompletedInitialFetch == false)
+    }
+
+    /// Fail open, but only here: a device the backend has never answered has no floor to enforce,
+    /// and an SDK default must never be able to lock anybody out.
+    @Test("A device with no cached floor stays open", .bug(id: 429))
+    func aDeviceWithNoCachedFloorStaysOpen() async {
+        let source = FakeRemoteFeatureFlagSource(
+            fetchResult: .failure(RemoteFeatureFlagSourceError.fetchFailed)
+        )
+        let gateState = AppVersionGateState()
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: RemoteFeatureFlagStore(),
+            appVersionGateState: gateState,
+            appMarketingVersionProvider: .init { "1.0" }
+        )
+
+        service.configure()
+        await service.waitForCurrentRefresh()
+
+        #expect(gateState.presentation == nil)
+    }
+
+    /// A floor an operator lowered releases the lockout on the first fetch that lands, without a
+    /// relaunch - the cached verdict is the starting point, not a latch.
+    @Test("A successful fetch replaces the cached verdict", .bug(id: 429))
+    func aSuccessfulFetchReplacesTheCachedVerdict() async {
+        let source = FakeRemoteFeatureFlagSource(
+            fetchResult: .success([:]),
+            appVersionValues: [
+                RemoteAppVersionParameter.minimumSupported.key: "1.1.0",
+                RemoteAppVersionParameter.recommended.key: "1.2.0"
+            ]
+        )
+        let gateState = AppVersionGateState()
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: RemoteFeatureFlagStore(),
+            appVersionGateState: gateState,
+            appMarketingVersionProvider: .init { "1.0" }
+        )
+
+        service.configure()
+        #expect(gateState.presentation == .required)
+
+        source.setAppVersionValues([
+            RemoteAppVersionParameter.minimumSupported.key: "0.9.0",
+            RemoteAppVersionParameter.recommended.key: "0.9.0"
+        ])
+        await service.refreshAndWait()
+
+        #expect(gateState.presentation == nil)
     }
 
     @Test("A failed foreground fetch cannot release an armed required lockout", .bug(id: 319))

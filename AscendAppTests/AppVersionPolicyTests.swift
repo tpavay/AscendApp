@@ -234,29 +234,50 @@ struct AppVersionGateStateTests {
         #expect(recommended.presentation == nil)
     }
 
-    /// Backgrounding into aeroplane mode and foregrounding again is a failed fetch, not evidence
-    /// that this build became supported. Clearing here made the lockout a one-tap bypass.
-    @Test("A failed fetch cannot repeal an armed required lockout", .bug(id: 319))
-    func failingOpenCannotRepealTheRequiredLockout() {
-        let required = AppVersionGateState(presentation: .required)
-        required.failOpen()
-        #expect(required.presentation == .required)
-
-        let recommended = AppVersionGateState(presentation: .recommended)
-        recommended.failOpen()
-        #expect(recommended.presentation == nil)
-
-        let unresolved = AppVersionGateState()
-        unresolved.failOpen()
-        #expect(unresolved.presentation == nil)
-    }
-
     @Test("Presentation capabilities match the required and recommended contract", .bug(id: 319))
     func presentationCapabilitiesMatchContract() {
         #expect(AppUpdatePresentation.required.allowsInteractiveDismissal == false)
         #expect(AppUpdatePresentation.required.showsLaterAction == false)
         #expect(AppUpdatePresentation.recommended.allowsInteractiveDismissal)
         #expect(AppUpdatePresentation.recommended.showsLaterAction)
+    }
+
+    /// The split that keeps the two verdicts from ever stacking: the lockout is a route, the nudge
+    /// is a sheet, and the gate publishes each one on its own property.
+    @Test("Only the lockout claims the route, and only the nudge reaches the sheet", .bug(id: 429))
+    func theLockoutTakesTheRouteAndTheNudgeTakesTheSheet() {
+        #expect(AppUpdatePresentation.required.locksOutApp)
+        #expect(AppUpdatePresentation.recommended.locksOutApp == false)
+
+        let required = AppVersionGateState(presentation: .required)
+        #expect(required.isUpdateRequired)
+        #expect(required.nudgePresentation == nil)
+
+        let recommended = AppVersionGateState(presentation: .recommended)
+        #expect(recommended.isUpdateRequired == false)
+        #expect(recommended.nudgePresentation == .recommended)
+
+        let unresolved = AppVersionGateState()
+        #expect(unresolved.isUpdateRequired == false)
+        #expect(unresolved.nudgePresentation == nil)
+    }
+
+    /// `.sheet(item:)` writes `nil` through this binding when it dismisses. That write is the
+    /// climber tapping Later; it must never be able to release a lockout that is already armed.
+    @Test("Dismissing the nudge sheet cannot release the lockout", .bug(id: 429))
+    func writingThroughTheNudgeBindingOnlyDismissesTheNudge() {
+        let recommended = AppVersionGateState(presentation: .recommended)
+        recommended.nudgePresentation = nil
+        #expect(recommended.presentation == nil)
+
+        let required = AppVersionGateState(presentation: .required)
+        required.nudgePresentation = nil
+        #expect(required.presentation == .required)
+
+        // Nothing arms the gate through the sheet, in either direction.
+        let unresolved = AppVersionGateState()
+        unresolved.nudgePresentation = .required
+        #expect(unresolved.presentation == nil)
     }
 
     @Test("The App Store destination uses Ascend's production product", .bug(id: 319))
