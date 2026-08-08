@@ -61,8 +61,9 @@ struct LockedOutSubscriberRecoveryContractTests {
         let root = try source(at: "AscendApp/App/RootView.swift")
 
         #expect(root.contains("onDeleteAccount: { isShowingGateAccountDeletion = true }"))
-        #expect(root.contains(".sheet(isPresented: $isShowingGateAccountDeletion)"))
-        #expect(root.contains("DeleteAccountConfirmationView(onAccountDeleted: {})"))
+        #expect(root.contains(".sheet(isPresented: $isShowingGateAccountDeletion"))
+        #expect(root.contains("DeleteAccountConfirmationView("))
+        #expect(root.contains("onAccountDeleted: {}"))
     }
 
     /// The sheet outlives the route that opened it. A locked-out subscriber's entitlement can
@@ -74,7 +75,7 @@ struct LockedOutSubscriberRecoveryContractTests {
         let root = try source(at: "AscendApp/App/RootView.swift")
 
         let sheetIndex = try #require(
-            root.range(of: ".sheet(isPresented: $isShowingGateAccountDeletion)")
+            root.range(of: ".sheet(isPresented: $isShowingGateAccountDeletion")
         ).lowerBound
         let switchIndex = try #require(
             root.range(of: "private func authenticatedContent(for route: AppRootRoute)")
@@ -84,14 +85,49 @@ struct LockedOutSubscriberRecoveryContractTests {
             "The deletion sheet must hang off the root body, not the .paywall switch case"
         )
 
-        // Deletion ends the session while the dialog is still up, so the flag has to be cleared or
-        // the dialog re-presents itself over the next climber's gate.
+        // Deletion ends the session at the auth step, while the local sweep still has to commit,
+        // clear UserDefaults, the image cache and the pending uploads. Clearing the flag on the
+        // session change tore the dialog down inside that window, so a failing sweep raised its
+        // alert on a sheet nobody could see - a silent leftover in an irreversible flow.
         let sessionChange = try #require(
             root
                 .range(of: ".onChange(of: authVM.user?.uid)")
-                .map { String(root[$0.lowerBound...].prefix(500)) }
+                .map { String(root[$0.lowerBound...].prefix(600)) }
         )
-        #expect(sessionChange.contains("isShowingGateAccountDeletion = false"))
+        #expect(!sessionChange.contains("isShowingGateAccountDeletion = false"))
+        #expect(sessionChange.contains("dismissGateAccountDeletionWhenResolved()"))
+
+        let deferral = try #require(
+            root
+                .range(of: "private func dismissGateAccountDeletionWhenResolved()")
+                .map { String(root[$0.lowerBound...].prefix(300)) }
+        )
+        #expect(deferral.contains("guard isGateDeletionUnresolved"))
+        #expect(deferral.contains("isGateDeletionDismissPending = true"))
+
+        // The deferred clear is released by the dialog's own terminal report, never by a timer or
+        // another proxy for "deletion is probably done by now".
+        #expect(root.contains("onDeletionUnresolvedChange: gateAccountDeletionDidChangeResolution"))
+        let release = try #require(
+            root
+                .range(of: "private func gateAccountDeletionDidChangeResolution(")
+                .map { String(root[$0.lowerBound...].prefix(400)) }
+        )
+        #expect(release.contains("guard !isUnresolved, isGateDeletionDismissPending"))
+        #expect(release.contains("isShowingGateAccountDeletion = false"))
+    }
+
+    /// The dialog is the only thing that knows whether the sweep is still running or is holding an
+    /// unacknowledged failure, so it is the only thing allowed to say when a presenter may dismiss.
+    @Test
+    func theDeletionDialogReportsWhenItIsSafeToDismiss() throws {
+        let confirmation = try source(
+            at: "AscendApp/Features/Account/Views/DeleteAccountConfirmationView.swift"
+        )
+
+        #expect(confirmation.contains("var onDeletionUnresolvedChange: (Bool) -> Void"))
+        #expect(confirmation.contains("isDeleting || showError"))
+        #expect(confirmation.contains(".onChange(of: isDeletionUnresolved)"))
     }
 
     /// Apple's "Offering account deletion in your app" asks by name that a subscriber be told

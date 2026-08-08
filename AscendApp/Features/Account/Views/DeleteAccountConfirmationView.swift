@@ -23,6 +23,11 @@ struct DeleteAccountConfirmationView: View {
     @FocusState private var isTextFieldFocused: Bool
 
     let onAccountDeleted: () -> Void
+    /// Reports whether a deletion still owns this dialog - running, or holding a failure the climber
+    /// has not acknowledged. A presenter may not dismiss while this is true: the auth account is
+    /// already gone several steps before the local sweep finishes, and an alert raised on a
+    /// dismissed sheet is a silent failure in an irreversible flow.
+    var onDeletionUnresolvedChange: (Bool) -> Void = { _ in }
 
     private let deletionService = AccountDeletionService()
     private let requiredConfirmation = "DELETE"
@@ -30,6 +35,10 @@ struct DeleteAccountConfirmationView: View {
 
     private var canDelete: Bool {
         confirmationText.uppercased() == requiredConfirmation
+    }
+
+    private var isDeletionUnresolved: Bool {
+        isDeleting || showError
     }
 
     var body: some View {
@@ -131,6 +140,9 @@ struct DeleteAccountConfirmationView: View {
         .padding(.bottom, 24)
         .appSheetBackground()
         .appSheetStyle(.fittedScrolling(), isInteractiveDismissDisabled: isDeleting)
+        .onChange(of: isDeletionUnresolved) { _, isUnresolved in
+            onDeletionUnresolvedChange(isUnresolved)
+        }
         .onDisappear {
             cancelInFlightTasks()
         }

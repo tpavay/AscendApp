@@ -96,28 +96,7 @@ struct LockedOutSubscriberRecoveryHostingTests {
                     "The billing warning is conditional, not an assertion that the climber subscribed"
                 )
 
-                // Every Montserrat helper is declared `relativeTo:`, so this copy triples at an
-                // accessibility size. The dialog centres its stack, so a size it cannot take pushes
-                // the title off the top and Cancel off the bottom at once - hence every element,
-                // measured against the area a climber can actually scroll to.
-                let scrollView = try #require(
-                    firstScrollView(under: sheet.view),
-                    "The dialog must host its copy in a scroll view so no text size can clip it"
-                )
-                // The sheet's own container element is taller than the scrollable content by the
-                // bottom safe area, so reachable is the union rather than either one alone.
-                let reachable = scrollView
-                    .convert(CGRect(origin: .zero, size: scrollView.contentSize), to: nil)
-                    .union(sheet.view.convert(sheet.view.bounds, to: nil))
-                for element in elements {
-                    #expect(
-                        reachable.insetBy(dx: -0.5, dy: -0.5).contains(element.accessibilityFrame),
-                        """
-                        \(element.accessibilityLabel ?? "An element") at \(element.accessibilityFrame) \
-                        is unreachable inside the dialog \(reachable)
-                        """
-                    )
-                }
+                let scrollView = try await settledScrollView(in: sheet)
 
                 if contentSizeCategory == .large {
                     // At the default text size the dialog still hugs its copy: scrolling here would
@@ -129,9 +108,145 @@ struct LockedOutSubscriberRecoveryHostingTests {
                         \(scrollView.contentSize.height) in \(scrollView.bounds.height)
                         """
                     )
+
+                    let viewport = scrollView.convert(scrollView.bounds, to: nil)
+                    for element in elements where element.accessibilityLabel != nil {
+                        #expect(
+                            viewport.insetBy(dx: -0.5, dy: -0.5).contains(element.accessibilityFrame),
+                            """
+                            \(element.accessibilityLabel ?? "An element") at \
+                            \(element.accessibilityFrame) spills out of the dialog \(viewport)
+                            """
+                        )
+                    }
+
+                    return
                 }
+
+                // Every Montserrat helper is declared `relativeTo:`, so this copy roughly triples
+                // here and cannot fit any detent. What has to survive is reachability: the dialog
+                // takes everything the sheet can take, and Cancel comes into view when a climber
+                // scrolls to the bottom. Measured against the visible viewport, never the scroll
+                // content - content a climber cannot scroll onto the screen is not reachable.
+                #expect(
+                    sheet.view.bounds.height >= Self.iPhone16ProSize.height * 0.75,
+                    """
+                    The dialog took \(sheet.view.bounds.height)pt of \
+                    \(Self.iPhone16ProSize.height)pt rather than the largest detent available
+                    """
+                )
+                #expect(
+                    scrollView.contentSize.height > scrollView.bounds.height,
+                    "This copy cannot fit at an accessibility size, so it has to scroll"
+                )
+
+                let cancel = try await scrollingToAccessibilityElement(
+                    labelled: "Cancel",
+                    in: scrollView,
+                    of: sheet
+                )
+                let viewport = scrollView.convert(scrollView.bounds, to: nil)
+                #expect(
+                    cancel.map {
+                        viewport.insetBy(dx: -0.5, dy: -0.5).contains($0.accessibilityFrame)
+                    } == true,
+                    """
+                    Cancel never came into the dialog's viewport \(viewport) while scrolling to the \
+                    bottom of \(scrollView.contentSize.height)pt of copy
+                    """
+                )
             }
         }
+    }
+
+    /// Pages the dialog until the labelled control is on screen, and returns it once its published
+    /// frame agrees.
+    ///
+    /// Two things make the single-scroll-then-read version report a false answer: SwiftUI serves the
+    /// frames it built for the offset it last laid out at, so the control still reads at its
+    /// pre-scroll position for at least one more pass; and `accessibilityScroll` does not move a
+    /// SwiftUI `ScrollView` at all, so a loop built on it spins at offset zero and then blames the
+    /// dialog. Hence: move the offset directly, then poll the tree until it catches up.
+    private func scrollingToAccessibilityElement(
+        labelled label: String,
+        in scrollView: UIScrollView,
+        of sheet: UIViewController,
+        waitingUpTo timeout: Duration = .seconds(5)
+    ) async throws -> NSObject? {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+
+        while ContinuousClock.now < deadline {
+            sheet.view.setNeedsLayout()
+            sheet.view.layoutIfNeeded()
+
+            let viewport = scrollView.convert(scrollView.bounds, to: nil).insetBy(dx: -0.5, dy: -0.5)
+            if let match = accessibilityElements(under: sheet.view)
+                .first(where: { $0.accessibilityLabel == label }),
+                viewport.contains(match.accessibilityFrame) {
+                return match
+            }
+
+            let maximumOffset = scrollView.contentSize.height
+                + scrollView.adjustedContentInset.bottom
+                - scrollView.bounds.height
+            if scrollView.contentOffset.y < maximumOffset {
+                scrollView.setContentOffset(
+                    CGPoint(
+                        x: scrollView.contentOffset.x,
+                        y: min(scrollView.contentOffset.y + scrollView.bounds.height, maximumOffset)
+                    ),
+                    animated: false
+                )
+            }
+
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        return accessibilityElements(under: sheet.view)
+            .first { $0.accessibilityLabel == label }
+    }
+
+    /// The dialog once its detent stops growing.
+    ///
+    /// `.fittedScrolling` starts from a zero measurement, so the first detent is the preset's 180pt
+    /// floor - a height ``presentedSheet`` accepts as non-zero. Asserting there compares the full
+    /// copy against a viewport the preference -> `presentationDetents` -> `UISheetPresentationController`
+    /// chain has not caught up to yet, and the dialog reads as clipped when it is merely mid-grow.
+    private func settledScrollView(
+        in sheet: UIViewController,
+        waitingUpTo timeout: Duration = .seconds(5)
+    ) async throws -> UIScrollView {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        var previousHeight = CGFloat.nan
+        var stableReads = 0
+
+        while ContinuousClock.now < deadline {
+            sheet.view.setNeedsLayout()
+            sheet.view.layoutIfNeeded()
+
+            if let scrollView = firstScrollView(under: sheet.view) {
+                if scrollView.contentSize.height <= scrollView.bounds.height + 1 {
+                    return scrollView
+                }
+
+                if sheet.view.bounds.height == previousHeight {
+                    stableReads += 1
+                    if stableReads >= 3 {
+                        return scrollView
+                    }
+                } else {
+                    stableReads = 0
+                    previousHeight = sheet.view.bounds.height
+                }
+            }
+
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        return try #require(
+            firstScrollView(under: sheet.view),
+            "The dialog must host its copy in a scroll view so no text size can clip it"
+        )
     }
 
     private func firstScrollView(under view: UIView) -> UIScrollView? {
