@@ -44,7 +44,7 @@ struct DeleteAccountConfirmationView: View {
                 // told billing continues through Apple and be asked to cancel first. Deleting the
                 // Ascend account cannot touch an App Store subscription, so silence here would be a
                 // surprise charge.
-                Text("This will permanently delete your account and all associated data. This action cannot be undone. Your subscription is billed by Apple and keeps renewing after deletion, so cancel it in your Apple subscription settings before you continue. For security, you may be asked to sign in again before deletion is completed.")
+                Text("This will permanently delete your account and all associated data. This action cannot be undone. If you have an Ascend subscription, it’s billed by Apple and keeps renewing after deletion, so cancel it in your Apple subscription settings before you continue. For security, you may be asked to sign in again before deletion is completed.")
                     .font(.montserratRegular(size: 15))
                     .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
                     .multilineTextAlignment(.center)
@@ -130,7 +130,7 @@ struct DeleteAccountConfirmationView: View {
         .padding(.top, 48)
         .padding(.bottom, 24)
         .appSheetBackground()
-        .appSheetStyle(.dialog(height: 470), isInteractiveDismissDisabled: isDeleting)
+        .appSheetStyle(.fittedScrolling(), isInteractiveDismissDisabled: isDeleting)
         .onDisappear {
             cancelInFlightTasks()
         }

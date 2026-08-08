@@ -65,6 +65,35 @@ struct LockedOutSubscriberRecoveryContractTests {
         #expect(root.contains("DeleteAccountConfirmationView(onAccountDeleted: {})"))
     }
 
+    /// The sheet outlives the route that opened it. A locked-out subscriber's entitlement can
+    /// resolve mid-deletion - reauth foregrounds the app, which refreshes entitlements - and an
+    /// unmount there runs `onDisappear`, cancelling the deletion with the cloud sweep half done and
+    /// the failure alert on a view nobody can see.
+    @Test
+    func theDeletionSheetOutlivesTheEntitlementDrivenRoute() throws {
+        let root = try source(at: "AscendApp/App/RootView.swift")
+
+        let sheetIndex = try #require(
+            root.range(of: ".sheet(isPresented: $isShowingGateAccountDeletion)")
+        ).lowerBound
+        let switchIndex = try #require(
+            root.range(of: "private func authenticatedContent(for route: AppRootRoute)")
+        ).lowerBound
+        #expect(
+            sheetIndex < switchIndex,
+            "The deletion sheet must hang off the root body, not the .paywall switch case"
+        )
+
+        // Deletion ends the session while the dialog is still up, so the flag has to be cleared or
+        // the dialog re-presents itself over the next climber's gate.
+        let sessionChange = try #require(
+            root
+                .range(of: ".onChange(of: authVM.user?.uid)")
+                .map { String(root[$0.lowerBound...].prefix(500)) }
+        )
+        #expect(sessionChange.contains("isShowingGateAccountDeletion = false"))
+    }
+
     /// Apple's "Offering account deletion in your app" asks by name that a subscriber be told
     /// billing continues through Apple and be asked to cancel first.
     @Test
@@ -81,9 +110,27 @@ struct LockedOutSubscriberRecoveryContractTests {
         #expect(copy.localizedCaseInsensitiveContains("billed by Apple"))
         #expect(copy.localizedCaseInsensitiveContains("keeps renewing"))
         #expect(copy.localizedCaseInsensitiveContains("cancel it"))
+        // Conditional, not entitlement-gated: a decline reads as unentitled for up to 60 days while
+        // Apple is still charging, so the warning has to reach that climber - and stay true for the
+        // climber who simply never subscribed.
+        #expect(copy.contains("If you have an Ascend subscription"))
+        #expect(!copy.contains("Your subscription is billed by Apple"))
         // The existing promises stay: deletion is permanent and reauth may be asked for.
         #expect(copy.contains("This action cannot be undone."))
         #expect(copy.localizedCaseInsensitiveContains("sign in again"))
+    }
+
+    /// A hand-tuned detent over copy that scales with Dynamic Type clips the title off the top and
+    /// Cancel off the bottom at once, because the dialog centres its stack and never scrolls.
+    @Test
+    func theDeletionDialogSizesItselfFromItsContent() throws {
+        let confirmation = try source(
+            at: "AscendApp/Features/Account/Views/DeleteAccountConfirmationView.swift"
+        )
+
+        #expect(confirmation.contains(".appSheetStyle(.fittedScrolling()"))
+        #expect(confirmation.contains("isInteractiveDismissDisabled: isDeleting"))
+        #expect(!confirmation.contains(".dialog(height:"))
     }
 
     /// The actual fix for an ordinary lapse: the one place the climber's problem is solvable has to

@@ -55,6 +55,15 @@ struct RootView: View {
                 onLater: appVersionGateState.dismissRecommended
             )
         }
+        // Deliberately outside the route switch: an entitlement refresh mid-deletion flips the
+        // route, and unmounting this sheet would cancel the deletion partway through its sweep
+        // with the failure alert on a view that is no longer on screen.
+        .sheet(isPresented: $isShowingGateAccountDeletion) {
+            // Deleting the Firebase Auth account moves `authVM` to unauthenticated on its own,
+            // which routes back to the landing screen - there is nothing left here to dismiss the
+            // way Settings does.
+            DeleteAccountConfirmationView(onAccountDeleted: {})
+        }
         .task {
             AppDiagnosticsRecorder.shared.record(
                 "app_root_task_started",
@@ -88,6 +97,10 @@ struct RootView: View {
             )
         }
         .onChange(of: authVM.user?.uid) { _, _ in
+            // The sheet belongs to the session that opened it. Deletion ends that session while the
+            // dialog is still on screen, so without this the flag stays true and re-presents the
+            // dialog unprompted over the next climber's gate.
+            isShowingGateAccountDeletion = false
             moderationStore.clear()
             AppDiagnosticsRecorder.shared.record(
                 "auth_user_changed",
@@ -191,12 +204,6 @@ struct RootView: View {
                 AppAccessPaywallPlaceholderView(
                     onDeleteAccount: { isShowingGateAccountDeletion = true }
                 )
-                .sheet(isPresented: $isShowingGateAccountDeletion) {
-                    // Deleting the Firebase Auth account moves `authVM` to unauthenticated on its own,
-                    // which routes this view back to the landing screen - there is nothing left here to
-                    // dismiss the way Settings does.
-                    DeleteAccountConfirmationView(onAccountDeleted: {})
-                }
 
             case .mainApp:
                 MainTabView(tabRouter: tabRouter)

@@ -9,7 +9,8 @@ import UIKit
 ///
 /// The source-level contract next door proves the controls are wired; this proves a climber can
 /// actually reach them - the gate publishes a pressable deletion control, and the dialog it opens
-/// shows every line of its grown copy inside the detent it declares.
+/// keeps every line of its grown copy reachable at the default text size and at an accessibility
+/// one, where this copy roughly triples.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct LockedOutSubscriberRecoveryHostingTests {
@@ -50,19 +51,33 @@ struct LockedOutSubscriberRecoveryHostingTests {
         }
     }
 
-    @Test("The deletion dialog shows all of its copy inside the detent it declares")
-    func theDeletionDialogFitsItsGrownCopy() async throws {
+    @Test(
+        "The deletion dialog keeps every line of its copy reachable at any text size",
+        arguments: [UIContentSizeCategory.large, .accessibilityExtraExtraExtraLarge]
+    )
+    func theDeletionDialogFitsItsGrownCopy(
+        contentSizeCategory: UIContentSizeCategory
+    ) async throws {
         try await withAccessibilityAutomation {
             let controller = UIHostingController(
                 rootView: DeleteAccountDialogHarness()
                     .modelContainer(for: AscendLocalStore.models, inMemory: true)
             )
+            controller.overrideUserInterfaceStyle = .dark
+            controller.traitOverrides.preferredContentSizeCategory = contentSizeCategory
 
             try await withHostedWindow(controller) { _ in
                 let sheet = try await presentedSheet(of: controller)
+                // A sheet is presented into the window rather than into the presenter's view, so the
+                // presenter's override does not reach it on its own.
+                sheet.traitOverrides.preferredContentSizeCategory = contentSizeCategory
+                sheet.view.setNeedsLayout()
+                sheet.view.layoutIfNeeded()
+
                 let elements = try await settledAccessibilityElements(under: sheet.view) { elements in
-                    elements.contains { $0.accessibilityLabel == "Cancel" }
+                    elements.contains { $0.accessibilityLabel?.contains("billed by Apple") == true }
                 }
+                #expect(elements.contains { $0.accessibilityLabel == "Cancel" })
 
                 let billingLine = try #require(
                     elements.first { $0.accessibilityLabel?.contains("billed by Apple") == true },
@@ -75,22 +90,62 @@ struct LockedOutSubscriberRecoveryHostingTests {
                     billingLine.accessibilityLabel?.localizedCaseInsensitiveContains("keeps renewing")
                         == true
                 )
+                #expect(
+                    billingLine.accessibilityLabel?
+                        .contains("If you have an Ascend subscription") == true,
+                    "The billing warning is conditional, not an assertion that the climber subscribed"
+                )
 
-                // A hand-tuned detent is only correct while the copy still fits it, and the copy just
-                // grew. The dialog centres its stack, so a detent that is short by one line pushes
-                // the title off the top and Cancel off the bottom at once - hence every element.
-                let bounds = sheet.view.convert(sheet.view.bounds, to: nil)
+                // Every Montserrat helper is declared `relativeTo:`, so this copy triples at an
+                // accessibility size. The dialog centres its stack, so a size it cannot take pushes
+                // the title off the top and Cancel off the bottom at once - hence every element,
+                // measured against the area a climber can actually scroll to.
+                let scrollView = try #require(
+                    firstScrollView(under: sheet.view),
+                    "The dialog must host its copy in a scroll view so no text size can clip it"
+                )
+                // The sheet's own container element is taller than the scrollable content by the
+                // bottom safe area, so reachable is the union rather than either one alone.
+                let reachable = scrollView
+                    .convert(CGRect(origin: .zero, size: scrollView.contentSize), to: nil)
+                    .union(sheet.view.convert(sheet.view.bounds, to: nil))
                 for element in elements {
                     #expect(
-                        bounds.contains(element.accessibilityFrame),
+                        reachable.insetBy(dx: -0.5, dy: -0.5).contains(element.accessibilityFrame),
                         """
                         \(element.accessibilityLabel ?? "An element") at \(element.accessibilityFrame) \
-                        spills out of the sheet \(bounds)
+                        is unreachable inside the dialog \(reachable)
+                        """
+                    )
+                }
+
+                if contentSizeCategory == .large {
+                    // At the default text size the dialog still hugs its copy: scrolling here would
+                    // mean the sheet came up short, which is the bug the fixed detent had.
+                    #expect(
+                        scrollView.contentSize.height <= scrollView.bounds.height + 1,
+                        """
+                        The dialog needs scrolling at the default text size: content \
+                        \(scrollView.contentSize.height) in \(scrollView.bounds.height)
                         """
                     )
                 }
             }
         }
+    }
+
+    private func firstScrollView(under view: UIView) -> UIScrollView? {
+        if let scrollView = view as? UIScrollView {
+            return scrollView
+        }
+
+        for subview in view.subviews {
+            if let found = firstScrollView(under: subview) {
+                return found
+            }
+        }
+
+        return nil
     }
 
     // MARK: - Hosting
