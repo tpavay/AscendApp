@@ -422,6 +422,7 @@ struct MonetizationManagerPaywallTests {
         let signIn = manager.prepareIdentity(userId: "returning-subscriber")
 
         let resolvingRoute = AppRootRouteResolver.resolve(
+            updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "returning-subscriber",
             postAuthOnboardingPhase: .complete,
@@ -443,6 +444,7 @@ struct MonetizationManagerPaywallTests {
         )
 
         let entitledRoute = AppRootRouteResolver.resolve(
+            updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "returning-subscriber",
             postAuthOnboardingPhase: .complete,

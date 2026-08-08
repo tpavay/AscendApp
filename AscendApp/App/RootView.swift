@@ -29,6 +29,11 @@ struct RootView: View {
     var body: some View {
         Group {
             switch rootRoute {
+            case .updateRequired:
+                AppUpdateRequiredView(
+                    onOpenAppStore: openAscendInAppStore,
+                    onDeleteAccount: gateAccountDeletionAction
+                )
             case .signedOut:
                 LandingScreen()
             case .signingIn:
@@ -50,7 +55,9 @@ struct RootView: View {
         .environment(tabRouter)
         .animation(.easeInOut(duration: 0.25), value: rootRoute)
         .themeAware()
-        .sheet(item: $appVersionGateState.presentation) { presentation in
+        // The soft nudge only. The lockout left this modifier when it became a route, so the two
+        // can never stack and nothing presented outside this hierarchy can cover the refusal.
+        .sheet(item: $appVersionGateState.nudgePresentation) { presentation in
             AppUpdateSheet(
                 presentation: presentation,
                 onOpenAppStore: openAscendInAppStore,
@@ -129,6 +136,14 @@ struct RootView: View {
                 await monetizationManager.reconcileServerAppAccess()
             }
         }
+        // The lockout suppresses the session bootstrap, and the fetch that releases it lands after
+        // the foreground handler has already run and skipped. Without this, entitlement refresh,
+        // pending uploads, hydration, both sync coordinators and profile publication stay skipped
+        // until a further background/foreground cycle.
+        .onChange(of: appVersionGateState.isUpdateRequired) { _, isUpdateRequired in
+            guard !isUpdateRequired else { return }
+            scheduleAuthenticatedSessionWork()
+        }
         .onChange(of: authVM.hasRemoteDisplayName) { _, _ in
             advancePostAuthOnboardingPastDisplayNameIfAvailable()
             completePostAuthOnboardingIfRemoteProfileExists()
@@ -177,8 +192,18 @@ struct RootView: View {
         openURL(url)
     }
 
+    /// Deletion is only an exit for a climber who has an account. The lockout resolves above
+    /// authentication, so the route is reachable with no session at all - and there the link would
+    /// be a dead end rather than the required way out.
+    private var gateAccountDeletionAction: (() -> Void)? {
+        guard authVM.user != nil else { return nil }
+
+        return { isShowingGateAccountDeletion = true }
+    }
+
     private var rootRoute: AppRootRoute {
         let resolvedRoute = AppRootRouteResolver.resolve(
+            updatePresentation: appVersionGateState.presentation,
             authenticationState: authVM.authenticationState,
             userId: authVM.user?.uid,
             postAuthOnboardingPhase: postAuthOnboardingCoordinator.phase,
@@ -213,6 +238,11 @@ struct RootView: View {
             )
         } else {
             switch route {
+            case .updateRequired:
+                AppUpdateRequiredView(
+                    onOpenAppStore: openAscendInAppStore,
+                    onDeleteAccount: gateAccountDeletionAction
+                )
             case .signedOut:
                 LandingScreen()
             case .signingIn:
@@ -244,6 +274,10 @@ struct RootView: View {
 
     @MainActor
     private func scheduleAuthenticatedSessionWork() {
+        // A build the operator retired does not get to keep hydrating, syncing and publishing
+        // behind a screen the climber cannot leave. The lockout refuses the binary, not just its UI.
+        guard !appVersionGateState.isUpdateRequired else { return }
+
         let expectedUserId = authVM.user?.uid
 
         authenticatedBootstrapCoordinator.schedule {
@@ -509,6 +543,8 @@ struct AccountDataConflictView: View {
 private extension AppRootRoute {
     var diagnosticName: String {
         switch self {
+        case .updateRequired:
+            return "update_required"
         case .signedOut:
             return "signed_out"
         case .signingIn:

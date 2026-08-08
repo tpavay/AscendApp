@@ -56,8 +56,9 @@ final class RemoteFeatureFlagService {
     /// kicks off the first fetch. Call once, after Firebase is configured.
     ///
     /// The seed is synchronous and comes first on purpose: it is the only step that cannot fail, so
-    /// every gate reads an operator's last published answer from the first line of the launch,
-    /// including the offline launch where no fetch will ever land.
+    /// every gate - the kill switches and the app-version floor alike - reads an operator's last
+    /// published answer from the first line of the launch, including the offline launch where no
+    /// fetch will ever land.
     func configure() {
         seedFromPersistedActivation()
         startListeningIfNeeded()
@@ -108,6 +109,16 @@ final class RemoteFeatureFlagService {
     /// flag stays on its shipped default.
     private func seedFromPersistedActivation() {
         apply(remoteValues: source.activatedValues(), trigger: "persisted_activation")
+        resolveAppVersionGate()
+    }
+
+    /// Re-derives the update verdict from whatever floor the SDK holds right now - the one a fetch
+    /// just activated, or the one a previous launch persisted. Never touches the network.
+    private func resolveAppVersionGate() {
+        appVersionGateState.resolve(
+            currentVersion: appMarketingVersionProvider.currentVersion(),
+            remoteValues: source.appVersionValues()
+        )
     }
 
     private func performRefresh(generation: UInt64) async {
@@ -119,13 +130,14 @@ final class RemoteFeatureFlagService {
             hasCompletedInitialFetch = true
             apply(remoteValues: remoteValues, trigger: "fetch")
             guard generation == refreshGeneration else { return }
-            appVersionGateState.resolve(
-                currentVersion: appMarketingVersionProvider.currentVersion(),
-                remoteValues: source.appVersionValues()
-            )
+            resolveAppVersionGate()
         } catch {
             guard !Task.isCancelled, generation == refreshGeneration else { return }
-            appVersionGateState.failOpen()
+            // The version gate is left exactly as the seed or the last successful fetch resolved
+            // it. A fetch that could not reach the backend is not evidence that the floor moved,
+            // and clearing it here would let a climber below the minimum clear the lockout by
+            // launching in aeroplane mode.
+            //
             // Deliberately non-fatal. Every flag keeps whatever it already resolved to - the last
             // activated value the SDK persisted, or the shipped default - so a failed fetch never
             // changes app behaviour on its own.
@@ -158,6 +170,11 @@ final class RemoteFeatureFlagService {
                 guard let self else { return }
                 self.hasCompletedInitialFetch = true
                 self.apply(remoteValues: remoteValues, trigger: "realtime_update")
+                // The listener activates the new config before handing it over, so the floor it
+                // carries has to be re-read here too. Waiting for the next foreground would leave a
+                // floor an operator just armed - or lowered to release a lockout - unhonoured for up
+                // to the production fetch interval, which is the delay this listener exists to avoid.
+                self.resolveAppVersionGate()
             }
         }
     }

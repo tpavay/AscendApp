@@ -1,5 +1,11 @@
 import SwiftUI
 
+/// The dismissible update nudge.
+///
+/// Only ``AppUpdatePresentation/recommended`` can reach it now: the lockout became
+/// ``AppRootRoute/updateRequired`` so nothing can cover it (#429). The sheet stays total over its
+/// input anyway, and the caller enforces the restriction - a second line of defence against the
+/// same bug class rather than a leftover path.
 struct AppUpdateSheet: View {
     let presentation: AppUpdatePresentation
     let onOpenAppStore: () -> Void

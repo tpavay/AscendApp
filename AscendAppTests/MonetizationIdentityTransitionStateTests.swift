@@ -96,6 +96,7 @@ struct MonetizationIdentityTransitionStateTests {
         expectedRoute: AppRootRoute
     ) {
         let route = AppRootRouteResolver.resolve(
+            updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "subscriber",
             postAuthOnboardingPhase: .complete,
