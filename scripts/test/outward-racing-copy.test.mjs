@@ -76,7 +76,10 @@ test("the public website consistently presents Ascend as racing", async () => {
   assert.match(outwardCopy, /Race real towers/);
   assert.match(outwardCopy, /Tower running, without the tower\./);
   assert.match(outwardCopy, /The first finisher claims it forever/);
-  assert.match(outwardCopy, /does not import workouts from Apple Health/i);
+  assert.match(
+    outwardCopy,
+    /does not add workouts from Apple Health or any other app to your Ascend history/i
+  );
   assert.match(outwardCopy, /does not accept manually entered workouts/i);
 
   for (const retiredCopy of [
@@ -90,7 +93,7 @@ test("the public website consistently presents Ascend as racing", async () => {
   }
 });
 
-test("post-import-removal HealthKit disclosures describe quantity-sample enrichment only", async () => {
+test("post-import-removal HealthKit disclosures match the real enrichment read set", async () => {
   const [privacy, terms, proposal, projectMemory] = await Promise.all([
     source("privacy"),
     source("terms"),
@@ -116,23 +119,47 @@ test("post-import-removal HealthKit disclosures describe quantity-sample enrichm
     ]
   ];
 
+  // HealthKitAuthorizationClient.readTypes requests the workout type alongside
+  // heart rate, step count, and active/resting energy, and
+  // WorkoutImportCoordinator pads the discovery window by 30 minutes on each
+  // side. A disclosure that denies either is false against the shipped app.
   const forbiddenClaims = [
-    [/step count/i, "pins an Apple Health step-count read"],
-    [/resting energy/i, "pins a resting-energy identifier"],
-    [/matching (?:Apple Health )?workout/i, "claims foreign workout matching"],
-    [/workout entries/i, "claims foreign workout-entry reads"],
-    [/average METs/i, "claims METs from a foreign workout"],
-    [/lists Workouts/i, "claims Workouts read permission"]
+    [
+      /does not read[^.]*workouts (?:in|from) Apple Health/i,
+      "categorically denies reading Apple Health workouts"
+    ],
+    [
+      /never reads samples outside/i,
+      "claims samples are never read outside the session window"
+    ],
+    [
+      /only for one purpose/i,
+      "narrows enrichment to a single purpose the read set contradicts"
+    ]
+  ];
+
+  // The read set is wider than what ends up on the climb; the two must stay
+  // separately stated so neither is mistaken for the other.
+  const requiredReads = [
+    [/heart-rate samples/i, "the heart-rate read"],
+    [/resting energy/i, "the resting-energy read"],
+    [/step count/i, "the step-count read"]
+  ];
+  const requiredAttachments = [
+    [/active-energy calories/i, "the active-energy calorie attachment"],
+    [/average METs/i, "the average-METs attachment"]
   ];
   const violations = [];
 
   for (const [label, disclosure] of healthKitDisclosures) {
-    if (!/heart-rate and energy samples/i.test(disclosure)) {
-      violations.push(`${label}: does not use the stable heart-rate and energy-samples contract`);
-    }
     for (const [pattern, description] of forbiddenClaims) {
       if (pattern.test(disclosure)) {
         violations.push(`${label}: ${description}`);
+      }
+    }
+    for (const [pattern, description] of [...requiredReads, ...requiredAttachments]) {
+      if (!pattern.test(disclosure)) {
+        violations.push(`${label}: does not disclose ${description}`);
       }
     }
   }

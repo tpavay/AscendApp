@@ -1,5 +1,7 @@
 # Ascend App Store copy
 
+Records the listing currently live in App Store Connect; the proposed racing listing is `docs/app-store-racing-repositioning-proposal.md`.
+
 Locale: en-US
 
 ## Subtitle
