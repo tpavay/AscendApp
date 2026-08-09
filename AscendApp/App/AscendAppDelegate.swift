@@ -8,7 +8,6 @@ final class AscendAppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = PushNotificationCenterDelegate.shared
-        HealthKitBackgroundDeliveryCleanup.shared.retireImportBackgroundDeliveryIfNeeded()
         return true
     }
 

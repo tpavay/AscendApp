@@ -203,6 +203,10 @@ final class AppleHealthEnrichmentCoordinator: AuthenticatedSessionWorker {
     ///
     /// Refuses to start while account-scoped work is suspended, so a pass started a millisecond
     /// after account deletion began cannot write into the store deletion is emptying.
+    ///
+    /// The throttle is decided here rather than inside the pass, so a refused automatic sweep
+    /// leaves no task behind. Otherwise a climber who taps "Check for heart rate now" a moment
+    /// after a foreground could coalesce onto a pass that was already refused, and get silence.
     func refreshPendingEnrichment(trigger: EnrichmentTrigger = .userInitiated) async {
         guard sessionWorkGate.isSuspended == false else { return }
 
@@ -211,8 +215,10 @@ final class AppleHealthEnrichmentCoordinator: AuthenticatedSessionWorker {
             return
         }
 
+        guard claimPass(for: trigger) else { return }
+
         let refreshTask = Task { @MainActor [weak self] in
-            await self?.performRefreshPendingEnrichment(trigger: trigger)
+            await self?.performRefreshPendingEnrichment()
             self?.refreshTask = nil
             self?.resumeAllJoiners()
         }
@@ -270,17 +276,16 @@ final class AppleHealthEnrichmentCoordinator: AuthenticatedSessionWorker {
         return appleHealthEnrichmentStatus(for: workout)
     }
 
-    private func performRefreshPendingEnrichment(trigger: EnrichmentTrigger) async {
+    private func performRefreshPendingEnrichment() async {
         guard let modelContext else { return }
 
         do {
             await authorizationController.refreshAuthorizationRequestStatus()
 
-            // Both of these come before the fetch on purpose. The fetch reads every in-app climb
-            // and decodes each one's heart-rate series to decide what is still outstanding, so a
-            // climber who never connected Apple Health - and a sweep that re-entered seconds after
-            // the last one - must not pay for it.
-            if authorizationController.connectionState == .connected, claimPass(for: trigger) {
+            // This comes before the fetch on purpose. The fetch reads every in-app climb and
+            // decodes each one's heart-rate series to decide what is still outstanding, so a
+            // climber who never connected Apple Health must not pay for it.
+            if authorizationController.connectionState == .connected {
                 try Task.checkCancellation()
                 let pending = try InAppSensorWorkoutQuery
                     .allInAppSensorWorkouts(in: modelContext)

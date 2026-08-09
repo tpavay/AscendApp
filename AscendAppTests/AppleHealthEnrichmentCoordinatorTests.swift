@@ -259,6 +259,44 @@ struct AppleHealthEnrichmentCoordinatorTests {
         }
     }
 
+    @Test("A refused sweep leaves nothing for an explicit check to coalesce onto")
+    func aRefusedAutomaticSweepNeverAnswersAUserInitiatedCheck() async throws {
+        try await HealthKitCoordinatorTestIsolation.shared.run {
+            let modelContext = try Self.makeModelContext()
+            let snapshot = HealthKitSyncStateSnapshot.capture()
+            defer { snapshot.restore() }
+            HealthKitSyncState.hasRequestedAuthorization = true
+
+            let start = Date().addingTimeInterval(-30 * 60)
+            let climb = Self.makeClimb(start: start, duration: 900, steps: 1_000)
+            modelContext.insert(climb)
+            try modelContext.save()
+
+            let metricsReader = StubMetricsReader(responses: [])
+            let coordinator = Self.makeCoordinator(metricsReader: metricsReader)
+            coordinator.configure(modelContext: modelContext)
+
+            await coordinator.refreshPendingEnrichment(trigger: .automatic)
+            #expect(metricsReader.requestedRanges.count == 1)
+
+            let laterClimb = Self.makeClimb(
+                start: Date().addingTimeInterval(-15 * 60),
+                duration: 600,
+                steps: 700
+            )
+            modelContext.insert(laterClimb)
+            try modelContext.save()
+
+            // The refused sweep and the climber's tap race. Whichever order they land in, the tap
+            // must produce a real read rather than joining a pass that was already refused.
+            async let refusedSweep: Void = coordinator.refreshPendingEnrichment(trigger: .automatic)
+            async let explicitCheck: Void = coordinator.refreshPendingEnrichment()
+            _ = await (refusedSweep, explicitCheck)
+
+            #expect(metricsReader.requestedRanges.count == 2)
+        }
+    }
+
     // MARK: - Helpers
 
     private static func makeCoordinator(

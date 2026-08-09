@@ -876,7 +876,7 @@ private struct ShareAddStatSheet: View {
     private var totalsContent: some View {
         VStack(alignment: .leading, spacing: 22) {
             if weeklyTotalStats.isEmpty {
-                Text("No workouts yet this week.\nLog a session to share your weekly totals.")
+                Text("No climbs yet this week.\nClimb to fill your totals.")
                     .font(.montserratMedium(size: 14))
                     .multilineTextAlignment(.center)
                     .foregroundStyle(Color.customGray)

@@ -60,9 +60,9 @@ struct WorkoutDetailScrollWorkTests {
     }
 
     @Test
-    func derivedContentIsEmptyForAManualEntry() {
+    func derivedContentIsEmptyForAWorkoutWithoutLiveMetadata() {
         let workout = Workout(
-            name: "Manual Session",
+            name: "Stair Session",
             duration: 1_800,
             steps: 2_000,
             floors: 125,
