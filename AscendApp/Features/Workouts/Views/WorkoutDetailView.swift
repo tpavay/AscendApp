@@ -930,6 +930,9 @@ struct WorkoutDetailView: View {
                 // after a problem they do not have.
                 appleHealthHeartRateMessage = "Ascend can't read Apple Health right now. Check back shortly."
                 HapticsManager.shared.trigger(.warning)
+            case .checkFailed:
+                appleHealthHeartRateMessage = AppleHealthEnrichmentService.checkFailedMessage
+                HapticsManager.shared.trigger(.warning)
             }
         }
     }

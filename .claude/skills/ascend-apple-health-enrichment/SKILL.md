@@ -58,8 +58,13 @@ There is no second coordinator and no second status enum; do not add one.
 `notApplicable`, `connectionOffered`, `unavailable`, `accessRevoked`, `checking`, `waiting`, `stoppedLooking`, `checksPaused`.
 No view may resolve heart-rate availability a second way, and no phase may carry a countdown: `Task.sleep` does not advance while the app is suspended, so a rendered number would be wrong in exactly the case a climber checks it.
 
-`FetchResult` keeps the two honest answers apart for a hand-requested check: `foundNothing` means Ascend read Health and nothing covered this climb, `couldNotLook` means it never read.
-Reporting the second as the first is the dishonest blank this service exists to remove.
+`FetchResult` keeps the honest answers apart for a hand-requested check: `foundNothing` means Ascend read Health and nothing covered this climb, `couldNotLook` means it never read, and `checkFailed` means it started and could not finish.
+Reporting any of those as another is the dishonest blank this service exists to remove - `checkFailed` in particular must never read as `foundNothing`, which sends the climber to their own equipment for a failure that was Ascend's.
+Failure copy names nothing the climber owns and never carries an `error.localizedDescription`; the underlying error goes to `AppDiagnosticsRecorder` instead.
+
+Only a climber-initiated action writes `lastErrorMessage` - connecting, or a check that passes `isUserInitiated`.
+The automatic series stays silent whatever happens to it: Home refreshes enrichment from its `.task`, its tab handler and every foreground, so a message written there would be waiting on a screen the climber opens later with nothing to attach it to.
+The same reasoning bounds the `apple_health_integration_changed` lifecycle event, which costs a callable and a Firestore transaction: a completed pass reports the connection state only when it actually changed, and only the climber-initiated authorization path reports unconditionally.
 
 Resolve the phase once per pass, outside the view body.
 `RemoteFeatureFlagStore` is lock-guarded rather than `@Observable`, so reading the kill switch registers no SwiftUI dependency - surfaces that render a phase re-resolve on `.remoteFeatureFlagsDidChange` (`WorkoutDetailView`, `LiveClimbCompletionSummaryView`), which is the shape `MediaUploadBanner` already proved.

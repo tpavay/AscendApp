@@ -593,6 +593,104 @@ struct AppleHealthEnrichmentServiceTests {
         #expect(metricsReader.requestedWindows.count == 1)
     }
 
+    // MARK: - What a check reports, and to whom
+
+    /// A message on the Integrations card belongs to the tap that produced it.
+    ///
+    /// Home refreshes enrichment from its `.task`, its tab handler and every foreground, so a
+    /// refusal written by one of those would be waiting on a screen the climber opens later with
+    /// nothing to attach it to.
+    @Test("An automatic pass stays silent; a hand-requested check reports itself")
+    func onlyAHandRequestedCheckWritesTheMessage() async throws {
+        let clock = TestClock(start: Date(timeIntervalSince1970: 1_800_000_000))
+        let modelContext = try makeModelContext()
+
+        let workout = makeLiveClimb(start: clock.now.addingTimeInterval(-1_200), duration: 1_200)
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        let authorization = EnrichmentStubAuthorization(connectionState: .revoked)
+        let service = AppleHealthEnrichmentService(
+            authorizationController: authorization,
+            metricsReader: ScriptedMetricsReader(responses: []),
+            attemptStore: makeAttemptStore(),
+            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
+            recordLifecycleState: { _ in },
+            now: { clock.now }
+        )
+
+        await service.refreshPendingEnrichment(modelContext: modelContext)
+        #expect(service.lastErrorMessage == nil)
+
+        await service.refreshPendingEnrichment(modelContext: modelContext, isUserInitiated: true)
+        let reported = try #require(service.lastErrorMessage)
+        #expect(reported.isEmpty == false)
+
+        // Connecting clears it, and the next hand-requested check on a working connection leaves
+        // nothing behind - so no refusal outlives the state that caused it.
+        authorization.connectionState = .connected
+        await service.refreshPendingEnrichment(modelContext: modelContext, isUserInitiated: true)
+        #expect(service.lastErrorMessage == nil)
+    }
+
+    /// A failed check must not read as an empty one: `foundNothing` sends the climber to their
+    /// own equipment for a failure that was ours.
+    ///
+    /// The throw itself comes from the SwiftData write inside `WorkoutMutationHandler`, which a
+    /// unit test cannot force; what is pinned here is that the vocabulary keeps the two apart and
+    /// that Ascend's own failure copy blames nothing the climber owns.
+    @Test("A failed check is a distinct answer from an empty one")
+    func reportsAFailedCheckDistinctlyFromAnEmptyOne() {
+        #expect(AppleHealthEnrichmentService.FetchResult.checkFailed != .foundNothing)
+
+        let message = AppleHealthEnrichmentService.checkFailedMessage
+        #expect(message.isEmpty == false)
+        for wearable in ["Watch", "Garmin", "Whoop", "Polar", "wearable"] {
+            #expect(message.localizedStandardContains(wearable) == false)
+        }
+    }
+
+    /// The lifecycle event is named for a change and costs a callable plus a Firestore
+    /// transaction, so a climber bouncing between tabs must not bill one per Home entry.
+    @Test("The backend hears a connection state when it changes, not on every entry")
+    func reportsLifecycleStateOnlyWhenItChanges() async throws {
+        let clock = TestClock(start: Date(timeIntervalSince1970: 1_800_000_000))
+        let modelContext = try makeModelContext()
+
+        let workout = makeLiveClimb(start: clock.now.addingTimeInterval(-1_200), duration: 1_200)
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        let authorization = EnrichmentStubAuthorization(connectionState: .connected)
+        let lifecycle = LifecycleStateSpy()
+        let service = AppleHealthEnrichmentService(
+            authorizationController: authorization,
+            metricsReader: ScriptedMetricsReader(responses: []),
+            attemptStore: makeAttemptStore(),
+            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
+            recordLifecycleState: { lifecycle.record($0) },
+            now: { clock.now }
+        )
+
+        // Home -> Leaderboard -> Home -> Profile -> Home, with nothing about Health changing.
+        for _ in 0..<3 {
+            await service.refreshPendingEnrichment(modelContext: modelContext)
+        }
+        #expect(lifecycle.states == [.connected])
+
+        // A climber turning Ascend off in the Health app is news, and lands.
+        authorization.connectionState = .revoked
+        await service.refreshPendingEnrichment(modelContext: modelContext)
+        #expect(lifecycle.states == [.connected, .revoked])
+
+        await service.refreshPendingEnrichment(modelContext: modelContext)
+        #expect(lifecycle.states == [.connected, .revoked])
+
+        // A tap on Connect is itself the event, so it reports whatever it resolved to.
+        _ = await service.requestAppleHealthAuthorizationIfNeeded()
+        #expect(lifecycle.states == [.connected, .revoked, .revoked])
+    }
+
     // MARK: - The connection offer
 
     @Test("A climber who never connected is offered the connection, not skipped")
@@ -743,6 +841,15 @@ private final class TestClock: @unchecked Sendable {
 
     func advance(by interval: TimeInterval) {
         now = now.addingTimeInterval(interval)
+    }
+}
+
+@MainActor
+private final class LifecycleStateSpy {
+    private(set) var states: [AppleHealthConnectionState] = []
+
+    func record(_ state: AppleHealthConnectionState) {
+        states.append(state)
     }
 }
 

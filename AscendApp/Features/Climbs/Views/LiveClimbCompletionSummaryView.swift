@@ -359,7 +359,12 @@ struct LiveClimbCompletionSummaryView: View {
             // Say what happens next rather than letting the card vanish. Heart rate arriving
             // later is the normal outcome here, and a card that simply disappears reads as the
             // request having been dropped.
-            if result != .added {
+            switch result {
+            case .added:
+                break
+            case .checkFailed:
+                heartRateConnectConfirmation = "Connected. That first check didn't finish - Ascend keeps trying."
+            case .foundNothing, .couldNotLook:
                 heartRateConnectConfirmation = "Connected. Ascend adds your heart rate as soon as it lands."
             }
 

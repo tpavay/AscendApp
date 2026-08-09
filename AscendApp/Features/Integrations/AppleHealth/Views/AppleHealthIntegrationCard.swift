@@ -143,7 +143,10 @@ struct AppleHealthIntegrationCard: View {
         showingManageSheet = false
         actionTask?.cancel()
         actionTask = Task {
-            await enrichmentService.refreshPendingEnrichment(modelContext: modelContext)
+            await enrichmentService.refreshPendingEnrichment(
+                modelContext: modelContext,
+                isUserInitiated: true
+            )
             if let errorMessage = enrichmentService.lastErrorMessage, !errorMessage.isEmpty {
                 presentError(errorMessage)
             }

@@ -74,6 +74,19 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         case foundNothing
         /// Ascend never read: the connection is missing, or enrichment is switched off.
         case couldNotLook
+        /// Ascend started the check and could not finish it.
+        ///
+        /// Kept apart from `foundNothing` because the two send the climber to different places:
+        /// one is their wearable's schedule and the other is Ascend's own failure, and reporting
+        /// the second as the first blames them for it.
+        case checkFailed
+    }
+
+    /// What one read of Apple Health actually did, before it is phrased for anyone.
+    private enum ReadOutcome: Equatable {
+        case addedHeartRate
+        case nothingToAdd
+        case failed
     }
 
     private let authorizationController: any HealthKitAuthorizationControlling
@@ -81,6 +94,8 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     private let attemptStore: AppleHealthEnrichmentAttemptStore
     private let sessionWorkGate: AuthenticatedBootstrapCoordinator
     private let featureFlags: RemoteFeatureFlagStore
+    private let diagnostics: any AppDiagnosticsRecording
+    private let recordLifecycleState: @MainActor (AppleHealthConnectionState) -> Void
     private let now: @MainActor () -> Date
 
     /// Climbs the timer is currently watching. Identity only - a `Workout` is a SwiftData
@@ -99,7 +114,17 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     /// climber's "Check now" on the same climb. Two reads would spend two of the nine attempts
     /// on one answer, and whichever finished first would drop the climb out of `.checking`
     /// while the other was still running.
-    private var readTasks: [UUID: Task<Bool, Never>] = [:]
+    private var readTasks: [UUID: Task<ReadOutcome, Never>] = [:]
+
+    /// Reads that ended in a failure rather than an empty answer.
+    ///
+    /// A count rather than a flag, so a climber-initiated check can compare it across its own
+    /// pass and report only what that pass did.
+    private var failedReadCount = 0
+
+    /// The connection state the backend was last told about, so it is only told again when it
+    /// is genuinely news.
+    private var lastReportedConnectionState: AppleHealthConnectionState?
 
     init(
         authorizationController: any HealthKitAuthorizationControlling = HealthKitAuthorizationClient.shared,
@@ -107,6 +132,10 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         attemptStore: AppleHealthEnrichmentAttemptStore = AppleHealthEnrichmentAttemptStore(),
         sessionWorkGate: AuthenticatedBootstrapCoordinator = .shared,
         featureFlags: RemoteFeatureFlagStore = .shared,
+        diagnostics: any AppDiagnosticsRecording = AppDiagnosticsRecorder.shared,
+        recordLifecycleState: @escaping @MainActor (AppleHealthConnectionState) -> Void = { state in
+            LifecycleEventRecorder.shared.recordAppleHealthIntegration(state: state)
+        },
         now: @escaping @MainActor () -> Date = Date.init
     ) {
         self.authorizationController = authorizationController
@@ -114,6 +143,8 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         self.attemptStore = attemptStore
         self.sessionWorkGate = sessionWorkGate
         self.featureFlags = featureFlags
+        self.diagnostics = diagnostics
+        self.recordLifecycleState = recordLifecycleState
         self.now = now
     }
 
@@ -132,10 +163,13 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     /// The Integrations card reads this name; kept so one connection state has one spelling.
     var appleHealthConnectionState: AppleHealthConnectionState { connectionState }
 
-    /// Why the last connect or read could not proceed, for the Integrations card to show.
+    /// Why the connect or check the climber just asked for could not proceed, for the
+    /// Integrations card to show.
     ///
-    /// Only ever set from a climber-initiated action. The automatic series stays silent: a
-    /// background pass that found nothing is not an error worth putting on a screen.
+    /// Only ever written by a climber-initiated action - connecting, or a `Check now` that
+    /// passes `isUserInitiated`. The automatic series stays silent whatever happens to it: a
+    /// scheduled pass that fails while nobody is watching would leave a message waiting on a
+    /// screen the climber opens later with nothing to attach it to.
     private(set) var lastErrorMessage: String?
 
     /// Hands the service the store to work in.
@@ -157,7 +191,7 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         // Every exit reports the state it resolved to, including the refusals: the backend's
         // view of a climber's Health connection is only as current as the last time the app
         // said something.
-        defer { recordAppleHealthLifecycleState() }
+        defer { recordAppleHealthLifecycleState(force: true) }
 
         await authorizationController.refreshAuthorizationRequestStatus()
 
@@ -197,11 +231,17 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     /// Defaults to the store handed over by `configure`, so a surface that already adopted the
     /// service does not have to pass it again.
     ///
-    /// It reports its own outcome through `lastErrorMessage`, clearing it first: the card that
-    /// presents that message has to be told about the check the climber just asked for, never
-    /// about a refusal from an earlier one.
-    func refreshPendingEnrichment(modelContext: ModelContext? = nil) async {
-        lastErrorMessage = nil
+    /// A climber-initiated check reports its own outcome through `lastErrorMessage`, clearing it
+    /// first: the card presenting it has to be told about the check that was just asked for,
+    /// never about a refusal or a failure from an earlier one. Home's automatic entries pass
+    /// nothing and leave that property alone - nobody is waiting on those.
+    func refreshPendingEnrichment(
+        modelContext: ModelContext? = nil,
+        isUserInitiated: Bool = false
+    ) async {
+        if isUserInitiated {
+            lastErrorMessage = nil
+        }
 
         // Nothing at all while account work is suspended, not even a status read.
         guard sessionWorkGate.isSuspended == false else { return }
@@ -211,12 +251,23 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         // show the connection state, which must be current whether or not there was work to do.
         await authorizationController.refreshAuthorizationRequestStatus()
 
-        lastErrorMessage = checkRefusalMessage
+        let refusal = checkRefusalMessage
 
-        guard let context = modelContext ?? self.modelContext else { return }
+        guard let context = modelContext ?? self.modelContext else {
+            if isUserInitiated {
+                lastErrorMessage = refusal
+            }
+            return
+        }
 
+        let failuresBeforePass = failedReadCount
         resumeTracking(modelContext: context)
         await drainInFlightWork()
+
+        if isUserInitiated {
+            lastErrorMessage = refusal
+                ?? (failedReadCount > failuresBeforePass ? Self.checkFailedMessage : nil)
+        }
 
         recordAppleHealthLifecycleState()
     }
@@ -243,10 +294,23 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         }
     }
 
-    private func recordAppleHealthLifecycleState() {
-        LifecycleEventRecorder.shared.recordAppleHealthIntegration(
-            state: authorizationController.connectionState
-        )
+    /// What Ascend says when its own check broke. Deliberately says nothing about the climber's
+    /// equipment: the failure was here, and the underlying error goes to diagnostics instead.
+    static let checkFailedMessage = "Ascend couldn't finish that check. Try again in a moment."
+
+    /// Tells the backend the connection state, but only when it is news.
+    ///
+    /// The event is named for a change, and it costs a callable and a Firestore transaction
+    /// each time. A pass runs on every Home entry, every tab return and every foreground, so
+    /// reporting an unchanged state from there would count Home entries rather than changes.
+    /// `force` is for the climber-initiated authorization path, where the tap itself is the
+    /// event worth timestamping.
+    private func recordAppleHealthLifecycleState(force: Bool = false) {
+        let state = authorizationController.connectionState
+        guard force || state != lastReportedConnectionState else { return }
+
+        lastReportedConnectionState = state
+        recordLifecycleState(state)
     }
 
     /// Whether a wake-up is currently scheduled.
@@ -370,13 +434,20 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         guard workout.isInAppSensorWorkout, needsEnrichment(workout) else { return .couldNotLook }
         guard canRunEnrichment else { return .couldNotLook }
 
-        let didEnrich = await enrich(workout, modelContext: modelContext)
-        if !didEnrich {
+        let outcome = await enrich(workout, modelContext: modelContext)
+        if outcome != .addedHeartRate {
             track(workout)
         }
         armTimer()
 
-        return didEnrich ? .added : .foundNothing
+        switch outcome {
+        case .addedHeartRate:
+            return .added
+        case .nothingToAdd:
+            return .foundNothing
+        case .failed:
+            return .checkFailed
+        }
     }
 
     /// Requests Health access and, if granted, looks immediately.
@@ -583,7 +654,7 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     /// the answer honest: the climber who tapped "Check now" while a scheduled pass was mid-read
     /// is told what that read found, not that Ascend could not look.
     @discardableResult
-    private func enrich(_ workout: Workout, modelContext: ModelContext) async -> Bool {
+    private func enrich(_ workout: Workout, modelContext: ModelContext) async -> ReadOutcome {
         let workoutID = workout.id
 
         if let inFlight = readTasks[workoutID] {
@@ -594,7 +665,7 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         attemptStore.recordAttempt(for: workout, at: now())
 
         let read = Task { @MainActor [weak self] in
-            guard let self else { return false }
+            guard let self else { return ReadOutcome.nothingToAdd }
             defer {
                 self.readTasks[workoutID] = nil
                 self.checkingWorkoutIDs.remove(workoutID)
@@ -607,16 +678,16 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         return await read.value
     }
 
-    private func performRead(of workout: Workout, modelContext: ModelContext) async -> Bool {
+    private func performRead(of workout: Workout, modelContext: ModelContext) async -> ReadOutcome {
         let workoutID = workout.id
         let window = AppleHealthEnrichmentSchedule.endDate(of: workout)
         let metrics = await metricsReader.fetchMetrics(during: workout.date...window)
 
-        guard !Task.isCancelled else { return false }
+        guard !Task.isCancelled else { return .nothingToAdd }
 
         let wantedHeartRate = needsHeartRate(workout)
         let before = LeaderboardWorkoutSnapshot(workout: workout)
-        guard apply(metrics, to: workout) else { return false }
+        guard apply(metrics, to: workout) else { return .nothingToAdd }
 
         do {
             try WorkoutMutationHandler.shared.workoutsDidChange(
@@ -627,7 +698,17 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
                 changedWorkouts: [workout]
             )
         } catch {
-            return false
+            // Health had something for this climb and Ascend could not keep it. That is a
+            // failure of ours, and saying so is what stops the surfaces above reporting it as
+            // an empty read.
+            failedReadCount += 1
+            diagnostics.record(
+                "apple_health_enrichment_write_failed",
+                level: .warning,
+                details: ["error": String(describing: error)],
+                mirrorToCrashlytics: true
+            )
+            return .failed
         }
 
         let didAddHeartRate = wantedHeartRate && !needsHeartRate(workout)
@@ -640,7 +721,7 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
             trackedWorkoutIDs.remove(workoutID)
         }
 
-        return didAddHeartRate
+        return didAddHeartRate ? .addedHeartRate : .nothingToAdd
     }
 
     /// Writes whatever Health had, and only what it had.
