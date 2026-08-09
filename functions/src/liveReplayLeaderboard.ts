@@ -576,9 +576,10 @@ function parseReplayPayloadParts(
  * never retroactively void an earned completion or its First Ascent, so the
  * client's `leaderboardEligible: false` stays ignored even when a later,
  * higher catalog target would fail the device's local completion check. That
- * case is close to hypothetical anyway - no climb's referenceStepCount has
- * ever changed across the catalog's history, and all 75 current climbs
- * resolve their target from totalSteps with realStairCount null.
+ * grandfathering is load-bearing rather than hypothetical: 32 of the 75 climbs
+ * had their `referenceStepCount` corrected when verified `realStairCount`
+ * values landed (docs/climb-real-stair-counts.md), and any future correction
+ * moves a target again. A row published under the old distance stays published.
  * @param {ParsedReplayPayloadParts} parsed Parsed replay payload parts.
  * @return {boolean} True when the row may be published publicly.
  */

@@ -80,13 +80,13 @@ struct ProfileCollectionSummaryTests {
             ],
             climbs: [
                 climb(id: "mount-everest", tier: .mythic, steps: 48_664),
-                climb(id: "statue-of-liberty", tier: .bronze, steps: 512),
-                climb(id: "taipei-101", tier: .diamond, steps: 2_794),
-                climb(id: "sydney-tower", tier: .gold, steps: 1_700),
-                climb(id: "space-needle", tier: .silver, steps: 1_012),
-                climb(id: "empire-state-building", tier: .gold, steps: 2_096),
-                climb(id: "eiffel-tower", tier: .gold, steps: 1_815),
-                climb(id: "burj-khalifa", tier: .epic, steps: 4_554),
+                climb(id: "statue-of-liberty", tier: .bronze, steps: 377),
+                climb(id: "taipei-101", tier: .gold, steps: 2_046),
+                climb(id: "sydney-tower", tier: .gold, steps: 1_504),
+                climb(id: "space-needle", tier: .silver, steps: 832),
+                climb(id: "empire-state-building", tier: .gold, steps: 1_576),
+                climb(id: "eiffel-tower", tier: .gold, steps: 1_665),
+                climb(id: "burj-khalifa", tier: .diamond, steps: 2_909),
                 climb(id: "table-mountain", tier: .legendary, steps: 6_023),
                 climb(id: "machu-picchu", tier: .mythic, steps: 13_365)
             ]
