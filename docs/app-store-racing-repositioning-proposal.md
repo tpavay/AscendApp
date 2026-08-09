@@ -16,11 +16,8 @@ It should be updated to match whatever is actually applied to App Store Connect,
 Written against the app **after** [#437](https://github.com/tpavay/AscendApp/issues/437) lands.
 
 Gone: Apple Health workout import, manual workout logging, and any framing of Ascend as a place to log or import training.
-Kept: connecting Apple Health to enrich a climb performed *in Ascend*, live heart rate from a Bluetooth chest strap, Live Climbs, leaderboards, First Ascents, Best Efforts, guided routines, and the share composer.
-For that enrichment, Ascend reads heart-rate samples, active and resting energy, and step count around the climb's own time window.
-It may match Apple Health workout entries to find the right samples, which is why iOS still lists Workouts in the Health permission sheet.
-The enrichment can attach available heart rate, active-energy calories, and average METs; it does not attach Apple Health step count or resting energy to the climb.
-The legal pages describe the same read and attachment sets.
+Kept: connecting Apple Health so heart-rate and energy samples attach to a climb performed *in Ascend*, live heart rate from a Bluetooth chest strap, Live Climbs, leaderboards, First Ascents, Best Efforts, guided routines, and the share composer.
+The legal pages describe the same read set, deliberately stated as heart-rate and energy samples rather than pinned to a HealthKit identifier list, so the disclosure does not drift as #353 trims the read set to exactly what enrichment needs.
 
 Do not apply this listing before #437 ships.
 Until then the description would understate the app, which is harmless, but the App Review notes would still describe manual logging, which is not.
