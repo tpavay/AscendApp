@@ -4,6 +4,9 @@ import Foundation
 struct Climb: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let name: String
+    /// The name a city still uses for a renamed landmark, when it differs from
+    /// the official `name`. Data-only for now; no surface renders it yet.
+    let commonName: String?
     let city: String
     let country: String
     let continent: String
@@ -67,9 +70,11 @@ struct Climb: Codable, Identifiable, Hashable, Sendable {
             Double(calculatedFloors) * 4.5
         )
 
-        switch category.lowercased() {
-        case "mountain", "volcano", "rock", "waterfall":
+        if ClimbCameraFraming.isNatural(self) {
             return clampedCameraDistance(footprint * 300, min: 1_100_000, max: 3_000_000)
+        }
+
+        switch category.lowercased() {
         case "bridge", "fortress", "castle", "cathedral", "temple", "pyramid", "stadium":
             return clampedCameraDistance(footprint * 420, min: 320_000, max: 1_500_000)
         default:
@@ -128,6 +133,7 @@ struct Climb: Codable, Identifiable, Hashable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id
         case name
+        case commonName
         case city
         case country
         case continent
@@ -153,6 +159,7 @@ struct Climb: Codable, Identifiable, Hashable, Sendable {
     init(
         id: String,
         name: String,
+        commonName: String? = nil,
         city: String,
         country: String,
         continent: String,
@@ -176,6 +183,7 @@ struct Climb: Codable, Identifiable, Hashable, Sendable {
     ) {
         self.id = id
         self.name = name
+        self.commonName = commonName
         self.city = city
         self.country = country
         self.continent = continent
@@ -205,6 +213,7 @@ struct Climb: Codable, Identifiable, Hashable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
+        commonName = try container.decodeIfPresent(String.self, forKey: .commonName)
         city = try container.decode(String.self, forKey: .city)
         country = try container.decode(String.self, forKey: .country)
         continent = try container.decode(String.self, forKey: .continent)
@@ -236,6 +245,7 @@ struct Climb: Codable, Identifiable, Hashable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
+        try container.encodeIfPresent(commonName, forKey: .commonName)
         try container.encode(city, forKey: .city)
         try container.encode(country, forKey: .country)
         try container.encode(continent, forKey: .continent)

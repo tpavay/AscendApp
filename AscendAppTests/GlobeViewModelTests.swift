@@ -26,6 +26,23 @@ struct GlobeViewModelTests {
         #expect(ClimbCameraFraming.isNatural(staircase))
         #expect(ClimbCameraFraming.distance(for: staircase) == 9_000)
         #expect(ClimbCameraFraming.pitch(for: staircase) == 66)
+        // Browse preview reads the same classification, so a category added to
+        // ClimbCameraFraming cannot frame one way on the globe and another here.
+        #expect((1_100_000.0...3_000_000.0).contains(staircase.browsePreviewCameraDistance))
+    }
+
+    @Test(arguments: ["mountain", "volcano", "rock", "waterfall", "staircase"])
+    func browsePreviewFramesEveryNaturalCategoryAtTheNaturalFloor(category: String) {
+        let climb = makeClimb(
+            id: "natural-\(category)",
+            category: category,
+            heightMeters: 300,
+            steps: 1_650,
+            floors: 83
+        )
+
+        #expect(ClimbCameraFraming.isNatural(climb))
+        #expect((1_100_000.0...3_000_000.0).contains(climb.browsePreviewCameraDistance))
     }
 
     @Test

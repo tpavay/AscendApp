@@ -90,7 +90,8 @@ struct ClimbCatalogStairCountTests {
     @Test
     func worldTour2026AdditionsDecodeWithHonestReleaseAndTierData() throws {
         let expectedIDs: Set<String> = [
-            "ping-an-finance-centre", "ctf-finance-centre", "shanghai-world-financial-center",
+            "ping-an-finance-centre", "ctf-finance-centre-guangzhou",
+            "shanghai-world-financial-center",
             "sommerbergbahn-stair", "capitamall-one", "central-plaza-hong-kong",
             "875-north-michigan-avenue", "dc-tower-1", "yingkai-square",
             "tk-elevator-test-tower", "varso-tower", "tianjin-tv-tower",

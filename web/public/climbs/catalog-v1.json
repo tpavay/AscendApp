@@ -1972,7 +1972,7 @@
     "releaseState": "comingSoon"
   },
   {
-    "id": "ctf-finance-centre",
+    "id": "ctf-finance-centre-guangzhou",
     "name": "Guangzhou CTF Finance Centre",
     "city": "Guangzhou",
     "country": "China",
@@ -2084,6 +2084,7 @@
   {
     "id": "875-north-michigan-avenue",
     "name": "875 North Michigan Avenue",
+    "commonName": "John Hancock Center",
     "city": "Chicago",
     "country": "United States",
     "continent": "North America",
@@ -2131,8 +2132,8 @@
     "city": "Guangzhou",
     "country": "China",
     "continent": "Asia",
-    "latitude": 23.1197725,
-    "longitude": 113.3218333,
+    "latitude": 23.1211804,
+    "longitude": 113.3163659,
     "totalHeightMeters": 296.2,
     "totalHeightFeet": 971.8,
     "realClimbableHeightMeters": 220,

@@ -51,13 +51,16 @@ Each climb must include:
 }
 ```
 
-Optional field:
+Optional fields:
 
 ```json
-"imageSetVersion": 1
+"imageSetVersion": 1,
+"commonName": "John Hancock Center"
 ```
 
 If absent, the app defaults `imageSetVersion` to `1`.
+
+`commonName` is the name a city still uses for a renamed landmark. It never replaces `name`, which stays the official one, and no surface renders it yet. Populate it only with a citable source recorded in `docs/climb-coordinate-and-name-sources.md`, which is also where a climb's coordinate provenance goes.
 
 ## Release States
 

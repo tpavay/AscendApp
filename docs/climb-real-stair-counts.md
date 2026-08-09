@@ -2,6 +2,8 @@
 
 This file is the source record for every `realStairCount` in the climb catalogue.
 
+Catalogue facts that are not step counts - a climb's pinned coordinate and its optional `commonName` - are recorded in [`docs/climb-coordinate-and-name-sources.md`](climb-coordinate-and-name-sources.md).
+
 A climb's step count is its race distance, so each number here is a claim that needs a citable source.
 Populate `realStairCount` only from a source listed below or added below in the same change.
 Never derive a race distance from architectural height.
