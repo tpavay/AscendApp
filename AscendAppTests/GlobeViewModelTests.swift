@@ -14,6 +14,21 @@ import Testing
 @MainActor
 struct GlobeViewModelTests {
     @Test
+    func outdoorStaircaseUsesNaturalLandmarkFraming() {
+        let staircase = makeClimb(
+            id: "sommerbergbahn-stair",
+            category: "staircase",
+            heightMeters: 300,
+            steps: 1_987,
+            floors: 100
+        )
+
+        #expect(ClimbCameraFraming.isNatural(staircase))
+        #expect(ClimbCameraFraming.distance(for: staircase) == 9_000)
+        #expect(ClimbCameraFraming.pitch(for: staircase) == 66)
+    }
+
+    @Test
     func compactLandmarksUseTighterPreviewZoomThanLargeNaturalClimbs() {
         let gatewayArch = makeClimb(
             id: "gateway-arch",

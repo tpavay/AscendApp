@@ -12,7 +12,8 @@ import Foundation
 /// towers sit on their footprint instead of shooting out the top of the frame.
 enum ClimbCameraFraming {
     static func isNatural(_ climb: Climb) -> Bool {
-        ["mountain", "volcano", "rock", "waterfall"].contains(climb.category.lowercased())
+        ["mountain", "volcano", "rock", "waterfall", "staircase"]
+            .contains(climb.category.lowercased())
     }
 
     /// Distance scales with height so the whole structure fits in frame.

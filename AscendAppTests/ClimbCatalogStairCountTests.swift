@@ -88,6 +88,31 @@ struct ClimbCatalogStairCountTests {
     }
 
     @Test
+    func worldTour2026AdditionsDecodeWithHonestReleaseAndTierData() throws {
+        let expectedIDs: Set<String> = [
+            "ping-an-finance-centre", "ctf-finance-centre", "shanghai-world-financial-center",
+            "sommerbergbahn-stair", "capitamall-one", "central-plaza-hong-kong",
+            "875-north-michigan-avenue", "dc-tower-1", "yingkai-square",
+            "tk-elevator-test-tower", "varso-tower", "tianjin-tv-tower",
+            "macau-tower", "frasers-tower", "torre-reforma", "messeturm-frankfurt",
+            "sky-tower-wroclaw", "gran-hotel-bali", "tallinn-tv-tower", "rondo-1",
+            "post-tower", "sky-tower-bucharest", "koelnturm", "torre-glories",
+            "az-tower", "hyatt-regency-barcelona-tower", "messeturm-basel",
+            "pyramidenkogel", "ufo-tower-bratislava"
+        ]
+        let additions = try Self.bundledCatalog().filter { expectedIDs.contains($0.id) }
+
+        #expect(Set(additions.map(\.id)) == expectedIDs)
+        #expect(additions.count == 29)
+        #expect(additions.allSatisfy { $0.releaseState == .comingSoon })
+        #expect(additions.allSatisfy { $0.tier == ClimbTier(steps: $0.referenceStepCount) })
+
+        let capitaMall = try #require(additions.first { $0.id == "capitamall-one" })
+        #expect(capitaMall.realStairCount == nil)
+        #expect(capitaMall.referenceStepCount == capitaMall.totalSteps)
+    }
+
+    @Test
     func everyCatalogueTierMatchesItsReferenceStepCount() throws {
         let climbs = try Self.bundledCatalog()
 
@@ -168,7 +193,9 @@ struct ClimbCatalogStairCountTests {
         let implausible = climbs.filter { climb in
             guard climb.calculatedFloors > 0 else { return true }
             let stepsPerFloor = Double(climb.referenceStepCount) / Double(climb.calculatedFloors)
-            return stepsPerFloor < 15 || stepsPerFloor > 32
+            // Frasers Tower's published 1,256-step, 39-floor route is 32.2
+            // steps per floor, so 33 is the smallest honest upper bound.
+            return stepsPerFloor < 15 || stepsPerFloor > 33
         }
 
         #expect(
