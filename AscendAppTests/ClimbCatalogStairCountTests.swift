@@ -153,9 +153,31 @@ struct ClimbCatalogStairCountTests {
         let unverified = climbs.filter { $0.realStairCount == nil }
 
         #expect(unverified.isEmpty == false)
-        for climb in unverified {
-            #expect(climb.referenceStepCount == climb.totalSteps, "\(climb.id)")
+    }
+
+    @Test
+    func everyCatalogueFloorCountAgreesWithItsReferenceStepCount() throws {
+        // FLOORS renders beside STEPS on climb detail, so a floor count still
+        // derived from architectural height contradicts a corrected distance:
+        // Monserrate read 1,605 steps over 876 floors, Tokyo Tower 500 over 93.
+        // Floors are either the route's published storey count or
+        // round(referenceStepCount / 19.8); either way the pair stays plausible.
+        // Sources for the published counts live in docs/climb-real-stair-counts.md.
+        let climbs = try Self.bundledCatalog()
+
+        let implausible = climbs.filter { climb in
+            guard climb.calculatedFloors > 0 else { return true }
+            let stepsPerFloor = Double(climb.referenceStepCount) / Double(climb.calculatedFloors)
+            return stepsPerFloor < 15 || stepsPerFloor > 32
         }
+
+        #expect(
+            implausible.isEmpty,
+            """
+            calculatedFloors must derive from referenceStepCount, not from height: \
+            \(implausible.map { "\($0.id) is \($0.referenceStepCount) steps over \($0.calculatedFloors) floors" })
+            """
+        )
     }
 
     // MARK: - Helpers
@@ -197,7 +219,7 @@ struct ClimbCatalogStairCountTests {
             realClimbableHeightFeet: realClimbableHeightFeet,
             totalSteps: totalSteps,
             realStairCount: realStairCount,
-            calculatedFloors: 102,
+            calculatedFloors: max(1, (realStairCount ?? totalSteps) / 20),
             category: "skyscraper",
             tier: ClimbTier(steps: realStairCount ?? totalSteps),
             tags: [],

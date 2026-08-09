@@ -13,7 +13,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 512,
     "realStairCount": 377,
-    "calculatedFloors": 26,
+    "calculatedFloors": 19,
     "category": "monument",
     "tier": "bronze",
     "tags": [
@@ -39,7 +39,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 930,
     "realStairCount": 897,
-    "calculatedFloors": 47,
+    "calculatedFloors": 45,
     "category": "monument",
     "tier": "silver",
     "tags": [
@@ -65,7 +65,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 1056,
     "realStairCount": 1076,
-    "calculatedFloors": 53,
+    "calculatedFloors": 54,
     "category": "monument",
     "tier": "silver",
     "tags": [
@@ -91,7 +91,7 @@
     "realClimbableHeightFeet": 520.0,
     "totalSteps": 1012,
     "realStairCount": 832,
-    "calculatedFloors": 51,
+    "calculatedFloors": 42,
     "category": "tower",
     "tier": "silver",
     "tags": [
@@ -143,7 +143,7 @@
     "realClimbableHeightFeet": 1050.0,
     "totalSteps": 2096,
     "realStairCount": 1576,
-    "calculatedFloors": 106,
+    "calculatedFloors": 86,
     "category": "skyscraper",
     "tier": "gold",
     "tags": [
@@ -195,7 +195,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 2976,
     "realStairCount": 2226,
-    "calculatedFloors": 150,
+    "calculatedFloors": 104,
     "category": "skyscraper",
     "tier": "diamond",
     "tags": [
@@ -221,7 +221,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 2431,
     "realStairCount": 2149,
-    "calculatedFloors": 123,
+    "calculatedFloors": 105,
     "category": "skyscraper",
     "tier": "diamond",
     "tags": [
@@ -247,7 +247,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 3042,
     "realStairCount": 1776,
-    "calculatedFloors": 154,
+    "calculatedFloors": 90,
     "category": "tower",
     "tier": "gold",
     "tags": [
@@ -273,7 +273,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 1001,
     "realStairCount": 720,
-    "calculatedFloors": 51,
+    "calculatedFloors": 42,
     "category": "skyscraper",
     "tier": "silver",
     "tags": [
@@ -403,7 +403,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 941,
     "realStairCount": 837,
-    "calculatedFloors": 48,
+    "calculatedFloors": 42,
     "category": "tower",
     "tier": "silver",
     "tags": [
@@ -533,7 +533,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 17336,
     "realStairCount": 1605,
-    "calculatedFloors": 876,
+    "calculatedFloors": 81,
     "category": "mountain",
     "tier": "gold",
     "tags": [
@@ -585,7 +585,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 1210,
     "realStairCount": 740,
-    "calculatedFloors": 61,
+    "calculatedFloors": 37,
     "category": "rock",
     "tier": "silver",
     "tags": [
@@ -663,7 +663,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 880,
     "realStairCount": 578,
-    "calculatedFloors": 44,
+    "calculatedFloors": 26,
     "category": "skyscraper",
     "tier": "bronze",
     "tags": [
@@ -715,7 +715,7 @@
     "realClimbableHeightFeet": 915.4,
     "totalSteps": 1815,
     "realStairCount": 1665,
-    "calculatedFloors": 92,
+    "calculatedFloors": 84,
     "category": "tower",
     "tier": "gold",
     "tags": [
@@ -741,7 +741,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 528,
     "realStairCount": 334,
-    "calculatedFloors": 27,
+    "calculatedFloors": 17,
     "category": "tower",
     "tier": "bronze",
     "tags": [
@@ -793,7 +793,7 @@
     "realClimbableHeightFeet": 666.0,
     "totalSteps": 2024,
     "realStairCount": 986,
-    "calculatedFloors": 102,
+    "calculatedFloors": 50,
     "category": "tower",
     "tier": "silver",
     "tags": [
@@ -819,7 +819,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 314,
     "realStairCount": 296,
-    "calculatedFloors": 16,
+    "calculatedFloors": 15,
     "category": "tower",
     "tier": "common",
     "tags": [
@@ -975,7 +975,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 748,
     "realStairCount": 551,
-    "calculatedFloors": 38,
+    "calculatedFloors": 28,
     "category": "cathedral",
     "tier": "bronze",
     "tags": [
@@ -1053,7 +1053,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 457,
     "realStairCount": 300,
-    "calculatedFloors": 23,
+    "calculatedFloors": 15,
     "category": "cathedral",
     "tier": "bronze",
     "tags": [
@@ -1131,7 +1131,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 4554,
     "realStairCount": 2909,
-    "calculatedFloors": 230,
+    "calculatedFloors": 160,
     "category": "skyscraper",
     "tier": "diamond",
     "tags": [
@@ -1183,7 +1183,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 2794,
     "realStairCount": 2046,
-    "calculatedFloors": 141,
+    "calculatedFloors": 91,
     "category": "skyscraper",
     "tier": "gold",
     "tags": [
@@ -1235,7 +1235,7 @@
     "realClimbableHeightFeet": 492.1,
     "totalSteps": 1832,
     "realStairCount": 500,
-    "calculatedFloors": 93,
+    "calculatedFloors": 25,
     "category": "tower",
     "tier": "bronze",
     "tags": [
@@ -1261,7 +1261,7 @@
     "realClimbableHeightFeet": 1811.0,
     "totalSteps": 3476,
     "realStairCount": 3398,
-    "calculatedFloors": 176,
+    "calculatedFloors": 119,
     "category": "skyscraper",
     "tier": "diamond",
     "tags": [
@@ -1287,7 +1287,7 @@
     "realClimbableHeightFeet": 1476.4,
     "totalSteps": 3322,
     "realStairCount": 2738,
-    "calculatedFloors": 168,
+    "calculatedFloors": 112,
     "category": "tower",
     "tier": "diamond",
     "tags": [
@@ -1313,7 +1313,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 2574,
     "realStairCount": 1566,
-    "calculatedFloors": 130,
+    "calculatedFloors": 90,
     "category": "tower",
     "tier": "gold",
     "tags": [
@@ -1339,7 +1339,7 @@
     "realClimbableHeightFeet": 1633.9,
     "totalSteps": 3053,
     "realStairCount": 2917,
-    "calculatedFloors": 154,
+    "calculatedFloors": 123,
     "category": "skyscraper",
     "tier": "diamond",
     "tags": [
@@ -1391,7 +1391,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 3735,
     "realStairCount": 2845,
-    "calculatedFloors": 189,
+    "calculatedFloors": 118,
     "category": "skyscraper",
     "tier": "diamond",
     "tags": [
@@ -1521,7 +1521,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 308,
     "realStairCount": 149,
-    "calculatedFloors": 16,
+    "calculatedFloors": 8,
     "category": "monument",
     "tier": "common",
     "tags": [
@@ -1755,7 +1755,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 1804,
     "realStairCount": 1103,
-    "calculatedFloors": 91,
+    "calculatedFloors": 51,
     "category": "tower",
     "tier": "silver",
     "tags": [
@@ -1781,7 +1781,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 1634,
     "realStairCount": 1642,
-    "calculatedFloors": 83,
+    "calculatedFloors": 88,
     "category": "skyscraper",
     "tier": "gold",
     "tags": [
@@ -1807,7 +1807,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 1771,
     "realStairCount": 1331,
-    "calculatedFloors": 89,
+    "calculatedFloors": 77,
     "category": "skyscraper",
     "tier": "gold",
     "tags": [
@@ -1937,7 +1937,7 @@
     "realClimbableHeightFeet": null,
     "totalSteps": 1700,
     "realStairCount": 1504,
-    "calculatedFloors": 86,
+    "calculatedFloors": 76,
     "category": "tower",
     "tier": "gold",
     "tags": [
