@@ -13,17 +13,16 @@ It should be updated to match whatever is actually applied to App Store Connect,
 
 ## What this copy assumes about the app
 
-Written against the app **after** [#437](https://github.com/tpavay/AscendApp/issues/437) lands.
+Written against the app as it stands after [#437](https://github.com/tpavay/AscendApp/issues/437), which merged on 2026-08-08.
 
 Gone: Apple Health workout import, manual workout logging, and any framing of Ascend as a place to log or import training.
 Kept: connecting Apple Health to enrich a climb performed *in Ascend*, live heart rate from a Bluetooth chest strap, Live Climbs, leaderboards, First Ascents, Best Efforts, guided routines, and the share composer.
-For that enrichment, Ascend reads heart-rate samples, active and resting energy, and step count around the climb's own time window.
-It may match Apple Health workout entries to find the right samples, which is why iOS still lists Workouts in the Health permission sheet.
-The enrichment can attach available heart rate, active-energy calories, and average METs; it does not attach Apple Health step count or resting energy to the climb.
-The legal pages describe the same read and attachment sets.
 
-Do not apply this listing before #437 ships.
-Until then the description would understate the app, which is harmless, but the App Review notes would still describe manual logging, which is not.
+For that enrichment, Ascend reads exactly two Apple Health types - heart rate and active energy - over the climb's own time window, and attaches your heart rate and active-energy calories to that climb.
+It never requests `workoutType()`, so Workouts does not appear in the Health permission sheet, and it never writes to Apple Health.
+`HealthKitAuthorizationClient.readTypes` is the authority for that set; the legal pages, the `Info.plist` usage string, and the App Store data answers all have to match it.
+
+The App Review notes still describe manual logging and must be replaced with the hardware demo-video path before this listing is applied.
 
 ## App name
 
@@ -169,12 +168,12 @@ Available plans, billing terms, and any eligible trial are shown before purchase
 Subscriptions can be managed through your Apple Account, and eligible purchases can be restored in Ascend.
 
 Live Climbs and guided routines require compatible motion-equipped AirPods or Beats.
-Apple Health is optional and is used only to attach heart-rate and energy data recorded while you were climbing in Ascend.
+Apple Health is optional and is used only to attach heart rate and active-energy calories recorded while you were climbing in Ascend.
 A Bluetooth heart-rate monitor is optional.
 Ascend is not a medical device and does not provide medical advice.
 ```
 
-2,530 characters of 4,000.
+2,541 characters of 4,000.
 
 ### What changed from the live description, and why
 
@@ -186,13 +185,13 @@ That framing names the customer and answers "why does this not already exist" in
 
 Three other changes carry the repositioning:
 
-- The **KEEP YOUR HISTORY TOGETHER** section is gone. It promised logging and Apple Health import, both of which #437 removes. Its replacement is an explicit statement that everything in Ascend comes from a session performed in Ascend, which turns the removal into a credibility claim about the leaderboard rather than a missing feature.
+- The **KEEP YOUR HISTORY TOGETHER** section is gone. It promised logging and Apple Health import, both of which #437 removed. Its replacement is an explicit statement that everything in Ascend comes from a session performed in Ascend, which turns the removal into a credibility claim about the leaderboard rather than a missing feature.
 - **Mt. Everest is gone** from the landmark examples, ahead of #440.
-- The Apple Health footnote now says what Apple Health is actually for after #437: attaching heart-rate and energy data to a climb performed in Ascend, from an Apple Watch or any wearable that writes to Apple Health.
+- The Apple Health footnote now says what Apple Health is actually for after #437: attaching heart rate and active-energy calories to a climb performed in Ascend, from an Apple Watch or any wearable that writes to Apple Health.
 
 ## Out of scope for this proposal
 
-- **App Review notes.** They currently tell the reviewer that sessions can be logged manually, which becomes false the moment #437 lands. Replacing them with the hardware demo-video path is tracked in #437 and #439 and is not proposed here.
+- **App Review notes.** They still tell the reviewer that sessions can be logged manually, which #437 made false on 2026-08-08. Replacing them with the hardware demo-video path is tracked in #437 and #439 and is not proposed here.
 - **Screenshots.** Tracked separately in [#390](https://github.com/tpavay/AscendApp/issues/390).
 - **In-app copy.** Tracked in #437.
 - **The Superwall onboarding paywall** (`web/public/superwall/onboarding-paywall.html`). It promises nothing that #437 removes, but it does hard-code "Choose from 75 landmarks to climb", which #440 will make wrong. Worth a look when #440 lands.

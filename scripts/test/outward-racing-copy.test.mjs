@@ -78,7 +78,7 @@ test("the public website consistently presents Ascend as racing", async () => {
   assert.match(outwardCopy, /The first finisher claims it forever/);
   assert.match(
     outwardCopy,
-    /does not add workouts from Apple Health or any other app to your Ascend history/i
+    /does not import workouts from Apple Health or any other app/i
   );
   assert.match(outwardCopy, /does not accept manually entered workouts/i);
 
@@ -119,35 +119,35 @@ test("post-import-removal HealthKit disclosures match the real enrichment read s
     ]
   ];
 
-  // HealthKitAuthorizationClient.readTypes requests the workout type alongside
-  // heart rate, step count, and active/resting energy, and
-  // WorkoutImportCoordinator pads the discovery window by 30 minutes on each
-  // side. A disclosure that denies either is false against the shipped app.
+  // Since #437 (merged 2026-08-08) HealthKitAuthorizationClient.readTypes is
+  // exactly {heartRate, activeEnergyBurned}, AppleHealthEnrichmentCoordinator
+  // reads the climb's own unpadded window, and HKWorkout is never touched.
+  // Naming anything wider is a false disclosure in a legal page, so these
+  // patterns guard against resurrecting the pre-#437 read set.
   const forbiddenClaims = [
+    [/step count/i, "claims a step-count read that #437 removed"],
+    [/resting energy/i, "claims a resting-energy read that #437 removed"],
+    [/average METs/i, "claims a METs attachment that came from HKWorkout"],
     [
-      /does not read[^.]*workouts (?:in|from) Apple Health/i,
-      "categorically denies reading Apple Health workouts"
+      /matching Apple Health workout|workout entries/i,
+      "claims Ascend matches Apple Health workout entries, which #437 removed"
     ],
     [
-      /never reads samples outside/i,
-      "claims samples are never read outside the session window"
+      /lists Workouts in the Health permission sheet/i,
+      "claims the permission sheet shows Workouts, which it no longer does"
     ],
     [
-      /only for one purpose/i,
-      "narrows enrichment to a single purpose the read set contradicts"
+      /(imports?|importing) (?:supported )?workouts? from Apple Health(?! or any other app, and it does not| into)/i,
+      "reads as a promise to import Apple Health workouts"
     ]
   ];
 
-  // The read set is wider than what ends up on the climb; the two must stay
-  // separately stated so neither is mistaken for the other.
-  const requiredReads = [
-    [/heart-rate samples/i, "the heart-rate read"],
-    [/resting energy/i, "the resting-energy read"],
-    [/step count/i, "the step-count read"]
-  ];
-  const requiredAttachments = [
-    [/active-energy calories/i, "the active-energy calorie attachment"],
-    [/average METs/i, "the average-METs attachment"]
+  // The two types Ascend actually asks for, and the window it reads them over.
+  // Prose spells them out; CLAUDE.md names the HealthKit identifiers directly.
+  const requiredDisclosures = [
+    [/heart[- ]rate|heartRate/i, "the heart-rate read"],
+    [/active[- ]energy|activeEnergyBurned/i, "the active-energy read"],
+    [/own time window|time window of a climb/i, "the session-window bound"]
   ];
   const violations = [];
 
@@ -157,7 +157,7 @@ test("post-import-removal HealthKit disclosures match the real enrichment read s
         violations.push(`${label}: ${description}`);
       }
     }
-    for (const [pattern, description] of [...requiredReads, ...requiredAttachments]) {
+    for (const [pattern, description] of requiredDisclosures) {
       if (!pattern.test(disclosure)) {
         violations.push(`${label}: does not disclose ${description}`);
       }

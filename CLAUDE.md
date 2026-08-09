@@ -17,12 +17,11 @@ The niche defined by exclusion. Check every feature, screen, and copy change aga
 - Not a generic fitness tracker. Activity scope is stair stepper sessions.
 - Not weight-lifting / strength-training focused.
 - Not a passive tracker. Every session is competitive context.
-- Not a logger or an importer. Every climb and record comes from a session performed in Ascend; manual entry and Apple Health workout import are being removed (#437).
-  Apple Health stays only to enrich an Ascend-owned climb.
-  Ascend reads heart-rate samples, active and resting energy, and step count around that climb's own time window and may match Apple Health workout entries to find the right samples.
-  The enrichment can attach available heart rate, active-energy calories, and average METs; it does not attach Apple Health step count or resting energy to the climb.
-  Ascend never adds those workout entries to Ascend history or writes anything to Apple Health.
-  No outward surface may promise otherwise.
+- Not a logger or an importer. Every climb and record comes from a session performed in Ascend; manual entry and Apple Health workout import were removed on 2026-08-08 (#437).
+  Apple Health stays only to enrich an Ascend-owned climb, and the read set is exactly two types: `heartRate` and `activeEnergyBurned`, read over that climb's own time window and attached to it.
+  Ascend never requests `workoutType()`, never reads outside a climb's window, and never writes to Apple Health.
+  Quote that set when writing any disclosure - the legal pages, the `Info.plist` usage string, and the App Store answers all have to agree, and `HealthKitAuthorizationClient.readTypes` is the authority.
+  No outward surface may promise otherwise. Outward copy: `docs/app-store-racing-repositioning-proposal.md`.
 
 Full rationale: `ascend-brand-voice`.
 
