@@ -34,7 +34,11 @@ final class HealthKitAuthorizationClient: HealthKitAuthorizationControlling {
     /// becomes the series and its average/maximum, active energy becomes calories. A type Ascend
     /// requests but never uses is a permission prompt the climber cannot say no to for a reason
     /// (#353).
-    private var readTypes: Set<HKObjectType> {
+    ///
+    /// Not private so the contract can be pinned by a test: the Health permission sheet is the one
+    /// place a climber ever sees this set, and there is no other way to read back what Ascend asks
+    /// for without standing in front of that sheet.
+    var readTypes: Set<HKObjectType> {
         var types: Set<HKObjectType> = []
 
         if let heartRate = HKObjectType.quantityType(forIdentifier: .heartRate) {
