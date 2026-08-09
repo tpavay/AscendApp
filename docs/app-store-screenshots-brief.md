@@ -24,12 +24,15 @@ Regenerate them only for a genuinely new concept; the prompts in section 9 are w
 
 ## 1. What Ascend is
 
-Ascend is a **competitive stair-stepper companion for iOS**. It turns every stepping session
-into a race up real-world landmarks. You pick a landmark (Mt. Everest, Empire State Building,
-Burj Khalifa), race in real time against other people's past attempts via headphone-motion
-step tracking, and either hit the target step count (completion) or you don't.
+Ascend is a **stair stepper racing app for iOS**. Racing is the product; measuring the
+session is a byproduct. You pick a real tower, race its actual step count against every
+attempt already posted on it via headphone-motion step counting, and either hit the target
+(completion) or you don't.
 
-**Core promise:** *Race the world up real landmarks. From your stair stepper.*
+`CLAUDE.md` ("What Is Ascend") owns the positioning statement and the tower-running market
+framing behind it. Read it there rather than from a second copy.
+
+**Core promise:** *Race real towers. From any gym.*
 
 **The retention hook - First Ascent:** the first person ever to finish a climb holds its
 **First Ascent** forever. Permanent prestige that can never be reclaimed, even after faster
@@ -40,21 +43,16 @@ climbers beat the time. Every new climb drop opens a fresh First Ascent slot.
 **For:** people who already use the stair stepper (or are about to) and want their work to
 count - serious, goal-driven steppers chasing PRs, rank, and progress that compounds.
 
-**NOT for** (keep captions on-niche - this matters):
-- Not general fitness users who don't care about the stair stepper.
-- Not a social network - no feed, no followers, no kudos.
-- Not a generic "any workout" tracker.
-- Not a passive tracker - every session is competitive context.
+**NOT for:** `CLAUDE.md` ("What Ascend Is NOT") owns the exclusion list and
+`ascend-brand-voice` owns the rationale. Keep captions on-niche - this matters - and never
+caption a feature Ascend does not have. Ascend is not a logger or an importer, so no
+caption may promise manual entry, Apple Health workout import, or generic workout tracking.
 
 ## 3. Brand voice (apply to every caption)
 
-Niche-aggressive, declarative, confident - willing to lose readers who aren't the target.
+`ascend-brand-voice` owns the voice and every caption must apply it; it is not restated
+here. Section 8 is the per-caption checklist. Two rules specific to this set:
 
-- **Active verb at the front:** Climb. Race. Rank. Push. Track.
-- **Imperative over invitational:** "Be the first" > "You could be the first."
-- **No hedging** - cut maybe/perhaps/if you'd like.
-- **Specific over abstract** - name landmarks, name numbers, name verbs.
-- **The dare beats the invite.** Assume the user is serious. Don't soften "race."
 - **Name the stair stepper - it's the niche *and* the #1 search keyword.** It must appear in
   both photo openers and in at least one feature caption (e.g. *"every step on the stepper,
   live"*). **Name it; don't explain it.** Never ship a full set that omits it - AI caption

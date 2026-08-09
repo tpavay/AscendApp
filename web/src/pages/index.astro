@@ -2,7 +2,7 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import AppStoreBadge from '../components/AppStoreBadge.astro';
 ---
-<BaseLayout title="Ascend - Stair-Stepper Training App" description="Ascend is the iOS app made for the stair stepper: live climbs to race, best efforts to beat, routines to run, trends to track, and every reason to keep climbing.">
+<BaseLayout title="Ascend - Stair Stepper Racing" description="Ascend is a stair stepper racing app for iOS. Race real towers from any gym, against every climber who has taken them on.">
 
   <style>
     .hero {
@@ -170,6 +170,51 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
       color: #a8b2bf;
       font-size: 18px;
       line-height: 1.7;
+    }
+
+    .sport-section {
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-soft);
+    }
+
+    .sport-section .section-heading {
+      max-width: 880px;
+    }
+
+    .sport-section .section-heading h2 {
+      text-wrap: balance;
+    }
+
+    .sport-section .section-heading p {
+      text-wrap: pretty;
+    }
+
+    .sport-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .sport-card {
+      padding: 26px 24px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .sport-card h3 {
+      margin-bottom: 10px;
+      color: var(--text);
+      font-size: 18px;
+      font-weight: 800;
+      line-height: 1.25;
+    }
+
+    .sport-card p {
+      color: #a8b2bf;
+      font-size: 15px;
+      line-height: 1.62;
     }
 
     .feature-rows {
@@ -716,6 +761,10 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
         justify-content: flex-start;
       }
 
+      .sport-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
       .live-step {
         flex-basis: 178px;
       }
@@ -836,6 +885,10 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
         grid-template-columns: 1fr;
       }
 
+      .sport-grid {
+        grid-template-columns: 1fr;
+      }
+
     }
 
     @media (max-width: 460px) {
@@ -851,11 +904,11 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
     <div class="hero-inner">
       <div class="hero-content">
         <h1>
-          <span>The best cardio deserves</span>
-          <span>a better app.</span>
+          <span>Race real towers.</span>
+          <span class="accent">From any gym.</span>
         </h1>
         <p class="subtitle">
-          Ascend is the iOS app made for the stair stepper: live climbs to race, best efforts to beat, routines to run, trends to track, and every reason to keep climbing.
+          Stair racing is already a sport. Ascend is that sport on the machine in front of you: pick a real tower, race its actual step count, and take your rank against every climber who has taken it on.
         </p>
 
         <div class="hero-actions">
@@ -865,12 +918,46 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
     </div>
   </section>
 
+  <section class="section sport-section" id="the-sport">
+    <div class="section-inner">
+      <div class="section-heading centered">
+        <div class="section-kicker">The Sport</div>
+        <h2>Tower running, without the tower.</h2>
+        <p>
+          Stair racing already exists. On the Vertical World Circuit, athletes race the stairwells of the world's tallest buildings, floor by floor, against the clock. Entry costs a skyscraper, an event date, a travel budget, and a place in a limited field. Ascend costs a stair stepper.
+        </p>
+      </div>
+
+      <div class="sport-grid">
+        <article class="sport-card">
+          <h3>Any day</h3>
+          <p>No event calendar and no start list. The tower opens the moment you step onto the machine.</p>
+        </article>
+
+        <article class="sport-card">
+          <h3>Any gym</h3>
+          <p>Your stair stepper is the stairwell. Nothing to book, nothing to fly to, nothing else to buy.</p>
+        </article>
+
+        <article class="sport-card">
+          <h3>A real field</h3>
+          <p>Every attempt posted on that tower is the field you race. Your rank moves while you climb.</p>
+        </article>
+
+        <article class="sport-card">
+          <h3>One First Ascent</h3>
+          <p>Every new tower opens with a permanent prize. The first finisher claims it forever, even after someone posts a faster time.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
   <section class="section" id="features">
     <div class="section-inner">
       <div class="feature-rows">
         <section class="live-climbs-showcase" id="live-climbs">
           <div class="live-showcase-heading">
-            <h2>Take on iconic climbs across the globe and <span>see where you rank.</span></h2>
+            <h2>Race real towers across the globe and <span>take the rank.</span></h2>
           </div>
 
           <div class="live-walkthrough" aria-label="Live Climbs walkthrough">
@@ -879,8 +966,8 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
                 <img src="/images/ascend-globe-browse.jpg" alt="Ascend globe browse screen with climb search and landmark cards" loading="lazy" decoding="async" />
               </div>
               <div class="live-step-copy">
-                <span>01 / Discover</span>
-                <p>Browse famous landmarks across the globe.</p>
+                <span>01 / Pick</span>
+                <p>Pick your tower from landmarks across the globe.</p>
               </div>
             </article>
 
@@ -899,8 +986,8 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
                 <img src="/images/ascend-live-climb-leaderboard-preview.png" alt="Ascend Live Climb leaderboard with current user highlighted" loading="lazy" decoding="async" />
               </div>
               <div class="live-step-copy">
-                <span>03 / Climb</span>
-                <p>Watch your rank update while you climb.</p>
+                <span>03 / Race</span>
+                <p>Watch your rank move while you climb.</p>
               </div>
             </article>
 
@@ -909,8 +996,8 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
                 <img src="/images/ascend-live-climb-results.png" alt="Ascend Live Climb result screen with rank, stats, best effort, and splits" loading="lazy" decoding="async" />
               </div>
               <div class="live-step-copy">
-                <span>04 / Review</span>
-                <p>Review your rank, best effort, stats, and splits.</p>
+                <span>04 / Result</span>
+                <p>Read your rank, best effort, stats, and splits.</p>
               </div>
             </article>
 
@@ -920,7 +1007,7 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
               </div>
               <div class="live-step-copy">
                 <span>05 / Share</span>
-                <p>Save a share card with your climb and result.</p>
+                <p>Save a share card with your tower and your result.</p>
               </div>
             </article>
 
@@ -930,7 +1017,7 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
               </div>
               <div class="live-step-copy">
                 <span>06 / Leaderboard</span>
-                <p>Compare completed attempts on the climb leaderboard.</p>
+                <p>Hold your place against everyone who finished it.</p>
               </div>
             </article>
           </div>
@@ -941,7 +1028,7 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
             <div class="section-kicker">Best Efforts</div>
             <h3>Beat the version of you that showed up last time.</h3>
             <p>
-              Ascend turns your hardest stair-stepper sessions into records you can chase: most steps, longest climbs, fastest pace, rolling windows, and progress charts tied back to the workouts that set them.
+              Every race you finish feeds a record book only you can break: most steps, longest climb, fastest pace, rolling windows, and progress charts tied back to the session that set each one.
             </p>
           </div>
 
@@ -956,10 +1043,10 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
 
         <section class="feature-row reversed">
           <div class="feature-copy">
-            <div class="section-kicker">Routines to Run</div>
-            <h3>Pick the stair session your body needs today.</h3>
+            <div class="section-kicker">Train Between Races</div>
+            <h3>Build the engine the next tower will ask for.</h3>
             <p>
-              Ascend gives you pre-built stair-stepper routines for endurance, max output, and heart-rate-zone work, then guides each interval while you climb. Finished routines log with the rest of your workout history, and you can save favorites, repeat what works, or build your own interval structure from scratch.
+              Ascend gives you pre-built stair-stepper routines for endurance, max output, and heart-rate-zone work, then guides each interval while you climb. Pair a Bluetooth chest strap for live heart rate and effort zones. Finished routines land in the same history as your races, and you can save favorites, repeat what works, or build your own interval structure from scratch.
             </p>
           </div>
 
@@ -986,7 +1073,7 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
         </button>
         <div class="faq-answer">
           <div class="faq-answer-inner">
-            Ascend is an iOS app dedicated to stair-stepper workouts. It combines logging, imports, routines, Best Efforts, Live Climbs, share cards, and leaderboards around one stair-first workout history.
+            Ascend is a stair stepper racing app for iOS. You pick a real tower, such as the Empire State Building, Taipei 101, or the Eiffel Tower, and race its actual step count on the machine in front of you, against every climber who has taken it on. Your rank, your records, and your history all come out of the races you run.
           </div>
         </div>
       </div>
@@ -998,31 +1085,43 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
         </button>
         <div class="faq-answer">
           <div class="faq-answer-inner">
-            Live Climbs are real-time stair-stepper attempts against landmark climb goals. They use compatible headphone motion tracking for live steps and can unlock climb history, completion summaries, and replay leaderboard context.
+            A Live Climb is one race up one tower. Ascend counts your steps in real time from compatible headphone motion, ranks you against the attempts already posted on that tower, and gives you a completion summary, splits, and leaderboard context when you finish.
           </div>
         </div>
       </div>
 
       <div class="faq-item">
         <button class="faq-question">
-          How does Ascend track my steps live?
+          How does Ascend count my steps during a race?
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div class="faq-answer">
           <div class="faq-answer-inner">
-            During a Live Climb, Ascend reads the motion in your AirPods or compatible headphones and runs a stair-stepper-tuned step algorithm in real time &mdash; your steps, pace, and rank update every second as you climb. It measures your actual movement, so the count stays accurate as long as you&rsquo;re climbing. Stop stepping and it stops counting, exactly as it should.
+            Ascend reads the motion in your AirPods or compatible headphones and runs a stair-stepper-tuned step algorithm in real time. Your steps, pace, and rank update every second as you climb. It measures your actual movement, so the count stays accurate as long as you&rsquo;re climbing. Stop stepping and it stops counting, exactly as it should.
           </div>
         </div>
       </div>
 
       <div class="faq-item">
         <button class="faq-question">
-          Can I import workouts?
+          What do I need to race?
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div class="faq-answer">
           <div class="faq-answer-inner">
-            Yes. Ascend imports your stair-stepper workouts from Apple Health, with review states designed to keep your history clean and avoid duplicate records.
+            A stair stepper and a pair of motion-equipped AirPods or Beats. That is the whole kit. A Bluetooth chest strap is optional and adds live heart rate and effort zones while you climb.
+          </div>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question">
+          Does Ascend work with Apple Health?
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="faq-answer">
+          <div class="faq-answer-inner">
+            For heart rate, yes. Connect Apple Health and Ascend attaches the heart-rate data recorded while you were racing to that climb, so an Apple Watch or any wearable that writes to Apple Health can supply it. Ascend does not import workouts from Apple Health, and there is no manual workout entry. Every record in Ascend comes from a climb you performed in Ascend.
           </div>
         </div>
       </div>
@@ -1034,7 +1133,7 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
         </button>
         <div class="faq-answer">
           <div class="faq-answer-inner">
-            No &mdash; Ascend is a subscription. Start with a 7-day free trial on the $49.99/year plan. The $9.99/month plan is charged immediately and has no trial. Cancel anytime.
+            No. Ascend is a subscription. Start with a 7-day free trial on the $49.99/year plan. The $9.99/month plan is charged immediately and has no trial. Cancel anytime.
           </div>
         </div>
       </div>
@@ -1054,8 +1153,8 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
   </section>
 
   <section class="cta-section" id="download">
-    <h2>Track the stair stepper like the workout it is.</h2>
-    <p>Ascend is coming to the App Store. Climb real landmarks, race the leaderboard, and make every step count.</p>
+    <h2>Pick your tower. Start the race.</h2>
+    <p>Ascend is coming to the App Store. Race real towers from any gym, and climb the leaderboard one attempt at a time.</p>
 
     <div class="cta-actions" style="margin-top: 28px;">
       <AppStoreBadge />

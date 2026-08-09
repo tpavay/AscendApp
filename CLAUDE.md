@@ -4,7 +4,7 @@ This file is the always-on core. Domain detail lives in `.claude/skills/` - see 
 
 ## What Is Ascend
 
-Ascend is a competitive stair stepper companion for iOS. It's built for people who already use the stair stepper (or are about to start) and want their work to count. Users race the world up real landmarks, top per-climb leaderboards, log every session, and watch their progress compound over time. The leaderboard is the conversation.
+Ascend is a **stair stepper racing app** for iOS, shipping as `Ascend: Stair Stepper Racing`. Racing is the product; measuring the session is a byproduct. The market framing, settled by the captain on 2026-08-08: tower running is already an organised sport, and entering one takes a skyscraper, an event date, a travel budget, and a place in a limited field - **Ascend is that sport, on a machine, on any day, from any gym.** Users race real towers, top per-climb leaderboards, claim First Ascents, and watch their progress compound. The leaderboard is the conversation. Outward copy derived from this: `docs/app-store-racing-repositioning-proposal.md`.
 
 **Solo dev + AI assisted** (Tyler Pavay). Launch monetization is a hard paywall with no freemium tier: `$49.99/year` with a seven-day free trial, or `$9.99/month` charged immediately with no trial. Both unlock RevenueCat entitlement `app_access`; there is no weekly or separate launch-discount product. The paywall is a server-enforced lock, not just a screen: Firebase requires a server-owned grant projected from RevenueCat (`docs/revenuecat-server-entitlement-enforcement.md`).
 
@@ -17,6 +17,11 @@ The niche defined by exclusion. Check every feature, screen, and copy change aga
 - Not a generic fitness tracker. Activity scope is stair stepper sessions.
 - Not weight-lifting / strength-training focused.
 - Not a passive tracker. Every session is competitive context.
+- Not a logger or an importer. Every climb and record comes from a session performed in Ascend; manual entry and Apple Health workout import were removed on 2026-08-08 (#437).
+  Apple Health stays only to enrich an Ascend-owned climb, and the read set is exactly two types: `heartRate` and `activeEnergyBurned`, read over that climb's own time window and attached to it.
+  Ascend never requests `workoutType()`, never reads outside a climb's window, and never writes to Apple Health.
+  Quote that set when writing any disclosure - the legal pages, the `Info.plist` usage string, and the App Store answers all have to agree, and `HealthKitAuthorizationClient.readTypes` is the authority.
+  No outward surface may promise otherwise. Outward copy: `docs/app-store-racing-repositioning-proposal.md`.
 
 Full rationale: `ascend-brand-voice`.
 
