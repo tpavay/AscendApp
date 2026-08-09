@@ -95,7 +95,6 @@ struct AppleHealthEnrichmentTimelineEvidenceTests {
         #expect(workout.caloriesBurned == 231)
         #expect(workout.heartRateTimeSeries.count == 4)
         #expect(service.phase(for: workout) == .notApplicable)
-        #expect(service.lastEnrichedWorkoutID == workout.id)
 
         // And it stops: nothing is left waking the app up for a climb that is now complete.
         #expect(service.hasScheduledWakeUp == false)

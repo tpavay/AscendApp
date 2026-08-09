@@ -177,6 +177,12 @@ class AuthenticationViewModel {
                     // climber tapping sign out.
                     WorkoutSyncCoordinator.shared.forgetAuthenticatedIdentity()
 
+                    // Autonomous workers outlive the session that started them, and this is the
+                    // only place the app sees every way one ends - sign out, a revoked session,
+                    // a deleted account. Whatever they are still holding belongs to the climber
+                    // who just left, so it stops here rather than writing under the next one.
+                    AuthenticatedBootstrapCoordinator.shared.endAuthenticatedSession()
+
                     self.displayName = ""
                     self.customProfilePictureURL = nil
                     self.hasRemoteDisplayName = false

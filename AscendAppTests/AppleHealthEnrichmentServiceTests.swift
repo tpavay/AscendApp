@@ -62,7 +62,6 @@ struct AppleHealthEnrichmentServiceTests {
         #expect(workout.caloriesBurned == 214)
         #expect(workout.heartRateTimeSeries.count == 2)
         #expect(service.phase(for: workout) == .notApplicable)
-        #expect(service.lastEnrichedWorkoutID == workout.id)
     }
 
     @Test("A look before its backoff step has elapsed does not spend an attempt")

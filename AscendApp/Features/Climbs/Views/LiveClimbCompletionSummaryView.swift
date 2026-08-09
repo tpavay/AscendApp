@@ -329,11 +329,18 @@ struct LiveClimbCompletionSummaryView: View {
     }
 
     private func connectAppleHealthForHeartRate() {
-        guard !isConnectingAppleHealth else { return }
+        // Guards on the task, not on the in-flight flag. That flag is only set inside the task
+        // body, which does not run until the next main-actor hop, so two taps in one runloop turn
+        // both got past it - and the second assignment orphaned the first handle, leaving it
+        // beyond the reach of `onDisappear`.
+        guard appleHealthConnectTask == nil else { return }
 
         appleHealthConnectTask = Task { @MainActor in
             isConnectingAppleHealth = true
-            defer { isConnectingAppleHealth = false }
+            defer {
+                isConnectingAppleHealth = false
+                appleHealthConnectTask = nil
+            }
 
             let result = await enrichmentService.connectAndFetch(
                 workout,

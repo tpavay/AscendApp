@@ -36,10 +36,7 @@ struct AppAccountDeletionLocalCleanup: AccountDeletionLocalCleanup {
         settingsManager: SettingsManager = .shared,
         climbDropNotificationState: ClimbDropNotificationState = .shared,
         bootstrapCoordinator: AuthenticatedBootstrapCoordinator = .shared,
-        autonomousSessionWorkers: [any AuthenticatedSessionWorker] = [
-            AppleHealthEnrichmentService.shared,
-            MediaUploadManager.shared
-        ]
+        autonomousSessionWorkers: [any AuthenticatedSessionWorker] = AutonomousSessionWorkers.all
     ) {
         self.userDefaults = userDefaults
         self.persistentDomainName = persistentDomainName
