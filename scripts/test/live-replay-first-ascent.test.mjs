@@ -207,9 +207,27 @@ test("exactly four climbs seed an open First Ascent slot", () => {
   assert.deepEqual(openClimbIds, [
     "sky-tower-auckland",
     "oriental-pearl-tower",
-    "table-mountain",
-    "machu-picchu",
+    "charminar",
+    "el-penon-de-guatape",
   ]);
+});
+
+test("live replay fixtures cover only the available racing catalogue", () => {
+  const replaySource = readScript("scripts/seed-live-replay-leaderboards.mjs");
+  const seededClimbIds = [
+    ...arrayLiteralIds(replaySource, "ACTIVE_CLIMBS", "id"),
+    ...arrayLiteralIds(replaySource, "WARM_CLIMBS", "id"),
+    ...arrayLiteralIds(replaySource, "FIRST_ASCENT_OPEN_CLIMBS", "id"),
+  ].sort();
+  const catalogue = JSON.parse(
+    readFileSync(resolve(REPO_ROOT, "web/public/climbs/catalog-v1.json"), "utf8")
+  );
+  const availableClimbIds = catalogue
+    .filter((climb) => climb.releaseState === "available")
+    .map((climb) => climb.id)
+    .sort();
+
+  assert.deepEqual(seededClimbIds, availableClimbIds);
 });
 
 test("open First Ascent climbs are disjoint from the demo user's climbs", () => {

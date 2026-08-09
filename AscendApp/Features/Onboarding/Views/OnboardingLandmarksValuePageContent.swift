@@ -8,9 +8,7 @@ struct OnboardingLandmarksValuePageContent: View {
         LandmarkCard(label: "STATUE", imageName: "OnboardingLandmarkStatueCard"),
         LandmarkCard(label: "EMPIRE", imageName: "OnboardingLandmarkEmpireCard"),
         LandmarkCard(label: "EIFFEL", imageName: "OnboardingLandmarkEiffelCard"),
-        LandmarkCard(label: "BURJ", imageName: "OnboardingLandmarkBurjCard"),
-        LandmarkCard(label: "MACHU", imageName: "OnboardingLandmarkMachuCard"),
-        LandmarkCard(label: "EVEREST", imageName: "OnboardingLandmarkEverestCard")
+        LandmarkCard(label: "BURJ", imageName: "OnboardingLandmarkBurjCard")
     ]
 
     var body: some View {
@@ -26,8 +24,8 @@ struct OnboardingLandmarksValuePageContent: View {
                 VStack(spacing: layout.rowSpacing) {
                     ForEach(0..<2, id: \.self) { row in
                         HStack(spacing: layout.cardGap) {
-                            ForEach(0..<3, id: \.self) { column in
-                                let card = cards[row * 3 + column]
+                            ForEach(0..<2, id: \.self) { column in
+                                let card = cards[row * 2 + column]
                                 OnboardingLandmarkCardView(card: card)
                                     .frame(width: layout.cardSize.width, height: layout.cardSize.height)
                             }
@@ -47,7 +45,7 @@ struct OnboardingLandmarksValuePageContent: View {
             .background(Color.black)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Climb real landmarks. Choose a climb to complete from local towers to Mt. Everest so you always have something to aim for.")
+        .accessibilityLabel("Climb real landmarks. Race the Statue of Liberty, Empire State Building, Eiffel Tower, and Burj Khalifa.")
     }
 
     private func background(layout: OnboardingLandmarksValueLayout) -> some View {
@@ -284,8 +282,10 @@ private struct OnboardingLandmarksValueLayout {
 }
 
 #Preview("Landmarks Value Page") {
-    OnboardingLandmarksValuePageContent(
-        headline: "Climb real\nlandmarks.",
-        subtitle: "Choose a climb to complete from local towers to Mt. Everest so you always have something to aim for."
-    )
+    if let page = OnboardingValuePages.all.first(where: { $0.id == "reason_to_come_back" }) {
+        OnboardingLandmarksValuePageContent(
+            headline: page.headline,
+            subtitle: page.subtitle
+        )
+    }
 }

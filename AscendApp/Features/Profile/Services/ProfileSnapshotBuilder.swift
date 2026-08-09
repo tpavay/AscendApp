@@ -468,10 +468,7 @@ enum ProfileSnapshotBuilder {
         "empire-state-building": 3,
         "eiffel-tower": 4,
         "burj-khalifa": 5,
-        "table-mountain": 6,
-        "machu-picchu": 7,
-        "mount-everest": 8,
-        "sydney-tower": 9
+        "sydney-tower": 6
     ]
 
     private static func recommendedUnclaimedClimbs(

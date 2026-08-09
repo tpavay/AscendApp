@@ -613,13 +613,13 @@ private struct PreAuthGuideScreenView: View {
 private struct PreAuthLandmarkCollage: View {
     let metrics: PreAuthGuideMetrics
 
-    // Six bundled landmark assets fill seven Figma card slots; the repeat (Burj) hides in
+    // Four raceable landmark assets fill seven Figma card slots. The repeated Burj card hides in
     // the 29pt sliver bleeding off the top-left edge, diagonally opposite its full card.
     private static let topRowImages = [
         "OnboardingLandmarkBurjCard",
-        "OnboardingLandmarkMachuCard",
+        "OnboardingLandmarkEiffelCard",
         "OnboardingLandmarkEmpireCard",
-        "OnboardingLandmarkEverestCard"
+        "OnboardingLandmarkStatueCard"
     ]
 
     private static let bottomRowImages = [

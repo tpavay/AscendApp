@@ -64,34 +64,34 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 
 const ACTIVE_CLIMBS = [
-  {id: "mount-everest", totalClimbers: 247, replayEntries: 96, completionRate: 0.36},
+  {id: "merdeka-118", totalClimbers: 247, replayEntries: 96, completionRate: 0.36},
   {id: "empire-state-building", totalClimbers: 198, replayEntries: 88, completionRate: 0.42},
   {id: "burj-khalifa", totalClimbers: 173, replayEntries: 84, completionRate: 0.34},
-  {id: "gateway-arch", totalClimbers: 166, replayEntries: 72, completionRate: 0.48},
+  {id: "reunion-tower", totalClimbers: 166, replayEntries: 72, completionRate: 0.48},
   {id: "eiffel-tower", totalClimbers: 156, replayEntries: 72, completionRate: 0.44},
-  {id: "petronas-towers", totalClimbers: 142, replayEntries: 68, completionRate: 0.38},
+  {id: "lotte-world-tower", totalClimbers: 142, replayEntries: 68, completionRate: 0.38},
   {id: "cn-tower", totalClimbers: 137, replayEntries: 64, completionRate: 0.36},
   {id: "statue-of-liberty", totalClimbers: 128, replayEntries: 60, completionRate: 0.54},
-  {id: "tokyo-skytree", totalClimbers: 118, replayEntries: 56, completionRate: 0.35},
-  {id: "marina-bay-sands", totalClimbers: 104, replayEntries: 52, completionRate: 0.46},
+  {id: "eureka-tower", totalClimbers: 118, replayEntries: 56, completionRate: 0.35},
+  {id: "q1-tower", totalClimbers: 104, replayEntries: 52, completionRate: 0.46},
 ];
 
 const WARM_CLIMBS = [
   {id: "space-needle", totalClimbers: 62, replayEntries: 30, completionRate: 0.44},
-  {id: "washington-monument", totalClimbers: 58, replayEntries: 28, completionRate: 0.48},
+  {id: "torre-latinoamericana", totalClimbers: 58, replayEntries: 28, completionRate: 0.48},
   {id: "willis-tower", totalClimbers: 54, replayEntries: 28, completionRate: 0.36},
   {id: "one-world-trade-center", totalClimbers: 49, replayEntries: 26, completionRate: 0.34},
-  {id: "chrysler-building", totalClimbers: 46, replayEntries: 24, completionRate: 0.40},
-  {id: "the-shard", totalClimbers: 42, replayEntries: 24, completionRate: 0.40},
-  {id: "sagrada-familia", totalClimbers: 39, replayEntries: 22, completionRate: 0.46},
-  {id: "acropolis-of-athens", totalClimbers: 36, replayEntries: 20, completionRate: 0.58},
+  {id: "farol-santander", totalClimbers: 46, replayEntries: 24, completionRate: 0.40},
+  {id: "monserrate", totalClimbers: 42, replayEntries: 24, completionRate: 0.40},
+  {id: "st-peters-basilica", totalClimbers: 39, replayEntries: 22, completionRate: 0.46},
+  {id: "sacre-coeur", totalClimbers: 36, replayEntries: 20, completionRate: 0.58},
   {id: "elizabeth-tower", totalClimbers: 34, replayEntries: 20, completionRate: 0.58},
   {id: "tokyo-tower", totalClimbers: 32, replayEntries: 20, completionRate: 0.40},
   {id: "shanghai-tower", totalClimbers: 29, replayEntries: 18, completionRate: 0.34},
   {id: "taipei-101", totalClimbers: 28, replayEntries: 18, completionRate: 0.34},
   {id: "canton-tower", totalClimbers: 27, replayEntries: 18, completionRate: 0.34},
   {id: "leaning-tower-of-pisa", totalClimbers: 24, replayEntries: 16, completionRate: 0.56},
-  {id: "cairo-tower", totalClimbers: 23, replayEntries: 16, completionRate: 0.44},
+  {id: "berlin-tv-tower", totalClimbers: 23, replayEntries: 16, completionRate: 0.44},
   {id: "sydney-tower", totalClimbers: 21, replayEntries: 16, completionRate: 0.56},
 ];
 
@@ -105,9 +105,8 @@ const WARM_CLIMBS = [
  * never renders as a claimable opportunity. These give the open state a real
  * document to read.
  *
- * The spread covers gold/diamond/legendary/mythic tiers across four continents.
- * Sky Tower is deliberately the cheapest (1,804 steps) so a QA session can
- * actually finish it and claim a First Ascent end to end.
+ * The spread covers three continents and includes two short races so a QA session
+ * can actually finish one and claim a First Ascent end to end.
  *
  * Exactly four, and no climb that `seed-demo-user.mjs` completes. Four because
  * `ProfileFirstAscentService` fills its open list in catalog order and caps at
@@ -118,8 +117,8 @@ const WARM_CLIMBS = [
 const FIRST_ASCENT_OPEN_CLIMBS = [
   {id: "sky-tower-auckland"},
   {id: "oriental-pearl-tower"},
-  {id: "table-mountain"},
-  {id: "machu-picchu"},
+  {id: "charminar"},
+  {id: "el-penon-de-guatape"},
 ].map((config) => ({
   ...config,
   totalClimbers: 0,
