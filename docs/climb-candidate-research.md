@@ -14,13 +14,16 @@ climbs each. That gives a daily climb for a year plus one spare.
 | Continent     | Current catalog count | Target for 252 | Add for 252 | Target for 366 | Add for 366 |
 | ------------- | --------------------: | -------------: | ----------: | -------------: | ----------: |
 | Africa        |                     7 |             42 |          35 |             61 |          54 |
-| Asia          |                    17 |             42 |          25 |             61 |          44 |
-| Europe        |                    16 |             42 |          26 |             61 |          45 |
-| North America |                    16 |             42 |          26 |             61 |          45 |
+| Asia          |                    26 |             42 |          16 |             61 |          35 |
+| Europe        |                    34 |             42 |           8 |             61 |          27 |
+| North America |                    18 |             42 |          24 |             61 |          43 |
 | Oceania       |                     8 |             42 |          34 |             61 |          53 |
 | South America |                    11 |             42 |          31 |             61 |          50 |
 
-If V1 becomes "verified real stair-climb venues only," audit the current 75 too.
+Counts are catalog rows in `web/public/climbs/catalog-v1.json`, `comingSoon` included;
+recount from that file rather than trusting this table after a catalog change.
+
+If V1 becomes "verified real stair-climb venues only," audit the current catalog too.
 Many current climbs are climb-equivalent targets, not known public stair venues.
 
 ## Eligibility Rules
@@ -73,7 +76,7 @@ research into normalized candidate JSON/CSV.
 | Venue                  | City        | Country | Known climb data                                                 | Status        | Source                                                                                                           |
 | ---------------------- | ----------- | ------- | ---------------------------------------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------- |
 | One World Trade Center | New York    | USA     | 2,226 stairs, 104 floors                                         | confirmed     | https://www.towerrunning.com/races/r2460/                                                                        |
-| 875 N Michigan Avenue  | Chicago     | USA     | 1,632 stairs, 94 floors                                          | confirmed     | https://www.towerrunning.com/races/r2115/                                                                        |
+| 875 N Michigan Avenue  | Chicago     | USA     | in current catalog; count verified, see `docs/climb-real-stair-counts.md` | confirmed     | https://www.towerrunning.com/races/r2115/                                                                        |
 | Empire State Building  | New York    | USA     | 1,576 stairs, 86 flights                                         | confirmed     | https://www.esbnyc.com/2025-esb-run-up                                                                           |
 | Republic Plaza         | Denver      | USA     | 1,098 stairs, 56 flights                                         | confirmed     | https://www.milehighstairclimb.com/                                                                              |
 | U.S. Bank Tower        | Los Angeles | USA     | 1,664 steps, 75 stories                                          | confirmed     | https://raceroster.com/events/2025/110229/ymca-stair-climb-and-urban-hike                                        |
@@ -98,11 +101,11 @@ climbs.
 
 | Venue                  | City       | Country        | Known climb data                       | Status    | Source                                                                                                                                |
 | ---------------------- | ---------- | -------------- | -------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| TK Elevator Test Tower | Rottweil   | Germany        | 1,390 steps to public viewing platform | confirmed | https://towerrun.tkelevator.com/infos_en/                                                                                             |
-| MesseTurm              | Frankfurt  | Germany        | 1,200 stairs, 61 floors                | confirmed | https://www.towerrunning.com/races/                                                                                                   |
-| Post Tower             | Bonn       | Germany        | 828 stairs, 41 floors                  | confirmed | https://www.towerrunning.com/races/r2489/                                                                                             |
-| KoelnTurm              | Cologne    | Germany        | 705 stairs, 39 floors                  | confirmed | https://www.towerrunning.com/races/r1470/                                                                                             |
-| UFO Tower              | Bratislava | Slovakia       | 430 stairs, 23 floors                  | confirmed | https://www.towerrunning.com/races/                                                                                                   |
+| TK Elevator Test Tower | Rottweil   | Germany        | in current catalog; count verified, see `docs/climb-real-stair-counts.md` | confirmed | https://towerrun.tkelevator.com/infos_en/                                                                                             |
+| MesseTurm              | Frankfurt  | Germany        | in current catalog; count verified, see `docs/climb-real-stair-counts.md` | confirmed | https://www.towerrunning.com/races/                                                                                                   |
+| Post Tower             | Bonn       | Germany        | in current catalog; count verified, see `docs/climb-real-stair-counts.md` | confirmed | https://www.towerrunning.com/races/r2489/                                                                                             |
+| KoelnTurm              | Cologne    | Germany        | in current catalog; sources disagree, see `docs/climb-real-stair-counts.md` | confirmed | https://www.towerrunning.com/races/r1470/                                                                                             |
+| UFO Tower              | Bratislava | Slovakia       | in current catalog; count verified, see `docs/climb-real-stair-counts.md` | confirmed | https://www.towerrunning.com/races/                                                                                                   |
 | 22 Bishopsgate         | London     | United Kingdom | over 1,500 stairs, 58 floors           | confirmed | https://fundraise.rnli.org/event/tower-run/home                                                                                       |
 | Broadgate Tower        | London     | United Kingdom | 877 steps, 35 stories                  | confirmed | https://www.theguardian.com/lifeandstyle/the-running-blog/2017/dec/06/a-step-up-what-is-it-like-tower-running-up-a-35-storey-building |
 
@@ -112,7 +115,7 @@ climbs.
 | ------------------------------ | ------------ | -------------------- | ------------------------------------------------------------------- | ------------- | ---------------------------------------------------------- |
 | Abeno Harukas                  | Osaka        | Japan                | 1,610 stairs                                                        | confirmed     | https://verticalworldcircuit.com/                          |
 | Jumeirah Emirates Towers       | Dubai        | United Arab Emirates | 1,334 steps, 52 floors                                              | confirmed     | https://verticalworldcircuit.com/                          |
-| Macau Tower                    | Macau        | China                | 1,298 steps to 61st-floor Adventure Deck                            | confirmed     | https://www.oxfam.org.hk/en/join-our-events/oxfam-towerrun |
+| Macau Tower                    | Macau        | China                | in current catalog; count verified, see `docs/climb-real-stair-counts.md` | confirmed     | https://www.oxfam.org.hk/en/join-our-events/oxfam-towerrun |
 | Canton Tower                   | Guangzhou    | China                | 2,738 stairs, 112 floors                                            | confirmed     | https://www.towerrunning.com/races/r1739/                  |
 | Shimao Global Financial Center | Changsha     | China                | 2,238 stairs, 78 floors                                             | confirmed     | https://www.towerrunning.com/races/                        |
 | Taipei 101                     | Taipei       | Taiwan               | in current catalog; count verified, see `docs/climb-real-stair-counts.md` | confirmed | https://www.taipei101-runup.com.tw/2024/en/en_introduction.aspx |

@@ -62,6 +62,16 @@ If absent, the app defaults `imageSetVersion` to `1`.
 
 `commonName` is the name a city still uses for a renamed landmark. It never replaces `name`, which stays the official one, and no surface renders it yet. Populate it only with a citable source recorded in `docs/climb-coordinate-and-name-sources.md`, which is also where a climb's coordinate provenance goes.
 
+### Category is free-form, but the app branches on it
+
+Reuse an existing `category` where one fits. Introducing a new value is a code change as well as a data change, because three places switch on the string and each has a silent default:
+
+- `ClimbArtworkView` picks the SF Symbol placeholder shown until Storage artwork exists - unlisted falls back to `building.2.fill`.
+- `ClimbCameraFraming.isNatural` decides whether the globe and flyover frame the climb as terrain (pulled far back) or as a structure - unlisted is framed as a structure.
+- `Climb.globeCameraDistance` picks the distance band for non-natural categories - unlisted gets the tower band.
+
+`staircase` is classified natural because the one climb using it is an open hillside stair whose route *is* the terrain, so structure framing would crop it.
+
 ## Release States
 
 - `available`: visible and startable. First Ascent / leaderboard surfaces may activate.

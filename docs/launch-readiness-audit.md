@@ -34,7 +34,7 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 
 ## 🟠 Promise vs. reality
 
-8. **Paywall overclaims removed.** Repo-controlled and Superwall paywalls use the exact 75-landmark catalog count, advertise implemented global leaderboard competition, make no personalized-plan claim, and make no climb-earned trial promise.
+8. **Paywall overclaims removed.** Repo-controlled and Superwall paywalls use the exact startable-landmark count - the 75 `available` climbs, not the full catalogue row count, which also carries `comingSoon` teasers - advertise implemented global leaderboard competition, make no personalized-plan claim, and make no climb-earned trial promise.
 9. **No paywall-priming stage** in `PostAuthOnboardingStage` (stages: displayName, gender, age, weight, location, notifications, planLoading, firstClimb). Flow hits the hard gate cold after onboarding. Conversion polish, not a blocker.
 10. ~~**No fallback UI** on `AppAccessPaywallPlaceholderView` if Superwall config fails — users would see "unavailable" with no purchase path.~~ **Fixed.** Dismissal without purchase, `onSkip`, configuration failure, and `onError` all route back to the visible placeholder with retry/restore actions via `AppAccessPaywallPresentationState`; locked in by `AscendAppTests/AppAccessPaywallPresentationStateTests.swift` and `MonetizationManagerPaywallTests.swift`.
 
