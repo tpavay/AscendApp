@@ -165,7 +165,7 @@ struct WorkoutHeartRateRecoveryCard: View {
     ScrollView {
         VStack(spacing: 20) {
             WorkoutHeartRateRecoveryCard(
-                phase: .waiting(nextCheckAt: nil),
+                phase: .waiting,
                 message: nil,
                 effectiveColorScheme: .dark,
                 onPrimaryAction: {}

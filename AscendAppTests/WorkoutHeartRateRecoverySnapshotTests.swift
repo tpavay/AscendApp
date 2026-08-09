@@ -87,7 +87,7 @@ struct WorkoutHeartRateRecoverySnapshotTests {
             ),
         ]
 
-        #expect(scenarios[0].phase == .waiting(nextCheckAt: now))
+        #expect(scenarios[0].phase == .waiting)
         #expect(scenarios[1].phase == .stoppedLooking)
         #expect(scenarios[2].phase == .connectionOffered)
         #expect(scenarios[3].phase == .accessRevoked)

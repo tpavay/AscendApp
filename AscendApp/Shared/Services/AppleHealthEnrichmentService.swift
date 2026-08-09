@@ -50,7 +50,11 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         /// A read is in flight right now.
         case checking
         /// Connected, nothing published yet, and another automatic attempt is coming.
-        case waiting(nextCheckAt: Date?)
+        ///
+        /// Deliberately carries no date. A rendered countdown would be a promise the schedule
+        /// cannot keep: `Task.sleep` does not advance while the app is suspended, so the number
+        /// would be wrong in exactly the case a climber checks it - after backgrounding.
+        case waiting
         /// The automatic series is spent. Manual fetch is still offered.
         case stoppedLooking
         /// Enrichment is switched off at the backend. Nothing is being read, and nothing was
@@ -116,9 +120,6 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     /// verdict the ledger disagrees with for the same climb.
     private var schedule: AppleHealthEnrichmentSchedule { attemptStore.schedule }
 
-    func configure(modelContext: ModelContext) {
-        self.modelContext = modelContext
-    }
 
     var connectionState: AppleHealthConnectionState {
         authorizationController.connectionState
@@ -167,11 +168,11 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
             break
         }
 
-        guard let nextCheckAt = attemptStore.nextEligibleDate(for: workout, at: now()) else {
+        guard attemptStore.nextEligibleDate(for: workout, at: now()) != nil else {
             return .stoppedLooking
         }
 
-        return .waiting(nextCheckAt: nextCheckAt)
+        return .waiting
     }
 
     /// Whether this climb is one a Health connection would still pay off for.

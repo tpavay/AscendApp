@@ -164,10 +164,8 @@ struct AppleHealthEnrichmentTimelineEvidenceTests {
             return "Checks are paused"
         case .stoppedLooking:
             return "Stopped looking - manual check still offered"
-        case .waiting(let nextCheckAt):
-            guard let nextCheckAt else { return "Waiting on your wearable" }
-            let seconds = Int(nextCheckAt.timeIntervalSince(now).rounded())
-            return "Waiting on your wearable (next look in \(seconds)s)"
+        case .waiting:
+            return "Waiting on your wearable"
         }
     }
 }

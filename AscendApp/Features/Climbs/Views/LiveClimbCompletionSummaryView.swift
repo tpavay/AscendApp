@@ -31,6 +31,9 @@ struct LiveClimbCompletionSummaryView: View {
     @State private var enrichmentService = AppleHealthEnrichmentService.shared
     @State private var isConnectingAppleHealth = false
     @State private var didDismissHeartRateConnect = false
+    /// Replaces the connect card once the climber has connected but the samples have not landed
+    /// yet, so the normal outcome is stated instead of the card silently disappearing.
+    @State private var heartRateConnectConfirmation: String?
     @State private var appleHealthConnectTask: Task<Void, Never>?
 
     /// Bumped whenever Remote Config resolves or changes, so the connect offer re-resolves.
@@ -297,7 +300,25 @@ struct LiveClimbCompletionSummaryView: View {
         // and so publishes nothing SwiftUI can see. See `remoteFeatureFlagRevision`.
         let _ = remoteFeatureFlagRevision
 
-        if !didDismissHeartRateConnect, enrichmentService.offersConnectionPrompt(for: workout) {
+        if let heartRateConnectConfirmation {
+            HStack(spacing: 14) {
+                Image(systemName: "heart")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.red)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(.red.opacity(0.16)))
+
+                Text(heartRateConnectConfirmation)
+                    .font(.montserratMedium(size: 12))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity)
+            .background(summaryCardBackground)
+        } else if !didDismissHeartRateConnect, enrichmentService.offersConnectionPrompt(for: workout) {
             LiveClimbHeartRateConnectCard(
                 isConnecting: isConnectingAppleHealth,
                 onConnect: connectAppleHealthForHeartRate,
@@ -318,14 +339,24 @@ struct LiveClimbCompletionSummaryView: View {
                 workout,
                 modelContext: modelContext
             )
-            HapticsManager.shared.trigger(result == .added ? .success : .warning)
 
-            // Connecting is the whole ask. Whether the samples had landed yet is the retry
-            // series' problem now, and repeating the offer would be asking for something the
-            // climber already gave.
-            if enrichmentService.connectionState == .connected {
-                didDismissHeartRateConnect = true
+            // The haptic reports whether the climber's action succeeded, not whether their
+            // wearable had already synced. Connecting is the whole ask; buzzing the failure
+            // pattern at someone who granted access and simply owns a device that publishes on
+            // its own schedule tells them they got something wrong when they did not.
+            let didConnect = enrichmentService.connectionState == .connected
+            HapticsManager.shared.trigger(didConnect ? .success : .warning)
+
+            guard didConnect else { return }
+
+            // Say what happens next rather than letting the card vanish. Heart rate arriving
+            // later is the normal outcome here, and a card that simply disappears reads as the
+            // request having been dropped.
+            if result != .added {
+                heartRateConnectConfirmation = "Connected. Ascend adds your heart rate as soon as it lands."
             }
+
+            didDismissHeartRateConnect = true
         }
     }
 

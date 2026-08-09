@@ -73,7 +73,7 @@ struct AppleHealthEnrichmentAttemptStore {
 
     /// Spends one attempt and writes the instant the next one becomes eligible.
     func recordAttempt(for workout: Workout, at date: Date = Date()) {
-        var ledger = prunedAttempts(at: date)
+        var ledger = prunedAttempts(attempts(), at: date)
         let spent = (ledger[workout.id.uuidString]?.attemptCount ?? 0) + 1
 
         ledger[workout.id.uuidString] = AppleHealthEnrichmentAttempt(
@@ -100,12 +100,22 @@ struct AppleHealthEnrichmentAttemptStore {
     /// silently starting the series over. Twice the window is deliberate slack - the entry
     /// costs a few bytes, and retiring one early hands its climb a second budget.
     func prune(at date: Date = Date()) {
-        write(prunedAttempts(at: date))
+        let current = attempts()
+        let pruned = prunedAttempts(current, at: date)
+
+        // `resumeTracking` prunes on every foreground and every workout-detail open, and the
+        // ledger is unchanged nearly every time. Writing regardless would spend a JSON encode
+        // and a `UserDefaults.set` per navigation to store what is already there.
+        guard pruned.count != current.count else { return }
+        write(pruned)
     }
 
-    private func prunedAttempts(at date: Date) -> [String: AppleHealthEnrichmentAttempt] {
+    private func prunedAttempts(
+        _ ledger: [String: AppleHealthEnrichmentAttempt],
+        at date: Date
+    ) -> [String: AppleHealthEnrichmentAttempt] {
         let horizon = schedule.eligibilityWindow * 2
-        return attempts().filter { _, attempt in
+        return ledger.filter { _, attempt in
             date.timeIntervalSince(attempt.lastAttemptAt) <= horizon
         }
     }

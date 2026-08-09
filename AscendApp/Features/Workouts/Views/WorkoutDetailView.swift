@@ -896,9 +896,15 @@ struct WorkoutDetailView: View {
     }
 
     private func fetchAppleHealthHeartRate() {
-        guard appleHealthHeartRatePhase != .checking else { return }
+        // Guards on the task, not on the phase. `.checking` only becomes true once the read is
+        // actually in flight, and on the connect path that is after two awaits - the
+        // authorization refresh and the system permission prompt. A second tap inside that
+        // window used to start a second `connectAndFetch` and overwrite this task handle,
+        // leaving the first one uncancellable by `onDisappear`.
+        guard appleHealthFetchTask == nil else { return }
 
         appleHealthFetchTask = Task { @MainActor in
+            defer { appleHealthFetchTask = nil }
             appleHealthHeartRateMessage = nil
 
             let result: AppleHealthEnrichmentService.FetchResult

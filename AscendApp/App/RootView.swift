@@ -371,7 +371,17 @@ struct RootView: View {
             )
             guard isCurrentAuthenticatedSession(currentUserId) else { return }
 
-            // Runs after hydration so a climb restored onto a fresh device is tracked too, and
+            // The only place enrichment is re-armed, and deliberately inside this chain rather
+            // than beside it in the foreground handler. A suspended app is not a reliable alarm
+            // clock - the timer's sleep does not advance while the process is frozen - so a
+            // foreground has to service a schedule that came due overnight, and this chain runs
+            // on foreground too. What it must not do is run while the update lockout is up:
+            // a pass writes through `WorkoutMutationHandler`, which marks pending remote upserts,
+            // rebuilds the leaderboard and kicks the sync coordinator and profile publication, so
+            // re-arming outside `scheduleAuthenticatedSessionWork`'s guard let a binary the
+            // operator retired go on writing behind a screen the climber cannot leave.
+            //
+            // Placed after hydration so a climb restored onto a fresh device is tracked too, and
             // before the leaderboard rebuild because enrichment only ever adds metrics that
             // rebuild already reads.
             AppleHealthEnrichmentService.shared.resumeTracking(modelContext: modelContext)

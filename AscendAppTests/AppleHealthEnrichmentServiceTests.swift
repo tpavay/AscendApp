@@ -36,7 +36,7 @@ struct AppleHealthEnrichmentServiceTests {
         #expect(metricsReader.requestedWindows.count == 1)
         #expect(workout.avgHeartRate == nil)
         #expect(workout.heartRateTimeSeries.isEmpty)
-        #expect(service.phase(for: workout) == .waiting(nextCheckAt: clock.now.addingTimeInterval(15)))
+        #expect(service.phase(for: workout) == .waiting)
 
         // The wearable syncs. Nothing about the climb changed - only what Health now holds.
         metricsReader.enqueue(
@@ -494,7 +494,7 @@ struct AppleHealthEnrichmentServiceTests {
             now: { clock.now }
         )
 
-        #expect(service.phase(for: workout) == .waiting(nextCheckAt: clock.now))
+        #expect(service.phase(for: workout) == .waiting)
         #expect(service.offersConnectionPrompt(for: workout) == false)
 
         // Remote Config resolves a moment later with enrichment switched off - the window a
@@ -508,7 +508,62 @@ struct AppleHealthEnrichmentServiceTests {
 
         // And back again, so a card cannot strand on "paused" once checks return.
         _ = flags.apply(.shippedDefaults)
-        #expect(service.phase(for: workout) == .waiting(nextCheckAt: clock.now))
+        #expect(service.phase(for: workout) == .waiting)
+    }
+
+    /// The update lockout suppresses enrichment by never starting it, so this pins that not
+    /// starting it is genuinely enough.
+    ///
+    /// `RootView.scheduleAuthenticatedSessionWork()` carries `guard
+    /// !appVersionGateState.isUpdateRequired`, and the enrichment re-arm now lives inside that
+    /// guarded chain rather than beside it in the foreground handler. Re-arming outside it let a
+    /// binary the operator had retired keep writing: a pass goes through
+    /// `WorkoutMutationHandler`, which marks pending remote upserts, rebuilds the leaderboard,
+    /// and kicks the sync coordinator and profile publication.
+    ///
+    /// What a unit test cannot reach is the guard's placement inside a SwiftUI view function.
+    /// What it can reach - and what the guard depends on completely - is that this service is
+    /// inert until something explicitly starts it. If it ever self-armed (on init, on a
+    /// notification, on an observer), the guard would protect nothing and this test would fail.
+    @Test("Enrichment stays inert until something explicitly starts it")
+    func performsNoWorkUntilStarted() async throws {
+        let clock = TestClock(start: Date(timeIntervalSince1970: 1_800_000_000))
+        let modelContext = try makeModelContext()
+
+        // A climb that is due in every respect: recent, in-app, no heart rate, empty ledger.
+        let workout = makeLiveClimb(start: clock.now.addingTimeInterval(-1_200), duration: 1_200)
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        let metricsReader = ScriptedMetricsReader(
+            responses: [WorkoutMetrics(avgHeartRate: 150, maxHeartRate: 172, caloriesBurned: 200)]
+        )
+        let attemptStore = makeAttemptStore()
+        let service = AppleHealthEnrichmentService(
+            authorizationController: StubAuthorizationController(connectionState: .connected),
+            metricsReader: metricsReader,
+            attemptStore: attemptStore,
+            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
+            now: { clock.now }
+        )
+
+        // Nothing calls resumeTracking or trackNewlyRecordedWorkout - the lockout's position.
+        // Time passing must not start it either, since the timer is the other way in.
+        clock.advance(by: 6 * 60 * 60)
+        await service.drainInFlightWork()
+
+        #expect(metricsReader.requestedWindows.isEmpty, "an unstarted service must read nothing")
+        #expect(service.hasScheduledWakeUp == false, "an unstarted service must schedule no wake-up")
+        #expect(attemptStore.attempt(for: workout.id) == nil, "no attempt may be spent")
+        #expect(workout.avgHeartRate == nil, "no workout may be written")
+
+        // And once the lockout lifts and the guarded chain does start it, the same climb is
+        // picked up - so the suppression is a delay, not a permanent loss.
+        service.resumeTracking(modelContext: modelContext)
+        await service.drainInFlightWork()
+
+        #expect(metricsReader.requestedWindows.count == 1)
+        #expect(workout.avgHeartRate == 150)
     }
 
     @Test("Cancelling stops the series and forgets what it was watching")
