@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
 import test from "node:test";
 
 import {
@@ -12,6 +13,29 @@ import {
 
 test("the bundled share card templates are valid", () => {
   assert.deepEqual(validateBundledPayload(), []);
+});
+
+test("bundled templates render the Ascend brand with the wordmark element", () => {
+  const payload = JSON.parse(
+    readFileSync(
+      new URL("../../AscendApp/Features/ShareComposer/Resources/share-card-templates-v1.json", import.meta.url)
+    )
+  );
+  const brandedTextNodes = [];
+
+  const visit = (node, templateId) => {
+    if (!node || typeof node !== "object") return;
+    if (
+      node.type === "text" &&
+      node.segments?.some((segment) => typeof segment === "string" && segment.includes("ASCEND"))
+    ) {
+      brandedTextNodes.push(templateId);
+    }
+    node.children?.forEach((child) => visit(child, templateId));
+  };
+
+  payload.templates.forEach((template) => visit(template.root, template.id));
+  assert.deepEqual(brandedTextNodes, []);
 });
 
 test("the vocabulary is read out of the Swift sources", () => {

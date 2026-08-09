@@ -6,19 +6,13 @@ import UIKit
 import Vision
 @testable import AscendApp
 
-/// Visual evidence for the rank-hero labelling fix, taken off the real screen.
-///
-/// The reported contradiction: a CN Tower Live Climb summary read
-/// "CLIMB RANK / 1st of 1 / LIVE CLIMB COMPLETE" while the climb detail read
-/// "50 completed". Both numbers were right - the hero showed the standing the
-/// server froze when the attempt published, the detail counts every finisher
-/// since - but nothing in the hero said so, so the two read as comparable.
+/// Visual evidence for the completion summary's rank-first hierarchy.
 ///
 /// These tests host the shipping `LiveClimbCompletionSummaryView` in a real
 /// `UIWindow`, screenshot it the way a device screen recording would, and read
 /// the copy back out of the pixels with Vision. Nothing is reproduced from
 /// source: the label, the value, the "of N" and the detail line all come from
-/// `LiveClimbSummaryRankHero` through the view's own `rankingSection`.
+/// `LiveClimbSummaryRankHero` through the view's own rank hero.
 ///
 /// The standing is handed in through the view's caller-supplied slot, which is
 /// the only rank source a test can drive - the frozen snapshot reaches the view
@@ -44,7 +38,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
     private static let currentTotal = 50
 
     @Test
-    func frozenStandingNamesItselfOnScreenInsteadOfClaimingTheSessionCompleted() async throws {
+    func everyTimeBasedStandingUsesTheSamePlainLanguageFieldLine() async throws {
         let reported = try render(
             basis: .liveSession,
             rank: Self.frozenRank,
@@ -61,23 +55,15 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         let reportedText = try await recognizedText(in: reported)
         let fixedText = try await recognizedText(in: fixed)
 
-        // The reported screen, rendered: a frozen "1st of 1" under copy that
-        // describes the session, which invites comparison with "50 completed".
-        #expect(reportedText.contains("climb rank"))
-        #expect(reportedText.contains("1st"))
-        #expect(reportedText.contains("live climb complete"))
-
-        // After the fix the same figure names the population it was measured
-        // against, and stops claiming to be a current standing.
-        #expect(fixedText.contains("climb rank"))
-        #expect(fixedText.contains("1st"))
-        #expect(fixedText.contains("rank when you finished"))
-        #expect(!fixedText.contains("live climb complete"))
+        #expect(reportedText.contains("fastest of 1"))
+        #expect(fixedText.contains("fastest of 1"))
+        #expect(!fixedText.contains("climb rank"))
+        #expect(!fixedText.contains("rank when you finished"))
         #expect(!fixedText.contains("current leaderboard rank"))
 
-        // The "of N" renders at 13pt beside a 44pt ordinal and OCR reads it
-        // unreliably ("of 1" comes back as "ofi"), so the denominator the view
-        // renders is pinned on the hero itself.
+        // Vision can read the large first-place ordinal as "lst", so the model assertion
+        // pins that value while the rendered field line verifies the denominator.
+        #expect(renderedHero(basis: .atCompletion, rank: Self.frozenRank, total: Self.frozenTotal)?.standing?.rank == 1)
         #expect(renderedHero(basis: .atCompletion, rank: Self.frozenRank, total: Self.frozenTotal)?.total == 1)
 
         try writeEvidence(image: reported, named: "live-climb-summary-rank-hero-reported.png")
@@ -95,8 +81,9 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
 
         let freshText = try await recognizedText(in: fresh)
 
-        #expect(freshText.contains("rank you just earned"))
-        #expect(!freshText.contains("live climb complete"))
+        #expect(freshText.contains("fastest of 1"))
+        #expect(!freshText.contains("rank you just earned"))
+        #expect(renderedHero(basis: .atCompletion, rank: Self.frozenRank, total: Self.frozenTotal)?.standing?.rank == 1)
 
         try writeEvidence(image: fresh, named: "live-climb-summary-rank-hero-fresh.png")
     }
@@ -116,9 +103,18 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         let currentText = try await recognizedText(in: current)
 
         #expect(currentText.contains("29th"))
-        #expect(currentText.contains("current leaderboard rank"))
-        #expect(!currentText.contains("live climb complete"))
+        #expect(currentText.contains("fastest of 50"))
+        #expect(!currentText.contains("current leaderboard rank"))
+        #expect(!currentText.contains("climb rank"))
         #expect(renderedHero(basis: .current, rank: Self.currentRank, total: Self.currentTotal)?.total == 50)
+
+        #expect(currentText.contains("cn tower live climb"))
+        #expect(!currentText.contains("summary"))
+        #expect(appearsBefore("29th", "total steps", in: currentText))
+        #expect(currentText.contains("81 avg spm"))
+        #expect(!currentText.contains("avg 81 spm"))
+        #expect(occurrenceCount(of: "avg spm", in: currentText) == 1)
+        #expect(appearsBefore("share", "done", in: currentText))
 
         try writeEvidence(image: current, named: "live-climb-summary-rank-hero-current.png")
     }
@@ -131,29 +127,97 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         let sheet = try renderProofSheet(
             panels: [
                 (
-                    "Reported · 2026-07-31",
-                    "Frozen rank under session copy - reads as comparable with \"50 completed\"",
+                    "Session standing",
+                    "The rank is the result, followed by one field line",
                     try heroStrip(basis: .liveSession, rank: Self.frozenRank, total: Self.frozenTotal, moment: .retrospective)
                 ),
                 (
-                    "Fixed · saved summary",
-                    "Same frozen figure, now named: it is the rank at the moment you finished",
+                    "Saved summary",
+                    "The same plain language applies to the frozen result",
                     try heroStrip(basis: .atCompletion, rank: Self.frozenRank, total: Self.frozenTotal, moment: .retrospective)
                 ),
                 (
-                    "Fixed · just finished",
-                    "Post-session tense of the same frozen basis",
+                    "Just finished",
+                    "Fresh completion keeps the same concise hierarchy",
                     try heroStrip(basis: .atCompletion, rank: Self.frozenRank, total: Self.frozenTotal, moment: .freshCompletion)
                 ),
                 (
-                    "Fixed · no frozen snapshot",
-                    "Falls through to the recomputed standing, which agrees with climb detail's 50",
+                    "Current standing",
+                    "A recomputed standing still states its field without jargon",
                     try heroStrip(basis: .current, rank: Self.currentRank, total: Self.currentTotal, moment: .retrospective)
                 )
             ]
         )
 
         try writeEvidence(image: sheet, named: "live-climb-summary-rank-hero-proof-sheet.png")
+    }
+
+    @Test
+    func aSettledRankWithoutAStandingKeepsTheUnresolvedStateVisible() async throws {
+        let hero = try #require(
+            LiveClimbSummaryRankHero.make(
+                isClimbContext: true,
+                standings: [],
+                sync: LiveClimbSummaryRankHero.SyncState(
+                    phase: nil,
+                    hasRankContext: true,
+                    rankResolution: .settled
+                ),
+                copy: LiveClimbSummaryRankHero.Copy()
+            )
+        )
+        let image = try screenshot(
+            of: LiveClimbSummaryRankHeroView(
+                hero: hero,
+                rankingMetric: .fastestCompletion,
+                onRetrySync: {}
+            )
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.black)
+        )
+        let text = try await recognizedText(in: image)
+
+        #expect(text.contains("check leaderboard later"))
+        #expect(!text.contains("climb rank"))
+        #expect(!text.contains("fastest"))
+
+        try writeEvidence(image: image, named: "live-climb-summary-rank-unresolved.png")
+    }
+
+    @Test
+    func aStepsBasedStandingNamesTheBasisThatActuallyRanksIt() async throws {
+        let hero = try #require(
+            LiveClimbSummaryRankHero.make(
+                isClimbContext: false,
+                standings: [
+                    LiveClimbSummaryRankHero.Standing(rank: 3, total: 18, basis: .liveSession)
+                ],
+                sync: LiveClimbSummaryRankHero.SyncState(
+                    phase: nil,
+                    hasRankContext: true,
+                    rankResolution: .settled
+                ),
+                copy: LiveClimbSummaryRankHero.Copy()
+            )
+        )
+        let image = try screenshot(
+            of: LiveClimbSummaryRankHeroView(
+                hero: hero,
+                rankingMetric: .mostSteps,
+                onRetrySync: {}
+            )
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.black)
+        )
+        let text = try await recognizedText(in: image)
+
+        #expect(text.contains("3rd"))
+        #expect(text.contains("most steps of 18"))
+        #expect(!text.contains("fastest"))
+
+        try writeEvidence(image: image, named: "routine-summary-rank-most-steps.png")
     }
 
     // MARK: - Rendering the shipping screen
@@ -338,6 +402,17 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             .lowercased()
     }
 
+    private func appearsBefore(_ first: String, _ second: String, in text: String) -> Bool {
+        guard let firstRange = text.range(of: first), let secondRange = text.range(of: second) else {
+            return false
+        }
+        return firstRange.lowerBound < secondRange.lowerBound
+    }
+
+    private func occurrenceCount(of needle: String, in text: String) -> Int {
+        text.components(separatedBy: needle).count - 1
+    }
+
     private func writeEvidence(image: UIImage, named name: String) throws {
         let png = try #require(image.pngData(), "UIImage produced no PNG data")
         let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
@@ -357,11 +432,11 @@ private struct RankHeroProofSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Live Climb summary · rank hero")
+                Text("Live Climb summary - rank hero")
                     .font(.montserratBold(size: 22))
                     .foregroundStyle(.white)
 
-                Text("Screenshots of the shipping summary screen. The frozen standing and the recomputed one count different populations, so each names its own.")
+                Text("Screenshots of the shipping summary screen. Every time-based standing leads with the ordinal and follows with one plain-language field line.")
                     .font(.montserratMedium(size: 13))
                     .foregroundStyle(.white.opacity(0.62))
                     .fixedSize(horizontal: false, vertical: true)

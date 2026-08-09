@@ -172,9 +172,12 @@ struct LiveClimbCompletionSummaryView: View {
 
             Spacer()
 
-            Text("SUMMARY")
+            Text(navigationTitle)
                 .font(.montserratBold(size: 12))
                 .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .accessibilityAddTraits(.isHeader)
 
             Spacer()
 
@@ -188,97 +191,11 @@ struct LiveClimbCompletionSummaryView: View {
     @ViewBuilder
     private func rankingSection(hero: LiveClimbSummaryRankHero?) -> some View {
         if let hero {
-            HStack(alignment: .center, spacing: 14) {
-                VStack(alignment: .leading, spacing: 7) {
-                    // The retry button stays outside the combined element: merging it in would
-                    // replace its label with the standing and hide the action from VoiceOver.
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(hero.label)
-                            .font(.montserratBold(size: 10))
-                            .foregroundStyle(.accent)
-
-                        rankingValue(for: hero)
-
-                        Text(hero.detail)
-                            .font(.montserratBold(size: 10))
-                            .foregroundStyle(.white.opacity(0.46))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.74)
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel(rankingAccessibilityLabel(for: hero))
-
-                    if hero.showsRetrySync {
-                        Button {
-                            retryRankSync()
-                        } label: {
-                            Text("Retry sync")
-                                .font(.montserratBold(size: 10))
-                                .foregroundStyle(.accent)
-                                .underline()
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.top, 1)
-                    }
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(rankingSectionBackground)
-        }
-    }
-
-    /// The value slot only ever holds a rank or the shared loading treatment - a status word here
-    /// reads as a load that never finished, which is the defect this replaced.
-    @ViewBuilder
-    private func rankingValue(for hero: LiveClimbSummaryRankHero) -> some View {
-        switch hero.value {
-        case .rank(let rank):
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                Text(rank.rankOrdinalText)
-                    .font(.montserratBold(size: 44))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.white, .accent.opacity(0.72)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-
-                if let total = hero.total {
-                    Text("of \(total.formatted())")
-                        .font(.montserratBold(size: 13))
-                        .foregroundStyle(.white.opacity(0.5))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
-                }
-            }
-
-        case .loading:
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                AscendSkeletonText(width: 96, height: 40)
-                AscendSkeletonText(width: 46, height: 13)
-            }
-
-        case .unranked:
-            EmptyView()
-        }
-    }
-
-    private func rankingAccessibilityLabel(for hero: LiveClimbSummaryRankHero) -> String {
-        switch hero.value {
-        case .rank(let rank):
-            let position = hero.total.map { "\(rank.rankOrdinalText) of \($0.formatted())" }
-                ?? rank.rankOrdinalText
-            return "\(hero.label), \(position), \(hero.detail)"
-        case .loading:
-            return "\(hero.label), loading"
-        case .unranked:
-            return "\(hero.label), \(hero.detail)"
+            LiveClimbSummaryRankHeroView(
+                hero: hero,
+                rankingMetric: effectiveLeaderboardContext?.type.rankingMetric ?? .fastestCompletion,
+                onRetrySync: retryRankSync
+            )
         }
     }
 
@@ -286,7 +203,6 @@ struct LiveClimbCompletionSummaryView: View {
         HStack(spacing: 10) {
             summaryStatCard(title: "TOTAL STEPS", value: workout.steps.formatted())
             summaryStatCard(title: "DURATION", value: workout.durationFormatted)
-            summaryStatCard(title: "AVG SPM", value: averageSPMText)
         }
     }
 
@@ -397,24 +313,29 @@ struct LiveClimbCompletionSummaryView: View {
 
     private var paceSplitsCard: some View {
         VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("SPLITS")
-                    .font(.montserratBold(size: 19))
-                    .foregroundStyle(.white)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("SPLITS")
+                        .font(.montserratBold(size: 19))
+                        .foregroundStyle(.white)
 
-                HStack(spacing: 5) {
                     Text("\(paceSplits.count.formatted()) \(paceSplits.count == 1 ? "segment" : "segments")")
-                        .foregroundStyle(.white.opacity(0.54))
-
-                    Text("·")
-                        .foregroundStyle(.accent)
-
-                    Text("Avg \(averageSPMText) SPM")
+                        .font(.montserratMedium(size: 12))
                         .foregroundStyle(.white.opacity(0.54))
                 }
-                .font(.montserratMedium(size: 12))
-                .lineLimit(1)
-                .minimumScaleFactor(0.74)
+
+                Spacer(minLength: 12)
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(averageSPMText)
+                        .font(.montserratBold(size: 32))
+                        .foregroundStyle(.accent)
+                        .monospacedDigit()
+
+                    Text("AVG SPM")
+                        .font(.montserratBold(size: 9))
+                        .foregroundStyle(.white.opacity(0.54))
+                }
             }
 
             VStack(spacing: 8) {
@@ -499,7 +420,7 @@ struct LiveClimbCompletionSummaryView: View {
         } label: {
             Text("DONE")
                 .font(.montserratBold(size: 12))
-                .foregroundStyle(.white)
+                .foregroundStyle(.white.opacity(0.62))
                 .frame(maxWidth: .infinity)
                 .frame(height: 36)
         }
@@ -535,37 +456,6 @@ struct LiveClimbCompletionSummaryView: View {
             )
     }
 
-    private var rankingSectionBackground: some View {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(
-                LinearGradient(
-                    colors: [
-                        Color(hex: "17191B"),
-                        Color(hex: "0D0F10")
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                .accent.opacity(0.16),
-                                .clear
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(.white.opacity(0.07), lineWidth: 1)
-            )
-    }
-
     private var averageSPMText: String {
         guard averageSPMValue > 0 else { return "0" }
         return Int(averageSPMValue.rounded()).formatted()
@@ -592,6 +482,10 @@ struct LiveClimbCompletionSummaryView: View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(.white.opacity(0.06))
         )
+    }
+
+    private var navigationTitle: String {
+        climb?.name ?? workout.name
     }
 
     private var achievementIconName: String {

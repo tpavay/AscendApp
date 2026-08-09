@@ -285,9 +285,17 @@
                 "axis": "vertical",
                 "children": [
                   {
-                    "type": "text",
-                    "segments": ["ASCEND RESULT"],
-                    "style": {"size": 10, "tracking": 2, "tint": "label"}
+                    "type": "stack",
+                    "axis": "horizontal",
+                    "children": [
+                      {"type": "wordmark", "size": 10, "tint": "label"},
+                      {
+                        "type": "text",
+                        "segments": ["RESULT"],
+                        "style": {"size": 10, "tracking": 2, "tint": "label"}
+                      }
+                    ],
+                    "spacing": 7
                   },
                   {
                     "type": "text",
@@ -552,13 +560,25 @@
                 "axis": "horizontal",
                 "children": [
                   {
-                    "type": "text",
-                    "segments": ["ASCEND HUD"],
-                    "style": {
-                      "size": 11,
-                      "tracking": 2.2,
-                      "tint": {"color": "value", "opacity": 0.82}
-                    }
+                    "type": "stack",
+                    "axis": "horizontal",
+                    "children": [
+                      {
+                        "type": "wordmark",
+                        "size": 11,
+                        "tint": {"color": "value", "opacity": 0.82}
+                      },
+                      {
+                        "type": "text",
+                        "segments": ["HUD"],
+                        "style": {
+                          "size": 11,
+                          "tracking": 2.2,
+                          "tint": {"color": "value", "opacity": 0.82}
+                        }
+                      }
+                    ],
+                    "spacing": 7
                   },
                   {"type": "spacer"},
                   {
