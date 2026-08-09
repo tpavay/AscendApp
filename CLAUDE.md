@@ -18,8 +18,10 @@ The niche defined by exclusion. Check every feature, screen, and copy change aga
 - Not weight-lifting / strength-training focused.
 - Not a passive tracker. Every session is competitive context.
 - Not a logger or an importer. Every climb and record comes from a session performed in Ascend; manual entry and Apple Health workout import are being removed (#437).
-  Apple Health stays only to enrich an Ascend-owned climb with heart-rate samples, active and resting energy, and step count.
-  Ascend may match Apple Health workout entries around that climb's own time window to find the right samples, but it never adds those entries to Ascend history or writes anything to Apple Health.
+  Apple Health stays only to enrich an Ascend-owned climb.
+  Ascend reads heart-rate samples, active and resting energy, and step count around that climb's own time window and may match Apple Health workout entries to find the right samples.
+  The enrichment can attach available heart rate, active-energy calories, and average METs; it does not attach Apple Health step count or resting energy to the climb.
+  Ascend never adds those workout entries to Ascend history or writes anything to Apple Health.
   No outward surface may promise otherwise.
 
 Full rationale: `ascend-brand-voice`.
