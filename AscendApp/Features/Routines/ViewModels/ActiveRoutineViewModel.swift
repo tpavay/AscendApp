@@ -532,7 +532,7 @@ final class ActiveRoutineViewModel {
         )
 
         Task { @MainActor in
-            await WorkoutImportCoordinator.shared.enrichInAppWorkoutWithAppleHealthIfPossible(
+            await AppleHealthEnrichmentCoordinator.shared.enrichInAppWorkoutWithAppleHealthIfPossible(
                 workout,
                 modelContext: modelContext
             )

@@ -22,7 +22,6 @@ enum AppIconToken: Hashable, Sendable {
     case mountains
     case infinity
     case clipboardText
-    case manualWorkout
 
     case settingsEditProfile
     case settingsMeasurementSystem
@@ -81,9 +80,6 @@ enum AppIconToken: Hashable, Sendable {
             return .asset("ph-infinity")
         case .clipboardText:
             return .asset("ph-clipboard-text")
-        case .manualWorkout:
-            return .systemSymbol("square.and.pencil")
-
         case .settingsEditProfile:
             return .asset("ph-settings-edit-profile")
         case .settingsMeasurementSystem:

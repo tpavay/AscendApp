@@ -231,13 +231,6 @@ final class TelemetryManager: @unchecked Sendable {
         case authSignInFailed = "auth:sign_in_failed"
         case authSignOut = "auth:sign_out"
         case authProfileLoaded = "auth:profile_loaded"
-        case workoutImportStarted = "workout:import_started"
-        case workoutImportCompleted = "workout:import_completed"
-        case workoutImportFailed = "workout:import_failed"
-        case celebrationShown = "celebration:shown"
-        case celebrationScreen1Completed = "celebration:screen1_completed"
-        case celebrationScreen2Completed = "celebration:screen2_completed"
-        case celebrationDismissed = "celebration:dismissed"
 
         var record: TelemetryRecord {
             TelemetryRecord(

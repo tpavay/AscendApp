@@ -37,7 +37,7 @@ struct AppAccountDeletionLocalCleanup: AccountDeletionLocalCleanup {
         climbDropNotificationState: ClimbDropNotificationState = .shared,
         bootstrapCoordinator: AuthenticatedBootstrapCoordinator = .shared,
         autonomousSessionWorkers: [any AuthenticatedSessionWorker] = [
-            WorkoutImportCoordinator.shared,
+            AppleHealthEnrichmentCoordinator.shared,
             MediaUploadManager.shared
         ]
     ) {
@@ -51,8 +51,8 @@ struct AppAccountDeletionLocalCleanup: AccountDeletionLocalCleanup {
 
     /// Quiesces every writer of account-scoped local state, not just the bootstrap chain.
     ///
-    /// A HealthKit observer's auto-import reaches the same `ModelContext` from outside that chain,
-    /// so leaving it running let one imported workout land inside deletion's staged window - which
+    /// Apple Health enrichment reaches the same `ModelContext` from outside that chain on its own
+    /// schedule, so leaving it running let one write land inside deletion's staged window - which
     /// both saved the staged sweep early and left a row owned by the account being deleted.
     func suspendAuthenticatedSessionWork() async {
         await bootstrapCoordinator.suspendAndDrain(autonomousWorkers: autonomousSessionWorkers)

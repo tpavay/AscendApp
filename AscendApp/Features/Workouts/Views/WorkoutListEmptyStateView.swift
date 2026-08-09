@@ -18,11 +18,11 @@ struct WorkoutListEmptyStateView: View {
                 .foregroundStyle(.accent)
 
             VStack(spacing: 8) {
-                Text("No Workouts Yet")
+                Text("No Climbs Yet")
                     .font(.montserratBold(size: 28))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
-                Text("Tap the + button to log your first workout")
+                Text("Race a landmark or just climb. Every session lands here.")
                     .font(.montserratRegular(size: 16))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
                     .multilineTextAlignment(.center)

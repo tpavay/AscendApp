@@ -102,7 +102,7 @@ struct TelemetryManagerTests {
         )
         let parameterized = EnvelopedTelemetryRecord(
             record: TelemetryRecord(
-                name: "workout_import_finished",
+                name: "live_climb_completed",
                 parameters: ["outcome": .string("success")],
                 destinations: [.crashlytics]
             ),
@@ -110,7 +110,7 @@ struct TelemetryManagerTests {
         )
 
         #expect(record.crashlyticsMessage == "auth:session_restored")
-        #expect(parameterized.crashlyticsMessage == "workout_import_finished outcome=success")
+        #expect(parameterized.crashlyticsMessage == "live_climb_completed outcome=success")
         #expect(record.parameters.count == 4)
     }
 

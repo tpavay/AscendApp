@@ -81,15 +81,11 @@ final class LifecycleEventRecorder {
         )
     }
 
-    func recordAppleHealthIntegration(
-        state: AppleHealthConnectionState,
-        autoImportEnabled: Bool
-    ) {
+    func recordAppleHealthIntegration(state: AppleHealthConnectionState) {
         record(
             type: "apple_health_integration_changed",
             payload: [
-                "status": state.lifecycleStatusRawValue,
-                "autoImportEnabled": autoImportEnabled
+                "status": state.lifecycleStatusRawValue
             ]
         )
     }

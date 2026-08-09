@@ -57,7 +57,7 @@ struct AccountDeletionResignupEvidenceTests {
         try modelContext.save()
 
         settings.measurementSystem = .metric
-        settings.appleHealthAutoImportEnabled = true
+        settings.fitnessLevel = .advanced
         defaults.set(true, forKey: Self.notificationsKey)
         sessionStore.recordLocalDataOwner(userId: Self.deletedUserId)
 
@@ -74,7 +74,7 @@ struct AccountDeletionResignupEvidenceTests {
 
         #expect(beforeCounts.values.contains { $0 > 0 })
         #expect(settings.measurementSystem == .metric)
-        #expect(settings.appleHealthAutoImportEnabled)
+        #expect(settings.fitnessLevel == .advanced)
 
         // ── The deletion itself ───────────────────────────────────────────────────────────────
         let gateway = TranscriptDeletionGateway(currentUserId: Self.deletedUserId)
@@ -126,8 +126,7 @@ struct AccountDeletionResignupEvidenceTests {
         #expect(afterCounts.values.allSatisfy { $0 == 0 })
         #expect(sameSessionDecision == .allowed)
         #expect(settings.measurementSystem == .imperial)
-        #expect(settings.appleHealthAutoImportEnabled == false)
-        #expect(settings.appleHealthAutoImportActivatedAt == nil)
+        #expect(settings.fitnessLevel == .intermediate)
         #expect(defaults.object(forKey: Self.notificationsKey) == nil)
         #expect(sessionStore.localDataOwnerUserId == nil)
 
@@ -135,10 +134,10 @@ struct AccountDeletionResignupEvidenceTests {
         // values back into the domain deletion just emptied.
         settings.hasCompletedBaseLevelOnboarding = true
         #expect(defaults.string(forKey: "measurementSystem") == nil)
-        #expect(defaults.object(forKey: "appleHealthAutoImportEnabled") == nil)
+        #expect(defaults.object(forKey: "userFitnessLevel") == nil)
         transcript.line(
             "=> The replacement account then completes base-level onboarding. That write persists its",
-            "   own value and nothing else: units and Apple Health stay absent from the domain."
+            "   own value and nothing else: units and fitness level stay absent from the domain."
         )
 
         // ── Checkpoint 3: after relaunch ──────────────────────────────────────────────────────
@@ -156,7 +155,7 @@ struct AccountDeletionResignupEvidenceTests {
         )
 
         #expect(relaunchedSettings.measurementSystem == .imperial)
-        #expect(relaunchedSettings.appleHealthAutoImportEnabled == false)
+        #expect(relaunchedSettings.fitnessLevel == .intermediate)
         #expect(relaunchDecision == .allowed)
 
         // ── Checkpoint 4: the control the fix must not weaken ─────────────────────────────────
@@ -319,10 +318,7 @@ private struct Transcript {
     @MainActor
     mutating func preferences(settings: SettingsManager, defaults: UserDefaults) {
         field("units", settings.measurementSystem.rawValue)
-        field(
-            "Apple Health auto-import",
-            settings.appleHealthAutoImportEnabled ? "on" : "off"
-        )
+        field("fitness level", settings.fitnessLevel.rawValue)
         field(
             "climb-drop notifications",
             defaults.object(forKey: "climbDropNotificationsEnabled.v1") == nil

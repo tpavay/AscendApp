@@ -4,25 +4,25 @@ import Testing
 
 @testable import AscendApp
 
-/// A HealthKit observer imports on its own schedule, so account deletion cannot stop it by draining
+/// Apple Health enrichment runs on its own schedule, so account deletion cannot stop it by draining
 /// the bootstrap chain alone.
 ///
-/// An import pass that starts after the drain and lands inside deletion's staged window does two
-/// things at once: it saves the context, committing a sweep that was deliberately left unsaved so
-/// it could roll back, and it inserts a workout owned by the account being deleted. That leftover
-/// row is exactly what the ownership guard blocks the replacement account on (#389).
+/// A pass that starts after the drain and lands inside deletion's staged window commits a sweep
+/// that was deliberately left unsaved so it could roll back, and writes onto a workout owned by the
+/// account being deleted. That leftover row is exactly what the ownership guard blocks the
+/// replacement account on (#389).
 @MainActor
 @Suite(.serialized)
 struct AccountDeletionSessionWorkGateTests {
-    @Test("Suspended session work blocks a background-observer import pass", .bug(id: 389))
-    func suspendedSessionWorkBlocksObserverImport() async throws {
-        try await HealthKitImportCoordinatorTestIsolation.shared.run {
+    @Test("Suspended session work blocks an enrichment pass", .bug(id: 389))
+    func suspendedSessionWorkBlocksEnrichment() async throws {
+        try await HealthKitCoordinatorTestIsolation.shared.run {
             let fixture = try Self.makeFixture()
             defer { fixture.teardown() }
 
             await fixture.gate.suspendAndDrain(autonomousWorkers: [fixture.coordinator])
 
-            await fixture.coordinator.refreshPendingImports(trigger: .backgroundObserver)
+            await fixture.coordinator.refreshPendingEnrichment()
 
             #expect(fixture.authorization.refreshCount == 0)
             #expect(try fixture.modelContext.fetch(FetchDescriptor<Workout>()).isEmpty)
@@ -30,15 +30,15 @@ struct AccountDeletionSessionWorkGateTests {
     }
 
     @Test("The gate reopens once deletion resolves", .bug(id: 389))
-    func importResumesAfterDeletionResolves() async throws {
-        try await HealthKitImportCoordinatorTestIsolation.shared.run {
+    func enrichmentResumesAfterDeletionResolves() async throws {
+        try await HealthKitCoordinatorTestIsolation.shared.run {
             let fixture = try Self.makeFixture()
             defer { fixture.teardown() }
 
             await fixture.gate.suspendAndDrain(autonomousWorkers: [fixture.coordinator])
             fixture.gate.discard()
 
-            await fixture.coordinator.refreshPendingImports(trigger: .backgroundObserver)
+            await fixture.coordinator.refreshPendingEnrichment()
 
             #expect(fixture.authorization.refreshCount == 1)
         }
@@ -178,17 +178,12 @@ struct AccountDeletionSessionWorkGateTests {
 
         let gate = AuthenticatedBootstrapCoordinator()
         let authorization = RecordingAuthorizationController()
-        let coordinator = WorkoutImportCoordinator(
+        let coordinator = AppleHealthEnrichmentCoordinator(
             authorizationController: authorization,
-            workoutReader: EmptyStubWorkoutReader(),
             metricsReader: EmptyStubMetricsReader(),
-            reviewStateStore: WorkoutAutoImportReviewStateStore(
+            enrichmentRetryStore: AppleHealthEnrichmentRetryStore(
                 defaults: defaults,
-                key: "auto-review"
-            ),
-            ignoredAppleHealthWorkoutStore: IgnoredAppleHealthWorkoutStore(
-                defaults: defaults,
-                key: "ignored-apple-health"
+                key: "enrichment-retry"
             ),
             sessionWorkGate: gate
         )
@@ -212,18 +207,17 @@ struct AccountDeletionSessionWorkGateTests {
         let modelContext: ModelContext
         let gate: AuthenticatedBootstrapCoordinator
         let authorization: RecordingAuthorizationController
-        let coordinator: WorkoutImportCoordinator
+        let coordinator: AppleHealthEnrichmentCoordinator
         let teardown: @MainActor () -> Void
     }
 }
 
-/// Records whether the import pass got past its gate: refreshing authorization status is the first
-/// thing a real pass does once it has a store to write to.
+/// Records whether the enrichment pass got past its gate: refreshing authorization status is the
+/// first thing a real pass does once it has a store to write to.
 @MainActor
 private final class RecordingAuthorizationController: HealthKitAuthorizationControlling {
     let isHealthDataAvailable = true
     let hasRequestedAuthorization = true
-    let hasCompletedInitialBackfill = true
     var authorizationRequestStatus: HKAuthorizationRequestStatus = .unnecessary
     var lastPermissionErrorMessage: String?
     let connectionState: AppleHealthConnectionState = .connected
@@ -238,34 +232,9 @@ private final class RecordingAuthorizationController: HealthKitAuthorizationCont
 }
 
 @MainActor
-private final class EmptyStubWorkoutReader: HealthKitWorkoutReading {
-    let isHealthDataAvailable = true
-
-    func fetchAnchoredStairStepperWorkouts(anchorData: Data?) async throws
-        -> HealthKitWorkoutDiscoveryResult
-    {
-        HealthKitWorkoutDiscoveryResult(
-            addedSamples: [],
-            deletedExternalRecordIDs: [],
-            anchorData: anchorData
-        )
-    }
-
-    func fetchWorkout(withExternalRecordID externalRecordID: String) async throws -> HKWorkout? {
-        nil
-    }
-
-    func fetchStairStepperWorkouts(in dateRange: ClosedRange<Date>) async throws
-        -> [HealthKitWorkoutSample]
-    {
-        []
-    }
-}
-
-@MainActor
 private final class EmptyStubMetricsReader: HealthKitMetricsReading {
-    func fetchMetrics(for workout: HKWorkout) async -> WorkoutMetrics {
-        WorkoutMetrics(steps: 0)
+    func fetchMetrics(during dateRange: ClosedRange<Date>) async -> WorkoutMetrics {
+        WorkoutMetrics()
     }
 }
 

@@ -200,11 +200,11 @@ struct TelemetryConsoleView: View {
         case .all:
             return "Use the app for a moment, then come back here to inspect emitted telemetry."
         case .analytics:
-            return "Open a flow that has product analytics wired up, like Workout Import, to see analytics events here."
+            return "Open a flow that has product analytics wired up, like a Live Climb, to see analytics events here."
         case .breadcrumb:
-            return "Breadcrumbs appear for tracked app flows such as auth, workout import, and celebrations."
+            return "Breadcrumbs appear for tracked app flows such as auth, live climbs, and sync."
         case .screen:
-            return "Open a screen with manual screen tracking, like Workout Import, to see screen views here."
+            return "Open a screen with manual screen tracking, like a climb detail, to see screen views here."
         }
     }
 

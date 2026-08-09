@@ -63,7 +63,7 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Ascend needs access to your photo library to attach photos and videos to workouts.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.</string>
+	<string>Ascend reads heart rate and active energy from Health during the climbs you run in Ascend, so each climb shows what it cost you.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Ascend uses your location once to set your profile city for leaderboard context.</string>
 	<key>NSMotionUsageDescription</key>

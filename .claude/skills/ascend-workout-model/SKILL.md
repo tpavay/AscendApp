@@ -1,13 +1,15 @@
 ---
 name: ascend-workout-model
-description: Use when working on the canonical Ascend Workout model, or when wiring any new workout origin - manual entry, external import, or sensor capture - into it, which fires from integration and feature code outside the Workouts folder. Covers workout durability and cloud backup, heart-rate sidecar upload/restore and its validation contract, sync state and the sync coordinator, workout source vs participation separation, plausibility validation, workout measurement (steps, duration, SPM, StairMaster level mapping, historical percentile), the integrity gate keeping Live Climb and routine completions exclusive to their live sensor flows, the deprecated base-level/effort-score legacy, and the local-first SwiftData + Firestore contract with the workout schema open/closed rule.
+description: Use when working on the canonical Ascend Workout model, or when wiring any new workout origin into it, which fires from integration and feature code outside the Workouts folder. Covers workout durability and cloud backup, heart-rate sidecar upload/restore and its validation contract, sync state and the sync coordinator, workout source vs participation separation, plausibility validation, workout measurement (steps, duration, SPM, StairMaster level mapping, historical percentile), the integrity gate keeping Live Climb and routine completions exclusive to their live sensor flows, the deprecated base-level/effort-score legacy, and the local-first SwiftData + Firestore contract with the workout schema open/closed rule.
 ---
 
 # Workout Model
 
 ## The canonical integrity gate (referenced by climbs and routines)
 
-Live Climb completions come only from the live headphone-motion attempt flow, and routine completions come only from the live routine flow. Manual entries, external imports, and routine completions cannot progress or complete a Live Climb. Live Climb eligibility is a quality gate, not a backfill.
+Live Climb completions come only from the live headphone-motion attempt flow, and routine completions come only from the live routine flow. A routine completion cannot progress or complete a Live Climb. Live Climb eligibility is a quality gate, not a backfill.
+
+Since #437 (2026-08-08) those live sensor flows are the *only* way a `Workout` is created: Ascend has no manual entry and imports nothing. `WorkoutSource.manual` and `.appleHealth` survive only because older stored rows carry those raw values.
 
 Passive interpretations of workout history (lifetime step milestones, climb-equivalent badges, collection counts) are *derived* readings - never participation records. They don't make a workout retroactively eligible for any leaderboard.
 
@@ -17,7 +19,7 @@ Three distinct concepts. Keep them cleanly separated - don't fold feature-specif
 
 **`Workout` is the canonical activity** - what the user actually did (date, duration, steps, floors, health metrics, notes, media). It carries enough to describe the session itself, but no feature-specific attribution.
 
-**Source = how the data was captured.** In-app sensor capture (headphone motion, future wearables), external provider imports (Apple Health, future third parties), and manual entry are each their own source kind. Verified-sensor sources are first-class; they aren't external providers because there's no external record to dedupe against. External-provider dedupe + provenance metadata lives on a separate provenance type, never on `Workout` itself.
+**Source = how the data was captured.** In-app sensor capture (headphone motion, future wearables) is the only source anything writes today; the legacy external-provider and manual values remain readable for rows that predate #437. Provenance metadata lives on a separate provenance type, never on `Workout` itself.
 
 **Participation = why the workout exists / what it counts toward.** Feature-specific attribution (climb attempt, routine, challenge, future contexts) lives on a separate participation type, never as nullable fields on `Workout`. New features add new participation kinds; they don't add nullable columns to the canonical type. This is the open/closed principle applied to the workout schema.
 
@@ -27,7 +29,7 @@ Three distinct concepts. Keep them cleanly separated - don't fold feature-specif
 
 ### Integrity rules
 - Sensor capture (headphone motion, future wearables) lives behind a shared service layer. The step / progress algorithm is pure compute - unit-testable without hardware. Sensor callbacks must run safely off the main thread; UI updates marshal back to main explicitly.
-- Plausibility validation runs at the entry boundary - bad data (implausible step rates, impossible durations) never enters the canonical store. The gate is the same for manual save, edit, external import, and Live Climb completion.
+- Plausibility validation runs at the entry boundary - bad data (implausible step rates, impossible durations) never enters the canonical store. The gate is the same for an edit and for a Live Climb completion.
   Heart rate has exactly one definition of a usable reading (`WorkoutHeartRatePlausibility`), applied wherever Ascend first writes a sample into its own cache: the live sensor seam, the live capture buffer, and the HealthKit metrics reader.
   Filtering at ingress keeps the stored series, average, and maximum consistent for the life of the workout - an out-of-range summary is replaced from the retained samples instead of being reconciled downstream, and source records are never rewritten, only Ascend's derived copy.
 
@@ -100,7 +102,7 @@ Workouts are described by **absolute, measured signals** - steps, duration, cade
 **What stays:**
 - The canonical mapping between StairMaster levels (1-25) and steps-per-minute is preserved as a **display utility**. Surfaces that want to show "you stepped at the equivalent of level 8" alongside a workout's cadence read from this shared mapping - don't duplicate the math.
 - Historical percentile remains as a ranking layer over absolute metrics, computed against the user's own workout history ("harder than 85% of your past sessions"). It's a personal benchmark, not a calibrated effort definition.
-- Every workout mutation (create, edit, delete, import) still triggers a recompute of derived data - Best Effort inputs, percentile snapshots, local leaderboard aggregates. Surfaces reading derived values trust them to be current.
+- Every workout mutation (create, edit, delete) still triggers a recompute of derived data - Best Effort inputs, percentile snapshots, local leaderboard aggregates. Surfaces reading derived values trust them to be current.
 
 **What's deprecated (don't extend):** base level state (seed value, auto-calculated estimate, manual override); "fitness level" terminology and migration code; user-calibrated effort score; base-level seeding UI in onboarding; manual base level override in settings.
 

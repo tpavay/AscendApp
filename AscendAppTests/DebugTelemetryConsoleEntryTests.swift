@@ -38,12 +38,11 @@ struct DebugTelemetryConsoleEntryTests {
         let entry = DebugTelemetryConsoleEntry(
             record: try makeEnvelopedTestRecord(
                 TelemetryRecord(
-                    name: "workout_import_finished",
+                    name: "live_climb_completed",
                     parameters: [
-                        "import_mode": .string("selected"),
-                        "source_mix": .string("apple_health_only"),
-                        "candidate_count_bucket": .string("2_5"),
-                        "outcome": .string("partial_success")
+                        "climb_id": .string("burj_khalifa"),
+                        "outcome": .string("partial_success"),
+                        "was_personal_record": .bool(true)
                     ],
                     destinations: [.analytics, .crashlytics]
                 )
@@ -52,17 +51,12 @@ struct DebugTelemetryConsoleEntryTests {
         )
 
         #expect(entry.kind == .analytics)
-        #expect(entry.title == "Workout Import Finished")
-        #expect(entry.feature == "Workouts")
+        #expect(entry.title == "Live Climb Completed")
         #expect(entry.environment == "Staging")
         #expect(entry.destinationsSummary == "Sent to Analytics, and Crashlytics")
-        #expect(entry.whenItFires == "This fires when the import flow ends, whether it created workouts, updated existing ones, partially succeeded, or failed.")
-        #expect(entry.whyTracked == "It tells us whether imports are succeeding, where users hit failures, and how much workout data is actually getting into the app.")
-        #expect(entry.parameters.contains(where: { $0.key == "Import Mode" && $0.value == "Selected workouts" }))
-        #expect(entry.parameters.contains(where: { $0.key == "Source Mix" && $0.value == "Apple Health only" }))
-        #expect(entry.parameters.contains(where: { $0.key == "Workout Count" && $0.value == "2-5" }))
+        #expect(entry.parameters.contains(where: { $0.key == "Climb Id" && $0.value == "burj_khalifa" }))
         #expect(entry.parameters.contains(where: { $0.key == "Outcome" && $0.value == "Partial success" }))
-        #expect(entry.parameters.first(where: { $0.rawKey == "candidate_count_bucket" })?.helpText == "How many workout candidates were included in this import action.")
+        #expect(entry.parameters.contains(where: { $0.key == "Was Personal Record" && $0.value == "Yes" }))
     }
 }
 #endif

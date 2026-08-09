@@ -13,7 +13,6 @@ import Observation
 protocol HealthKitAuthorizationControlling: AnyObject {
     var isHealthDataAvailable: Bool { get }
     var hasRequestedAuthorization: Bool { get }
-    var hasCompletedInitialBackfill: Bool { get }
     var authorizationRequestStatus: HKAuthorizationRequestStatus { get }
     var lastPermissionErrorMessage: String? { get }
     var connectionState: AppleHealthConnectionState { get }
@@ -28,20 +27,21 @@ final class HealthKitAuthorizationClient: HealthKitAuthorizationControlling {
 
     private let healthStore: HKHealthStore
 
+    /// Exactly what enrichment writes back onto a climb, and nothing else.
+    ///
+    /// Ascend does not import workouts, so it never asks for `workoutType()`. Every type here is
+    /// read over an Ascend-recorded climb's own time window and lands on that climb: heart rate
+    /// becomes the series and its average/maximum, active energy becomes calories. A type Ascend
+    /// requests but never uses is a permission prompt the climber cannot say no to for a reason
+    /// (#353).
     private var readTypes: Set<HKObjectType> {
-        var types: Set<HKObjectType> = [HKObjectType.workoutType()]
+        var types: Set<HKObjectType> = []
 
-        if let stepCount = HKObjectType.quantityType(forIdentifier: .stepCount) {
-            types.insert(stepCount)
-        }
         if let heartRate = HKObjectType.quantityType(forIdentifier: .heartRate) {
             types.insert(heartRate)
         }
         if let activeEnergy = HKObjectType.quantityType(forIdentifier: .activeEnergyBurned) {
             types.insert(activeEnergy)
-        }
-        if let restingEnergy = HKObjectType.quantityType(forIdentifier: .basalEnergyBurned) {
-            types.insert(restingEnergy)
         }
 
         return types
@@ -53,10 +53,6 @@ final class HealthKitAuthorizationClient: HealthKitAuthorizationControlling {
 
     var hasRequestedAuthorization: Bool {
         HealthKitSyncState.hasRequestedAuthorization
-    }
-
-    var hasCompletedInitialBackfill: Bool {
-        HealthKitSyncState.hasCompletedInitialBackfill
     }
 
     var connectionState: AppleHealthConnectionState {

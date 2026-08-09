@@ -836,33 +836,30 @@ Success condition:
 Design principle:
 - Keep the distinction simple: climbs are fixed destinations; routines are guided interval sessions.
 
-### 7. Import And Enrichment
+### 7. Apple Health Enrichment
 
-User goal: bring in stair-stepper work from Apple Health without corrupting Live Climb integrity.
+User goal: see heart rate and calories on a climb they ran in Ascend.
 
 Primary path:
 1. Connect Apple Health
-2. Auto-import starts from activation timestamp
-3. Latest unseen import review
-4. Save or clean up imported workout
-5. Silent enrichment for matching Live Climbs
+2. Silent enrichment of climbs Ascend recorded, retried until Health writes the samples
+3. Heart rate and calories appear on workout detail
 
 App surfaces:
-- Import flow
-- `WorkoutImportCoordinator`
-- HealthKit integration services
-- Workout review/edit surfaces
+- Integrations - Apple Health card and manage sheet
+- `AppleHealthEnrichmentCoordinator`
+- Workout detail heart-rate states
 
 State and data:
-- External imports are read-only from the source platform.
-- Apple Health workouts that enrich existing Live Climbs do not enter the manual review queue.
-- Imported workouts can contribute to logs and personal records, but not Live Climb leaderboard completions.
+- Apple Health is read-only, and Ascend imports nothing: it reads `heartRate` and `activeEnergyBurned` over a climb's own time window and never touches a foreign `HKWorkout` (#437).
+- Enrichment is silent. It never asks the climber to confirm or edit merged data.
+- A live-captured chest-strap series outranks Health's wrist data; enrichment still fills calories.
 
 Success condition:
-- The user's history becomes more complete without weakening leaderboard trust.
+- A climb shows what it cost the climber without any of Ascend's numbers coming from somewhere it cannot stand behind.
 
 Design principle:
-- Permission requests should be served at the point of value. Ask for Health access when the user is trying to import or enrich workouts, not as generic onboarding setup.
+- Permission requests should be served at the point of value. Ask for Health access when the climber is looking at a climb missing its heart rate, not as generic onboarding setup.
 
 ### 8. Profile, Collection, And Prestige
 

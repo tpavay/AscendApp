@@ -176,8 +176,7 @@ struct RoutineTimelineMotionTests {
         "RoutineThumbnailCard.swift",
         "RoutineTimelineMotion.swift",
         "RoutinesView.swift",
-        "SegmentedProgressBar.swift",
-        "WorkoutCompleteView.swift"
+        "SegmentedProgressBar.swift"
     ]
 
     /// Every view under the routines feature except those, discovered rather than listed.
