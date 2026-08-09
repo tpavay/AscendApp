@@ -10,7 +10,7 @@ Voice is niche-aggressive and declarative - confident about who Ascend is for, w
 Consult the `product-design-playbook` skill's relevant plays before shipping design or copy changes.
 
 ## Principles
-- **Active verbs at the front.** *Climb. Race. Rank. Push. Track.* Avoid "explore" / "discover" / "learn" as openers - too passive.
+- **Active verbs at the front.** *Climb. Race. Rank. Push.* Avoid "explore" / "discover" / "learn" as openers - too passive.
 - **Imperative over invitational.** *Be the first* beats *You could be the first*. *Climb past them* beats *You may want to try*.
 - **No hedging.** Cut "maybe," "perhaps," "if you'd like," "feel free to."
 - **Specific over abstract.** Name landmarks, name verbs, name numbers when they're earned. Concrete words land harder than generic ones.
