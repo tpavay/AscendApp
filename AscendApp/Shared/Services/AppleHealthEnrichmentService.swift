@@ -53,6 +53,9 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         case waiting(nextCheckAt: Date?)
         /// The automatic series is spent. Manual fetch is still offered.
         case stoppedLooking
+        /// Enrichment is switched off at the backend. Nothing is being read, and nothing was
+        /// spent - distinct from `stoppedLooking`, which says Ascend looked and found nothing.
+        case checksPaused
     }
 
     /// What a hand-requested read actually did, so the surface asking can say something true.
@@ -130,11 +133,28 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
 
     // MARK: - Phase
 
+    /// Whether the backend still permits enrichment, read the cheap way.
+    ///
+    /// A plain in-memory flag lookup rather than `RemoteFeatureGate.allows`, because this is
+    /// reachable from a view body: the gate records a diagnostic every time it blocks, so
+    /// routing rendering through it would emit one per render for a whole incident. The gate
+    /// stays on the work path, where a blocked pass is worth recording exactly once.
+    private var isEnrichmentSwitchedOn: Bool {
+        featureFlags.isEnabled(.appleHealthEnrichment)
+    }
+
     /// What to tell the climber about this climb's heart rate right now.
     func phase(for workout: Workout) -> Phase {
         guard workout.isInAppSensorWorkout, needsHeartRate(workout) else { return .notApplicable }
 
         if checkingWorkoutIDs.contains(workout.id) { return .checking }
+
+        // Said ahead of connection state, because with checks switched off neither connecting
+        // nor re-granting access would produce a read - only a device that cannot reach Health
+        // at all outranks it.
+        if authorizationController.connectionState != .unavailable, !isEnrichmentSwitchedOn {
+            return .checksPaused
+        }
 
         switch authorizationController.connectionState {
         case .unavailable:
@@ -159,8 +179,13 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     /// What the post-climb connect prompt asks. It is deliberately not conditioned on the
     /// retry ledger: a climber who has never connected has never had an attempt run, and the
     /// offer is the point.
+    ///
+    /// It is conditioned on the kill switch, though. Asking for Health access while enrichment
+    /// is switched off spends a permission prompt - the one thing a climber can only be asked
+    /// once - on a benefit the app has been told not to deliver.
     func offersConnectionPrompt(for workout: Workout) -> Bool {
         guard workout.isInAppSensorWorkout, needsHeartRate(workout) else { return false }
+        guard isEnrichmentSwitchedOn else { return false }
         guard authorizationController.connectionState == .neverConnected else { return false }
         return schedule.isWithinEligibilityWindow(workout, at: now())
     }

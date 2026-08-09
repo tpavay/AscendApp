@@ -43,6 +43,8 @@ struct WorkoutHeartRateRecoveryCard: View {
             return "Waiting on your wearable"
         case .stoppedLooking:
             return "Stopped looking"
+        case .checksPaused:
+            return "Checks are paused"
         case .connectionOffered:
             return "Connect Apple Health"
         case .accessRevoked:
@@ -66,6 +68,8 @@ struct WorkoutHeartRateRecoveryCard: View {
             return "Your watch, strap or band writes to Apple Health on its own schedule. Ascend keeps checking and adds your heart rate the moment it lands."
         case .stoppedLooking:
             return "Nothing reached Apple Health for this climb. Check one more time once your wearable has synced."
+        case .checksPaused:
+            return "Ascend isn't reading Apple Health right now. This climb keeps its place - heart rate lands when checks resume."
         case .connectionOffered:
             return "Ascend reads heart rate from Apple Health - whichever watch, strap or band you wear. Connect it to put heart rate on this climb."
         case .accessRevoked:
@@ -83,7 +87,7 @@ struct WorkoutHeartRateRecoveryCard: View {
             return "Connect"
         case .waiting, .stoppedLooking, .checking:
             return "Check now"
-        case .accessRevoked, .unavailable, .notApplicable:
+        case .accessRevoked, .unavailable, .notApplicable, .checksPaused:
             return nil
         }
     }
@@ -190,6 +194,13 @@ struct WorkoutHeartRateRecoveryCard: View {
 
             WorkoutHeartRateRecoveryCard(
                 phase: .accessRevoked,
+                message: nil,
+                effectiveColorScheme: .dark,
+                onPrimaryAction: {}
+            )
+
+            WorkoutHeartRateRecoveryCard(
+                phase: .checksPaused,
                 message: nil,
                 effectiveColorScheme: .dark,
                 onPrimaryAction: {}

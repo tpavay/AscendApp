@@ -26,11 +26,21 @@ struct WorkoutHeartRateRecoverySnapshotTests {
         let connected = makeService(connectionState: .connected, now: now)
         let neverConnected = makeService(connectionState: .neverConnected, now: now)
         let revoked = makeService(connectionState: .revoked, now: now)
+        let paused = makeService(
+            connectionState: .connected,
+            now: now,
+            featureFlags: RemoteFeatureFlagStore(
+                snapshot: .resolving(
+                    remoteValues: [RemoteFeatureFlag.appleHealthEnrichment.key: false]
+                )
+            )
+        )
 
         let waiting = makeSensorWorkout(start: insideWindow)
         let stopped = makeSensorWorkout(start: outsideWindow)
         let offered = makeSensorWorkout(start: insideWindow)
         let revokedWorkout = makeSensorWorkout(start: insideWindow)
+        let pausedWorkout = makeSensorWorkout(start: insideWindow)
 
         let complete = makeSensorWorkout(start: insideWindow)
         complete.avgHeartRate = 148
@@ -66,6 +76,11 @@ struct WorkoutHeartRateRecoverySnapshotTests {
                 phase: .checking
             ),
             RecoveryScenario(
+                id: "checksPaused",
+                caption: "Enrichment switched off at the backend · the climb keeps its place",
+                phase: paused.phase(for: pausedWorkout)
+            ),
+            RecoveryScenario(
                 id: "notApplicable",
                 caption: "Heart rate attached · the chart replaces the card",
                 phase: connected.phase(for: complete)
@@ -76,12 +91,13 @@ struct WorkoutHeartRateRecoverySnapshotTests {
         #expect(scenarios[1].phase == .stoppedLooking)
         #expect(scenarios[2].phase == .connectionOffered)
         #expect(scenarios[3].phase == .accessRevoked)
-        #expect(scenarios[5].phase == .notApplicable)
+        #expect(scenarios[5].phase == .checksPaused)
+        #expect(scenarios[6].phase == .notApplicable)
 
         // The whole point of the fix: every state a climber can be in says something.
         let visibleCount = scenarios.filter(\.isCardVisible).count
         #expect(visibleCount == scenarios.count - 1)
-        #expect(scenarios[5].isCardVisible == false)
+        #expect(scenarios[6].isCardVisible == false)
 
         let renderer = ImageRenderer(content: RecoveryStatesProof(scenarios: scenarios))
         renderer.scale = 3
@@ -100,7 +116,8 @@ struct WorkoutHeartRateRecoverySnapshotTests {
 
     private func makeService(
         connectionState: AppleHealthConnectionState,
-        now: Date
+        now: Date,
+        featureFlags: RemoteFeatureFlagStore = RemoteFeatureFlagStore()
     ) -> AppleHealthEnrichmentService {
         AppleHealthEnrichmentService(
             authorizationController: RecoveryCardAuthorizationController(
@@ -110,6 +127,8 @@ struct WorkoutHeartRateRecoverySnapshotTests {
             attemptStore: AppleHealthEnrichmentAttemptStore(
                 defaults: UserDefaults(suiteName: "recovery-card-\(UUID().uuidString)")!
             ),
+            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
+            featureFlags: featureFlags,
             now: { now }
         )
     }

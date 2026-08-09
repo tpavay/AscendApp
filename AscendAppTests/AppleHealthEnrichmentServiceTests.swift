@@ -401,11 +401,69 @@ struct AppleHealthEnrichmentServiceTests {
         // read as "your wearable published nothing".
         #expect(await service.fetchNow(workout, modelContext: modelContext) == .couldNotLook)
 
+        // And it says so rather than claiming a check is coming that was never scheduled.
+        #expect(service.phase(for: workout) == .checksPaused)
+
         _ = flags.apply(.shippedDefaults)
         service.resumeTracking(modelContext: modelContext)
         await service.drainInFlightWork()
 
         #expect(workout.avgHeartRate == 150)
+    }
+
+    /// A switched-off incident is exactly when a wrong status costs trust: `.waiting` would
+    /// promise a check that `armTimer` deliberately never scheduled, and the connect offer would
+    /// spend a permission prompt on a benefit the app has been told not to deliver.
+    @Test("A switched-off kill switch is stated, not dressed up as waiting")
+    func reportsPausedChecksRatherThanWaiting() async throws {
+        let clock = TestClock(start: Date(timeIntervalSince1970: 1_800_000_000))
+        let workout = makeLiveClimb(start: clock.now.addingTimeInterval(-1_200), duration: 1_200)
+
+        let flags = RemoteFeatureFlagStore(
+            snapshot: .resolving(
+                remoteValues: [RemoteFeatureFlag.appleHealthEnrichment.key: false]
+            )
+        )
+
+        let connected = AppleHealthEnrichmentService(
+            authorizationController: StubAuthorizationController(connectionState: .connected),
+            metricsReader: ScriptedMetricsReader(responses: []),
+            attemptStore: makeAttemptStore(),
+            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
+            featureFlags: flags,
+            now: { clock.now }
+        )
+
+        #expect(connected.phase(for: workout) == .checksPaused)
+
+        let neverConnected = AppleHealthEnrichmentService(
+            authorizationController: StubAuthorizationController(connectionState: .neverConnected),
+            metricsReader: ScriptedMetricsReader(responses: []),
+            attemptStore: makeAttemptStore(),
+            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
+            featureFlags: flags,
+            now: { clock.now }
+        )
+
+        #expect(neverConnected.offersConnectionPrompt(for: workout) == false)
+        #expect(neverConnected.phase(for: workout) == .checksPaused)
+
+        // A device that cannot reach Health at all is still told the truer thing.
+        let unavailable = AppleHealthEnrichmentService(
+            authorizationController: StubAuthorizationController(connectionState: .unavailable),
+            metricsReader: ScriptedMetricsReader(responses: []),
+            attemptStore: makeAttemptStore(),
+            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
+            featureFlags: flags,
+            now: { clock.now }
+        )
+
+        #expect(unavailable.phase(for: workout) == .unavailable)
+
+        // The offer returns with the flag, so nothing is permanently withheld.
+        _ = flags.apply(.shippedDefaults)
+        #expect(neverConnected.offersConnectionPrompt(for: workout))
+        #expect(neverConnected.phase(for: workout) == .connectionOffered)
     }
 
     @Test("Cancelling stops the series and forgets what it was watching")
