@@ -17,7 +17,10 @@ The niche defined by exclusion. Check every feature, screen, and copy change aga
 - Not a generic fitness tracker. Activity scope is stair stepper sessions.
 - Not weight-lifting / strength-training focused.
 - Not a passive tracker. Every session is competitive context.
-- Not a logger or an importer. Every climb and record comes from a session performed in Ascend; manual entry and Apple Health workout import are being removed (#437). Apple Health stays only to attach heart-rate and energy metrics to an Ascend-owned climb. No outward surface may promise otherwise.
+- Not a logger or an importer. Every climb and record comes from a session performed in Ascend; manual entry and Apple Health workout import are being removed (#437).
+  Apple Health stays only to enrich an Ascend-owned climb with heart-rate samples, active and resting energy, and step count.
+  Ascend may match Apple Health workout entries around that climb's own time window to find the right samples, but it never adds those entries to Ascend history or writes anything to Apple Health.
+  No outward surface may promise otherwise.
 
 Full rationale: `ascend-brand-voice`.
 
