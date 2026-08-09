@@ -108,8 +108,14 @@ Every climb carrying a `realStairCount` now takes its floor count from one of tw
 
 19.8 is the ratio the height derivation already implied (`5.5` steps per metre over `3.6` metres per floor), so the 43 climbs with no verified stair count keep the floor counts they had - their reference count is still `totalSteps`, and the two rules agree there.
 
-A published **flight** count is not a storey count and is not used as one.
+A published **flight** count is not a storey count and is not used as one, unless a second independent source states the same figure as storeys.
 A flight is a run of stairs between landings; a tower can have several per storey, or none at all.
+So the figure alone never qualifies a route for the published table - a source has to say the word.
+
+Willis Tower is the one climb that clears that bar.
+SkyRise Chicago words its own figure as 105 flights, and the Towerrunning World Association record for the same race states it as storeys: "since 2018 start at level -2 making it 105 stories to climb".
+Level -2 to 103 is consistent with that count, so 105 ships as the storey count rather than being derived.
+
 `AscendAppTests/ClimbCatalogStairCountTests.swift` enforces that every climb's steps-per-floor stays inside a plausible band, which is what stops a height-derived floor count from coming back.
 
 ### Published storey counts
@@ -121,7 +127,7 @@ A flight is a run of stairs between landings; a tower can have several per store
 | Shanghai Tower | 119 | 119F, TWA race record |
 | Merdeka 118 | 118 | 118F, The Sky Race |
 | Canton Tower | 112 | 112F, Canton Tower Run Up |
-| Willis Tower | 105 | 105 storeys, level -2 to 103, SkyRise Chicago |
+| Willis Tower | 105 | SkyRise Chicago's 105 flights, level -2 to 103, corroborated as storeys by the TWA race record: "105 stories to climb"; see Conflicts |
 | One World Trade Center | 104 | level -2 to 102, T2T Climb New York City |
 | Taipei 101 | 91 | 1F to 91F observatory |
 | Oriental Pearl Tower | 90 | 90F, Oriental Pearl New Year Run-Up |
@@ -138,7 +144,8 @@ These carry no published storey count for the route, so `calculatedFloors` is `r
 
 CN Tower 90, Eiffel Tower 84, Monserrate 81, Sydney Tower 76, Gateway Arch 54, Berlin TV Tower 50, Washington Monument 45, Space Needle 42, Reunion Tower 42, El Penon de Guatape 37, St. Peter's Basilica 28, Tokyo Tower 25, Statue of Liberty 19, Elizabeth Tower 17, Leaning Tower of Pisa 15, Sacre-Coeur 15, Charminar 8.
 
-Three of these do have a published count, but of flights or landings rather than storeys, so it is recorded here and not shipped as a floor count:
+Three of these do have a published count, but of flights or landings rather than storeys, and no second source restates it as storeys the way the TWA record does for Willis Tower.
+So it is recorded here and not shipped as a floor count:
 CN Tower is 144 flights to the LookOut, Space Needle is 98 flights to the 520 ft deck, and Reunion Tower is 61 landings to the GeO-Deck.
 The Space Needle figure is the clearest case - 832 steps over 98 flights is 8.5 steps each, and 98 storeys would put a 184 m tower above 350 m.
 

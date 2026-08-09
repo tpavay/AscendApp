@@ -93,7 +93,7 @@ Every populated `realStairCount` needs a citable primary source recorded in `doc
 
 `realClimbableHeightMeters` / `realClimbableHeightFeet` follow the same rule for the climbed vertical, and feed `referenceHeightMeters`.
 
-`calculatedFloors` renders as FLOORS beside STEPS on climb detail, so it answers for the same route. Set it from the route's published storey count where a source states one, and from `round(referenceStepCount / 19.8)` otherwise - never from `totalHeightMeters`, which is what put 876 floors next to Monserrate's 1,605 steps. A published *flight* or *landing* count is not a storey count and is not shipped as one; record it in `docs/climb-real-stair-counts.md` and derive instead.
+`calculatedFloors` renders as FLOORS beside STEPS on climb detail, so it answers for the same route. Set it from the route's published storey count where a source states one, and from `round(referenceStepCount / 19.8)` otherwise - never from `totalHeightMeters`, which is what put 876 floors next to Monserrate's 1,605 steps. A published *flight* or *landing* count is not a storey count and is not shipped as one unless a second independent source restates that same figure as storeys; otherwise record it in `docs/climb-real-stair-counts.md` and derive instead. That file states the rule in full and names the one climb that clears the bar.
 
 Changing a reference step count invalidates every recorded time on that climb, because it changes the distance raced. `AscendAppTests/ClimbCatalogStairCountTests.swift` enforces that both catalogue files stay byte-identical, that every `tier` matches its reference count, that `totalSteps` stays height-derived, and that every climb's steps-per-floor stays plausible.
 
