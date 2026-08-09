@@ -33,6 +33,16 @@ struct LiveClimbCompletionSummaryView: View {
     @State private var didDismissHeartRateConnect = false
     @State private var appleHealthConnectTask: Task<Void, Never>?
 
+    /// Bumped whenever Remote Config resolves or changes, so the connect offer re-resolves.
+    ///
+    /// `offersConnectionPrompt` reads the enrichment kill switch, and `RemoteFeatureFlagStore` is
+    /// a lock-guarded class rather than `@Observable`, so a flag change invalidates nothing on
+    /// its own. This summary is reachable straight from a cold launch through Workout Detail's
+    /// summary preview, which is the same window where the app is still on shipped defaults -
+    /// and a stale offer here costs more than a stale card, because accepting it spends a real
+    /// iOS permission prompt on a connection that cannot be used yet.
+    @State private var remoteFeatureFlagRevision = 0
+
     init(
         climb: Climb?,
         workout: Workout,
@@ -138,6 +148,9 @@ struct LiveClimbCompletionSummaryView: View {
         .task(id: workout.id) {
             await resolveCompletionRank()
             trackSummaryViewedIfNeeded()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .remoteFeatureFlagsDidChange)) { _ in
+            remoteFeatureFlagRevision &+= 1
         }
         .onDisappear {
             // Unstructured, so it would otherwise outlive the summary still holding the
@@ -280,6 +293,10 @@ struct LiveClimbCompletionSummaryView: View {
     /// where its progress is reported.
     @ViewBuilder
     private var heartRateConnectCard: some View {
+        // Touching the revision ties this offer to the kill switch, which is not `@Observable`
+        // and so publishes nothing SwiftUI can see. See `remoteFeatureFlagRevision`.
+        let _ = remoteFeatureFlagRevision
+
         if !didDismissHeartRateConnect, enrichmentService.offersConnectionPrompt(for: workout) {
             LiveClimbHeartRateConnectCard(
                 isConnecting: isConnectingAppleHealth,

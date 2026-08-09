@@ -466,6 +466,51 @@ struct AppleHealthEnrichmentServiceTests {
         #expect(neverConnected.phase(for: workout) == .connectionOffered)
     }
 
+    /// A phase that is only honest until the flag moves is not the guarantee: the kill switch is
+    /// not `@Observable`, so a surface holding a resolved phase has to be told to resolve again.
+    ///
+    /// This pins the contract the views depend on, both halves of it - that flipping the flag
+    /// publishes `remoteFeatureFlagsDidChange`, and that re-resolving after it yields a genuinely
+    /// different phase. The `.onReceive` wiring in `WorkoutDetailView` and
+    /// `LiveClimbCompletionSummaryView` is the part no unit test can reach; everything it relies
+    /// on is asserted here.
+    @Test("A flag flip publishes a change and re-resolves to a different phase")
+    func phaseFollowsTheFlagWhileASurfaceIsOnScreen() async throws {
+        let clock = TestClock(start: Date(timeIntervalSince1970: 1_800_000_000))
+        let modelContext = try makeModelContext()
+
+        let workout = makeLiveClimb(start: clock.now.addingTimeInterval(-1_200), duration: 1_200)
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        // A cold launch begins here: shipped defaults, enrichment on.
+        let flags = RemoteFeatureFlagStore(snapshot: .shippedDefaults)
+        let service = AppleHealthEnrichmentService(
+            authorizationController: StubAuthorizationController(connectionState: .connected),
+            metricsReader: ScriptedMetricsReader(responses: [WorkoutMetrics()]),
+            attemptStore: makeAttemptStore(),
+            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
+            featureFlags: flags,
+            now: { clock.now }
+        )
+
+        #expect(service.phase(for: workout) == .waiting(nextCheckAt: clock.now))
+        #expect(service.offersConnectionPrompt(for: workout) == false)
+
+        // Remote Config resolves a moment later with enrichment switched off - the window a
+        // climber can already be looking at the card in.
+        let didChange = flags.apply(
+            .resolving(remoteValues: [RemoteFeatureFlag.appleHealthEnrichment.key: false])
+        )
+        #expect(didChange, "a real flag change must report itself, or no surface is told to re-resolve")
+
+        #expect(service.phase(for: workout) == .checksPaused)
+
+        // And back again, so a card cannot strand on "paused" once checks return.
+        _ = flags.apply(.shippedDefaults)
+        #expect(service.phase(for: workout) == .waiting(nextCheckAt: clock.now))
+    }
+
     @Test("Cancelling stops the series and forgets what it was watching")
     func cancellationStopsTheSeries() async throws {
         let clock = TestClock(start: Date(timeIntervalSince1970: 1_800_000_000))

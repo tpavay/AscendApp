@@ -35,6 +35,17 @@ struct WorkoutDetailView: View {
     @State private var appleHealthHeartRateMessage: String?
     @State private var enrichmentService = AppleHealthEnrichmentService.shared
 
+    /// Bumped whenever Remote Config resolves or changes, so the heart-rate phase re-resolves.
+    ///
+    /// The phase depends on the enrichment kill switch, and `RemoteFeatureFlagStore` is a
+    /// lock-guarded class rather than `@Observable` - reading it registers no SwiftUI
+    /// dependency, so a flag change publishes no invalidation of its own. Every launch starts on
+    /// the shipped defaults and resolves a moment later, so without this a climber who opened a
+    /// climb inside that window would keep reading "Ascend keeps checking" after checks had
+    /// actually been switched off, and would stay on "Checks are paused" after they came back.
+    /// That is the stale form of exactly the overstatement this card exists to remove.
+    @State private var remoteFeatureFlagRevision = 0
+
     // Media layout state
     @State private var sheetPosition: SheetPosition = .middle
     @State private var currentPhotoIndex: Int = 0
@@ -149,6 +160,9 @@ struct WorkoutDetailView: View {
             // rather than running its own retry loop - the screen is one more surface onto the
             // same series, not a second one racing it.
             enrichmentService.resumeTracking(modelContext: modelContext)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .remoteFeatureFlagsDidChange)) { _ in
+            remoteFeatureFlagRevision &+= 1
         }
         .onDisappear {
             // Everything this screen started goes away with it. `.task(id:)` cancels
@@ -635,7 +649,11 @@ struct WorkoutDetailView: View {
     }
 
     private var appleHealthHeartRatePhase: AppleHealthEnrichmentService.Phase {
-        enrichmentService.phase(for: workout)
+        // Touching the revision is what ties this resolution to the kill switch, which is not
+        // `@Observable` and so publishes nothing SwiftUI can see. Written as an explicit read so
+        // the counter cannot look write-only to a later reader and be deleted as dead state.
+        _ = remoteFeatureFlagRevision
+        return enrichmentService.phase(for: workout)
     }
 
     // MARK: - Weights Section (unchanged)
