@@ -55,10 +55,23 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         case stoppedLooking
     }
 
+    /// What a hand-requested read actually did, so the surface asking can say something true.
+    ///
+    /// "Ascend looked and Health had nothing" and "Ascend never got to look" are different
+    /// facts, and reporting the second as the first is the dishonest blank this service exists
+    /// to remove.
+    enum FetchResult: Equatable {
+        /// Heart rate landed on the climb from this read.
+        case added
+        /// Ascend read Apple Health and nothing covered this climb.
+        case foundNothing
+        /// Ascend never read: the connection is missing, or enrichment is switched off.
+        case couldNotLook
+    }
+
     private let authorizationController: any HealthKitAuthorizationControlling
     private let metricsReader: any HealthKitMetricsReading
     private let attemptStore: AppleHealthEnrichmentAttemptStore
-    private let schedule: AppleHealthEnrichmentSchedule
     private let sessionWorkGate: AuthenticatedBootstrapCoordinator
     private let featureFlags: RemoteFeatureFlagStore
     private let now: @MainActor () -> Date
@@ -81,7 +94,6 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         authorizationController: any HealthKitAuthorizationControlling = HealthKitAuthorizationClient.shared,
         metricsReader: any HealthKitMetricsReading = HealthKitMetricsReader.shared,
         attemptStore: AppleHealthEnrichmentAttemptStore = AppleHealthEnrichmentAttemptStore(),
-        schedule: AppleHealthEnrichmentSchedule = .standard,
         sessionWorkGate: AuthenticatedBootstrapCoordinator = .shared,
         featureFlags: RemoteFeatureFlagStore = .shared,
         now: @escaping @MainActor () -> Date = Date.init
@@ -89,11 +101,17 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         self.authorizationController = authorizationController
         self.metricsReader = metricsReader
         self.attemptStore = attemptStore
-        self.schedule = schedule
         self.sessionWorkGate = sessionWorkGate
         self.featureFlags = featureFlags
         self.now = now
     }
+
+    /// The retry curve, read back off the ledger that enforces it.
+    ///
+    /// One source of truth on purpose: the ledger computes eligibility, the window and the
+    /// budget from its own schedule, so a service holding a second copy could hand out a
+    /// verdict the ledger disagrees with for the same climb.
+    private var schedule: AppleHealthEnrichmentSchedule { attemptStore.schedule }
 
     func configure(modelContext: ModelContext) {
         self.modelContext = modelContext
@@ -195,21 +213,19 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     /// It still spends a ledger attempt so a series of manual fetches cannot outrun the budget
     /// and then leave the automatic curve claiming attempts it no longer has.
     @discardableResult
-    func fetchNow(_ workout: Workout, modelContext: ModelContext) async -> Bool {
+    func fetchNow(_ workout: Workout, modelContext: ModelContext) async -> FetchResult {
         self.modelContext = modelContext
 
-        guard workout.isInAppSensorWorkout, needsEnrichment(workout) else { return false }
-        guard authorizationController.connectionState == .connected else { return false }
-
-        guard canRunEnrichment else { return false }
+        guard workout.isInAppSensorWorkout, needsEnrichment(workout) else { return .couldNotLook }
+        guard canRunEnrichment else { return .couldNotLook }
 
         let didEnrich = await enrich(workout, modelContext: modelContext)
         if !didEnrich {
             track(workout)
         }
-        armTimer(modelContext: modelContext)
+        armTimer()
 
-        return didEnrich
+        return didEnrich ? .added : .foundNothing
     }
 
     /// Requests Health access and, if granted, looks immediately.
@@ -217,16 +233,16 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     /// The contextual prompt's action: a climber who connects right after a climb should see
     /// their heart rate arrive from that tap, not from a timer minutes later.
     @discardableResult
-    func connectAndFetch(_ workout: Workout, modelContext: ModelContext) async -> Bool {
+    func connectAndFetch(_ workout: Workout, modelContext: ModelContext) async -> FetchResult {
         self.modelContext = modelContext
 
         await authorizationController.refreshAuthorizationRequestStatus()
 
         if authorizationController.connectionState == .neverConnected {
-            guard await authorizationController.requestAuthorization() else { return false }
+            guard await authorizationController.requestAuthorization() else { return .couldNotLook }
         }
 
-        guard authorizationController.connectionState == .connected else { return false }
+        guard authorizationController.connectionState == .connected else { return .couldNotLook }
 
         return await fetchNow(workout, modelContext: modelContext)
     }
@@ -273,16 +289,20 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
 
     /// Whether a pass could accomplish anything at all right now.
     ///
-    /// The single choke point the kill switch and the Health connection are both read through,
-    /// and it is checked *before* a pass rather than inside one. A pass that cannot read still
-    /// leaves every tracked climb due, so re-arming off the back of one would schedule the next
-    /// wake-up one second out and keep doing it - a spin, dressed as a schedule. Blocked work is
-    /// deferred to the next lifecycle event instead: `resumeTracking` runs on foreground and on
-    /// authenticated bootstrap, and connecting Health fetches directly.
+    /// The single choke point every reason a pass could not run is read through - a suspended
+    /// account session, a missing Health connection, the kill switch - and it is checked
+    /// *before* a pass rather than inside one. A pass that cannot read still leaves every
+    /// tracked climb due, so re-arming off the back of one would schedule the next wake-up one
+    /// second out and keep doing it - a spin, dressed as a schedule. Every condition that can
+    /// stop a pass belongs here for exactly that reason: one checked somewhere else is a door
+    /// back into the spin. Blocked work is deferred to the next lifecycle event instead:
+    /// `resumeTracking` runs on foreground and on authenticated bootstrap, and connecting
+    /// Health fetches directly.
     ///
     /// Nothing about the retry ledger is touched either way, so a climb resumes its own series
     /// exactly where it left off.
     private var canRunEnrichment: Bool {
+        guard sessionWorkGate.isSuspended == false else { return false }
         guard authorizationController.connectionState == .connected else { return false }
 
         return RemoteFeatureGate.allows(
@@ -310,38 +330,45 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
             defer { self.passTask = nil }
 
             await self.enrichDueWorkouts(modelContext: modelContext)
-            self.armTimer(modelContext: modelContext)
+            self.armTimer()
         }
     }
 
-    private func armTimer(modelContext: ModelContext) {
+    /// Schedules the next wake-up, or deliberately none.
+    ///
+    /// Both halves of "none" are explicit rather than incidental: a pass that could not run
+    /// arms nothing, and a service whose context has been taken away by `cancelInFlightWork`
+    /// has nothing left to arm *for*. The timer re-reads the context when it fires for the
+    /// same reason - a cancellation between arming and firing must not resurrect a pass.
+    private func armTimer() {
         timerTask?.cancel()
         timerTask = nil
 
-        guard canRunEnrichment, let wakeAt = earliestPendingAttemptDate() else { return }
+        guard canRunEnrichment,
+              let modelContext,
+              let wakeAt = earliestPendingAttemptDate(in: modelContext) else { return }
 
         let delay = max(wakeAt.timeIntervalSince(now()), 1)
         timerTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(delay))
-            guard !Task.isCancelled, let self else { return }
+            guard !Task.isCancelled, let self, let modelContext = self.modelContext else { return }
             self.runPass(modelContext: modelContext)
         }
     }
 
-    private func earliestPendingAttemptDate() -> Date? {
-        guard let modelContext else { return nil }
-
-        return trackedWorkouts(in: modelContext)
+    private func earliestPendingAttemptDate(in modelContext: ModelContext) -> Date? {
+        trackedWorkouts(in: modelContext)
             .compactMap { attemptStore.nextEligibleDate(for: $0, at: now()) }
             .min()
     }
 
+    /// Suspension mid-pass is covered by cancellation rather than by a second guard here:
+    /// `suspendAndDrain` cancels this task before it drains, and the loop checks for that.
     private func enrichDueWorkouts(modelContext: ModelContext) async {
         guard canRunEnrichment else { return }
 
         for workout in trackedWorkouts(in: modelContext) {
             if Task.isCancelled { return }
-            guard sessionWorkGate.isSuspended == false else { return }
             guard attemptStore.isAutomaticAttemptDue(for: workout, at: now()) else { continue }
 
             await enrich(workout, modelContext: modelContext)

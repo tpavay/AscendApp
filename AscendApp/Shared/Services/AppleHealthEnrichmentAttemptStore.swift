@@ -23,7 +23,11 @@ struct AppleHealthEnrichmentAttempt: Codable, Equatable, Sendable {
 struct AppleHealthEnrichmentAttemptStore {
     private let defaults: UserDefaults
     private let key: String
-    private let schedule: AppleHealthEnrichmentSchedule
+
+    /// The curve this ledger enforces, and the only copy of it. Every collaborator reads it
+    /// back from here rather than holding its own, so no two of them can disagree about when
+    /// the same climb is due.
+    let schedule: AppleHealthEnrichmentSchedule
 
     init(
         defaults: UserDefaults = .standard,

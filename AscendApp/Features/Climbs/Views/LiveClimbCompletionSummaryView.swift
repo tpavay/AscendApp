@@ -297,11 +297,11 @@ struct LiveClimbCompletionSummaryView: View {
             isConnectingAppleHealth = true
             defer { isConnectingAppleHealth = false }
 
-            let didAdd = await enrichmentService.connectAndFetch(
+            let result = await enrichmentService.connectAndFetch(
                 workout,
                 modelContext: modelContext
             )
-            HapticsManager.shared.trigger(didAdd ? .success : .warning)
+            HapticsManager.shared.trigger(result == .added ? .success : .warning)
 
             // Connecting is the whole ask. Whether the samples had landed yet is the retry
             // series' problem now, and repeating the offer would be asking for something the

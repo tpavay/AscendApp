@@ -575,13 +575,20 @@ struct WorkoutDetailView: View {
     /// needs it - the decode is a full JSON pass over the sample array.
     @ViewBuilder
     private func heartRateSectionIfNeeded(_ derived: WorkoutDetailDerivedContent) -> some View {
-        if shouldShowHeartRateSection(derived) {
-            heartRateSection(derived)
+        // Resolved once per pass: the phase reads a JSON-decoded ledger out of UserDefaults, and
+        // both predicates below need the same answer.
+        let phase = appleHealthHeartRatePhase
+
+        if shouldShowHeartRateSection(derived, phase: phase) {
+            heartRateSection(derived, phase: phase)
         }
     }
 
     @ViewBuilder
-    private func heartRateSection(_ derived: WorkoutDetailDerivedContent) -> some View {
+    private func heartRateSection(
+        _ derived: WorkoutDetailDerivedContent,
+        phase: AppleHealthEnrichmentService.Phase
+    ) -> some View {
         if derived.heartRateSeries.isEmpty == false {
             HeartRateChartView(
                 heartRateData: derived.heartRateSeries,
@@ -596,9 +603,9 @@ struct WorkoutDetailView: View {
                 effectiveColorScheme: effectiveColorScheme,
                 onRetry: retryRemoteHeartRateRestore
             )
-        } else if appleHealthHeartRatePhase != .notApplicable {
+        } else if phase != .notApplicable {
             WorkoutHeartRateRecoveryCard(
-                phase: appleHealthHeartRatePhase,
+                phase: phase,
                 message: appleHealthHeartRateMessage,
                 effectiveColorScheme: effectiveColorScheme,
                 onPrimaryAction: fetchAppleHealthHeartRate
@@ -612,10 +619,13 @@ struct WorkoutDetailView: View {
             workout.maxHeartRate != nil
     }
 
-    private func shouldShowHeartRateSection(_ derived: WorkoutDetailDerivedContent) -> Bool {
+    private func shouldShowHeartRateSection(
+        _ derived: WorkoutDetailDerivedContent,
+        phase: AppleHealthEnrichmentService.Phase
+    ) -> Bool {
         hasHeartRateData(heartRateSamples: derived.heartRateSeries) ||
             shouldShowRemoteHeartRateRestore(derived) ||
-            appleHealthHeartRatePhase != .notApplicable
+            phase != .notApplicable
     }
 
     private func shouldShowRemoteHeartRateRestore(_ derived: WorkoutDetailDerivedContent) -> Bool {
@@ -873,22 +883,28 @@ struct WorkoutDetailView: View {
         appleHealthFetchTask = Task { @MainActor in
             appleHealthHeartRateMessage = nil
 
-            let didAdd: Bool
+            let result: AppleHealthEnrichmentService.FetchResult
             if enrichmentService.connectionState == .neverConnected {
-                didAdd = await enrichmentService.connectAndFetch(workout, modelContext: modelContext)
+                result = await enrichmentService.connectAndFetch(workout, modelContext: modelContext)
                 guard enrichmentService.connectionState == .connected else {
                     appleHealthHeartRateMessage = "Apple Health wasn't connected. Allow Ascend to read Heart Rate in the Health app, then check again."
                     HapticsManager.shared.trigger(.warning)
                     return
                 }
             } else {
-                didAdd = await enrichmentService.fetchNow(workout, modelContext: modelContext)
+                result = await enrichmentService.fetchNow(workout, modelContext: modelContext)
             }
 
-            if didAdd {
+            switch result {
+            case .added:
                 HapticsManager.shared.trigger(.success)
-            } else {
+            case .foundNothing:
                 appleHealthHeartRateMessage = "Nothing in Apple Health covers this climb yet. Sync your wearable, then check again."
+                HapticsManager.shared.trigger(.warning)
+            case .couldNotLook:
+                // Ascend never read Health here, so telling the climber to sync would send them
+                // after a problem they do not have.
+                appleHealthHeartRateMessage = "Ascend can't read Apple Health right now. Check back shortly."
                 HapticsManager.shared.trigger(.warning)
             }
         }

@@ -201,7 +201,9 @@ struct AppleHealthEnrichmentServiceTests {
     func stopsAfterTheAttemptBudget() async throws {
         let clock = TestClock(start: Date(timeIntervalSince1970: 1_800_000_000))
         let modelContext = try makeModelContext()
-        let schedule = AppleHealthEnrichmentSchedule.standard
+        // A curve of its own, so this asserts the injected schedule bounds the series rather
+        // than a constant the ledger happens to share with it.
+        let schedule = AppleHealthEnrichmentSchedule(backoff: [10, 30, 90])
 
         let workout = makeLiveClimb(start: clock.now.addingTimeInterval(-1_200), duration: 1_200)
         modelContext.insert(workout)
@@ -210,9 +212,8 @@ struct AppleHealthEnrichmentServiceTests {
         let metricsReader = ScriptedMetricsReader(responses: [])
         let service = makeService(
             metricsReader: metricsReader,
-            attemptStore: makeAttemptStore(),
-            clock: clock,
-            schedule: schedule
+            attemptStore: makeAttemptStore(schedule: schedule),
+            clock: clock
         )
 
         service.trackNewlyRecordedWorkout(workout, modelContext: modelContext)
@@ -257,8 +258,11 @@ struct AppleHealthEnrichmentServiceTests {
         await service.drainInFlightWork()
 
         #expect(metricsReader.requestedWindows.isEmpty)
-        // Still honest about it, and still fetchable by hand.
+        // Still honest about it, and still fetchable by hand - and a hand fetch that reads and
+        // comes back empty says so, distinctly from one that never got to read.
         #expect(service.phase(for: stale) == .stoppedLooking)
+        #expect(await service.fetchNow(stale, modelContext: modelContext) == .foundNothing)
+        #expect(metricsReader.requestedWindows.count == 1)
     }
 
     /// A pass that cannot read leaves every tracked climb still due, so re-arming off the back
@@ -277,6 +281,7 @@ struct AppleHealthEnrichmentServiceTests {
             authorizationController: StubAuthorizationController(connectionState: .neverConnected),
             metricsReader: metricsReader,
             attemptStore: makeAttemptStore(),
+            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
             now: { clock.now }
         )
 
@@ -306,6 +311,53 @@ struct AppleHealthEnrichmentServiceTests {
         #expect(connected.hasScheduledWakeUp == false)
     }
 
+    /// The third door into the same spin: account deletion suspends the session gate, and its
+    /// re-authentication step sends the climber out to a sign-in flow whose return fires a
+    /// foreground `resumeTracking`. A suspended pass reads nothing, so every tracked climb is
+    /// still due, and a wake-up armed off that pass would fire one second later - forever.
+    @Test("A suspended account session leaves no wake-up scheduled")
+    func schedulesNoWakeUpWhileTheSessionGateIsSuspended() async throws {
+        let clock = TestClock(start: Date(timeIntervalSince1970: 1_800_000_000))
+        let modelContext = try makeModelContext()
+
+        let workout = makeLiveClimb(start: clock.now.addingTimeInterval(-1_200), duration: 1_200)
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        let sessionWorkGate = AuthenticatedBootstrapCoordinator()
+        await sessionWorkGate.suspendAndDrain()
+
+        let metricsReader = ScriptedMetricsReader(
+            responses: [WorkoutMetrics(avgHeartRate: 150, maxHeartRate: 172, caloriesBurned: 200)]
+        )
+        let service = makeService(
+            metricsReader: metricsReader,
+            attemptStore: makeAttemptStore(),
+            clock: clock,
+            sessionWorkGate: sessionWorkGate
+        )
+
+        service.trackNewlyRecordedWorkout(workout, modelContext: modelContext)
+        await service.drainInFlightWork()
+
+        #expect(metricsReader.requestedWindows.isEmpty)
+        #expect(service.hasScheduledWakeUp == false)
+
+        // A foreground while still suspended arms nothing either - that is the reachable path.
+        service.resumeTracking(modelContext: modelContext)
+        await service.drainInFlightWork()
+
+        #expect(metricsReader.requestedWindows.isEmpty)
+        #expect(service.hasScheduledWakeUp == false)
+
+        // Deletion stopped short of the auth account, so the series picks up where it was.
+        sessionWorkGate.resumeLatest()
+        service.resumeTracking(modelContext: modelContext)
+        await service.drainInFlightWork()
+
+        #expect(workout.avgHeartRate == 150)
+    }
+
     /// The kill switch has to defer, not drop: a climb it blocks resumes its own series from
     /// where it left off once the flag comes back.
     @Test("The kill switch stops the pass without spending an attempt")
@@ -331,6 +383,7 @@ struct AppleHealthEnrichmentServiceTests {
             authorizationController: StubAuthorizationController(connectionState: .connected),
             metricsReader: metricsReader,
             attemptStore: attemptStore,
+            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
             featureFlags: flags,
             now: { clock.now }
         )
@@ -343,6 +396,10 @@ struct AppleHealthEnrichmentServiceTests {
         #expect(service.hasScheduledWakeUp == false)
         // The ledger is untouched, so the series has lost nothing.
         #expect(attemptStore.attempt(for: workout.id) == nil)
+
+        // A hand-requested fetch says it never looked, so no surface can report a switched-off
+        // read as "your wearable published nothing".
+        #expect(await service.fetchNow(workout, modelContext: modelContext) == .couldNotLook)
 
         _ = flags.apply(.shippedDefaults)
         service.resumeTracking(modelContext: modelContext)
@@ -400,6 +457,7 @@ struct AppleHealthEnrichmentServiceTests {
             authorizationController: authorization,
             metricsReader: metricsReader,
             attemptStore: makeAttemptStore(),
+            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
             now: { clock.now }
         )
 
@@ -413,9 +471,9 @@ struct AppleHealthEnrichmentServiceTests {
 
         // The climber taps Connect. Granting reads immediately rather than waiting for a timer.
         authorization.connectionState = .connected
-        let didAdd = await service.connectAndFetch(workout, modelContext: modelContext)
+        let result = await service.connectAndFetch(workout, modelContext: modelContext)
 
-        #expect(didAdd)
+        #expect(result == .added)
         #expect(workout.avgHeartRate == 151)
         #expect(service.offersConnectionPrompt(for: workout) == false)
     }
@@ -431,6 +489,7 @@ struct AppleHealthEnrichmentServiceTests {
             authorizationController: StubAuthorizationController(connectionState: .neverConnected),
             metricsReader: ScriptedMetricsReader(responses: []),
             attemptStore: makeAttemptStore(),
+            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
             now: { clock.now }
         )
 
@@ -480,13 +539,13 @@ struct AppleHealthEnrichmentServiceTests {
         metricsReader: ScriptedMetricsReader,
         attemptStore: AppleHealthEnrichmentAttemptStore,
         clock: TestClock,
-        schedule: AppleHealthEnrichmentSchedule = .standard
+        sessionWorkGate: AuthenticatedBootstrapCoordinator = AuthenticatedBootstrapCoordinator()
     ) -> AppleHealthEnrichmentService {
         AppleHealthEnrichmentService(
             authorizationController: StubAuthorizationController(connectionState: .connected),
             metricsReader: metricsReader,
             attemptStore: attemptStore,
-            schedule: schedule,
+            sessionWorkGate: sessionWorkGate,
             now: { clock.now }
         )
     }
