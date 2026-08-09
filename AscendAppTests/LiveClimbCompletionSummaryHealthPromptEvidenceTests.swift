@@ -52,7 +52,6 @@ struct LiveClimbCompletionSummaryHealthPromptEvidenceTests {
             allowsRatingPrompt: false,
             leaderboardContext: .justClimbGlobal(targetSteps: 2_579),
             moment: .freshCompletion,
-            rankingLabelOverride: "CLIMB RANK",
             onDone: {}
         )
         .modelContainer(container)

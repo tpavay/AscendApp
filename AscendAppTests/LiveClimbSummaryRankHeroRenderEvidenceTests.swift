@@ -11,7 +11,7 @@ import Vision
 /// These tests host the shipping `LiveClimbCompletionSummaryView` in a real
 /// `UIWindow`, screenshot it the way a device screen recording would, and read
 /// the copy back out of the pixels with Vision. Nothing is reproduced from
-/// source: the label, the value, the "of N" and the detail line all come from
+/// source: the ordinal, the field line and any board label all come from
 /// `LiveClimbSummaryRankHero` through the view's own rank hero.
 ///
 /// The standing is handed in through the view's caller-supplied slot, which is
@@ -19,8 +19,8 @@ import Vision
 /// from `LiveClimbPublicResultSyncStore.shared`, a Firestore-backed singleton
 /// with no injection point. Same `Basis`, same `standings` resolution, same
 /// rendered `Text`, so the pixels are the pixels the climb surface produces.
-/// The climb slot is left `nil` for the same reason, with the climb wording
-/// supplied through the overrides the routine surface already uses.
+/// The climb slot is left `nil` for the same reason, with the session's own
+/// completion wording supplied through the override the live surfaces pass.
 ///
 /// PNGs land in `ASCEND_EVIDENCE_DIR` when set, the test host's temp dir
 /// otherwise; the path is logged either way.
@@ -37,14 +37,10 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
     private static let currentRank = 29
     private static let currentTotal = 50
 
+    /// A standing measured against a field the hero can name states that ordering
+    /// once, in plain language, with no label row repeating the ordinal in words.
     @Test
-    func everyTimeBasedStandingUsesTheSamePlainLanguageFieldLine() async throws {
-        let reported = try render(
-            basis: .liveSession,
-            rank: Self.frozenRank,
-            total: Self.frozenTotal,
-            moment: .retrospective
-        )
+    func aStandingWithAFieldSizeStatesThatFieldInPlainLanguage() async throws {
         let fixed = try render(
             basis: .atCompletion,
             rank: Self.frozenRank,
@@ -52,10 +48,8 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             moment: .retrospective
         )
 
-        let reportedText = try await recognizedText(in: reported)
         let fixedText = try await recognizedText(in: fixed)
 
-        #expect(reportedText.contains("fastest of 1"))
         #expect(fixedText.contains("fastest of 1"))
         #expect(!fixedText.contains("climb rank"))
         #expect(!fixedText.contains("rank when you finished"))
@@ -66,33 +60,89 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         #expect(renderedHero(basis: .atCompletion, rank: Self.frozenRank, total: Self.frozenTotal)?.standing?.rank == 1)
         #expect(renderedHero(basis: .atCompletion, rank: Self.frozenRank, total: Self.frozenTotal)?.total == 1)
 
-        try writeEvidence(image: reported, named: "live-climb-summary-rank-hero-reported.png")
         try writeEvidence(image: fixed, named: "live-climb-summary-rank-hero-fixed.png")
     }
 
+    /// A live session's population is its own race window, which the hero cannot
+    /// characterise. Pairing that rank with a field ordering would assert a placement
+    /// the screen cannot substantiate, so the session's own completion copy stands.
     @Test
-    func freshCompletionSaysTheRankWasJustEarned() async throws {
-        let fresh = try render(
-            basis: .atCompletion,
+    func aLiveSessionStandingNeverClaimsAFieldOrdering() async throws {
+        let reported = try render(
+            basis: .liveSession,
             rank: Self.frozenRank,
             total: Self.frozenTotal,
+            moment: .retrospective
+        )
+
+        let reportedText = try await recognizedText(in: reported)
+
+        #expect(reportedText.contains("live climb complete"))
+        #expect(!reportedText.contains("fastest"))
+        #expect(!reportedText.contains("most steps"))
+
+        try writeEvidence(image: reported, named: "live-climb-summary-rank-hero-reported.png")
+    }
+
+    /// The denominator is genuinely optional - a routine board with no window, a
+    /// publish status that froze a rank without a count. A bare "FASTEST" under the
+    /// ordinal would read as a claim to have won it, so the basis wording stands
+    /// instead, in the tense the moment calls for.
+    @Test
+    func aStandingWithNoFieldSizeFallsBackToTheBasisWording() async throws {
+        let fresh = try render(
+            basis: .atCompletion,
+            rank: 4,
+            total: nil,
             moment: .freshCompletion
+        )
+        let saved = try render(
+            basis: .atCompletion,
+            rank: 4,
+            total: nil,
+            moment: .retrospective
         )
 
         let freshText = try await recognizedText(in: fresh)
+        let savedText = try await recognizedText(in: saved)
 
-        #expect(freshText.contains("fastest of 1"))
-        #expect(!freshText.contains("rank you just earned"))
-        #expect(renderedHero(basis: .atCompletion, rank: Self.frozenRank, total: Self.frozenTotal)?.standing?.rank == 1)
+        #expect(freshText.contains("rank you just earned"))
+        #expect(!freshText.contains("fastest"))
+        #expect(savedText.contains("rank when you finished"))
+        #expect(!savedText.contains("fastest"))
 
         try writeEvidence(image: fresh, named: "live-climb-summary-rank-hero-fresh.png")
+        try writeEvidence(image: saved, named: "live-climb-summary-rank-hero-no-field-size.png")
+    }
+
+    /// A routine ranks on a board of its own, so it keeps the label that names it
+    /// and the completion copy that describes its session.
+    @Test
+    func aRoutineStandingKeepsItsOwnBoardAndCompletionCopy() async throws {
+        let image = try render(
+            basis: .liveSession,
+            rank: 3,
+            total: 18,
+            moment: .freshCompletion,
+            labelOverride: "ROUTINE RANK",
+            completedDetailOverride: "ROUTINE COMPLETE"
+        )
+
+        let text = try await recognizedText(in: image)
+
+        #expect(text.contains("routine rank"))
+        #expect(text.contains("routine complete"))
+        #expect(text.contains("3rd"))
+        #expect(!text.contains("fastest"))
+
+        try writeEvidence(image: image, named: "routine-summary-rank-hero.png")
     }
 
     /// The counterfactual the investigation ran against real staging rows: with
     /// the frozen snapshot absent the hero falls through to the recomputed rank,
-    /// which agrees with the climb detail's 50 - and says which one it is.
+    /// which agrees with the climb detail's 50 - and states that field plainly.
     @Test
-    func recomputedStandingIsLabelledAsTheCurrentLeaderboardRank() async throws {
+    func aRecomputedStandingStatesItsFieldWithoutJargon() async throws {
         let current = try render(
             basis: .current,
             rank: Self.currentRank,
@@ -119,27 +169,27 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         try writeEvidence(image: current, named: "live-climb-summary-rank-hero-current.png")
     }
 
-    /// One sheet a reviewer can read end to end: the reported screen, the same
-    /// screen after the fix, the fresh-completion wording, and the recomputed
-    /// standing that agrees with climb detail.
+    /// One sheet a reviewer can read end to end: the frozen standing that can name
+    /// its field, the live session that cannot, the standing with no denominator,
+    /// and the recomputed standing that agrees with climb detail.
     @Test
     func proofSheetShowsEveryHeroBasisSideBySide() throws {
         let sheet = try renderProofSheet(
             panels: [
                 (
-                    "Session standing",
-                    "The rank is the result, followed by one field line",
-                    try heroStrip(basis: .liveSession, rank: Self.frozenRank, total: Self.frozenTotal, moment: .retrospective)
-                ),
-                (
                     "Saved summary",
-                    "The same plain language applies to the frozen result",
+                    "The rank is the result, followed by one plain-language field line",
                     try heroStrip(basis: .atCompletion, rank: Self.frozenRank, total: Self.frozenTotal, moment: .retrospective)
                 ),
                 (
-                    "Just finished",
-                    "Fresh completion keeps the same concise hierarchy",
-                    try heroStrip(basis: .atCompletion, rank: Self.frozenRank, total: Self.frozenTotal, moment: .freshCompletion)
+                    "Session standing",
+                    "A live session cannot name its own field, so it never claims one",
+                    try heroStrip(basis: .liveSession, rank: Self.frozenRank, total: Self.frozenTotal, moment: .retrospective)
+                ),
+                (
+                    "No field size",
+                    "With no denominator the basis wording stands rather than a bare superlative",
+                    try heroStrip(basis: .atCompletion, rank: 4, total: nil, moment: .freshCompletion)
                 ),
                 (
                     "Current standing",
@@ -191,7 +241,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             LiveClimbSummaryRankHero.make(
                 isClimbContext: false,
                 standings: [
-                    LiveClimbSummaryRankHero.Standing(rank: 3, total: 18, basis: .liveSession)
+                    LiveClimbSummaryRankHero.Standing(rank: 3, total: 18, basis: .current)
                 ],
                 sync: LiveClimbSummaryRankHero.SyncState(
                     phase: nil,
@@ -225,8 +275,10 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
     private func render(
         basis: LiveClimbSummaryRankHero.Basis,
         rank: Int,
-        total: Int,
-        moment: LiveClimbSummaryRankHero.Moment
+        total: Int?,
+        moment: LiveClimbSummaryRankHero.Moment,
+        labelOverride: String? = nil,
+        completedDetailOverride: String? = "LIVE CLIMB COMPLETE"
     ) throws -> UIImage {
         let container = try makeContainer()
         let workout = makeWorkout()
@@ -242,8 +294,8 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             // screen needs a context even though the standing is handed in directly.
             leaderboardContext: .justClimbGlobal(targetSteps: 2_579),
             moment: moment,
-            rankingLabelOverride: "CLIMB RANK",
-            completedDetailOverride: "LIVE CLIMB COMPLETE",
+            rankingLabelOverride: labelOverride,
+            completedDetailOverride: completedDetailOverride,
             onDone: {}
         )
         .modelContainer(container)
@@ -256,7 +308,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
     private func heroStrip(
         basis: LiveClimbSummaryRankHero.Basis,
         rank: Int,
-        total: Int,
+        total: Int?,
         moment: LiveClimbSummaryRankHero.Moment
     ) throws -> UIImage {
         let full = try render(basis: basis, rank: rank, total: total, moment: moment)
@@ -352,7 +404,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
                 hasRankContext: true,
                 rankResolution: .settled
             ),
-            copy: LiveClimbSummaryRankHero.Copy(labelOverride: "CLIMB RANK")
+            copy: LiveClimbSummaryRankHero.Copy()
         )
     }
 

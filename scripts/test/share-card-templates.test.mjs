@@ -3,6 +3,7 @@ import {readFileSync} from "node:fs";
 import test from "node:test";
 
 import {
+  PATHS,
   elementTypes,
   enumCases,
   rendererVersion,
@@ -11,24 +12,29 @@ import {
   validateBundledPayload,
 } from "../validate-share-card-templates.mjs";
 
+const REPOSITORY_ROOT = new URL("../../", import.meta.url);
+
 test("the bundled share card templates are valid", () => {
   assert.deepEqual(validateBundledPayload(), []);
 });
 
 test("bundled templates render the Ascend brand with the wordmark element", () => {
-  const payload = JSON.parse(
-    readFileSync(
-      new URL("../../AscendApp/Features/ShareComposer/Resources/share-card-templates-v1.json", import.meta.url)
-    )
-  );
+  const payload = JSON.parse(readFileSync(new URL(PATHS.payload, REPOSITORY_ROOT)));
   const brandedTextNodes = [];
+
+  // A segment is either a bare string or an object whose `literal` and
+  // `placeholder` both reach the card, and a text node can carry the brand in
+  // either `segments` or the `fallback` it swaps in.
+  const brandedRun = (segments) =>
+    segments?.some((segment) => {
+      const literals =
+        typeof segment === "string" ? [segment] : [segment?.literal, segment?.placeholder];
+      return literals.some((literal) => typeof literal === "string" && literal.includes("ASCEND"));
+    });
 
   const visit = (node, templateId) => {
     if (!node || typeof node !== "object") return;
-    if (
-      node.type === "text" &&
-      node.segments?.some((segment) => typeof segment === "string" && segment.includes("ASCEND"))
-    ) {
+    if (node.type === "text" && (brandedRun(node.segments) || brandedRun(node.fallback))) {
       brandedTextNodes.push(templateId);
     }
     node.children?.forEach((child) => visit(child, templateId));

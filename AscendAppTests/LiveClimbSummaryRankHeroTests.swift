@@ -101,8 +101,11 @@ struct LiveClimbSummaryRankHeroTests {
         #expect(hero.detail == "RANK WHEN YOU FINISHED")
     }
 
+    /// An ordinary leaderboard standing gets no label row: the field line under
+    /// the ordinal already says what the position was measured on, and a generic
+    /// "CLIMB RANK" over it only repeats the ordinal in words.
     @Test
-    func defaultLabelFollowsTheContext() throws {
+    func noLabelWithoutACallerOverride() throws {
         let climbHero = try #require(Hero.make(
             isClimbContext: true,
             standings: [],
@@ -116,8 +119,8 @@ struct LiveClimbSummaryRankHeroTests {
             copy: Hero.Copy()
         ))
 
-        #expect(climbHero.label == "CLIMB RANK")
-        #expect(globalHero.label == "GLOBAL RANK")
+        #expect(climbHero.label == nil)
+        #expect(globalHero.label == nil)
     }
 
     @Test
@@ -339,9 +342,9 @@ struct LiveClimbSummaryRankHeroTests {
 
     /// The Burj Khalifa defect: the value slot read "Complete" while the real rank
     /// was still on its way, so the wait looked like a stalled load. A rank in
-    /// flight now loads, and the label stays put beside it.
+    /// flight now loads, and the detail line says the wait is a lookup.
     @Test
-    func aRankInFlightLoadsItsValueAndKeepsItsLabel() throws {
+    func aRankInFlightLoadsItsValueAndNamesTheWait() throws {
         let hero = try #require(Hero.make(
             isClimbContext: true,
             standings: [],
@@ -354,7 +357,7 @@ struct LiveClimbSummaryRankHeroTests {
         ))
 
         #expect(hero.value == .loading)
-        #expect(hero.label == "CLIMB RANK")
+        #expect(hero.label == nil)
         #expect(hero.detail == "LOOKING FOR YOUR RANK")
     }
 
