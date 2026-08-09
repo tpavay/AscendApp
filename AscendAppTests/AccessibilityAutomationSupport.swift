@@ -55,18 +55,28 @@ func accessibilityElements(under root: UIView) -> [NSObject] {
 /// so a single read straight after `layoutIfNeeded()` can land on an empty tree whenever another
 /// suite is competing for the main actor. The hosted screen then reads as having no controls and no
 /// modal at all, which fails as though the view were wrong. Polls until `isReady` holds, and returns
-/// whatever the tree holds at the deadline so the caller's own assertion reports the real shortfall.
+/// whatever the tree holds once the budget is spent so the caller's own assertion reports the real
+/// shortfall.
+///
+/// The budget is counted in reads that actually happened rather than in wall-clock time, because the
+/// competition this poll exists to survive is exactly what stops the clock from buying any. A hosting
+/// test shares the main actor with the rest of the run, and one `@MainActor` test that never suspends
+/// holds it for as long as it takes - so a five-second deadline can expire having granted this loop
+/// two turns, and the empty tree it then reports is the starvation rather than the view. Measured on
+/// a quiet host, the tree fills in roughly fifteen reads; the budget below is an order of magnitude
+/// more, and under contention it waits for those reads however long the main actor makes it wait.
 @MainActor
 func settledAccessibilityElements(
     under root: UIView,
-    waitingUpTo timeout: Duration = .seconds(5),
+    reading budget: Int = 250,
     until isReady: ([NSObject]) -> Bool = { $0.isEmpty == false }
 ) async throws -> [NSObject] {
-    let deadline = ContinuousClock.now.advanced(by: timeout)
+    var remainingReads = max(1, budget)
 
     while true {
         let elements = accessibilityElements(under: root)
-        if isReady(elements) || ContinuousClock.now >= deadline {
+        remainingReads -= 1
+        if isReady(elements) || remainingReads == 0 {
             return elements
         }
 

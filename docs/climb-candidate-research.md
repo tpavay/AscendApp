@@ -32,8 +32,10 @@ A candidate should pass all of these before becoming catalog data:
 - Actual climbable stair route: official stair race, charity stair climb,
   public stair access, guided stair challenge, or a documented recurring event.
 - Source confirms the route, not just the building height.
-- Prefer source-confirmed `realStairCount`; otherwise source-confirmed floors or
-  climb height can be used with a lower confidence flag.
+- A source-confirmed `realStairCount`, recorded per the rules in
+  `docs/climb-real-stair-counts.md`. A height-derived step count is never a race
+  distance, so a candidate with no citable count is left null rather than
+  estimated from floors or height.
 - No proposed buildings, elevator-only landmarks, roof-access-only attractions,
   or height-only iconic venues.
 
@@ -43,10 +45,10 @@ interest, not evidence people climb the stairs.
 
 ## Verification Status
 
-- `confirmed`: source shows the venue is climbed and gives stairs, floors, or
-  route height.
-- `needs_metrics`: source shows a climb exists, but stair/floor/height data is
-  missing or inconsistent.
+- `confirmed`: source shows the venue is climbed and gives a citable stair count
+  for the route.
+- `needs_metrics`: source shows a climb exists, but the stair count is missing or
+  inconsistent.
 - `needs_access`: venue is plausible but no reliable public/event climb source
   is known yet.
 - `reject`: not a real public/event climb for Ascend's purposes.
@@ -75,7 +77,7 @@ research into normalized candidate JSON/CSV.
 | Empire State Building  | New York    | USA     | 1,576 stairs, 86 flights                                         | confirmed     | https://www.esbnyc.com/2025-esb-run-up                                                                           |
 | Republic Plaza         | Denver      | USA     | 1,098 stairs, 56 flights                                         | confirmed     | https://www.milehighstairclimb.com/                                                                              |
 | U.S. Bank Tower        | Los Angeles | USA     | 1,664 steps, 75 stories                                          | confirmed     | https://raceroster.com/events/2025/110229/ymca-stair-climb-and-urban-hike                                        |
-| Space Needle           | Seattle     | USA     | Base 2 Space event; event step count needs final reconciliation  | needs_metrics | https://www.spaceneedle.com/                                                                                     |
+| Space Needle           | Seattle     | USA     | in current catalog; count verified, see `docs/climb-real-stair-counts.md` | confirmed | https://www.spaceneedle.com/base2space                                                                           |
 | Tower of the Americas  | San Antonio | USA     | annual stair climb; 65 flights climbed twice for memorial format | needs_metrics | https://www.ksat.com/news/local/2023/09/11/annual-stair-climb-at-tower-of-the-americas-stirs-up-memories-of-911/ |
 
 ### South America
@@ -85,7 +87,7 @@ research into normalized candidate JSON/CSV.
 | Torre Colpatria     | Bogota     | Colombia | 980 stairs, 50 floors                                               | confirmed    | https://www.towerrunning.com/races/r1400/                                                    |
 | We Apartments       | Chapeco    | Brazil   | 508 race steps, 100 m race height                                   | confirmed    | https://www.skyrunning.com/qualified-race-label/                                             |
 | Gran Torre Santiago | Santiago   | Chile    | building exists in current catalog; stair climb access not verified | needs_access | https://group.schindler.com/en/media/stories/costanera-center-delivering-on-every-level.html |
-| Farol Santander     | Sao Paulo  | Brazil   | in current catalog; stair climb route not verified                  | needs_access | Current catalog                                                                              |
+| Farol Santander     | Sao Paulo  | Brazil   | in current catalog; route and count verified, see `docs/climb-real-stair-counts.md` | confirmed | https://www.towerrunning.com/races/r3075/                                                    |
 | Palacio Salvo       | Montevideo | Uruguay  | in current catalog; stair climb route not verified                  | needs_access | Current catalog                                                                              |
 
 South America needs deeper research. The first pass should focus on Colombia,
@@ -113,7 +115,7 @@ climbs.
 | Macau Tower                    | Macau        | China                | 1,298 steps to 61st-floor Adventure Deck                            | confirmed     | https://www.oxfam.org.hk/en/join-our-events/oxfam-towerrun |
 | Canton Tower                   | Guangzhou    | China                | 2,738 stairs, 112 floors                                            | confirmed     | https://www.towerrunning.com/races/r1739/                  |
 | Shimao Global Financial Center | Changsha     | China                | 2,238 stairs, 78 floors                                             | confirmed     | https://www.towerrunning.com/races/                        |
-| Taipei 101                     | Taipei       | Taiwan               | race confirmed; reconcile official stair count before catalog entry | needs_metrics | https://www.towerrunning.com/towerrunning-tour-2026/       |
+| Taipei 101                     | Taipei       | Taiwan               | in current catalog; count verified, see `docs/climb-real-stair-counts.md` | confirmed | https://www.taipei101-runup.com.tw/2024/en/en_introduction.aspx |
 | KL Tower                       | Kuala Lumpur | Malaysia             | race confirmed; stair count needs source confirmation               | needs_metrics | https://www.towerrunning.com/towerrunning-tour-2026/       |
 
 ### Africa

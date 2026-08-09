@@ -81,7 +81,21 @@ Set `tier` from the climb's reference step count:
 - `legendary`: 6,000-11,999
 - `mythic`: 12,000+
 
-The app uses `realStairCount ?? totalSteps` as the reference step count. If a verified public stair count exists, put it in `realStairCount`; otherwise keep `realStairCount: null` and use a reasonable height-derived `totalSteps`.
+The app uses `realStairCount ?? totalSteps` as the reference step count.
+
+## Step Counts Are Race Distances
+
+`totalSteps` is the architectural-height derivation, `round(totalHeightMeters * 5.5)`. It is a height fact, never a route: for a tower it converts an antenna spire nobody climbs, and for a mountain it converts elevation above sea level. Leave it alone.
+
+`realStairCount` is the verified count of the steps people actually climb, and it is what the app races and ranks on. Correcting a distance means populating `realStairCount`, never rewriting `totalSteps`.
+
+Every populated `realStairCount` needs a citable primary source recorded in `docs/climb-real-stair-counts.md` - the venue owner, the event organiser, the custodian body, or the Towerrunning World Association race record. Where published figures disagree, record the disagreement there rather than silently picking one. Where no defensible figure exists, leave `realStairCount: null`; a height-derived guess shipped as a race distance is worse than an admitted gap.
+
+`realClimbableHeightMeters` / `realClimbableHeightFeet` follow the same rule for the climbed vertical, and feed `referenceHeightMeters`.
+
+`calculatedFloors` renders as FLOORS beside STEPS on climb detail, so it answers for the same route. Set it from the route's published storey count where a source states one, and from `round(referenceStepCount / 19.8)` otherwise - never from `totalHeightMeters`, which is what put 876 floors next to Monserrate's 1,605 steps. A published *flight* or *landing* count is not a storey count and is not shipped as one unless a second independent source restates that same figure as storeys; otherwise record it in `docs/climb-real-stair-counts.md` and derive instead. That file states the rule in full and names the one climb that clears the bar.
+
+Changing a reference step count invalidates every recorded time on that climb, because it changes the distance raced. `AscendAppTests/ClimbCatalogStairCountTests.swift` enforces that both catalogue files stay byte-identical, that every `tier` matches its reference count, that `totalSteps` stays height-derived, and that every climb's steps-per-floor stays plausible.
 
 ## Image Assets
 
