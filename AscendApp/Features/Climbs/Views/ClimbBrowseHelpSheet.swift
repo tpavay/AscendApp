@@ -21,7 +21,7 @@ struct ClimbBrowseHelpSheet: View {
         [
             (
                 title: "Connect headphones",
-                description: "Live climb attempts require compatible headphones with motion tracking."
+                description: "Live Climb attempts require compatible headphones with motion tracking."
             ),
             (
                 title: "Browse or search",

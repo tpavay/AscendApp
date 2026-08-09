@@ -8,7 +8,7 @@ struct WorkoutParticipationServiceTests {
     @Test
     func builtInRoutineAttributionUsesTemplateContext() throws {
         let modelContext = try makeModelContext()
-        let workout = makeWorkout(source: .manual)
+        let workout = makeWorkout(source: .headphoneMotion)
         modelContext.insert(workout)
 
         try WorkoutParticipationService.addRoutineParticipationIfNeeded(
@@ -29,14 +29,14 @@ struct WorkoutParticipationServiceTests {
         #expect(participation.contextType == .routineTemplate)
         #expect(participation.contextId == "pyramid_climb")
         #expect(participation.leaderboardEligible)
-        #expect(participation.verificationTier == .unverified)
+        #expect(participation.verificationTier == .sensorVerified)
         #expect(participation.metricsSnapshot?.steps == workout.steps)
     }
 
     @Test
     func userRoutineAttributionUsesLocalRoutineContextWithoutLeaderboardEligibility() throws {
         let modelContext = try makeModelContext()
-        let workout = makeWorkout(source: .manual)
+        let workout = makeWorkout(source: .headphoneMotion)
         let routineId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
         modelContext.insert(workout)
 
