@@ -153,10 +153,12 @@ How this plan collides with existing CLAUDE.md / project skill rules and the cod
 1. **Watch companion vs. the no-HealthKit-writes rule.** Per the `ascend-live-climbs` skill, the
    live-session background-execution helper "must not write HealthKit workouts or request new
    Health permissions." A watchOS `HKWorkoutSession` *writes a workout to Health by design*.
-   Different component, so not a direct contradiction — but the watch-written workout will look
-   exactly like an Apple Health stair workout to the existing import facade. It must carry a
-   provenance link / dedupe guard so it can't re-import as a separate session or double-enrich
-   the Live Climb. Update the enrichment matching rules in the same change.
+   Different component, so not a direct contradiction - and since #437 there is no import facade
+   for it to collide with: Ascend never reads a foreign `HKWorkout`, so a watch-written workout
+   cannot re-enter as a separate session. What it *would* do is publish `heartRate` and
+   `activeEnergyBurned` samples inside the climb's own window, which is exactly what enrichment
+   reads - so the risk to design for is Ascend's own writes being read back as enrichment, not a
+   duplicate import. See `ascend-apple-health-enrichment`.
 2. **BLE HR is a sensor source — use the existing seams.** Sensor capture lives behind the
    shared service layer; checkpoints are source-neutral. Tier A shipped as
    `BluetoothHeartRateClient` / `HeartRateMonitorService` (`CBCentralManager` against Heart Rate

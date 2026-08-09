@@ -16,7 +16,7 @@ struct RootView: View {
     @Environment(ModerationStore.self) private var moderationStore
     @Environment(\.openURL) private var openURL
     @State private var appVersionGateState = AppVersionGateState.shared
-    @State private var importCoordinator = WorkoutImportCoordinator.shared
+    @State private var enrichmentCoordinator = AppleHealthEnrichmentCoordinator.shared
     @State private var postAuthOnboardingCoordinator = PostAuthOnboardingCoordinator()
     @State private var tabRouter = TabRouter()
     @State private var accountDataConflict: AccountDataOwnershipConflict?
@@ -81,7 +81,7 @@ struct RootView: View {
                 "app_root_task_started",
                 details: ["route": rootRoute.diagnosticName]
             )
-            importCoordinator.configure(modelContext: modelContext)
+            enrichmentCoordinator.configure(modelContext: modelContext)
             postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
             advancePostAuthOnboardingPastDisplayNameIfAvailable()
             scheduleAuthenticatedSessionWork()
@@ -92,7 +92,7 @@ struct RootView: View {
                 details: ["route": rootRoute.diagnosticName]
             )
             // Retry pending uploads when app comes to foreground (network may have restored)
-            importCoordinator.configure(modelContext: modelContext)
+            enrichmentCoordinator.configure(modelContext: modelContext)
             scheduleAuthenticatedSessionWork()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in

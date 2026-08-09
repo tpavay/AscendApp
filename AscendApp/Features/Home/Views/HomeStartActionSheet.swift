@@ -6,7 +6,7 @@ struct HomeStartActionSheet: View {
     var body: some View {
         AppSheetScaffold(
             title: "START",
-            message: "Track now, race a landmark, run intervals, or log a finished workout.",
+            message: "Climb now, race a landmark, or run intervals.",
             headerAlignment: .leading,
             contentAlignment: .leading,
             layout: .actionMenu

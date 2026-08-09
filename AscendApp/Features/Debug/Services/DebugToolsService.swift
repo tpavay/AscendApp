@@ -33,20 +33,6 @@ final class DebugToolsService {
         try workoutSeeder.clearSeededWorkouts(modelContext: modelContext)
     }
 
-    func queueSimulatedAppleHealthAutoImportReview(
-        modelContext: ModelContext
-    ) async throws -> Workout {
-        try await WorkoutImportCoordinator.shared.debugQueueSimulatedAutoImportedReview(
-            modelContext: modelContext
-        )
-    }
-
-    func clearSimulatedAppleHealthAutoImports(modelContext: ModelContext) async throws -> Int {
-        try WorkoutImportCoordinator.shared.debugClearSimulatedAutoImports(
-            modelContext: modelContext
-        )
-    }
-
     func sendSentryTestDiagnostic() {
         TelemetryManager.shared.debugEnableCollectionForSession()
         TelemetryManager.shared.recordError(

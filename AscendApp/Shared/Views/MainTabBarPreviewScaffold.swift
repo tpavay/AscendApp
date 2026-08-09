@@ -34,11 +34,11 @@ struct MainTabBarPreviewScaffold: View {
                     .frame(height: 76)
                     .overlay(alignment: .leading) {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Log Workout")
+                            Text("Start a Climb")
                                 .font(.montserratBold(size: 16))
                                 .foregroundStyle(.black)
 
-                            Text("Manual entry, routines, imports")
+                            Text("Just climb, race a landmark, run a routine")
                                 .font(.montserratRegular(size: 14))
                                 .foregroundStyle(.black.opacity(0.65))
                         }

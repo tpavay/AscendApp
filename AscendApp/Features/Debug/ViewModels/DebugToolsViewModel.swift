@@ -19,8 +19,6 @@ class DebugToolsViewModel {
     private enum ActionTitle {
         static let seedWorkouts = "Seed Workouts"
         static let clearSeededWorkouts = "Clear Seeded Workouts"
-        static let queueAutoImportReview = "Queue Auto-Import Review"
-        static let clearAutoImportSimulations = "Clear Auto-Import Simulations"
         static let resetPostAuthOnboarding = "Reset Post-Auth Onboarding"
         static let replayPostAuthOnboarding = "Replay Onboarding Now"
         static let replayFullOnboardingFromLanding = "Replay From Landing"
@@ -46,7 +44,6 @@ class DebugToolsViewModel {
             diagnosticsSection,
             onboardingSection,
             monetizationSection,
-            appleHealthImportSection,
             workoutsSection
         ]
     }
@@ -144,30 +141,6 @@ class DebugToolsViewModel {
         )
     }
 
-    // MARK: - Apple Health Section
-
-    private var appleHealthImportSection: DebugSection {
-        DebugSection(
-            title: "Apple Health Import",
-            subtitle: "Simulator hooks for the auto-import review flow",
-            actions: [
-                DebugAction(
-                    title: ActionTitle.queueAutoImportReview,
-                    description: "Creates a synthetic Apple Health import, queues it for review, and waits for the next foreground activation to present the full-screen review flow.",
-                    icon: "rectangle.stack.badge.plus",
-                    iconColor: .accent
-                ),
-                DebugAction(
-                    title: ActionTitle.clearAutoImportSimulations,
-                    description: "Removes only the synthetic Apple Health auto-import workouts created from Debug Tools.",
-                    icon: "trash.fill",
-                    iconColor: .red,
-                    isDestructive: true
-                )
-            ]
-        )
-    }
-
     // MARK: - Workouts Section
 
     private var workoutsSection: DebugSection {
@@ -206,13 +179,6 @@ class DebugToolsViewModel {
         do {
             // Map action titles to service methods
             switch action.title {
-            case ActionTitle.queueAutoImportReview:
-                _ = try await service.queueSimulatedAppleHealthAutoImportReview(modelContext: modelContext)
-
-            case ActionTitle.clearAutoImportSimulations:
-                let count = try await service.clearSimulatedAppleHealthAutoImports(modelContext: modelContext)
-                successMessage = "Cleared \(count) simulated auto-import workout\(count == 1 ? "" : "s")."
-
             case ActionTitle.resetPostAuthOnboarding:
                 let userId = try currentUserId()
                 PostAuthOnboardingStore().reset(for: userId)

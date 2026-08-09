@@ -1,8 +1,8 @@
 import Foundation
 
 @MainActor
-final class HealthKitImportCoordinatorTestIsolation {
-  static let shared = HealthKitImportCoordinatorTestIsolation()
+final class HealthKitCoordinatorTestIsolation {
+  static let shared = HealthKitCoordinatorTestIsolation()
 
   private var isLocked = false
   private var waiters: [CheckedContinuation<Void, Never>] = []

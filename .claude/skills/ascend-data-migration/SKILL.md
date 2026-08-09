@@ -24,7 +24,7 @@ Start from what is actually here.
 | Where the container is opened, and the interrupted-migration retry | `AscendApp/App/AscendApp.swift` (`createModelContainer`, `finishInterruptedMigrationIfNeeded`) |
 | Proof it works against a real V1 store | `AscendAppTests/WorkoutSourceSchemaMigrationTests.swift` |
 | Proof it works against a real V2 store | `AscendAppTests/RoutineBackupSchemaMigrationTests.swift` |
-| A gated post-launch backfill, for contrast | `AscendApp/Shared/Services/WorkoutSourceMigrationService.swift` |
+| A gated post-launch backfill, for contrast | `AscendApp/Shared/Services/WorkoutRemoteSyncMigrationService.swift` |
 
 `AscendSchemaV1` is `Schema.Version(1, 0, 0)` and is frozen.
 It declares its own copies of `Workout`, `WorkoutSourceLink`, `WorkoutParticipation`, `Routine` and `RoutineFolder` so the migration can *read* what is on disk.
@@ -88,7 +88,7 @@ That is the most expensive place in the app to do work: it blocks the first fram
 The decomposition, for changing `foo: Int` into `foo: String`:
 
 1. **V(n+1), lightweight:** add `fooString: String?` alongside `foo`. Both exist; the app writes both and reads `foo`.
-2. **Backfill:** populate `fooString` from `foo` in ordinary app code, after launch, in the background, behind the `local_data_migrations_enabled` flag. `WorkoutSourceMigrationService` is the shape to copy.
+2. **Backfill:** populate `fooString` from `foo` in ordinary app code, after launch, in the background, behind the `local_data_migrations_enabled` flag. `WorkoutRemoteSyncMigrationService` is the shape to copy.
 3. **V(n+2), lightweight:** once the backfill has drained, remove `foo` and rename `fooString` to `foo` with `originalName`.
 
 This moves the interpretive work out of the ungateable, launch-blocking, watchdog-exposed half and into the half that has a kill switch.
@@ -110,7 +110,7 @@ That is right, and it is right for backfills.
 It is not available for a schema migration, and the distinction is load-bearing:
 
 - A **schema migration** runs inside `ModelContainer.init`, which `AscendApp.init()` calls before Firebase Remote Config has fetched anything. There is no value to consult. It is unconditional on every device that takes the build.
-- A **backfill** is ordinary app code that runs after launch, so `RemoteFeatureGate` can defer it. `WorkoutSourceMigrationService` re-reads the gate inside its loop and stamps its completion flag only after the sweep finishes, so a switch thrown mid-sweep leaves the work pending rather than falsely done.
+- A **backfill** is ordinary app code that runs after launch, so `RemoteFeatureGate` can defer it. `WorkoutRemoteSyncMigrationService` reads the gate before the sweep and stamps its completion key only after the sweep finishes, so a switch thrown before it runs leaves the work pending rather than falsely done; `RoutineRemoteSyncAdoptionService` stamps nothing at all and simply re-runs on the next bootstrap.
 
 App Store phased release is not a substitute.
 It does not apply to a first release at all, and it only delays *automatic* updates - anyone can open the App Store and tap Update.

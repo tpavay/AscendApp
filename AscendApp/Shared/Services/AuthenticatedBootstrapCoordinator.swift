@@ -2,9 +2,10 @@ import Foundation
 
 /// Account-scoped local work that runs on its own schedule rather than inside the bootstrap chain.
 ///
-/// A HealthKit observer firing an import pass is the motivating case: nothing about it is reachable
-/// from `AuthenticatedBootstrapCoordinator.schedule`, yet it writes the signed-in account's rows
-/// into the same `ModelContext` that deletion is emptying.
+/// An Apple Health enrichment sweep is the motivating case: it starts on its own schedule - a
+/// foreground, a tab return - so nothing about it is reachable from
+/// `AuthenticatedBootstrapCoordinator.schedule`, yet it writes the signed-in account's rows into
+/// the same `ModelContext` that deletion is emptying.
 @MainActor
 protocol AuthenticatedSessionWorker: AnyObject {
     /// Stops in-flight work. Returns immediately; cancellation is cooperative.
@@ -18,9 +19,10 @@ protocol AuthenticatedSessionWorker: AnyObject {
 /// other writer of that state while deletion is running.
 ///
 /// Account deletion suspends and drains before its first destructive remote step. That ordering
-/// prevents an already-started hydration, import, or upload from saving the deleted account's data
-/// after the local store has been emptied. `isSuspended` is the second half of the guarantee:
-/// draining only stops what has already started, so autonomous writers ask this before starting more.
+/// prevents an already-started hydration, enrichment pass, or upload from saving the deleted
+/// account's data after the local store has been emptied. `isSuspended` is the second half of the
+/// guarantee: draining only stops what has already started, so autonomous writers ask this before
+/// starting more.
 @MainActor
 final class AuthenticatedBootstrapCoordinator {
     static let shared = AuthenticatedBootstrapCoordinator()

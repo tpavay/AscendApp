@@ -8,16 +8,15 @@ import UIKit
 /// Visual evidence for the Apple Health heart-rate recovery card on Workout Detail.
 ///
 /// `WorkoutDetailView` decides whether to show the card - and which copy it shows -
-/// purely from `WorkoutImportCoordinator.appleHealthHeartRateEnrichmentStatus(for:)`
+/// purely from `AppleHealthEnrichmentCoordinator.appleHealthHeartRateEnrichmentStatus(for:)`
 /// (see WorkoutDetailView.swift `shouldShowAppleHealthHeartRateRecovery`). This test
 /// builds real `Workout` values in each enrichment state, asks a real coordinator for
 /// the status, applies the same visibility switch the view uses, and renders the real
 /// `WorkoutHeartRateRecoveryCard` to a PNG a reviewer can inspect.
 ///
 /// Rows, top to bottom:
-///   linkPending     -> in-app sensor workout inside the retry window, not yet linked
-///   metricsPending  -> linked by stable Health UUID, metrics still arriving (card shows)
-///   metricsStalled  -> linked but past the automatic retry window ("Stopped checking")
+///   metricsPending  -> climb inside the retry window, heart rate still arriving (card shows)
+///   metricsStalled  -> past the automatic retry window ("Stopped checking")
 ///   complete        -> heart rate present, card hidden, no reprocessing
 @MainActor
 struct WorkoutHeartRateRecoverySnapshotTests {
@@ -27,9 +26,8 @@ struct WorkoutHeartRateRecoverySnapshotTests {
         defer { HealthKitSyncState.hasRequestedAuthorization = stateSnapshot }
         HealthKitSyncState.hasRequestedAuthorization = true
 
-        let coordinator = WorkoutImportCoordinator(
+        let coordinator = AppleHealthEnrichmentCoordinator(
             authorizationController: RecoveryCardAuthorizationController(),
-            workoutReader: RecoveryCardWorkoutReader(),
             metricsReader: RecoveryCardMetricsReader()
         )
 
@@ -37,16 +35,11 @@ struct WorkoutHeartRateRecoverySnapshotTests {
         let insideWindow = now.addingTimeInterval(-(2 * 60 * 60))
         let outsideWindow = now.addingTimeInterval(-(80 * 60 * 60))
 
-        let linkPending = makeSensorWorkout(start: insideWindow)
-
         let metricsPending = makeSensorWorkout(start: insideWindow)
-        metricsPending.healthKitUUID = UUID().uuidString
 
         let metricsStalled = makeSensorWorkout(start: outsideWindow)
-        metricsStalled.healthKitUUID = UUID().uuidString
 
         let complete = makeSensorWorkout(start: insideWindow)
-        complete.healthKitUUID = UUID().uuidString
         complete.avgHeartRate = 148
         complete.maxHeartRate = 174
         complete.heartRateData = [
@@ -55,18 +48,13 @@ struct WorkoutHeartRateRecoverySnapshotTests {
 
         let scenarios = [
             RecoveryScenario(
-                id: "linkPending",
-                caption: "Linked to no Health workout yet · still inside retry window",
-                status: coordinator.appleHealthHeartRateEnrichmentStatus(for: linkPending)
-            ),
-            RecoveryScenario(
                 id: "metricsPending",
-                caption: "Linked by stable Health UUID · heart rate has not landed yet",
+                caption: "Inside the retry window · heart rate has not landed yet",
                 status: coordinator.appleHealthHeartRateEnrichmentStatus(for: metricsPending)
             ),
             RecoveryScenario(
                 id: "metricsStalled",
-                caption: "Linked · automatic retry window expired · manual Fetch still works",
+                caption: "Automatic retry window expired · manual Fetch still works",
                 status: coordinator.appleHealthHeartRateEnrichmentStatus(for: metricsStalled)
             ),
             RecoveryScenario(
@@ -76,12 +64,11 @@ struct WorkoutHeartRateRecoverySnapshotTests {
             ),
         ]
 
-        #expect(scenarios[0].status == .linkPending)
-        #expect(scenarios[1].status == .metricsPending)
-        #expect(scenarios[2].status == .metricsStalled)
-        #expect(scenarios[3].status == .complete)
-        #expect(scenarios[2].isCardVisible)
-        #expect(scenarios[3].isCardVisible == false)
+        #expect(scenarios[0].status == .metricsPending)
+        #expect(scenarios[1].status == .metricsStalled)
+        #expect(scenarios[2].status == .complete)
+        #expect(scenarios[1].isCardVisible)
+        #expect(scenarios[2].isCardVisible == false)
 
         let renderer = ImageRenderer(content: RecoveryStatesProof(scenarios: scenarios))
         renderer.scale = 3
@@ -114,12 +101,12 @@ struct WorkoutHeartRateRecoverySnapshotTests {
 private struct RecoveryScenario: Identifiable {
     let id: String
     let caption: String
-    let status: WorkoutImportCoordinator.AppleHealthEnrichmentStatus
+    let status: AppleHealthEnrichmentCoordinator.AppleHealthEnrichmentStatus
 
     /// Mirrors `WorkoutDetailView.shouldShowAppleHealthHeartRateRecovery`.
     var isCardVisible: Bool {
         switch status {
-        case .linkPending, .metricsPending, .metricsStalled:
+        case .metricsPending, .metricsStalled:
             return true
         case .notPending, .complete:
             return false
@@ -185,7 +172,6 @@ private struct RecoveryStatesProof: View {
 private final class RecoveryCardAuthorizationController: HealthKitAuthorizationControlling {
     let isHealthDataAvailable = true
     let hasRequestedAuthorization = true
-    let hasCompletedInitialBackfill = true
     var authorizationRequestStatus: HKAuthorizationRequestStatus = .unnecessary
     var lastPermissionErrorMessage: String?
     let connectionState: AppleHealthConnectionState = .connected
@@ -196,40 +182,7 @@ private final class RecoveryCardAuthorizationController: HealthKitAuthorizationC
 }
 
 @MainActor
-private final class RecoveryCardWorkoutReader: HealthKitWorkoutReading {
-    let isHealthDataAvailable = true
-
-    func fetchAnchoredStairStepperWorkouts(anchorData: Data?) async throws
-        -> HealthKitWorkoutDiscoveryResult
-    {
-        HealthKitWorkoutDiscoveryResult(
-            addedSamples: [],
-            deletedExternalRecordIDs: [],
-            anchorData: anchorData
-        )
-    }
-
-    func fetchWorkout(withExternalRecordID externalRecordID: String) async throws -> HKWorkout? {
-        nil
-    }
-
-    func fetchStairStepperWorkouts(in dateRange: ClosedRange<Date>) async throws
-        -> [HealthKitWorkoutSample]
-    {
-        []
-    }
-}
-
-@MainActor
 private final class RecoveryCardMetricsReader: HealthKitMetricsReading {
-    func fetchMetrics(for workout: HKWorkout) async -> WorkoutMetrics { WorkoutMetrics() }
-
-    func fetchMetrics(for workout: HKWorkout, during dateRange: ClosedRange<Date>) async
-        -> WorkoutMetrics
-    {
-        WorkoutMetrics()
-    }
-
     func fetchMetrics(during dateRange: ClosedRange<Date>) async -> WorkoutMetrics {
         WorkoutMetrics()
     }

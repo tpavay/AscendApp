@@ -757,7 +757,7 @@ final class LiveClimbSessionViewModel {
     }
 
     /// Buffers one reading per second-tick while recording so completed
-    /// workouts carry the same heart-rate series shape as imported ones —
+    /// workouts carry the same heart-rate series shape enrichment writes -
     /// the existing sync pipeline uploads it with zero extra plumbing.
     func recordHeartRateSampleForSessionTick(at now: Date = Date()) {
         guard let measurement = heartRateRecorder.currentMeasurement else { return }
@@ -1126,7 +1126,7 @@ final class LiveClimbSessionViewModel {
             changedWorkouts: [workout]
         )
         Task { @MainActor in
-            await WorkoutImportCoordinator.shared.enrichInAppWorkoutWithAppleHealthIfPossible(
+            await AppleHealthEnrichmentCoordinator.shared.enrichInAppWorkoutWithAppleHealthIfPossible(
                 workout,
                 modelContext: modelContext
             )

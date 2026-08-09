@@ -9,46 +9,23 @@ import SwiftUI
 
 struct AppleHealthManageSheet: View {
     @Binding var isPresented: Bool
-    @Binding var autoImportEnabled: Bool
 
-    let attentionCount: Int
-    let onSyncNow: () -> Void
-    let onReviewImports: () -> Void
+    let onCheckNow: () -> Void
     let onOpenHealthPermissions: () -> Void
-
-    private var autoImportSubtitle: String {
-        "Automatically import new Apple Health workouts and keep their follow-up review ready in Ascend."
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             IntegrationManageHeader(assetImage: "appleHealth-icon", title: "Apple Health")
 
-            IntegrationManageToggleCard(
-                title: "Auto-import new workouts",
-                subtitle: autoImportSubtitle,
-                isOn: $autoImportEnabled,
-                isEnabled: true
-            )
-
             manageActionButton(
                 systemImage: "arrow.clockwise",
-                title: "Sync now",
-                badgeCount: 0,
-                action: onSyncNow
-            )
-
-            manageActionButton(
-                systemImage: "sparkles",
-                title: "Review workouts",
-                badgeCount: attentionCount,
-                action: onReviewImports
+                title: "Check for heart rate now",
+                action: onCheckNow
             )
 
             manageActionButton(
                 systemImage: "heart.text.square",
                 title: "Manage Health permissions",
-                badgeCount: 0,
                 action: onOpenHealthPermissions
             )
 
@@ -67,7 +44,6 @@ struct AppleHealthManageSheet: View {
     private func manageActionButton(
         systemImage: String,
         title: String,
-        badgeCount: Int,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -76,7 +52,7 @@ struct AppleHealthManageSheet: View {
                     systemImage: systemImage,
                     title: title,
                     iconTint: .accent,
-                    badgeCount: badgeCount,
+                    badgeCount: 0,
                     isEnabled: true,
                     action: action
                 )

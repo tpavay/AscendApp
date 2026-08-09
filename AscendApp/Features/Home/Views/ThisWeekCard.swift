@@ -567,7 +567,8 @@ private struct WeekActivitySummaryCalculator {
             steps: steps,
             floors: Workout.stepsToFloors(steps, stepsPerFloor: 16),
             stepsPerFloor: 16,
-            notes: "Sample"
+            notes: "Sample",
+            source: .headphoneMotion
         )
     }
 

@@ -84,7 +84,7 @@ struct BestEffortsListView: View {
                 .foregroundStyle(foregroundPrimary)
                 .multilineTextAlignment(.center)
 
-            Text("Log, import, or complete workouts to start building your record book.")
+            Text("Climb. Every session writes your record book.")
                 .font(.montserratRegular(size: 13))
                 .foregroundStyle(foregroundSubtle)
                 .multilineTextAlignment(.center)
@@ -322,7 +322,7 @@ struct BestEffortRecordDetailView: View {
                 .foregroundStyle(foregroundPrimary)
                 .multilineTextAlignment(.center)
 
-            Text(metric.requiresTimeline ? "Live Climb samples unlock this record." : "Log more workouts to start this record.")
+            Text(metric.requiresTimeline ? "Live Climb samples unlock this record." : "Climb again to set this record.")
                 .font(.montserratRegular(size: 13))
                 .foregroundStyle(foregroundSubtle)
                 .multilineTextAlignment(.center)
@@ -855,7 +855,8 @@ private extension BestEffortBoard {
             maxHeartRate: 168,
             caloriesBurned: 520,
             effortRating: 4.5,
-            averageMETs: 7.2
+            averageMETs: 7.2,
+            source: .headphoneMotion
         ),
         Workout(
             name: "Evening Session",
@@ -868,7 +869,8 @@ private extension BestEffortBoard {
             maxHeartRate: 160,
             caloriesBurned: 430,
             effortRating: 3.8,
-            averageMETs: 6.5
+            averageMETs: 6.5,
+            source: .headphoneMotion
         )
     ]
 

@@ -19,31 +19,16 @@ struct HomeView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
-    @State private var importCoordinator = WorkoutImportCoordinator.shared
+    @State private var enrichmentCoordinator = AppleHealthEnrichmentCoordinator.shared
     private let homeDashboard: HomeDashboardViewModel
-    @State private var showingImportSheet = false
     @State private var showingStartActionSheet = false
     @State private var showingClimbBrowse = false
     @State private var showingJustClimbSetup = false
-    @State private var showingManualWorkoutForm = false
-    @State private var showingCompletedWorkoutShare = false
     @State private var pendingStartAction: HomeStartAction?
     @State private var selectedHomeClimb: Climb?
     @State private var activeJustClimbGoal: JustClimbGoal?
-    @State private var completedWorkout: Workout?
     @State private var globeViewModel = GlobeViewModel()
     @AppStorage("firstLaunchDate") private var firstLaunchDate: Double = 0
-    @State private var autoImportedReviewWorkout: Workout?
-
-    private var isHomeTabSelected: Bool {
-        tabRouter.selectedTab == .home
-    }
-
-    /// A single arriving workout resolves faster than the strip can be read; only a real backfill
-    /// is worth narrating.
-    private var isBackfillInProgress: Bool {
-        importCoordinator.isImporting && importCoordinator.totalImportCount > 1
-    }
 
     init(
         homeDashboard: HomeDashboardViewModel = HomeDashboardViewModel(),
@@ -54,11 +39,7 @@ struct HomeView: View {
     }
 
     private var hasBlockingModalPresentation: Bool {
-        showingImportSheet ||
-        showingStartActionSheet ||
-        showingJustClimbSetup ||
-        showingManualWorkoutForm ||
-        showingCompletedWorkoutShare
+        showingStartActionSheet || showingJustClimbSetup
     }
 
     /// Whether Home is still the screen behind whatever is on top of it.
@@ -69,7 +50,6 @@ struct HomeView: View {
     /// teardown falls through.
     private var isCoveredRatherThanTornDown: Bool {
         hasBlockingModalPresentation ||
-        autoImportedReviewWorkout != nil ||
         selectedHomeClimb != nil ||
         activeJustClimbGoal != nil ||
         showingClimbBrowse
@@ -120,22 +100,9 @@ struct HomeView: View {
                 Spacer()
 
                 startHeaderButton
-                importBell
-                .onChange(of: importCoordinator.attentionCount) { oldValue, newValue in
-                    debugLog("🔄 HomeView detected count change from \(oldValue) to \(newValue)")
-                    syncAutoImportedReviewPresentation()
-                }
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 12)
-
-            if isBackfillInProgress {
-                HomeImportProgressBar(
-                    remainingCount: importCoordinator.remainingImportCount,
-                    totalCount: importCoordinator.totalImportCount
-                )
-                .transition(.opacity)
-            }
 
             ScrollView {
                 LazyVStack(spacing: 20) {
@@ -189,9 +156,6 @@ struct HomeView: View {
         .navigationDestination(isPresented: $showingClimbBrowse) {
             ClimbBrowseView(viewModel: globeViewModel, analyticsEntryPoint: .homeExplore)
         }
-        .sheet(isPresented: $showingImportSheet) {
-            WorkoutImportSheet()
-        }
         .sheet(isPresented: $showingStartActionSheet, onDismiss: {
             consumePendingStartAction()
         }) {
@@ -209,77 +173,39 @@ struct HomeView: View {
             .presentationDragIndicator(.visible)
             .presentationBackground(Color.black)
         }
-        .sheet(isPresented: $showingManualWorkoutForm) {
-            WorkoutFormView(
-                showingWorkoutForm: $showingManualWorkoutForm,
-                onWorkoutCompleted: handleManualWorkoutCompleted
-            )
-            .interactiveDismissDisabled()
-        }
-        .fullScreenCover(isPresented: $showingCompletedWorkoutShare) {
-            if let completedWorkout {
-                ShareComposerView(workout: completedWorkout)
-            }
-        }
-        .sheet(item: $autoImportedReviewWorkout, onDismiss: {
-            importCoordinator.dismissCurrentAutoImportedReview()
-        }) { workout in
-            AutoImportedWorkoutReviewView(
-                workout: workout,
-                onDone: {
-                    importCoordinator.completeAutoImportedReview(for: workout.id)
-                    autoImportedReviewWorkout = nil
-                },
-                onDelete: {
-                    importCoordinator.completeAutoImportedReview(for: workout.id)
-                    autoImportedReviewWorkout = nil
-                }
-            )
-            .appSheetStyle(.detents([.fraction(0.75), .large]), isInteractiveDismissDisabled: true)
-        }
         .task {
             // Set first launch date if not already set
             if firstLaunchDate == 0 {
                 firstLaunchDate = Date().timeIntervalSince1970
             }
 
-            // Configure the unified import service with model context
-            importCoordinator.configure(modelContext: modelContext)
+            enrichmentCoordinator.configure(modelContext: modelContext)
             globeViewModel.loadIfNeeded(modelContext: modelContext)
             refreshHomeDashboard(forceRank: true)
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
 
-            // Check for workouts from all sources on app launch
-            await importCoordinator.refreshPendingImports(trigger: .homeEntry)
-            syncAutoImportedReviewPresentation()
+            // Apple Health writes a climb's heart rate after the climb ends, so every Home entry
+            // is another chance for a recent climb to pick up what was not there yet.
+            await enrichmentCoordinator.refreshPendingEnrichment(trigger: .automatic)
         }
         .onDisappear {
-            // Home owns this pass; once it is gone, so is the reason to keep importing. Sheets,
+            // Home owns this pass; once it is gone, so is the reason to keep enriching. Sheets,
             // full-screen covers and pushed destinations all fire `onDisappear` while Home is
             // still the screen underneath, so those are excluded. Cancelling is always safe to
-            // get wrong in the other direction: imported workouts are saved individually and the
-            // next entry resumes.
+            // get wrong in the other direction: each pass saves what it resolved and the next
+            // entry resumes.
             guard !isCoveredRatherThanTornDown else { return }
-            importCoordinator.cancelInFlightWork()
+            enrichmentCoordinator.cancelInFlightWork()
         }
-        .animation(.easeInOut(duration: 0.2), value: isBackfillInProgress)
         .onChange(of: tabRouter.selectedTab) { _, newValue in
             guard newValue == .home else { return }
             refreshHomeDashboard()
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
             Task {
-                await importCoordinator.refreshPendingImports(trigger: .homeEntry)
-                syncAutoImportedReviewPresentation()
+                await enrichmentCoordinator.refreshPendingEnrichment(trigger: .automatic)
             }
-        }
-        .onChange(of: importCoordinator.currentAutoImportedReviewWorkoutID) { _, _ in
-            syncAutoImportedReviewPresentation()
-        }
-        .onChange(of: showingImportSheet) { _, isShowing in
-            guard !isShowing else { return }
-            syncAutoImportedReviewPresentation()
         }
         .onChange(of: authVM.user?.uid) { _, _ in
             refreshHomeDashboard(forceRank: true)
@@ -289,13 +215,11 @@ struct HomeView: View {
             refreshHomeDashboard(forceRank: true)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            // Check for new workouts when app comes to foreground (throttled to prevent spam)
             refreshHomeDashboard(forceRank: true)
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
             Task {
-                await importCoordinator.refreshPendingImports(trigger: .automatic)
-                syncAutoImportedReviewPresentation()
+                await enrichmentCoordinator.refreshPendingEnrichment(trigger: .automatic)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbStateDidChange)) { _ in
@@ -310,17 +234,6 @@ struct HomeView: View {
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
-            // Reset throttling when app goes to background so next foreground check works
-            importCoordinator.resetAutomaticCheckThrottle()
-        }
-    }
-
-    private var importBell: some View {
-        NotificationBellView(pendingImports: importCoordinator.attentionCount) {
-            openImportInbox()
-        }
-        .frame(width: 44, height: 44)
     }
 
     private var startHeaderButton: some View {
@@ -363,42 +276,6 @@ struct HomeView: View {
             presentClimbBrowse()
         case .routines:
             tabRouter.selectedTab = .training
-        case .manualWorkout:
-            showingManualWorkoutForm = true
-        }
-    }
-
-    private func handleManualWorkoutCompleted(_ workout: Workout) {
-        completedWorkout = workout
-        showingManualWorkoutForm = false
-
-        Task {
-            try? await Task.sleep(for: .milliseconds(300))
-            showingCompletedWorkoutShare = true
-        }
-    }
-
-    private func openImportInbox() {
-        Task {
-            _ = await importCoordinator.prepareImportInbox()
-            showingImportSheet = true
-        }
-    }
-
-    private func syncAutoImportedReviewPresentation() {
-        guard isHomeTabSelected else { return }
-        guard !hasBlockingModalPresentation else { return }
-
-        if importCoordinator.presentPendingAutoImportedReviewOnHomeIfNeeded() {
-            autoImportedReviewWorkout = resolveWorkout(id: importCoordinator.currentAutoImportedReviewWorkoutID)
-            if autoImportedReviewWorkout == nil {
-                importCoordinator.dismissCurrentAutoImportedReview()
-            }
-            return
-        }
-
-        if importCoordinator.currentAutoImportedReviewWorkoutID == nil {
-            autoImportedReviewWorkout = nil
         }
     }
 
@@ -426,18 +303,6 @@ struct HomeView: View {
             modelContext: modelContext,
             forceRemote: forceRank
         )
-    }
-
-    private func resolveWorkout(id: UUID?) -> Workout? {
-        guard let id else { return nil }
-        let workoutID = id
-        let descriptor = FetchDescriptor<Workout>(
-            predicate: #Predicate<Workout> { workout in
-                workout.id == workoutID
-            }
-        )
-
-        return try? modelContext.fetch(descriptor).first
     }
 }
 

@@ -21,7 +21,7 @@ struct ClimbBrowseHelpSheet: View {
         [
             (
                 title: "Connect headphones",
-                description: "Live climb attempts require compatible headphones with motion tracking."
+                description: "Live Climb attempts require compatible headphones with motion tracking."
             ),
             (
                 title: "Browse or search",
@@ -40,7 +40,7 @@ struct ClimbBrowseHelpSheet: View {
 
     private var progressRules: [String] {
         [
-            "Manual entries, imports, and routines do not complete Live Climbs.",
+            "Only a live attempt completes a Live Climb - a routine never does.",
             "Catalog climbs must be finished in one live attempt.",
             "Ending early saves a DNF attempt in your history, not a leaderboard time.",
             "Completed Live Climbs stay visible so you can revisit the detail screen and history later."

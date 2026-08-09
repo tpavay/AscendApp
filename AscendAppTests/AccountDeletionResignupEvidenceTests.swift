@@ -50,14 +50,15 @@ struct AccountDeletionResignupEvidenceTests {
             name: "Evening Stairs",
             duration: 1_800,
             steps: 2_400,
-            floors: 150
+            floors: 150,
+            source: .headphoneMotion
         )
         manualClimb.markPendingRemoteUpsert(ownerUserId: Self.deletedUserId)
         modelContext.insert(manualClimb)
         try modelContext.save()
 
         settings.measurementSystem = .metric
-        settings.appleHealthAutoImportEnabled = true
+        settings.fitnessLevel = .advanced
         defaults.set(true, forKey: Self.notificationsKey)
         sessionStore.recordLocalDataOwner(userId: Self.deletedUserId)
 
@@ -74,7 +75,7 @@ struct AccountDeletionResignupEvidenceTests {
 
         #expect(beforeCounts.values.contains { $0 > 0 })
         #expect(settings.measurementSystem == .metric)
-        #expect(settings.appleHealthAutoImportEnabled)
+        #expect(settings.fitnessLevel == .advanced)
 
         // ── The deletion itself ───────────────────────────────────────────────────────────────
         let gateway = TranscriptDeletionGateway(currentUserId: Self.deletedUserId)
@@ -126,8 +127,7 @@ struct AccountDeletionResignupEvidenceTests {
         #expect(afterCounts.values.allSatisfy { $0 == 0 })
         #expect(sameSessionDecision == .allowed)
         #expect(settings.measurementSystem == .imperial)
-        #expect(settings.appleHealthAutoImportEnabled == false)
-        #expect(settings.appleHealthAutoImportActivatedAt == nil)
+        #expect(settings.fitnessLevel == .intermediate)
         #expect(defaults.object(forKey: Self.notificationsKey) == nil)
         #expect(sessionStore.localDataOwnerUserId == nil)
 
@@ -135,10 +135,10 @@ struct AccountDeletionResignupEvidenceTests {
         // values back into the domain deletion just emptied.
         settings.hasCompletedBaseLevelOnboarding = true
         #expect(defaults.string(forKey: "measurementSystem") == nil)
-        #expect(defaults.object(forKey: "appleHealthAutoImportEnabled") == nil)
+        #expect(defaults.object(forKey: "userFitnessLevel") == nil)
         transcript.line(
             "=> The replacement account then completes base-level onboarding. That write persists its",
-            "   own value and nothing else: units and Apple Health stay absent from the domain."
+            "   own value and nothing else: units and fitness level stay absent from the domain."
         )
 
         // ── Checkpoint 3: after relaunch ──────────────────────────────────────────────────────
@@ -156,7 +156,7 @@ struct AccountDeletionResignupEvidenceTests {
         )
 
         #expect(relaunchedSettings.measurementSystem == .imperial)
-        #expect(relaunchedSettings.appleHealthAutoImportEnabled == false)
+        #expect(relaunchedSettings.fitnessLevel == .intermediate)
         #expect(relaunchDecision == .allowed)
 
         // ── Checkpoint 4: the control the fix must not weaken ─────────────────────────────────
@@ -168,7 +168,7 @@ struct AccountDeletionResignupEvidenceTests {
         let sharedSessionStore = AccountSessionStore(userDefaults: sharedDefaults)
         sharedSessionStore.recordLocalDataOwner(userId: "climber-a")
 
-        let climberAWork = Workout(name: "Climber A's Stairs", duration: 1_200, steps: 1_000, floors: 63)
+        let climberAWork = Workout(name: "Climber A's Stairs", duration: 1_200, steps: 1_000, floors: 63, source: .headphoneMotion)
         climberAWork.markPendingRemoteUpsert(ownerUserId: "climber-a")
         sharedDeviceContext.insert(climberAWork)
         try sharedDeviceContext.save()
@@ -210,7 +210,7 @@ struct AccountDeletionResignupEvidenceTests {
     @Test("The blocking wall's copy and its one resolving action", .bug(id: 389))
     func rendersTheAccountDataMismatchWall() throws {
         let modelContext = try AscendLocalStoreFixture.makeModelContext()
-        let workout = Workout(name: "Climber A's Stairs", duration: 1_200, steps: 1_000, floors: 63)
+        let workout = Workout(name: "Climber A's Stairs", duration: 1_200, steps: 1_000, floors: 63, source: .headphoneMotion)
         workout.markPendingRemoteUpsert(ownerUserId: "climber-a")
         modelContext.insert(workout)
         try modelContext.save()
@@ -319,10 +319,7 @@ private struct Transcript {
     @MainActor
     mutating func preferences(settings: SettingsManager, defaults: UserDefaults) {
         field("units", settings.measurementSystem.rawValue)
-        field(
-            "Apple Health auto-import",
-            settings.appleHealthAutoImportEnabled ? "on" : "off"
-        )
+        field("fitness level", settings.fitnessLevel.rawValue)
         field(
             "climb-drop notifications",
             defaults.object(forKey: "climbDropNotificationsEnabled.v1") == nil

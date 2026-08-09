@@ -20,7 +20,7 @@ struct WorkoutDetailView: View {
     @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
-    @State private var importCoordinator = WorkoutImportCoordinator.shared
+    @State private var enrichmentCoordinator = AppleHealthEnrichmentCoordinator.shared
     @State private var showingEditWorkout = false
     @State private var showingShareWorkoutView = false
     @State private var showingDeleteConfirmation = false
@@ -36,7 +36,7 @@ struct WorkoutDetailView: View {
     @State private var copyConfirmationText: String?
     @State private var isFetchingAppleHealthHeartRate = false
     @State private var appleHealthHeartRateMessage: String?
-    @State private var appleHealthHeartRateStatus = WorkoutImportCoordinator.AppleHealthEnrichmentStatus.notPending
+    @State private var appleHealthHeartRateStatus = AppleHealthEnrichmentCoordinator.AppleHealthEnrichmentStatus.notPending
 
     // Media layout state
     @State private var sheetPosition: SheetPosition = .middle
@@ -606,7 +606,7 @@ struct WorkoutDetailView: View {
             )
         } else if shouldShowAppleHealthHeartRateRecovery {
             WorkoutHeartRateRecoveryCard(
-                connectionState: importCoordinator.appleHealthConnectionState,
+                connectionState: enrichmentCoordinator.appleHealthConnectionState,
                 isFetching: isFetchingAppleHealthHeartRate,
                 hasStoppedAutomaticChecks: appleHealthHeartRateStatus == .metricsStalled,
                 message: appleHealthHeartRateMessage,
@@ -636,7 +636,7 @@ struct WorkoutDetailView: View {
 
     private var shouldShowAppleHealthHeartRateRecovery: Bool {
         switch appleHealthHeartRateStatus {
-        case .linkPending, .metricsPending, .metricsStalled:
+        case .metricsPending, .metricsStalled:
             return true
         case .notPending, .complete:
             return false
@@ -886,9 +886,9 @@ struct WorkoutDetailView: View {
     private func retryAppleHealthEnrichmentIfNeeded() async {
         refreshAppleHealthHeartRateStatus()
 
-        switch importCoordinator.appleHealthEnrichmentStatus(for: workout) {
-        case .linkPending, .metricsPending:
-            await importCoordinator.enrichInAppWorkoutWithAppleHealthIfPossible(
+        switch enrichmentCoordinator.appleHealthEnrichmentStatus(for: workout) {
+        case .metricsPending:
+            await enrichmentCoordinator.enrichInAppWorkoutWithAppleHealthIfPossible(
                 workout,
                 modelContext: modelContext
             )
@@ -900,7 +900,7 @@ struct WorkoutDetailView: View {
 
     @MainActor
     private func refreshAppleHealthHeartRateStatus() {
-        appleHealthHeartRateStatus = importCoordinator.appleHealthHeartRateEnrichmentStatus(for: workout)
+        appleHealthHeartRateStatus = enrichmentCoordinator.appleHealthHeartRateEnrichmentStatus(for: workout)
     }
 
     private func fetchAppleHealthHeartRate() {
@@ -913,24 +913,24 @@ struct WorkoutDetailView: View {
                 isFetchingAppleHealthHeartRate = false
             }
 
-            if importCoordinator.appleHealthConnectionState == .neverConnected {
-                let didConnect = await importCoordinator.requestAppleHealthAuthorizationIfNeeded()
+            if enrichmentCoordinator.appleHealthConnectionState == .neverConnected {
+                let didConnect = await enrichmentCoordinator.requestAppleHealthAuthorizationIfNeeded()
                 guard didConnect else {
-                    appleHealthHeartRateMessage = importCoordinator.lastErrorMessage ??
+                    appleHealthHeartRateMessage = enrichmentCoordinator.lastErrorMessage ??
                         "Apple Health could not be connected."
                     return
                 }
             }
 
-            guard importCoordinator.appleHealthConnectionState == .connected else {
+            guard enrichmentCoordinator.appleHealthConnectionState == .connected else {
                 appleHealthHeartRateMessage = appleHealthUnavailableMessage
                 return
             }
 
-            _ = await importCoordinator.enrichInAppWorkoutWithAppleHealthIfPossible(
+            _ = await enrichmentCoordinator.enrichInAppWorkoutWithAppleHealthIfPossible(
                 workout,
                 modelContext: modelContext,
-                forceRangeDiscovery: true
+                force: true
             )
 
             refreshAppleHealthHeartRateStatus()
@@ -970,7 +970,7 @@ struct WorkoutDetailView: View {
     }
 
     private var appleHealthUnavailableMessage: String {
-        switch importCoordinator.appleHealthConnectionState {
+        switch enrichmentCoordinator.appleHealthConnectionState {
         case .unavailable:
             return "Apple Health is not available on this device."
         case .revoked:
@@ -986,7 +986,7 @@ struct WorkoutDetailView: View {
         guard !workout.isLiveClimbAttemptWorkout else {
             await MainActor.run {
                 showingDeleteConfirmation = false
-                deleteErrorMessage = "Live climb attempts are saved as competitive history and cannot be deleted from the workout log."
+                deleteErrorMessage = "Live Climb attempts are saved as competitive history and cannot be deleted."
                 showingDeleteError = true
             }
             return
@@ -1116,7 +1116,8 @@ struct WorkoutDetailView: View {
         avgHeartRate: 145,
         maxHeartRate: 165,
         caloriesBurned: 320,
-        effortRating: 4.0
+        effortRating: 4.0,
+        source: .headphoneMotion
     )
 
     WorkoutDetailView(workout: sampleWorkout)
@@ -1144,7 +1145,8 @@ struct WorkoutDetailView: View {
         avgHeartRate: nil,
         maxHeartRate: nil,
         caloriesBurned: nil,
-        effortRating: 3.0
+        effortRating: 3.0,
+        source: .headphoneMotion
     )
 
     WorkoutDetailView(workout: sampleWorkout)

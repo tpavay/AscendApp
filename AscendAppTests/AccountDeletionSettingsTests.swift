@@ -18,7 +18,7 @@ struct AccountDeletionSettingsTests {
         // account left in this process-wide singleton.
         fixture.settings.hasCompletedBaseLevelOnboarding = true
         #expect(fixture.defaults.string(forKey: "measurementSystem") == nil)
-        #expect(fixture.defaults.object(forKey: "appleHealthAutoImportEnabled") == nil)
+        #expect(fixture.defaults.object(forKey: "userFitnessLevel") == nil)
         #expect(fixture.defaults.object(forKey: "climbDropNotificationsEnabled.v1") == nil)
     }
 
@@ -45,7 +45,7 @@ struct AccountDeletionSettingsTests {
         settings.autoCalculatedBaseLevel = 14
         settings.manualBaseLevelOverride = 16
         settings.hasCompletedBaseLevelOnboarding = true
-        settings.appleHealthAutoImportEnabled = true
+        settings.fitnessLevel = .advanced
         defaults.set(true, forKey: "climbDropNotificationsEnabled.v1")
     }
 
@@ -64,8 +64,7 @@ struct AccountDeletionSettingsTests {
         #expect(settings.autoCalculatedBaseLevel == nil, sourceLocation: sourceLocation)
         #expect(settings.manualBaseLevelOverride == nil, sourceLocation: sourceLocation)
         #expect(settings.hasCompletedBaseLevelOnboarding == false, sourceLocation: sourceLocation)
-        #expect(settings.appleHealthAutoImportEnabled == false, sourceLocation: sourceLocation)
-        #expect(settings.appleHealthAutoImportActivatedAt == nil, sourceLocation: sourceLocation)
+        #expect(settings.fitnessLevel == .intermediate, sourceLocation: sourceLocation)
         #expect(
             defaults.object(forKey: "climbDropNotificationsEnabled.v1") == nil,
             sourceLocation: sourceLocation
