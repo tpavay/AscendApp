@@ -4,6 +4,9 @@ description: Use when working on Ascend Live Climbs - climb attempts, live senso
 paths:
   - AscendApp/Features/Climbs/**
   - AscendLiveActivityWidgets/**
+  - AscendApp/Shared/Services/AppleHealthEnrichment*
+  - AscendApp/Features/Workouts/Views/HeartRateChartView.swift
+  - AscendApp/Features/Workouts/Views/Components/WorkoutHeartRateRecoveryCard.swift
 ---
 
 # Live Climbs V1 Architecture
@@ -85,12 +88,20 @@ A completed climb is **1:1 with a `Workout`** (the sole canonical record; verdic
 
 ## Apple Health enrichment
 - Apple Health can *enrich* a saved Live Climb workout with the metrics it did not capture itself: heart rate (average, maximum, series) and calories. It must never become the canonical Live Climb source.
-- Enrichment is a read of quantity samples over the climb's own start-to-end window. There is no matching step, because there is nothing to match against - Ascend does not import workouts, so a foreign `HKWorkout` is never consulted, scored, or linked.
-- **Health publishes a climb's samples after the climb ends, so one attempt is never enough.** A climb missing heart rate or calories stays in scope for later passes until the 72-hour retry window closes, at which point the surface says it stopped checking rather than pretending. A climb whose metrics are already complete is not reprocessed. Enrichment reads quantity samples over the climb's own time window and never touches a foreign `HKWorkout`. Regression coverage: `AscendAppTests/AppleHealthEnrichmentCoordinatorTests.swift`. Full contract: `ascend-apple-health-enrichment`.
-- Automatic retries are bounded by a window measured from the end of the workout (currently 72h). Once that window lapses on a still-incomplete workout, Ascend stops checking automatically and the workout detail's recovery card switches to "Stopped checking" with a manual fetch. The card appears only while enrichment is genuinely pending or stalled - never for a workout that is complete or was never eligible.
-- Enrichment preserves the Live Climb's source, steps, floors, duration, and attempt participation - it only adds heart rate and calories, and it never overwrites a heart-rate series the session captured live from a chest strap.
-- Enrichment is **silent**. It never asks the climber to confirm or edit the merged data. If Health writes the samples after the Live Climb's completion summary has been dismissed, the metrics show up on the workout detail next time they look - no notification, no review.
-- The user gathers notes / media for a Live Climb at the **completion summary**, not in a post-hoc review surface. Enrichment never inserts itself into that moment.
+- **Heart rate and calories do not need an Apple Health workout at all.** `AppleHealthEnrichmentService` owns that path and reads `heartRate` / `activeEnergyBurned` quantity samples over the climb's own time window.
+  HealthKit normalises those regardless of writer, so Garmin, Whoop, Polar, a chest-strap app and Apple Watch all arrive through the one path - never branch enrichment on device, and never let copy name one wearable.
+  What genuinely differs between them is sample density and whether the device wrote anything, so a sparse series is a real answer that ends the retry series, not a failed read.
+  There is no matching step and no foreign workout record is read or written; Apple Health workout import was deleted with #437.
+- **Enrichment retries on a bounded persisted schedule, because one read at save time races the wearable and loses.** Health had published nothing yet, so enrichment found nothing and never looked again (#438).
+  `AppleHealthEnrichmentSchedule` is the curve (nine attempts reaching ~10h), `AppleHealthEnrichmentAttemptStore` persists eligibility as an absolute date so the budget survives relaunch and several surfaces asking at once cannot spend it in one instant, and one timer serves every tracked climb rather than one per climb.
+  The service is an `AuthenticatedSessionWorker`, so sign-out and account deletion stop it; re-arming happens on authenticated bootstrap and on foreground, because a suspended app's `Task.sleep` is not an alarm clock.
+  Regression coverage: `AscendAppTests/AppleHealthEnrichmentServiceTests.swift`.
+- Automatic retries are additionally bounded by a window measured from the end of the workout (currently 72h). Once the budget or the window lapses on a still-incomplete climb, Ascend stops checking automatically and says so.
+- **Every state the climber can be in is stated out loud; a blank heart-rate slot is the bug.** `AppleHealthEnrichmentService.Phase` is the single source for that copy - checking, waiting, stopped looking, checks paused, connect, access revoked, unavailable, not applicable - and `WorkoutHeartRateRecoveryCard` renders each one. Never resolve heart-rate availability a second way in a view.
+- Enrichment preserves the Live Climb's source, steps, floors, duration, and attempt participation - it only adds heart rate and calories.
+- Enrichment is **silent** about its *results*. An enriched Live Climb never asks the user to confirm or edit the merged data. If the data arrives after the completion summary has been dismissed, it shows up on the workout detail next time the user looks - no notification, no review.
+- The one thing the completion summary does carry is the **contextual offer to connect Apple Health**, and only for a climber who has never connected and whose climb has no heart rate (`offersConnectionPrompt`). Hard-gating enrichment on an existing connection is what made it inert for everyone else, and this is the moment the ask is earned. It is a dismissible card among the others, never a gate, and it disappears once connected.
+- The user gathers notes / media for a Live Climb at the **completion summary**. Nothing about enrichment's *results* may interrupt that moment.
 
 ## Climb content (catalog + images)
 - When adding, editing, releasing, or validating Live Climb catalog content, use the `live-climb-content` skill. That file is intentionally harness-neutral so Codex, Claude, Cursor, or any other AI provider can follow the same workflow.

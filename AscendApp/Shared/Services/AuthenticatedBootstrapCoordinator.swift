@@ -15,6 +15,22 @@ protocol AuthenticatedSessionWorker: AnyObject {
     func drainInFlightWork() async
 }
 
+/// The autonomous writers of account-scoped state, in one place.
+///
+/// Both ends of a session read this list - account deletion drains it before it empties the store,
+/// and sign-out stops it before the next climber signs in - so a worker added here is covered by
+/// both without a second list to keep in step. Computed rather than stored, because each singleton
+/// resolves this coordinator during its own initialisation.
+@MainActor
+enum AutonomousSessionWorkers {
+    static var all: [any AuthenticatedSessionWorker] {
+        [
+            AppleHealthEnrichmentService.shared,
+            MediaUploadManager.shared
+        ]
+    }
+}
+
 /// Owns the one authenticated bootstrap task allowed to touch account-scoped state, and gates every
 /// other writer of that state while deletion is running.
 ///
@@ -142,6 +158,28 @@ final class AuthenticatedBootstrapCoordinator {
 
         guard let latestOperation else { return }
         schedule(latestOperation)
+    }
+
+    /// Ends the session the signed-out account owned.
+    ///
+    /// Draining the bootstrap chain is not enough on its own, and neither is a wipe of the local
+    /// store: an autonomous worker schedules its own next wake-up, so one armed under the previous
+    /// climber keeps its captured store and its work list and fires after the account has changed.
+    /// Enrichment's timer sleeps for hours between passes, and the write it wakes up to make is
+    /// attributed to whoever is signed in when it lands.
+    ///
+    /// Deliberately does not touch `isSuspended`: deletion owns that flag, and deleting the auth
+    /// account routes through here partway through deletion's own sweep.
+    func endAuthenticatedSession(
+        autonomousWorkers: [any AuthenticatedSessionWorker] = AutonomousSessionWorkers.all
+    ) {
+        activeTask?.cancel()
+        activeTask = nil
+        latestOperation = nil
+
+        for worker in autonomousWorkers {
+            worker.cancelInFlightWork()
+        }
     }
 
     /// Drops all work belonging to an auth account that no longer exists.

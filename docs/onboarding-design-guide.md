@@ -841,18 +841,20 @@ Design principle:
 User goal: see heart rate and calories on a climb they ran in Ascend.
 
 Primary path:
-1. Connect Apple Health
-2. Silent enrichment of climbs Ascend recorded, retried until Health writes the samples
+1. Connect Apple Health - from Integrations, or from the dismissible offer on a completion summary whose climb has no heart rate
+2. Silent enrichment of climbs Ascend recorded, retried on a bounded persisted schedule until Health writes the samples
 3. Heart rate and calories appear on workout detail
 
 App surfaces:
 - Integrations - Apple Health card and manage sheet
-- `AppleHealthEnrichmentCoordinator`
+- Live Climb completion summary - contextual connect offer, never a gate
+- `AppleHealthEnrichmentService`
 - Workout detail heart-rate states
 
 State and data:
 - Apple Health is read-only, and Ascend imports nothing: it reads `heartRate` and `activeEnergyBurned` over a climb's own time window and never touches a foreign `HKWorkout` (#437).
-- Enrichment is silent. It never asks the climber to confirm or edit merged data.
+- Enrichment is silent about its *results*. It never asks the climber to confirm or edit merged data.
+- Every state the climber can be in is named out loud by `AppleHealthEnrichmentService.Phase`; a blank heart-rate slot is the bug (#438). Contract: `ascend-apple-health-enrichment`.
 - A live-captured chest-strap series outranks Health's wrist data; enrichment still fills calories.
 
 Success condition:

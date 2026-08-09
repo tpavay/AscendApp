@@ -36,6 +36,24 @@ struct HeartRateChartDataSetTests {
         #expect(dataSet.duration == 1_111)
     }
 
+    /// A Garmin or Whoop that wrote a handful of readings has answered sparsely, not failed.
+    /// The stand-in copy has to say which of those two happened.
+    @Test
+    func sparseSeriesReportsItsCountInsteadOfReadingAsAFailedLoad() {
+        #expect(
+            HeartRateChartView.unavailableChartMessage(sampleCount: 0)
+                == "No heart-rate samples for this climb"
+        )
+        #expect(
+            HeartRateChartView.unavailableChartMessage(sampleCount: 1)
+                == "Your wearable logged one reading for this climb - too few to chart"
+        )
+        #expect(
+            HeartRateChartView.unavailableChartMessage(sampleCount: 2)
+                == "Your wearable logged 2 readings for this climb - too few to chart"
+        )
+    }
+
     @Test
     func threeSamplesCanPlotAcrossWorkoutDuration() {
         let start = makeDate(year: 2026, month: 5, day: 10, hour: 15, minute: 5)

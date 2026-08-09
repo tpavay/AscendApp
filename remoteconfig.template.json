@@ -77,6 +77,13 @@
       "valueType": "BOOLEAN",
       "description": "Kill switch. Off stops decoding routine backups into local storage on sign-in and reinstall."
     },
+    "apple_health_enrichment_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops the background Apple Health pass that writes heart rate and calories onto recorded climbs; the retry ledger is left untouched, so pending climbs resume when it returns."
+    },
     "local_data_migrations_enabled": {
       "defaultValue": {
         "value": "true"

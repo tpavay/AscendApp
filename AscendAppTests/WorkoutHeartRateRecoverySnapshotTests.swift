@@ -5,39 +5,42 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Visual evidence for the Apple Health heart-rate recovery card on Workout Detail.
+/// Visual evidence that the heart-rate slot on Workout Detail is never blank.
 ///
-/// `WorkoutDetailView` decides whether to show the card - and which copy it shows -
-/// purely from `AppleHealthEnrichmentCoordinator.appleHealthHeartRateEnrichmentStatus(for:)`
-/// (see WorkoutDetailView.swift `shouldShowAppleHealthHeartRateRecovery`). This test
-/// builds real `Workout` values in each enrichment state, asks a real coordinator for
-/// the status, applies the same visibility switch the view uses, and renders the real
-/// `WorkoutHeartRateRecoveryCard` to a PNG a reviewer can inspect.
+/// `WorkoutDetailView` decides what the slot shows purely from
+/// `AppleHealthEnrichmentService.phase(for:)`. This test builds real `Workout` values in each
+/// state a climber can actually be in, asks a real service for the phase, applies the same
+/// visibility rule the view uses, and renders the real `WorkoutHeartRateRecoveryCard` to a PNG
+/// a reviewer can inspect.
 ///
-/// Rows, top to bottom:
-///   metricsPending  -> climb inside the retry window, heart rate still arriving (card shows)
-///   metricsStalled  -> past the automatic retry window ("Stopped checking")
-///   complete        -> heart rate present, card hidden, no reprocessing
+/// The rendered copy is the point as much as the visibility: none of it names a device, because
+/// heart rate reaches Ascend as Apple Health samples whoever wrote them (#438).
 @MainActor
 struct WorkoutHeartRateRecoverySnapshotTests {
     @Test
-    func rendersRecoveryCardOnlyForPendingEnrichmentStates() throws {
-        let stateSnapshot = HealthKitSyncState.hasRequestedAuthorization
-        defer { HealthKitSyncState.hasRequestedAuthorization = stateSnapshot }
-        HealthKitSyncState.hasRequestedAuthorization = true
-
-        let coordinator = AppleHealthEnrichmentCoordinator(
-            authorizationController: RecoveryCardAuthorizationController(),
-            metricsReader: RecoveryCardMetricsReader()
-        )
-
-        let now = Date()
+    func rendersAnHonestStateForEveryPhase() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
         let insideWindow = now.addingTimeInterval(-(2 * 60 * 60))
         let outsideWindow = now.addingTimeInterval(-(80 * 60 * 60))
 
-        let metricsPending = makeSensorWorkout(start: insideWindow)
+        let connected = makeService(connectionState: .connected, now: now)
+        let neverConnected = makeService(connectionState: .neverConnected, now: now)
+        let revoked = makeService(connectionState: .revoked, now: now)
+        let paused = makeService(
+            connectionState: .connected,
+            now: now,
+            featureFlags: RemoteFeatureFlagStore(
+                snapshot: .resolving(
+                    remoteValues: [RemoteFeatureFlag.appleHealthEnrichment.key: false]
+                )
+            )
+        )
 
-        let metricsStalled = makeSensorWorkout(start: outsideWindow)
+        let waiting = makeSensorWorkout(start: insideWindow)
+        let stopped = makeSensorWorkout(start: outsideWindow)
+        let offered = makeSensorWorkout(start: insideWindow)
+        let revokedWorkout = makeSensorWorkout(start: insideWindow)
+        let pausedWorkout = makeSensorWorkout(start: insideWindow)
 
         let complete = makeSensorWorkout(start: insideWindow)
         complete.avgHeartRate = 148
@@ -48,27 +51,53 @@ struct WorkoutHeartRateRecoverySnapshotTests {
 
         let scenarios = [
             RecoveryScenario(
-                id: "metricsPending",
-                caption: "Inside the retry window · heart rate has not landed yet",
-                status: coordinator.appleHealthHeartRateEnrichmentStatus(for: metricsPending)
+                id: "waiting",
+                caption: "Connected · nothing published yet · more checks are scheduled",
+                phase: connected.phase(for: waiting)
             ),
             RecoveryScenario(
-                id: "metricsStalled",
-                caption: "Automatic retry window expired · manual Fetch still works",
-                status: coordinator.appleHealthHeartRateEnrichmentStatus(for: metricsStalled)
+                id: "stoppedLooking",
+                caption: "Connected · past the retry window · manual check still works",
+                phase: connected.phase(for: stopped)
             ),
             RecoveryScenario(
-                id: "complete",
-                caption: "Heart rate enriched · card must disappear",
-                status: coordinator.appleHealthHeartRateEnrichmentStatus(for: complete)
+                id: "connectionOffered",
+                caption: "Never connected · the offer is made here, not silently skipped",
+                phase: neverConnected.phase(for: offered)
+            ),
+            RecoveryScenario(
+                id: "accessRevoked",
+                caption: "Access turned off in the Health app",
+                phase: revoked.phase(for: revokedWorkout)
+            ),
+            RecoveryScenario(
+                id: "checking",
+                caption: "A read is in flight right now",
+                phase: .checking
+            ),
+            RecoveryScenario(
+                id: "checksPaused",
+                caption: "Enrichment switched off at the backend · the climb keeps its place",
+                phase: paused.phase(for: pausedWorkout)
+            ),
+            RecoveryScenario(
+                id: "notApplicable",
+                caption: "Heart rate attached · the chart replaces the card",
+                phase: connected.phase(for: complete)
             ),
         ]
 
-        #expect(scenarios[0].status == .metricsPending)
-        #expect(scenarios[1].status == .metricsStalled)
-        #expect(scenarios[2].status == .complete)
-        #expect(scenarios[1].isCardVisible)
-        #expect(scenarios[2].isCardVisible == false)
+        #expect(scenarios[0].phase == .waiting)
+        #expect(scenarios[1].phase == .stoppedLooking)
+        #expect(scenarios[2].phase == .connectionOffered)
+        #expect(scenarios[3].phase == .accessRevoked)
+        #expect(scenarios[5].phase == .checksPaused)
+        #expect(scenarios[6].phase == .notApplicable)
+
+        // The whole point of the fix: every state a climber can be in says something.
+        let visibleCount = scenarios.filter(\.isCardVisible).count
+        #expect(visibleCount == scenarios.count - 1)
+        #expect(scenarios[6].isCardVisible == false)
 
         let renderer = ImageRenderer(content: RecoveryStatesProof(scenarios: scenarios))
         renderer.scale = 3
@@ -83,6 +112,25 @@ struct WorkoutHeartRateRecoverySnapshotTests {
         try png.write(to: url)
 
         #expect(png.count > 5_000)
+    }
+
+    private func makeService(
+        connectionState: AppleHealthConnectionState,
+        now: Date,
+        featureFlags: RemoteFeatureFlagStore = RemoteFeatureFlagStore()
+    ) -> AppleHealthEnrichmentService {
+        AppleHealthEnrichmentService(
+            authorizationController: RecoveryCardAuthorizationController(
+                connectionState: connectionState
+            ),
+            metricsReader: RecoveryCardMetricsReader(),
+            attemptStore: AppleHealthEnrichmentAttemptStore(
+                defaults: UserDefaults(suiteName: "recovery-card-\(UUID().uuidString)")!
+            ),
+            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
+            featureFlags: featureFlags,
+            now: { now }
+        )
     }
 
     private func makeSensorWorkout(start: Date) -> Workout {
@@ -101,20 +149,11 @@ struct WorkoutHeartRateRecoverySnapshotTests {
 private struct RecoveryScenario: Identifiable {
     let id: String
     let caption: String
-    let status: AppleHealthEnrichmentCoordinator.AppleHealthEnrichmentStatus
+    let phase: AppleHealthEnrichmentService.Phase
 
-    /// Mirrors `WorkoutDetailView.shouldShowAppleHealthHeartRateRecovery`.
+    /// Mirrors `WorkoutDetailView`'s rule: everything except `notApplicable` renders the card.
     var isCardVisible: Bool {
-        switch status {
-        case .metricsPending, .metricsStalled:
-            return true
-        case .notPending, .complete:
-            return false
-        }
-    }
-
-    var hasStoppedAutomaticChecks: Bool {
-        status == .metricsStalled
+        phase != .notApplicable
     }
 }
 
@@ -123,7 +162,7 @@ private struct RecoveryStatesProof: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            Text("Workout Detail · Apple Health heart-rate recovery")
+            Text("Workout Detail · Apple Health heart-rate states")
                 .font(.montserratBold(size: 20))
                 .foregroundStyle(.white)
 
@@ -136,12 +175,10 @@ private struct RecoveryStatesProof: View {
 
                     if scenario.isCardVisible {
                         WorkoutHeartRateRecoveryCard(
-                            connectionState: .connected,
-                            isFetching: false,
-                            hasStoppedAutomaticChecks: scenario.hasStoppedAutomaticChecks,
+                            phase: scenario.phase,
                             message: nil,
                             effectiveColorScheme: .dark,
-                            onFetch: {}
+                            onPrimaryAction: {}
                         )
                     } else {
                         Text("Recovery card hidden")
@@ -174,7 +211,11 @@ private final class RecoveryCardAuthorizationController: HealthKitAuthorizationC
     let hasRequestedAuthorization = true
     var authorizationRequestStatus: HKAuthorizationRequestStatus = .unnecessary
     var lastPermissionErrorMessage: String?
-    let connectionState: AppleHealthConnectionState = .connected
+    let connectionState: AppleHealthConnectionState
+
+    init(connectionState: AppleHealthConnectionState) {
+        self.connectionState = connectionState
+    }
 
     func refreshAuthorizationRequestStatus() async {}
 

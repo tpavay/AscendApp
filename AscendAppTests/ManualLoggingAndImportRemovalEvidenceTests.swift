@@ -253,7 +253,7 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
 
             #expect(climb.avgHeartRate == nil, "the climb has to start with no heart rate on it")
 
-            let coordinator = AppleHealthEnrichmentCoordinator(
+            let coordinator = AppleHealthEnrichmentService(
                 authorizationController: StubAuthorizationController(),
                 metricsReader: StubMetricsReader(responses: [
                     WorkoutMetrics(
@@ -263,37 +263,35 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
                         heartRateTimeSeries: Self.heartRateSeries(start: start, duration: duration)
                     )
                 ]),
-                enrichmentRetryStore: AppleHealthEnrichmentRetryStore(
+                attemptStore: AppleHealthEnrichmentAttemptStore(
                     defaults: UserDefaults(suiteName: "ManualLoggingAndImportRemovalEvidenceTests")!,
                     key: "test.enrichmentRetry.\(UUID().uuidString)"
                 )
             )
             coordinator.configure(modelContext: modelContext)
 
-            let before = coordinator.appleHealthHeartRateEnrichmentStatus(for: climb)
+            let before = coordinator.phase(for: climb)
             let beforeCard = try Self.render(
                 WorkoutHeartRateRecoveryCard(
-                    connectionState: .connected,
-                    isFetching: false,
-                    hasStoppedAutomaticChecks: false,
+                    phase: before,
                     message: nil,
                     effectiveColorScheme: .dark,
-                    onFetch: {}
+                    onPrimaryAction: {}
                 )
                 .padding(20),
                 width: 402
             )
 
-            await coordinator.refreshPendingEnrichment()
+            await coordinator.refreshPendingEnrichment(modelContext: modelContext)
 
             #expect(climb.avgHeartRate == 148, "enrichment did not attach heart rate to an Ascend-recorded climb")
             #expect(climb.maxHeartRate == 174)
             #expect(climb.caloriesBurned == 232)
             #expect(climb.heartRateTimeSeries.count > 1)
 
-            let after = coordinator.appleHealthHeartRateEnrichmentStatus(for: climb)
-            #expect(before == .metricsPending)
-            #expect(after == .complete, "the recovery card must disappear once heart rate lands")
+            let after = coordinator.phase(for: climb)
+            #expect(before == .waiting)
+            #expect(after == .notApplicable, "the recovery card must disappear once heart rate lands")
 
             let afterChart = try Self.render(
                 HeartRateChartView(
