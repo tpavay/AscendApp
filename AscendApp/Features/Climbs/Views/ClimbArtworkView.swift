@@ -151,6 +151,8 @@ struct ClimbArtworkView: View {
             return "triangle.fill"
         case "stadium":
             return "sportscourt.fill"
+        case "staircase":
+            return "stairs"
         default:
             return "building.2.fill"
         }

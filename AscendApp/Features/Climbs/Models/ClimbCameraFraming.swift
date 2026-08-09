@@ -11,8 +11,12 @@ import Foundation
 /// the camera back as height grows AND lower the pitch (more top-down) so tall
 /// towers sit on their footprint instead of shooting out the top of the frame.
 enum ClimbCameraFraming {
+    /// `staircase` is grouped with the terrain categories deliberately: an open
+    /// hillside stair's route *is* the landscape it runs up, so the tight
+    /// structure framing would crop it.
     static func isNatural(_ climb: Climb) -> Bool {
-        ["mountain", "volcano", "rock", "waterfall"].contains(climb.category.lowercased())
+        ["mountain", "volcano", "rock", "waterfall", "staircase"]
+            .contains(climb.category.lowercased())
     }
 
     /// Distance scales with height so the whole structure fits in frame.

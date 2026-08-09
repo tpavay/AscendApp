@@ -2,6 +2,8 @@
 
 This file is the source record for every `realStairCount` in the climb catalogue.
 
+Catalogue facts that are not step counts - a climb's pinned coordinate and its optional `commonName` - are recorded in [`docs/climb-coordinate-and-name-sources.md`](climb-coordinate-and-name-sources.md).
+
 A climb's step count is its race distance, so each number here is a claim that needs a citable source.
 Populate `realStairCount` only from a source listed below or added below in the same change.
 Never derive a race distance from architectural height.
@@ -56,6 +58,34 @@ The figure is the sanctioned race distance, from the organiser and/or the Towerr
 | Torre Latinoamericana | 720 | 42F | High | Carrera Vertical Torre Latino, <https://www.towerrunning.com/races/r3202/> |
 | Farol Santander | 578 | 26F of the Edificio Altino Arantes | High | Santander Track&Field Run Series, plus <https://www.towerrunning.com/races/r3075/> |
 | Tokyo Tower | 500 | stair race, 150 m height gain | Medium | <https://www.towerrunning.com/races/r2457/>, 14 editions; see Conflicts |
+| Ping An Finance Centre | 3,201 | 116F, 541 m gain | Medium | Towerrunning World Tour race report, <https://www.towerrunning.com/2026/01/10/tea-faber-wai-ching-soh-pingan-champions/> |
+| Guangzhou CTF Finance Centre | 3,160 | 109F | Medium | Towerrunning World Association race record, <https://www.towerrunning.com/races/r3103/> |
+| Shanghai World Financial Center | 2,726 | 100F | Medium | Towerrunning World Association race record, <https://www.towerrunning.com/races/r2854/> |
+| Sommerbergbahn Stair | 1,987 | 720 m outdoor stair, 300 m gain | Medium | Württemberg Athletics Association event announcement, <https://calw.wlv-sport.de/home/details/news/17-bad-wildbader-staeffeleslauf-entlang-der-bergbahntrasse-am-freitag-19-juni-2026-auf-deutschland-laengster-treppe> |
+| Central Plaza | 1,688 | ground to 75F | Medium | Hong Chi Climbathon competition details, <https://www.hongchi.org.hk/en/climbathon/page/competition-details> |
+| 875 North Michigan Avenue | 1,632 | 94F | Medium | Towerrunning World Association race record, <https://www.towerrunning.com/races/r3137/> |
+| Torre Reforma | 1,487 | 56F | Low | 2024 Mexico City firefighter race announcement, <https://www.publimetro.com.mx/noticias/2024/09/21/esto-es-lo-que-tienes-que-saber-de-la-carrera-vertical-del-cuerpo-de-bomberos-de-la-cdmx/>; see Conflicts |
+| DC Tower 1 | 1,412 | 58F, 210 m gain | Medium | Towerrunning World Association race record, <https://www.towerrunning.com/races/r3181/> |
+| R&F Yingkai Square | 1,390 | 52F, 220 m gain | Medium | Towerrunning World Association race record, <https://www.towerrunning.com/races/r3278/> |
+| TK Elevator Test Tower | 1,390 | 232 m gain | Medium | Towerrunning World Association race record, <https://www.towerrunning.com/races/r2703/> |
+| Varso Tower | 1,382 | 53F, 230 m gain | Medium | Towerrunning World Association race record, <https://www.towerrunning.com/races/r2704/> |
+| Tianjin TV Tower | 1,340 | 253 m gain after a 350 m ground loop | Medium | Xinhua event report syndicated by Sohu, <https://www.sohu.com/a/844232355_267106> |
+| Macau Tower | 1,298 | 61F, 233 m gain | Medium | Towerrunning World Association race record, <https://www.towerrunning.com/races/r2806/> |
+| Frasers Tower | 1,256 | 39F | Medium | Towerrunning World Association race record, <https://www.towerrunning.com/races/r3037/> |
+| Messeturm Frankfurt | 1,200 | 61F | Medium | Towerrunning World Association race record, <https://www.towerrunning.com/races/r3182/> |
+| Sky Tower Wroclaw | 1,142 | level -5 to 49F | Medium | Towerrunning World Association race record, <https://www.towerrunning.com/races/r2714/> |
+| Gran Hotel Bali | 936 | 52F, 180 m gain | Low | Towerrunning World Association race record, <https://www.towerrunning.com/races/r3068/>; see Conflicts |
+| Tallinn TV Tower | 870 | tower stair | Medium | Towerrunning World Association race record, <https://www.towerrunning.com/races/r2433/> |
+| Rondo 1 | 836 | 38F, 142 m gain | Medium | Towerrunning World Tour event announcement, <https://www.towerrunning.com/2026/02/02/announcement-towerrunning-120-bieg-na-szczyt-rondo-1-warsaw-march-28-2026/> |
+| Post Tower | 828 | 41F | Medium | Towerrunning World Association race record, <https://www.towerrunning.com/races/r3207/> |
+| KölnTurm | 732 | ground to 40F, 135 m gain | Low | KölnTurm Treppenlauf organiser, <https://www.koelner-treppenlauf.de/infos_en/>; see Conflicts |
+| Sky Tower Bucharest | 720 | 36F, 126 m gain | Medium | Towerrunning World Association race record, <https://www.towerrunning.com/races/r2937/> |
+| Torre Glòries | 686 | 34F | Medium | Towerrunning World Tour event announcement, <https://www.towerrunning.com/2025/11/26/announcement-towerrunning-120-cupra-barcelona-tower-running-challenge-barcelona-fanuary-17-2026/> |
+| AZ Tower | 631 | 29F | Low | Towerrunning World Association race record, <https://www.towerrunning.com/races/r2867/>; see Conflicts |
+| Hyatt Regency Barcelona Tower | 569 | outdoor stair, 29F, 105 m gain | Medium | Metropolitan Sky Run organiser, <https://metropolitanskyrun.com/> |
+| Messeturm Basel | 542 | 31F | Medium | Towerrunning World Association race record, <https://www.towerrunning.com/races/r3024/> |
+| Pyramidenkogel | 441 | finish at 71 m platform | Medium | Towerrunning World Tour event announcement, <https://www.towerrunning.com/2025/07/27/announcement-towerrunning-120-pyramidenkogel-turmlauf-september-14/> |
+| UFO Tower Bratislava | 430 | 23F | Medium | Towerrunning World Association race record, <https://www.towerrunning.com/races/r3235/> |
 
 ## Published stair routes
 
@@ -95,6 +125,20 @@ Where the climbed vertical is not published, the field stays null rather than ca
 | Berlin TV Tower | 203 | 666.0 | Observation deck height |
 | Space Needle | 158.5 | 520.0 | Base 2 Space, 520 ft deck |
 | Tokyo Tower | 150 | 492.1 | Race height gain; the Main Deck stair ends at the same 150 m |
+| Ping An Finance Centre | 541 | 1,774.9 | Towerrunning World Tour race report |
+| Sommerbergbahn Stair | 300 | 984.3 | Württemberg Athletics Association event announcement |
+| DC Tower 1 | 210 | 689.0 | TWA race record |
+| R&F Yingkai Square | 220 | 721.8 | TWA race record |
+| TK Elevator Test Tower | 232 | 761.2 | TWA race record |
+| Varso Tower | 230 | 754.6 | TWA race record |
+| Tianjin TV Tower | 253 | 830.1 | Xinhua event report |
+| Macau Tower | 233 | 764.4 | TWA race record |
+| Gran Hotel Bali | 180 | 590.6 | TWA race record |
+| Rondo 1 | 142 | 465.9 | Towerrunning World Tour event announcement |
+| Sky Tower Bucharest | 126 | 413.4 | TWA race record |
+| KölnTurm | 135 | 442.9 | Race organiser |
+| Hyatt Regency Barcelona Tower | 105 | 344.5 | Race organiser |
+| Pyramidenkogel | 71 | 232.9 | Towerrunning World Tour event announcement |
 
 ## Floor counts
 
@@ -137,12 +181,35 @@ Level -2 to 103 is consistent with that count, so 105 ships as the storey count 
 | Sky Tower (Auckland) | 51 | 51F, Step Up Sky Tower Challenge |
 | Torre Latinoamericana | 42 | 42F, Carrera Vertical Torre Latino |
 | Farol Santander | 26 | 26F of the Edificio Altino Arantes |
+| Ping An Finance Centre | 116 | 116F, Towerrunning World Tour race report |
+| Guangzhou CTF Finance Centre | 109 | 109F, TWA race record |
+| Shanghai World Financial Center | 100 | 100F, TWA race record |
+| Central Plaza | 75 | ground to 75F, Hong Chi Climbathon |
+| 875 North Michigan Avenue | 94 | 94F, TWA race record |
+| Torre Reforma | 56 | 56F, 2024 Mexico City firefighter race; see Conflicts |
+| DC Tower 1 | 58 | 58F, TWA race record |
+| R&F Yingkai Square | 52 | 52F, TWA race record |
+| Varso Tower | 53 | 53F, TWA race record |
+| Macau Tower | 61 | 61F, TWA race record |
+| Frasers Tower | 39 | 39F, TWA race record |
+| Messeturm Frankfurt | 61 | 61F, TWA race record |
+| Sky Tower Wroclaw | 49 | level -5 to 49F, TWA race record |
+| Gran Hotel Bali | 52 | 52F, TWA race record; see Conflicts |
+| Rondo 1 | 38 | 38F, Towerrunning World Tour event announcement |
+| Post Tower | 41 | 41F, TWA race record |
+| Sky Tower Bucharest | 36 | 36F, TWA race record |
+| KölnTurm | 40 | ground to 40F, race organiser; see Conflicts |
+| Torre Glòries | 34 | 34F, Towerrunning World Tour event announcement |
+| AZ Tower | 29 | 29F, current TWA race record; see Conflicts |
+| Hyatt Regency Barcelona Tower | 29 | 29F, race organiser |
+| Messeturm Basel | 31 | 31F, TWA race record |
+| UFO Tower Bratislava | 23 | 23F, TWA race record |
 
 ### Derived floor counts
 
 These carry no published storey count for the route, so `calculatedFloors` is `round(referenceStepCount / 19.8)` and is derived, not sourced.
 
-CN Tower 90, Eiffel Tower 84, Monserrate 81, Sydney Tower 76, Gateway Arch 54, Berlin TV Tower 50, Washington Monument 45, Space Needle 42, Reunion Tower 42, El Penon de Guatape 37, St. Peter's Basilica 28, Tokyo Tower 25, Statue of Liberty 19, Elizabeth Tower 17, Leaning Tower of Pisa 15, Sacre-Coeur 15, Charminar 8.
+Sommerbergbahn Stair 100, TK Elevator Test Tower 70, Tianjin TV Tower 68, Tallinn TV Tower 44, Pyramidenkogel 22, CN Tower 90, Eiffel Tower 84, Monserrate 81, Sydney Tower 76, Gateway Arch 54, Berlin TV Tower 50, Washington Monument 45, Space Needle 42, Reunion Tower 42, El Penon de Guatape 37, St. Peter's Basilica 28, Tokyo Tower 25, Statue of Liberty 19, Elizabeth Tower 17, Leaning Tower of Pisa 15, Sacre-Coeur 15, Charminar 8.
 
 Three of these do have a published count, but of flights or landings rather than storeys, and no second source restates it as storeys the way the TWA record does for Willis Tower.
 So it is recorded here and not shipped as a floor count:
@@ -180,6 +247,26 @@ The tower has two staircases of slightly different length, and sources disagree 
 Commonly cited: 251 to the bell chamber, 294 on the north stair, 296 on the south stair.
 The catalogue ships 296 and the tower lands in `common` rather than `bronze` at any of those values below 300.
 
+**Torre Reforma. 1,421 over 53 floors / 1,487 over 56 floors.**
+The 2022 firefighter race published 1,421 stairs to floor 53.
+The latest sourced route, the 2024 race, extended the finish to floor 56 and published 1,487 stairs.
+The catalogue ships the current 2024 route, 1,487, rather than averaging distinct editions.
+
+**KölnTurm. 705 over 39 floors / 732 over 40 floors.**
+The Towerrunning World Association 2026 archive lists 705 stairs and 39 floors.
+The current race organiser's course page lists 732 stairs from ground level to the 40th floor.
+The catalogue ships the organiser's current full course, 732.
+
+**Gran Hotel Bali. 924 / 936.**
+The 2025 event announcement listed 924 stairs over 52 floors.
+The current Towerrunning World Association race record lists 936 stairs over the same 52-floor course.
+The catalogue ships the current race record, 936.
+
+**AZ Tower. 700 over 30 floors / 631 over 29 floors.**
+An older race report listed 700 stairs and 30 floors.
+The current Towerrunning World Association race record lists 631 stairs and 29 floors.
+The catalogue ships the current route, 631.
+
 ## Climbs deliberately left null
 
 These carry no `realStairCount`, so `referenceStepCount` still falls back to the height-derived `totalSteps`.
@@ -187,6 +274,9 @@ That fallback is a known gap, not a verified distance.
 
 **Plausible stair route, no published count found (7).**
 The Shard, Sagrada Familia, Petronas Towers, N Seoul Tower, Marina Bay Sands, Osaka Castle, Voortrekker Monument.
+
+**Announced race with no published course distance yet (1).**
+CapitaMall ONE is scheduled for December 2026, but the venue and Towerrunning World Tour material publish no defensible stair count yet.
 
 **No public or competitive stair route found (8).**
 Hallgrimskirkja, Palacio Salvo, Cairo Tower, Moscow State University Main Building, Transamerica Pyramid, Gran Torre Santiago, Chrysler Building, Tokyo Skytree.
