@@ -986,7 +986,7 @@ struct WorkoutDetailView: View {
         guard !workout.isLiveClimbAttemptWorkout else {
             await MainActor.run {
                 showingDeleteConfirmation = false
-                deleteErrorMessage = "Live climb attempts are saved as competitive history and cannot be deleted from the workout log."
+                deleteErrorMessage = "Live Climb attempts are saved as competitive history and cannot be deleted."
                 showingDeleteError = true
             }
             return

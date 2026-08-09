@@ -93,33 +93,6 @@ struct WorkoutParticipationServiceTests {
         #expect(participation.leaderboardEligible == false)
     }
 
-    /// Routine completions come only from the live routine flow, so a hand-typed template routine
-    /// entry never earns competitive credit no matter how it is filled in.
-    @Test
-    func manuallyEnteredTemplateRoutineIsNotLeaderboardEligible() throws {
-        let modelContext = try makeModelContext()
-        let workout = makeWorkout(source: .manual)
-        modelContext.insert(workout)
-
-        try WorkoutParticipationService.addRoutineParticipationIfNeeded(
-            for: workout,
-            attribution: RoutineWorkoutAttribution(
-                routineId: UUID(uuidString: "44444444-4444-4444-4444-444444444444")!,
-                routineSource: .builtin,
-                templateId: "pyramid_climb",
-                origin: .manualEntry
-            ),
-            userId: "user-123",
-            modelContext: modelContext
-        )
-
-        try modelContext.save()
-
-        let participation = try #require(workout.participations.first)
-        #expect(participation.contextType == .routineTemplate)
-        #expect(participation.leaderboardEligible == false)
-    }
-
     @Test(arguments: [
         HeadphoneMotionSessionStopReason.targetReached,
         .skipped,

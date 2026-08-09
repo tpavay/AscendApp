@@ -1,15 +1,13 @@
 import Foundation
 import SwiftData
 
-/// How a routine workout came to exist. Routine completions come only from the live routine
-/// flow, so manual entries and external imports can never earn competitive credit.
+/// How a routine workout came to exist. Routine completions come only from the live routine flow.
+///
+/// This stays an enum rather than a bare stop reason so that "not a live session" always has a way
+/// to be said without inventing a live stop reason - the fail-open trap the `didCompleteAsPlanned`
+/// default was.
 enum RoutineAttributionOrigin: Equatable, Sendable {
     case liveSession(stopReason: HeadphoneMotionSessionStopReason)
-
-    /// Retained without a current producer on purpose. Collapsing this enum to a bare stop reason
-    /// would leave a future manual-entry caller no way to say "not a live session" except inventing
-    /// a live stop reason, which is the fail-open trap the `didCompleteAsPlanned` default was.
-    case manualEntry
 }
 
 struct RoutineWorkoutAttribution: Equatable {
@@ -38,8 +36,6 @@ struct RoutineWorkoutAttribution: Equatable {
         switch origin {
         case .liveSession(let stopReason):
             return stopReason.earnsCompetitiveCredit
-        case .manualEntry:
-            return false
         }
     }
 }

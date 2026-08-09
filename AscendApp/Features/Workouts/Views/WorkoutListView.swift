@@ -240,7 +240,7 @@ struct WorkoutListView: View {
 
         if !protectedWorkoutIds.isEmpty {
             selectedWorkouts.subtract(protectedWorkoutIds)
-            deleteErrorMessage = "Live climb attempts are saved as competitive history and cannot be deleted from the workout log."
+            deleteErrorMessage = "Live Climb attempts are saved as competitive history and cannot be deleted."
             showingDeleteError = true
         }
 
@@ -261,7 +261,7 @@ struct WorkoutListView: View {
 
     private func toggleWorkoutSelection(_ workoutId: UUID) {
         guard workouts.first(where: { $0.id == workoutId })?.isLiveClimbAttemptWorkout != true else {
-            deleteErrorMessage = "Live climb attempts are saved as competitive history and cannot be deleted from the workout log."
+            deleteErrorMessage = "Live Climb attempts are saved as competitive history and cannot be deleted."
             showingDeleteError = true
             return
         }
@@ -286,7 +286,7 @@ struct WorkoutListView: View {
             await MainActor.run {
                 isDeleting = false
                 showingDeleteConfirmation = false
-                deleteErrorMessage = "Live climb attempts are saved as competitive history and cannot be deleted from the workout log."
+                deleteErrorMessage = "Live Climb attempts are saved as competitive history and cannot be deleted."
                 showingDeleteError = true
             }
             return
