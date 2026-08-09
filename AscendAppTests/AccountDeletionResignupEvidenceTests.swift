@@ -50,7 +50,8 @@ struct AccountDeletionResignupEvidenceTests {
             name: "Evening Stairs",
             duration: 1_800,
             steps: 2_400,
-            floors: 150
+            floors: 150,
+            source: .headphoneMotion
         )
         manualClimb.markPendingRemoteUpsert(ownerUserId: Self.deletedUserId)
         modelContext.insert(manualClimb)
@@ -167,7 +168,7 @@ struct AccountDeletionResignupEvidenceTests {
         let sharedSessionStore = AccountSessionStore(userDefaults: sharedDefaults)
         sharedSessionStore.recordLocalDataOwner(userId: "climber-a")
 
-        let climberAWork = Workout(name: "Climber A's Stairs", duration: 1_200, steps: 1_000, floors: 63)
+        let climberAWork = Workout(name: "Climber A's Stairs", duration: 1_200, steps: 1_000, floors: 63, source: .headphoneMotion)
         climberAWork.markPendingRemoteUpsert(ownerUserId: "climber-a")
         sharedDeviceContext.insert(climberAWork)
         try sharedDeviceContext.save()
@@ -209,7 +210,7 @@ struct AccountDeletionResignupEvidenceTests {
     @Test("The blocking wall's copy and its one resolving action", .bug(id: 389))
     func rendersTheAccountDataMismatchWall() throws {
         let modelContext = try AscendLocalStoreFixture.makeModelContext()
-        let workout = Workout(name: "Climber A's Stairs", duration: 1_200, steps: 1_000, floors: 63)
+        let workout = Workout(name: "Climber A's Stairs", duration: 1_200, steps: 1_000, floors: 63, source: .headphoneMotion)
         workout.markPendingRemoteUpsert(ownerUserId: "climber-a")
         modelContext.insert(workout)
         try modelContext.save()

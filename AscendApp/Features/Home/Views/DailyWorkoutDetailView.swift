@@ -322,7 +322,8 @@ struct WorkoutRowCard: View {
             steps: 2500,
             floors: 156,
             stepsPerFloor: 16,
-            effortRating: 4.0
+            effortRating: 4.0,
+            source: .headphoneMotion
         ),
         Workout(
             name: "Evening Session",
@@ -331,7 +332,8 @@ struct WorkoutRowCard: View {
             steps: 3000,
             floors: 188,
             stepsPerFloor: 16,
-            effortRating: 3.0
+            effortRating: 3.0,
+            source: .headphoneMotion
         )
     ]
     

@@ -219,7 +219,7 @@ final class WorkoutTestDataSeeder {
             caloriesBurned: caloriesBurned,
             effortRating: effortRating,
             heartRateTimeSeries: heartRateTimeSeries,
-            source: .manual,
+            source: .headphoneMotion,
             deviceModel: "Ascend Debug Seeder",
             sourceMetadata: metadataString(for: preset),
             weightConfiguration: weightConfiguration

@@ -84,11 +84,11 @@ A completed climb is **1:1 with a `Workout`** (the sole canonical record; verdic
 - Future demographic / peer-group insights must use declared profile fields and stay opt-in / privacy-safe.
 
 ## Apple Health enrichment
-- Apple Health can *enrich* a saved Live Climb workout with wearable metrics (heart rate, calories, device metadata, HealthKit UUID, an external provenance link). It must never become the canonical Live Climb source.
-- Enrichment is automatic only for confident one-to-one matches between an unlinked Live Climb workout and an unlinked Apple Health stair / step workout. Ambiguous matches are skipped, never guessed.
+- Apple Health can *enrich* a saved Live Climb workout with the metrics it did not capture itself: heart rate (average, maximum, series) and calories. It must never become the canonical Live Climb source.
+- Enrichment is a read of quantity samples over the climb's own start-to-end window. There is no matching step, because there is nothing to match against - Ascend does not import workouts, so a foreign `HKWorkout` is never consulted, scored, or linked.
 - **Health publishes a climb's samples after the climb ends, so one attempt is never enough.** A climb missing heart rate or calories stays in scope for later passes until the 72-hour retry window closes, at which point the surface says it stopped checking rather than pretending. A climb whose metrics are already complete is not reprocessed. Enrichment reads quantity samples over the climb's own time window and never touches a foreign `HKWorkout`. Regression coverage: `AscendAppTests/AppleHealthEnrichmentCoordinatorTests.swift`. Full contract: `ascend-apple-health-enrichment`.
 - Automatic retries are bounded by a window measured from the end of the workout (currently 72h). Once that window lapses on a still-incomplete workout, Ascend stops checking automatically and the workout detail's recovery card switches to "Stopped checking" with a manual fetch. The card appears only while enrichment is genuinely pending or stalled - never for a workout that is complete or was never eligible.
-- Enrichment preserves the Live Climb's source, steps, floors, duration, and attempt participation - it only adds health metrics and the external provenance link.
+- Enrichment preserves the Live Climb's source, steps, floors, duration, and attempt participation - it only adds heart rate and calories, and it never overwrites a heart-rate series the session captured live from a chest strap.
 - Enrichment is **silent**. It never asks the climber to confirm or edit the merged data. If Health writes the samples after the Live Climb's completion summary has been dismissed, the metrics show up on the workout detail next time they look - no notification, no review.
 - The user gathers notes / media for a Live Climb at the **completion summary**, not in a post-hoc review surface. Enrichment never inserts itself into that moment.
 

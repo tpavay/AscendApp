@@ -134,10 +134,6 @@ private extension DebugTelemetryConsoleEntry {
             return "Authentication"
         }
 
-        if rawName.hasPrefix("celebration:") {
-            return "Celebration"
-        }
-
         if rawName.contains("workout") {
             return "Workouts"
         }
@@ -148,7 +144,6 @@ private extension DebugTelemetryConsoleEntry {
     static func humanizedTitle(_ rawName: String) -> String {
         let trimmedName = rawName
             .replacingOccurrences(of: "auth:", with: "")
-            .replacingOccurrences(of: "celebration:", with: "")
             .replacingOccurrences(of: "workout_", with: "workout ")
             .replacingOccurrences(of: "_", with: " ")
             .replacingOccurrences(of: ":", with: " ")

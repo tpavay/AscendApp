@@ -65,7 +65,8 @@ struct WorkoutDetailScrollWorkTests {
             name: "Manual Session",
             duration: 1_800,
             steps: 2_000,
-            floors: 125
+            floors: 125,
+            source: .headphoneMotion
         )
         let derived = WorkoutDetailDerivedContent(workout: workout)
 

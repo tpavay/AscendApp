@@ -255,6 +255,7 @@ struct WorkoutPhotosSection: View {
         duration: 1800,
         steps: 2500,
         floors: 156,
+        source: .headphoneMotion,
         photos: [
             Photo(url: URL(string: "https://picsum.photos/200/200?random=1")!),
             Photo(url: URL(string: "https://picsum.photos/200/200?random=2")!),

@@ -19,7 +19,7 @@ enum AscendLocalStoreFixture {
     private static var inserters: [String: (ModelContext) -> Void] {
         Dictionary(uniqueKeysWithValues: [
             inserter(Workout.self) {
-                Workout(name: "Fixture Workout", duration: 1_200, steps: 1_000, floors: 63)
+                Workout(name: "Fixture Workout", duration: 1_200, steps: 1_000, floors: 63, source: .headphoneMotion)
             },
             inserter(WorkoutSourceLink.self) {
                 WorkoutSourceLink(
@@ -32,7 +32,7 @@ enum AscendLocalStoreFixture {
             },
             inserter(WorkoutParticipation.self) {
                 WorkoutParticipation(
-                    workout: Workout(duration: 1_200, steps: 1_000, floors: 63),
+                    workout: Workout(duration: 1_200, steps: 1_000, floors: 63, source: .headphoneMotion),
                     userId: "fixture-user",
                     contextType: .climbAttempt,
                     contextId: "fixture-climb",
@@ -162,7 +162,7 @@ enum AscendLocalStoreFixture {
     }
 
     private static var fixtureRankedBestEffort: RankedBestEffort {
-        let workout = Workout(duration: 1_200, steps: 1_000, floors: 63)
+        let workout = Workout(duration: 1_200, steps: 1_000, floors: 63, source: .headphoneMotion)
         return RankedBestEffort(
             metric: .mostSteps,
             rank: 1,

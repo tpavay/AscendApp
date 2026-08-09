@@ -855,7 +855,8 @@ private extension BestEffortBoard {
             maxHeartRate: 168,
             caloriesBurned: 520,
             effortRating: 4.5,
-            averageMETs: 7.2
+            averageMETs: 7.2,
+            source: .headphoneMotion
         ),
         Workout(
             name: "Evening Session",
@@ -868,7 +869,8 @@ private extension BestEffortBoard {
             maxHeartRate: 160,
             caloriesBurned: 430,
             effortRating: 3.8,
-            averageMETs: 6.5
+            averageMETs: 6.5,
+            source: .headphoneMotion
         )
     ]
 

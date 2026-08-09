@@ -187,7 +187,7 @@ struct HomeView: View {
 
             // Apple Health writes a climb's heart rate after the climb ends, so every Home entry
             // is another chance for a recent climb to pick up what was not there yet.
-            await enrichmentCoordinator.refreshPendingEnrichment()
+            await enrichmentCoordinator.refreshPendingEnrichment(trigger: .automatic)
         }
         .onDisappear {
             // Home owns this pass; once it is gone, so is the reason to keep enriching. Sheets,
@@ -204,7 +204,7 @@ struct HomeView: View {
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
             Task {
-                await enrichmentCoordinator.refreshPendingEnrichment()
+                await enrichmentCoordinator.refreshPendingEnrichment(trigger: .automatic)
             }
         }
         .onChange(of: authVM.user?.uid) { _, _ in
@@ -219,7 +219,7 @@ struct HomeView: View {
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
             Task {
-                await enrichmentCoordinator.refreshPendingEnrichment()
+                await enrichmentCoordinator.refreshPendingEnrichment(trigger: .automatic)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbStateDidChange)) { _ in

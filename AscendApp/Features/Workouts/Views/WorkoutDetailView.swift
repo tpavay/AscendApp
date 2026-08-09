@@ -1116,7 +1116,8 @@ struct WorkoutDetailView: View {
         avgHeartRate: 145,
         maxHeartRate: 165,
         caloriesBurned: 320,
-        effortRating: 4.0
+        effortRating: 4.0,
+        source: .headphoneMotion
     )
 
     WorkoutDetailView(workout: sampleWorkout)
@@ -1144,7 +1145,8 @@ struct WorkoutDetailView: View {
         avgHeartRate: nil,
         maxHeartRate: nil,
         caloriesBurned: nil,
-        effortRating: 3.0
+        effortRating: 3.0,
+        source: .headphoneMotion
     )
 
     WorkoutDetailView(workout: sampleWorkout)

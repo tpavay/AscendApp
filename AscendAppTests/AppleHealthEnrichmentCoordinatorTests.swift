@@ -196,6 +196,69 @@ struct AppleHealthEnrichmentCoordinatorTests {
         }
     }
 
+    @Test("A climber who never connected Apple Health is not swept")
+    func doesNothingWithoutAnAppleHealthConnection() async throws {
+        try await HealthKitCoordinatorTestIsolation.shared.run {
+            let modelContext = try Self.makeModelContext()
+            let snapshot = HealthKitSyncStateSnapshot.capture()
+            defer { snapshot.restore() }
+            HealthKitSyncState.hasRequestedAuthorization = false
+
+            let start = Date().addingTimeInterval(-25 * 60)
+            let climb = Self.makeClimb(start: start, duration: 900, steps: 1_200)
+            modelContext.insert(climb)
+            try modelContext.save()
+
+            let metricsReader = StubMetricsReader(responses: [
+                WorkoutMetrics(avgHeartRate: 140, maxHeartRate: 160, caloriesBurned: 100)
+            ])
+            let coordinator = Self.makeCoordinator(metricsReader: metricsReader)
+            coordinator.configure(modelContext: modelContext)
+
+            await coordinator.refreshPendingEnrichment()
+
+            #expect(metricsReader.requestedRanges.isEmpty)
+            #expect(climb.avgHeartRate == nil)
+            #expect(coordinator.lastErrorMessage == nil)
+        }
+    }
+
+    @Test("An automatic sweep re-entering seconds later is refused, an explicit one is not")
+    func throttlesAutomaticSweepsButNotUserInitiatedOnes() async throws {
+        try await HealthKitCoordinatorTestIsolation.shared.run {
+            let modelContext = try Self.makeModelContext()
+            let snapshot = HealthKitSyncStateSnapshot.capture()
+            defer { snapshot.restore() }
+            HealthKitSyncState.hasRequestedAuthorization = true
+
+            let firstStart = Date().addingTimeInterval(-40 * 60)
+            let firstClimb = Self.makeClimb(start: firstStart, duration: 900, steps: 1_100)
+            modelContext.insert(firstClimb)
+            try modelContext.save()
+
+            let metricsReader = StubMetricsReader(responses: [])
+            let coordinator = Self.makeCoordinator(metricsReader: metricsReader)
+            coordinator.configure(modelContext: modelContext)
+
+            await coordinator.refreshPendingEnrichment(trigger: .automatic)
+            #expect(metricsReader.requestedRanges.count == 1)
+
+            // A brand-new climb proves the second pass was refused before the fetch, rather than
+            // the per-climb retry store refusing a repeat read of the first one.
+            let secondStart = Date().addingTimeInterval(-20 * 60)
+            let secondClimb = Self.makeClimb(start: secondStart, duration: 600, steps: 800)
+            modelContext.insert(secondClimb)
+            try modelContext.save()
+
+            await coordinator.refreshPendingEnrichment(trigger: .automatic)
+            #expect(metricsReader.requestedRanges.count == 1)
+
+            await coordinator.refreshPendingEnrichment()
+            #expect(metricsReader.requestedRanges.count == 2)
+            #expect(metricsReader.requestedRanges.last?.lowerBound == secondStart)
+        }
+    }
+
     // MARK: - Helpers
 
     private static func makeCoordinator(

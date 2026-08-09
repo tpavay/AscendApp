@@ -106,6 +106,21 @@ final class AppleHealthEnrichmentCoordinator: AuthenticatedSessionWorker {
         case complete
     }
 
+    /// Why a pass ran, which is the only thing that decides whether it may be skipped outright.
+    ///
+    /// `.automatic` is a surface re-entering on its own - Home mounting, a tab return, a
+    /// foreground. `.userInitiated` is a climber who just did something about Apple Health and is
+    /// waiting to see the result, and is never throttled.
+    enum EnrichmentTrigger {
+        case userInitiated
+        case automatic
+    }
+
+    /// Automatic sweeps inside this window cannot find anything the last one did not: the retry
+    /// store already refuses a second read of the same climb within a minute, so the fetch and its
+    /// per-climb heart-rate decode would be pure cost.
+    private static let automaticPassMinimumInterval: TimeInterval = 30
+
     var lastErrorMessage: String?
 
     private let authorizationController: any HealthKitAuthorizationControlling
@@ -115,6 +130,7 @@ final class AppleHealthEnrichmentCoordinator: AuthenticatedSessionWorker {
     private let sessionWorkGate: AuthenticatedBootstrapCoordinator
 
     private var modelContext: ModelContext?
+    private var lastAutomaticPassAt: Date?
     private var refreshTask: Task<Void, Never>?
     private var refreshJoinContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
     private var joinsInFlight: Set<UUID> = []
@@ -187,7 +203,7 @@ final class AppleHealthEnrichmentCoordinator: AuthenticatedSessionWorker {
     ///
     /// Refuses to start while account-scoped work is suspended, so a pass started a millisecond
     /// after account deletion began cannot write into the store deletion is emptying.
-    func refreshPendingEnrichment() async {
+    func refreshPendingEnrichment(trigger: EnrichmentTrigger = .userInitiated) async {
         guard sessionWorkGate.isSuspended == false else { return }
 
         if refreshTask != nil {
@@ -196,7 +212,7 @@ final class AppleHealthEnrichmentCoordinator: AuthenticatedSessionWorker {
         }
 
         let refreshTask = Task { @MainActor [weak self] in
-            await self?.performRefreshPendingEnrichment()
+            await self?.performRefreshPendingEnrichment(trigger: trigger)
             self?.refreshTask = nil
             self?.resumeAllJoiners()
         }
@@ -254,19 +270,25 @@ final class AppleHealthEnrichmentCoordinator: AuthenticatedSessionWorker {
         return appleHealthEnrichmentStatus(for: workout)
     }
 
-    private func performRefreshPendingEnrichment() async {
+    private func performRefreshPendingEnrichment(trigger: EnrichmentTrigger) async {
         guard let modelContext else { return }
 
         do {
             await authorizationController.refreshAuthorizationRequestStatus()
 
-            try Task.checkCancellation()
-            let pending = try InAppSensorWorkoutQuery
-                .allInAppSensorWorkouts(in: modelContext)
-                .filter(needsAppleHealthEnrichment)
+            // Both of these come before the fetch on purpose. The fetch reads every in-app climb
+            // and decodes each one's heart-rate series to decide what is still outstanding, so a
+            // climber who never connected Apple Health - and a sweep that re-entered seconds after
+            // the last one - must not pay for it.
+            if authorizationController.connectionState == .connected, claimPass(for: trigger) {
+                try Task.checkCancellation()
+                let pending = try InAppSensorWorkoutQuery
+                    .allInAppSensorWorkouts(in: modelContext)
+                    .filter(needsAppleHealthEnrichment)
 
-            try Task.checkCancellation()
-            _ = try await enrich(pending, modelContext: modelContext, force: false)
+                try Task.checkCancellation()
+                _ = try await enrich(pending, modelContext: modelContext, force: false)
+            }
 
             lastErrorMessage = nil
         } catch is CancellationError {
@@ -325,6 +347,19 @@ final class AppleHealthEnrichmentCoordinator: AuthenticatedSessionWorker {
         )
 
         return updatedWorkouts
+    }
+
+    private func claimPass(for trigger: EnrichmentTrigger) -> Bool {
+        guard trigger == .automatic else { return true }
+
+        let now = Date()
+        if let lastAutomaticPassAt,
+           now.timeIntervalSince(lastAutomaticPassAt) < Self.automaticPassMinimumInterval {
+            return false
+        }
+
+        lastAutomaticPassAt = now
+        return true
     }
 
     private func needsAppleHealthEnrichment(_ workout: Workout) -> Bool {

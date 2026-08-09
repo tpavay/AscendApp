@@ -93,6 +93,7 @@ struct BestEffortTrophyBadge: View {
         duration: 1_800,
         steps: 3_000,
         floors: 188,
+        source: .headphoneMotion,
         weightConfiguration: WeightConfiguration(entries: [
             WeightEntry(equipmentType: .weightedVest, weightValue: 20)
         ])
