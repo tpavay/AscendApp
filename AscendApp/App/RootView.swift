@@ -92,7 +92,7 @@ struct RootView: View {
                 details: ["route": rootRoute.diagnosticName]
             )
             // Retry pending uploads when app comes to foreground (network may have restored)
-            enrichmentCoordinator.configure(modelContext: modelContext)
+            AppleHealthEnrichmentService.shared.configure(modelContext: modelContext)
             scheduleAuthenticatedSessionWork()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
@@ -370,6 +370,11 @@ struct RootView: View {
                 modelContext: modelContext
             )
             guard isCurrentAuthenticatedSession(currentUserId) else { return }
+
+            // Runs after hydration so a climb restored onto a fresh device is tracked too, and
+            // before the leaderboard rebuild because enrichment only ever adds metrics that
+            // rebuild already reads.
+            AppleHealthEnrichmentService.shared.resumeTracking(modelContext: modelContext)
 
             await WorkoutSyncCoordinator.shared.processPendingWorkouts(
                 modelContext: modelContext,

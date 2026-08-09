@@ -28,6 +28,10 @@ struct LiveClimbCompletionSummaryView: View {
     @State private var computedCompletionRank: LiveReplayCompletionRank?
     @State private var rankResolution: LiveClimbSummaryRankHero.RankResolution = .notStarted
     @State private var didTrackSummaryViewed = false
+    @State private var enrichmentService = AppleHealthEnrichmentService.shared
+    @State private var isConnectingAppleHealth = false
+    @State private var didDismissHeartRateConnect = false
+    @State private var appleHealthConnectTask: Task<Void, Never>?
 
     init(
         climb: Climb?,
@@ -89,6 +93,7 @@ struct LiveClimbCompletionSummaryView: View {
                 VStack(spacing: 18) {
                     rankingSection(hero: hero)
                     primaryStatsGrid
+                    heartRateConnectCard
                     achievementCard
                     paceSplitsCard
                     paceTrendCard
@@ -133,6 +138,12 @@ struct LiveClimbCompletionSummaryView: View {
         .task(id: workout.id) {
             await resolveCompletionRank()
             trackSummaryViewedIfNeeded()
+        }
+        .onDisappear {
+            // Unstructured, so it would otherwise outlive the summary still holding the
+            // workout and still writing to state nobody reads.
+            appleHealthConnectTask?.cancel()
+            appleHealthConnectTask = nil
         }
     }
 
@@ -260,6 +271,44 @@ struct LiveClimbCompletionSummaryView: View {
             summaryStatCard(title: "TOTAL STEPS", value: workout.steps.formatted())
             summaryStatCard(title: "DURATION", value: workout.durationFormatted)
             summaryStatCard(title: "AVG SPM", value: averageSPMText)
+        }
+    }
+
+    /// Offered only to a climber who could actually act on it: this climb has no heart rate
+    /// and Apple Health has never been connected. A climber who already connected sees
+    /// nothing here - their climb is already in the retry series, and the workout detail is
+    /// where its progress is reported.
+    @ViewBuilder
+    private var heartRateConnectCard: some View {
+        if !didDismissHeartRateConnect, enrichmentService.offersConnectionPrompt(for: workout) {
+            LiveClimbHeartRateConnectCard(
+                isConnecting: isConnectingAppleHealth,
+                onConnect: connectAppleHealthForHeartRate,
+                onDismiss: { didDismissHeartRateConnect = true }
+            )
+            .background(summaryCardBackground)
+        }
+    }
+
+    private func connectAppleHealthForHeartRate() {
+        guard !isConnectingAppleHealth else { return }
+
+        appleHealthConnectTask = Task { @MainActor in
+            isConnectingAppleHealth = true
+            defer { isConnectingAppleHealth = false }
+
+            let didAdd = await enrichmentService.connectAndFetch(
+                workout,
+                modelContext: modelContext
+            )
+            HapticsManager.shared.trigger(didAdd ? .success : .warning)
+
+            // Connecting is the whole ask. Whether the samples had landed yet is the retry
+            // series' problem now, and repeating the offer would be asking for something the
+            // climber already gave.
+            if enrichmentService.connectionState == .connected {
+                didDismissHeartRateConnect = true
+            }
         }
     }
 

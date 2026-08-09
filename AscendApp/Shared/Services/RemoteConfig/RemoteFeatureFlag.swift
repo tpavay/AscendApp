@@ -44,6 +44,11 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// Decoding routine backups back into local SwiftData on sign-in and reinstall.
     case routineCloudRestore = "routine_cloud_restore_enabled"
 
+    /// The background pass that reads Apple Health and writes heart rate and calories onto
+    /// climbs Ascend recorded. Autonomous and retrying, so a bad read would rewrite rows across
+    /// the retry window without anyone asking for it.
+    case appleHealthEnrichment = "apple_health_enrichment_enabled"
+
     /// One-shot local backfills that rewrite existing SwiftData rows in bulk.
     case localDataMigrations = "local_data_migrations_enabled"
 
@@ -83,6 +88,9 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Deletes remote routine and routine folder documents."
         case .routineCloudRestore:
             return "Restores routine backups into local storage on sign-in and reinstall."
+        case .appleHealthEnrichment:
+            return "Reads Apple Health and writes heart rate and calories onto recorded climbs."
+
         case .localDataMigrations:
             return "Runs one-shot local backfills that rewrite stored workouts."
         case .publicProfilePublishing:

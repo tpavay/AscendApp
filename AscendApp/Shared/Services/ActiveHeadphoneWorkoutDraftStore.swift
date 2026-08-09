@@ -241,12 +241,10 @@ enum ActiveHeadphoneWorkoutDraftSaver {
             changedWorkouts: [workout]
         )
 
-        Task { @MainActor in
-            await AppleHealthEnrichmentCoordinator.shared.enrichInAppWorkoutWithAppleHealthIfPossible(
-                workout,
-                modelContext: modelContext
-            )
-        }
+        AppleHealthEnrichmentService.shared.trackNewlyRecordedWorkout(
+            workout,
+            modelContext: modelContext
+        )
 
         try ActiveHeadphoneWorkoutDraftStore().delete(draft, in: modelContext)
         return workout

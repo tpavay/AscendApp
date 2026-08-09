@@ -215,12 +215,10 @@ private struct RoutineHeartRateProof: View {
                 detail: "avgHeartRate \(describe(bareWorkout.avgHeartRate)) · maxHeartRate \(describe(bareWorkout.maxHeartRate)) · \(bareWorkout.heartRateTimeSeries.count) samples · saved cleanly"
             ) {
                 WorkoutHeartRateRecoveryCard(
-                    connectionState: .connected,
-                    isFetching: false,
-                    hasStoppedAutomaticChecks: false,
+                    phase: .waiting(nextCheckAt: nil),
                     message: nil,
                     effectiveColorScheme: .dark,
-                    onFetch: {}
+                    onPrimaryAction: {}
                 )
             }
         }

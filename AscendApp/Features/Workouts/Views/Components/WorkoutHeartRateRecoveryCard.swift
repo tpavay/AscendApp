@@ -1,12 +1,19 @@
 import SwiftUI
 
+/// The heart-rate slot for a climb that has none yet.
+///
+/// Every phase says something. A climber who is waiting is told Ascend is still looking; one
+/// who has never connected Health is offered the connection; one whose wearable never wrote
+/// anything is told Ascend has stopped. The slot is never blank - a blank was the bug (#438).
+///
+/// The copy names no device. Heart rate reaches Ascend as Apple Health samples whoever wrote
+/// them, so a Garmin, a Whoop, a Polar and an Apple Watch all arrive here identically, and
+/// naming one of them tells the other three they are not supported.
 struct WorkoutHeartRateRecoveryCard: View {
-    let connectionState: AppleHealthConnectionState
-    let isFetching: Bool
-    let hasStoppedAutomaticChecks: Bool
+    let phase: AppleHealthEnrichmentService.Phase
     let message: String?
     let effectiveColorScheme: ColorScheme
-    let onFetch: () -> Void
+    let onPrimaryAction: () -> Void
 
     private var primaryTextColor: Color {
         effectiveColorScheme == .dark ? .white : .black
@@ -24,16 +31,26 @@ struct WorkoutHeartRateRecoveryCard: View {
         effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15)
     }
 
+    private var isChecking: Bool {
+        phase == .checking
+    }
+
     private var title: String {
-        switch connectionState {
-        case .connected:
-            return hasStoppedAutomaticChecks ? "Stopped checking" : "Waiting for heart-rate data"
-        case .neverConnected:
+        switch phase {
+        case .checking:
+            return "Checking Apple Health"
+        case .waiting:
+            return "Waiting on your wearable"
+        case .stoppedLooking:
+            return "Stopped looking"
+        case .connectionOffered:
             return "Connect Apple Health"
-        case .revoked:
+        case .accessRevoked:
             return "Apple Health access is off"
         case .unavailable:
             return "Apple Health unavailable"
+        case .notApplicable:
+            return "Heart rate"
         }
     }
 
@@ -42,28 +59,31 @@ struct WorkoutHeartRateRecoveryCard: View {
             return message
         }
 
-        switch connectionState {
-        case .connected:
-            if hasStoppedAutomaticChecks {
-                return "Ascend no longer checks Apple Health for this workout automatically. Fetch to look one more time."
-            }
-            return "Apple Watch workouts can take a few minutes to sync. Fetch again after Health finishes writing the workout."
-        case .neverConnected:
-            return "Connect Apple Health to pull heart-rate data from your Watch workout."
-        case .revoked:
-            return "Re-enable Ascend in Health permissions, then return here to fetch heart-rate data."
+        switch phase {
+        case .checking:
+            return "Reading heart rate for this climb."
+        case .waiting:
+            return "Your watch, strap or band writes to Apple Health on its own schedule. Ascend keeps checking and adds your heart rate the moment it lands."
+        case .stoppedLooking:
+            return "Nothing reached Apple Health for this climb. Check one more time once your wearable has synced."
+        case .connectionOffered:
+            return "Ascend reads heart rate from Apple Health - whichever watch, strap or band you wear. Connect it to put heart rate on this climb."
+        case .accessRevoked:
+            return "Turn Ascend back on under Heart Rate in the Health app, then check again."
         case .unavailable:
             return "This device cannot read Apple Health data."
+        case .notApplicable:
+            return ""
         }
     }
 
     private var actionTitle: String? {
-        switch connectionState {
-        case .connected:
-            return "Fetch"
-        case .neverConnected:
+        switch phase {
+        case .connectionOffered:
             return "Connect"
-        case .revoked, .unavailable:
+        case .waiting, .stoppedLooking, .checking:
+            return "Check now"
+        case .accessRevoked, .unavailable, .notApplicable:
             return nil
         }
     }
@@ -77,7 +97,7 @@ struct WorkoutHeartRateRecoveryCard: View {
 
                 Spacer()
 
-                if isFetching {
+                if isChecking {
                     ProgressView()
                         .controlSize(.small)
                         .tint(.red)
@@ -105,7 +125,7 @@ struct WorkoutHeartRateRecoveryCard: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                     if let actionTitle {
-                        Button(action: onFetch) {
+                        Button(action: onPrimaryAction) {
                             Label(actionTitle, systemImage: "arrow.clockwise")
                                 .font(.montserratBold(size: 12))
                                 .foregroundStyle(.black)
@@ -117,8 +137,8 @@ struct WorkoutHeartRateRecoveryCard: View {
                                 )
                         }
                         .buttonStyle(.plain)
-                        .disabled(isFetching)
-                        .opacity(isFetching ? 0.62 : 1)
+                        .disabled(isChecking)
+                        .opacity(isChecking ? 0.62 : 1)
                     }
                 }
 
@@ -138,34 +158,44 @@ struct WorkoutHeartRateRecoveryCard: View {
 }
 
 #Preview {
-    VStack(spacing: 20) {
-        WorkoutHeartRateRecoveryCard(
-            connectionState: .connected,
-            isFetching: false,
-            hasStoppedAutomaticChecks: false,
-            message: nil,
-            effectiveColorScheme: .dark,
-            onFetch: {}
-        )
+    ScrollView {
+        VStack(spacing: 20) {
+            WorkoutHeartRateRecoveryCard(
+                phase: .waiting(nextCheckAt: nil),
+                message: nil,
+                effectiveColorScheme: .dark,
+                onPrimaryAction: {}
+            )
 
-        WorkoutHeartRateRecoveryCard(
-            connectionState: .connected,
-            isFetching: false,
-            hasStoppedAutomaticChecks: true,
-            message: nil,
-            effectiveColorScheme: .dark,
-            onFetch: {}
-        )
+            WorkoutHeartRateRecoveryCard(
+                phase: .checking,
+                message: nil,
+                effectiveColorScheme: .dark,
+                onPrimaryAction: {}
+            )
 
-        WorkoutHeartRateRecoveryCard(
-            connectionState: .neverConnected,
-            isFetching: true,
-            hasStoppedAutomaticChecks: false,
-            message: nil,
-            effectiveColorScheme: .dark,
-            onFetch: {}
-        )
+            WorkoutHeartRateRecoveryCard(
+                phase: .stoppedLooking,
+                message: nil,
+                effectiveColorScheme: .dark,
+                onPrimaryAction: {}
+            )
+
+            WorkoutHeartRateRecoveryCard(
+                phase: .connectionOffered,
+                message: nil,
+                effectiveColorScheme: .dark,
+                onPrimaryAction: {}
+            )
+
+            WorkoutHeartRateRecoveryCard(
+                phase: .accessRevoked,
+                message: nil,
+                effectiveColorScheme: .dark,
+                onPrimaryAction: {}
+            )
+        }
+        .padding(20)
     }
-    .padding(20)
     .background(Color.black)
 }

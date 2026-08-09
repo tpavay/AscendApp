@@ -1125,12 +1125,10 @@ final class LiveClimbSessionViewModel {
             newWorkouts: [workout],
             changedWorkouts: [workout]
         )
-        Task { @MainActor in
-            await AppleHealthEnrichmentCoordinator.shared.enrichInAppWorkoutWithAppleHealthIfPossible(
-                workout,
-                modelContext: modelContext
-            )
-        }
+        AppleHealthEnrichmentService.shared.trackNewlyRecordedWorkout(
+            workout,
+            modelContext: modelContext
+        )
 
         // Just Climb sessions have no attempt to rank - saving one is the finish.
         return SavedLiveClimbSession(

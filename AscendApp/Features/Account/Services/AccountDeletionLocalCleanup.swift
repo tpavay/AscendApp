@@ -37,7 +37,7 @@ struct AppAccountDeletionLocalCleanup: AccountDeletionLocalCleanup {
         climbDropNotificationState: ClimbDropNotificationState = .shared,
         bootstrapCoordinator: AuthenticatedBootstrapCoordinator = .shared,
         autonomousSessionWorkers: [any AuthenticatedSessionWorker] = [
-            AppleHealthEnrichmentCoordinator.shared,
+            AppleHealthEnrichmentService.shared,
             MediaUploadManager.shared
         ]
     ) {

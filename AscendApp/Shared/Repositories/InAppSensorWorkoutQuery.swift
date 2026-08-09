@@ -43,4 +43,25 @@ enum InAppSensorWorkoutQuery {
 
         return try modelContext.fetch(descriptor)
     }
+
+    /// In-app sensor workouts that started on or after `date`, newest first.
+    ///
+    /// What the enrichment scheduler re-arms from on launch and on foreground. Bounded by the
+    /// retry window rather than by the user's in-app history, so a climber with a thousand
+    /// sessions pays for the handful recorded in the last few days - the only ones any
+    /// schedule can still act on.
+    static func inAppSensorWorkouts(
+        startingOnOrAfter date: Date,
+        in modelContext: ModelContext
+    ) throws -> [Workout] {
+        let inAppSensorSourceRawValue = WorkoutSource.headphoneMotion.rawValue
+        let descriptor = FetchDescriptor<Workout>(
+            predicate: #Predicate<Workout> { workout in
+                workout.sourceRawValue == inAppSensorSourceRawValue && workout.date >= date
+            },
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
+        )
+
+        return try modelContext.fetch(descriptor)
+    }
 }

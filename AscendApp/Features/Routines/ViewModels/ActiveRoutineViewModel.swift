@@ -531,12 +531,10 @@ final class ActiveRoutineViewModel {
             changedWorkouts: [workout]
         )
 
-        Task { @MainActor in
-            await AppleHealthEnrichmentCoordinator.shared.enrichInAppWorkoutWithAppleHealthIfPossible(
-                workout,
-                modelContext: modelContext
-            )
-        }
+        AppleHealthEnrichmentService.shared.trackNewlyRecordedWorkout(
+            workout,
+            modelContext: modelContext
+        )
 
         savedWorkout = workout
         phase = .complete
