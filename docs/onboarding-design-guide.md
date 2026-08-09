@@ -740,7 +740,7 @@ App surfaces:
 
 State and data:
 - Live Climb completions require live sensor data from the live attempt flow.
-- Manual entries, imports, and routines cannot complete a Live Climb or enter its leaderboard.
+- Routine completions cannot complete a Live Climb or enter its leaderboard.
 - Step tracking diagnostics should be collectable from this workflow because this is where algorithm quality matters.
 
 Success condition:
@@ -786,7 +786,7 @@ Design principle:
 User goal: see that every stair session counted and improved the record book.
 
 Primary path:
-1. Workout saved or imported
+1. Workout saved by a live session
 2. Workout Detail
 3. Best Efforts recalculated
 4. Progress / trends updated

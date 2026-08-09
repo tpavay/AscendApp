@@ -9,7 +9,7 @@ paths:
 
 # Share Composer Architecture
 
-Sharing in Ascend is a **user-composed canvas**, not a gallery of pre-designed cards. The user picks a background (their own photo/video or a preset), then drops stat "stickers" onto it and arranges them freely - the Instagram Story editor model. This replaces the older "carousel of fixed share-card variants" approach. Every share surface in the app (workout detail, Live Climb completion summary, manual log, Apple Health import) routes into the same composer.
+Sharing in Ascend is a **user-composed canvas**, not a gallery of pre-designed cards. The user picks a background (their own photo/video or a preset), then drops stat "stickers" onto it and arranges them freely - the Instagram Story editor model. This replaces the older "carousel of fixed share-card variants" approach. Every share surface in the app (workout detail, Live Climb completion summary) routes into the same composer.
 
 ## The two composable inputs - keep them independent
 - **Background** = what fills the canvas. Sources: the user's Camera Roll (photo or video) or a bundled/known **preset**. For a Live Climb, the climb's bespoke share card becomes one of the presets - it's no longer a parallel share path. Backgrounds and stats are decoupled: a background is just a backing layer, never bundled with baked-in stats.

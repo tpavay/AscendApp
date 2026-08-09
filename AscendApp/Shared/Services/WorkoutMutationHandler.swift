@@ -4,7 +4,7 @@ import SwiftData
 
 /// Centralized handler for post-workout-mutation side effects.
 ///
-/// Every code path that creates, edits, deletes, or imports workouts should call
+/// Every code path that creates, edits, or deletes workouts should call
 /// `workoutsDidChange(modelContext:mutation:newWorkouts:changedWorkouts:)`
 /// after the mutation is persisted.
 @MainActor

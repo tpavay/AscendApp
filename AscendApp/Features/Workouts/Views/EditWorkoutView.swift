@@ -506,7 +506,7 @@ struct EditWorkoutView: View {
         try? modelContext.save()
     }
     
-    // MARK: - Helper Functions (Same as WorkoutFormView)
+    // MARK: - Helper Functions
     private func populateFields() {
         workoutName = workout.name
         workoutDate = workout.date

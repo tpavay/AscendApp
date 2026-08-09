@@ -12,7 +12,7 @@ struct HeartRateChartDataSet: Equatable {
     static let minimumLineSampleCount = 3
     /// A gap this many times wider than the series' own median spacing is a
     /// dropout rather than cadence jitter. Scaling off the series keeps sparse
-    /// imported samples (minutes apart by nature) rendering as one trace while
+    /// Apple Health samples (minutes apart by nature) rendering as one trace while
     /// still breaking ~1 Hz live capture where the strap actually went silent.
     static let dropoutGapMultiplier: Double = 4
     /// Floor so a couple of skipped 1 Hz notifications never shatter the line.
