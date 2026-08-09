@@ -14,7 +14,7 @@ struct WorkoutListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(AuthenticationViewModel.self) private var authVM
     @State private var themeManager = ThemeManager.shared
-    @State private var enrichmentCoordinator = AppleHealthEnrichmentCoordinator.shared
+    @State private var enrichmentService = AppleHealthEnrichmentService.shared
     @State private var syncCoordinator = WorkoutSyncCoordinator.shared
     @State private var filterState = WorkoutListFilterState()
 
@@ -168,7 +168,7 @@ struct WorkoutListView: View {
                 Text(deleteErrorMessage)
             }
             .task {
-                enrichmentCoordinator.configure(modelContext: modelContext)
+                enrichmentService.configure(modelContext: modelContext)
                 refreshCouldNotSyncWorkoutIds()
             }
             // Without this the badge is a snapshot taken once: a climb that lands keeps its

@@ -7,7 +7,7 @@ import Testing
 
 /// End-to-end evidence for ASCEND-IOS-1K at the seam a climber actually feels it.
 ///
-/// Home's `.task` calls `AppleHealthEnrichmentCoordinator.configure(modelContext:)` synchronously
+/// Home's `.task` calls `AppleHealthEnrichmentService.configure(modelContext:)` synchronously
 /// before Home can draw, so every microsecond that call spends is a microsecond the screen is
 /// blocked - which is why the reported hang was a *fully blocked* 182 seconds rather than a slow
 /// screen. Enrichment's own query is bounded and deliberately runs off the async pass; nothing on
@@ -39,7 +39,7 @@ struct HomeEntryConfigureBlockingCostTests {
                 ).map(\.id)
             }
 
-            let coordinator = AppleHealthEnrichmentCoordinator(
+            let coordinator = AppleHealthEnrichmentService(
                 authorizationController: OfflineAuthorizationController(),
                 metricsReader: EmptyMetricsReader()
             )
@@ -52,7 +52,7 @@ struct HomeEntryConfigureBlockingCostTests {
             print(
                 """
                 ASCEND-IOS-1K Home entry: synchronous cost of \
-                AppleHealthEnrichmentCoordinator.configure
+                AppleHealthEnrichmentService.configure
                   store                \(Self.storeSize) workouts, \
                 \(Self.heartRateSamplesPerWorkout) heart-rate samples each
                   inline blob bytes    \(seeded.inlineHeartRateBytes)

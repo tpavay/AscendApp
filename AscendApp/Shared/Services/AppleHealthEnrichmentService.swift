@@ -125,6 +125,83 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         authorizationController.connectionState
     }
 
+    /// The Integrations card reads this name; kept so one connection state has one spelling.
+    var appleHealthConnectionState: AppleHealthConnectionState { connectionState }
+
+    /// Why the last connect or read could not proceed, for the Integrations card to show.
+    ///
+    /// Only ever set from a climber-initiated action. The automatic series stays silent: a
+    /// background pass that found nothing is not an error worth putting on a screen.
+    private(set) var lastErrorMessage: String?
+
+    /// Hands the service the store to work in.
+    ///
+    /// Every entry point also assigns it, so this exists for the surfaces that adopt the service
+    /// before asking it for anything - Home, the workout list, the Integrations card and the root
+    /// view all call it from their `.task`.
+    func configure(modelContext: ModelContext) {
+        self.modelContext = modelContext
+    }
+
+    /// Connects Apple Health without a climb in hand.
+    ///
+    /// The Integrations card connects as a standing setup step rather than for one climb, so it
+    /// cannot go through `connectAndFetch`. Refusals are reported through `lastErrorMessage`
+    /// rather than swallowed, because this is a button a climber pressed.
+    @discardableResult
+    func requestAppleHealthAuthorizationIfNeeded() async -> Bool {
+        await authorizationController.refreshAuthorizationRequestStatus()
+
+        guard authorizationController.isHealthDataAvailable else {
+            lastErrorMessage = "Apple Health is not available on this device."
+            return false
+        }
+
+        switch authorizationController.connectionState {
+        case .connected:
+            lastErrorMessage = nil
+            return true
+        case .revoked:
+            lastErrorMessage = "Apple Health access is off. Turn Ascend back on under Heart Rate in the Health app."
+            return false
+        case .unavailable:
+            lastErrorMessage = "Apple Health is not available on this device."
+            return false
+        case .neverConnected:
+            break
+        }
+
+        guard await authorizationController.requestAuthorization() else {
+            lastErrorMessage = authorizationController.lastPermissionErrorMessage
+                ?? "Apple Health could not be connected."
+            return false
+        }
+
+        lastErrorMessage = nil
+        return true
+    }
+
+    /// Runs a pass now for every climb still inside the retry window.
+    ///
+    /// The awaitable form of `resumeTracking`, for surfaces that want the work to have happened
+    /// before they render - Home on entry, and the Integrations card after connecting.
+    /// Defaults to the store handed over by `configure`, so a surface that already adopted the
+    /// service does not have to pass it again.
+    func refreshPendingEnrichment(modelContext: ModelContext? = nil) async {
+        // Nothing at all while account work is suspended, not even a status read.
+        guard sessionWorkGate.isSuspended == false else { return }
+
+        // Refreshed here rather than only inside a pass, because a pass is skipped entirely when
+        // no climb is currently due - and this is the entry point the Integrations card uses to
+        // show the connection state, which must be current whether or not there was work to do.
+        await authorizationController.refreshAuthorizationRequestStatus()
+
+        guard let context = modelContext ?? self.modelContext else { return }
+
+        resumeTracking(modelContext: context)
+        await drainInFlightWork()
+    }
+
     /// Whether a wake-up is currently scheduled.
     ///
     /// Exposed so the bound can be asserted rather than assumed: a climb that can never match -
@@ -286,7 +363,12 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         passTask?.cancel()
         trackedWorkoutIDs = []
         checkingWorkoutIDs = []
-        modelContext = nil
+
+        // The store handed over by `configure` is deliberately kept. Nothing can run on it while
+        // it is cancelled - the tracking set is empty, so no climb is due and no wake-up is
+        // armed, and `sessionWorkGate.isSuspended` refuses a pass outright. Dropping it instead
+        // made the service unable to resume for any owner that adopted it once and does not
+        // re-configure, which is how a deletion that resolved left enrichment permanently dead.
     }
 
     /// Waits for the reads, not for the wait between them.
@@ -391,6 +473,16 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     /// Suspension mid-pass is covered by cancellation rather than by a second guard here:
     /// `suspendAndDrain` cancels this task before it drains, and the loop checks for that.
     private func enrichDueWorkouts(modelContext: ModelContext) async {
+        // Nothing at all while account work is suspended - not even a status read, which would
+        // touch the account being deleted.
+        guard sessionWorkGate.isSuspended == false else { return }
+
+        // Authorization can change while Ascend is not running: a climber grants or revokes
+        // Health in Settings, and nothing tells the app. Re-reading it at the top of a pass is
+        // what lets a grant made overnight take effect on the next foreground instead of leaving
+        // the series refusing to look at data it now has access to.
+        await authorizationController.refreshAuthorizationRequestStatus()
+
         guard canRunEnrichment else { return }
 
         for workout in trackedWorkouts(in: modelContext) {

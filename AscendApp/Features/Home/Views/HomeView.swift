@@ -19,7 +19,7 @@ struct HomeView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
-    @State private var enrichmentCoordinator = AppleHealthEnrichmentCoordinator.shared
+    @State private var enrichmentService = AppleHealthEnrichmentService.shared
     private let homeDashboard: HomeDashboardViewModel
     @State private var showingStartActionSheet = false
     @State private var showingClimbBrowse = false
@@ -179,7 +179,7 @@ struct HomeView: View {
                 firstLaunchDate = Date().timeIntervalSince1970
             }
 
-            enrichmentCoordinator.configure(modelContext: modelContext)
+            enrichmentService.configure(modelContext: modelContext)
             globeViewModel.loadIfNeeded(modelContext: modelContext)
             refreshHomeDashboard(forceRank: true)
             refreshLiveClimbCommunityStats()
@@ -187,7 +187,7 @@ struct HomeView: View {
 
             // Apple Health writes a climb's heart rate after the climb ends, so every Home entry
             // is another chance for a recent climb to pick up what was not there yet.
-            await enrichmentCoordinator.refreshPendingEnrichment(trigger: .automatic)
+            await enrichmentService.refreshPendingEnrichment(modelContext: modelContext)
         }
         .onDisappear {
             // Home owns this pass; once it is gone, so is the reason to keep enriching. Sheets,
@@ -196,7 +196,7 @@ struct HomeView: View {
             // get wrong in the other direction: each pass saves what it resolved and the next
             // entry resumes.
             guard !isCoveredRatherThanTornDown else { return }
-            enrichmentCoordinator.cancelInFlightWork()
+            enrichmentService.cancelInFlightWork()
         }
         .onChange(of: tabRouter.selectedTab) { _, newValue in
             guard newValue == .home else { return }
@@ -204,7 +204,7 @@ struct HomeView: View {
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
             Task {
-                await enrichmentCoordinator.refreshPendingEnrichment(trigger: .automatic)
+                await enrichmentService.refreshPendingEnrichment(modelContext: modelContext)
             }
         }
         .onChange(of: authVM.user?.uid) { _, _ in
@@ -219,7 +219,7 @@ struct HomeView: View {
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
             Task {
-                await enrichmentCoordinator.refreshPendingEnrichment(trigger: .automatic)
+                await enrichmentService.refreshPendingEnrichment(modelContext: modelContext)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbStateDidChange)) { _ in

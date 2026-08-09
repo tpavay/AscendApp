@@ -278,7 +278,7 @@ struct AppleHealthEnrichmentServiceTests {
 
         let metricsReader = ScriptedMetricsReader(responses: [])
         let service = AppleHealthEnrichmentService(
-            authorizationController: StubAuthorizationController(connectionState: .neverConnected),
+            authorizationController: EnrichmentStubAuthorization(connectionState: .neverConnected),
             metricsReader: metricsReader,
             attemptStore: makeAttemptStore(),
             sessionWorkGate: AuthenticatedBootstrapCoordinator(),
@@ -380,7 +380,7 @@ struct AppleHealthEnrichmentServiceTests {
             responses: [WorkoutMetrics(avgHeartRate: 150, maxHeartRate: 172, caloriesBurned: 200)]
         )
         let service = AppleHealthEnrichmentService(
-            authorizationController: StubAuthorizationController(connectionState: .connected),
+            authorizationController: EnrichmentStubAuthorization(connectionState: .connected),
             metricsReader: metricsReader,
             attemptStore: attemptStore,
             sessionWorkGate: AuthenticatedBootstrapCoordinator(),
@@ -426,7 +426,7 @@ struct AppleHealthEnrichmentServiceTests {
         )
 
         let connected = AppleHealthEnrichmentService(
-            authorizationController: StubAuthorizationController(connectionState: .connected),
+            authorizationController: EnrichmentStubAuthorization(connectionState: .connected),
             metricsReader: ScriptedMetricsReader(responses: []),
             attemptStore: makeAttemptStore(),
             sessionWorkGate: AuthenticatedBootstrapCoordinator(),
@@ -437,7 +437,7 @@ struct AppleHealthEnrichmentServiceTests {
         #expect(connected.phase(for: workout) == .checksPaused)
 
         let neverConnected = AppleHealthEnrichmentService(
-            authorizationController: StubAuthorizationController(connectionState: .neverConnected),
+            authorizationController: EnrichmentStubAuthorization(connectionState: .neverConnected),
             metricsReader: ScriptedMetricsReader(responses: []),
             attemptStore: makeAttemptStore(),
             sessionWorkGate: AuthenticatedBootstrapCoordinator(),
@@ -450,7 +450,7 @@ struct AppleHealthEnrichmentServiceTests {
 
         // A device that cannot reach Health at all is still told the truer thing.
         let unavailable = AppleHealthEnrichmentService(
-            authorizationController: StubAuthorizationController(connectionState: .unavailable),
+            authorizationController: EnrichmentStubAuthorization(connectionState: .unavailable),
             metricsReader: ScriptedMetricsReader(responses: []),
             attemptStore: makeAttemptStore(),
             sessionWorkGate: AuthenticatedBootstrapCoordinator(),
@@ -486,7 +486,7 @@ struct AppleHealthEnrichmentServiceTests {
         // A cold launch begins here: shipped defaults, enrichment on.
         let flags = RemoteFeatureFlagStore(snapshot: .shippedDefaults)
         let service = AppleHealthEnrichmentService(
-            authorizationController: StubAuthorizationController(connectionState: .connected),
+            authorizationController: EnrichmentStubAuthorization(connectionState: .connected),
             metricsReader: ScriptedMetricsReader(responses: [WorkoutMetrics()]),
             attemptStore: makeAttemptStore(),
             sessionWorkGate: AuthenticatedBootstrapCoordinator(),
@@ -540,7 +540,7 @@ struct AppleHealthEnrichmentServiceTests {
         )
         let attemptStore = makeAttemptStore()
         let service = AppleHealthEnrichmentService(
-            authorizationController: StubAuthorizationController(connectionState: .connected),
+            authorizationController: EnrichmentStubAuthorization(connectionState: .connected),
             metricsReader: metricsReader,
             attemptStore: attemptStore,
             sessionWorkGate: AuthenticatedBootstrapCoordinator(),
@@ -605,7 +605,7 @@ struct AppleHealthEnrichmentServiceTests {
         modelContext.insert(workout)
         try modelContext.save()
 
-        let authorization = StubAuthorizationController(connectionState: .neverConnected)
+        let authorization = EnrichmentStubAuthorization(connectionState: .neverConnected)
         let metricsReader = ScriptedMetricsReader(
             responses: [
                 WorkoutMetrics(avgHeartRate: 151, maxHeartRate: 179, caloriesBurned: 220)
@@ -644,7 +644,7 @@ struct AppleHealthEnrichmentServiceTests {
         workout.maxHeartRate = 170
 
         let service = AppleHealthEnrichmentService(
-            authorizationController: StubAuthorizationController(connectionState: .neverConnected),
+            authorizationController: EnrichmentStubAuthorization(connectionState: .neverConnected),
             metricsReader: ScriptedMetricsReader(responses: []),
             attemptStore: makeAttemptStore(),
             sessionWorkGate: AuthenticatedBootstrapCoordinator(),
@@ -700,7 +700,7 @@ struct AppleHealthEnrichmentServiceTests {
         sessionWorkGate: AuthenticatedBootstrapCoordinator = AuthenticatedBootstrapCoordinator()
     ) -> AppleHealthEnrichmentService {
         AppleHealthEnrichmentService(
-            authorizationController: StubAuthorizationController(connectionState: .connected),
+            authorizationController: EnrichmentStubAuthorization(connectionState: .connected),
             metricsReader: metricsReader,
             attemptStore: attemptStore,
             sessionWorkGate: sessionWorkGate,
@@ -770,7 +770,7 @@ private final class ScriptedMetricsReader: HealthKitMetricsReading {
 }
 
 @MainActor
-private final class StubAuthorizationController: HealthKitAuthorizationControlling {
+private final class EnrichmentStubAuthorization: HealthKitAuthorizationControlling {
     let isHealthDataAvailable = true
     let hasRequestedAuthorization = true
     let hasCompletedInitialBackfill = true

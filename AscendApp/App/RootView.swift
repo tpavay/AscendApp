@@ -16,7 +16,7 @@ struct RootView: View {
     @Environment(ModerationStore.self) private var moderationStore
     @Environment(\.openURL) private var openURL
     @State private var appVersionGateState = AppVersionGateState.shared
-    @State private var enrichmentCoordinator = AppleHealthEnrichmentCoordinator.shared
+    @State private var enrichmentService = AppleHealthEnrichmentService.shared
     @State private var postAuthOnboardingCoordinator = PostAuthOnboardingCoordinator()
     @State private var tabRouter = TabRouter()
     @State private var accountDataConflict: AccountDataOwnershipConflict?
@@ -81,7 +81,7 @@ struct RootView: View {
                 "app_root_task_started",
                 details: ["route": rootRoute.diagnosticName]
             )
-            enrichmentCoordinator.configure(modelContext: modelContext)
+            enrichmentService.configure(modelContext: modelContext)
             postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
             advancePostAuthOnboardingPastDisplayNameIfAvailable()
             scheduleAuthenticatedSessionWork()

@@ -13,7 +13,7 @@ struct AppleHealthIntegrationCard: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
-    @State private var enrichmentCoordinator = AppleHealthEnrichmentCoordinator.shared
+    @State private var enrichmentService = AppleHealthEnrichmentService.shared
     @State private var showingManageSheet = false
     @State private var actionTask: Task<Void, Never>?
     @State private var isConnecting = false
@@ -25,7 +25,7 @@ struct AppleHealthIntegrationCard: View {
     }
 
     private var connectionState: AppleHealthConnectionState {
-        enrichmentCoordinator.appleHealthConnectionState
+        enrichmentService.appleHealthConnectionState
     }
 
     var body: some View {
@@ -60,7 +60,7 @@ struct AppleHealthIntegrationCard: View {
             Text(alertMessage)
         }
         .task {
-            enrichmentCoordinator.configure(modelContext: modelContext)
+            enrichmentService.configure(modelContext: modelContext)
         }
     }
 
@@ -127,11 +127,11 @@ struct AppleHealthIntegrationCard: View {
         actionTask?.cancel()
         isConnecting = true
         actionTask = Task {
-            let didConnect = await enrichmentCoordinator.requestAppleHealthAuthorizationIfNeeded()
+            let didConnect = await enrichmentService.requestAppleHealthAuthorizationIfNeeded()
             isConnecting = false
 
             guard didConnect else {
-                if let errorMessage = enrichmentCoordinator.lastErrorMessage, !errorMessage.isEmpty {
+                if let errorMessage = enrichmentService.lastErrorMessage, !errorMessage.isEmpty {
                     presentError(errorMessage)
                 }
                 return
@@ -143,8 +143,8 @@ struct AppleHealthIntegrationCard: View {
         showingManageSheet = false
         actionTask?.cancel()
         actionTask = Task {
-            await enrichmentCoordinator.refreshPendingEnrichment()
-            if let errorMessage = enrichmentCoordinator.lastErrorMessage, !errorMessage.isEmpty {
+            await enrichmentService.refreshPendingEnrichment(modelContext: modelContext)
+            if let errorMessage = enrichmentService.lastErrorMessage, !errorMessage.isEmpty {
                 presentError(errorMessage)
             }
         }

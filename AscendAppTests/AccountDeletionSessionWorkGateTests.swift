@@ -178,10 +178,10 @@ struct AccountDeletionSessionWorkGateTests {
 
         let gate = AuthenticatedBootstrapCoordinator()
         let authorization = RecordingAuthorizationController()
-        let coordinator = AppleHealthEnrichmentCoordinator(
+        let coordinator = AppleHealthEnrichmentService(
             authorizationController: authorization,
             metricsReader: EmptyStubMetricsReader(),
-            enrichmentRetryStore: AppleHealthEnrichmentRetryStore(
+            attemptStore: AppleHealthEnrichmentAttemptStore(
                 defaults: defaults,
                 key: "enrichment-retry"
             ),
@@ -207,7 +207,7 @@ struct AccountDeletionSessionWorkGateTests {
         let modelContext: ModelContext
         let gate: AuthenticatedBootstrapCoordinator
         let authorization: RecordingAuthorizationController
-        let coordinator: AppleHealthEnrichmentCoordinator
+        let coordinator: AppleHealthEnrichmentService
         let teardown: @MainActor () -> Void
     }
 }
