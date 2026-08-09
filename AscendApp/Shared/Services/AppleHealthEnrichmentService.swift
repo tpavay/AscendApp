@@ -103,7 +103,7 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     private var trackedWorkoutIDs: Set<UUID> = []
     private var modelContext: ModelContext?
     private var timerTask: Task<Void, Never>?
-    private var passTask: Task<Void, Never>?
+    private var passTask: Task<Bool, Never>?
 
     /// Climbs with a read in flight, so the UI can say "checking" rather than guess.
     private(set) var checkingWorkoutIDs: Set<UUID> = []
@@ -116,14 +116,13 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     /// while the other was still running.
     private var readTasks: [UUID: Task<ReadOutcome, Never>] = [:]
 
-    /// Reads that ended in a failure rather than an empty answer.
-    ///
-    /// A count rather than a flag, so a climber-initiated check can compare it across its own
-    /// pass and report only what that pass did.
-    private var failedReadCount = 0
-
     /// The connection state the backend was last told about, so it is only told again when it
     /// is genuinely news.
+    ///
+    /// Account-scoped even though it looks like a cache: the event it gates is written under the
+    /// signed-in uid, so `cancelInFlightWork` clears it along with everything else belonging to
+    /// the climber who just left. Kept, it would silence the next climber on the same device -
+    /// Health authorization is device-wide, so their state matches and nothing would report it.
     private var lastReportedConnectionState: AppleHealthConnectionState?
 
     init(
@@ -260,13 +259,14 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
             return
         }
 
-        let failuresBeforePass = failedReadCount
-        resumeTracking(modelContext: context)
+        // The pass this call runs is what answers it. A global failure count would also catch a
+        // read some other surface started for another climb, and report that as this tap's.
+        let pass = resumeTracking(modelContext: context)
+        let didFailAnyRead = await pass?.value ?? false
         await drainInFlightWork()
 
         if isUserInitiated {
-            lastErrorMessage = refusal
-                ?? (failedReadCount > failuresBeforePass ? Self.checkFailedMessage : nil)
+            lastErrorMessage = refusal ?? (didFailAnyRead ? Self.checkFailedMessage : nil)
         }
 
         recordAppleHealthLifecycleState()
@@ -396,7 +396,12 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     /// Called on authenticated bootstrap and on app foreground. A suspended app's `Task.sleep`
     /// is not a reliable alarm clock, and a relaunched app has no in-memory tracking set at
     /// all - the ledger is what survives, and this is what reads it back.
-    func resumeTracking(modelContext: ModelContext) {
+    ///
+    /// Returns the pass it started or joined, so a caller with a climber waiting can report what
+    /// that pass did rather than what happened to be running alongside it. `nil` means there was
+    /// nothing to do.
+    @discardableResult
+    func resumeTracking(modelContext: ModelContext) -> Task<Bool, Never>? {
         self.modelContext = modelContext
         attemptStore.prune(at: now())
 
@@ -414,10 +419,10 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         guard !trackedWorkoutIDs.isEmpty else {
             timerTask?.cancel()
             timerTask = nil
-            return
+            return nil
         }
 
-        runPass(modelContext: modelContext)
+        return runPass(modelContext: modelContext)
     }
 
     /// The climber asked for this one by hand.
@@ -485,6 +490,7 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         }
         trackedWorkoutIDs = []
         checkingWorkoutIDs = []
+        lastReportedConnectionState = nil
 
         // The store handed over by `configure` is deliberately kept. Nothing can run on it while
         // it is cancelled - the tracking set is empty, so no climb is due and no wake-up is
@@ -503,10 +509,10 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     /// A hand-requested read belongs to no pass, so the reads are awaited on their own after
     /// the pass rather than assumed to have ended with it.
     func drainInFlightWork() async {
-        await passTask?.value
+        _ = await passTask?.value
 
         for task in readTasks.values {
-            await task.value
+            _ = await task.value
         }
     }
 
@@ -559,16 +565,24 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     /// all land together - and restarting would throw away a read that had already completed,
     /// having already spent the attempt that paid for it. The in-flight pass re-arms from the
     /// current tracking set when it ends, so nothing added meanwhile is missed.
-    private func runPass(modelContext: ModelContext) {
-        guard passTask == nil else { return }
+    ///
+    /// Its value is whether any read *this pass* made failed, which is what a caller with a
+    /// climber waiting reports.
+    @discardableResult
+    private func runPass(modelContext: ModelContext) -> Task<Bool, Never> {
+        if let passTask { return passTask }
 
-        passTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+        let pass = Task { @MainActor [weak self] in
+            guard let self else { return false }
             defer { self.passTask = nil }
 
-            await self.enrichDueWorkouts(modelContext: modelContext)
+            let didFailAnyRead = await self.enrichDueWorkouts(modelContext: modelContext)
             self.armTimer()
+            return didFailAnyRead
         }
+
+        passTask = pass
+        return pass
     }
 
     /// Schedules the next wake-up, or deliberately none.
@@ -602,10 +616,10 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
 
     /// Suspension mid-pass is covered by cancellation rather than by a second guard here:
     /// `suspendAndDrain` cancels this task before it drains, and the loop checks for that.
-    private func enrichDueWorkouts(modelContext: ModelContext) async {
+    private func enrichDueWorkouts(modelContext: ModelContext) async -> Bool {
         // Nothing at all while account work is suspended - not even a status read, which would
         // touch the account being deleted.
-        guard sessionWorkGate.isSuspended == false else { return }
+        guard sessionWorkGate.isSuspended == false else { return false }
 
         // Authorization can change while Ascend is not running: a climber grants or revokes
         // Health in Settings, and nothing tells the app. Re-reading it at the top of a pass is
@@ -613,14 +627,19 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         // the series refusing to look at data it now has access to.
         await authorizationController.refreshAuthorizationRequestStatus()
 
-        guard canRunEnrichment else { return }
+        guard canRunEnrichment else { return false }
 
+        var didFailAnyRead = false
         for workout in trackedWorkouts(in: modelContext) {
-            if Task.isCancelled { return }
+            if Task.isCancelled { return didFailAnyRead }
             guard attemptStore.isAutomaticAttemptDue(for: workout, at: now()) else { continue }
 
-            await enrich(workout, modelContext: modelContext)
+            if await enrich(workout, modelContext: modelContext) == .failed {
+                didFailAnyRead = true
+            }
         }
+
+        return didFailAnyRead
     }
 
     /// Resolves tracked IDs back to live objects and drops the ones that no longer qualify.
@@ -681,7 +700,17 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     private func performRead(of workout: Workout, modelContext: ModelContext) async -> ReadOutcome {
         let workoutID = workout.id
         let window = AppleHealthEnrichmentSchedule.endDate(of: workout)
-        let metrics = await metricsReader.fetchMetrics(during: workout.date...window)
+
+        let metrics: WorkoutMetrics
+        do {
+            metrics = try await metricsReader.fetchMetrics(during: workout.date...window)
+        } catch {
+            // A query that failed is not a wearable that published nothing, and the two must not
+            // arrive at the same copy: one sends the climber to their own equipment for a problem
+            // that is ours.
+            record(readFailure: error, code: "apple_health_enrichment_read_failed")
+            return .failed
+        }
 
         guard !Task.isCancelled else { return .nothingToAdd }
 
@@ -701,13 +730,7 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
             // Health had something for this climb and Ascend could not keep it. That is a
             // failure of ours, and saying so is what stops the surfaces above reporting it as
             // an empty read.
-            failedReadCount += 1
-            diagnostics.record(
-                "apple_health_enrichment_write_failed",
-                level: .warning,
-                details: ["error": String(describing: error)],
-                mirrorToCrashlytics: true
-            )
+            record(readFailure: error, code: "apple_health_enrichment_write_failed")
             return .failed
         }
 
@@ -722,6 +745,16 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         }
 
         return didAddHeartRate ? .addedHeartRate : .nothingToAdd
+    }
+
+    /// Sends the underlying error where an engineer can read it, since the climber never sees it.
+    private func record(readFailure error: any Error, code: String) {
+        diagnostics.record(
+            code,
+            level: .warning,
+            details: ["error": String(describing: error)],
+            mirrorToCrashlytics: true
+        )
     }
 
     /// Writes whatever Health had, and only what it had.

@@ -635,19 +635,78 @@ struct AppleHealthEnrichmentServiceTests {
 
     /// A failed check must not read as an empty one: `foundNothing` sends the climber to their
     /// own equipment for a failure that was ours.
-    ///
-    /// The throw itself comes from the SwiftData write inside `WorkoutMutationHandler`, which a
-    /// unit test cannot force; what is pinned here is that the vocabulary keeps the two apart and
-    /// that Ascend's own failure copy blames nothing the climber owns.
-    @Test("A failed check is a distinct answer from an empty one")
-    func reportsAFailedCheckDistinctlyFromAnEmptyOne() {
-        #expect(AppleHealthEnrichmentService.FetchResult.checkFailed != .foundNothing)
+    @Test("A failed Health query is reported as a failure, not as an empty answer")
+    func reportsAFailedQueryDistinctlyFromAnEmptyOne() async throws {
+        let clock = TestClock(start: Date(timeIntervalSince1970: 1_800_000_000))
+        let modelContext = try makeModelContext()
 
+        let workout = makeLiveClimb(start: clock.now.addingTimeInterval(-1_200), duration: 1_200)
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        let attemptStore = makeAttemptStore()
+        let service = AppleHealthEnrichmentService(
+            authorizationController: EnrichmentStubAuthorization(connectionState: .connected),
+            metricsReader: FailingMetricsReader(),
+            attemptStore: attemptStore,
+            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
+            recordLifecycleState: { _ in },
+            now: { clock.now }
+        )
+
+        #expect(await service.fetchNow(workout, modelContext: modelContext) == .checkFailed)
+        #expect(workout.avgHeartRate == nil)
+
+        // The climb keeps its place in the series rather than being retired on a failure.
+        #expect(attemptStore.nextEligibleDate(for: workout, at: clock.now) != nil)
+
+        // The message says the check broke and blames nothing the climber owns.
         let message = AppleHealthEnrichmentService.checkFailedMessage
         #expect(message.isEmpty == false)
         for wearable in ["Watch", "Garmin", "Whoop", "Polar", "wearable"] {
             #expect(message.localizedStandardContains(wearable) == false)
         }
+
+        // An automatic pass that fails stays silent; the hand-requested one says so.
+        await service.refreshPendingEnrichment(modelContext: modelContext)
+        #expect(service.lastErrorMessage == nil)
+
+        clock.advance(by: 6 * 60 * 60)
+        await service.refreshPendingEnrichment(modelContext: modelContext, isUserInitiated: true)
+        #expect(service.lastErrorMessage == message)
+    }
+
+    /// The throttle in front of the lifecycle event is account-scoped, not a process-wide cache.
+    ///
+    /// Health authorization is device-wide, so the next climber to sign in on this device resolves
+    /// the same state - and a throttle that survived the switch would decide their state was old
+    /// news and never report it.
+    @Test("Ending a session lets the next climber's connection state be reported")
+    func reportsLifecycleStateAgainAfterASessionEnds() async throws {
+        let clock = TestClock(start: Date(timeIntervalSince1970: 1_800_000_000))
+        let modelContext = try makeModelContext()
+
+        let workout = makeLiveClimb(start: clock.now.addingTimeInterval(-1_200), duration: 1_200)
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        let lifecycle = LifecycleStateSpy()
+        let service = AppleHealthEnrichmentService(
+            authorizationController: EnrichmentStubAuthorization(connectionState: .connected),
+            metricsReader: ScriptedMetricsReader(responses: []),
+            attemptStore: makeAttemptStore(),
+            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
+            recordLifecycleState: { lifecycle.record($0) },
+            now: { clock.now }
+        )
+
+        await service.refreshPendingEnrichment(modelContext: modelContext)
+        #expect(lifecycle.states == [.connected])
+
+        service.cancelInFlightWork()
+
+        await service.refreshPendingEnrichment(modelContext: modelContext)
+        #expect(lifecycle.states == [.connected, .connected])
     }
 
     /// The lifecycle event is named for a change and costs a callable plus a Firestore
@@ -841,6 +900,19 @@ private final class TestClock: @unchecked Sendable {
 
     func advance(by interval: TimeInterval) {
         now = now.addingTimeInterval(interval)
+    }
+}
+
+/// A HealthKit read that errors rather than one that comes back empty.
+@MainActor
+private final class FailingMetricsReader: HealthKitMetricsReading {
+    private(set) var attemptCount = 0
+
+    func fetchMetrics(during dateRange: ClosedRange<Date>) async throws -> WorkoutMetrics {
+        attemptCount += 1
+        throw HealthKitMetricsReadError.queryFailed(
+            NSError(domain: "com.apple.healthkit", code: 6)
+        )
     }
 }
 

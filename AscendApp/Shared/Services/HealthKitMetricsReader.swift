@@ -18,6 +18,7 @@ private final class HeartRateSeriesAccumulator: @unchecked Sendable {
     private let lock = NSLock()
     private var points: [HeartRateSeriesPoint] = []
     private var errors: [String] = []
+    private var firstError: (any Error)?
 
     func append(_ point: HeartRateSeriesPoint) {
         lock.withLock {
@@ -25,17 +26,38 @@ private final class HeartRateSeriesAccumulator: @unchecked Sendable {
         }
     }
 
-    func recordError(_ error: String) {
+    func recordError(_ error: any Error) {
         lock.withLock {
-            errors.append(error)
+            errors.append(error.localizedDescription)
+            if firstError == nil {
+                firstError = error
+            }
         }
     }
 
-    func snapshot() -> (points: [HeartRateSeriesPoint], errors: [String]) {
+    func snapshot() -> HeartRateSeriesResult {
         lock.withLock {
-            (points, errors)
+            HeartRateSeriesResult(points: points, errors: errors, failure: firstError)
         }
     }
+}
+
+private struct HeartRateSeriesResult {
+    let points: [HeartRateSeriesPoint]
+    let errors: [String]
+    let failure: (any Error)?
+}
+
+/// A read that could not run, as opposed to one that ran and found nothing.
+///
+/// The two must never collapse into each other: an empty answer is a real answer - a wearable
+/// that wrote nothing has told the truth about a climb - while a failure is Ascend's problem and
+/// has to be reported as such rather than blamed on the climber's equipment.
+enum HealthKitMetricsReadError: Error {
+    /// HealthKit would not vend the type this read needs.
+    case unavailableQuantityType(HKQuantityTypeIdentifier)
+    /// A HealthKit query came back with an error.
+    case queryFailed(any Error)
 }
 
 struct WorkoutMetrics {
@@ -47,9 +69,13 @@ struct WorkoutMetrics {
 
 /// Reads Apple Health over a time window. Deliberately window-only: Ascend enriches climbs it
 /// recorded itself and has no interest in anyone else's `HKWorkout` records.
+///
+/// It throws rather than returning an empty `WorkoutMetrics` when a query fails, because those
+/// two answers send a climber to different places: "nothing has been written for this climb yet"
+/// is their wearable's schedule, and a failed query is ours.
 @MainActor
 protocol HealthKitMetricsReading {
-    func fetchMetrics(during dateRange: ClosedRange<Date>) async -> WorkoutMetrics
+    func fetchMetrics(during dateRange: ClosedRange<Date>) async throws -> WorkoutMetrics
 }
 
 @MainActor
@@ -62,12 +88,12 @@ final class HealthKitMetricsReader: HealthKitMetricsReading {
         self.healthStore = healthStore
     }
 
-    func fetchMetrics(during dateRange: ClosedRange<Date>) async -> WorkoutMetrics {
+    func fetchMetrics(during dateRange: ClosedRange<Date>) async throws -> WorkoutMetrics {
         var metrics = WorkoutMetrics()
 
-        let heartRateData = await fetchHeartRateData(during: dateRange)
+        let heartRateData = try await fetchHeartRateData(during: dateRange)
         let heartRateSeries = WorkoutHeartRatePlausibility.normalized(
-            samples: await fetchHeartRateTimeSeries(
+            samples: try await fetchHeartRateTimeSeries(
                 during: dateRange,
                 summary: heartRateData
             ),
@@ -79,28 +105,43 @@ final class HealthKitMetricsReader: HealthKitMetricsReading {
         metrics.maxHeartRate = heartRateSeries.maximum
         metrics.heartRateTimeSeries = heartRateSeries.samples
 
-        if let calories = await fetchQuantityData(for: .activeEnergyBurned, during: dateRange, unit: .kilocalorie()) {
+        if let calories = try await fetchQuantityData(for: .activeEnergyBurned, during: dateRange, unit: .kilocalorie()) {
             metrics.caloriesBurned = Int(calories)
         }
 
         return metrics
     }
 
+    /// Whether HealthKit is saying "no samples" rather than "this read went wrong".
+    ///
+    /// `errorNoData` is an empty answer wearing an error's clothes, and treating it as a failure
+    /// would report every climb a wearable never wrote for as broken.
+    private nonisolated static func isNoDataError(_ error: any Error) -> Bool {
+        (error as? HKError)?.code == .errorNoData
+    }
+
     private func fetchQuantityData(
         for identifier: HKQuantityTypeIdentifier,
         during dateRange: ClosedRange<Date>,
         unit: HKUnit
-    ) async -> Double? {
-        guard let quantityType = HKQuantityType.quantityType(forIdentifier: identifier) else { return nil }
+    ) async throws -> Double? {
+        guard let quantityType = HKQuantityType.quantityType(forIdentifier: identifier) else {
+            throw HealthKitMetricsReadError.unavailableQuantityType(identifier)
+        }
 
         let predicate = HKQuery.predicateForSamples(withStart: dateRange.lowerBound, end: dateRange.upperBound)
 
-        return await withCheckedContinuation { continuation in
+        return try await withCheckedThrowingContinuation { continuation in
             let query = HKStatisticsQuery(
                 quantityType: quantityType,
                 quantitySamplePredicate: predicate,
                 options: .cumulativeSum
-            ) { _, result, _ in
+            ) { _, result, error in
+                if let error, !Self.isNoDataError(error) {
+                    continuation.resume(throwing: HealthKitMetricsReadError.queryFailed(error))
+                    return
+                }
+
                 let sum = result?.sumQuantity()?.doubleValue(for: unit) ?? 0
                 continuation.resume(returning: sum > 0 ? sum : nil)
             }
@@ -111,20 +152,25 @@ final class HealthKitMetricsReader: HealthKitMetricsReading {
 
     private func fetchHeartRateData(
         during dateRange: ClosedRange<Date>
-    ) async -> (average: Int?, maximum: Int?) {
+    ) async throws -> (average: Int?, maximum: Int?) {
         guard let heartRateType = HKQuantityType.quantityType(forIdentifier: .heartRate) else {
-            return (nil, nil)
+            throw HealthKitMetricsReadError.unavailableQuantityType(.heartRate)
         }
 
         let predicate = HKQuery.predicateForSamples(withStart: dateRange.lowerBound, end: dateRange.upperBound)
         let unit = HKUnit.count().unitDivided(by: .minute())
 
-        return await withCheckedContinuation { continuation in
+        return try await withCheckedThrowingContinuation { continuation in
             let query = HKStatisticsQuery(
                 quantityType: heartRateType,
                 quantitySamplePredicate: predicate,
                 options: [.discreteAverage, .discreteMax]
-            ) { _, result, _ in
+            ) { _, result, error in
+                if let error, !Self.isNoDataError(error) {
+                    continuation.resume(throwing: HealthKitMetricsReadError.queryFailed(error))
+                    return
+                }
+
                 let average = result?.averageQuantity()?.doubleValue(for: unit)
                 let maximum = result?.maximumQuantity()?.doubleValue(for: unit)
 
@@ -143,22 +189,27 @@ final class HealthKitMetricsReader: HealthKitMetricsReading {
     private func fetchHeartRateTimeSeries(
         during dateRange: ClosedRange<Date>,
         summary: (average: Int?, maximum: Int?)
-    ) async -> [HeartRateDataPoint] {
+    ) async throws -> [HeartRateDataPoint] {
         guard let heartRateType = HKQuantityType.quantityType(forIdentifier: .heartRate) else {
-            return []
+            throw HealthKitMetricsReadError.unavailableQuantityType(.heartRate)
         }
 
         let predicate = HKQuery.predicateForSamples(withStart: dateRange.lowerBound, end: dateRange.upperBound)
         let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
         let unit = HKUnit.count().unitDivided(by: .minute())
 
-        let parentSamples = await withCheckedContinuation { continuation in
+        let parentSamples = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[HKQuantitySample], any Error>) in
             let query = HKSampleQuery(
                 sampleType: heartRateType,
                 predicate: predicate,
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [sortDescriptor]
-            ) { _, samples, _ in
+            ) { _, samples, error in
+                if let error, !Self.isNoDataError(error) {
+                    continuation.resume(throwing: HealthKitMetricsReadError.queryFailed(error))
+                    return
+                }
+
                 continuation.resume(returning: (samples as? [HKQuantitySample]) ?? [])
             }
 
@@ -195,6 +246,13 @@ final class HealthKitMetricsReader: HealthKitMetricsReading {
         )
         #endif
 
+        // The series query is the finer of the two sources, not the only one. Its failure only
+        // costs the climber an answer when the parent samples came back empty as well, and that
+        // is the one case worth reporting as a failed read.
+        if let failure = seriesPoints.failure, seriesDataPoints.isEmpty, parentDataPoints.isEmpty {
+            throw HealthKitMetricsReadError.queryFailed(failure)
+        }
+
         return seriesDataPoints.isEmpty ? parentDataPoints : seriesDataPoints
     }
 
@@ -221,15 +279,15 @@ final class HealthKitMetricsReader: HealthKitMetricsReading {
         heartRateType: HKQuantityType,
         predicate: NSPredicate,
         unit: HKUnit
-    ) async -> (points: [HeartRateSeriesPoint], errors: [String]) {
+    ) async -> HeartRateSeriesResult {
         await withCheckedContinuation { continuation in
             let accumulator = HeartRateSeriesAccumulator()
             let query = HKQuantitySeriesSampleQuery(
                 quantityType: heartRateType,
                 predicate: predicate
             ) { _, quantity, dateInterval, quantitySample, done, error in
-                if let error {
-                    accumulator.recordError(error.localizedDescription)
+                if let error, !Self.isNoDataError(error) {
+                    accumulator.recordError(error)
                 }
 
                 if let quantity, let dateInterval {
@@ -259,7 +317,7 @@ private extension HealthKitMetricsReader {
         dateRange: ClosedRange<Date>,
         parentSamples: [HKQuantitySample],
         parentDataPoints: [HeartRateDataPoint],
-        seriesPoints: (points: [HeartRateSeriesPoint], errors: [String]),
+        seriesPoints: HeartRateSeriesResult,
         resolvedDataPoints: [HeartRateDataPoint],
         resolvedFromSeries: Bool,
         unit: HKUnit,

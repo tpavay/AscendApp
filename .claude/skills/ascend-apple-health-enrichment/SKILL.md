@@ -61,6 +61,7 @@ No view may resolve heart-rate availability a second way, and no phase may carry
 `FetchResult` keeps the honest answers apart for a hand-requested check: `foundNothing` means Ascend read Health and nothing covered this climb, `couldNotLook` means it never read, and `checkFailed` means it started and could not finish.
 Reporting any of those as another is the dishonest blank this service exists to remove - `checkFailed` in particular must never read as `foundNothing`, which sends the climber to their own equipment for a failure that was Ascend's.
 Failure copy names nothing the climber owns and never carries an `error.localizedDescription`; the underlying error goes to `AppDiagnosticsRecorder` instead.
+That distinction starts at the read: `HealthKitMetricsReading.fetchMetrics` throws when a query fails and returns an empty `WorkoutMetrics` only when the query succeeded with nothing in it, because an empty answer is a real answer that ends the retry series and a failed query is not.
 
 Only a climber-initiated action writes `lastErrorMessage` - connecting, or a check that passes `isUserInitiated`.
 The automatic series stays silent whatever happens to it: Home refreshes enrichment from its `.task`, its tab handler and every foreground, so a message written there would be waiting on a screen the climber opens later with nothing to attach it to.
