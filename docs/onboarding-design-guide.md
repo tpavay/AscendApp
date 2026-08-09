@@ -847,7 +847,7 @@ Primary path:
 
 App surfaces:
 - Integrations - Apple Health card and manage sheet
-- `AppleHealthEnrichmentCoordinator`
+- `AppleHealthEnrichmentService`
 - Workout detail heart-rate states
 
 State and data:

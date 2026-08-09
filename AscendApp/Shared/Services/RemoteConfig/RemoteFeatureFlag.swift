@@ -90,7 +90,6 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Restores routine backups into local storage on sign-in and reinstall."
         case .appleHealthEnrichment:
             return "Reads Apple Health and writes heart rate and calories onto recorded climbs."
-
         case .localDataMigrations:
             return "Runs one-shot local backfills that rewrite stored workouts."
         case .publicProfilePublishing:
