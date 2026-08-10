@@ -83,6 +83,9 @@ Hidden means not raceable, never that earned history disappears. A climber's hel
 
 If images are missing or uncertain, default new climbs to `comingSoon` or `hidden`, not `available`.
 
+A climb only reaches `available` once its race distance is published in `realStairCount`.
+Without one it ranks climbers against `round(totalHeightMeters * 5.5)`, a height fact nobody raced, so `AscendAppTests/ClimbCatalogStairCountTests.swift` fails any `available` climb with a null count.
+
 ## Tier Rules
 
 Set `tier` from the climb's reference step count:
@@ -149,6 +152,8 @@ node scripts/sync-climb-images.mjs sync --from staging --to production --confirm
 ```
 
 Writes to production require `--confirm-production`. Sync copies only missing/changed objects (md5 compare) and never deletes. When adding a climb: upload images to dev/staging first, validate in-app, then sync to production alongside (or before) the catalog deploy that references them.
+
+`releaseState` is not per-environment: one catalogue file deploys to dev, staging, and production, so promoting a climb to `available` commits every environment to having its artwork. Audit the production bucket before that deploy, not after it.
 
 ## Workflow
 

@@ -88,7 +88,7 @@ struct ClimbCatalogStairCountTests {
     }
 
     @Test
-    func worldTour2026AdditionsDecodeWithHonestReleaseAndTierData() throws {
+    func worldTour2026AdditionsRaceOnlyWhereACourseDistanceIsPublished() throws {
         let expectedIDs: Set<String> = [
             "ping-an-finance-centre", "ctf-finance-centre-guangzhou",
             "shanghai-world-financial-center",
@@ -105,12 +105,17 @@ struct ClimbCatalogStairCountTests {
 
         #expect(Set(additions.map(\.id)) == expectedIDs)
         #expect(additions.count == 29)
-        #expect(additions.allSatisfy { $0.releaseState == .comingSoon })
         #expect(additions.allSatisfy { $0.tier == ClimbTier(steps: $0.referenceStepCount) })
 
+        // A raceable climb races against a published route, never against
+        // round(totalHeightMeters * 5.5), so the one venue with no verified
+        // count stays a visible teaser instead of a fabricated target.
         let capitaMall = try #require(additions.first { $0.id == "capitamall-one" })
         #expect(capitaMall.realStairCount == nil)
         #expect(capitaMall.referenceStepCount == capitaMall.totalSteps)
+        #expect(capitaMall.releaseState == .comingSoon)
+
+        #expect(additions.count(where: { $0.releaseState == .available }) == 28)
     }
 
     @Test
@@ -179,6 +184,24 @@ struct ClimbCatalogStairCountTests {
         let unverified = climbs.filter { $0.realStairCount == nil }
 
         #expect(unverified.isEmpty == false)
+    }
+
+    @Test
+    func noRaceableClimbSetsItsTimesAgainstAHeightDerivedDistance() throws {
+        // Racing is the product, so a raceable climb's target is a published
+        // route. Without one the only number left is round(height * 5.5), and a
+        // leaderboard built on it ranks climbers against a fabricated distance.
+        let climbs = try Self.bundledCatalog()
+
+        let fabricated = climbs.filter { $0.releaseState == .available && $0.realStairCount == nil }
+
+        #expect(
+            fabricated.isEmpty,
+            """
+            A climb with no published course distance stays comingSoon: \
+            \(fabricated.map(\.id))
+            """
+        )
     }
 
     @Test

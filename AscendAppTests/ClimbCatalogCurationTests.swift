@@ -23,34 +23,27 @@ struct ClimbCatalogCurationTests {
         #expect(Self.hiddenMountainIDs.isDisjoint(with: raceableIDs))
     }
 
-    @Test("Unverified stair routes remain visible but cannot start a race", .bug(id: 440))
+    @Test("Unverified stair routes remain visible but cannot start a race", .bug(id: 465))
     func comingSoonClimbsAreNotRaceable() throws {
         let snapshot = try Self.bundledSnapshot()
         let comingSoonIDs = Set(snapshot.comingSoonClimbs.map(\.id))
         let raceableIDs = Set(snapshot.availableClimbs.map(\.id))
 
-        // A subset, not equality: the World Tour venues from #453 wait for their
-        // artwork in the same state, and promoting them must not fail this test.
-        #expect(Self.comingSoonClimbIDs.isSubset(of: comingSoonIDs))
+        #expect(comingSoonIDs == Self.comingSoonClimbIDs)
         #expect(Self.comingSoonClimbIDs.isDisjoint(with: raceableIDs))
         #expect(Self.comingSoonClimbIDs.isSubset(of: Set(snapshot.visibleClimbs.map(\.id))))
     }
 
-    @Test("The curated catalogue ships only the approved racing states", .bug(id: 440))
+    @Test("The curated catalogue ships the approved 58/21/8 distribution", .bug(id: 465))
     func curatedCatalogueCounts() throws {
         let snapshot = try Self.bundledSnapshot()
         let hiddenCount = snapshot.climbs.count(where: { $0.releaseState == .hidden })
 
-        // Counts are derived, never pinned: the raceable total moves the moment
-        // the pending artwork uploads promote the World Tour venues (issue #452).
+        #expect(snapshot.climbs.count == 87)
+        #expect(snapshot.availableClimbs.count == 58)
+        #expect(hiddenCount == 21)
+        #expect(snapshot.comingSoonClimbs.count == 8)
         #expect(snapshot.climbs.allSatisfy { $0.releaseState != .disabled })
-        #expect(
-            snapshot.availableClimbs.count + snapshot.comingSoonClimbs.count + hiddenCount
-                == snapshot.climbs.count
-        )
-        #expect(snapshot.availableClimbs.count > 0)
-        #expect(hiddenCount == Self.hiddenMountainIDs.count)
-        #expect(snapshot.comingSoonClimbs.count >= Self.comingSoonClimbIDs.count)
         #expect(Set(snapshot.climbs.map(\.id)).count == snapshot.climbs.count)
     }
 
@@ -131,6 +124,9 @@ struct ClimbCatalogCurationTests {
     ]
 
     private static let comingSoonClimbIDs: Set<String> = [
+        // CapitaMall ONE has no published course distance, so racing it would set
+        // every time against round(totalHeightMeters * 5.5) rather than a route.
+        "capitamall-one",
         "marina-bay-sands",
         "n-seoul-tower",
         "osaka-castle",

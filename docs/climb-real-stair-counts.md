@@ -158,7 +158,7 @@ Every climb carrying a `realStairCount` now takes its floor count from one of tw
 1. **The route's published storey count**, where a source in the tables above states one.
 2. **`round(referenceStepCount / 19.8)`** otherwise.
 
-19.8 is the ratio the height derivation already implied (`5.5` steps per metre over `3.6` metres per floor), so the 43 climbs with no verified stair count keep the floor counts they had - their reference count is still `totalSteps`, and the two rules agree there.
+19.8 is the ratio the height derivation already implied (`5.5` steps per metre over `3.6` metres per floor), so the 29 climbs the catalogue currently ships with a null `realStairCount` - the ones enumerated under [Climbs deliberately left null](#climbs-deliberately-left-null) - keep the floor counts they had, because their reference count is still `totalSteps` and the two rules agree there.
 
 A published **flight** count is not a storey count and is not used as one, unless a second independent source states the same figure as storeys.
 A flight is a run of stairs between landings; a tower can have several per storey, or none at all.
@@ -286,6 +286,7 @@ These ship as `comingSoon`, so nobody races an unverified distance.
 
 **Announced race with no published course distance yet (1).**
 CapitaMall ONE is scheduled for December 2026, but the venue and Towerrunning World Tour material publish no defensible stair count yet.
+It is held at `comingSoon` while the other 28 Towerrunning World Tour venues added beside it race, because a raceable climb ranks against a published route and the only number left here is the height derivation.
 
 **Not a stair ascent (21).**
 The 21 mountains and volcanoes, which ship as `hidden` for a future endurance ladder.
