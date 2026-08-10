@@ -7,27 +7,42 @@ import Vision
 /// Reviewer-facing visual evidence for the 2026 World Tour catalogue additions.
 ///
 /// The catalogue is data, but a climber meets it as pixels: a raceable preview card
-/// when they tap a pin on the globe, plus a category placeholder whenever artwork is
-/// unavailable. These tests render the shipped views against the shipped catalogue
+/// when they tap a pin on the globe, a locked "Coming Soon" card for the venue whose
+/// course distance is still unpublished, and a category placeholder whenever artwork
+/// is unavailable. These tests render the shipped views against the shipped catalogue
 /// file, read the rendered text back with Vision, and write reviewable proof sheets.
 @MainActor
 struct WorldTour2026CatalogueEvidenceTests {
     @Test
-    func newVenuesRenderAsRaceableCardsOnTheGlobe() async throws {
+    func newVenuesRenderTheReleaseStateTheCatalogueShipsThemAt() async throws {
         let showcase = try Self.showcase()
 
         for climb in showcase {
             let card = try renderCard(for: climb)
             let text = try await recognizedText(in: card)
 
-            #expect(text.contains("coming soon") == false, "\(climb.id) still read as coming soon")
             #expect(text.contains(climb.city.lowercased()), "\(climb.id) lost its location")
-            #expect(text.contains("steps"), "\(climb.id) did not expose its race distance")
+
+            if climb.releaseState == .available {
+                #expect(
+                    text.contains("coming soon") == false,
+                    "\(climb.id) still read as coming soon"
+                )
+                #expect(text.contains("steps"), "\(climb.id) did not expose its race distance")
+            } else {
+                // A venue with no published course distance announces itself as
+                // locked, never as a climbable distance.
+                #expect(text.contains("coming soon"), "\(climb.id) did not read as coming soon")
+                #expect(
+                    text.contains("steps") == false,
+                    "\(climb.id) offered a distance it can't be raced at"
+                )
+            }
         }
 
         try writeEvidence(
-            image: try renderSheet(AvailablePreviewProof(climbs: showcase)),
-            named: "world-tour-2026-available-cards.png"
+            image: try renderSheet(PreviewCardProof(climbs: showcase)),
+            named: "world-tour-2026-preview-cards.png"
         )
     }
 
@@ -59,6 +74,7 @@ struct WorldTour2026CatalogueEvidenceTests {
     func theWholeAdditionSetRendersItsTierAndStepReadout() async throws {
         let additions = try Self.additions()
         #expect(additions.count == 29)
+        #expect(additions.count(where: { $0.releaseState == .available }) == 28)
 
         let sheet = try renderSheet(AdditionRosterProof(climbs: additions))
         let text = try await recognizedText(in: sheet)
@@ -237,9 +253,20 @@ private struct MissingArtworkRepository: ClimbImageRepository {
     func resolveImageURL(for climb: Climb, variant: ClimbImageVariant) async -> URL? { nil }
 }
 
+private extension ClimbReleaseState {
+    var evidenceLabel: String {
+        switch self {
+        case .available: "AVAILABLE"
+        case .comingSoon: "COMING SOON"
+        case .hidden: "HIDDEN"
+        case .disabled: "DISABLED"
+        }
+    }
+}
+
 // MARK: - Proof sheets
 
-private struct AvailablePreviewProof: View {
+private struct PreviewCardProof: View {
     let climbs: [Climb]
 
     var body: some View {
@@ -320,11 +347,11 @@ private struct AdditionRosterProof: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Towerrunning World Tour 2026 · 29 venues added")
+            Text("Towerrunning World Tour 2026 · 29 venues, 28 raceable")
                 .font(.montserratBold(size: 20))
                 .foregroundStyle(.white)
 
-            Text("Each row shows the shipped race distance and the tier it derives.")
+            Text("Each row shows the shipped race distance, its tier, and its release state.")
                 .font(.montserratRegular(size: 12))
                 .foregroundStyle(.white.opacity(0.6))
 
@@ -361,7 +388,7 @@ private struct AdditionRosterProof: View {
                             .foregroundStyle(climb.tier.color)
                             .frame(width: 78, alignment: .leading)
 
-                        Text("AVAILABLE")
+                        Text(climb.releaseState.evidenceLabel)
                             .font(.montserratBold(size: 9))
                             .tracking(1)
                             .foregroundStyle(.white.opacity(0.5))
