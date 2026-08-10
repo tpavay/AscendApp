@@ -158,7 +158,7 @@ Every climb carrying a `realStairCount` now takes its floor count from one of tw
 1. **The route's published storey count**, where a source in the tables above states one.
 2. **`round(referenceStepCount / 19.8)`** otherwise.
 
-19.8 is the ratio the height derivation already implied (`5.5` steps per metre over `3.6` metres per floor), so the 43 climbs with no verified stair count keep the floor counts they had - their reference count is still `totalSteps`, and the two rules agree there.
+19.8 is the ratio the height derivation already implied (`5.5` steps per metre over `3.6` metres per floor), so the 29 climbs the catalogue currently ships with a null `realStairCount` - the ones enumerated under [Climbs deliberately left null](#climbs-deliberately-left-null) - keep the floor counts they had, because their reference count is still `totalSteps` and the two rules agree there.
 
 A published **flight** count is not a storey count and is not used as one, unless a second independent source states the same figure as storeys.
 A flight is a run of stairs between landings; a tower can have several per storey, or none at all.
