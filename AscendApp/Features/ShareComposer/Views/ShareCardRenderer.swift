@@ -48,7 +48,11 @@ struct ShareCardRenderer: View {
         case .rule(let rule):
             ruleView(rule)
         case .wordmark(let wordmark):
-            AscendWordmark(size: wordmark.size, letterColor: wordmark.tint.color(in: context))
+            AscendWordmark(
+                size: wordmark.size,
+                letterColor: wordmark.tint.color(in: context),
+                markColor: wordmark.tint.color(in: context)
+            )
         case .spacer(let minLength):
             Spacer(minLength: minLength.map { CGFloat($0) })
         case .unsupported:

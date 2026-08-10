@@ -54,7 +54,7 @@ struct DebugTelemetryConsoleEntryTests {
         #expect(entry.title == "Live Climb Completed")
         #expect(entry.environment == "Staging")
         #expect(entry.destinationsSummary == "Sent to Analytics, and Crashlytics")
-        #expect(entry.parameters.contains(where: { $0.key == "Climb Id" && $0.value == "burj_khalifa" }))
+        #expect(entry.parameters.contains(where: { $0.key == "Climb ID" && $0.value == "burj_khalifa" }))
         #expect(entry.parameters.contains(where: { $0.key == "Outcome" && $0.value == "Partial success" }))
         #expect(entry.parameters.contains(where: { $0.key == "Was Personal Record" && $0.value == "Yes" }))
     }

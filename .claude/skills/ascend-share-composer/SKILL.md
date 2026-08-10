@@ -27,7 +27,7 @@ Everything drawn on a share - a sticker on the canvas, a full recap template, ev
 - **Format**: `Models/ShareCardFormat.swift` (elements + modifiers), `ShareCardStyling.swift` (colors, fills, typography), `ShareCardLabel.swift` (placement + policy). SwiftUI-free and `Codable`; `Views/ShareCardStyleResolvers.swift` turns it into `Font`/`Color`.
 - **Interpreter**: `Views/ShareCardRenderer.swift` - one `switch`, one modifier order (frame, shadow, padding, background, border, rotation, opacity). A layout that needs a different order nests a node; the schema does not grow a knob.
 - **Stickers**: `Models/ShareStickerCardBuilder.swift` turns a `ShareStickerInstance` into that same tree. Pure, so arrangement rules are testable without a view tree.
-- **Templates**: `Resources/share-card-templates-v1.json`. Adding a card is a JSON edit plus a screenshot - **no Swift**. `scripts/validate-share-card-templates.mjs` reads the renderer's vocabulary out of the Swift sources and fails CI on a typo'd stat or element.
+- **Templates**: `Resources/share-card-templates-v1.json`. Adding a card is a JSON edit plus a screenshot - **no Swift**. `scripts/validate-share-card-templates.mjs` reads the renderer's vocabulary out of the Swift sources and fails CI on a typo'd stat or element, and `scripts/test/share-card-templates.test.mjs` fails on a template that spells the brand as text instead of using the `wordmark` element (the branding rule is `ascend-design-system`'s).
 
 **The schema is closed** - a fixed set of element types chosen by a Swift `switch`, no expression language, no escape hatch that takes a script. That line is what keeps a future remote payload inside App Review 2.5.2.
 
