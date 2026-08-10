@@ -86,6 +86,12 @@ struct RootView: View {
             advancePostAuthOnboardingPastDisplayNameIfAvailable()
             scheduleAuthenticatedSessionWork()
         }
+        // Its own task so the catalogue fetch runs alongside session work rather
+        // than behind it: pre-auth onboarding quotes the raceable count, and it
+        // is reachable a tap after launch.
+        .task {
+            await RaceableClimbCountStore.shared.resolve()
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             AppDiagnosticsRecorder.shared.record(
                 "app_will_enter_foreground",

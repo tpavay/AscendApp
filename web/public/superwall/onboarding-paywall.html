@@ -104,8 +104,39 @@
       });
 
       // The landmark count is a purchase-inducing promise, so it is read off the
-      // published catalogue instead of typed in. A fetch that fails leaves the
-      // count-free copy standing rather than shipping a stale number.
+      // published catalogue instead of typed in - the same manifest and catalogue
+      // the app resolves its count from, so the two cannot promise different
+      // numbers in one session. The manifest's catalogVersion is the cache key:
+      // only a republished catalogue costs a second download. A fetch that fails
+      // leaves the count-free copy standing rather than shipping a stale number.
+      const LANDMARK_COUNT_CACHE_KEY = "ascend.raceableLandmarkCount";
+
+      function readCachedLandmarkCount(catalogVersion) {
+        try {
+          const cached = JSON.parse(
+            window.localStorage.getItem(LANDMARK_COUNT_CACHE_KEY) || "null"
+          );
+          if (cached && cached.catalogVersion === catalogVersion && cached.count > 0) {
+            return cached.count;
+          }
+        } catch {
+          // An unreadable cache just means fetching the catalogue.
+        }
+
+        return null;
+      }
+
+      function writeCachedLandmarkCount(catalogVersion, count) {
+        try {
+          window.localStorage.setItem(
+            LANDMARK_COUNT_CACHE_KEY,
+            JSON.stringify({catalogVersion, count})
+          );
+        } catch {
+          // Storage being unavailable only costs the next impression a fetch.
+        }
+      }
+
       async function applyRaceableLandmarkCount() {
         const benefit = document.querySelector("[data-landmark-count-benefit]");
         if (!benefit) return;
@@ -115,11 +146,17 @@
           if (!manifestResponse.ok) return;
 
           const manifest = await manifestResponse.json();
+          const cachedCount = readCachedLandmarkCount(manifest.catalogVersion);
+          if (cachedCount) {
+            benefit.textContent = `Choose from ${cachedCount} landmarks to climb`;
+            return;
+          }
+
           const catalogPath = manifest.catalogPath.startsWith("/")
             ? manifest.catalogPath
             : `/${manifest.catalogPath}`;
 
-          const catalogResponse = await fetch(catalogPath, {cache: "no-store"});
+          const catalogResponse = await fetch(catalogPath);
           if (!catalogResponse.ok) return;
 
           const climbs = await catalogResponse.json();
@@ -130,6 +167,7 @@
           ).length;
           if (raceableCount > 0) {
             benefit.textContent = `Choose from ${raceableCount} landmarks to climb`;
+            writeCachedLandmarkCount(manifest.catalogVersion, raceableCount);
           }
         } catch {
           // Keep the count-free copy.

@@ -35,8 +35,10 @@ enum OnboardingValuePages {
         return "Choose from \(raceableLandmarkCount) landmarks to climb and compete against others."
     }
 
+    /// Reads only the already-resolved count, never the catalogue itself, so a
+    /// SwiftUI body can touch this without a disk read or a JSON decode.
     @MainActor
     static var all: [OnboardingValuePage] {
-        pages(raceableLandmarkCount: ClimbService.shared.raceableClimbCount)
+        pages(raceableLandmarkCount: RaceableClimbCountStore.shared.count ?? 0)
     }
 }

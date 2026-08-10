@@ -23,6 +23,9 @@ struct PreAuthOnboardingValueCarouselScreen: View {
                 .ignoresSafeArea()
             }
         )
+        .task {
+            await RaceableClimbCountStore.shared.resolve()
+        }
         .navigationDestination(isPresented: $isShowingSignUp) {
             SignUpView()
         }

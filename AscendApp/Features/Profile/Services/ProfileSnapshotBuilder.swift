@@ -314,7 +314,8 @@ enum ProfileSnapshotBuilder {
         )
         let cardClimbs = collectionCardClimbs(
             availableClimbs: availableClimbs,
-            claimedClimbs: completedClimbs
+            claimedClimbs: completedClimbs,
+            catalogueClimbs: climbs
         )
         let launchedCards = collectionCards(
             for: cardClimbs,
@@ -347,7 +348,8 @@ enum ProfileSnapshotBuilder {
         )
         let cardClimbs = collectionCardClimbs(
             availableClimbs: availableClimbs,
-            claimedClimbs: completedClimbs
+            claimedClimbs: completedClimbs,
+            catalogueClimbs: climbs
         )
         let launchedCards = collectionCards(
             for: cardClimbs,
@@ -453,14 +455,16 @@ enum ProfileSnapshotBuilder {
     /// card and stays inside the denominator instead of overflowing it.
     private static func collectionCardClimbs(
         availableClimbs: [Climb],
-        claimedClimbs: [ProfileCollectionClaimedClimb]
+        claimedClimbs: [ProfileCollectionClaimedClimb],
+        catalogueClimbs: [Climb]
     ) -> [Climb] {
-        let availableIDs = Set(availableClimbs.map(\.id))
-        let retiredClaims = claimedClimbs
-            .map(\.climb)
-            .filter { !availableIDs.contains($0.id) }
-
-        return collectionOrderedLaunchedClimbs(availableClimbs + retiredClaims)
+        collectionOrderedLaunchedClimbs(
+            ClimbCollectionUniverse.climbs(
+                availableClimbs: availableClimbs,
+                claimedClimbIds: Set(claimedClimbs.map(\.climb.id)),
+                catalogueClimbs: catalogueClimbs
+            )
+        )
     }
 
     private static func collectionOrderedLaunchedClimbs(_ climbs: [Climb]) -> [Climb] {

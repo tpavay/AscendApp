@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct OnboardingLandmarksValuePageContent: View {
-    let headline: String
     let subtitle: String
 
     private let cards: [LandmarkCard] = [
@@ -119,13 +118,18 @@ struct OnboardingLandmarksValuePageContent: View {
     }
 
     private var styledHeadline: Text {
-        Text("Climb ")
+        Text(Self.headlineLead)
             .foregroundStyle(.white)
-        + Text("real\nlandmarks.")
+        + Text(Self.headlineAccent)
             .foregroundStyle(OnboardingValuePalette.lime)
     }
 
-    private static let headlineText = "Climb real landmarks."
+    private static let headlineLead = "Climb "
+    private static let headlineAccent = "real\nlandmarks."
+
+    private static var headlineText: String {
+        (headlineLead + headlineAccent).replacing("\n", with: " ")
+    }
 }
 
 private struct LandmarkCard: Identifiable {
@@ -295,9 +299,6 @@ private struct OnboardingLandmarksValueLayout {
     if let page = OnboardingValuePages
         .pages(raceableLandmarkCount: 30)
         .first(where: { $0.id == "reason_to_come_back" }) {
-        OnboardingLandmarksValuePageContent(
-            headline: page.headline,
-            subtitle: page.subtitle
-        )
+        OnboardingLandmarksValuePageContent(subtitle: page.subtitle)
     }
 }

@@ -77,10 +77,7 @@ struct OnboardingValueCarouselView: View {
     @ViewBuilder
     private func pageContent(for page: OnboardingValuePage) -> some View {
         if page.id == "global-climbs" {
-            OnboardingLandmarksValuePageContent(
-                headline: page.headline,
-                subtitle: page.subtitle
-            )
+            OnboardingLandmarksValuePageContent(subtitle: page.subtitle)
         } else if page.id == "leaderboards" {
             OnboardingLeaderboardValuePageContent(
                 headline: page.headline,

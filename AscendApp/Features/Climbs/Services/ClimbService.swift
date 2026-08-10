@@ -128,8 +128,8 @@ final class ClimbService {
     }
 
     func lastCompletedSummary(modelContext: ModelContext) throws -> CompletedClimbSummary? {
-        let climbs = try loadAvailableClimbs()
-        let totalClimbs = climbs.count
+        let availableClimbs = try loadAvailableClimbs()
+        let catalogueClimbs = try loadAllClimbs()
         let completedAttempts = fetchAttempts(modelContext: modelContext)
             .filter { $0.status == .completed }
             .sorted { lhs, rhs in
@@ -154,14 +154,23 @@ final class ClimbService {
         let bestDuration = attemptsForClimb
             .compactMap { $0.bestCompletionDurationSeconds ?? $0.accumulatedDurationSeconds }
             .min()
+        let claimedClimbIds = Set(completedAttempts.map(\.climbId))
+        let collectionClimbs = ClimbCollectionUniverse.climbs(
+            availableClimbs: availableClimbs,
+            claimedClimbIds: claimedClimbIds,
+            catalogueClimbs: catalogueClimbs
+        )
 
         return CompletedClimbSummary(
             climb: climb,
             completedAt: Self.attemptSortDate(for: lastAttempt),
             completionsCount: attemptsForClimb.count,
             bestCompletionDurationSeconds: bestDuration,
-            collectionCount: Set(completedAttempts.map(\.climbId)).count,
-            totalClimbs: totalClimbs,
+            collectionCount: ClimbCollectionUniverse.collectedCount(
+                claimedClimbIds: claimedClimbIds,
+                catalogueClimbs: catalogueClimbs
+            ),
+            totalClimbs: collectionClimbs.count,
             collectionOrder: collectionOrder(for: climb, modelContext: modelContext)
         )
     }

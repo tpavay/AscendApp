@@ -410,6 +410,106 @@ struct ClimbServiceTests {
         }
     }
 
+    @Test("Home's collected fraction never outgrows its own total", .bug(id: 440))
+    func homeCollectionFractionCountsRetiredClaimsOnBothSides() throws {
+        let availableClimb = makeClimb(id: "statue-of-liberty", requiredSteps: 377)
+        let retiredClimb = makeClimb(
+            id: "mount-everest",
+            requiredSteps: 48_664,
+            releaseState: .hidden
+        )
+        let service = ClimbService(
+            catalogRepository: TestClimbCatalogRepository(climbs: [availableClimb, retiredClimb])
+        )
+        let modelContext = try makeModelContext()
+        let completedAt = Date(timeIntervalSince1970: 1_775_217_600)
+
+        modelContext.insert(
+            makeCompletedAttempt(climbId: availableClimb.id, completedAt: completedAt)
+        )
+        modelContext.insert(
+            makeCompletedAttempt(
+                climbId: retiredClimb.id,
+                completedAt: completedAt.addingTimeInterval(-86_400)
+            )
+        )
+        try modelContext.save()
+
+        let summary = try #require(try service.lastCompletedSummary(modelContext: modelContext))
+
+        #expect(summary.collectionCount == 2)
+        #expect(summary.totalClimbs == 2)
+        #expect(summary.collectionCount <= summary.totalClimbs)
+        #expect(summary.collectionProgressText == "2 / 2")
+    }
+
+    @Test("A deleted climb leaves both sides of Home's fraction alone", .bug(id: 440))
+    func homeCollectionFractionIgnoresUnresolvableClaims() throws {
+        let availableClimb = makeClimb(id: "statue-of-liberty", requiredSteps: 377)
+        let service = ClimbService(
+            catalogRepository: TestClimbCatalogRepository(climbs: [availableClimb])
+        )
+        let modelContext = try makeModelContext()
+        let completedAt = Date(timeIntervalSince1970: 1_775_217_600)
+
+        modelContext.insert(
+            makeCompletedAttempt(climbId: availableClimb.id, completedAt: completedAt)
+        )
+        modelContext.insert(
+            makeCompletedAttempt(
+                climbId: "machu-picchu",
+                completedAt: completedAt.addingTimeInterval(-86_400)
+            )
+        )
+        try modelContext.save()
+
+        let summary = try #require(try service.lastCompletedSummary(modelContext: modelContext))
+
+        #expect(summary.collectionCount == 1)
+        #expect(summary.totalClimbs == 1)
+    }
+
+    @Test("Home and Profile state one collection fraction, not two", .bug(id: 440))
+    func homeAndProfileAgreeOnTheCollectionFraction() throws {
+        let availableClimb = makeClimb(id: "statue-of-liberty", requiredSteps: 377)
+        let retiredClimb = makeClimb(
+            id: "mount-everest",
+            requiredSteps: 48_664,
+            releaseState: .hidden
+        )
+        let catalogue = [availableClimb, retiredClimb]
+        let service = ClimbService(
+            catalogRepository: TestClimbCatalogRepository(climbs: catalogue)
+        )
+        let modelContext = try makeModelContext()
+        let attempts = [
+            makeCompletedAttempt(
+                climbId: retiredClimb.id,
+                completedAt: Date(timeIntervalSince1970: 1_775_217_600)
+            )
+        ]
+
+        for attempt in attempts {
+            modelContext.insert(attempt)
+        }
+        try modelContext.save()
+
+        let homeSummary = try #require(try service.lastCompletedSummary(modelContext: modelContext))
+        let profile = ProfileSnapshotBuilder.makeOwnSnapshot(
+            demographics: ProfileDemographicsSnapshot(userId: "test-user"),
+            workouts: [],
+            climbAttempts: attempts,
+            bestEffortCacheEntries: [],
+            achievements: .zero,
+            standings: [],
+            climbs: catalogue,
+            fitnessLevel: .beginner
+        )
+
+        #expect(homeSummary.collectionCount == profile.collection.collectedCount)
+        #expect(homeSummary.totalClimbs == profile.collection.catalogCount)
+    }
+
     @Test("A retired climb still fronts the Home card it was earned on", .bug(id: 440))
     func homeCardKeepsACompletionOnAHiddenClimb() throws {
         let retiredClimb = makeClimb(
