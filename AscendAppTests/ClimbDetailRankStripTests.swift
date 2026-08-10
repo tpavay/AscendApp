@@ -22,36 +22,75 @@ struct ClimbDetailRankStripTests {
 
     @Test("Artwork fills the hero card when the rank strip is absent")
     func absentRankStripLeavesNoLeadingGap() throws {
+        let row = try renderHeroMidRow(stripOrderText: nil)
+
+        #expect(
+            row.artworkRatio(fromPoint: 8, toPoint: Self.heroWidth - 8) > 0.98,
+            "The artwork should reach both hero-card edges without a reserved 48pt strip"
+        )
+    }
+
+    @Test("The rank strip covers the leading 48pt of the hero card")
+    func presentRankStripOccupiesTheLeadingStripWidth() throws {
+        let row = try renderHeroMidRow(stripOrderText: "#4/12")
+
+        #expect(
+            row.artworkRatio(fromPoint: 2, toPoint: 46) == 0,
+            "The strip should cover the artwork across the leading 48pt"
+        )
+        #expect(
+            row.artworkRatio(fromPoint: 52, toPoint: Self.heroWidth - 8) > 0.98,
+            "The strip should be exactly 48pt wide, leaving the rest of the hero as artwork"
+        )
+    }
+
+    private static let heroWidth: CGFloat = 353
+    private static let heroHeight: CGFloat = 390
+    private static let renderScale: CGFloat = 2
+
+    private static let artworkMarker = Color(.sRGB, red: 1, green: 0, blue: 0, opacity: 1)
+
+    private struct HeroMidRow {
+        let pixels: [UInt8]
+        let scale: CGFloat
+
+        func artworkRatio(fromPoint: CGFloat, toPoint: CGFloat) -> Double {
+            let sampled = Int(fromPoint * scale)..<Int(toPoint * scale)
+            let artworkPixelCount = sampled.count(where: { x in
+                let offset = x * 4
+                return pixels[offset] > 150
+                    && pixels[offset + 1] < 30
+                    && pixels[offset + 2] < 30
+                    && pixels[offset + 3] > 240
+            })
+
+            return Double(artworkPixelCount) / Double(sampled.count)
+        }
+    }
+
+    private func renderHeroMidRow(stripOrderText: String?) throws -> HeroMidRow {
         let renderer = ImageRenderer(
             content: ClimbDetailHeroCardFront(
                 climb: .preview,
                 subtitle: Climb.preview.displayLocation,
-                stripOrderText: nil
+                stripOrderText: stripOrderText
             ) {
-                Color.red
+                Self.artworkMarker
             }
-            .frame(width: 353, height: 390)
+            .frame(width: Self.heroWidth, height: Self.heroHeight)
             .clipShape(RoundedRectangle(cornerRadius: 28))
         )
-        renderer.scale = 2
+        renderer.scale = Self.renderScale
 
         let image = try #require(renderer.uiImage, "ImageRenderer produced no hero artwork")
         let bitmap = try #require(image.cgImage, "The hero render had no bitmap")
         let pixels = try rgbaPixels(from: bitmap)
         let y = bitmap.height / 2
-        let inset = 8
-        let sampledX = inset..<(bitmap.width - inset)
-        let artworkPixelCount = sampledX.count(where: { x in
-            let offset = ((y * bitmap.width) + x) * 4
-            return pixels[offset] > 150
-                && pixels[offset + 1] < 30
-                && pixels[offset + 2] < 30
-                && pixels[offset + 3] > 240
-        })
+        let rowStart = y * bitmap.width * 4
 
-        #expect(
-            Double(artworkPixelCount) / Double(sampledX.count) > 0.98,
-            "The artwork should reach both hero-card edges without a reserved 48pt strip"
+        return HeroMidRow(
+            pixels: Array(pixels[rowStart..<(rowStart + bitmap.width * 4)]),
+            scale: Self.renderScale
         )
     }
 
