@@ -8,20 +8,11 @@ struct ProfilePrestigeBadgeView: View {
         VStack(spacing: 8) {
             Group {
                 if token.usesFreeStandingArt {
-                    Image(token.asset)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: imageSize, height: imageSize)
+                    artwork
                 } else {
-                    Image(token.asset)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: imageSize, height: imageSize)
-                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                .stroke(token.tint.opacity(0.42), lineWidth: 1)
-                        )
+                    artwork
+                        .clipShape(Self.tokenFrame)
+                        .overlay(Self.tokenFrame.stroke(token.tint.opacity(0.42), lineWidth: 1))
                 }
             }
             .shadow(color: token.tint.opacity(0.26), radius: 6, y: 2)
@@ -41,4 +32,13 @@ struct ProfilePrestigeBadgeView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(token.label), \(token.count)")
     }
+
+    private var artwork: some View {
+        Image(token.asset)
+            .resizable()
+            .scaledToFit()
+            .frame(width: imageSize, height: imageSize)
+    }
+
+    private static let tokenFrame = RoundedRectangle(cornerRadius: 13, style: .continuous)
 }

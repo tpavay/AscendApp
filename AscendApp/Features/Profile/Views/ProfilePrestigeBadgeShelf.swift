@@ -11,7 +11,7 @@ struct ProfilePrestigeBadgeShelf: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: 16) {
                 ForEach(tokens) { token in
-                    if let band = token.achievementBand {
+                    if let band = token.achievementBand, hasRecords(for: band) {
                         Button {
                             HapticsManager.shared.trigger(.lightImpact)
                             selectedAchievementBand = band
@@ -35,5 +35,9 @@ struct ProfilePrestigeBadgeShelf: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
+    }
+
+    private func hasRecords(for band: ProfileAchievementRankBand) -> Bool {
+        achievementRecords.contains { $0.countsToward(band) }
     }
 }

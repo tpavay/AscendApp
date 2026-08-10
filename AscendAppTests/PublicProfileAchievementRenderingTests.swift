@@ -55,6 +55,53 @@ struct PublicProfileAchievementRenderingTests {
     }
 
     @Test
+    func bandBadgesWithoutFinalizedRowsStayNonInteractive() async throws {
+        let elements = try await renderedElements(
+            achievements: ProfileAchievementCounts(top1: 2, top3: 4, top10: 0, top100: 0),
+            achievementRecords: [],
+            isOtherLoading: false
+        )
+        let champion = try #require(
+            elements.first { $0.accessibilityLabel == "CHAMPION, 2" }
+        )
+
+        #expect(champion.accessibilityTraits.contains(.button) == false)
+    }
+
+    @Test
+    func bandBadgesBackedByFinalizedRowsOpenTheirHistory() async throws {
+        let elements = try await renderedElements(
+            achievements: ProfileAchievementCounts(top1: 2, top3: 4, top10: 0, top100: 0),
+            achievementRecords: [Self.weeklyTop1Record],
+            isOtherLoading: false
+        )
+        let champion = try #require(
+            elements.first { $0.accessibilityLabel == "CHAMPION, 2" }
+        )
+        let topThree = try #require(
+            elements.first { $0.accessibilityLabel == "TOP 3, 4" }
+        )
+
+        #expect(champion.accessibilityTraits.contains(.button))
+        #expect(topThree.accessibilityTraits.contains(.button))
+    }
+
+    private static let weeklyTop1Record = ProfileAchievementRecord(
+        id: "weekly-top-1",
+        type: .weeklyTop1,
+        scope: .global,
+        metric: .steps,
+        climbId: nil,
+        periodKey: "2026-W32",
+        periodStartAt: Date(timeIntervalSince1970: 1_754_524_800),
+        periodEndAt: Date(timeIntervalSince1970: 1_755_129_600),
+        earnedAt: Date(timeIntervalSince1970: 1_755_129_600),
+        rank: 1,
+        value: 42_000,
+        valueUnit: "steps"
+    )
+
+    @Test
     func crownAndPrestigeTokensProduceReviewablePixels() throws {
         let achievements = ProfileAchievementCounts(
             top1: 2,
@@ -119,6 +166,7 @@ struct PublicProfileAchievementRenderingTests {
 
     private func renderedElements(
         achievements: ProfileAchievementCounts,
+        achievementRecords: [ProfileAchievementRecord] = [],
         isOtherLoading: Bool
     ) async throws -> [NSObject] {
         try await withAccessibilityAutomation {
@@ -130,7 +178,7 @@ struct PublicProfileAchievementRenderingTests {
 
                     PublicProfileAchievementsSection(
                         achievements: achievements,
-                        achievementRecords: [],
+                        achievementRecords: achievementRecords,
                         isOtherLoading: isOtherLoading
                     )
                 }

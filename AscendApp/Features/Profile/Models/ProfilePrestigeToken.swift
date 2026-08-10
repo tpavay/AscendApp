@@ -7,9 +7,24 @@ struct ProfilePrestigeToken: Identifiable {
     let count: Int
     let label: String
     let achievementBand: ProfileAchievementRankBand?
+    let usesFreeStandingArt: Bool
 
-    var usesFreeStandingArt: Bool {
-        asset == "LeaderboardCrown"
+    init(
+        id: String,
+        asset: String,
+        tint: Color,
+        count: Int,
+        label: String,
+        achievementBand: ProfileAchievementRankBand?,
+        usesFreeStandingArt: Bool = false
+    ) {
+        self.id = id
+        self.asset = asset
+        self.tint = tint
+        self.count = count
+        self.label = label
+        self.achievementBand = achievementBand
+        self.usesFreeStandingArt = usesFreeStandingArt
     }
 
     static func leaderboardTokens(
@@ -25,7 +40,8 @@ struct ProfilePrestigeToken: Identifiable {
                     tint: ProfileVisualStyle.gold,
                     count: achievements.top1,
                     label: ProfileTerminology.topOneAchievementLabel,
-                    achievementBand: .top1
+                    achievementBand: .top1,
+                    usesFreeStandingArt: true
                 )
             )
         }
