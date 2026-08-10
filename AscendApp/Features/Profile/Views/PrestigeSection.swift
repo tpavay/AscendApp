@@ -11,7 +11,6 @@ struct PrestigeSection: View {
     let mode: ProfileViewMode
 
     @State private var notificationState: ClimbDropNotificationState
-    @State private var selectedAchievementBand: ProfileAchievementRankBand?
 
     init(
         held: [ProfileFirstAscentSummary],
@@ -36,34 +35,12 @@ struct PrestigeSection: View {
             if tokens.isEmpty {
                 activationContent
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 16) {
-                        ForEach(tokens) { token in
-                            if let band = token.achievementBand {
-                                Button {
-                                    HapticsManager.shared.trigger(.lightImpact)
-                                    selectedAchievementBand = band
-                                } label: {
-                                    badge(token)
-                                }
-                                .buttonStyle(.plain)
-                            } else {
-                                badge(token)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 2)
-                    .padding(.vertical, 4)
-                }
+                ProfilePrestigeBadgeShelf(
+                    tokens: tokens,
+                    achievementRecords: achievementRecords,
+                    imageSize: 54
+                )
             }
-        }
-        .sheet(item: $selectedAchievementBand) { band in
-            AchievementHistorySheet(
-                band: band,
-                records: achievementRecords.filter { $0.countsToward(band) }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
         }
         .task {
             guard mode == .own else { return }
@@ -71,12 +48,12 @@ struct PrestigeSection: View {
         }
     }
 
-    private var tokens: [PrestigeToken] {
-        var result: [PrestigeToken] = []
+    private var tokens: [ProfilePrestigeToken] {
+        var result: [ProfilePrestigeToken] = []
 
         if !held.isEmpty {
             result.append(
-                PrestigeToken(
+                ProfilePrestigeToken(
                     id: "first-ascents",
                     asset: "FirstAscentBadgeDetailed",
                     tint: ProfileVisualStyle.gold,
@@ -87,85 +64,9 @@ struct PrestigeSection: View {
             )
         }
 
-        if achievements.top1 > 0 {
-            result.append(
-                PrestigeToken(
-                    id: "top1",
-                    asset: "LeaderboardCrown",
-                    tint: ProfileVisualStyle.gold,
-                    count: achievements.top1,
-                    label: ProfileTerminology.topOneAchievementLabel,
-                    achievementBand: .top1
-                )
-            )
-        }
-        if achievements.top3 > 0 {
-            result.append(
-                PrestigeToken(
-                    id: "top3",
-                    asset: "LeaderboardTop3",
-                    tint: ProfileVisualStyle.silver,
-                    count: achievements.top3,
-                    label: ProfileTerminology.topThreeAchievementLabel,
-                    achievementBand: .top3
-                )
-            )
-        }
-        if achievements.top10 > 0 {
-            result.append(
-                PrestigeToken(
-                    id: "top10",
-                    asset: "LeaderboardTop10",
-                    tint: ProfileVisualStyle.gold,
-                    count: achievements.top10,
-                    label: ProfileTerminology.topTenAchievementLabel,
-                    achievementBand: .top10
-                )
-            )
-        }
-        if achievements.top100 > 0 {
-            result.append(
-                PrestigeToken(
-                    id: "top100",
-                    asset: "LeaderboardTop100",
-                    tint: ProfileVisualStyle.secondaryText,
-                    count: achievements.top100,
-                    label: ProfileTerminology.topHundredAchievementLabel,
-                    achievementBand: .top100
-                )
-            )
-        }
+        result.append(contentsOf: ProfilePrestigeToken.leaderboardTokens(for: achievements))
 
         return result
-    }
-
-    private func badge(_ token: PrestigeToken) -> some View {
-        VStack(spacing: 8) {
-            Image(token.asset)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 54, height: 54)
-                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .stroke(token.tint.opacity(0.42), lineWidth: 1)
-                )
-                .shadow(color: token.tint.opacity(0.26), radius: 6, y: 2)
-
-            Text(token.count.formatted(.number.grouping(.automatic)))
-                .font(.montserratBold(size: 20))
-                .foregroundStyle(.white)
-
-            Text(token.label.uppercased())
-                .font(.montserratSemiBold(size: 9))
-                .foregroundStyle(ProfileVisualStyle.secondaryText)
-                .tracking(0.8)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
-        .frame(width: 88)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(token.label), \(token.count)")
     }
 
     @ViewBuilder
@@ -215,13 +116,4 @@ struct PrestigeSection: View {
             await notificationState.enable()
         }
     }
-}
-
-private struct PrestigeToken: Identifiable {
-    let id: String
-    let asset: String
-    let tint: Color
-    let count: Int
-    let label: String
-    let achievementBand: ProfileAchievementRankBand?
 }

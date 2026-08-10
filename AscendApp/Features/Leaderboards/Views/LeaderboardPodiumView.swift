@@ -75,7 +75,7 @@ private struct LeaderboardPodiumSlotView: View {
         slot.entry
     }
 
-    /// The climber's true competition rank — what the label and medal reflect.
+    /// The climber's true competition rank - what the label and medal reflect.
     private var rank: Int {
         slot.displayedRank
     }
@@ -216,13 +216,8 @@ private struct LeaderboardPodiumSlotView: View {
     private var crownMarker: some View {
         Image("LeaderboardCrown")
             .resizable()
-            .scaledToFill()
+            .scaledToFit()
             .frame(width: 30, height: 30)
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(LeaderboardMedal.gold.opacity(colorScheme == .dark ? 0.55 : 0.38), lineWidth: 1)
-            )
             .shadow(color: LeaderboardMedal.gold.opacity(colorScheme == .dark ? 0.48 : 0.26), radius: 6, x: 0, y: 2)
             .accessibilityHidden(true)
     }
