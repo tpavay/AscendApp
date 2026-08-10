@@ -307,7 +307,8 @@ Visual:
 
 Copy:
 - Headline: `Climb Real Landmarks`
-- Subtitle: `Take on the Empire State Building, Eiffel Tower, Everest, and more from your stair stepper.`
+- Subtitle: `Take on the Empire State Building, Eiffel Tower, Burj Khalifa, and more from your stair stepper.`
+  Only name landmarks that are `available` in the catalogue - a named climb the user cannot start is a broken promise on the screen that sells the app.
 - CTA: `Continue`
 
 Visual:

@@ -75,9 +75,11 @@ Reuse an existing `category` where one fits. Introducing a new value is a code c
 ## Release States
 
 - `available`: visible and startable. First Ascent / leaderboard surfaces may activate.
-- `comingSoon`: visible teaser, not startable.
-- `hidden`: not visible. Use for planned content that should not tease.
-- `disabled`: not visible. Use for retired or blocked content.
+- `comingSoon`: visible teaser, not startable. Use for a route that is plausible but whose distance is not verified yet.
+- `hidden`: not raceable and off the browse surfaces. Use for planned content that should not tease, and for content retired from racing.
+- `disabled`: not raceable and off the browse surfaces. Use for retired or blocked content.
+
+Hidden means not raceable, never that earned history disappears. A climber's held First Ascent and claimed Collection card on a hidden climb keep rendering, and the detail screen reached through history states a truthful non-raceable action - never `Coming Soon`, which promises a drop that is not coming. `ClimbService.loadAllClimbs()` is the read for history-resolving surfaces; racing surfaces read the available set. Changing a climb's release state is safe for earned history in a way that **deleting its catalogue row is not**: a deleted row leaves a claim with nothing to render from. See `docs/launch-readiness-audit.md` for what that costs today.
 
 If images are missing or uncertain, default new climbs to `comingSoon` or `hidden`, not `available`.
 
@@ -159,6 +161,8 @@ Writes to production require `--confirm-production`. Sync copies only missing/ch
 7. Update `featuredClimbId` only if the user asked to feature the new climb.
 8. If dev replay fixtures should include the climb, add it to `ACTIVE_CLIMBS` or `WARM_CLIMBS` in `scripts/seed-live-replay-leaderboards.mjs`.
    To seed the climb with an open First Ascent slot instead of synthetic traffic, use `FIRST_ASCENT_OPEN_CLIMBS` in the same file and follow the constraints documented on that list.
+   Every seeded ID - there and in `scripts/seed/fixtures/profile-fixtures.mjs` - must be `available`, or it strands state no surface can reach; `scripts/test/live-replay-first-ascent.test.mjs` fails on one. The reverse is not required: an available climb with no fixture is just unseeded.
+   Retiring or deleting a climb therefore means re-pointing any fixture that named it.
 9. Validate JSON and schema by decoding both catalog files.
 10. Build web before deploying hosted catalog content.
 

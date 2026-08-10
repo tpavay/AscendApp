@@ -53,7 +53,14 @@ final class ClimbDetailViewModel {
     }
 
     var actionTitle: String {
-        climb.isAvailable ? "Start Live Climb" : "Coming Soon"
+        switch climb.releaseState {
+        case .available:
+            "Start Live Climb"
+        case .comingSoon:
+            "Coming Soon"
+        case .hidden, .disabled:
+            "Not Raceable"
+        }
     }
 
     var isActionEnabled: Bool {

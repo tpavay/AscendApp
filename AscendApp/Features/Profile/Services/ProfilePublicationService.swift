@@ -62,7 +62,7 @@ enum ProfilePublicationService {
                     sortBy: [SortDescriptor(\.sortKey)]
                 )
             )
-            let climbs = (try? ClimbService.shared.loadClimbs()) ?? []
+            let climbs = (try? ClimbService.shared.loadAllClimbs()) ?? []
             let achievements = (try? await repository.fetchAchievements(userId: userId)) ?? []
             let achievementCounts = ProfileAchievementCounts(records: achievements)
             let snapshot = ProfileSnapshotBuilder.makeOwnSnapshot(

@@ -20,25 +20,9 @@ enum JourneyPrototypeBuilder {
                 climbIds: [
                     "statue-of-liberty",
                     "empire-state-building",
-                    "chrysler-building",
+                    "space-needle",
                     "one-world-trade-center",
                     "cn-tower"
-                ],
-                climbsById: availableById
-            ),
-            makeJourney(
-                id: "castle-circuit",
-                title: "Castle Circuit",
-                subtitle: "Fortresses",
-                thesis: "Take the old walls one climb at a time.",
-                reward: "Complete the circuit to mark every fortress claimed.",
-                accentHex: "E0B85B",
-                climbIds: [
-                    "osaka-castle",
-                    "neuschwanstein-castle",
-                    "alhambra",
-                    "acropolis-of-athens",
-                    "abuna-yemata-guh"
                 ],
                 climbsById: availableById
             ),
@@ -53,24 +37,8 @@ enum JourneyPrototypeBuilder {
                     "eiffel-tower",
                     "burj-khalifa",
                     "taipei-101",
-                    "tokyo-skytree",
-                    "osaka-castle"
-                ],
-                climbsById: availableById
-            ),
-            makeJourney(
-                id: "summit-route",
-                title: "Summit Route",
-                subtitle: "Mountains",
-                thesis: "Start high. Keep climbing until the route is closed.",
-                reward: "Finish the route to lock in a summit series record.",
-                accentHex: "7CFF6B",
-                climbIds: [
-                    "half-dome",
-                    "pikes-peak",
-                    "matterhorn",
-                    "mount-fuji",
-                    "mount-kilimanjaro"
+                    "shanghai-tower",
+                    "lotte-world-tower"
                 ],
                 climbsById: availableById
             )

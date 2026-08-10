@@ -26,58 +26,6 @@
     "releaseState": "available"
   },
   {
-    "id": "washington-monument",
-    "name": "Washington Monument",
-    "city": "Washington, D.C.",
-    "country": "USA",
-    "continent": "North America",
-    "latitude": 38.8895,
-    "longitude": -77.0353,
-    "totalHeightMeters": 169,
-    "totalHeightFeet": 554.5,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 930,
-    "realStairCount": 897,
-    "calculatedFloors": 45,
-    "category": "monument",
-    "tier": "silver",
-    "tags": [
-      "obelisk",
-      "national mall",
-      "icon"
-    ],
-    "funFact": "The Washington Monument is the tallest masonry obelisk in the world.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Washington_Monument",
-    "releaseState": "available"
-  },
-  {
-    "id": "gateway-arch",
-    "name": "Gateway Arch",
-    "city": "St. Louis",
-    "country": "USA",
-    "continent": "North America",
-    "latitude": 38.6247,
-    "longitude": -90.1848,
-    "totalHeightMeters": 192,
-    "totalHeightFeet": 629.9,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 1056,
-    "realStairCount": 1076,
-    "calculatedFloors": 54,
-    "category": "monument",
-    "tier": "silver",
-    "tags": [
-      "arch",
-      "riverfront",
-      "icon"
-    ],
-    "funFact": "The Gateway Arch is the tallest arch monument on Earth.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Gateway_Arch",
-    "releaseState": "available"
-  },
-  {
     "id": "space-needle",
     "name": "Space Needle",
     "city": "Seattle",
@@ -104,32 +52,6 @@
     "releaseState": "available"
   },
   {
-    "id": "transamerica-pyramid",
-    "name": "Transamerica Pyramid",
-    "city": "San Francisco",
-    "country": "USA",
-    "continent": "North America",
-    "latitude": 37.7952,
-    "longitude": -122.4028,
-    "totalHeightMeters": 260,
-    "totalHeightFeet": 853,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 1430,
-    "realStairCount": null,
-    "calculatedFloors": 72,
-    "category": "skyscraper",
-    "tier": "gold",
-    "tags": [
-      "skyline",
-      "financial district",
-      "icon"
-    ],
-    "funFact": "The Transamerica Pyramid remained San Francisco's tallest building for decades.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Transamerica_Pyramid",
-    "releaseState": "available"
-  },
-  {
     "id": "empire-state-building",
     "name": "Empire State Building",
     "city": "New York",
@@ -153,32 +75,6 @@
     ],
     "funFact": "The Empire State Building opened in 1931 during the Great Depression.",
     "sourceURL": "https://en.wikipedia.org/wiki/Empire_State_Building",
-    "releaseState": "available"
-  },
-  {
-    "id": "chrysler-building",
-    "name": "Chrysler Building",
-    "city": "New York",
-    "country": "USA",
-    "continent": "North America",
-    "latitude": 40.7516,
-    "longitude": -73.9755,
-    "totalHeightMeters": 319,
-    "totalHeightFeet": 1046.6,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 1755,
-    "realStairCount": null,
-    "calculatedFloors": 89,
-    "category": "skyscraper",
-    "tier": "gold",
-    "tags": [
-      "art deco",
-      "skyline",
-      "icon"
-    ],
-    "funFact": "The Chrysler Building briefly held the world's tallest-building title in 1930.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Chrysler_Building",
     "releaseState": "available"
   },
   {
@@ -309,7 +205,7 @@
     ],
     "funFact": "Half Dome's cable route is one of the most famous day hikes in the United States.",
     "sourceURL": "https://en.wikipedia.org/wiki/Half_Dome",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "denali",
@@ -335,7 +231,7 @@
     ],
     "funFact": "Denali is the highest mountain peak in North America.",
     "sourceURL": "https://en.wikipedia.org/wiki/Denali",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "mount-whitney",
@@ -361,7 +257,7 @@
     ],
     "funFact": "Mount Whitney is the highest summit in the contiguous United States.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Whitney",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "pikes-peak",
@@ -387,7 +283,7 @@
     ],
     "funFact": "Katharine Lee Bates was inspired to write America the Beautiful after visiting Pikes Peak.",
     "sourceURL": "https://en.wikipedia.org/wiki/Pikes_Peak",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "reunion-tower",
@@ -416,84 +312,6 @@
     "releaseState": "available"
   },
   {
-    "id": "machu-picchu",
-    "name": "Machu Picchu",
-    "city": "Cusco Region",
-    "country": "Peru",
-    "continent": "South America",
-    "latitude": -13.1631,
-    "longitude": -72.545,
-    "totalHeightMeters": 2430,
-    "totalHeightFeet": 7972.4,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 13365,
-    "realStairCount": null,
-    "calculatedFloors": 675,
-    "category": "fortress",
-    "tier": "mythic",
-    "tags": [
-      "inca",
-      "ruins",
-      "mountain"
-    ],
-    "funFact": "Machu Picchu was built in the 15th century and hidden from the outside world for centuries.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Machu_Picchu",
-    "releaseState": "available"
-  },
-  {
-    "id": "sugarloaf-mountain",
-    "name": "Sugarloaf Mountain",
-    "city": "Rio de Janeiro",
-    "country": "Brazil",
-    "continent": "South America",
-    "latitude": -22.9492,
-    "longitude": -43.1566,
-    "totalHeightMeters": 396,
-    "totalHeightFeet": 1299.2,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 2178,
-    "realStairCount": null,
-    "calculatedFloors": 110,
-    "category": "mountain",
-    "tier": "diamond",
-    "tags": [
-      "granite",
-      "bay",
-      "viewpoint"
-    ],
-    "funFact": "Sugarloaf Mountain gets its English name from the cone-shaped molds once used for sugar.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Sugarloaf_Mountain",
-    "releaseState": "available"
-  },
-  {
-    "id": "gran-torre-santiago",
-    "name": "Gran Torre Santiago",
-    "city": "Santiago",
-    "country": "Chile",
-    "continent": "South America",
-    "latitude": -33.4173,
-    "longitude": -70.6063,
-    "totalHeightMeters": 300,
-    "totalHeightFeet": 984.3,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 1650,
-    "realStairCount": null,
-    "calculatedFloors": 83,
-    "category": "skyscraper",
-    "tier": "gold",
-    "tags": [
-      "skyline",
-      "observation",
-      "andes"
-    ],
-    "funFact": "Gran Torre Santiago is the tallest building in South America.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Gran_Torre_Santiago",
-    "releaseState": "available"
-  },
-  {
     "id": "aconcagua",
     "name": "Aconcagua",
     "city": "Mendoza Province",
@@ -517,7 +335,7 @@
     ],
     "funFact": "Aconcagua is the highest mountain outside Asia.",
     "sourceURL": "https://en.wikipedia.org/wiki/Aconcagua",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "monserrate",
@@ -569,7 +387,7 @@
     ],
     "funFact": "The granite towers of Torres del Paine are among Patagonia's most famous sights.",
     "sourceURL": "https://en.wikipedia.org/wiki/Torres_del_Paine",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "el-penon-de-guatape",
@@ -598,32 +416,6 @@
     "releaseState": "available"
   },
   {
-    "id": "palacio-salvo",
-    "name": "Palacio Salvo",
-    "city": "Montevideo",
-    "country": "Uruguay",
-    "continent": "South America",
-    "latitude": -34.9058,
-    "longitude": -56.1984,
-    "totalHeightMeters": 100,
-    "totalHeightFeet": 328.1,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 550,
-    "realStairCount": null,
-    "calculatedFloors": 28,
-    "category": "skyscraper",
-    "tier": "bronze",
-    "tags": [
-      "historic",
-      "art deco",
-      "plaza"
-    ],
-    "funFact": "Palacio Salvo dominated Montevideo's skyline when it opened in 1928.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Palacio_Salvo",
-    "releaseState": "available"
-  },
-  {
     "id": "mount-roraima",
     "name": "Mount Roraima",
     "city": "Gran Sabana",
@@ -647,7 +439,7 @@
     ],
     "funFact": "Mount Roraima's tabletop summit inspired lost world adventure stories.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Roraima",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "farol-santander",
@@ -699,7 +491,7 @@
     ],
     "funFact": "Llaima is one of Chile's largest and most active volcanoes.",
     "sourceURL": "https://en.wikipedia.org/wiki/Llaima",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "eiffel-tower",
@@ -777,7 +569,7 @@
     ],
     "funFact": "The Shard was designed by Renzo Piano to look like a shard of glass.",
     "sourceURL": "https://en.wikipedia.org/wiki/The_Shard",
-    "releaseState": "available"
+    "releaseState": "comingSoon"
   },
   {
     "id": "berlin-tv-tower",
@@ -855,7 +647,7 @@
     ],
     "funFact": "Construction on the Sagrada Familia began in 1882 and is still ongoing.",
     "sourceURL": "https://en.wikipedia.org/wiki/Sagrada_Familia",
-    "releaseState": "available"
+    "releaseState": "comingSoon"
   },
   {
     "id": "matterhorn",
@@ -881,7 +673,7 @@
     ],
     "funFact": "The Matterhorn's near-symmetrical pyramid shape makes it one of the world's most recognizable mountains.",
     "sourceURL": "https://en.wikipedia.org/wiki/Matterhorn",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "mont-blanc",
@@ -907,7 +699,7 @@
     ],
     "funFact": "Mont Blanc is the highest mountain in the Alps and Western Europe.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mont_Blanc",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "mount-etna",
@@ -933,33 +725,7 @@
     ],
     "funFact": "Mount Etna is one of the world's most active stratovolcanoes.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Etna",
-    "releaseState": "available"
-  },
-  {
-    "id": "acropolis-of-athens",
-    "name": "Acropolis of Athens",
-    "city": "Athens",
-    "country": "Greece",
-    "continent": "Europe",
-    "latitude": 37.9715,
-    "longitude": 23.7257,
-    "totalHeightMeters": 156,
-    "totalHeightFeet": 511.8,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 858,
-    "realStairCount": null,
-    "calculatedFloors": 43,
-    "category": "fortress",
-    "tier": "silver",
-    "tags": [
-      "ancient",
-      "greece",
-      "hilltop"
-    ],
-    "funFact": "The Acropolis has overlooked Athens since classical antiquity.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Acropolis_of_Athens",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "st-peters-basilica",
@@ -988,58 +754,6 @@
     "releaseState": "available"
   },
   {
-    "id": "neuschwanstein-castle",
-    "name": "Neuschwanstein Castle",
-    "city": "Schwangau",
-    "country": "Germany",
-    "continent": "Europe",
-    "latitude": 47.5576,
-    "longitude": 10.7498,
-    "totalHeightMeters": 65,
-    "totalHeightFeet": 213.3,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 358,
-    "realStairCount": null,
-    "calculatedFloors": 18,
-    "category": "castle",
-    "tier": "bronze",
-    "tags": [
-      "bavaria",
-      "fairytale",
-      "icon"
-    ],
-    "funFact": "Neuschwanstein Castle inspired the look of several fairy-tale castles in popular culture.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Neuschwanstein_Castle",
-    "releaseState": "available"
-  },
-  {
-    "id": "moscow-state-university-main-building",
-    "name": "Moscow State University Main Building",
-    "city": "Moscow",
-    "country": "Russia",
-    "continent": "Europe",
-    "latitude": 55.7033,
-    "longitude": 37.5301,
-    "totalHeightMeters": 240,
-    "totalHeightFeet": 787.4,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 1320,
-    "realStairCount": null,
-    "calculatedFloors": 67,
-    "category": "skyscraper",
-    "tier": "gold",
-    "tags": [
-      "stalinist",
-      "skyline",
-      "university"
-    ],
-    "funFact": "The main building is one of Moscow's famed Seven Sisters skyscrapers.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Moscow_State_University",
-    "releaseState": "available"
-  },
-  {
     "id": "sacre-coeur",
     "name": "Sacre-Coeur",
     "city": "Paris",
@@ -1063,58 +777,6 @@
     ],
     "funFact": "Sacre-Coeur sits at the summit of Montmartre, the highest natural point in Paris.",
     "sourceURL": "https://en.wikipedia.org/wiki/Sacre-Coeur,_Paris",
-    "releaseState": "available"
-  },
-  {
-    "id": "alhambra",
-    "name": "Alhambra",
-    "city": "Granada",
-    "country": "Spain",
-    "continent": "Europe",
-    "latitude": 37.1761,
-    "longitude": -3.5881,
-    "totalHeightMeters": 123,
-    "totalHeightFeet": 403.5,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 677,
-    "realStairCount": null,
-    "calculatedFloors": 34,
-    "category": "fortress",
-    "tier": "silver",
-    "tags": [
-      "moors",
-      "palace",
-      "andalusia"
-    ],
-    "funFact": "The Alhambra was the royal court of the Nasrid dynasty in Granada.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Alhambra",
-    "releaseState": "available"
-  },
-  {
-    "id": "hallgrimskirkja",
-    "name": "Hallgrimskirkja",
-    "city": "Reykjavik",
-    "country": "Iceland",
-    "continent": "Europe",
-    "latitude": 64.1417,
-    "longitude": -21.9266,
-    "totalHeightMeters": 74,
-    "totalHeightFeet": 242.8,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 407,
-    "realStairCount": null,
-    "calculatedFloors": 21,
-    "category": "cathedral",
-    "tier": "bronze",
-    "tags": [
-      "church",
-      "reykjavik",
-      "icon"
-    ],
-    "funFact": "Hallgrimskirkja's design was inspired by Icelandic basalt columns.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Hallgrimskirkja",
     "releaseState": "available"
   },
   {
@@ -1167,7 +829,7 @@
     ],
     "funFact": "The Petronas Towers were the world's tallest buildings from 1998 to 2004.",
     "sourceURL": "https://en.wikipedia.org/wiki/Petronas_Towers",
-    "releaseState": "available"
+    "releaseState": "comingSoon"
   },
   {
     "id": "taipei-101",
@@ -1193,32 +855,6 @@
     ],
     "funFact": "Taipei 101 uses a massive tuned-mass damper to steady the tower during typhoons and earthquakes.",
     "sourceURL": "https://en.wikipedia.org/wiki/Taipei_101",
-    "releaseState": "available"
-  },
-  {
-    "id": "tokyo-skytree",
-    "name": "Tokyo Skytree",
-    "city": "Tokyo",
-    "country": "Japan",
-    "continent": "Asia",
-    "latitude": 35.71,
-    "longitude": 139.8107,
-    "totalHeightMeters": 634,
-    "totalHeightFeet": 2080.1,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 3487,
-    "realStairCount": null,
-    "calculatedFloors": 176,
-    "category": "tower",
-    "tier": "diamond",
-    "tags": [
-      "broadcast",
-      "observation",
-      "tokyo"
-    ],
-    "funFact": "Tokyo Skytree is the tallest structure in Japan.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Tokyo_Skytree",
     "releaseState": "available"
   },
   {
@@ -1375,7 +1011,7 @@
     ],
     "funFact": "N Seoul Tower stands atop Namsan and overlooks the South Korean capital.",
     "sourceURL": "https://en.wikipedia.org/wiki/N_Seoul_Tower",
-    "releaseState": "available"
+    "releaseState": "comingSoon"
   },
   {
     "id": "merdeka-118",
@@ -1427,7 +1063,7 @@
     ],
     "funFact": "The three towers of Marina Bay Sands are linked by a huge rooftop SkyPark.",
     "sourceURL": "https://en.wikipedia.org/wiki/Marina_Bay_Sands",
-    "releaseState": "available"
+    "releaseState": "comingSoon"
   },
   {
     "id": "mount-fuji",
@@ -1453,7 +1089,7 @@
     ],
     "funFact": "Mount Fuji is Japan's highest peak and a longstanding cultural icon.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Fuji",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "mount-kinabalu",
@@ -1479,7 +1115,7 @@
     ],
     "funFact": "Mount Kinabalu is the highest mountain in Malaysia.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Kinabalu",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "mount-everest",
@@ -1505,7 +1141,7 @@
     ],
     "funFact": "Mount Everest is Earth's highest mountain above sea level.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Everest",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "charminar",
@@ -1557,7 +1193,7 @@
     ],
     "funFact": "Toyotomi Hideyoshi built Osaka Castle in the late 16th century.",
     "sourceURL": "https://en.wikipedia.org/wiki/Osaka_Castle",
-    "releaseState": "available"
+    "releaseState": "comingSoon"
   },
   {
     "id": "mount-kilimanjaro",
@@ -1583,59 +1219,7 @@
     ],
     "funFact": "Kilimanjaro is Africa's highest mountain and a freestanding volcanic massif.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Kilimanjaro",
-    "releaseState": "available"
-  },
-  {
-    "id": "table-mountain",
-    "name": "Table Mountain",
-    "city": "Cape Town",
-    "country": "South Africa",
-    "continent": "Africa",
-    "latitude": -33.9628,
-    "longitude": 18.4098,
-    "totalHeightMeters": 1095,
-    "totalHeightFeet": 3592.5,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 6023,
-    "realStairCount": null,
-    "calculatedFloors": 304,
-    "category": "mountain",
-    "tier": "legendary",
-    "tags": [
-      "plateau",
-      "cape town",
-      "icon"
-    ],
-    "funFact": "Table Mountain's flat summit dominates the skyline of Cape Town.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Table_Mountain",
-    "releaseState": "available"
-  },
-  {
-    "id": "cairo-tower",
-    "name": "Cairo Tower",
-    "city": "Cairo",
-    "country": "Egypt",
-    "continent": "Africa",
-    "latitude": 30.0459,
-    "longitude": 31.2243,
-    "totalHeightMeters": 187,
-    "totalHeightFeet": 613.5,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 1029,
-    "realStairCount": null,
-    "calculatedFloors": 52,
-    "category": "tower",
-    "tier": "silver",
-    "tags": [
-      "observation",
-      "cairo",
-      "icon"
-    ],
-    "funFact": "The lattice exterior of Cairo Tower was designed to echo a lotus plant.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Cairo_Tower",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "mount-kenya",
@@ -1661,7 +1245,7 @@
     ],
     "funFact": "Mount Kenya is the second-highest mountain in Africa.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Kenya",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "voortrekker-monument",
@@ -1687,7 +1271,7 @@
     ],
     "funFact": "The Voortrekker Monument commemorates the 19th-century migration known as the Great Trek.",
     "sourceURL": "https://en.wikipedia.org/wiki/Voortrekker_Monument",
-    "releaseState": "available"
+    "releaseState": "comingSoon"
   },
   {
     "id": "mount-cameroon",
@@ -1713,33 +1297,7 @@
     ],
     "funFact": "Mount Cameroon is one of Africa's most active volcanoes.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Cameroon",
-    "releaseState": "available"
-  },
-  {
-    "id": "abuna-yemata-guh",
-    "name": "Abuna Yemata Guh",
-    "city": "Tigray",
-    "country": "Ethiopia",
-    "continent": "Africa",
-    "latitude": 13.7896,
-    "longitude": 39.4328,
-    "totalHeightMeters": 258,
-    "totalHeightFeet": 846.5,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 1419,
-    "realStairCount": null,
-    "calculatedFloors": 72,
-    "category": "temple",
-    "tier": "gold",
-    "tags": [
-      "cliff",
-      "church",
-      "ethiopia"
-    ],
-    "funFact": "Abuna Yemata Guh is famed for its cliffside approach and painted cave church interior.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Abuna_Yemata_Guh",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "sky-tower-auckland",
@@ -1843,7 +1401,7 @@
     ],
     "funFact": "Mount Kosciuszko is the highest mountain on mainland Australia.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Kosciuszko",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "kunanyi-mount-wellington",
@@ -1869,7 +1427,7 @@
     ],
     "funFact": "kunanyi towers above Hobart and can be dusted with snow in winter.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Wellington_(Tasmania)",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "aoraki-mount-cook",
@@ -1895,7 +1453,7 @@
     ],
     "funFact": "Aoraki / Mount Cook is the highest mountain in New Zealand.",
     "sourceURL": "https://en.wikipedia.org/wiki/Aoraki_/_Mount_Cook",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "mount-taranaki",
@@ -1921,7 +1479,7 @@
     ],
     "funFact": "Mount Taranaki's near-perfect cone makes it one of New Zealand's most distinctive mountains.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Taranaki",
-    "releaseState": "available"
+    "releaseState": "hidden"
   },
   {
     "id": "sydney-tower",

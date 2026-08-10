@@ -98,9 +98,7 @@ Not a sanctioned race, but a documented staircase with a published count.
 | Eureka Tower | 1,642 | 88F to Melbourne Skydeck | High | Eureka Climb, run annually since 2008 |
 | Monserrate | 1,605 | IDRD sendero peatonal | High | <https://www.idrd.gov.co/parques-y-escenarios/sendero-de-monserrate>, plus <https://bogota.gov.co> |
 | Sydney Tower | 1,504 | ground to the Sydney Tower Eye platform | High | Sydney Tower Eye Stair Challenge, <https://www.sydneytowereye.com.au/plan-your-day/information/news/sydney-tower-eye-stair-challenge/> |
-| Gateway Arch | 1,076 | emergency stairway, one leg | High | <https://www.nps.gov/jeff/planyourvisit/gateway-arch-fact-sheet.htm>; **public access forbidden** |
 | Berlin TV Tower | 986 | ground to the 203 m deck | Medium | <https://tv-turm.de/>; service and emergency stair, not normally public |
-| Washington Monument | 897 | ground to the observation level | High | National Park Service; **closed to the public since 1971** |
 | El Penon de Guatape | 740 | masonry staircase plus the summit tower | Low | Guatape tourism and the count painted at the summit; see Conflicts |
 | St. Peter's Basilica | 551 | ground to the top of the dome | High | <https://www.basilicasanpietro.va/en/help/the-dome> |
 | Statue of Liberty | 377 | 215 to the pedestal top + 162 to the crown | High | <https://www.nps.gov/stli/planyourvisit/visiting-the-pedestal.htm> |
@@ -108,6 +106,16 @@ Not a sanctioned race, but a documented staircase with a published count.
 | Sacre-Coeur | 300 | ground to the dome | Medium | Basilica dome visit; see Conflicts |
 | Leaning Tower of Pisa | 296 | ground to the belfry, south stair | Low | Opera della Primaziale Pisana visitor material; see Conflicts |
 | Charminar | 149 | ground to the upper floor | High | Telangana state tourism, <https://hyderabad.telangana.gov.in/tourist-place/charminar/> |
+
+### Verified counts for climbs no longer in the catalogue
+
+The racing curation ([#440](https://github.com/tpavay/AscendApp/issues/440)) removed these two entries because their staircases are not open to anyone, so no climber can verify a time against them.
+The research is kept here, not deleted, so a future reversal does not have to redo it.
+
+| Climb | `realStairCount` | Route | Confidence | Source |
+|---|---:|---|---|---|
+| Gateway Arch | 1,076 | emergency stairway, one leg | High | <https://www.nps.gov/jeff/planyourvisit/gateway-arch-fact-sheet.htm>; **public access forbidden** |
+| Washington Monument | 897 | ground to the observation level | High | National Park Service; **closed to the public since 1971** |
 
 ## Climbed vertical
 
@@ -209,7 +217,7 @@ Level -2 to 103 is consistent with that count, so 105 ships as the storey count 
 
 These carry no published storey count for the route, so `calculatedFloors` is `round(referenceStepCount / 19.8)` and is derived, not sourced.
 
-Sommerbergbahn Stair 100, TK Elevator Test Tower 70, Tianjin TV Tower 68, Tallinn TV Tower 44, Pyramidenkogel 22, CN Tower 90, Eiffel Tower 84, Monserrate 81, Sydney Tower 76, Gateway Arch 54, Berlin TV Tower 50, Washington Monument 45, Space Needle 42, Reunion Tower 42, El Penon de Guatape 37, St. Peter's Basilica 28, Tokyo Tower 25, Statue of Liberty 19, Elizabeth Tower 17, Leaning Tower of Pisa 15, Sacre-Coeur 15, Charminar 8.
+Sommerbergbahn Stair 100, TK Elevator Test Tower 70, Tianjin TV Tower 68, Tallinn TV Tower 44, Pyramidenkogel 22, CN Tower 90, Eiffel Tower 84, Monserrate 81, Sydney Tower 76, Berlin TV Tower 50, Space Needle 42, Reunion Tower 42, El Penon de Guatape 37, St. Peter's Basilica 28, Tokyo Tower 25, Statue of Liberty 19, Elizabeth Tower 17, Leaning Tower of Pisa 15, Sacre-Coeur 15, Charminar 8.
 
 Three of these do have a published count, but of flights or landings rather than storeys, and no second source restates it as storeys the way the TWA record does for Willis Tower.
 So it is recorded here and not shipped as a floor count:
@@ -274,16 +282,15 @@ That fallback is a known gap, not a verified distance.
 
 **Plausible stair route, no published count found (7).**
 The Shard, Sagrada Familia, Petronas Towers, N Seoul Tower, Marina Bay Sands, Osaka Castle, Voortrekker Monument.
+These ship as `comingSoon`, so nobody races an unverified distance.
 
 **Announced race with no published course distance yet (1).**
 CapitaMall ONE is scheduled for December 2026, but the venue and Towerrunning World Tour material publish no defensible stair count yet.
 
-**No public or competitive stair route found (8).**
-Hallgrimskirkja, Palacio Salvo, Cairo Tower, Moscow State University Main Building, Transamerica Pyramid, Gran Torre Santiago, Chrysler Building, Tokyo Skytree.
-
-**Not a stair ascent (28).**
-The 21 mountains and volcanoes, plus Machu Picchu, Acropolis of Athens, Alhambra, Neuschwanstein Castle, Abuna Yemata Guh, Sugarloaf Mountain and Table Mountain.
+**Not a stair ascent (21).**
+The 21 mountains and volcanoes, which ship as `hidden` for a future endurance ladder.
 No stair count exists to verify, because there is no staircase.
 
-Whether any of these should stay in a racing catalogue is a curation question, tracked separately in [issue #440](https://github.com/tpavay/AscendApp/issues/440).
+The curation question these entries used to raise is settled.
+[Issue #440](https://github.com/tpavay/AscendApp/issues/440) deleted seventeen entries from the catalogue: the eight with no public or competitive stair route (Hallgrimskirkja, Palacio Salvo, Cairo Tower, Moscow State University Main Building, Transamerica Pyramid, Gran Torre Santiago, Chrysler Building, Tokyo Skytree), the seven that are not staircases (Machu Picchu, Acropolis of Athens, Alhambra, Neuschwanstein Castle, Abuna Yemata Guh, Sugarloaf Mountain, Table Mountain), and the two whose verified staircases are closed to the public, recorded above under Published stair routes.
 This file only records numbers.

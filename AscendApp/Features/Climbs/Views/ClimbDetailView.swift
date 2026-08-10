@@ -123,12 +123,13 @@ struct ClimbDetailView: View {
         climb: Climb,
         showsBrowseBackButton: Bool = false,
         analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown,
-        onboardingCoach: ClimbDetailOnboardingCoachMode? = nil
+        onboardingCoach: ClimbDetailOnboardingCoachMode? = nil,
+        climbService: ClimbService = .shared
     ) {
         self.showsBrowseBackButton = showsBrowseBackButton
         self.analyticsEntryPoint = analyticsEntryPoint
         self.onboardingCoach = onboardingCoach
-        _viewModel = State(initialValue: ClimbDetailViewModel(climb: climb))
+        _viewModel = State(initialValue: ClimbDetailViewModel(climb: climb, climbService: climbService))
     }
 
     private var effectiveColorScheme: ColorScheme {

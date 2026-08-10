@@ -1325,19 +1325,9 @@ private struct PostAuthPlanCarouselCard: Identifiable, Equatable {
             imageName: "OnboardingLandmarkBurjCard"
         ),
         .init(
-            id: "machu-picchu",
-            name: "Machu Picchu",
-            imageName: "OnboardingLandmarkMachuCard"
-        ),
-        .init(
             id: "statue-of-liberty",
             name: "Statue of Liberty",
             imageName: "OnboardingLandmarkStatueCard"
-        ),
-        .init(
-            id: "mount-everest",
-            name: "Mount Everest",
-            imageName: "OnboardingLandmarkEverestCard"
         ),
         .init(
             id: "empire-state-building",

@@ -49,6 +49,7 @@ The July 27, 2026 audit used authenticated RevenueCat, App Store Connect, and Su
 - Superwall campaign `91861`, `App Access Gate V2`, targets `app_access_gate` and assigns paywall `232372` to 100 percent of its audience.
 - The verified paywall `232372` draft defaults to Annual and switches its headline, CTA, and legal disclosure to immediate monthly purchase language when Monthly is selected.
 - The paywall benefits include `Compete on global leaderboards` and contain no personalized-plan claim.
+- The landmark benefit carries no hardcoded count. `benefit_1` ships as `Choose from real landmarks to climb` and the page resolves the number at runtime from `/climbs/manifest.json` and the catalogue it names, keyed on `catalogVersion`, so a curated catalogue cannot leave a stale promise behind. A failed fetch leaves the count-free copy standing. Never type a landmark count into the Superwall editor override for `benefit_1` - it would outlive the next catalogue change.
 - The retired discount paywall `232373` is archived and is not attached to the active campaign.
 
 The native purchase controller receives the StoreKit 2 product from Superwall and passes it to RevenueCat.
@@ -222,7 +223,7 @@ Substitute that environment's own product identifiers throughout - `ascend_yearl
 1. Confirm the project has only that environment's annual and monthly products in the launch paywall.
 2. Bind the annual product to `yearly`.
 3. Bind the monthly product to `monthly`.
-4. Confirm the paywall benefits say `Compete on global leaderboards` and make no personalized-plan claim.
+4. Confirm the paywall benefits say `Compete on global leaderboards`, make no personalized-plan claim, and leave `benefit_1` without a hardcoded landmark count.
 5. Point a self-hosted paywall at `https://ascendstepper.com/superwall/onboarding-paywall` only after the Hosting deployment serves this repository revision.
 6. Confirm Annual is selected when `Try 7 Days Free` is visible.
 7. Switch to Monthly and confirm the headline, CTA, price, and legal disclosure all describe an immediate monthly charge with no trial.

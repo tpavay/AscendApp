@@ -15,6 +15,7 @@ import {
   isOpenFirstAscentSummary,
   summaryHasFirstAscent,
 } from "../seed/lib/live-replay-first-ascent.mjs";
+import {PROFILE_SEED_PERSONAS} from "../seed/fixtures/profile-fixtures.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -207,9 +208,59 @@ test("exactly four climbs seed an open First Ascent slot", () => {
   assert.deepEqual(openClimbIds, [
     "sky-tower-auckland",
     "oriental-pearl-tower",
-    "table-mountain",
-    "machu-picchu",
+    "charminar",
+    "el-penon-de-guatape",
   ]);
+});
+
+test("live replay fixtures seed only climbs the catalogue can race", () => {
+  // One-directional on purpose: a seeded ID that is not raceable strands state
+  // nobody can reach, but a raceable climb with no fixture is just an unseeded
+  // climb. Requiring the reverse would break on every catalogue addition.
+  const replaySource = readScript("scripts/seed-live-replay-leaderboards.mjs");
+  const seededClimbIds = [
+    ...arrayLiteralIds(replaySource, "ACTIVE_CLIMBS", "id"),
+    ...arrayLiteralIds(replaySource, "WARM_CLIMBS", "id"),
+    ...arrayLiteralIds(replaySource, "FIRST_ASCENT_OPEN_CLIMBS", "id"),
+  ];
+  const catalogue = JSON.parse(
+    readFileSync(resolve(REPO_ROOT, "web/public/climbs/catalog-v1.json"), "utf8")
+  );
+  const availableClimbIds = new Set(
+    catalogue
+      .filter((climb) => climb.releaseState === "available")
+      .map((climb) => climb.id)
+  );
+
+  assert.ok(seededClimbIds.length > 0, "expected seeded live replay climbs");
+  for (const climbId of seededClimbIds) {
+    assert.ok(
+      availableClimbIds.has(climbId),
+      `${climbId} is seeded but is not an available racing climb`
+    );
+  }
+});
+
+test("profile personas seed only climbs the catalogue can race", () => {
+  // A persona ID the catalogue never had seeds a climb no surface can resolve,
+  // and nothing else in the seed path notices. `colosseum` sat here unnoticed.
+  const catalogue = JSON.parse(
+    readFileSync(resolve(REPO_ROOT, "web/public/climbs/catalog-v1.json"), "utf8")
+  );
+  const availableClimbIds = new Set(
+    catalogue
+      .filter((climb) => climb.releaseState === "available")
+      .map((climb) => climb.id)
+  );
+
+  for (const persona of PROFILE_SEED_PERSONAS) {
+    for (const climbId of persona.climbIds) {
+      assert.ok(
+        availableClimbIds.has(climbId),
+        `${persona.id} seeds ${climbId}, which is not an available racing climb`
+      );
+    }
+  }
 });
 
 test("open First Ascent climbs are disjoint from the demo user's climbs", () => {

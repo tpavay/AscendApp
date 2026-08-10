@@ -13,18 +13,22 @@ climbs each. That gives a daily climb for a year plus one spare.
 
 | Continent     | Current catalog count | Target for 252 | Add for 252 | Target for 366 | Add for 366 |
 | ------------- | --------------------: | -------------: | ----------: | -------------: | ----------: |
-| Africa        |                     7 |             42 |          35 |             61 |          54 |
-| Asia          |                    26 |             42 |          16 |             61 |          35 |
-| Europe        |                    34 |             42 |           8 |             61 |          27 |
-| North America |                    18 |             42 |          24 |             61 |          43 |
+| Africa        |                     4 |             42 |          38 |             61 |          57 |
+| Asia          |                    25 |             42 |          17 |             61 |          36 |
+| Europe        |                    29 |             42 |          13 |             61 |          32 |
+| North America |                    14 |             42 |          28 |             61 |          47 |
 | Oceania       |                     8 |             42 |          34 |             61 |          53 |
-| South America |                    11 |             42 |          31 |             61 |          50 |
+| South America |                     7 |             42 |          35 |             61 |          54 |
 
-Counts are catalog rows in `web/public/climbs/catalog-v1.json`, `comingSoon` included;
+Counts are catalog rows in `web/public/climbs/catalog-v1.json`, `hidden` and `comingSoon` included;
 recount from that file rather than trusting this table after a catalog change.
 
-If V1 becomes "verified real stair-climb venues only," audit the current catalog too.
-Many current climbs are climb-equivalent targets, not known public stair venues.
+The "verified real stair-climb venues only" audit has since happened.
+[Issue #440](https://github.com/tpavay/AscendApp/issues/440) deleted the seventeen entries with no
+race anyone can run, hid the twenty-one mountains for a future endurance ladder, and left the seven
+plausible-but-unverified stair routes as `comingSoon`.
+See `docs/climb-real-stair-counts.md` for which entry fell into which bucket.
+Judge expansion candidates below against that bar.
 
 ## Eligibility Rules
 
@@ -89,9 +93,9 @@ research into normalized candidate JSON/CSV.
 | ------------------- | ---------- | -------- | ------------------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------- |
 | Torre Colpatria     | Bogota     | Colombia | 980 stairs, 50 floors                                               | confirmed    | https://www.towerrunning.com/races/r1400/                                                    |
 | We Apartments       | Chapeco    | Brazil   | 508 race steps, 100 m race height                                   | confirmed    | https://www.skyrunning.com/qualified-race-label/                                             |
-| Gran Torre Santiago | Santiago   | Chile    | building exists in current catalog; stair climb access not verified | needs_access | https://group.schindler.com/en/media/stories/costanera-center-delivering-on-every-level.html |
+| Gran Torre Santiago | Santiago   | Chile    | removed from the catalog by #440; stair climb access not verified   | needs_access | https://group.schindler.com/en/media/stories/costanera-center-delivering-on-every-level.html |
 | Farol Santander     | Sao Paulo  | Brazil   | in current catalog; route and count verified, see `docs/climb-real-stair-counts.md` | confirmed | https://www.towerrunning.com/races/r3075/                                                    |
-| Palacio Salvo       | Montevideo | Uruguay  | in current catalog; stair climb route not verified                  | needs_access | Current catalog                                                                              |
+| Palacio Salvo       | Montevideo | Uruguay  | removed from the catalog by #440; stair climb route not verified    | needs_access | Prior catalog entry                                                                          |
 
 South America needs deeper research. The first pass should focus on Colombia,
 Brazil, Chile, Argentina, Uruguay, and Peru tower-run organizers and charity

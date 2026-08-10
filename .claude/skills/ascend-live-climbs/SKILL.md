@@ -11,7 +11,7 @@ paths:
 
 # Live Climbs V1 Architecture
 
-Live Climbs is the hero competitive experience: a user picks a real-world landmark (Mt. Everest, Empire State Building, etc.), races against past attempts in real time via headphone-motion step tracking, and either reaches the target step count (completion) or doesn't (failed attempt).
+Live Climbs is the hero competitive experience: a user picks a real-world landmark (Empire State Building, Burj Khalifa, etc.), races against past attempts in real time via headphone-motion step tracking, and either reaches the target step count (completion) or doesn't (failed attempt).
 
 For adding, editing, releasing, or validating catalog content and images, use the `live-climb-content` skill.
 
@@ -118,7 +118,7 @@ A completed climb is **1:1 with a `Workout`** (the sole canonical record; verdic
 - Catalog release state is server-controlled. The app model currently uses `releaseState`; if a remote content feed exposes `releaseStatus`, map it into the same release-state domain instead of branching UI on a second concept.
 - Launch composition should be content-driven: available climbs, coming-soon climbs, hidden climbs, and disabled climbs are all catalog data, not app-release code paths.
 - New climb drops should be publishable by changing hosted catalog data and image assets. Avoid adding per-climb code, hardcoded IDs outside smart defaults, or app-store-release dependencies for catalog expansion.
-- First Ascent availability follows release phasing: hidden and disabled climbs do not appear as open First Ascent opportunities; coming-soon climbs can tease future drops but must not accept live attempts until available.
+- First Ascent availability follows release phasing: hidden and disabled climbs do not appear as open First Ascent opportunities; coming-soon climbs can tease future drops but must not accept live attempts until available. A First Ascent already *held* on a hidden climb still renders - only the unclaimed slot needs `available` (`ProfileFirstAscentService`).
 - Coming Soon climbs follow a cross-surface mystery pattern. The Pokedex shows blurred silhouette only (no name, no location). The Globe shows location only (via dim pin with region revealed on tap). The user pieces together identity by cross-referencing both surfaces; neither reveals everything on its own.
 - All climb tiers use the same rotating tier-border treatment driven by per-tier color tokens. Mythic is the emphasized tier (strongest glow, purple-forward prismatic palette).
 - Persistent idle climb surfaces (e.g. the Home daily card) may use a lighter ambient border treatment with an unblurred moving highlight to reduce per-frame animation work while preserving visible motion.
