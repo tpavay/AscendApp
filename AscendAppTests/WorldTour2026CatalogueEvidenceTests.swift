@@ -6,30 +6,28 @@ import Vision
 
 /// Reviewer-facing visual evidence for the 2026 World Tour catalogue additions.
 ///
-/// The catalogue is data, but a climber meets it as pixels: a locked "Coming Soon"
-/// preview card when they tap the new pin on the globe, and - until the artwork is
-/// uploaded to Storage - a category placeholder behind it. These tests render the
-/// shipped views against the shipped catalogue file, read the rendered text back with
-/// Vision, and write the sheets a reviewer can look at.
+/// The catalogue is data, but a climber meets it as pixels: a raceable preview card
+/// when they tap a pin on the globe, plus a category placeholder whenever artwork is
+/// unavailable. These tests render the shipped views against the shipped catalogue
+/// file, read the rendered text back with Vision, and write reviewable proof sheets.
 @MainActor
 struct WorldTour2026CatalogueEvidenceTests {
     @Test
-    func newVenuesRenderAsLockedComingSoonCardsOnTheGlobe() async throws {
+    func newVenuesRenderAsRaceableCardsOnTheGlobe() async throws {
         let showcase = try Self.showcase()
 
         for climb in showcase {
             let card = try renderCard(for: climb)
             let text = try await recognizedText(in: card)
 
-            // A new venue announces itself as locked, never as a climbable distance.
-            #expect(text.contains("coming soon"), "\(climb.id) did not read as coming soon")
+            #expect(text.contains("coming soon") == false, "\(climb.id) still read as coming soon")
             #expect(text.contains(climb.city.lowercased()), "\(climb.id) lost its location")
-            #expect(!text.contains("steps"), "\(climb.id) offered a distance it can't be raced at")
+            #expect(text.contains("steps"), "\(climb.id) did not expose its race distance")
         }
 
         try writeEvidence(
-            image: try renderSheet(ComingSoonPreviewProof(climbs: showcase)),
-            named: "world-tour-2026-coming-soon-cards.png"
+            image: try renderSheet(AvailablePreviewProof(climbs: showcase)),
+            named: "world-tour-2026-available-cards.png"
         )
     }
 
@@ -100,7 +98,7 @@ struct WorldTour2026CatalogueEvidenceTests {
             content: ClimbArtworkView(
                 climb: climb,
                 variant: .hero,
-                imageRepository: UnuploadedArtworkRepository()
+                imageRepository: MissingArtworkRepository()
             )
             .frame(width: 200, height: 200)
             .environment(\.colorScheme, .dark)
@@ -234,15 +232,14 @@ private extension Climb {
     }
 }
 
-/// Artwork for these climbs is not in Storage yet, so the shipped resolver returns no
-/// URL and the placeholder is what a climber actually sees today.
-private struct UnuploadedArtworkRepository: ClimbImageRepository {
+/// Simulates an unavailable image so the category placeholder remains covered.
+private struct MissingArtworkRepository: ClimbImageRepository {
     func resolveImageURL(for climb: Climb, variant: ClimbImageVariant) async -> URL? { nil }
 }
 
 // MARK: - Proof sheets
 
-private struct ComingSoonPreviewProof: View {
+private struct AvailablePreviewProof: View {
     let climbs: [Climb]
 
     var body: some View {
@@ -282,7 +279,7 @@ private struct StaircasePlaceholderProof: View {
                 .font(.montserratBold(size: 19))
                 .foregroundStyle(.white)
 
-            Text("Until the images land in Storage, the category symbol is the artwork.")
+            Text("When artwork is unavailable, the category symbol is the fallback.")
                 .font(.montserratRegular(size: 13))
                 .foregroundStyle(.white.opacity(0.62))
 
@@ -305,7 +302,7 @@ private struct StaircasePlaceholderProof: View {
             ClimbArtworkView(
                 climb: staircase,
                 variant: variant,
-                imageRepository: UnuploadedArtworkRepository()
+                imageRepository: MissingArtworkRepository()
             )
             .frame(width: size.width, height: size.height)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -364,7 +361,7 @@ private struct AdditionRosterProof: View {
                             .foregroundStyle(climb.tier.color)
                             .frame(width: 78, alignment: .leading)
 
-                        Text("COMING SOON")
+                        Text("AVAILABLE")
                             .font(.montserratBold(size: 9))
                             .tracking(1)
                             .foregroundStyle(.white.opacity(0.5))

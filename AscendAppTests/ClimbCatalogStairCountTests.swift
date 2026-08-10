@@ -88,7 +88,7 @@ struct ClimbCatalogStairCountTests {
     }
 
     @Test
-    func worldTour2026AdditionsDecodeWithHonestReleaseAndTierData() throws {
+    func worldTour2026AdditionsDecodeWithRaceableReleaseAndHonestTierData() throws {
         let expectedIDs: Set<String> = [
             "ping-an-finance-centre", "ctf-finance-centre-guangzhou",
             "shanghai-world-financial-center",
@@ -105,7 +105,7 @@ struct ClimbCatalogStairCountTests {
 
         #expect(Set(additions.map(\.id)) == expectedIDs)
         #expect(additions.count == 29)
-        #expect(additions.allSatisfy { $0.releaseState == .comingSoon })
+        #expect(additions.allSatisfy { $0.releaseState == .available })
         #expect(additions.allSatisfy { $0.tier == ClimbTier(steps: $0.referenceStepCount) })
 
         let capitaMall = try #require(additions.first { $0.id == "capitamall-one" })
