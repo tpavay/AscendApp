@@ -23,7 +23,8 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 3b. **Shipped App Store copy and screenshot 02 still promise Mt. Everest, which issue #440 makes unraceable.**
    Curation moved all 21 mountains to `hidden` for a future endurance ladder, so a climber who buys on that promise cannot start it.
    `data/ascend-support-page-and-product-page-package/app-store-copy.md` and the shipped en-US screenshot set are captain-owned and deliberately untouched by that change.
-   Correct both before submission - this is a pre-submission blocker, not a polish item.
+   Screenshot 03 has the same defect for a harder reason: its landmark carousel shows a Machu Picchu card, and that entry was deleted outright rather than hidden, so no release-state change brings it back.
+   Correct all three before submission - this is a pre-submission blocker, not a polish item.
    Related: a claim on one of the 17 deleted entries has no catalogue row left to render from, so it drops out of the Collection cards and `collection.collectedCount` while surviving in `stats.completedCount` and activity history.
    That is acceptable pre-launch because nobody outside the captain's accounts has those completions; issue #456 tracks retaining tombstone metadata, which must land before any post-launch catalogue deletion.
 

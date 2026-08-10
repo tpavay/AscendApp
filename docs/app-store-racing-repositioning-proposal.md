@@ -194,4 +194,4 @@ Three other changes carry the repositioning:
 - **App Review notes.** They still tell the reviewer that sessions can be logged manually, which #437 made false on 2026-08-08. Replacing them with the hardware demo-video path is tracked in #437 and #439 and is not proposed here.
 - **Screenshots.** Tracked separately in [#390](https://github.com/tpavay/AscendApp/issues/390).
 - **In-app copy.** Tracked in #437.
-- **The Superwall onboarding paywall** (`web/public/superwall/onboarding-paywall.html`). It promises nothing that #437 removes, but it does hard-code "Choose from 75 landmarks to climb", which #440 will make wrong. Worth a look when #440 lands.
+- **The Superwall onboarding paywall** (`web/public/superwall/onboarding-paywall.html`). Resolved by #440: it no longer hard-codes a landmark count, and derives it from the published catalogue instead. `docs/launch-readiness-audit.md` (Promise vs. reality, item 8) owns how that resolution works.
