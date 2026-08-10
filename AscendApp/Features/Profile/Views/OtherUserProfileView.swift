@@ -381,7 +381,6 @@ private struct ProfileComparisonBioTab: View {
 
             PublicProfileAchievementsSection(
                 achievements: otherUser.achievements,
-                achievementRecords: otherUser.achievementRecords,
                 isOtherLoading: isOtherLoading
             )
 

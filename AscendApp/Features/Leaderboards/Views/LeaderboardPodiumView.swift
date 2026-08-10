@@ -167,7 +167,11 @@ private struct LeaderboardPodiumSlotView: View {
             Spacer()
                 .frame(height: topInset)
 
-            crownedAvatar
+            if rank == 1 {
+                crownMarker
+            }
+
+            avatar
                 .frame(width: avatarSize, height: avatarSize)
 
             Text(CompetitionRanking.rankLabel(rank, isTied: isTied))
@@ -201,16 +205,6 @@ private struct LeaderboardPodiumSlotView: View {
             }
         }
         .frame(minHeight: position == 1 ? 184 : 176, alignment: .bottom)
-    }
-
-    private var crownedAvatar: some View {
-        avatar
-            .overlay(alignment: .topTrailing) {
-                if rank == 1 {
-                    crownMarker
-                        .offset(x: 7, y: -12)
-                }
-            }
     }
 
     private var crownMarker: some View {

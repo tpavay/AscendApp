@@ -42,38 +42,46 @@ struct PublicProfileAchievementRenderingTests {
     }
 
     @Test
-    func loadingAchievementsRenderTheSharedSkeletonState() async throws {
+    func loadingAchievementsRenderNothingUntilTheCountsResolve() async throws {
         let elements = try await renderedElements(
-            achievements: .zero,
+            achievements: ProfileAchievementCounts(top1: 2, top3: 4, top10: 7, top100: 9),
             isOtherLoading: true
         )
-        let loadingElement = try #require(
-            elements.first { $0.accessibilityLabel == "Achievements" }
-        )
+        let labels = elements.compactMap(\.accessibilityLabel)
 
-        #expect(loadingElement.accessibilityValue == "Loading")
+        #expect(labels.contains("Public profile test host"))
+        #expect(labels.contains("Achievements") == false)
+        #expect(labels.contains { $0.hasPrefix("CHAMPION,") } == false)
+        #expect(labels.contains { $0.hasPrefix("TOP ") } == false)
     }
 
     @Test
-    func bandBadgesWithoutFinalizedRowsStayNonInteractive() async throws {
+    func publicBadgesNeverOpenAchievementHistory() async throws {
         let elements = try await renderedElements(
             achievements: ProfileAchievementCounts(top1: 2, top3: 4, top10: 0, top100: 0),
-            achievementRecords: [],
             isOtherLoading: false
         )
         let champion = try #require(
             elements.first { $0.accessibilityLabel == "CHAMPION, 2" }
         )
+        let topThree = try #require(
+            elements.first { $0.accessibilityLabel == "TOP 3, 4" }
+        )
 
         #expect(champion.accessibilityTraits.contains(.button) == false)
+        #expect(topThree.accessibilityTraits.contains(.button) == false)
     }
 
     @Test
-    func bandBadgesBackedByFinalizedRowsOpenTheirHistory() async throws {
+    func ownProfileBadgesStayTappableWithNoFinalizedRows() async throws {
         let elements = try await renderedElements(
-            achievements: ProfileAchievementCounts(top1: 2, top3: 4, top10: 0, top100: 0),
-            achievementRecords: [Self.weeklyTop1Record],
-            isOtherLoading: false
+            hosting: ProfilePrestigeBadgeShelf(
+                tokens: ProfilePrestigeToken.leaderboardTokens(
+                    for: ProfileAchievementCounts(top1: 2, top3: 4, top10: 0, top100: 0)
+                ),
+                imageSize: 54,
+                history: []
+            )
         )
         let champion = try #require(
             elements.first { $0.accessibilityLabel == "CHAMPION, 2" }
@@ -85,21 +93,6 @@ struct PublicProfileAchievementRenderingTests {
         #expect(champion.accessibilityTraits.contains(.button))
         #expect(topThree.accessibilityTraits.contains(.button))
     }
-
-    private static let weeklyTop1Record = ProfileAchievementRecord(
-        id: "weekly-top-1",
-        type: .weeklyTop1,
-        scope: .global,
-        metric: .steps,
-        climbId: nil,
-        periodKey: "2026-W32",
-        periodStartAt: Date(timeIntervalSince1970: 1_754_524_800),
-        periodEndAt: Date(timeIntervalSince1970: 1_755_129_600),
-        earnedAt: Date(timeIntervalSince1970: 1_755_129_600),
-        rank: 1,
-        value: 42_000,
-        valueUnit: "steps"
-    )
 
     @Test
     func crownAndPrestigeTokensProduceReviewablePixels() throws {
@@ -164,10 +157,61 @@ struct PublicProfileAchievementRenderingTests {
         print("ASCEND_EVIDENCE_PNG \(url.path)")
     }
 
+    @Test
+    func podiumCrownSitsAboveTheChampionAvatarOnItsOwnRow() throws {
+        let entries = [
+            ("Dana R.", 1, 21_482),
+            ("Priya S.", 2, 19_812),
+            ("Marcus T.", 3, 17_926)
+        ].map { name, rank, steps in
+            CrossUserIdentityAdapter.leaderboardEntry(
+                LeaderboardEntry(
+                    userId: "user-\(rank)",
+                    displayName: name,
+                    rank: rank,
+                    value: Double(steps),
+                    formattedValue: steps.formatted(),
+                    isCurrentUser: false,
+                    isTied: false
+                ),
+                blockedUserIds: [],
+                isBlockListHydrated: true
+            )
+        }
+        let renderer = ImageRenderer(
+            content: LeaderboardPodiumView(
+                entries: ModeratedLeaderboardPodiumLayout.podiumEntries(from: entries),
+                metric: .climb
+            )
+            .padding(16)
+            .frame(width: 390, height: 260, alignment: .bottom)
+            .background(Color.black)
+            .environment(\.colorScheme, .dark)
+        )
+        renderer.scale = 3
+
+        let image = try #require(renderer.uiImage)
+        let png = try #require(image.pngData())
+        let url = URL.temporaryDirectory.appending(path: "podium-champion-crown-row.png")
+        try png.write(to: url, options: .atomic)
+
+        print("ASCEND_EVIDENCE_PNG \(url.path)")
+    }
+
     private func renderedElements(
         achievements: ProfileAchievementCounts,
-        achievementRecords: [ProfileAchievementRecord] = [],
         isOtherLoading: Bool
+    ) async throws -> [NSObject] {
+        try await renderedElements(
+            hosting: PublicProfileAchievementsSection(
+                achievements: achievements,
+                isOtherLoading: isOtherLoading
+            )
+        )
+    }
+
+    private func renderedElements(
+        hosting section: some View
     ) async throws -> [NSObject] {
         try await withAccessibilityAutomation {
             let size = CGSize(width: 402, height: 300)
@@ -176,11 +220,7 @@ struct PublicProfileAchievementRenderingTests {
                     Text("Public profile test host")
                         .accessibilityLabel("Public profile test host")
 
-                    PublicProfileAchievementsSection(
-                        achievements: achievements,
-                        achievementRecords: achievementRecords,
-                        isOtherLoading: isOtherLoading
-                    )
+                    section
                 }
                 .padding(20)
                 .frame(width: size.width, height: size.height, alignment: .topLeading)

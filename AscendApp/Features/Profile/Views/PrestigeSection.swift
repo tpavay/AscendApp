@@ -37,8 +37,8 @@ struct PrestigeSection: View {
             } else {
                 ProfilePrestigeBadgeShelf(
                     tokens: tokens,
-                    achievementRecords: achievementRecords,
-                    imageSize: 54
+                    imageSize: 54,
+                    history: achievementRecords
                 )
             }
         }
