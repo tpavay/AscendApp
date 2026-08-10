@@ -286,6 +286,7 @@ These ship as `comingSoon`, so nobody races an unverified distance.
 
 **Announced race with no published course distance yet (1).**
 CapitaMall ONE is scheduled for December 2026, but the venue and Towerrunning World Tour material publish no defensible stair count yet.
+It is held at `comingSoon` while the other 28 Towerrunning World Tour venues added beside it race, because a raceable climb ranks against a published route and the only number left here is the height derivation.
 
 **Not a stair ascent (21).**
 The 21 mountains and volcanoes, which ship as `hidden` for a future endurance ladder.

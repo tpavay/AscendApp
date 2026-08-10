@@ -97,6 +97,38 @@ struct ClimbCurationSurfaceEvidenceTests {
         #expect(text.contains("start live climb"), "expected the race CTA in: \(text)")
     }
 
+    @Test("An activated World Tour venue offers the race on its detail screen", .bug(id: 465))
+    func activatedWorldTourVenueDetailStartsTheRace() async throws {
+        let torreReforma = try #require(
+            try Self.bundledCatalogService.loadAllClimbs().first { $0.id == "torre-reforma" }
+        )
+        #expect(torreReforma.releaseState == .available)
+
+        let text = try await captureDetail(
+            for: torreReforma,
+            named: "climb-detail-available-torre-reforma"
+        )
+
+        #expect(text.contains("start live climb"), "expected the race CTA in: \(text)")
+        #expect(!text.contains("coming soon"))
+    }
+
+    @Test("The World Tour venue with no published course distance stays locked", .bug(id: 465))
+    func heldBackWorldTourVenueDetailStillReadsComingSoon() async throws {
+        let capitaMall = try #require(
+            try Self.bundledCatalogService.loadAllClimbs().first { $0.id == "capitamall-one" }
+        )
+        #expect(capitaMall.releaseState == .comingSoon)
+
+        let text = try await captureDetail(
+            for: capitaMall,
+            named: "climb-detail-coming-soon-capitamall-one"
+        )
+
+        #expect(text.contains("coming soon"), "expected the pending state in: \(text)")
+        #expect(!text.contains("start live climb"))
+    }
+
     @Test("An unverified stair route still reads Coming Soon", .bug(id: 440))
     func comingSoonClimbDetailStillReadsComingSoon() async throws {
         let shard = try #require(
