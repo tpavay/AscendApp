@@ -167,7 +167,7 @@ private struct LeaderboardPodiumSlotView: View {
             Spacer()
                 .frame(height: topInset)
 
-            if rank == 1 {
+            if isChampionSlot, entry != nil {
                 crownMarker
             }
 
@@ -205,6 +205,10 @@ private struct LeaderboardPodiumSlotView: View {
             }
         }
         .frame(minHeight: position == 1 ? 184 : 176, alignment: .bottom)
+    }
+
+    private var isChampionSlot: Bool {
+        rank == 1
     }
 
     private var crownMarker: some View {
@@ -249,11 +253,15 @@ private struct LeaderboardPodiumSlotView: View {
     private var placeholderAvatar: some View {
         Circle()
             .fill(colorScheme == .dark ? .white.opacity(0.10) : .black.opacity(0.08))
-            .overlay(
-                Image(systemName: entry == nil ? "sparkles" : "person.fill")
-                    .font(.system(size: position == 1 ? 24 : 20, weight: .semibold))
-                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.56) : .black.opacity(0.42))
-            )
+            .overlay {
+                if isChampionSlot, entry == nil {
+                    crownMarker
+                } else {
+                    Image(systemName: entry == nil ? "sparkles" : "person.fill")
+                        .font(.system(size: position == 1 ? 24 : 20, weight: .semibold))
+                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.56) : .black.opacity(0.42))
+                }
+            }
     }
 }
 

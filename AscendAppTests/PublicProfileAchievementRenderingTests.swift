@@ -198,6 +198,25 @@ struct PublicProfileAchievementRenderingTests {
         print("ASCEND_EVIDENCE_PNG \(url.path)")
     }
 
+    @Test
+    func unclaimedFirstPlaceSeatsTheCrownInsideTheOpenPedestal() throws {
+        let renderer = ImageRenderer(
+            content: LeaderboardPodiumView(entries: [], metric: .climb)
+                .padding(16)
+                .frame(width: 390, height: 260, alignment: .bottom)
+                .background(Color.black)
+                .environment(\.colorScheme, .dark)
+        )
+        renderer.scale = 3
+
+        let image = try #require(renderer.uiImage)
+        let png = try #require(image.pngData())
+        let url = URL.temporaryDirectory.appending(path: "podium-unclaimed-champion-crown.png")
+        try png.write(to: url, options: .atomic)
+
+        print("ASCEND_EVIDENCE_PNG \(url.path)")
+    }
+
     private func renderedElements(
         achievements: ProfileAchievementCounts,
         isOtherLoading: Bool
