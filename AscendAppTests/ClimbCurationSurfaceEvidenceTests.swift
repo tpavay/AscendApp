@@ -17,6 +17,15 @@ import Vision
 struct ClimbCurationSurfaceEvidenceTests {
     private static let screenSize = CGSize(width: 393, height: 852)
 
+    /// The curation under test is the catalogue this build ships, so the evidence
+    /// reads the bundled file. `ClimbService.shared` is the wrong source here: the
+    /// test host launches the real app, which refreshes the singleton from the
+    /// environment's hosted catalogue, and that copy only matches the repository
+    /// after a deploy.
+    private static let bundledCatalogService = ClimbService(
+        catalogRepository: BundledClimbCatalogRepository()
+    )
+
     /// Held for the process, not per render: the detail screen keeps observing
     /// SwiftData for a beat after its host is torn down, and a container that has
     /// already gone traps on the next fetch any other suite performs.
@@ -58,7 +67,7 @@ struct ClimbCurationSurfaceEvidenceTests {
     @Test("A hidden mountain reached through history reads Not Raceable", .bug(id: 440))
     func hiddenMountainDetailIsNotRaceable() async throws {
         let everest = try #require(
-            try ClimbService.shared.loadAllClimbs().first { $0.id == "mount-everest" },
+            try Self.bundledCatalogService.loadAllClimbs().first { $0.id == "mount-everest" },
             "Mount Everest must stay in the catalogue for earned history"
         )
         #expect(everest.releaseState == .hidden)
@@ -76,7 +85,7 @@ struct ClimbCurationSurfaceEvidenceTests {
     @Test("An available climb still offers the race", .bug(id: 440))
     func availableClimbDetailStillStartsTheRace() async throws {
         let empire = try #require(
-            try ClimbService.shared.loadAllClimbs().first { $0.id == "empire-state-building" }
+            try Self.bundledCatalogService.loadAllClimbs().first { $0.id == "empire-state-building" }
         )
         #expect(empire.releaseState == .available)
 
@@ -91,7 +100,7 @@ struct ClimbCurationSurfaceEvidenceTests {
     @Test("An unverified stair route still reads Coming Soon", .bug(id: 440))
     func comingSoonClimbDetailStillReadsComingSoon() async throws {
         let shard = try #require(
-            try ClimbService.shared.loadAllClimbs().first { $0.id == "the-shard" }
+            try Self.bundledCatalogService.loadAllClimbs().first { $0.id == "the-shard" }
         )
         #expect(shard.releaseState == .comingSoon)
 
@@ -125,7 +134,7 @@ struct ClimbCurationSurfaceEvidenceTests {
         let container = try #require(Self.container, "The evidence suite needs an in-memory container")
         let host = UIHostingController(
             rootView: NavigationStack {
-                ClimbDetailView(climb: climb)
+                ClimbDetailView(climb: climb, climbService: Self.bundledCatalogService)
             }
             .modelContainer(container)
             .environment(ModerationStore.shared)
@@ -215,5 +224,31 @@ struct ClimbCurationSurfaceEvidenceTests {
 
         #expect(png.count > 5_000)
         print("ASCEND_EVIDENCE_FILE: \(url.path())")
+    }
+}
+
+/// Serves the catalogue this build bundles and never reaches the network, so the
+/// evidence renders the curation in the repository rather than whichever version
+/// the environment's hosting happens to be serving.
+private struct BundledClimbCatalogRepository: ClimbCatalogRepository {
+    func loadInitialCatalog() throws -> ClimbCatalogSnapshot {
+        guard let url = Bundle.main.url(forResource: "climbs", withExtension: "json") else {
+            throw ClimbService.LoadError.missingBundledData
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        return ClimbCatalogSnapshot(
+            climbs: try decoder.decode([Climb].self, from: try Data(contentsOf: url)),
+            source: .bootstrap,
+            catalogVersion: 0,
+            featuredClimbId: "empire-state-building",
+            updatedAt: nil
+        )
+    }
+
+    func refreshCatalog() async throws -> ClimbCatalogSnapshot {
+        try loadInitialCatalog()
     }
 }
