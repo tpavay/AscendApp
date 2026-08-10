@@ -306,12 +306,18 @@ enum ProfileSnapshotBuilder {
     ) -> ProfileCollectionSummary {
         let availableClimbs = climbs.filter(\.isAvailable)
         let comingSoonClimbs = climbs.filter(\.isComingSoon)
+        // Curation retires a climb from racing, never from the record of having
+        // climbed it, so a claim resolves against the whole catalogue.
         let completedClimbs = claimedClimbs(
             from: completedClimbSet,
-            availableClimbs: availableClimbs
+            catalogueClimbs: climbs
+        )
+        let cardClimbs = collectionCardClimbs(
+            availableClimbs: availableClimbs,
+            claimedClimbs: completedClimbs
         )
         let launchedCards = collectionCards(
-            for: collectionOrderedLaunchedClimbs(availableClimbs),
+            for: cardClimbs,
             claimedClimbs: completedClimbs
         )
         let previewCards = collectionPreviewCards(
@@ -322,7 +328,7 @@ enum ProfileSnapshotBuilder {
         _ = fitnessLevel
         return ProfileCollectionSummary(
             collectedCount: completedClimbs.count,
-            catalogCount: availableClimbs.count,
+            catalogCount: cardClimbs.count,
             previewCards: previewCards,
             launchedCards: launchedCards,
             comingSoonClimbs: Array(comingSoonClimbs.prefix(6))
@@ -337,10 +343,14 @@ enum ProfileSnapshotBuilder {
         let comingSoonClimbs = climbs.filter(\.isComingSoon)
         let completedClimbs = claimedClimbs(
             from: workoutSummaries,
-            availableClimbs: availableClimbs
+            catalogueClimbs: climbs
+        )
+        let cardClimbs = collectionCardClimbs(
+            availableClimbs: availableClimbs,
+            claimedClimbs: completedClimbs
         )
         let launchedCards = collectionCards(
-            for: collectionOrderedLaunchedClimbs(availableClimbs),
+            for: cardClimbs,
             claimedClimbs: completedClimbs
         )
         let previewCards = collectionPreviewCards(
@@ -350,7 +360,7 @@ enum ProfileSnapshotBuilder {
 
         return ProfileCollectionSummary(
             collectedCount: completedClimbs.count,
-            catalogCount: availableClimbs.count,
+            catalogCount: cardClimbs.count,
             previewCards: previewCards,
             launchedCards: launchedCards,
             comingSoonClimbs: Array(comingSoonClimbs.prefix(6))
@@ -359,9 +369,9 @@ enum ProfileSnapshotBuilder {
 
     private static func claimedClimbs(
         from completedClimbSet: CompletedClimbSet,
-        availableClimbs: [Climb]
+        catalogueClimbs: [Climb]
     ) -> [ProfileCollectionClaimedClimb] {
-        let climbsByID = Dictionary(uniqueKeysWithValues: availableClimbs.map { ($0.id, $0) })
+        let climbsByID = Dictionary(uniqueKeysWithValues: catalogueClimbs.map { ($0.id, $0) })
 
         return completedClimbSet.climbs.compactMap { completed in
             guard let climb = climbsByID[completed.climbId] else { return nil }
@@ -380,9 +390,9 @@ enum ProfileSnapshotBuilder {
 
     private static func claimedClimbs(
         from workoutSummaries: [ProfileWorkoutSummary],
-        availableClimbs: [Climb]
+        catalogueClimbs: [Climb]
     ) -> [ProfileCollectionClaimedClimb] {
-        let climbsByID = Dictionary(uniqueKeysWithValues: availableClimbs.map { ($0.id, $0) })
+        let climbsByID = Dictionary(uniqueKeysWithValues: catalogueClimbs.map { ($0.id, $0) })
         var claimedAtByClimbID: [String: Date] = [:]
 
         for workout in workoutSummaries where workout.isCompletedClimb {
@@ -436,6 +446,21 @@ enum ProfileSnapshotBuilder {
 
             return .unclaimed(climb)
         }
+    }
+
+    /// The climbs the Collection grid covers: everything raceable today, plus the
+    /// retired climbs this climber already claimed. A curated-away claim keeps its
+    /// card and stays inside the denominator instead of overflowing it.
+    private static func collectionCardClimbs(
+        availableClimbs: [Climb],
+        claimedClimbs: [ProfileCollectionClaimedClimb]
+    ) -> [Climb] {
+        let availableIDs = Set(availableClimbs.map(\.id))
+        let retiredClaims = claimedClimbs
+            .map(\.climb)
+            .filter { !availableIDs.contains($0.id) }
+
+        return collectionOrderedLaunchedClimbs(availableClimbs + retiredClaims)
     }
 
     private static func collectionOrderedLaunchedClimbs(_ climbs: [Climb]) -> [Climb] {

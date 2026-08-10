@@ -45,7 +45,15 @@ struct OnboardingLandmarksValuePageContent: View {
             .background(Color.black)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Climb real landmarks. Race the Statue of Liberty, Empire State Building, Eiffel Tower, and Burj Khalifa.")
+        .accessibilityLabel(accessibilityDescription)
+    }
+
+    private var accessibilityDescription: String {
+        let cardLabels = cards
+            .map { $0.label.localizedCapitalized }
+            .formatted(.list(type: .and))
+
+        return "\(Self.headlineText) \(subtitle) \(cardLabels)."
     }
 
     private func background(layout: OnboardingLandmarksValueLayout) -> some View {
@@ -116,6 +124,8 @@ struct OnboardingLandmarksValuePageContent: View {
         + Text("real\nlandmarks.")
             .foregroundStyle(OnboardingValuePalette.lime)
     }
+
+    private static let headlineText = "Climb real landmarks."
 }
 
 private struct LandmarkCard: Identifiable {
@@ -272,7 +282,7 @@ private struct OnboardingLandmarksValueLayout {
     }
 
     private var cardHeight: CGFloat {
-        let maximumWidth = min((size.width - horizontalPadding * 2 - cardGap * 2) / 3, 106 * scaleX)
+        let maximumWidth = min((size.width - horizontalPadding * 2 - cardGap) / 2, 106 * scaleX)
         let maximumHeight = maximumWidth * (140 / 104)
         let availableHeight = (sharedLayout.textSectionTop - galleryMinimumTopPadding - galleryTextGap - rowSpacing) / 2
         let minimumHeight = size.height < 740 ? 104 * scaleY : 122 * typeScale
@@ -282,7 +292,9 @@ private struct OnboardingLandmarksValueLayout {
 }
 
 #Preview("Landmarks Value Page") {
-    if let page = OnboardingValuePages.all.first(where: { $0.id == "reason_to_come_back" }) {
+    if let page = OnboardingValuePages
+        .pages(raceableLandmarkCount: 30)
+        .first(where: { $0.id == "reason_to_come_back" }) {
         OnboardingLandmarksValuePageContent(
             headline: page.headline,
             subtitle: page.subtitle

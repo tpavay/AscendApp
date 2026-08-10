@@ -29,7 +29,9 @@ struct ClimbCatalogCurationTests {
         let comingSoonIDs = Set(snapshot.comingSoonClimbs.map(\.id))
         let raceableIDs = Set(snapshot.availableClimbs.map(\.id))
 
-        #expect(comingSoonIDs == Self.comingSoonClimbIDs)
+        // A subset, not equality: the World Tour venues from #453 wait for their
+        // artwork in the same state, and promoting them must not fail this test.
+        #expect(Self.comingSoonClimbIDs.isSubset(of: comingSoonIDs))
         #expect(Self.comingSoonClimbIDs.isDisjoint(with: raceableIDs))
         #expect(Self.comingSoonClimbIDs.isSubset(of: Set(snapshot.visibleClimbs.map(\.id))))
     }
@@ -37,11 +39,51 @@ struct ClimbCatalogCurationTests {
     @Test("The curated catalogue ships only the approved racing states", .bug(id: 440))
     func curatedCatalogueCounts() throws {
         let snapshot = try Self.bundledSnapshot()
+        let hiddenCount = snapshot.climbs.count(where: { $0.releaseState == .hidden })
 
-        #expect(snapshot.climbs.count == 58)
-        #expect(snapshot.availableClimbs.count == 30)
-        #expect(snapshot.comingSoonClimbs.count == 7)
-        #expect(snapshot.climbs.count(where: { $0.releaseState == .hidden }) == 21)
+        // Counts are derived, never pinned: the raceable total moves the moment
+        // the pending artwork uploads promote the World Tour venues (issue #452).
+        #expect(snapshot.climbs.allSatisfy { $0.releaseState != .disabled })
+        #expect(
+            snapshot.availableClimbs.count + snapshot.comingSoonClimbs.count + hiddenCount
+                == snapshot.climbs.count
+        )
+        #expect(snapshot.availableClimbs.count > 0)
+        #expect(hiddenCount == Self.hiddenMountainIDs.count)
+        #expect(snapshot.comingSoonClimbs.count >= Self.comingSoonClimbIDs.count)
+        #expect(Set(snapshot.climbs.map(\.id)).count == snapshot.climbs.count)
+    }
+
+    @Test("The hosted and bundled catalogues stay byte-identical", .bug(id: 440))
+    func hostedAndBundledCataloguesMatch() throws {
+        let bundled = try Data(contentsOf: Self.bundledCatalogURL)
+        let hosted = try Data(contentsOf: Self.hostedCatalogURL)
+
+        #expect(bundled == hosted)
+    }
+
+    @MainActor
+    @Test("Only a raceable climb offers a live climb action", .bug(id: 440))
+    func onlyAvailableClimbsCanStartARace() throws {
+        let snapshot = try Self.bundledSnapshot()
+
+        for climb in snapshot.climbs {
+            let viewModel = ClimbDetailViewModel(climb: climb)
+
+            switch climb.releaseState {
+            case .available:
+                #expect(viewModel.isActionEnabled)
+                #expect(viewModel.actionTitle == "Start Live Climb")
+            case .comingSoon:
+                #expect(!viewModel.isActionEnabled)
+                #expect(viewModel.actionTitle == "Coming Soon")
+            case .hidden, .disabled:
+                #expect(!viewModel.isActionEnabled)
+                // A retired mountain is reachable through history, and calling it
+                // "Coming Soon" promises a race that is never coming.
+                #expect(viewModel.actionTitle == "Not Raceable")
+            }
+        }
     }
 
     private static let deletedClimbIDs: Set<String> = [
@@ -104,6 +146,9 @@ struct ClimbCatalogCurationTests {
 
     private static let bundledCatalogURL = repositoryRoot
         .appending(path: "AscendApp/Features/Climbs/Resources/climbs.json")
+
+    private static let hostedCatalogURL = repositoryRoot
+        .appending(path: "web/public/climbs/catalog-v1.json")
 
     private static func bundledCatalog() throws -> [Climb] {
         let data = try Data(contentsOf: bundledCatalogURL)

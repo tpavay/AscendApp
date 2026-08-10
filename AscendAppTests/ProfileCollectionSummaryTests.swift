@@ -92,6 +92,8 @@ struct ProfileCollectionSummaryTests {
             ]
         )
 
+        // The seven launch climbs hold their product order; anything outside it
+        // falls in behind them by tier, then steps.
         #expect(snapshot.collection.launchedCards.map(\.climb.id) == [
             "taipei-101",
             "statue-of-liberty",
@@ -99,12 +101,48 @@ struct ProfileCollectionSummaryTests {
             "empire-state-building",
             "eiffel-tower",
             "burj-khalifa",
+            "sydney-tower",
             "table-mountain",
             "machu-picchu",
-            "mount-everest",
-            "sydney-tower"
+            "mount-everest"
         ])
         #expect(snapshot.collection.launchedCards.first?.claimedAt != nil)
+    }
+
+    @Test("A retired climb keeps the claim it was earned with", .bug(id: 440))
+    func retiredClimbKeepsItsClaimInTheCollection() {
+        let claimDate = Date(timeIntervalSince1970: 5_000)
+        let snapshot = snapshot(
+            attempts: [attempt(climbId: "mount-everest", completedAt: claimDate)],
+            climbs: [
+                climb(id: "statue-of-liberty", tier: .bronze, steps: 377),
+                climb(id: "mount-everest", tier: .mythic, steps: 48_664, releaseState: .hidden)
+            ]
+        )
+
+        #expect(snapshot.collection.collectedCount == 1)
+        #expect(snapshot.collection.catalogCount == 2)
+        #expect(snapshot.collection.launchedCards.map(\.climb.id) == [
+            "statue-of-liberty",
+            "mount-everest"
+        ])
+        #expect(snapshot.collection.previewCards.first?.climb.id == "mount-everest")
+        #expect(snapshot.collection.previewCards.first?.claimedAt == claimDate)
+    }
+
+    @Test("An unclaimed retired climb never poses as something still collectable", .bug(id: 440))
+    func unclaimedRetiredClimbStaysOutOfTheCollection() {
+        let snapshot = snapshot(
+            attempts: [],
+            climbs: [
+                climb(id: "statue-of-liberty", tier: .bronze, steps: 377),
+                climb(id: "mount-everest", tier: .mythic, steps: 48_664, releaseState: .hidden)
+            ]
+        )
+
+        #expect(snapshot.collection.catalogCount == 1)
+        #expect(snapshot.collection.launchedCards.map(\.climb.id) == ["statue-of-liberty"])
+        #expect(snapshot.collection.previewCards.map(\.climb.id) == ["statue-of-liberty"])
     }
 
     private func snapshot(attempts: [ClimbAttempt], climbs: [Climb]) -> ProfileSnapshot {

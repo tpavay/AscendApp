@@ -381,6 +381,69 @@ struct ClimbServiceTests {
         #expect(try service.climb(for: comingSoon.id)?.id == comingSoon.id)
     }
 
+    @Test("A deleted climb costs its own completion, not the whole Home card", .bug(id: 440))
+    func homeCardFallsBackToTheNewestResolvableCompletion() throws {
+        let survivingClimb = makeClimb(id: "statue-of-liberty", requiredSteps: 377)
+        let service = ClimbService(
+            catalogRepository: TestClimbCatalogRepository(climbs: [survivingClimb])
+        )
+        let modelContext = try makeModelContext()
+        let olderCompletion = Date(timeIntervalSince1970: 1_775_217_600)
+        let newestCompletion = olderCompletion.addingTimeInterval(86_400)
+
+        modelContext.insert(
+            makeCompletedAttempt(climbId: survivingClimb.id, completedAt: olderCompletion)
+        )
+        modelContext.insert(
+            makeCompletedAttempt(climbId: "machu-picchu", completedAt: newestCompletion)
+        )
+        try modelContext.save()
+
+        let summary = try service.lastCompletedSummary(modelContext: modelContext)
+
+        #expect(summary?.climb.id == survivingClimb.id)
+        #expect(summary?.completedAt == olderCompletion)
+
+        let homeCardState = try service.homeCardState(modelContext: modelContext)
+        if case .neverClimbed = homeCardState {
+            Issue.record("A resolvable completion must not reset Home to never-climbed")
+        }
+    }
+
+    @Test("A retired climb still fronts the Home card it was earned on", .bug(id: 440))
+    func homeCardKeepsACompletionOnAHiddenClimb() throws {
+        let retiredClimb = makeClimb(
+            id: "mount-everest",
+            requiredSteps: 48_664,
+            releaseState: .hidden
+        )
+        let service = ClimbService(
+            catalogRepository: TestClimbCatalogRepository(climbs: [retiredClimb])
+        )
+        let modelContext = try makeModelContext()
+        let completedAt = Date(timeIntervalSince1970: 1_775_217_600)
+
+        modelContext.insert(
+            makeCompletedAttempt(climbId: retiredClimb.id, completedAt: completedAt)
+        )
+        try modelContext.save()
+
+        #expect(try service.lastCompletedSummary(modelContext: modelContext)?.climb.id == retiredClimb.id)
+    }
+
+    private func makeCompletedAttempt(climbId: String, completedAt: Date) -> ClimbAttempt {
+        ClimbAttempt(
+            climbId: climbId,
+            status: .completed,
+            startedAt: completedAt.addingTimeInterval(-600),
+            endedAt: completedAt,
+            completedAt: completedAt,
+            accumulatedSteps: 1_000,
+            accumulatedDurationSeconds: 600,
+            sessionsCount: 1
+        )
+    }
+
     private func makeModelContext() throws -> ModelContext {
         let container = try ModelContainer(
             for: ClimbAttempt.self,

@@ -220,7 +220,8 @@ struct OnboardingValueCarouselView: View {
 private struct OnboardingValueCarouselPreviewHost: View {
     @State private var selectedIndex = 0
 
-    private let pages = OnboardingValuePages.all
+    @MainActor
+    private var pages: [OnboardingValuePage] { OnboardingValuePages.all }
 
     var body: some View {
         OnboardingValueCarouselView(

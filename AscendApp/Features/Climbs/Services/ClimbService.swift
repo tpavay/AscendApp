@@ -22,6 +22,22 @@ final class ClimbService {
         try loadAvailableClimbs()
     }
 
+    /// Every stored climb, including the ones no longer raceable. Surfaces that
+    /// resolve a climber's earned history read this; racing surfaces do not.
+    func loadAllClimbs() throws -> [Climb] {
+        if let cachedClimbs {
+            return cachedClimbs
+        }
+
+        let snapshot = try catalogRepository.loadInitialCatalog()
+        cache(snapshot: snapshot)
+        return snapshot.climbs
+    }
+
+    var raceableClimbCount: Int {
+        (try? loadAvailableClimbs())?.count ?? 0
+    }
+
     func loadVisibleClimbs() throws -> [Climb] {
         if cachedClimbs != nil {
             return cachedVisibleClimbs
@@ -120,8 +136,17 @@ final class ClimbService {
                 Self.attemptSortDate(for: lhs) > Self.attemptSortDate(for: rhs)
             }
 
-        guard let lastAttempt = completedAttempts.first,
-              let climb = try climb(for: lastAttempt.climbId) else {
+        // A curated-away climb costs the climber that one completion, not their
+        // whole Home card: keep walking back until a completion still resolves.
+        var resolved: (attempt: ClimbAttempt, climb: Climb)?
+        for attempt in completedAttempts {
+            if let climb = try climb(for: attempt.climbId) {
+                resolved = (attempt, climb)
+                break
+            }
+        }
+
+        guard let (lastAttempt, climb) = resolved else {
             return nil
         }
 

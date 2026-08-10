@@ -32,7 +32,7 @@
         <h1 class="headline" data-plan-copy="monthly" data-pw-var="monthly_headline" hidden>Climb With Full Access</h1>
 
         <ul class="benefits" data-pw-skip-inner-html="true">
-          <li data-pw-var="benefit_1">Choose from 75 landmarks to climb</li>
+          <li data-pw-var="benefit_1" data-landmark-count-benefit>Choose from real landmarks to climb</li>
           <li data-pw-var="benefit_2">Compete on global leaderboards</li>
           <li data-pw-var="benefit_3">Track records and ascents</li>
         </ul>
@@ -102,6 +102,41 @@
       plans.forEach((button) => {
         button.addEventListener("click", () => selectPlan(button.dataset.plan));
       });
+
+      // The landmark count is a purchase-inducing promise, so it is read off the
+      // published catalogue instead of typed in. A fetch that fails leaves the
+      // count-free copy standing rather than shipping a stale number.
+      async function applyRaceableLandmarkCount() {
+        const benefit = document.querySelector("[data-landmark-count-benefit]");
+        if (!benefit) return;
+
+        try {
+          const manifestResponse = await fetch("/climbs/manifest.json", {cache: "no-store"});
+          if (!manifestResponse.ok) return;
+
+          const manifest = await manifestResponse.json();
+          const catalogPath = manifest.catalogPath.startsWith("/")
+            ? manifest.catalogPath
+            : `/${manifest.catalogPath}`;
+
+          const catalogResponse = await fetch(catalogPath, {cache: "no-store"});
+          if (!catalogResponse.ok) return;
+
+          const climbs = await catalogResponse.json();
+          if (!Array.isArray(climbs)) return;
+
+          const raceableCount = climbs.filter(
+            (climb) => climb.releaseState === "available"
+          ).length;
+          if (raceableCount > 0) {
+            benefit.textContent = `Choose from ${raceableCount} landmarks to climb`;
+          }
+        } catch {
+          // Keep the count-free copy.
+        }
+      }
+
+      applyRaceableLandmarkCount();
     </script>
   </body>
 </html>
