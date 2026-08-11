@@ -55,8 +55,8 @@ That path is reached when a climber's `achievements` subcollection returns empty
 | AC-2 | `ProfileAchievementLadderTests.placementsCountTheExactRecordedRanks` and `.placementsIgnoreRecordsWithNoLeaderboardRankBand`. | Counts exact ranks and proves a First Ascent never becomes a placement. |
 | AC-3 | `PublicProfileAchievementRenderingTests.aProfileWithoutRecordsRendersTheBandsAndNoPlacements`, `ProfileAchievementLadderTests.theBandedFallbackWithholdsBothPlacementBadges`. | Proves the banded ladder emits no placement badge and still emits the bands. |
 | AC-4 | `ProfileAchievementLadderTests.theRetiredTopThreeBandNeverBecomesABadge`, repo-wide grep for `LeaderboardTop3`. | Proves a top-three record raises no TOP 3 badge and the asset reference is gone. |
-| AC-5 | Rendered shelf evidence. The token-splitting test was deleted with the flag it read; `PublicProfileAchievementRenderingTests.everyShelfBadgeShipsAsOpaqueFreeColourArt` now guards the single free-standing presentation. | Photographs the presentation and fails on any asset that reintroduces an opaque backing or template rendering. |
-| AC-6 | Asset-catalog inspection of the four `Contents.json` files. | Each declares `template-rendering-intent: original`. |
+| AC-5 | Rendered shelf evidence. The token-splitting test was deleted with the flag it read; `PublicProfileAchievementRenderingTests.everyShelfBadgeShipsAsFreeStandingColourArt` now guards the single free-standing presentation. | Photographs the presentation and fails on any asset that reintroduces an opaque backing or template rendering. |
+| AC-6 | `PublicProfileAchievementRenderingTests.everyShelfBadgeShipsAsFreeStandingColourArt`, which superseded the manual `Contents.json` inspection once TOP 10 and TOP 100 joined the free-standing set. | Asserts every shelf asset resolves as `.alwaysOriginal`, so no replacement can reintroduce `template` rendering intent. |
 | AC-7 | `ProfileAchievementLadderTests.aPlacementBadgeListsOnlyItsOwnRankInHistory` and `.aBandBadgeStillListsEveryFinishInsideIt`. | Proves the history filter separates exact placements from bands. |
 
 ## UX evidence

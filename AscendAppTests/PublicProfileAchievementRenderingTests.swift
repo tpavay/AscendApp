@@ -243,7 +243,7 @@ struct PublicProfileAchievementRenderingTests {
     /// colour away and stamp a flat silhouette, and an opaque backing would reintroduce the tile
     /// the frame removal just deleted - both have to fail here rather than in review.
     @Test
-    func everyShelfBadgeShipsAsOpaqueFreeColourArt() throws {
+    func everyShelfBadgeShipsAsFreeStandingColourArt() throws {
         for asset in Self.shelfAssets {
             let image = try #require(UIImage(named: asset), "\(asset) is missing from the catalogue")
 
