@@ -11,7 +11,7 @@ const projectPath = join(repositoryRoot, "AscendApp.xcodeproj/project.pbxproj");
 const watchInfoPlistPath = join(repositoryRoot, "AscendWatch/Info.plist");
 
 // The iOS app's identifier per configuration, and the watch app's, which is that
-// identifier plus `.watchkitapp`. WKCompanionAppBundleIdentifier has to name the
+// identifier plus `.watch`. WKCompanionAppBundleIdentifier has to name the
 // matching environment's phone app: a mismatch produces a watch app that
 // installs and never pairs, and nothing about the build says so.
 const EXPECTED_IDENTIFIERS = new Map([
@@ -20,7 +20,7 @@ const EXPECTED_IDENTIFIERS = new Map([
   ["Release", "com.TylerPavay.AscendApp"]
 ]);
 
-const WATCH_SUFFIX = ".watchkitapp";
+const WATCH_SUFFIX = ".watch";
 
 async function watchBuildConfigurations() {
   const project = await readFile(projectPath, "utf8");

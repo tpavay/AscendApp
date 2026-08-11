@@ -24,7 +24,7 @@ enum AscendWatchShared {
     /// This mirrors `WKCompanionAppBundleIdentifier` and the per-configuration
     /// `PRODUCT_BUNDLE_IDENTIFIER` values in the project file. Those are the
     /// authority; this exists so neither side hardcodes the relationship twice.
-    static let watchAppBundleIdentifierSuffix = ".watchkitapp"
+    static let watchAppBundleIdentifierSuffix = ".watch"
 
     /// The watch bundle identifier for a given companion iPhone bundle identifier.
     static func watchAppBundleIdentifier(companion: String) -> String {

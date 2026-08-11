@@ -7,20 +7,20 @@ import Testing
 /// target compiling this file is the iOS half of that proof. The watch half is
 /// the watch target's own compile of the same source.
 struct AscendWatchSharedTests {
-    @Test("The watch bundle identifier is its companion's plus the watchkitapp suffix")
+    @Test("The watch bundle identifier is its companion's plus the watch suffix")
     func watchBundleIdentifierDerivesFromCompanion() {
-        #expect(AscendWatchShared.watchAppBundleIdentifierSuffix == ".watchkitapp")
+        #expect(AscendWatchShared.watchAppBundleIdentifierSuffix == ".watch")
         #expect(
             AscendWatchShared.watchAppBundleIdentifier(companion: "com.TylerPavay.AscendApp")
-                == "com.TylerPavay.AscendApp.watchkitapp"
+                == "com.TylerPavay.AscendApp.watch"
         )
         #expect(
             AscendWatchShared.watchAppBundleIdentifier(companion: "com.TylerPavay.AscendApp.staging")
-                == "com.TylerPavay.AscendApp.staging.watchkitapp"
+                == "com.TylerPavay.AscendApp.staging.watch"
         )
         #expect(
             AscendWatchShared.watchAppBundleIdentifier(companion: "com.TylerPavay.AscendApp.dev")
-                == "com.TylerPavay.AscendApp.dev.watchkitapp"
+                == "com.TylerPavay.AscendApp.dev.watch"
         )
     }
 }

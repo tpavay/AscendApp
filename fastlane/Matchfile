@@ -5,7 +5,9 @@ git_branch(ENV.fetch("MATCH_GIT_BRANCH", "main"))
 app_identifier([
   "com.TylerPavay.AscendApp.staging",
   "com.TylerPavay.AscendApp.staging.LiveClimbWidgets",
+  "com.TylerPavay.AscendApp.staging.watch",
   "com.TylerPavay.AscendApp",
-  "com.TylerPavay.AscendApp.LiveClimbWidgets"
+  "com.TylerPavay.AscendApp.LiveClimbWidgets",
+  "com.TylerPavay.AscendApp.watch"
 ])
 team_id("QWGVB7TN4T")

@@ -79,7 +79,7 @@ web/                    # Website source
 
 `AscendApp/App/Firebase/` needs the plist for the environment you're building - the Dev plist is committed, Staging and Production are gitignored and linked in locally; see the README there. CI decodes them from base64 secrets.
 
-Both app schemes embed the watch app, so either `xcodebuild` below refuses to build without an installed watchOS simulator runtime matching the watchOS **SDK** (not the deployment target, whatever the destination). `scripts/ci/ensure-watchos-runtime.sh` provisions it and runs locally too; CI runs it before both iOS jobs.
+Both app schemes embed the watch app, so either `xcodebuild` below refuses to build without an installed watchOS simulator runtime matching the watchOS **SDK** (not the deployment target, whatever the destination). `scripts/ci/ensure-watchos-runtime.sh` provisions it and runs locally too; CI runs it before both iOS jobs and before each deploy pipeline's archive.
 
 ```bash
 # iOS tests (mirrors CI - .github/workflows/ci.yml)

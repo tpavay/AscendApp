@@ -246,6 +246,10 @@ jobs:
           echo "BUILD_NUMBER=${build_number}" >> "$GITHUB_ENV"
           echo "build_number=${build_number}" >> "$GITHUB_OUTPUT"
 
+      - name: Ensure watchOS runtime
+        shell: bash
+        run: ./scripts/ci/ensure-watchos-runtime.sh
+
       - name: Build staging IPA via Fastlane
         env:
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
@@ -258,6 +262,8 @@ jobs:
           IOS_STAGING_BUNDLE_ID: com.TylerPavay.AscendApp.staging
           IOS_STAGING_WIDGET_BUNDLE_ID: com.TylerPavay.AscendApp.staging.LiveClimbWidgets
           IOS_STAGING_WIDGET_PROVISIONING_PROFILE_SPECIFIER: match AppStore com.TylerPavay.AscendApp.staging.LiveClimbWidgets
+          IOS_STAGING_WATCH_BUNDLE_ID: com.TylerPavay.AscendApp.staging.watch
+          IOS_STAGING_WATCH_PROVISIONING_PROFILE_SPECIFIER: match AppStore com.TylerPavay.AscendApp.staging.watch
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
         run: bundle exec fastlane build_staging

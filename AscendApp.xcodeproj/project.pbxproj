@@ -1057,7 +1057,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.dev.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.dev.watch;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -1089,10 +1089,10 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.watch;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=watchos*]" = "match AppStore com.TylerPavay.AscendApp.watchkitapp";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=watchos*]" = "match AppStore com.TylerPavay.AscendApp.watch";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "watchos watchsimulator";
@@ -1123,10 +1123,10 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.staging.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.staging.watch;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=watchos*]" = "match AppStore com.TylerPavay.AscendApp.staging.watchkitapp";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=watchos*]" = "match AppStore com.TylerPavay.AscendApp.staging.watch";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "watchos watchsimulator";
