@@ -37,6 +37,7 @@ struct ReturningSubscriberJourneyTranscriptTests {
             onboarding: PostAuthOnboardingPhase = .complete
         ) {
             let route = AppRootRouteResolver.resolve(
+                updatePresentation: nil,
                 authenticationState: authentication.authenticationState,
                 userId: userId,
                 postAuthOnboardingPhase: onboarding,
@@ -123,6 +124,7 @@ struct ReturningSubscriberJourneyTranscriptTests {
 
     private func describe(_ route: AppRootRoute) -> String {
         switch route {
+        case .updateRequired: "updateRequired (hard update lockout)"
         case .signedOut: "signedOut (welcome screen, with Already have an account? Sign in)"
         case .signingIn: "signingIn"
         case .restoringSession: "restoringSession"

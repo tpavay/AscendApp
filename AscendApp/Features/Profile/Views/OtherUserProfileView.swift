@@ -32,14 +32,16 @@ struct OtherUserProfileView: View {
 
     private var climbs: [Climb] {
         _ = catalogRevision
-        return (try? ClimbService.shared.loadVisibleClimbs()) ?? []
+        return (try? ClimbService.shared.loadAllClimbs()) ?? []
     }
 
     private var viewerDisplayName: String {
         let trimmed = authVM.displayName.trimmingCharacters(
             in: .whitespacesAndNewlines
         )
-        return trimmed.isEmpty ? "You" : trimmed
+        return trimmed.isEmpty
+            ? PublicClimberIdentity.systemHandle(for: authVM.user?.uid)
+            : trimmed
     }
 
     private var viewerSnapshot: ProfileSnapshot {
@@ -245,7 +247,7 @@ private struct ProfileComparisonHeader: View {
             competitor(
                 identity: viewerIdentity,
                 tint: Color.ascendAccent,
-                fallbackName: "You",
+                fallbackName: "Climber",
                 isLoading: isViewerLoading
             )
 
@@ -377,6 +379,11 @@ private struct ProfileComparisonBioTab: View {
                 }
             }
 
+            PublicProfileAchievementsSection(
+                achievements: otherUser.achievements,
+                isOtherLoading: isOtherLoading
+            )
+
             ProfileComparisonSection(title: "ALL-TIME") {
                 VStack(spacing: 0) {
                     ProfileComparisonStatRow(
@@ -492,27 +499,6 @@ private struct ProfileComparisonBioTab: View {
 
     private func formatSPM(_ value: Double) -> String {
         value > 0 ? "\(Int(value.rounded()))" : "-"
-    }
-}
-
-private struct ProfileComparisonSection<Content: View>: View {
-    let title: String
-    let content: Content
-
-    init(title: String, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(title)
-                .font(.montserratBold(size: 12))
-                .foregroundStyle(ProfileVisualStyle.secondaryText)
-                .tracking(3)
-
-            content
-        }
     }
 }
 

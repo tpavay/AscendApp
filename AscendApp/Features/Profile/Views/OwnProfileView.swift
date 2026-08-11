@@ -31,7 +31,7 @@ struct OwnProfileView: View {
 
     private var climbs: [Climb] {
         _ = catalogRevision
-        return (try? ClimbService.shared.loadVisibleClimbs()) ?? []
+        return (try? ClimbService.shared.loadAllClimbs()) ?? []
     }
 
     private var snapshot: ProfileSnapshot {

@@ -182,7 +182,7 @@ struct AuthenticatedBootstrapCoordinatorTests {
     }
 }
 
-/// Stands in for a HealthKit-observer import pass or a media upload queue: account-scoped work the
+/// Stands in for an Apple Health enrichment pass or a media upload queue: account-scoped work the
 /// bootstrap chain does not own.
 @MainActor
 private final class RecordingSessionWorker: AuthenticatedSessionWorker {

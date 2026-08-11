@@ -14,7 +14,7 @@ struct WorkoutListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(AuthenticationViewModel.self) private var authVM
     @State private var themeManager = ThemeManager.shared
-    @State private var importCoordinator = WorkoutImportCoordinator.shared
+    @State private var enrichmentService = AppleHealthEnrichmentService.shared
     @State private var syncCoordinator = WorkoutSyncCoordinator.shared
     @State private var filterState = WorkoutListFilterState()
 
@@ -22,7 +22,6 @@ struct WorkoutListView: View {
     @State private var isInDeleteMode = false
     @State private var selectedWorkouts: Set<UUID> = []
     @State private var showingDeleteConfirmation = false
-    @State private var showingImportSheet = false
     @State private var showingDeleteError = false
     @State private var deleteErrorMessage = ""
     @State private var isDeleting = false
@@ -68,11 +67,9 @@ struct WorkoutListView: View {
                     isInDeleteMode: isInDeleteMode,
                     totalCount: workouts.count,
                     effectiveColorScheme: effectiveColorScheme,
-                    pendingImportCount: importCoordinator.attentionCount,
                     workouts: workouts,
                     filterState: filterState,
                     onCancelDelete: exitDeleteMode,
-                    onImportTapped: handleImportTapped,
                     onEnterDeleteMode: enterDeleteMode
                 )
 
@@ -163,9 +160,6 @@ struct WorkoutListView: View {
                     deleteTask = nil
                 }
             }
-            .sheet(isPresented: $showingImportSheet) {
-                WorkoutImportSheet()
-            }
             .alert("Delete Failed", isPresented: $showingDeleteError) {
                 Button("OK") {
                     showingDeleteError = false
@@ -174,7 +168,7 @@ struct WorkoutListView: View {
                 Text(deleteErrorMessage)
             }
             .task {
-                importCoordinator.configure(modelContext: modelContext)
+                enrichmentService.configure(modelContext: modelContext)
                 refreshCouldNotSyncWorkoutIds()
             }
             // Without this the badge is a snapshot taken once: a climb that lands keeps its
@@ -246,21 +240,12 @@ struct WorkoutListView: View {
 
         if !protectedWorkoutIds.isEmpty {
             selectedWorkouts.subtract(protectedWorkoutIds)
-            deleteErrorMessage = "Live climb attempts are saved as competitive history and cannot be deleted from the workout log."
+            deleteErrorMessage = "Live Climb attempts are saved as competitive history and cannot be deleted."
             showingDeleteError = true
         }
 
         if !selectedWorkouts.isEmpty {
             showingDeleteConfirmation = true
-        }
-    }
-
-    private func handleImportTapped() {
-        Task {
-            let resolution = await importCoordinator.prepareImportInbox()
-            if resolution == .showImportSheet {
-                showingImportSheet = true
-            }
         }
     }
 
@@ -276,7 +261,7 @@ struct WorkoutListView: View {
 
     private func toggleWorkoutSelection(_ workoutId: UUID) {
         guard workouts.first(where: { $0.id == workoutId })?.isLiveClimbAttemptWorkout != true else {
-            deleteErrorMessage = "Live climb attempts are saved as competitive history and cannot be deleted from the workout log."
+            deleteErrorMessage = "Live Climb attempts are saved as competitive history and cannot be deleted."
             showingDeleteError = true
             return
         }
@@ -301,7 +286,7 @@ struct WorkoutListView: View {
             await MainActor.run {
                 isDeleting = false
                 showingDeleteConfirmation = false
-                deleteErrorMessage = "Live climb attempts are saved as competitive history and cannot be deleted from the workout log."
+                deleteErrorMessage = "Live Climb attempts are saved as competitive history and cannot be deleted."
                 showingDeleteError = true
             }
             return

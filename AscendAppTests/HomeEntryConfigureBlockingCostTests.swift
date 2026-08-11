@@ -5,13 +5,13 @@ import Testing
 
 @testable import AscendApp
 
-/// End-to-end evidence for ASCEND-IOS-1K at the seam a user actually feels it.
+/// End-to-end evidence for ASCEND-IOS-1K at the seam a climber actually feels it.
 ///
-/// `HomeEntryImportCostEvidenceTests` times the query in isolation. This one times the whole
-/// synchronous call Home makes - `WorkoutImportCoordinator.configure(modelContext:)`, straight off
-/// `HomeView.task` - against a store the size of a committed athlete's Apple Health history. Every
-/// microsecond that call spends is a microsecond Home cannot draw in, which is why the reported
-/// hang was a *fully blocked* 182 seconds rather than a slow screen.
+/// Home's `.task` calls `AppleHealthEnrichmentService.configure(modelContext:)` synchronously
+/// before Home can draw, so every microsecond that call spends is a microsecond the screen is
+/// blocked - which is why the reported hang was a *fully blocked* 182 seconds rather than a slow
+/// screen. Enrichment's own query is bounded and deliberately runs off the async pass; nothing on
+/// this path may read the whole store.
 ///
 /// The comparison is the pre-fix shape of the same work: `fetch(FetchDescriptor<Workout>())`, run
 /// moments earlier in the same process against the same store, so runner load moves both numbers
@@ -27,20 +27,9 @@ struct HomeEntryConfigureBlockingCostTests {
 
     @Test
     func enteringHomeWithYearsOfHistoryDoesNotBlockOnTheWholeStore() async throws {
-        try await HealthKitImportCoordinatorTestIsolation.shared.run {
-            let stores = Self.makeIsolatedStores()
-            defer { stores.defaults.removePersistentDomain(forName: stores.suiteName) }
-
+        try await HealthKitCoordinatorTestIsolation.shared.run {
             let seeded = try #require(Self.seededStore, "the seeded evidence store failed to open")
             let context = ModelContext(seeded.container)
-            let reviewedWorkoutID = try #require(seeded.workoutIDs.first)
-
-            // The state the prune exists to police: Home recorded one auto-imported workout for
-            // review, and on the next entry has to find out whether it is still in the store.
-            stores.reviewStateStore.recordLatestWorkout(
-                id: reviewedWorkoutID,
-                referenceDate: Self.sessionStart
-            )
 
             // The pre-fix cost, measured first so the post-fix number cannot benefit from a warmer
             // page cache than the one it is being compared against.
@@ -50,12 +39,9 @@ struct HomeEntryConfigureBlockingCostTests {
                 ).map(\.id)
             }
 
-            let coordinator = WorkoutImportCoordinator(
+            let coordinator = AppleHealthEnrichmentService(
                 authorizationController: OfflineAuthorizationController(),
-                workoutReader: EmptyWorkoutReader(),
-                metricsReader: EmptyMetricsReader(),
-                reviewStateStore: stores.reviewStateStore,
-                ignoredAppleHealthWorkoutStore: stores.ignoredAppleHealthWorkoutStore
+                metricsReader: EmptyMetricsReader()
             )
 
             // Exactly what `HomeView.task` runs before Home can draw.
@@ -65,24 +51,18 @@ struct HomeEntryConfigureBlockingCostTests {
 
             print(
                 """
-                ASCEND-IOS-1K Home entry: synchronous cost of WorkoutImportCoordinator.configure
+                ASCEND-IOS-1K Home entry: synchronous cost of \
+                AppleHealthEnrichmentService.configure
                   store                \(Self.storeSize) workouts, \
                 \(Self.heartRateSamplesPerWorkout) heart-rate samples each
                   inline blob bytes    \(seeded.inlineHeartRateBytes)
-                  pre-fix full scan    \(Self.milliseconds(scanDuration)) ms   \
-                (what pruneAutoImportedReviewState used to do)
+                  pre-fix full scan    \(Self.milliseconds(scanDuration)) ms
                   configure() blocking \(Self.milliseconds(configureDuration)) ms   (post-fix)
-                  attention count      \(coordinator.attentionCount)
                 """
             )
 
-            // Home's affordance is correct on the way out: the recorded workout is still in the
-            // store, so it is still waiting to be reviewed and the bell still carries it.
-            #expect(stores.reviewStateStore.recordedWorkoutID() == reviewedWorkoutID)
-            #expect(coordinator.attentionCount == 1)
-
             // The blocking call must not scale with the store. Asserted as a ratio for the same
-            // reason the sibling suite does: an absolute millisecond threshold flakes on a loaded
+            // reason the sibling suites do: an absolute millisecond threshold flakes on a loaded
             // runner, a same-process ratio does not.
             #expect(
                 configureDuration * 10 < scanDuration,
@@ -93,28 +73,6 @@ struct HomeEntryConfigureBlockingCostTests {
                 """
             )
 
-            // And the prune still does its job: a workout that has since been deleted gets cleared
-            // out of the snapshot rather than leaving the bell stuck on a phantom.
-            let survivor = try #require(
-                try context.fetch(
-                    FetchDescriptor<Workout>(
-                        predicate: #Predicate<Workout> { workout in
-                            workout.id == reviewedWorkoutID
-                        }
-                    )
-                ).first
-            )
-            context.delete(survivor)
-            try context.save()
-
-            coordinator.configure(modelContext: context)
-
-            #expect(stores.reviewStateStore.recordedWorkoutID() == nil)
-            #expect(coordinator.attentionCount == 0)
-
-            // `configure` hands the legacy source-link backfill to a task that would otherwise
-            // keep sweeping this store after the test returns. Stop it and give it turns to
-            // unwind, so it is not still writing while the next suite runs.
             coordinator.cancelInFlightWork()
             for _ in 0..<100 {
                 await Task.yield()
@@ -132,11 +90,11 @@ struct HomeEntryConfigureBlockingCostTests {
 
     /// Seeded once and held for the life of the process.
     ///
-    /// `configure` hands the context to `LeaderboardService.shared` and starts the legacy
-    /// source-link backfill on a task that outlives this test. Letting the container fall out of
-    /// scope leaves both of those pointed at a store that no longer exists, and the next save
-    /// *any* suite performs then traps inside SwiftData's change notification and takes the whole
-    /// test process down. Holding it is cheaper than trying to prove nothing still references it.
+    /// `configure` hands the context to `LeaderboardService.shared`, which outlives this test.
+    /// Letting the container fall out of scope leaves that pointed at a store that no longer
+    /// exists, and the next save *any* suite performs then traps inside SwiftData's change
+    /// notification and takes the whole test process down. Holding it is cheaper than trying to
+    /// prove nothing still references it.
     private static let seededStore: SeededStore? = try? makeSeededStore()
 
     /// A directory of this test's own, emptied on the way in - the store runs to ~90 MB, and a
@@ -172,8 +130,7 @@ struct HomeEntryConfigureBlockingCostTests {
                 steps: 3_200,
                 floors: 200,
                 heartRateTimeSeries: heartRateSeries(count: heartRateSamplesPerWorkout),
-                source: .appleHealth,
-                healthKitUUID: UUID().uuidString
+                source: .headphoneMotion
             )
             seedContext.insert(workout)
             workouts.append(workout)
@@ -195,24 +152,6 @@ struct HomeEntryConfigureBlockingCostTests {
                 heartRate: 120 + (second % 60)
             )
         }
-    }
-
-    private static func makeIsolatedStores() -> (
-        suiteName: String,
-        defaults: UserDefaults,
-        reviewStateStore: WorkoutAutoImportReviewStateStore,
-        ignoredAppleHealthWorkoutStore: IgnoredAppleHealthWorkoutStore
-    ) {
-        let suiteName = "HomeEntryConfigureBlockingCostTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defaults.removePersistentDomain(forName: suiteName)
-
-        return (
-            suiteName,
-            defaults,
-            WorkoutAutoImportReviewStateStore(defaults: defaults, key: "auto-review"),
-            IgnoredAppleHealthWorkoutStore(defaults: defaults, key: "ignored-apple-health")
-        )
     }
 
     private static func milliseconds(_ duration: Duration) -> String {
@@ -238,47 +177,21 @@ struct HomeEntryConfigureBlockingCostTests {
 }
 
 @MainActor
-private final class EmptyWorkoutReader: HealthKitWorkoutReading {
-    let isHealthDataAvailable = true
+private final class OfflineAuthorizationController: HealthKitAuthorizationControlling {
+    let isHealthDataAvailable = false
+    let hasRequestedAuthorization = false
+    var authorizationRequestStatus: HKAuthorizationRequestStatus = .unknown
+    var lastPermissionErrorMessage: String?
+    let connectionState: AppleHealthConnectionState = .unavailable
 
-    func fetchAnchoredStairStepperWorkouts(anchorData: Data?) async throws
-        -> HealthKitWorkoutDiscoveryResult
-    {
-        HealthKitWorkoutDiscoveryResult(
-            addedSamples: [],
-            deletedExternalRecordIDs: [],
-            anchorData: anchorData
-        )
-    }
+    func refreshAuthorizationRequestStatus() async {}
 
-    func fetchWorkout(withExternalRecordID externalRecordID: String) async throws -> HKWorkout? {
-        nil
-    }
-
-    func fetchStairStepperWorkouts(in dateRange: ClosedRange<Date>) async throws
-        -> [HealthKitWorkoutSample]
-    {
-        []
-    }
+    func requestAuthorization() async -> Bool { false }
 }
 
 @MainActor
 private final class EmptyMetricsReader: HealthKitMetricsReading {
-    func fetchMetrics(for workout: HKWorkout) async -> WorkoutMetrics {
-        WorkoutMetrics(steps: 0)
+    func fetchMetrics(during dateRange: ClosedRange<Date>) async -> WorkoutMetrics {
+        WorkoutMetrics()
     }
-}
-
-@MainActor
-private final class OfflineAuthorizationController: HealthKitAuthorizationControlling {
-    let isHealthDataAvailable = true
-    let hasRequestedAuthorization = true
-    let hasCompletedInitialBackfill = true
-    var authorizationRequestStatus: HKAuthorizationRequestStatus = .unnecessary
-    var lastPermissionErrorMessage: String?
-    let connectionState: AppleHealthConnectionState = .connected
-
-    func refreshAuthorizationRequestStatus() async {}
-
-    func requestAuthorization() async -> Bool { true }
 }

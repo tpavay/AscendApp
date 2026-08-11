@@ -11,11 +11,9 @@ struct WorkoutListHeaderView: View {
     let isInDeleteMode: Bool
     let totalCount: Int
     let effectiveColorScheme: ColorScheme
-    let pendingImportCount: Int
     let workouts: [Workout]
     @Bindable var filterState: WorkoutListFilterState
     let onCancelDelete: () -> Void
-    let onImportTapped: () -> Void
     let onEnterDeleteMode: () -> Void
 
     @State private var isSearchExpanded = false
@@ -302,17 +300,6 @@ struct WorkoutListHeaderView: View {
 
     private var overflowMenu: some View {
         Menu {
-            Button(action: onImportTapped) {
-                HStack {
-                    Label("Import Workouts", systemImage: "square.and.arrow.down")
-                    if pendingImportCount > 0 {
-                        Text("(\(pendingImportCount))")
-                            .font(.caption)
-                            .foregroundStyle(.blue)
-                    }
-                }
-            }
-
             Button(action: onEnterDeleteMode) {
                 Label("Delete Workouts", systemImage: "trash")
             }

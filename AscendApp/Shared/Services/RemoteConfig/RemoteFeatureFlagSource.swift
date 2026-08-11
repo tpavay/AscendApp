@@ -17,6 +17,15 @@ protocol RemoteFeatureFlagSource: Sendable {
     /// flag on its shipped default while the SDK still held the `false` an operator published.
     func activatedValues() -> [String: Bool]
 
+    /// Reads version strings from the activation the SDK currently holds.
+    ///
+    /// Like ``activatedValues()``, implementations return **only** what the backend actually
+    /// supplied, so a device the backend has never answered supplies nothing and no floor is
+    /// enforced. Everything else is the last floor this device received, which is what the service
+    /// seeds the gate from at launch: a climber who would hit the lockout online hits it offline
+    /// too, and losing the network is not evidence that a retired build became supported again.
+    func appVersionValues() -> [String: String]
+
     /// Opens a real-time connection and reports every activated update.
     ///
     /// Calling this twice replaces the previous registration rather than stacking a second one.

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UIKit
 @testable import AscendApp
 
 /// The fetch-failure posture, pinned. Every one of these asserts the same rule from a different
@@ -127,7 +128,11 @@ struct RemoteFeatureFlagServiceTests {
             fetchResult: .success([RemoteFeatureFlag.workoutCloudBackupWrites.key: false])
         )
         let store = RemoteFeatureFlagStore()
-        let service = RemoteFeatureFlagService(source: source, store: store)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: store,
+            appVersionGateState: AppVersionGateState()
+        )
 
         await service.refreshAndWait()
 
@@ -135,12 +140,282 @@ struct RemoteFeatureFlagServiceTests {
         #expect(service.hasCompletedInitialFetch == true)
     }
 
+    @Test("A successful launch fetch evaluates the app version policy", .bug(id: 319))
+    func aSuccessfulLaunchFetchEvaluatesTheAppVersionPolicy() async {
+        let source = FakeRemoteFeatureFlagSource(
+            fetchResult: .success([:]),
+            appVersionValues: [
+                RemoteAppVersionParameter.minimumSupported.key: "1.1.0",
+                RemoteAppVersionParameter.recommended.key: "1.2.0"
+            ]
+        )
+        let gateState = AppVersionGateState()
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: RemoteFeatureFlagStore(),
+            appVersionGateState: gateState,
+            appMarketingVersionProvider: .init { "1.0" }
+        )
+
+        #expect(gateState.presentation == nil)
+        #expect(source.appVersionValuesCallCount == 0)
+
+        await service.refreshAndWait()
+
+        #expect(gateState.presentation == .required)
+        #expect(source.appVersionValuesCallCount == 1)
+    }
+
+    @Test("Each successful foreground refresh reevaluates the app version policy", .bug(id: 319))
+    func successfulForegroundRefreshesReevaluateTheAppVersionPolicy() async {
+        let source = FakeRemoteFeatureFlagSource(
+            fetchResult: .success([:]),
+            appVersionValues: [
+                RemoteAppVersionParameter.minimumSupported.key: "1.1.0",
+                RemoteAppVersionParameter.recommended.key: "1.2.0"
+            ]
+        )
+        let gateState = AppVersionGateState()
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: RemoteFeatureFlagStore(),
+            appVersionGateState: gateState,
+            appMarketingVersionProvider: .init { "1.0" }
+        )
+
+        await service.refreshAndWait()
+        #expect(gateState.presentation == .required)
+
+        source.setAppVersionValues([
+            RemoteAppVersionParameter.minimumSupported.key: "1.0.0",
+            RemoteAppVersionParameter.recommended.key: "1.2.0"
+        ])
+        await service.refreshAndWait()
+        #expect(gateState.presentation == .recommended)
+
+        source.setAppVersionValues([
+            RemoteAppVersionParameter.minimumSupported.key: "0.0.0",
+            RemoteAppVersionParameter.recommended.key: "0.0.0"
+        ])
+        await service.refreshAndWait()
+        #expect(gateState.presentation == nil)
+        #expect(source.appVersionValuesCallCount == 3)
+    }
+
+    @Test("A superseded fetch cannot overwrite the newer version decision", .bug(id: 319))
+    func supersededFetchCannotPublishAStaleVersionDecision() async throws {
+        let source = OutOfOrderRemoteFeatureFlagSource()
+        let store = RemoteFeatureFlagStore()
+        let gateState = AppVersionGateState()
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: store,
+            appVersionGateState: gateState,
+            appMarketingVersionProvider: .init { "1.0" }
+        )
+
+        let firstRefresh = service.refresh()
+        await source.waitForFetchCount(1)
+
+        let secondRefresh = service.refresh()
+        await source.waitForFetchCount(2)
+
+        source.completeFetch(
+            at: 1,
+            flags: [:],
+            appVersions: [
+                RemoteAppVersionParameter.minimumSupported.key: "1.0.0",
+                RemoteAppVersionParameter.recommended.key: "1.1.0"
+            ]
+        )
+        await secondRefresh.value
+        #expect(gateState.presentation == .recommended)
+
+        source.completeFetch(
+            at: 0,
+            flags: [RemoteFeatureFlag.workoutCloudBackupWrites.key: false],
+            appVersions: [
+                RemoteAppVersionParameter.minimumSupported.key: "99.0.0",
+                RemoteAppVersionParameter.recommended.key: "99.0.0"
+            ]
+        )
+        await firstRefresh.value
+
+        #expect(store.isEnabled(.workoutCloudBackupWrites) == false)
+        #expect(gateState.presentation == .recommended)
+        #expect(source.appVersionValuesCallCount == 1)
+    }
+
+    @Test("A fetch completing after teardown cannot publish a version decision", .bug(id: 319))
+    func fetchCompletingAfterTeardownCannotPublishAVersionDecision() async {
+        let source = OutOfOrderRemoteFeatureFlagSource()
+        let store = RemoteFeatureFlagStore()
+        let gateState = AppVersionGateState(presentation: .recommended)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: store,
+            appVersionGateState: gateState,
+            appMarketingVersionProvider: .init { "1.0" }
+        )
+
+        let refresh = service.refresh()
+        await source.waitForFetchCount(1)
+        service.teardown()
+
+        source.completeFetch(
+            at: 0,
+            flags: [RemoteFeatureFlag.workoutCloudBackupWrites.key: false],
+            appVersions: [
+                RemoteAppVersionParameter.minimumSupported.key: "99.0.0",
+                RemoteAppVersionParameter.recommended.key: "99.0.0"
+            ]
+        )
+        await refresh.value
+
+        #expect(store.isEnabled(.workoutCloudBackupWrites) == false)
+        #expect(source.appVersionValuesCallCount == 0)
+        #expect(gateState.presentation == .recommended)
+    }
+
+    /// A fetch that never reached the backend learned nothing about the floor, so it changes
+    /// nothing about the verdict the seed or the last successful fetch already reached.
+    @Test("A failed fetch leaves the resolved verdict alone", .bug(id: 429))
+    func failedFetchLeavesTheResolvedVerdictAlone() async {
+        let source = FakeRemoteFeatureFlagSource(
+            fetchResult: .failure(RemoteFeatureFlagSourceError.fetchFailed),
+            appVersionValues: [
+                RemoteAppVersionParameter.minimumSupported.key: "99.0.0",
+                RemoteAppVersionParameter.recommended.key: "99.0.0"
+            ]
+        )
+        let gateState = AppVersionGateState(presentation: .recommended)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: RemoteFeatureFlagStore(),
+            appVersionGateState: gateState,
+            appMarketingVersionProvider: .init { "1.0" }
+        )
+
+        await service.refreshAndWait()
+
+        #expect(gateState.presentation == .recommended)
+        #expect(source.appVersionValuesCallCount == 0)
+    }
+
+    /// The policy the captain set: if a climber would hit the lockout online, they hit it offline.
+    /// Nothing on this launch reaches the network, so the only thing that can carry the floor
+    /// across the cold start is the activation a previous launch persisted.
+    @Test("A cached floor locks out a launch that never fetches", .bug(id: 429))
+    func aCachedFloorLocksOutALaunchWithNoSuccessfulFetch() async {
+        let source = FakeRemoteFeatureFlagSource(
+            fetchResult: .failure(RemoteFeatureFlagSourceError.fetchFailed),
+            appVersionValues: [
+                RemoteAppVersionParameter.minimumSupported.key: "1.1.0",
+                RemoteAppVersionParameter.recommended.key: "1.2.0"
+            ]
+        )
+        let gateState = AppVersionGateState()
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: RemoteFeatureFlagStore(),
+            appVersionGateState: gateState,
+            appMarketingVersionProvider: .init { "1.0" }
+        )
+
+        service.configure()
+
+        // Seeded before any fetch is attempted, or an offline launch would run unlocked for as
+        // long as the fetch took to fail - which on a dead network is the whole session.
+        #expect(gateState.presentation == .required)
+        #expect(source.fetchCallCount == 0)
+
+        await service.waitForCurrentRefresh()
+        #expect(gateState.presentation == .required)
+        #expect(service.hasCompletedInitialFetch == false)
+    }
+
+    /// Fail open, but only here: a device the backend has never answered has no floor to enforce,
+    /// and an SDK default must never be able to lock anybody out.
+    @Test("A device with no cached floor stays open", .bug(id: 429))
+    func aDeviceWithNoCachedFloorStaysOpen() async {
+        let source = FakeRemoteFeatureFlagSource(
+            fetchResult: .failure(RemoteFeatureFlagSourceError.fetchFailed)
+        )
+        let gateState = AppVersionGateState()
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: RemoteFeatureFlagStore(),
+            appVersionGateState: gateState,
+            appMarketingVersionProvider: .init { "1.0" }
+        )
+
+        service.configure()
+        await service.waitForCurrentRefresh()
+
+        #expect(gateState.presentation == nil)
+    }
+
+    /// A floor an operator lowered releases the lockout on the first fetch that lands, without a
+    /// relaunch - the cached verdict is the starting point, not a latch.
+    @Test("A successful fetch replaces the cached verdict", .bug(id: 429))
+    func aSuccessfulFetchReplacesTheCachedVerdict() async {
+        let source = FakeRemoteFeatureFlagSource(
+            fetchResult: .success([:]),
+            appVersionValues: [
+                RemoteAppVersionParameter.minimumSupported.key: "1.1.0",
+                RemoteAppVersionParameter.recommended.key: "1.2.0"
+            ]
+        )
+        let gateState = AppVersionGateState()
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: RemoteFeatureFlagStore(),
+            appVersionGateState: gateState,
+            appMarketingVersionProvider: .init { "1.0" }
+        )
+
+        service.configure()
+        #expect(gateState.presentation == .required)
+
+        source.setAppVersionValues([
+            RemoteAppVersionParameter.minimumSupported.key: "0.9.0",
+            RemoteAppVersionParameter.recommended.key: "0.9.0"
+        ])
+        await service.refreshAndWait()
+
+        #expect(gateState.presentation == nil)
+    }
+
+    @Test("A failed foreground fetch cannot release an armed required lockout", .bug(id: 319))
+    func failedFetchCannotReleaseAnArmedRequiredLockout() async {
+        let source = FakeRemoteFeatureFlagSource(
+            fetchResult: .failure(RemoteFeatureFlagSourceError.fetchFailed)
+        )
+        let gateState = AppVersionGateState(presentation: .required)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: RemoteFeatureFlagStore(),
+            appVersionGateState: gateState,
+            appMarketingVersionProvider: .init { "1.0" }
+        )
+
+        await service.refreshAndWait()
+        await service.refreshAndWait()
+
+        #expect(gateState.presentation == .required)
+        #expect(source.appVersionValuesCallCount == 0)
+    }
+
     /// The fetch-failure posture, end to end: a backend the app cannot reach changes nothing.
     @Test
     func aFailedFetchLeavesEveryFlagOnItsShippedDefault() async {
         let source = FakeRemoteFeatureFlagSource(fetchResult: .failure(RemoteFeatureFlagSourceError.fetchFailed))
         let store = RemoteFeatureFlagStore()
-        let service = RemoteFeatureFlagService(source: source, store: store)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: store,
+            appVersionGateState: AppVersionGateState()
+        )
 
         await service.refreshAndWait()
 
@@ -156,7 +431,11 @@ struct RemoteFeatureFlagServiceTests {
             fetchResult: .success([RemoteFeatureFlag.workoutCloudBackupWrites.key: false])
         )
         let store = RemoteFeatureFlagStore()
-        let service = RemoteFeatureFlagService(source: source, store: store)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: store,
+            appVersionGateState: AppVersionGateState()
+        )
         await service.refreshAndWait()
 
         source.setFetchResult(.failure(RemoteFeatureFlagSourceError.fetchFailed))
@@ -173,7 +452,11 @@ struct RemoteFeatureFlagServiceTests {
             fetchResult: .success([RemoteFeatureFlag.workoutCloudBackupWrites.key: false])
         )
         let store = RemoteFeatureFlagStore()
-        let service = RemoteFeatureFlagService(source: source, store: store)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: store,
+            appVersionGateState: AppVersionGateState()
+        )
         await service.refreshAndWait()
 
         source.setFetchResult(.success([:]))
@@ -193,7 +476,11 @@ struct RemoteFeatureFlagServiceTests {
             activatedValues: [RemoteFeatureFlag.workoutMediaUploads.key: false]
         )
         let store = RemoteFeatureFlagStore()
-        let service = RemoteFeatureFlagService(source: source, store: store)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: store,
+            appVersionGateState: AppVersionGateState()
+        )
 
         service.configure()
         await service.refreshAndWait()
@@ -215,7 +502,11 @@ struct RemoteFeatureFlagServiceTests {
             activatedValues: [RemoteFeatureFlag.workoutRemoteDeletes.key: false]
         )
         let store = RemoteFeatureFlagStore()
-        let service = RemoteFeatureFlagService(source: source, store: store)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: store,
+            appVersionGateState: AppVersionGateState()
+        )
 
         service.configure()
 
@@ -229,7 +520,11 @@ struct RemoteFeatureFlagServiceTests {
     func aDeviceWithNothingPersistedStaysOnShippedDefaults() {
         let source = FakeRemoteFeatureFlagSource(fetchResult: .success([:]))
         let store = RemoteFeatureFlagStore()
-        let service = RemoteFeatureFlagService(source: source, store: store)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: store,
+            appVersionGateState: AppVersionGateState()
+        )
 
         service.configure()
 
@@ -240,7 +535,11 @@ struct RemoteFeatureFlagServiceTests {
     func configureStartsTheRealTimeListenerAndARealTimeUpdateLandsWithoutAFetch() async {
         let source = FakeRemoteFeatureFlagSource(fetchResult: .success([:]))
         let store = RemoteFeatureFlagStore()
-        let service = RemoteFeatureFlagService(source: source, store: store)
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: store,
+            appVersionGateState: AppVersionGateState()
+        )
 
         service.configure()
         await service.refreshAndWait()
@@ -251,11 +550,51 @@ struct RemoteFeatureFlagServiceTests {
         #expect(await waitUntil { store.isEnabled(.publicProfilePublishing) == false })
     }
 
+    /// The listener is what makes an armed floor land within seconds. The source activates the new
+    /// config before it hands the flags over, so the version gate has to be re-derived on that
+    /// callback too - otherwise a floor an operator just published, or just lowered to release a
+    /// lockout, waits for the next foreground behind the production fetch interval.
+    @Test("A real-time update re-derives the version floor without a fetch", .bug(id: 429))
+    func aRealTimeUpdateReDerivesTheVersionFloor() async {
+        let source = FakeRemoteFeatureFlagSource(fetchResult: .success([:]))
+        let gateState = AppVersionGateState()
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: RemoteFeatureFlagStore(),
+            appVersionGateState: gateState,
+            appMarketingVersionProvider: .init { "1.0" }
+        )
+
+        service.configure()
+        await service.refreshAndWait()
+        #expect(gateState.presentation == nil)
+
+        source.setAppVersionValues([
+            RemoteAppVersionParameter.minimumSupported.key: "1.1.0",
+            RemoteAppVersionParameter.recommended.key: "1.2.0"
+        ])
+        source.emitUpdate([:])
+        #expect(await waitUntil { gateState.presentation == .required })
+
+        // And the release direction: lowering the floor through the same path clears the lockout
+        // without waiting for a foreground.
+        source.setAppVersionValues([
+            RemoteAppVersionParameter.minimumSupported.key: "0.9.0",
+            RemoteAppVersionParameter.recommended.key: "0.9.0"
+        ])
+        source.emitUpdate([:])
+        #expect(await waitUntil { gateState.presentation == nil })
+    }
+
     /// The listener is a long-lived connection; it must not outlive the service that opened it.
     @Test
     func teardownStopsListening() async {
         let source = FakeRemoteFeatureFlagSource(fetchResult: .success([:]))
-        let service = RemoteFeatureFlagService(source: source, store: RemoteFeatureFlagStore())
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: RemoteFeatureFlagStore(),
+            appVersionGateState: AppVersionGateState()
+        )
 
         service.configure()
         #expect(source.isListening == true)
@@ -267,12 +606,65 @@ struct RemoteFeatureFlagServiceTests {
     @Test
     func configuringTwiceOpensOnlyOneListener() async {
         let source = FakeRemoteFeatureFlagSource(fetchResult: .success([:]))
-        let service = RemoteFeatureFlagService(source: source, store: RemoteFeatureFlagStore())
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: RemoteFeatureFlagStore(),
+            appVersionGateState: AppVersionGateState()
+        )
 
         service.configure()
         service.configure()
 
         #expect(source.startListeningCallCount == 1)
+    }
+}
+
+@MainActor
+struct RemoteFeatureFlagLifecycleIntegrationTests {
+    @Test("Configured service reevaluates only for will-enter-foreground", .bug(id: 319))
+    func configuredServiceReevaluatesOnlyForWillEnterForeground() async {
+        let notificationCenter = NotificationCenter()
+        let source = FakeRemoteFeatureFlagSource(
+            fetchResult: .success([:]),
+            appVersionValues: [
+                RemoteAppVersionParameter.minimumSupported.key: "1.1.0",
+                RemoteAppVersionParameter.recommended.key: "1.2.0"
+            ]
+        )
+        let gateState = AppVersionGateState()
+        let service = RemoteFeatureFlagService(
+            source: source,
+            store: RemoteFeatureFlagStore(),
+            appVersionGateState: gateState,
+            appMarketingVersionProvider: .init { "1.0" },
+            lifecycleCoordinator: .init(notificationCenter: notificationCenter)
+        )
+
+        service.configure()
+        await service.waitForCurrentRefresh()
+        #expect(service.refreshGeneration == 1)
+        #expect(source.fetchCallCount == 1)
+        #expect(gateState.presentation == .required)
+
+        source.setAppVersionValues([
+            RemoteAppVersionParameter.minimumSupported.key: "1.0.0",
+            RemoteAppVersionParameter.recommended.key: "1.2.0"
+        ])
+
+        notificationCenter.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        #expect(service.refreshGeneration == 1)
+        #expect(source.fetchCallCount == 1)
+        #expect(gateState.presentation == .required)
+
+        notificationCenter.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        #expect(service.refreshGeneration == 2)
+        await service.waitForCurrentRefresh()
+        #expect(source.fetchCallCount == 2)
+        #expect(gateState.presentation == .recommended)
+
+        service.teardown()
+        notificationCenter.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        #expect(source.fetchCallCount == 2)
     }
 }
 
@@ -282,16 +674,20 @@ private final class FakeRemoteFeatureFlagSource: RemoteFeatureFlagSource, @unche
     private let lock = NSLock()
     private var storedFetchResult: Result<[String: Bool], any Error>
     private var storedActivatedValues: [String: Bool]
+    private var storedAppVersionValues: [String: String]
     private var onUpdate: (@Sendable ([String: Bool]) -> Void)?
     private var storedStartListeningCallCount = 0
     private var storedFetchCallCount = 0
+    private var storedAppVersionValuesCallCount = 0
 
     init(
         fetchResult: Result<[String: Bool], any Error>,
-        activatedValues: [String: Bool] = [:]
+        activatedValues: [String: Bool] = [:],
+        appVersionValues: [String: String] = [:]
     ) {
         storedFetchResult = fetchResult
         storedActivatedValues = activatedValues
+        storedAppVersionValues = appVersionValues
     }
 
     var fetchCallCount: Int {
@@ -306,8 +702,16 @@ private final class FakeRemoteFeatureFlagSource: RemoteFeatureFlagSource, @unche
         lock.withLock { storedStartListeningCallCount }
     }
 
+    var appVersionValuesCallCount: Int {
+        lock.withLock { storedAppVersionValuesCallCount }
+    }
+
     func setFetchResult(_ result: Result<[String: Bool], any Error>) {
         lock.withLock { storedFetchResult = result }
+    }
+
+    func setAppVersionValues(_ values: [String: String]) {
+        lock.withLock { storedAppVersionValues = values }
     }
 
     func emitUpdate(_ values: [String: Bool]) {
@@ -327,6 +731,13 @@ private final class FakeRemoteFeatureFlagSource: RemoteFeatureFlagSource, @unche
         lock.withLock { storedActivatedValues }
     }
 
+    func appVersionValues() -> [String: String] {
+        lock.withLock {
+            storedAppVersionValuesCallCount += 1
+            return storedAppVersionValues
+        }
+    }
+
     func startListening(onUpdate: @escaping @Sendable ([String: Bool]) -> Void) {
         lock.withLock {
             storedStartListeningCallCount += 1
@@ -337,6 +748,85 @@ private final class FakeRemoteFeatureFlagSource: RemoteFeatureFlagSource, @unche
     func stopListening() {
         lock.withLock { onUpdate = nil }
     }
+}
+
+private final class OutOfOrderRemoteFeatureFlagSource: RemoteFeatureFlagSource, @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuations: [CheckedContinuation<[String: Bool], any Error>] = []
+    private var storedAppVersionValues: [String: String] = [:]
+    private var storedAppVersionValuesCallCount = 0
+    private var fetchCountWaiters: [(
+        expectedCount: Int,
+        continuation: CheckedContinuation<Void, Never>
+    )] = []
+
+    var fetchCallCount: Int {
+        lock.withLock { continuations.count }
+    }
+
+    var appVersionValuesCallCount: Int {
+        lock.withLock { storedAppVersionValuesCallCount }
+    }
+
+    func waitForFetchCount(_ expectedCount: Int) async {
+        if fetchCallCount >= expectedCount { return }
+
+        await withCheckedContinuation { continuation in
+            let shouldResume = lock.withLock {
+                if continuations.count >= expectedCount {
+                    return true
+                }
+                fetchCountWaiters.append((expectedCount, continuation))
+                return false
+            }
+            if shouldResume {
+                continuation.resume()
+            }
+        }
+    }
+
+    func completeFetch(
+        at index: Int,
+        flags: [String: Bool],
+        appVersions: [String: String]
+    ) {
+        let continuation = lock.withLock {
+            storedAppVersionValues = appVersions
+            return continuations[index]
+        }
+        continuation.resume(returning: flags)
+    }
+
+    func fetchAndActivate() async throws -> [String: Bool] {
+        try await withCheckedThrowingContinuation { continuation in
+            let readyWaiters = lock.withLock {
+                continuations.append(continuation)
+                let ready = fetchCountWaiters.filter {
+                    continuations.count >= $0.expectedCount
+                }
+                fetchCountWaiters.removeAll {
+                    continuations.count >= $0.expectedCount
+                }
+                return ready
+            }
+            readyWaiters.forEach { $0.continuation.resume() }
+        }
+    }
+
+    func activatedValues() -> [String: Bool] {
+        [:]
+    }
+
+    func appVersionValues() -> [String: String] {
+        lock.withLock {
+            storedAppVersionValuesCallCount += 1
+            return storedAppVersionValues
+        }
+    }
+
+    func startListening(onUpdate: @escaping @Sendable ([String: Bool]) -> Void) {}
+
+    func stopListening() {}
 }
 
 /// Yields until `condition` holds or the budget runs out, so a test can wait on work that hops to

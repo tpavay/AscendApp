@@ -255,7 +255,8 @@ npx -y firebase-tools@15.22.1 deploy --project production \
 
 Verify the command reports a successful rules release.
 Then use the production-signed smoke account to read and write its allowed private documents and confirm an unauthenticated client cannot read them.
-The smoke account needs a reconciled `users/{uid}/entitlements/app_access` grant for that check: private workouts, routines, and `profile_stats` are paid boundaries, so a signed-in account without a grant is denied by design.
+The smoke account needs a reconciled `users/{uid}/entitlements/app_access` grant for that check: writing private workouts and routines, and reading or writing `profile_stats`, are paid boundaries, so a signed-in account without a grant is denied by design.
+Reading, enumerating, and deleting an owner's own workouts and routines deliberately are not, which is what keeps account deletion working after a lapse; `docs/revenuecat-server-entitlement-enforcement.md` owns the per-operation gate list.
 Also confirm the current `profile_stats` write succeeds before uploading the binary.
 
 Rollback: redeploy only `firestore:rules` from the last known good production SHA.
@@ -270,7 +271,7 @@ npx -y firebase-tools@15.22.1 deploy --project production \
 
 Verify the command reports a successful rules release.
 Using the production-signed smoke account, upload and delete one file beneath that account's `users/{uid}/...` prefix and confirm a second account cannot read or write it.
-Workout media and heart-rate sidecars authorize through a cross-service Firestore read of the same paid grant, so this check fails closed if that IAM role is missing or the smoke account has no grant; owner deletes stay available either way.
+Workout media and heart-rate sidecars authorize their object reads and uploads through a cross-service Firestore read of the same paid grant, so this check fails closed if that IAM role is missing or the smoke account has no grant; listing and deleting an owner's own prefixes stays available either way.
 
 Rollback: redeploy only `storage` from the last known good production SHA.
 
@@ -317,9 +318,14 @@ node scripts/deploy-remote-config.mjs --env prod --confirm-production ascend-pro
 node scripts/deploy-remote-config.mjs --env prod --confirm-production ascend-prod-9c8f2 --apply
 ```
 
-Both read the live template first and refuse to publish while any managed flag is switched off.
+Both read the live template first and refuse to publish over a lever in use: a managed flag switched off, or a setting moved away from its checked-in baseline.
+
+The additive publisher deliberately skips the captain-only version thresholds (`minimum_supported_app_version`, `recommended_app_version`), so the full replace above is what first puts them into a project - here and in dev and staging.
+The production archive still demands them, so a run of the additive publisher alone leaves the release blocked.
+`remote-config-kill-switches.md` owns that split, and owns the App Review rules for arming the minimum.
+
 Production was first published on 2026-08-02 and read back parameter by parameter; `remote-config-kill-switches.md` holds that record and owns the publish contract.
-Re-run this whenever a parameter is added - a kill switch or an operator setting - because the production archive fails while any parameter the build reads is unreachable on the backend.
+Re-run this whenever a parameter is added - a kill switch, an operator setting, or a version threshold - because the production archive fails while any parameter the build reads is unreachable on the backend.
 
 Rollback: there is nothing to roll back - the checked-in template is the healthy state, with every switch on and every setting at its baseline.
 To *use* a switch, flip it to `false` in the Firebase console. See `remote-config-kill-switches.md`.

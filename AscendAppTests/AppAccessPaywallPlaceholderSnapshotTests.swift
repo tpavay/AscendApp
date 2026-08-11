@@ -25,7 +25,8 @@ import UIKit
 ///   failed       -> configuration failure or onError
 /// The first two draw the neutral loading surface with no lock wall, no "Access Required" headline,
 /// and no control at all - so there is nothing visible the user cannot press. The last three draw
-/// the recovery stack, where every control is enabled.
+/// the recovery stack, where every control is enabled - including the quiet deletion link that keeps
+/// an unentitled climber inside Guideline 5.1.1(v).
 @MainActor
 struct AppAccessPaywallPlaceholderSnapshotTests {
     @Test
@@ -149,12 +150,13 @@ private struct AppAccessGateRestoreStatesProof: View {
 
                     AppAccessPaywallPlaceholderView(
                         initialPresentationState: .readyToRetry,
-                        initialRestoreState: scenario.state
+                        initialRestoreState: scenario.state,
+                        onDeleteAccount: {}
                     )
                     .environment(monetizationManager)
                     // Taller than the presentation-state rows: the status line the restore surface
                     // adds must not squeeze the headline into a truncation the real screen never shows.
-                    .frame(width: 340, height: 470)
+                    .frame(width: 340, height: 514)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .padding(16)
@@ -187,10 +189,11 @@ private struct AppAccessGateStatesProof: View {
                         .foregroundStyle(Color.ascendAccent.opacity(0.9))
 
                     AppAccessPaywallPlaceholderView(
-                        initialPresentationState: scenario.state
+                        initialPresentationState: scenario.state,
+                        onDeleteAccount: {}
                     )
                     .environment(monetizationManager)
-                    .frame(width: 340, height: 420)
+                    .frame(width: 340, height: 464)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .padding(16)

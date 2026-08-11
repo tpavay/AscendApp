@@ -25,9 +25,6 @@ final class SettingsManager {
     private let manualBaseLevelOverrideKey = "manualBaseLevelOverride"
     private let hasCompletedBaseLevelOnboardingKey = "hasCompletedBaseLevelOnboarding"
     private let firstLaunchDateKey = "firstLaunchDate"
-    private let appleHealthAutoImportEnabledKey = "appleHealthAutoImportEnabled"
-    private let appleHealthAutoImportActivatedAtKey = "appleHealthAutoImportActivatedAt"
-    private let appleHealthAutoImportPromptDismissedUserIDsKey = "appleHealthAutoImportPromptDismissedUserIDs"
     var measurementSystem: MeasurementSystem {
         didSet {
             guard !isResettingAfterAccountDeletion else { return }
@@ -77,26 +74,6 @@ final class SettingsManager {
         didSet {
             guard !isResettingAfterAccountDeletion else { return }
             saveHasCompletedBaseLevelOnboarding()
-        }
-    }
-
-    var appleHealthAutoImportEnabled: Bool {
-        didSet {
-            guard !isResettingAfterAccountDeletion else { return }
-            if appleHealthAutoImportEnabled && !oldValue {
-                appleHealthAutoImportActivatedAt = Date()
-            } else if !appleHealthAutoImportEnabled {
-                appleHealthAutoImportActivatedAt = nil
-            }
-
-            saveAppleHealthAutoImportEnabled()
-        }
-    }
-
-    var appleHealthAutoImportActivatedAt: Date? {
-        didSet {
-            guard !isResettingAfterAccountDeletion else { return }
-            saveAppleHealthAutoImportActivatedAt()
         }
     }
 
@@ -185,9 +162,6 @@ final class SettingsManager {
             }
         }
 
-        self.appleHealthAutoImportEnabled = userDefaults.bool(forKey: appleHealthAutoImportEnabledKey)
-        self.appleHealthAutoImportActivatedAt = userDefaults.object(forKey: appleHealthAutoImportActivatedAtKey) as? Date
-
     }
     
     private func saveMeasurementSystem() {
@@ -233,16 +207,6 @@ final class SettingsManager {
         userDefaults.synchronize()
     }
 
-    private func saveAppleHealthAutoImportEnabled() {
-        userDefaults.set(appleHealthAutoImportEnabled, forKey: appleHealthAutoImportEnabledKey)
-        userDefaults.synchronize()
-    }
-
-    private func saveAppleHealthAutoImportActivatedAt() {
-        userDefaults.set(appleHealthAutoImportActivatedAt, forKey: appleHealthAutoImportActivatedAtKey)
-        userDefaults.synchronize()
-    }
-
     private func convertStepHeight(from oldSystem: MeasurementSystem, to newSystem: MeasurementSystem) {
         guard oldSystem != newSystem else { return }
         
@@ -265,26 +229,6 @@ final class SettingsManager {
         }
     }
 
-    func setAppleHealthAutoImportEnabled(_ enabled: Bool) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            appleHealthAutoImportEnabled = enabled
-        }
-    }
-
-    func hasDismissedAppleHealthAutoImportPrompt(for userID: String) -> Bool {
-        Set(userDefaults.stringArray(forKey: appleHealthAutoImportPromptDismissedUserIDsKey) ?? [])
-            .contains(userID)
-    }
-
-    func markAppleHealthAutoImportPromptDismissed(for userID: String) {
-        var dismissedUserIDs = Set(userDefaults.stringArray(forKey: appleHealthAutoImportPromptDismissedUserIDsKey) ?? [])
-        let inserted = dismissedUserIDs.insert(userID).inserted
-        guard inserted else { return }
-
-        userDefaults.set(Array(dismissedUserIDs).sorted(), forKey: appleHealthAutoImportPromptDismissedUserIDsKey)
-        userDefaults.synchronize()
-    }
-
     /// Resets the process-wide mirror after account deletion without writing any value back into
     /// the persistent domain that deletion just cleared.
     func resetInMemoryAfterAccountDeletion() {
@@ -298,8 +242,6 @@ final class SettingsManager {
         autoCalculatedBaseLevel = nil
         manualBaseLevelOverride = nil
         hasCompletedBaseLevelOnboarding = false
-        appleHealthAutoImportEnabled = false
-        appleHealthAutoImportActivatedAt = nil
     }
 
     func setStepHeight(_ height: Double) {

@@ -6,6 +6,7 @@ export {PUBLIC_PHOTO_URL_PATTERN};
 export {currentPeriod};
 
 export const PROFILE_SEED_PACK_ID = "v1-profile-test";
+const DEFAULT_JOINED_OFFSET_DAYS = -60;
 export const PROFILE_SEED_SOURCE = "seed-test-users";
 export const PROFILE_SCHEMA_VERSION = 2;
 const PUBLIC_IDENTITY_STATE_PUBLISHED = "published";
@@ -22,13 +23,13 @@ export const PROFILE_SEED_PERSONAS = [
   {id: "profile_veteran_champion", name: "Tyler R.", age: 32, gender: "man", weightLb: 178, country: "US", region: "IL", climbs: 47, firstAscents: 4, top1: 3, top3: 11, top10: 18, top100: 31, streak: 15, weeklySteps: 42000, climbIds: ["empire-state-building", "space-needle", "statue-of-liberty", "burj-khalifa", "eiffel-tower"]},
   {id: "profile_newcomer", name: "Jonas B.", age: 27, gender: "man", weightLb: 165, country: "DE", region: "BE", climbs: 0, firstAscents: 0, top1: 0, top3: 0, top10: 0, top100: 0, streak: 0, joinedOffsetDays: -1, climbIds: []},
   {id: "profile_active_recent", name: "Mara S.", age: 41, gender: "woman", weightLb: 145, country: "AU", region: "NSW", climbs: 6, firstAscents: 0, top1: 0, top3: 0, top10: 0, top100: 0, streak: 3, climbIds: ["sydney-tower", "space-needle", "statue-of-liberty"]},
-  {id: "profile_fa_collector", name: "Ren K.", age: 28, gender: "non_binary", weightLb: 152, country: "JP", region: "13", climbs: 8, firstAscents: 5, top1: 0, top3: 0, top10: 0, top100: 0, streak: 4, climbIds: ["tokyo-tower", "tokyo-skytree", "cairo-tower", "gateway-arch"]},
-  {id: "profile_medal_heavy", name: "Naledi M.", age: 55, gender: "woman", weightLb: 168, country: "ZA", region: "WC", climbs: 22, firstAscents: 0, top1: 1, top3: 6, top10: 14, top100: 22, streak: 8, climbIds: ["table-mountain", "eiffel-tower", "cn-tower", "gateway-arch"]},
+  {id: "profile_fa_collector", name: "Ren K.", age: 28, gender: "non_binary", weightLb: 152, country: "JP", region: "13", climbs: 8, firstAscents: 5, top1: 0, top3: 0, top10: 0, top100: 0, streak: 4, climbIds: ["tokyo-tower", "taipei-101", "canton-tower", "oriental-pearl-tower"]},
+  {id: "profile_medal_heavy", name: "Naledi M.", age: 55, gender: "woman", weightLb: 168, country: "ZA", region: "WC", climbs: 22, firstAscents: 0, top1: 1, top3: 6, top10: 14, top100: 22, streak: 8, climbIds: ["monserrate", "eiffel-tower", "cn-tower", "reunion-tower"]},
   {id: "profile_peer_veteran", name: "Caleb H.", age: 27, gender: "man", weightLb: 175, country: "US", region: "TX", climbs: 5, firstAscents: 0, top1: 0, top3: 1, top10: 2, top100: 5, streak: 2, climbIds: ["empire-state-building", "space-needle", "statue-of-liberty"]},
-  {id: "profile_no_overlap_peer", name: "Dayo A.", age: 27, gender: "man", weightLb: 180, country: "NG", region: "LA", climbs: 4, firstAscents: 0, top1: 0, top3: 0, top10: 1, top100: 4, streak: 1, climbIds: ["cairo-tower", "sagrada-familia", "colosseum", "leaning-tower-of-pisa"]},
-  {id: "profile_tied_gold", name: "Mateo G.", age: 30, gender: "man", weightLb: 170, country: "ES", region: "MD", climbs: 12, firstAscents: 1, top1: 1, top3: 2, top10: 6, top100: 12, streak: 5, weeklySteps: 42000, climbIds: ["sagrada-familia", "gateway-arch", "eiffel-tower"]},
+  {id: "profile_no_overlap_peer", name: "Dayo A.", age: 27, gender: "man", weightLb: 180, country: "NG", region: "LA", climbs: 4, firstAscents: 0, top1: 0, top3: 0, top10: 1, top100: 4, streak: 1, climbIds: ["st-peters-basilica", "sacre-coeur", "berlin-tv-tower", "leaning-tower-of-pisa"]},
+  {id: "profile_tied_gold", name: "Mateo G.", age: 30, gender: "man", weightLb: 170, country: "ES", region: "MD", climbs: 12, firstAscents: 1, top1: 1, top3: 2, top10: 6, top100: 12, streak: 5, weeklySteps: 42000, climbIds: ["elizabeth-tower", "empire-state-building", "eiffel-tower"]},
   {id: "profile_streak_heavy", name: "Hana W.", age: 35, gender: "woman", weightLb: 138, country: "NZ", region: "AUK", climbs: 33, firstAscents: 1, top1: 0, top3: 4, top10: 9, top100: 20, streak: 28, climbIds: ["sky-tower-auckland", "sydney-tower", "space-needle"]},
-  {id: "profile_privacy_edge", name: "Anika P.", age: 19, gender: "woman", weightLb: 110, country: "IN", region: "MH", climbs: 3, firstAscents: 0, top1: 0, top3: 0, top10: 0, top100: 1, streak: 1, climbIds: ["gateway-arch", "statue-of-liberty"]},
+  {id: "profile_privacy_edge", name: "Anika P.", age: 19, gender: "woman", weightLb: 110, country: "IN", region: "MH", climbs: 3, firstAscents: 0, top1: 0, top3: 0, top10: 0, top100: 1, streak: 1, climbIds: ["charminar", "statue-of-liberty"]},
   {id: "profile_older_athlete", name: "Victor P.", age: 68, gender: "man", weightLb: 195, country: "US", region: "AZ", climbs: 18, firstAscents: 1, top1: 0, top3: 2, top10: 8, top100: 18, streak: 9, climbIds: ["willis-tower", "one-world-trade-center", "empire-state-building"]},
   {id: "profile_empty_achievements", name: "Linnea S.", age: 24, gender: "non_binary", weightLb: 160, country: "SE", region: "AB", climbs: 2, firstAscents: 0, top1: 0, top3: 0, top10: 0, top100: 0, streak: 1, climbIds: ["space-needle", "statue-of-liberty"]},
 ];
@@ -133,7 +134,7 @@ export function buildProfileSeedWrites({
   const writes = [];
 
   for (const persona of PROFILE_SEED_PERSONAS) {
-    const joinedAt = daysFromNow(persona.joinedOffsetDays ?? -60, now);
+    const joinedAt = daysFromNow(persona.joinedOffsetDays ?? DEFAULT_JOINED_OFFSET_DAYS, now);
     const userRef = db.collection("users").doc(persona.id);
     const publicRef = userRef.collection("public_profile").doc("current");
     const statsRef = userRef.collection("profile_stats").doc("current");
@@ -281,13 +282,36 @@ export function expectedProfileUserIds() {
   return PROFILE_SEED_PERSONAS.map((persona) => persona.id);
 }
 
-export function expectedLeaderboardDocIds() {
+export function expectedLeaderboardDocIds(now = new Date()) {
   return PROFILE_SEED_PERSONAS.flatMap((persona) =>
     LEADERBOARD_TIME_FRAMES.map((timeFrame) => {
-      const period = currentPeriod(timeFrame);
+      const period = currentPeriod(timeFrame, now);
       return leaderboardDocId(persona.id, timeFrame, period.key);
     })
   );
+}
+
+/**
+ * Recovers the instant a profile pack was seeded from the data it left behind.
+ *
+ * A leaderboard document id embeds the period that was current when the pack was
+ * written, so rebuilding the expected ids from the reader's own clock reports
+ * every daily row as missing whenever a seed and the audit that follows it
+ * straddle UTC midnight. `joined_at` is a fixed per-persona offset from the
+ * seeding instant, so it carries that instant back exactly.
+ *
+ * @param {Map<string, {toDate?: () => Date}|Date>} joinedAtByUserId Published
+ *   `joined_at` values keyed by persona id.
+ * @returns {Date|null} The seeding instant, or null when no persona published one.
+ */
+export function seedAsOfInstant(joinedAtByUserId) {
+  for (const persona of PROFILE_SEED_PERSONAS) {
+    const joinedAt = joinedAtByUserId.get(persona.id);
+    const joinedAtDate = typeof joinedAt?.toDate === "function" ? joinedAt.toDate() : joinedAt;
+    if (!(joinedAtDate instanceof Date) || Number.isNaN(joinedAtDate.getTime())) continue;
+    return daysFromNow(-(persona.joinedOffsetDays ?? DEFAULT_JOINED_OFFSET_DAYS), joinedAtDate);
+  }
+  return null;
 }
 
 export function legacyLeaderboardDocIds() {

@@ -8,8 +8,13 @@ import SwiftUI
 struct AscendWordmark: View {
     /// Font size for the letters S, C, E, N, D.
     var size: CGFloat = 14
-    /// Color applied to the SCEND letters. The angular A retains its own color.
+    /// Color applied to the SCEND letters.
     var letterColor: Color = .white
+    /// Tint applied to the angular A. Nil keeps the mark's own brand color, which is
+    /// what the app chrome uses. A surface that owns the whole lockup's color - a
+    /// share-card template asking for a dimmed or inverted mark - passes one so the
+    /// mark and the letters render as a single tinted unit.
+    var markColor: Color?
     /// Override the default spacing between letters and between the icon and S.
     var letterSpacing: CGFloat? = nil
     /// Override the default icon frame size. Defaults to ~1.6× the font size
@@ -30,9 +35,10 @@ struct AscendWordmark: View {
         HStack(spacing: 0) {
             Image("AppIconInternalAccent")
                 .resizable()
-                .renderingMode(.original)
+                .renderingMode(markColor == nil ? .original : .template)
                 .scaledToFit()
                 .frame(width: resolvedIconSize, height: resolvedIconSize)
+                .foregroundStyle(markColor ?? .accent)
                 .padding(.trailing, resolvedIconTrailingSpacing)
                 .accessibilityHidden(true)
 
@@ -56,6 +62,7 @@ struct AscendWordmark: View {
         AscendWordmark(size: 18)
         AscendWordmark(size: 24)
         AscendWordmark(size: 36)
+        AscendWordmark(size: 18, letterColor: .accent.opacity(0.5), markColor: .accent.opacity(0.5))
     }
     .padding()
     .frame(maxWidth: .infinity, maxHeight: .infinity)

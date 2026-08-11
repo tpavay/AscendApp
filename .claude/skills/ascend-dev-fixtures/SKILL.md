@@ -26,7 +26,10 @@ paths:
 - Use server-side seeding (Admin SDK / Cloud Function / CI job) for deterministic multi-user leaderboard fixtures.
 - For local-only iteration, use the Firestore emulator or seed only the authenticated user.
 - Use `scripts/dev-db.mjs` as the central dev/staging database tool for repeatable fixture workflows. It can seed, clear, or reset `profiles`, `leaderboard`, `live-replay`, or `all`, and it must keep refusing production (`ascend-prod-9c8f2`) and unknown Firebase projects.
-- Dev database cleanup should be target-scoped and metadata-driven. Do not hide an unrestricted project wipe behind a friendly `clear all` command; full destructive wipes need an explicit, separately guarded command and a reviewed collection list.
+- Dev database cleanup should be target-scoped and metadata-driven. Do not hide an unrestricted project wipe behind a friendly `clear all` command.
+  Full dev and staging wipes are separate commands carrying environment-specific confirmations - `npm run db:wipe` passes `--confirm-dev-wipe`, `npm run db:wipe:staging` passes `--confirm-staging-wipe` - and neither confirmation authorizes the other project.
+  `scripts/lib/firestore-wipe-policy.mjs` owns the decision: the deletable set is every direct top-level match in `firestore.rules` plus its short named list of retired collections whose producers are gone, `_migrations` is recognized and preserved so migration audit history and rerun protection survive a reset, and any live collection in neither set fails the wipe closed before anything is deleted.
+  A new top-level collection therefore keeps resets working by being declared in the rules, which is the obligation `ascend-firebase-data` states for rules authors.
 - Profile fixture data must include the full public profile contract: display name, age, gender, `weight_kg`, `location_country`, optional `location_region`, `joined_at`, public profile mirror, profile stats, achievements, and public workout summaries.
   Seeded public profile mirrors and leaderboard rows may retain authored fixture identity when they carry the trusted synthetic marker expected by their schema.
   Real-user fixture projections follow the same validated account identity and shared moderation boundary as production data (see `ascend-profile`).
@@ -81,7 +84,7 @@ paths:
 - Seeded replay summaries must stay on a First Ascent state the app can actually reach: completions imply a holder, and an open slot implies zero completions.
   Seeding completions without `firstAscent*` fields permanently kills the slot, because the server only claims it when there are no completions and no holder.
   `scripts/seed/lib/live-replay-first-ascent.mjs` owns this contract and fails the seed plan when it is violated; keep its field list in sync with `firstAscentWrite` in `functions/src/liveReplayLeaderboard.ts`.
-- Seeded replay curves should be calibrated from historical workout pace distributions when available. Apple Health-derived step counts should be conservatively reduced before shaping synthetic attempts because imported stair-stepper data can overestimate steps.
+- Seeded replay curves should be calibrated from historical workout pace distributions when available.
 
 ## Script Dependency Policy
 - `scripts/` stays on `firebase-admin` 13.x. Do not bump to 14.x - 13.x is what preserves the declared Node 20 support (`engines.node: >=20`).

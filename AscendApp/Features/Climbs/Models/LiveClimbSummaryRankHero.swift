@@ -168,10 +168,12 @@ struct LiveClimbSummaryRankHero: Equatable {
 
     /// Caller-supplied wording for the surfaces that are not a landmark climb.
     ///
-    /// The label is caller-owned. The detail line is not: wherever the hero can
-    /// name the population the rank was measured against, it does. The one
-    /// exception is a `.liveSession` standing, whose race window only the caller
-    /// can describe.
+    /// The label is caller-owned and exists only for a surface that ranks on a
+    /// board of its own - a routine names it, an ordinary leaderboard standing
+    /// has nothing to add over the field line. The detail line is not
+    /// caller-owned: wherever the hero can name the population the rank was
+    /// measured against, it does. The one exception is a `.liveSession`
+    /// standing, whose race window only the caller can describe.
     struct Copy: Equatable {
         let labelOverride: String?
         /// Stands in for the detail line only under a `.liveSession` standing.
@@ -190,7 +192,9 @@ struct LiveClimbSummaryRankHero: Equatable {
     static let freshAtCompletionDetail = "RANK YOU JUST EARNED"
     static let currentDetail = "CURRENT LEADERBOARD RANK"
 
-    let label: String
+    /// Names the board this standing sits on, for the surfaces that rank on one
+    /// of their own. Nil wherever the field line already says everything true.
+    let label: String?
     let value: Value
     let detail: String
     let standing: Standing?
@@ -248,7 +252,7 @@ struct LiveClimbSummaryRankHero: Equatable {
         let standing = standings.compactMap { $0 }.first
 
         return Self(
-            label: label(isClimbContext: isClimbContext, copy: copy),
+            label: copy.labelOverride,
             value: value(standing: standing, sync: sync),
             detail: detail(
                 standing: standing,
@@ -260,10 +264,6 @@ struct LiveClimbSummaryRankHero: Equatable {
             standing: standing,
             showsRetrySync: standing == nil && sync.phase == .syncFailedRetry
         )
-    }
-
-    private static func label(isClimbContext: Bool, copy: Copy) -> String {
-        copy.labelOverride ?? (isClimbContext ? "CLIMB RANK" : "GLOBAL RANK")
     }
 
     private static func value(standing: Standing?, sync: SyncState) -> Value {

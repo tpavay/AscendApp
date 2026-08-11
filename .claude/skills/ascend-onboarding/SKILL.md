@@ -23,7 +23,9 @@ The planned onboarding sequence, in order:
 This sequence will evolve as we learn from SuperWall and RevenueCat funnel analytics. Treat it as the current plan, not a permanent contract.
 
 ## Required profile capture
-- Post-auth onboarding must collect the required profile fields before the user reaches the main app: display name plus declared demographics when that stage is enabled. `ascend-profile` owns the full demographics contract - the stored birthday, the derived age and its bounds, and the gender raw values.
+- Post-auth onboarding must collect separate required first-name and last-name fields before the user reaches the main app, plus declared demographics when that stage is enabled.
+  The public board name is composed from both fields, never split or inferred from a single name input.
+  `ascend-profile` owns the full demographics contract - the stored birthday, the derived age and its bounds, and the gender raw values.
 
 ## Routing & resolver
 - Sign-in is a routing transition, not a sheet dismissal - auth screens should not dismiss themselves after provider sign-in; the auth surface is replaced by the authenticated root.
@@ -56,7 +58,7 @@ This sequence will evolve as we learn from SuperWall and RevenueCat funnel analy
 - Copy and empty-state voice: `ascend-brand-voice` and the `product-design-playbook` skill.
 
 ## Reference
-- `docs/onboarding-design-guide.md` (1270 lines) - the full onboarding design guide. Read it when working on onboarding screens; never inline it.
+- `docs/onboarding-design-guide.md` - the full onboarding design guide, screen by screen. Read it when working on onboarding screens; never inline it.
 - `docs/superwall-paywall-setup.md` - the authoritative launch subscription offer (products, entitlement, offering, paywall plan states), the per-environment RevenueCat/SuperWall split, and the audited Superwall IDs.
   `Staging` and `Release` require an active `app_access` entitlement and audit their environment-specific launch products.
   `Debug` ships unset vendor keys and allows unentitled access for local convenience, with the existing force-paywall control available to exercise the gate.

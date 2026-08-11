@@ -13,6 +13,12 @@ const validAuthorizationStatuses = new Set([
   "unknown",
 ]);
 
+const deliverableAuthorizationStatuses = new Set([
+  "authorized",
+  "provisional",
+  "ephemeral",
+]);
+
 const validPlatforms = new Set(["ios"]);
 const validAudienceTypes = new Set(["all_opted_in", "user"]);
 const fcmInvalidTokenCodes = new Set([
@@ -380,17 +386,56 @@ async function loadClimbDropTokens(audience: string, userId?: string) {
   }
 
   const snapshot = await query.get();
-  const devices: Array<{fcmToken: string; tokenHash: string}> = [];
+  const registrations: Array<{tokenHash: string; data: PlainObject}> = [];
   snapshot.forEach((doc) => {
-    const data = doc.data();
+    registrations.push({data: doc.data() as PlainObject, tokenHash: doc.id});
+  });
+  return selectDeliverableClimbDropDevices(registrations);
+}
+
+/**
+ * Narrows opted-in registrations to the ones iOS will actually deliver to.
+ *
+ * `climbDropPushEnabled` is the climber's standing intent and outlives a
+ * denial, so it cannot double as delivery capability. Each registration
+ * reports the authorization iOS gave it, and a device that loses authorization
+ * re-registers with the refusal - which drops it here and lets it back in on
+ * the registration that follows permission being granted again.
+ * @param {Array<object>} registrations Opted-in device registrations.
+ * @return {Array<object>} Devices that can receive a climb-drop push.
+ */
+function selectDeliverableClimbDropDevices(
+  registrations: Array<{tokenHash: string; data: PlainObject}>
+) {
+  const devices: Array<{fcmToken: string; tokenHash: string}> = [];
+
+  for (const registration of registrations) {
+    const {data} = registration;
+    if (!isDeliverableAuthorizationStatus(data.authorizationStatus)) {
+      continue;
+    }
+
     if (typeof data.fcmToken === "string" && data.fcmToken.length > 0) {
       devices.push({
         fcmToken: data.fcmToken,
-        tokenHash: doc.id,
+        tokenHash: registration.tokenHash,
       });
     }
-  });
+  }
+
   return devices;
+}
+
+/**
+ * Whether iOS will currently show a user-visible push on a device.
+ * @param {unknown} authorizationStatus Stored authorization status.
+ * @return {boolean} True when the system delivers alerts to the device.
+ */
+function isDeliverableAuthorizationStatus(
+  authorizationStatus: unknown
+): boolean {
+  return typeof authorizationStatus === "string" &&
+    deliverableAuthorizationStatuses.has(authorizationStatus);
 }
 
 /**
@@ -747,4 +792,5 @@ export const pushNotificationTestHooks = {
   hashToken,
   normalizeRegisterPushDevicePayload,
   normalizeSendClimbDropPayload,
+  selectDeliverableClimbDropDevices,
 };

@@ -6,6 +6,7 @@
 //
 
 import FirebaseCore
+import StoreKit
 import SwiftUI
 
 struct AccountView: View {
@@ -17,6 +18,7 @@ struct AccountView: View {
     @State private var isShowingPrivacyPolicy = false
     @State private var isShowingSignOutConfirmation = false
     @State private var isShowingDeleteAccountConfirmation = false
+    @State private var isShowingManageSubscriptions = false
     @State private var restorePurchases = RestorePurchasesViewModel()
 
     var body: some View {
@@ -80,6 +82,9 @@ struct AccountView: View {
                     .ignoresSafeArea()
             }
         }
+        // Apple's own sheet, not a hand-rolled apps.apple.com URL: it is the only surface that can
+        // cancel, change, or resubscribe a plan without leaving Ascend.
+        .manageSubscriptionsSheet(isPresented: $isShowingManageSubscriptions)
         .sheet(isPresented: $isShowingDeleteAccountConfirmation) {
             DeleteAccountConfirmationView(
                 onAccountDeleted: {
@@ -197,6 +202,13 @@ struct AccountView: View {
 
     private var subscriptionOptions: [SettingsOption] {
         [
+            SettingsOption(
+                icon: .settingsManageSubscription,
+                title: "Manage Subscription",
+                action: {
+                    isShowingManageSubscriptions = true
+                }
+            ),
             SettingsOption(
                 icon: .settingsRestorePurchases,
                 title: restorePurchases.isRestoring ? "Restoring Purchases…" : "Restore Purchases",

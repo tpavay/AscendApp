@@ -89,8 +89,9 @@ Why it works:
 - Sensitive inputs feel less invasive when the app explains why each one matters.
 
 Ascend translation:
-- Age, gender, weight, and location are public leaderboard context. Say that plainly.
-- Do not bury public-use context in legal copy. Use direct microcopy near the fields.
+- Age, weight, and location are public leaderboard context. Say that plainly.
+- Do not bury public-use context in legal copy. Use direct microcopy near the fields - but only where the claim is true. A field whose public use will not survive an honest one-line description ships without a subtitle rather than with an invented one.
+- Gender is the standing exception and carries no such line. See `21. Required Demographics`.
 
 ### Language Learning
 
@@ -306,7 +307,8 @@ Visual:
 
 Copy:
 - Headline: `Climb Real Landmarks`
-- Subtitle: `Take on the Empire State Building, Eiffel Tower, Everest, and more from your stair stepper.`
+- Subtitle: `Take on the Empire State Building, Eiffel Tower, Burj Khalifa, and more from your stair stepper.`
+  Only name landmarks that are `available` in the catalogue - a named climb the user cannot start is a broken promise on the screen that sells the app.
 - CTA: `Continue`
 
 Visual:
@@ -544,26 +546,32 @@ Visual:
 - Use angular A mark and/or `AscendWordmark`.
 - Keep provider buttons familiar and high contrast.
 
-### 20. Display Name
+### 20. Name
 
 Copy:
 - Eyebrow: `FIRST THINGS FIRST`
-- Headline: `What should we call you?`
-- Placeholder: `Enter your name`
+- Headline: `What's your name?`
+- First field: `First name`
+- Last field: `Last name`
 - Microcopy: `This is the name climbers see on leaderboards.`
 - CTA: `Continue`
+
+Behavior:
+- Both fields are required.
+- Do not split, infer, or backfill either field from a legacy display name.
+- Existing legacy display names remain untouched until the climber supplies both fields in Edit Profile.
 
 ### 21. Required Demographics
 
 Break into low-friction screens unless the combined form remains clean:
 
 Gender:
-- Headline: `Choose your division.`
-- Body: `Gender helps place you in leaderboard context.`
-- Options use `ProfileGender` raw values:
-  - `Woman`
-  - `Man`
-  - `Non-binary`
+- Headline: `What's your gender?`
+- No subtitle. Gender drives no comparison group, filter, or profile field, so there is no honest public-context line to write - see the closing note in this section.
+- Options map to `ProfileGender` cases and are titled:
+  - `Male`
+  - `Female`
+  - `Other`
   - `Prefer not to say`
 
 Birthday:
@@ -582,7 +590,12 @@ Location:
 - Body: `Region gives the field a place.`
 - Input: country/region first, city optional only if product wants it.
 
-Use direct public-context copy. Do not hide that these fields may appear on profiles and leaderboard-adjacent surfaces.
+Use direct public-context copy where it is accurate. Do not hide that a field may appear on profiles and leaderboard-adjacent surfaces, and do not invent a public use a field does not have.
+
+Gender is the deliberate exception, not an oversight to fix.
+It ships with no subtitle because the value drives no comparison group, no filter, and no profile field.
+The only place a climber ever sees it is the `M` / `F` abbreviation in the demographic row of the Live Replay and per-climb completion leaderboards.
+Earlier copy calling it a division or a leaderboard comparison described behavior the app does not have; do not restore it.
 
 ### 22. Value Reveal
 
@@ -728,7 +741,7 @@ App surfaces:
 
 State and data:
 - Live Climb completions require live sensor data from the live attempt flow.
-- Manual entries, imports, and routines cannot complete a Live Climb or enter its leaderboard.
+- Routine completions cannot complete a Live Climb or enter its leaderboard.
 - Step tracking diagnostics should be collectable from this workflow because this is where algorithm quality matters.
 
 Success condition:
@@ -774,7 +787,7 @@ Design principle:
 User goal: see that every stair session counted and improved the record book.
 
 Primary path:
-1. Workout saved or imported
+1. Workout saved by a live session
 2. Workout Detail
 3. Best Efforts recalculated
 4. Progress / trends updated
@@ -824,33 +837,32 @@ Success condition:
 Design principle:
 - Keep the distinction simple: climbs are fixed destinations; routines are guided interval sessions.
 
-### 7. Import And Enrichment
+### 7. Apple Health Enrichment
 
-User goal: bring in stair-stepper work from Apple Health without corrupting Live Climb integrity.
+User goal: see heart rate and calories on a climb they ran in Ascend.
 
 Primary path:
-1. Connect Apple Health
-2. Auto-import starts from activation timestamp
-3. Latest unseen import review
-4. Save or clean up imported workout
-5. Silent enrichment for matching Live Climbs
+1. Connect Apple Health - from Integrations, or from the dismissible offer on a completion summary whose climb has no heart rate
+2. Silent enrichment of climbs Ascend recorded, retried on a bounded persisted schedule until Health writes the samples
+3. Heart rate and calories appear on workout detail
 
 App surfaces:
-- Import flow
-- `WorkoutImportCoordinator`
-- HealthKit integration services
-- Workout review/edit surfaces
+- Integrations - Apple Health card and manage sheet
+- Live Climb completion summary - contextual connect offer, never a gate
+- `AppleHealthEnrichmentService`
+- Workout detail heart-rate states
 
 State and data:
-- External imports are read-only from the source platform.
-- Apple Health workouts that enrich existing Live Climbs do not enter the manual review queue.
-- Imported workouts can contribute to logs and personal records, but not Live Climb leaderboard completions.
+- Apple Health is read-only, and Ascend imports nothing: it reads `heartRate` and `activeEnergyBurned` over a climb's own time window and never touches a foreign `HKWorkout` (#437).
+- Enrichment is silent about its *results*. It never asks the climber to confirm or edit merged data.
+- Every state the climber can be in is named out loud by `AppleHealthEnrichmentService.Phase`; a blank heart-rate slot is the bug (#438). Contract: `ascend-apple-health-enrichment`.
+- A live-captured chest-strap series outranks Health's wrist data; enrichment still fills calories.
 
 Success condition:
-- The user's history becomes more complete without weakening leaderboard trust.
+- A climb shows what it cost the climber without any of Ascend's numbers coming from somewhere it cannot stand behind.
 
 Design principle:
-- Permission requests should be served at the point of value. Ask for Health access when the user is trying to import or enrich workouts, not as generic onboarding setup.
+- Permission requests should be served at the point of value. Ask for Health access when the climber is looking at a climb missing its heart rate, not as generic onboarding setup.
 
 ### 8. Profile, Collection, And Prestige
 
@@ -1150,7 +1162,7 @@ Verify:
 ### Phase 3 — Required Profile And Permission Serve
 
 Ship:
-- Display name.
+- First name and last name.
 - Gender, birthday, weight, and location capture.
 - Value reveal.
 - Notification opt-in framed around First Ascent drops.
@@ -1219,7 +1231,7 @@ Track analytics by workflow so the dashboard can answer where the app is losing 
 - First-climb detail opened.
 
 ### Profile And Permissions
-- Display name completed.
+- First and last name completed.
 - Demographics completed by field, no raw PII in analytics.
 - Notification pre-prompt shown.
 - Native notification prompt accepted or declined.

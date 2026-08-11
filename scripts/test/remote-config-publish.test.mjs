@@ -4,9 +4,12 @@ import {readdirSync, readFileSync} from "node:fs";
 import test from "node:test";
 
 import {
+  CAPTAIN_ONLY_PARAMETERS,
   additiveMerge,
   additiveMergeViolations,
   additivePublishPlan,
+  captainOnlyParameterChanges,
+  isAutomaticallyPublishedParameter,
   killSwitchChanges,
   publishedParameterMismatches,
   templateParameters,
@@ -45,6 +48,7 @@ function liveTemplateWith(values) {
 }
 
 const everyKey = Object.keys(templateParameters(localTemplate));
+const everyAutomaticallyPublishedKey = everyKey.filter(isAutomaticallyPublishedParameter);
 // Each parameter's own checked-in default, not a blanket "true": the template carries settings as
 // well as kill switches, and a setting published as a Boolean would read as drift.
 const allOn = Object.fromEntries(
@@ -207,12 +211,37 @@ test("a managed switch nested in a live parameter group is refused, not guessed 
   assert.equal(plan.mergedTemplate, null);
 });
 
-test("an empty project receives every switch", () => {
+test("an empty project receives every automatically published switch", () => {
   // The #318 shape. Nothing is live, so everything is an addition and nothing is overwritten.
   const plan = additivePublishPlan({}, localTemplate);
 
-  assert.deepEqual(plan.missingKeys, [...everyKey].sort());
+  assert.deepEqual(plan.missingKeys, [...everyAutomaticallyPublishedKey].sort());
   assert.deepEqual(additiveMergeViolations({}, plan.mergedTemplate, plan.missingKeys), []);
+});
+
+test("version policy parameters are captain-only and never enter an additive publish plan", () => {
+  const plan = additivePublishPlan({}, localTemplate);
+
+  for (const key of CAPTAIN_ONLY_PARAMETERS) {
+    assert.equal(plan.missingKeys.includes(key), false);
+    assert.equal(plan.managedKeys.includes(key), false);
+    assert.equal(plan.mergedTemplate.parameters[key], undefined);
+  }
+});
+
+test("version policy drift is not reported by the automatic publication plan", () => {
+  const live = liveTemplateWith(allOn);
+  live.parameters.minimum_supported_app_version.defaultValue.value = "2.0.0";
+  live.parameters.recommended_app_version.description = "Captain-managed recommendation.";
+
+  const plan = additivePublishPlan(live, localTemplate);
+
+  assert.equal(plan.driftReports.some((report) => /supported_app_version/.test(report)), false);
+  assert.equal(plan.driftReports.some((report) => /recommended_app_version/.test(report)), false);
+  assert.equal(
+    plan.mergedTemplate.parameters.minimum_supported_app_version.defaultValue.value,
+    "2.0.0",
+  );
 });
 
 test("a merge that changes an existing switch is caught before it is published", () => {
@@ -317,6 +346,53 @@ test("a change that adds a switch names it, and one that removes a switch names 
 
 test("a change that touches no switch reports nothing to a reviewer", () => {
   assert.deepEqual(killSwitchChanges(localTemplate, localTemplate), {added: [], removed: []});
+});
+
+test("captain-only version parameters are excluded from automatic change reporting", () => {
+  const base = {parameters: {a_flag_enabled: {}}};
+  const current = {
+    parameters: {
+      a_flag_enabled: {},
+      minimum_supported_app_version: {},
+      recommended_app_version: {},
+    },
+  };
+
+  assert.deepEqual(killSwitchChanges(base, current), {added: [], removed: []});
+});
+
+test("a captain-only parameter a change adds is still reported, under its own instruction", () => {
+  // Excluded from automatic publication is not excluded from the reviewer's report: nothing
+  // publishes these, and the next staging archive stops until a captain does it by hand.
+  const base = {parameters: {a_flag_enabled: {}}};
+  const current = {
+    parameters: {
+      a_flag_enabled: {},
+      minimum_supported_app_version: {},
+      recommended_app_version: {},
+    },
+  };
+
+  assert.deepEqual(captainOnlyParameterChanges(base, current), {
+    added: ["minimum_supported_app_version", "recommended_app_version"],
+    removed: [],
+  });
+  assert.deepEqual(captainOnlyParameterChanges(current, base), {
+    added: [],
+    removed: ["minimum_supported_app_version", "recommended_app_version"],
+  });
+  assert.deepEqual(captainOnlyParameterChanges(current, current), {added: [], removed: []});
+});
+
+test("the pull request report names the captain-only parameters even when nothing changed", () => {
+  const report = readFileSync(
+    new URL("../ci/report-kill-switch-changes.mjs", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(report, /captainOnlyParameterChanges/);
+  assert.match(report, /must be published by hand in every project/);
+  assert.match(report, /No automated path publishes these/);
 });
 
 test("the pull request report reads this ref and finds nothing wrong with it", () => {
@@ -530,6 +606,17 @@ test("the archive guard's remediation names the additive publisher before the fu
       `${ARCHIVE_GUARD} must name ${additive} before ${fullReplace}`,
     );
   }
+});
+
+test("the archive guard routes version policy failures to a captain-only full publish", () => {
+  const guard = readFileSync(
+    new URL(`../ci/${ARCHIVE_GUARD}`, import.meta.url),
+    "utf8",
+  );
+
+  assert.match(guard, /CAPTAIN_ONLY_PARAMETERS/);
+  assert.match(guard, /version policy parameters are captain-only/);
+  assert.match(guard, /additive publisher excludes/);
 });
 
 test("the archive preflight cannot run before the publish it depends on", () => {

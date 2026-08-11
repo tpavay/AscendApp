@@ -95,6 +95,7 @@ struct RevenueCatEntitlementServiceTests {
         await identifyTask.value
 
         let route = AppRootRouteResolver.resolve(
+            updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "subscriber",
             postAuthOnboardingPhase: .complete,
@@ -133,6 +134,7 @@ struct RevenueCatEntitlementServiceTests {
         await retryTask.value
 
         let route = AppRootRouteResolver.resolve(
+            updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "subscriber",
             postAuthOnboardingPhase: .complete,
@@ -255,6 +257,7 @@ struct RevenueCatEntitlementServiceTests {
         await refreshTask.value
 
         let route = AppRootRouteResolver.resolve(
+            updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "subscriber",
             postAuthOnboardingPhase: .complete,

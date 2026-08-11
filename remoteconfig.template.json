@@ -1,5 +1,19 @@
 {
   "parameters": {
+    "minimum_supported_app_version": {
+      "defaultValue": {
+        "value": "0.0.0"
+      },
+      "valueType": "STRING",
+      "description": "Lowest supported iOS app version. Versions below this value must update before continuing. Keep at 0.0.0 unless a shipped incident requires a block."
+    },
+    "recommended_app_version": {
+      "defaultValue": {
+        "value": "0.0.0"
+      },
+      "valueType": "STRING",
+      "description": "Recommended iOS app version. Versions below this value are prompted to update but may continue. Keep at 0.0.0 unless an update should be promoted."
+    },
     "workout_cloud_backup_writes_enabled": {
       "defaultValue": {
         "value": "true"
@@ -62,6 +76,13 @@
       },
       "valueType": "BOOLEAN",
       "description": "Kill switch. Off stops decoding routine backups into local storage on sign-in and reinstall."
+    },
+    "apple_health_enrichment_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops the background Apple Health pass that writes heart rate and calories onto recorded climbs; the retry ledger is left untouched, so pending climbs resume when it returns."
     },
     "local_data_migrations_enabled": {
       "defaultValue": {

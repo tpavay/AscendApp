@@ -109,7 +109,7 @@ struct AccountDataOwnershipServiceTests {
         let modelContext = try makeModelContext()
         let defaults = try makeUserDefaults()
         let sessionStore = AccountSessionStore(userDefaults: defaults)
-        let workout = Workout(duration: 1_200, steps: 1_000, floors: 63)
+        let workout = Workout(duration: 1_200, steps: 1_000, floors: 63, source: .headphoneMotion)
         workout.markPendingRemoteUpsert(ownerUserId: "user-a")
         modelContext.insert(workout)
         try modelContext.save()
@@ -135,7 +135,7 @@ struct AccountDataOwnershipServiceTests {
         let defaults = try makeUserDefaults()
         let sessionStore = AccountSessionStore(userDefaults: defaults)
         sessionStore.recordLocalDataOwner(userId: "climber-a")
-        let workout = Workout(duration: 1_200, steps: 1_000, floors: 63)
+        let workout = Workout(duration: 1_200, steps: 1_000, floors: 63, source: .headphoneMotion)
         workout.markPendingRemoteUpsert(ownerUserId: "climber-a")
         modelContext.insert(workout)
         try modelContext.save()
@@ -162,7 +162,7 @@ struct AccountDataOwnershipServiceTests {
         let modelContext = try makeModelContext()
         let defaults = try makeUserDefaults()
         let sessionStore = AccountSessionStore(userDefaults: defaults)
-        modelContext.insert(Workout(duration: 1_200, steps: 1_000, floors: 63))
+        modelContext.insert(Workout(duration: 1_200, steps: 1_000, floors: 63, source: .headphoneMotion))
         try modelContext.save()
 
         let decision = try AccountDataOwnershipService.evaluateAccess(

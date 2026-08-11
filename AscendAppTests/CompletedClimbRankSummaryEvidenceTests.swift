@@ -52,10 +52,10 @@ struct CompletedClimbRankSummaryEvidenceTests {
         realClimbableHeightMeters: nil,
         realClimbableHeightFeet: nil,
         totalSteps: 4_554,
-        realStairCount: nil,
-        calculatedFloors: 163,
+        realStairCount: 2_909,
+        calculatedFloors: 160,
         category: "skyscraper",
-        tier: .gold,
+        tier: .diamond,
         tags: ["tallest building"],
         funFact: "Burj Khalifa has 2,909 stairs from the ground floor to the 160th floor.",
         sourceURL: "https://en.wikipedia.org/wiki/Burj_Khalifa",
@@ -123,11 +123,12 @@ struct CompletedClimbRankSummaryEvidenceTests {
         )
         let text = try await recognizedText(in: image)
 
-        // The permanent standing, position and denominator together.
+        // The permanent standing, position, field size, and ranking basis together.
         #expect(text.contains("21st"))
-        #expect(text.contains("of 64"))
-        #expect(text.contains("climb rank"))
-        #expect(text.contains("rank when you finished"))
+        #expect(text.contains("fastest of 64"))
+        #expect(text.contains("burj khalifa"))
+        #expect(!text.contains("climb rank"))
+        #expect(!text.contains("rank when you finished"))
 
         // A frozen standing never claims to be today's standing...
         #expect(!text.contains("current leaderboard rank"))
@@ -183,9 +184,9 @@ struct CompletedClimbRankSummaryEvidenceTests {
         let text = try await recognizedText(in: image)
 
         #expect(text.contains("21st"))
-        #expect(text.contains("of 64"))
+        #expect(text.contains("fastest of 64"))
         #expect(!text.contains("34th"))
-        #expect(!text.contains("of 91"))
+        #expect(!text.contains("fastest of 91"))
 
         try writeEvidence(image: image, named: "completed-summary-frozen-rank-reopened.png")
     }
@@ -210,9 +211,8 @@ struct CompletedClimbRankSummaryEvidenceTests {
         )
         let text = try await recognizedText(in: image)
 
-        // Label visible, value loading: the detail line reads straight after the label because
-        // nothing but the skeleton occupies the value slot between them.
-        #expect(text.contains("climb rank looking for your rank"))
+        #expect(text.contains("looking for your rank"))
+        #expect(!text.contains("climb rank"))
 
         // No status word standing in for the rank.
         #expect(!text.contains("checking"))
@@ -225,9 +225,9 @@ struct CompletedClimbRankSummaryEvidenceTests {
         try writeEvidence(image: image, named: "completed-summary-rank-loading.png")
     }
 
-    // MARK: - A session that ranks nowhere renders no ranking card at all
+    // MARK: - A session that ranks nowhere renders no rank hero at all
 
-    /// A routine session with no leaderboard behind it. The ranking card is absent entirely rather
+    /// A routine session with no leaderboard behind it. The rank hero is absent entirely rather
     /// than showing "Complete" where a rank goes; the achievement row below still states that the
     /// session finished.
     @Test
@@ -278,12 +278,11 @@ struct CompletedClimbRankSummaryEvidenceTests {
         try writeEvidence(image: image, named: "completed-summary-no-ranking-card.png")
     }
 
-    // MARK: - The one state that is still allowed to say "current"
+    // MARK: - A rank recomputed against the current field
 
-    /// A standing recomputed against today's rows, which is deliberately *not* frozen and says so.
-    /// This is the contrast that makes the label change legible: the same hero, the other wording.
+    /// A standing recomputed against today's rows uses the same concise field-size treatment.
     @Test
-    func aRecomputedStandingKeepsSayingItIsTodaysStanding() async throws {
+    func aRecomputedStandingUsesThePlainLanguageFieldLine() async throws {
         let workout = Workout(
             name: "Open Climb",
             date: Date(timeIntervalSince1970: 1_777_777_000),
@@ -313,9 +312,9 @@ struct CompletedClimbRankSummaryEvidenceTests {
         let text = try await recognizedText(in: image)
 
         #expect(text.contains("12th"))
-        #expect(text.contains("2,460"))
-        #expect(text.contains("global rank"))
-        #expect(text.contains("current leaderboard rank"))
+        #expect(text.contains("fastest of 2,460"))
+        #expect(!text.contains("global rank"))
+        #expect(!text.contains("current leaderboard rank"))
         #expect(!text.contains("rank when you finished"))
 
         try writeEvidence(image: image, named: "open-session-current-rank.png")

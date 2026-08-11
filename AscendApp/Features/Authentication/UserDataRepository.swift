@@ -80,6 +80,23 @@ struct UserDisplayNameData: Sendable {
         }
         return legacyAge
     }
+
+    var resolvedDisplayName: String? {
+        if let firstName,
+           let lastName,
+           let composedName = try? DisplayNamePolicy.composedBoardName(
+               firstName: firstName,
+               lastName: lastName
+           ) {
+            return composedName
+        }
+
+        guard let displayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              displayName.isEmpty == false else {
+            return nil
+        }
+        return displayName
+    }
 }
 
 final class UserDataRepository: Sendable {
@@ -123,7 +140,7 @@ final class UserDataRepository: Sendable {
     func getDisplayName(userId: String) async -> String? {
         do {
             let userData = try await getUserFromFirestore(userId: userId)
-            let displayName = userData.displayName ?? ""
+            let displayName = userData.resolvedDisplayName ?? ""
             if !displayName.isEmpty {
                 cacheDisplayName(displayName)
                 return displayName
@@ -344,18 +361,6 @@ final class UserDataRepository: Sendable {
         return getCachedProfilePictureURL()
     }
     
-    func updateDisplayName(userId: String, email: String? = nil, displayName: String) async throws {
-        let displayName = try DisplayNamePolicy.validated(displayName)
-        try await updateUserAndPublicProfile(
-            userId: userId,
-            email: email,
-            userFields: ["displayName": displayName],
-            alwaysPublish: true
-        )
-
-        cacheDisplayName(displayName)
-    }
-
     func updateProfileName(
         userId: String,
         email: String? = nil,
@@ -583,7 +588,7 @@ final class UserDataRepository: Sendable {
         let storedProfile = UserDisplayNameData(userData)
         let publicIdentity = PublicClimberIdentity.resolve(
             userId: userId,
-            storedDisplayName: storedProfile.displayName,
+            storedDisplayName: storedProfile.resolvedDisplayName,
             storedPhotoURL: storedProfile.profilePictureURL.flatMap(URL.init(string:))
         )
 

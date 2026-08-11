@@ -134,10 +134,6 @@ private extension DebugTelemetryConsoleEntry {
             return "Authentication"
         }
 
-        if rawName.hasPrefix("celebration:") {
-            return "Celebration"
-        }
-
         if rawName.contains("workout") {
             return "Workouts"
         }
@@ -148,7 +144,6 @@ private extension DebugTelemetryConsoleEntry {
     static func humanizedTitle(_ rawName: String) -> String {
         let trimmedName = rawName
             .replacingOccurrences(of: "auth:", with: "")
-            .replacingOccurrences(of: "celebration:", with: "")
             .replacingOccurrences(of: "workout_", with: "workout ")
             .replacingOccurrences(of: "_", with: " ")
             .replacingOccurrences(of: ":", with: " ")
@@ -167,22 +162,7 @@ private extension DebugTelemetryConsoleEntry {
     }
 
     static func humanizedKey(_ rawKey: String) -> String {
-        switch rawKey {
-        case "candidate_count_bucket":
-            return "Workout Count"
-        case "import_mode":
-            return "Import Mode"
-        case "source_mix":
-            return "Source Mix"
-        case "imported_count_bucket":
-            return "Imported"
-        case "updated_count_bucket":
-            return "Updated Existing"
-        case "failed_count_bucket":
-            return "Failed"
-        default:
-            return humanizedTitle(rawKey)
-        }
+        humanizedTitle(rawKey)
     }
 
     static func humanizedValue(for key: String, value: TelemetryValue?) -> String? {
@@ -190,12 +170,6 @@ private extension DebugTelemetryConsoleEntry {
 
         switch (key, value) {
         case ("app_environment", .string(let raw)),
-             ("import_mode", .string(let raw)),
-             ("source_mix", .string(let raw)),
-             ("candidate_count_bucket", .string(let raw)),
-             ("imported_count_bucket", .string(let raw)),
-             ("updated_count_bucket", .string(let raw)),
-             ("failed_count_bucket", .string(let raw)),
              ("outcome", .string(let raw)):
             return humanizedBucketOrEnum(raw)
 
@@ -215,34 +189,8 @@ private extension DebugTelemetryConsoleEntry {
             return "Staging"
         case "production":
             return "Production"
-        case "single":
-            return "Single workout"
-        case "selected":
-            return "Selected workouts"
-        case "all":
-            return "Import all"
-        case "automatic":
-            return "Automatic import"
-        case "apple_health_only":
-            return "Apple Health only"
-        case "mixed":
-            return "Mixed sources"
-        case "updated_existing":
-            return "Updated existing workout"
         case "partial_success":
             return "Partial success"
-        case "mixed_success":
-            return "Imported and updated"
-        case "zero":
-            return "0"
-        case "one":
-            return "1"
-        case "2_5":
-            return "2-5"
-        case "6_10":
-            return "6-10"
-        case "11_plus":
-            return "11+"
         default:
             return raw
                 .replacingOccurrences(of: "_", with: " ")
@@ -283,25 +231,12 @@ private extension DebugTelemetryConsoleEntry {
         }
     }
 
+    /// Per-parameter help text for events that earn it.
+    ///
+    /// Empty since #437 removed the workout-import events that populated it; the console falls
+    /// back to the humanized key. Add a case when a new parameterized event needs explaining.
     static func parameterHelpText(for rawKey: String) -> String? {
-        switch rawKey {
-        case "candidate_count_bucket":
-            return "How many workout candidates were included in this import action."
-        case "import_mode":
-            return "Whether the user imported one workout, a selected set, everything available, or an automatic Apple Health import."
-        case "source_mix":
-            return "Which source combination the imported workouts came from."
-        case "imported_count_bucket":
-            return "How many new workouts were created by this import."
-        case "updated_count_bucket":
-            return "How many existing workouts were matched and updated instead of creating duplicates."
-        case "failed_count_bucket":
-            return "How many candidate workouts failed to import."
-        case "outcome":
-            return "The final result of the import flow."
-        default:
-            return nil
-        }
+        nil
     }
 
     static let knownMetadata: [String: Metadata] = [
@@ -339,55 +274,6 @@ private extension DebugTelemetryConsoleEntry {
             summary: "The current user signed out.",
             whenItFires: "This fires when the current user signs out of Ascend.",
             whyTracked: "It helps distinguish intentional sign-out behavior from session loss or auth bugs."
-        ),
-        "workout_import_started": Metadata(
-            title: "Workout Import Started",
-            feature: "Workouts",
-            summary: "The user started importing one or more workouts.",
-            whenItFires: "This fires the moment the user kicks off a workout import.",
-            whyTracked: "It marks the top of the import funnel and tells us which import modes people actually use."
-        ),
-        "workout_import_finished": Metadata(
-            title: "Workout Import Finished",
-            feature: "Workouts",
-            summary: "The workout import flow finished and reported its final outcome.",
-            whenItFires: "This fires when the import flow ends, whether it created workouts, updated existing ones, partially succeeded, or failed.",
-            whyTracked: "It tells us whether imports are succeeding, where users hit failures, and how much workout data is actually getting into the app."
-        ),
-        "workout_import_sheet": Metadata(
-            title: "Workout Import Sheet",
-            feature: "Workouts",
-            summary: "The workout import sheet appeared on screen.",
-            whenItFires: "This fires when the workout import sheet is opened.",
-            whyTracked: "It shows how often users reach the import surface, even if they do not finish an import."
-        ),
-        "celebration:shown": Metadata(
-            title: "Celebration Shown",
-            feature: "Celebration",
-            summary: "A celebration flow was presented to the user.",
-            whenItFires: "This fires when a celebration experience is shown.",
-            whyTracked: "It helps explain user state and progression around milestone moments."
-        ),
-        "celebration:screen1_completed": Metadata(
-            title: "Celebration Step Completed",
-            feature: "Celebration",
-            summary: "The first celebration step finished.",
-            whenItFires: "This fires when the first step of the celebration flow completes.",
-            whyTracked: "It helps measure whether users are moving through the celebration sequence."
-        ),
-        "celebration:screen2_completed": Metadata(
-            title: "Celebration Final Step Completed",
-            feature: "Celebration",
-            summary: "The final celebration step finished.",
-            whenItFires: "This fires when the final celebration step completes.",
-            whyTracked: "It helps measure whether users finish the celebration flow."
-        ),
-        "celebration:dismissed": Metadata(
-            title: "Celebration Dismissed",
-            feature: "Celebration",
-            summary: "The user dismissed a celebration flow.",
-            whenItFires: "This fires when the user exits the celebration flow.",
-            whyTracked: "It helps show whether users are engaging with or bailing out of celebration moments."
         ),
     ]
 }

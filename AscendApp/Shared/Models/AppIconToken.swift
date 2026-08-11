@@ -22,7 +22,6 @@ enum AppIconToken: Hashable, Sendable {
     case mountains
     case infinity
     case clipboardText
-    case manualWorkout
 
     case settingsEditProfile
     case settingsMeasurementSystem
@@ -35,6 +34,7 @@ enum AppIconToken: Hashable, Sendable {
     case settingsDeleteAccount
     case settingsNotifications
     case settingsRestorePurchases
+    case settingsManageSubscription
     case settingsBlockedClimbers
     case profileBirthday
     case profileGender
@@ -80,9 +80,6 @@ enum AppIconToken: Hashable, Sendable {
             return .asset("ph-infinity")
         case .clipboardText:
             return .asset("ph-clipboard-text")
-        case .manualWorkout:
-            return .systemSymbol("square.and.pencil")
-
         case .settingsEditProfile:
             return .asset("ph-settings-edit-profile")
         case .settingsMeasurementSystem:
@@ -105,6 +102,8 @@ enum AppIconToken: Hashable, Sendable {
             return .asset("ph-settings-notifications")
         case .settingsRestorePurchases:
             return .systemSymbol("arrow.clockwise")
+        case .settingsManageSubscription:
+            return .systemSymbol("creditcard")
         case .settingsBlockedClimbers:
             return .systemSymbol("person.crop.circle.badge.xmark")
         case .profileBirthday:

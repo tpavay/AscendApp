@@ -17,7 +17,9 @@ final class ProfileFirstAscentService: Sendable {
         var held: [ProfileFirstAscentSummary] = []
         var open: [ProfileFirstAscentSummary] = []
 
-        for climb in climbs where climb.isAvailable {
+        // A retired climb still answers who took it first, so held ascents survive
+        // curation. Only a raceable climb can offer an unclaimed slot.
+        for climb in climbs where climb.isAvailable || climb.releaseState == .hidden {
             let context = LiveReplayLeaderboardContext.liveClimb(
                 climbId: climb.id,
                 targetSteps: climb.referenceStepCount
@@ -40,7 +42,7 @@ final class ProfileFirstAscentService: Sendable {
                         )
                     )
                 }
-            } else if isClaimableOpenFirstAscent(summary), open.count < openLimit {
+            } else if climb.isAvailable, isClaimableOpenFirstAscent(summary), open.count < openLimit {
                 open.append(
                     ProfileFirstAscentSummary(
                         climbId: climb.id,

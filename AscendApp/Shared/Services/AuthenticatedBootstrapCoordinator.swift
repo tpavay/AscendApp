@@ -2,9 +2,10 @@ import Foundation
 
 /// Account-scoped local work that runs on its own schedule rather than inside the bootstrap chain.
 ///
-/// A HealthKit observer firing an import pass is the motivating case: nothing about it is reachable
-/// from `AuthenticatedBootstrapCoordinator.schedule`, yet it writes the signed-in account's rows
-/// into the same `ModelContext` that deletion is emptying.
+/// An Apple Health enrichment sweep is the motivating case: it starts on its own schedule - a
+/// foreground, a tab return - so nothing about it is reachable from
+/// `AuthenticatedBootstrapCoordinator.schedule`, yet it writes the signed-in account's rows into
+/// the same `ModelContext` that deletion is emptying.
 @MainActor
 protocol AuthenticatedSessionWorker: AnyObject {
     /// Stops in-flight work. Returns immediately; cancellation is cooperative.
@@ -14,13 +15,30 @@ protocol AuthenticatedSessionWorker: AnyObject {
     func drainInFlightWork() async
 }
 
+/// The autonomous writers of account-scoped state, in one place.
+///
+/// Both ends of a session read this list - account deletion drains it before it empties the store,
+/// and sign-out stops it before the next climber signs in - so a worker added here is covered by
+/// both without a second list to keep in step. Computed rather than stored, because each singleton
+/// resolves this coordinator during its own initialisation.
+@MainActor
+enum AutonomousSessionWorkers {
+    static var all: [any AuthenticatedSessionWorker] {
+        [
+            AppleHealthEnrichmentService.shared,
+            MediaUploadManager.shared
+        ]
+    }
+}
+
 /// Owns the one authenticated bootstrap task allowed to touch account-scoped state, and gates every
 /// other writer of that state while deletion is running.
 ///
 /// Account deletion suspends and drains before its first destructive remote step. That ordering
-/// prevents an already-started hydration, import, or upload from saving the deleted account's data
-/// after the local store has been emptied. `isSuspended` is the second half of the guarantee:
-/// draining only stops what has already started, so autonomous writers ask this before starting more.
+/// prevents an already-started hydration, enrichment pass, or upload from saving the deleted
+/// account's data after the local store has been emptied. `isSuspended` is the second half of the
+/// guarantee: draining only stops what has already started, so autonomous writers ask this before
+/// starting more.
 @MainActor
 final class AuthenticatedBootstrapCoordinator {
     static let shared = AuthenticatedBootstrapCoordinator()
@@ -140,6 +158,28 @@ final class AuthenticatedBootstrapCoordinator {
 
         guard let latestOperation else { return }
         schedule(latestOperation)
+    }
+
+    /// Ends the session the signed-out account owned.
+    ///
+    /// Draining the bootstrap chain is not enough on its own, and neither is a wipe of the local
+    /// store: an autonomous worker schedules its own next wake-up, so one armed under the previous
+    /// climber keeps its captured store and its work list and fires after the account has changed.
+    /// Enrichment's timer sleeps for hours between passes, and the write it wakes up to make is
+    /// attributed to whoever is signed in when it lands.
+    ///
+    /// Deliberately does not touch `isSuspended`: deletion owns that flag, and deleting the auth
+    /// account routes through here partway through deletion's own sweep.
+    func endAuthenticatedSession(
+        autonomousWorkers: [any AuthenticatedSessionWorker] = AutonomousSessionWorkers.all
+    ) {
+        activeTask?.cancel()
+        activeTask = nil
+        latestOperation = nil
+
+        for worker in autonomousWorkers {
+            worker.cancelInFlightWork()
+        }
     }
 
     /// Drops all work belonging to an auth account that no longer exists.

@@ -28,6 +28,23 @@ struct LiveClimbCompletionSummaryView: View {
     @State private var computedCompletionRank: LiveReplayCompletionRank?
     @State private var rankResolution: LiveClimbSummaryRankHero.RankResolution = .notStarted
     @State private var didTrackSummaryViewed = false
+    @State private var enrichmentService = AppleHealthEnrichmentService.shared
+    @State private var isConnectingAppleHealth = false
+    @State private var didDismissHeartRateConnect = false
+    /// Replaces the connect card once the climber has connected but the samples have not landed
+    /// yet, so the normal outcome is stated instead of the card silently disappearing.
+    @State private var heartRateConnectConfirmation: String?
+    @State private var appleHealthConnectTask: Task<Void, Never>?
+
+    /// Bumped whenever Remote Config resolves or changes, so the connect offer re-resolves.
+    ///
+    /// `offersConnectionPrompt` reads the enrichment kill switch, and `RemoteFeatureFlagStore` is
+    /// a lock-guarded class rather than `@Observable`, so a flag change invalidates nothing on
+    /// its own. This summary is reachable straight from a cold launch through Workout Detail's
+    /// summary preview, which is the same window where the app is still on shipped defaults -
+    /// and a stale offer here costs more than a stale card, because accepting it spends a real
+    /// iOS permission prompt on a connection that cannot be used yet.
+    @State private var remoteFeatureFlagRevision = 0
 
     init(
         climb: Climb?,
@@ -89,6 +106,7 @@ struct LiveClimbCompletionSummaryView: View {
                 VStack(spacing: 18) {
                     rankingSection(hero: hero)
                     primaryStatsGrid
+                    heartRateConnectCard
                     achievementCard
                     paceSplitsCard
                     paceTrendCard
@@ -134,6 +152,15 @@ struct LiveClimbCompletionSummaryView: View {
             await resolveCompletionRank()
             trackSummaryViewedIfNeeded()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .remoteFeatureFlagsDidChange)) { _ in
+            remoteFeatureFlagRevision &+= 1
+        }
+        .onDisappear {
+            // Unstructured, so it would otherwise outlive the summary still holding the
+            // workout and still writing to state nobody reads.
+            appleHealthConnectTask?.cancel()
+            appleHealthConnectTask = nil
+        }
     }
 
     private var header: some View {
@@ -145,9 +172,12 @@ struct LiveClimbCompletionSummaryView: View {
 
             Spacer()
 
-            Text("SUMMARY")
+            Text(navigationTitle)
                 .font(.montserratBold(size: 12))
                 .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .accessibilityAddTraits(.isHeader)
 
             Spacer()
 
@@ -161,97 +191,11 @@ struct LiveClimbCompletionSummaryView: View {
     @ViewBuilder
     private func rankingSection(hero: LiveClimbSummaryRankHero?) -> some View {
         if let hero {
-            HStack(alignment: .center, spacing: 14) {
-                VStack(alignment: .leading, spacing: 7) {
-                    // The retry button stays outside the combined element: merging it in would
-                    // replace its label with the standing and hide the action from VoiceOver.
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(hero.label)
-                            .font(.montserratBold(size: 10))
-                            .foregroundStyle(.accent)
-
-                        rankingValue(for: hero)
-
-                        Text(hero.detail)
-                            .font(.montserratBold(size: 10))
-                            .foregroundStyle(.white.opacity(0.46))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.74)
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel(rankingAccessibilityLabel(for: hero))
-
-                    if hero.showsRetrySync {
-                        Button {
-                            retryRankSync()
-                        } label: {
-                            Text("Retry sync")
-                                .font(.montserratBold(size: 10))
-                                .foregroundStyle(.accent)
-                                .underline()
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.top, 1)
-                    }
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(rankingSectionBackground)
-        }
-    }
-
-    /// The value slot only ever holds a rank or the shared loading treatment - a status word here
-    /// reads as a load that never finished, which is the defect this replaced.
-    @ViewBuilder
-    private func rankingValue(for hero: LiveClimbSummaryRankHero) -> some View {
-        switch hero.value {
-        case .rank(let rank):
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                Text(rank.rankOrdinalText)
-                    .font(.montserratBold(size: 44))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.white, .accent.opacity(0.72)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-
-                if let total = hero.total {
-                    Text("of \(total.formatted())")
-                        .font(.montserratBold(size: 13))
-                        .foregroundStyle(.white.opacity(0.5))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
-                }
-            }
-
-        case .loading:
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                AscendSkeletonText(width: 96, height: 40)
-                AscendSkeletonText(width: 46, height: 13)
-            }
-
-        case .unranked:
-            EmptyView()
-        }
-    }
-
-    private func rankingAccessibilityLabel(for hero: LiveClimbSummaryRankHero) -> String {
-        switch hero.value {
-        case .rank(let rank):
-            let position = hero.total.map { "\(rank.rankOrdinalText) of \($0.formatted())" }
-                ?? rank.rankOrdinalText
-            return "\(hero.label), \(position), \(hero.detail)"
-        case .loading:
-            return "\(hero.label), loading"
-        case .unranked:
-            return "\(hero.label), \(hero.detail)"
+            LiveClimbSummaryRankHeroView(
+                hero: hero,
+                rankingMetric: effectiveLeaderboardContext?.type.rankingMetric ?? .fastestCompletion,
+                onRetrySync: retryRankSync
+            )
         }
     }
 
@@ -259,7 +203,88 @@ struct LiveClimbCompletionSummaryView: View {
         HStack(spacing: 10) {
             summaryStatCard(title: "TOTAL STEPS", value: workout.steps.formatted())
             summaryStatCard(title: "DURATION", value: workout.durationFormatted)
-            summaryStatCard(title: "AVG SPM", value: averageSPMText)
+        }
+    }
+
+    /// Offered only to a climber who could actually act on it: this climb has no heart rate
+    /// and Apple Health has never been connected. A climber who already connected sees
+    /// nothing here - their climb is already in the retry series, and the workout detail is
+    /// where its progress is reported.
+    @ViewBuilder
+    private var heartRateConnectCard: some View {
+        // Touching the revision ties this offer to the kill switch, which is not `@Observable`
+        // and so publishes nothing SwiftUI can see. See `remoteFeatureFlagRevision`.
+        let _ = remoteFeatureFlagRevision
+
+        if let heartRateConnectConfirmation {
+            HStack(spacing: 14) {
+                Image(systemName: "heart")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.red)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(.red.opacity(0.16)))
+
+                Text(heartRateConnectConfirmation)
+                    .font(.montserratMedium(size: 12))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity)
+            .background(summaryCardBackground)
+        } else if !didDismissHeartRateConnect, enrichmentService.offersConnectionPrompt(for: workout) {
+            LiveClimbHeartRateConnectCard(
+                isConnecting: isConnectingAppleHealth,
+                onConnect: connectAppleHealthForHeartRate,
+                onDismiss: { didDismissHeartRateConnect = true }
+            )
+            .background(summaryCardBackground)
+        }
+    }
+
+    private func connectAppleHealthForHeartRate() {
+        // Guards on the task, not on the in-flight flag. That flag is only set inside the task
+        // body, which does not run until the next main-actor hop, so two taps in one runloop turn
+        // both got past it - and the second assignment orphaned the first handle, leaving it
+        // beyond the reach of `onDisappear`.
+        guard appleHealthConnectTask == nil else { return }
+
+        appleHealthConnectTask = Task { @MainActor in
+            isConnectingAppleHealth = true
+            defer {
+                isConnectingAppleHealth = false
+                appleHealthConnectTask = nil
+            }
+
+            let result = await enrichmentService.connectAndFetch(
+                workout,
+                modelContext: modelContext
+            )
+
+            // The haptic reports whether the climber's action succeeded, not whether their
+            // wearable had already synced. Connecting is the whole ask; buzzing the failure
+            // pattern at someone who granted access and simply owns a device that publishes on
+            // its own schedule tells them they got something wrong when they did not.
+            let didConnect = enrichmentService.connectionState == .connected
+            HapticsManager.shared.trigger(didConnect ? .success : .warning)
+
+            guard didConnect else { return }
+
+            // Say what happens next rather than letting the card vanish. Heart rate arriving
+            // later is the normal outcome here, and a card that simply disappears reads as the
+            // request having been dropped.
+            switch result {
+            case .added:
+                break
+            case .checkFailed:
+                heartRateConnectConfirmation = "Connected. That first check didn't finish - Ascend keeps trying."
+            case .foundNothing, .couldNotLook:
+                heartRateConnectConfirmation = "Connected. Ascend adds your heart rate as soon as it lands."
+            }
+
+            didDismissHeartRateConnect = true
         }
     }
 
@@ -288,24 +313,29 @@ struct LiveClimbCompletionSummaryView: View {
 
     private var paceSplitsCard: some View {
         VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("SPLITS")
-                    .font(.montserratBold(size: 19))
-                    .foregroundStyle(.white)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("SPLITS")
+                        .font(.montserratBold(size: 19))
+                        .foregroundStyle(.white)
 
-                HStack(spacing: 5) {
                     Text("\(paceSplits.count.formatted()) \(paceSplits.count == 1 ? "segment" : "segments")")
-                        .foregroundStyle(.white.opacity(0.54))
-
-                    Text("·")
-                        .foregroundStyle(.accent)
-
-                    Text("Avg \(averageSPMText) SPM")
+                        .font(.montserratMedium(size: 12))
                         .foregroundStyle(.white.opacity(0.54))
                 }
-                .font(.montserratMedium(size: 12))
-                .lineLimit(1)
-                .minimumScaleFactor(0.74)
+
+                Spacer(minLength: 12)
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(averageSPMText)
+                        .font(.montserratBold(size: 32))
+                        .foregroundStyle(.accent)
+                        .monospacedDigit()
+
+                    Text("AVG SPM")
+                        .font(.montserratBold(size: 9))
+                        .foregroundStyle(.white.opacity(0.54))
+                }
             }
 
             VStack(spacing: 8) {
@@ -390,7 +420,7 @@ struct LiveClimbCompletionSummaryView: View {
         } label: {
             Text("DONE")
                 .font(.montserratBold(size: 12))
-                .foregroundStyle(.white)
+                .foregroundStyle(.white.opacity(0.62))
                 .frame(maxWidth: .infinity)
                 .frame(height: 36)
         }
@@ -426,37 +456,6 @@ struct LiveClimbCompletionSummaryView: View {
             )
     }
 
-    private var rankingSectionBackground: some View {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(
-                LinearGradient(
-                    colors: [
-                        Color(hex: "17191B"),
-                        Color(hex: "0D0F10")
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                .accent.opacity(0.16),
-                                .clear
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(.white.opacity(0.07), lineWidth: 1)
-            )
-    }
-
     private var averageSPMText: String {
         guard averageSPMValue > 0 else { return "0" }
         return Int(averageSPMValue.rounded()).formatted()
@@ -483,6 +482,10 @@ struct LiveClimbCompletionSummaryView: View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(.white.opacity(0.06))
         )
+    }
+
+    private var navigationTitle: String {
+        climb?.name ?? workout.name
     }
 
     private var achievementIconName: String {

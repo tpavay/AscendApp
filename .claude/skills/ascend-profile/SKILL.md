@@ -6,7 +6,10 @@ description: Use when working on Ascend profiles - own vs other-user profile sur
 # Profile
 
 ## Profile Demographics
-- Post-auth onboarding captures display name and declared demographics on `users/{uid}`. Gender must use the `ProfileGender` raw values: `woman`, `man`, `non_binary`, or `prefer_not_to_say`.
+- Post-auth onboarding captures separate required `firstName` and `lastName` fields plus declared demographics on `users/{uid}`.
+  Public identity composes both fields into `displayName` at the validated publication boundary.
+  A legacy record with only `displayName` remains untouched until the climber supplies both parts in Edit Profile - never split, infer, or backfill it.
+  Gender must use the `ProfileGender` raw values: `woman`, `man`, `non_binary`, or `prefer_not_to_say`.
 - **Age is derived, never stored fresh.**
   The stored field is `birth_date`, a private `YYYY-MM-DD` calendar string on `users/{uid}`, bounded so the derived age lands between 13 and 120.
   `ProfileBirthday` (`AscendApp/Shared/Models/`) parses it and computes age on device, and `functions/src/leaderboardStats.ts` derives the same number server-side for board demographics.
@@ -19,6 +22,8 @@ description: Use when working on Ascend profiles - own vs other-user profile sur
 - Custom display names and profile photos are public account identity only while App Review Guideline 1.2 moderation remains enforced.
   `PublicClimberIdentity` (`AscendApp/Shared/Models/`) resolves account-authored identity, a stable UID-derived fallback, synthetic fixture identity, and the deleted-account `Anonymous Climber` sentinel.
   Every cross-user view must pass that presentation through `ResolvedUserIdentity.Resolver`, which replaces only a blocked climber's name and photo while preserving rank, metrics, and demographics.
+  The signed-in climber is not an exception: their own row renders the same resolved name and derived initials as every other climber's, falling back to the same stable placeholder identity when the account has no name yet, and a `YOU` chip beside the name is the only marker of whose row it is.
+  Never substitute the literal string `You` for a name or `YOU` for an avatar token.
   Public profile, leaderboard, Live Replay, finisher, and First Ascent mirrors store validated identity, and the server propagation trigger keeps existing projections current.
   Production has no identity backfill to run: the propagation trigger and its indexes must be deployed before the binary that publishes identity. Rollout order: `docs/production-backend-rollout-runbook.md`.
   Dev and staging do hold pre-policy rows, and the only sanctioned repair writes the public profile mirror and lets that same trigger fan it out - never `leaderboard_stats` directly, which rules make server-owned outright. See `ascend-dev-fixtures`.
@@ -44,9 +49,13 @@ description: Use when working on Ascend profiles - own vs other-user profile sur
 - The profile tab entry point remains `ProfileView`, but it should delegate to the own-profile surface rather than owning all profile layout and business logic directly.
 - Profile sections render in this order: identity hero, other-user comparison, Active Standings, Activity + Streak, Collection, Achievements, First Ascents, Records, Trends, Recent Workouts.
 - Active Standings stays above Activity because active competition is more urgent than long-arc history. First Ascents stay above Records because permanent competitive prestige is more aspirational than personal records. Trends sit between Records and Recent Workouts.
+- Both modes render leaderboard achievement bands through the same shelf, `ProfilePrestigeBadgeShelf`, which takes the achievement records as an optional: a record set - even an empty one - makes each band open its history sheet, and `nil` renders plain art.
+  The other-user profile passes `nil` because its public snapshot carries counts without records, so a public badge is deliberately not tappable.
+  That section also stays absent while the other climber's snapshot loads, rather than showing a count nobody has confirmed yet.
 - Collection on Profile is a 3-card preview, never the full Pokedex. Card composition adapts to claimed climbs: 0 claimed shows 3 recommended unclaimed; 1 claimed shows 1 claimed + 2 recommended unclaimed; 2 claimed shows 2 claimed + 1 recommended unclaimed; 3+ claimed shows the 3 most recent claimed.
 - Claimed climbs retain the Climb action. A small checkmark badge overlay on the thumbnail signals claimed state; the action button is never replaced or hidden by completion.
 - Recommended unclaimed Collection cards sort by tier ascending, then step count ascending, and exclude climbs the user has already claimed. The full collection grid lives behind the `View all` link as a separate page.
+- The collection fraction has one definition, `ClimbCollectionUniverse`: every climb raceable today, plus the retired climbs this climber already claimed. Home and Profile both read it, so the same climber can never see two fractions and the numerator can never outgrow its denominator. A curated-out climb loses its race, never the record of having climbed it - never filter a claim down to the available set.
 - Public profile reads must use public-safe documents/subcollections such as public profile, cached profile stats, achievements, and public workout summaries. Never read private workout backups to render another user's profile.
 - Business logic for profile section visibility, achievement counting, ranking subtitles, comparison state, and stat derivation belongs in models/services that can be unit tested without a SwiftUI view tree.
 

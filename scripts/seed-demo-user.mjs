@@ -33,6 +33,7 @@ import {
   PUBLIC_IDENTITY_STATE_PUBLISHED,
   firstAscentSeedFields,
 } from "./seed/lib/live-replay-first-ascent.mjs";
+import {buildDemoReplayEntry} from "./seed/lib/demo-replay-entry.mjs";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
@@ -808,24 +809,15 @@ async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
       }
       writes.push([
         entriesRef.doc(context.workoutId),
-        {
-          avatarToken: user.avatarToken,
-          completionDurationSeconds: context.durationSeconds,
-          displayName: user.displayName,
-          finalSteps: context.finalSteps,
-          ...bestForUserField(context),
+        buildDemoReplayEntry({
+          context,
           identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
-          isPersonalBest: true,
-          isSynthetic: false,
-          photoURL: user.photoURL,
           schemaVersion: REPLAY_SCHEMA_VERSION,
-          splitBucketCount: context.splitSteps.length,
+          splitIndex: index,
           splitIntervalSeconds: SPLIT_INTERVAL_SECONDS,
-          stepsAtBucket: context.splitSteps[index],
           updatedAt: FieldValue.serverTimestamp(),
-          userId: user.uid,
-          workoutId: context.workoutId,
-        },
+          user,
+        }),
       ]);
     }
   }
@@ -857,19 +849,6 @@ async function addCommunityStatsWrites(db, writes, user, liveContexts) {
     statsData.uniqueCompletedUserCount = FieldValue.increment(1);
   }
   writes.push([statsRef, statsData]);
-}
-
-/**
- * Best-per-user flag for a seeded entry, or nothing when the context has none.
- *
- * Only per-climb contexts collapse a climber's repeat completions into one live
- * race row, so only they carry the flag. There is one seeded completion per
- * context, so that completion is the user's best.
- * @param {object} context Seeded replay context.
- * @return {object} Flag field, or an empty object.
- */
-function bestForUserField(context) {
-  return context.contextType === "live_climb" ? {isBestForUser: true} : {};
 }
 
 function liveContextForWorkout(workout) {

@@ -16,6 +16,10 @@ final class ActiveRoutineViewModel {
     private let backgroundSessionService: LiveClimbBackgroundSessionService
     private let draftStore: ActiveHeadphoneWorkoutDraftStore
     private let heartRateRecorder: LiveHeartRateRecorder
+    /// Read once per session. `leaderboardRows` is rebuilt on every step and
+    /// elapsed tick, so the climber's name cannot be resolved from the cache
+    /// inside it.
+    private let currentUserDisplayName = UserDataRepository.shared.getCachedDisplayName()
 
     var phase: ActiveRoutinePhase = .countdown
     var countdownValue = 3
@@ -136,14 +140,16 @@ final class ActiveRoutineViewModel {
             return [
                 LiveReplayLeaderboardRow.currentUser(
                     rank: nil,
-                    steps: currentSteps
+                    steps: currentSteps,
+                    displayName: currentUserDisplayName
                 )
             ]
         }
 
         return leaderboardWindow.locallyRankedRows(
             currentSteps: currentSteps,
-            currentElapsedSeconds: Int(timelineElapsed.rounded(.down))
+            currentElapsedSeconds: Int(timelineElapsed.rounded(.down)),
+            displayName: currentUserDisplayName
         )
     }
 
@@ -525,12 +531,10 @@ final class ActiveRoutineViewModel {
             changedWorkouts: [workout]
         )
 
-        Task { @MainActor in
-            await WorkoutImportCoordinator.shared.enrichInAppWorkoutWithAppleHealthIfPossible(
-                workout,
-                modelContext: modelContext
-            )
-        }
+        AppleHealthEnrichmentService.shared.trackNewlyRecordedWorkout(
+            workout,
+            modelContext: modelContext
+        )
 
         savedWorkout = workout
         phase = .complete

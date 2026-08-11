@@ -293,16 +293,19 @@ function statePatchForEvent(
       },
     };
 
-  case "apple_health_integration_changed":
-    return {
-      integrations: {
-        appleHealth: {
-          autoImportEnabled: event.payload.autoImportEnabled,
-          lastCheckedAt: now,
-          status: event.payload.status,
-        },
-      },
+  case "apple_health_integration_changed": {
+    const appleHealth: PlainObject = {
+      lastCheckedAt: now,
+      status: event.payload.status,
     };
+    // Omitted, never written as undefined (Firestore rejects that) and never
+    // nulled: a value an older binary already mirrored stays untouched, so a
+    // client that no longer knows about auto-import cannot erase it.
+    if (event.payload.autoImportEnabled !== undefined) {
+      appleHealth.autoImportEnabled = event.payload.autoImportEnabled;
+    }
+    return {integrations: {appleHealth}};
+  }
 
   case "communication_preferences_updated":
     // No mirror here: communication_preferences/current is the only source of
@@ -477,13 +480,23 @@ function normalizeAppleHealthIntegrationChanged(
   ) {
     throw invalidArgument("Unsupported Apple Health integration status.");
   }
-  if (typeof autoImportEnabled !== "boolean") {
+  // Optional, not defaulted: Apple Health auto-import was removed from the app
+  // on 2026-08-08, so current builds omit this field while released binaries
+  // still send it, and the backend has to satisfy both contracts at once
+  // (docs/backend-contract-compatibility.md). Absent means "this client has no
+  // such concept", which is not the same claim as auto-import being off.
+  if (
+    autoImportEnabled !== undefined &&
+    typeof autoImportEnabled !== "boolean"
+  ) {
     throw invalidArgument("Apple Health auto import state must be boolean.");
   }
 
   return {
     eventDocId: "apple_health_integration_changed_v1",
-    payload: {autoImportEnabled, status},
+    payload: autoImportEnabled === undefined ?
+      {status} :
+      {autoImportEnabled, status},
     type: "apple_health_integration_changed",
   };
 }
@@ -638,3 +651,8 @@ function isPlainObject(value: unknown): value is PlainObject {
 function invalidArgument(message: string): HttpsError {
   return new HttpsError("invalid-argument", message);
 }
+
+export const lifecycleTestHooks = {
+  normalizeRequestData,
+  statePatchForEvent,
+};

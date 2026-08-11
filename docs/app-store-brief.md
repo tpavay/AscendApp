@@ -1,6 +1,6 @@
 # Ascend — App Brief (handoff-ready)
 
-Last updated: June 10, 2026
+Last updated: August 8, 2026
 
 A self-contained description of Ascend so a teammate or AI agent can read it cold —
 for App Store listing work and for evaluating onboarding screen templates.
@@ -9,18 +9,24 @@ for App Store listing work and for evaluating onboarding screen templates.
 - [`docs/onboarding-design-guide.md`](onboarding-design-guide.md) — existing template
   analysis (Puff Count chosen as the structural reference) and the onboarding North Star.
   Read this alongside the brief when picking a template.
+- [`docs/app-store-racing-repositioning-proposal.md`](app-store-racing-repositioning-proposal.md)
+  owns the proposed racing name, subtitle, keywords, and description. This brief describes
+  the product; that file is the listing copy itself.
 
 ---
 
 ## What it is
 
-Ascend is a **competitive stair-stepper companion for iOS**. It turns every stepping
-session into a race up real-world landmarks. Users pick a landmark (Mt. Everest, Empire
-State Building, Burj Khalifa), race in real time against other people's past attempts via
-headphone-motion step tracking, and either reach the target step count (completion) or
-don't (failed attempt). The leaderboard is the conversation.
+Ascend is a **stair stepper racing app for iOS**. Racing is the product; measuring the
+session is a byproduct. Users pick a real tower, race its actual step count in real time
+against every attempt already posted on it via headphone-motion step counting, and either
+reach the target (completion) or don't (failed attempt). The leaderboard is the
+conversation.
 
-**The core promise:** Race the world up real landmarks. From your stair stepper.
+`CLAUDE.md` ("What Is Ascend") owns the positioning statement and the tower-running market
+framing behind it. Read it there rather than from a second copy.
+
+**The core promise:** Race real towers. From any gym.
 
 ## Who it's for
 
@@ -30,11 +36,10 @@ over time. The copy assumes the user is serious and already chose to be here.
 
 ## Who it's NOT for (the niche, defined by exclusion)
 
-- Not for general fitness users who don't care about the stair stepper.
-- Not a social network — no feed, no followers, no kudos. Interaction happens *on the
-  climb* (leaderboards, racing past attempts), not on a timeline.
-- Not a generic "any workout" tracker.
-- Not a passive tracker — every session is competitive context.
+`CLAUDE.md` ("What Ascend Is NOT") owns this list and `ascend-brand-voice` owns the full
+rationale. The one that most often trips listing copy: Ascend is **not a logger or an
+importer**, so nothing on the listing may promise manual entry, Apple Health workout
+import, or generic workout tracking.
 
 ## Hero experience — Live Climbs
 
@@ -50,7 +55,10 @@ First Ascent slot. This is the core retention loop.
 - **First Ascents** — permanent "world first" prestige per climb
 - **Best Efforts** — a personal record book (most steps, longest climb, highest avg SPM…)
 - **Routines** — open-ended guided interval sessions (a peer feature to climbs)
-- **Workout logging** + Apple Health import (the app also serves as a logger)
+- **Apple Health (optional)** - enriches a climb performed in Ascend. The exact read set lives
+  in `CLAUDE.md` under "What Ascend Is NOT"; take it from there for any listing or disclosure
+  copy. Manual workout logging and Apple Health workout import were removed on 2026-08-08
+  (#437), so neither is a feature to sell.
 - **Share composer** — Instagram-Story-style canvas: pick a background, drag stat
   "stickers" onto it
 
@@ -63,10 +71,8 @@ Onboarding is a **conversion funnel that ends at a hard paywall**, not a tutoria
 
 ## Brand voice
 
-Niche-aggressive, declarative, confident — willing to lose readers who aren't the target.
-Active verbs at the front: **Climb. Race. Rank. Push. Track.** Imperative over invitational
-("Be the first" > "You could be the first"). No hedging. The dare beats the invite. Don't
-explain stair stepping; don't soften "race."
+Owned by `ascend-brand-voice`. Read it before writing listing or onboarding copy; the voice
+rules are not restated here.
 
 ## Visual identity (the north star for templates)
 
@@ -93,8 +99,8 @@ Visual rules the chosen template must satisfy:
 - Full-bleed **dark** background, **thin top progress indicator**, **one large product
   hero**, short copy at the bottom, **exactly one CTA per screen**.
 - **No skip affordances. No card chrome or boxed surfaces.**
-- Must collect required profile fields post-auth (display name + demographics: birthday,
-  bounded to ages 13–120, and gender).
+- Must collect required profile fields post-auth (separate required first and last name +
+  demographics: birthday, bounded to ages 13–120, and gender).
 - Notifications opt-in is anchored to a concrete value prop ("never miss a climb drop / get
   24-hour advance notice on new First Ascent opportunities") — never generic "enable
   notifications" housekeeping.

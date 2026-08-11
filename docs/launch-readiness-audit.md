@@ -20,6 +20,14 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 2. ~~**No Sign in with Apple token revocation on account deletion.**~~ **Fixed** (issue #197). The `authorizationCode` is captured during Apple re-auth and revoked before the account goes away.
 3. **Verify `PrivacyInfo.xcprivacy` lands in the Release bundle.** The manifest exists and is comprehensive - `AscendApp/PrivacyInfo.xcprivacy` owns the declared data types and required-reason codes, and `AscendAppTests/PrivacyManifestTests.swift` pins both. It carries no explicit `project.pbxproj` entry by design: `AscendApp/` is a `PBXFileSystemSynchronizedRootGroup` for the `AscendApp` target whose only membership exception is `Info.plist`, so the manifest is bundled automatically. Confirm once by building Release and `find`ing the file in the built .app.
 
+3b. **Shipped App Store copy and screenshot 02 still promise Mt. Everest, which issue #440 makes unraceable.**
+   Curation moved all 21 mountains to `hidden` for a future endurance ladder, so a climber who buys on that promise cannot start it.
+   `data/ascend-support-page-and-product-page-package/app-store-copy.md` and the shipped en-US screenshot set are captain-owned and deliberately untouched by that change.
+   Screenshot 03 has the same defect for a harder reason: its landmark carousel shows a Machu Picchu card, and that entry was deleted outright rather than hidden, so no release-state change brings it back.
+   Correct all three before submission - this is a pre-submission blocker, not a polish item.
+   Related: a claim on one of the 17 deleted entries has no catalogue row left to render from, so it drops out of the Collection cards and `collection.collectedCount` while surviving in `stats.completedCount` and activity history.
+   That is acceptable pre-launch because nobody outside the captain's accounts has those completions; issue #456 tracks retaining tombstone metadata, which must land before any post-launch catalogue deletion.
+
 > Blockers 1-2 are resolved. The deletion ordering contract, the revocation rules, and what deliberately outlives an account are owned by **`.claude/skills/ascend-firebase-data` → Account deletion (Apple 5.1.1(v))**; the ordering itself is locked in by `AscendAppTests/AccountDeletionServiceTests.swift`. Consult those rather than this dated snapshot.
 
 ## 🟡 Commerce configuration (dashboards — not auditable from code)
@@ -34,7 +42,13 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 
 ## 🟠 Promise vs. reality
 
-8. **Paywall overclaims removed.** Repo-controlled and Superwall paywalls use the exact 75-landmark catalog count, advertise implemented global leaderboard competition, make no personalized-plan claim, and make no climb-earned trial promise.
+8. **Paywall overclaims removed.** Repo-controlled and Superwall paywalls no longer hard-code a landmark count.
+   Both derive it from the published catalogue's `available` climbs - not the full row count, which also carries `hidden` and `comingSoon` entries - so curation and artwork releases cannot leave the promise stale (issue #452).
+   Both read the same source over the same lifecycle: `/climbs/manifest.json` and the catalogue it names.
+   In the app, `RaceableClimbCountStore` refreshes the hosted catalogue from the app root - ahead of pre-auth onboarding, which quotes the count - and copy reads only the resolved in-memory value, never the catalogue from a render path.
+   `web/public/superwall/onboarding-paywall.html` reads the same manifest and caches the derived count against its `catalogVersion`, so only a republished catalogue costs a download.
+   Either side falls back to count-free copy when it cannot resolve a number, so an offline start or a failed fetch never ships a stale one.
+   Both advertise implemented global leaderboard competition, make no personalized-plan claim, and make no climb-earned trial promise.
 9. **No paywall-priming stage** in `PostAuthOnboardingStage` (stages: displayName, gender, age, weight, location, notifications, planLoading, firstClimb). Flow hits the hard gate cold after onboarding. Conversion polish, not a blocker.
 10. ~~**No fallback UI** on `AppAccessPaywallPlaceholderView` if Superwall config fails — users would see "unavailable" with no purchase path.~~ **Fixed.** Dismissal without purchase, `onSkip`, configuration failure, and `onError` all route back to the visible placeholder with retry/restore actions via `AppAccessPaywallPresentationState`; locked in by `AscendAppTests/AppAccessPaywallPresentationStateTests.swift` and `MonetizationManagerPaywallTests.swift`.
 

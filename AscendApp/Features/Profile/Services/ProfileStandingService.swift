@@ -78,6 +78,7 @@ final class ProfileStandingService: Sendable {
             stats,
             metric: .climb,
             userId: userId,
+            displayName: nil,
             localStats: localStats
         )
     }
@@ -94,6 +95,7 @@ final class ProfileStandingService: Sendable {
                 [],
                 metric: .climb,
                 userId: userId,
+                displayName: nil,
                 localStats: localStats
             )
             return standing(for: userId, timeFrame: timeFrame, stats: localOnlyStats)

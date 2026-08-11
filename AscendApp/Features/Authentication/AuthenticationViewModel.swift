@@ -177,6 +177,12 @@ class AuthenticationViewModel {
                     // climber tapping sign out.
                     WorkoutSyncCoordinator.shared.forgetAuthenticatedIdentity()
 
+                    // Autonomous workers outlive the session that started them, and this is the
+                    // only place the app sees every way one ends - sign out, a revoked session,
+                    // a deleted account. Whatever they are still holding belongs to the climber
+                    // who just left, so it stops here rather than writing under the next one.
+                    AuthenticatedBootstrapCoordinator.shared.endAuthenticatedSession()
+
                     self.displayName = ""
                     self.customProfilePictureURL = nil
                     self.hasRemoteDisplayName = false
@@ -526,49 +532,6 @@ extension AuthenticationViewModel {
         return customProfilePictureURL ?? photoURL
     }
     
-    @discardableResult
-    func updateDisplayName(_ newDisplayName: String) async -> Bool {
-        errorMessage = nil
-        
-        guard let user = user else {
-            errorMessage = "User not authenticated"
-            return false
-        }
-        
-        let previousDisplayName = displayName
-
-        do {
-            let validatedDisplayName = try DisplayNamePolicy.validated(
-                newDisplayName
-            )
-
-            // Update local state immediately for responsive UI
-            displayName = validatedDisplayName
-
-            try await authenticationService.updateUserDisplayName(
-                displayName: validatedDisplayName
-            )
-            
-            // Save to Firestore user document
-            try await UserDataRepository.shared.updateDisplayName(
-                userId: user.uid,
-                email: user.email,
-                displayName: validatedDisplayName
-            )
-            hasRemoteDisplayName = true
-
-            return true
-            
-        } catch {
-            displayName = previousDisplayName
-            errorMessage = profileUpdateFailureMessage(
-                error,
-                fallback: "Failed to update display name"
-            )
-            return false
-        }
-    }
-
     @discardableResult
     func updateProfileName(firstName: String, lastName: String) async -> Bool {
         errorMessage = nil

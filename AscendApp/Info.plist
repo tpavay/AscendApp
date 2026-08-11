@@ -63,11 +63,11 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Ascend needs access to your photo library to attach photos and videos to workouts.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.</string>
+	<string>Ascend reads heart rate and active energy from Health during the climbs you run in Ascend, so each climb shows what it cost you.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Ascend uses your location once to set your profile city for leaderboard context.</string>
 	<key>NSMotionUsageDescription</key>
-	<string>Ascend uses motion from compatible headphones to track steps during Live Climbs.</string>
+	<string>Ascend uses motion from compatible headphones to count steps during Live Climbs, Just Climb sessions, and routines.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Ascend connects to your Bluetooth heart rate monitor to show live heart rate and effort zones while you climb.</string>
 	<key>UIBackgroundModes</key>

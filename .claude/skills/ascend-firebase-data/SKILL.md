@@ -13,6 +13,8 @@ Load the `vibe-security` skill for any auth/authz/trust-boundary change, and `fi
 
 Server-owned collections are the exception: they are `allow write: if false` and validate no fields, because no client can write them at all. Adding a field to one (for example the `live_replay_leaderboards` subtree, written only by Cloud Functions and Admin SDK scripts) needs no rules change.
 
+A *new* top-level server-owned collection still needs its own `allow read, write: if false` match. The checked-in top-level matches are also the reviewed deletion contract for dev/staging resets, so an undeclared one blocks `npm run db:wipe` fail-closed - see `ascend-dev-fixtures`.
+
 ## Which collections must be server-owned
 
 **Shape validation is not evidence validation.** A rule can prove a document has the right fields, the right types, and the right author, and still have no idea whether the numbers in it happened. Decide by what reads the document, not by who writes it:
@@ -43,8 +45,14 @@ The paywall is enforced at the backend boundary: `firestore.rules` and `storage.
 `docs/revenuecat-server-entitlement-enforcement.md` owns that system - the webhook contract, the vendor setup, the choke-point list, and the deploy ordering that keeps a missing secret from locking subscribers out.
 What matters while editing rules:
 
-- Use `isPaidOwner(userId)` / `hasPaidAppAccess()` for anything that is the paid product: private workouts, routines and folders, the public projections derived from them, global leaderboards and replay indexes, and workout media in Storage.
+- Gate by operation, not by collection.
+  `isPaidOwner(userId)` / `hasPaidAppAccess()` guards create and update on the paid product, another climber's copy of a public projection, shared paid content like global leaderboards and replay indexes, and the object bytes of workout media in Storage.
+  The per-collection choke-point list lives in the doc named above; read it there rather than inferring it from a summary here.
 - Keep `isOwner(userId)` for deletes and for everything that has to work before purchase and after lapse - onboarding, auth, restore, account management, support and safety, identity publication, and account deletion.
+  That carve-out covers enumerating an owner's own data, not just deleting it.
+  Account deletion sweeps a collection by listing it and deleting what comes back, and Firestore evaluates a list rule against the query rather than against the stored documents, so a paid read gate refuses an unentitled owner's sweep even when the collection is empty.
+  Read on `users/{uid}/workouts`, `routines`, and `routine_folders` and `list` on the `users/{uid}` Storage media prefixes therefore match their owner-gated delete, while `profile_workouts` adds the owner to its paid read gate instead of replacing it.
+  Re-tightening any of those to `isPaidOwner` reintroduces a guideline 5.1.1(v) deletion blocker; `tests/firebase-rules/account-deletion-contract.test.mjs` is the suite that catches it.
   Paid enforcement must never trap a user's data or their exit.
 - `climb-images/` and the Hosting climb catalog deliberately stay open to any signed-in caller: the `firstClimb` onboarding stage runs before the paywall and renders that artwork.
 - `entitlements`, `entitlement_status`, and `entitlement_reconciliations` are `allow read, write: if false`.
@@ -111,14 +119,15 @@ Ordering is the whole game. Every delete in `firestore.rules` is gated on `isOwn
 
 - Firebase calls live behind `AccountDeletionGateway`, and on-device cleanup behind `AccountDeletionLocalCleanup`, so the sequence is testable and tests never touch the host's UserDefaults.
 - **Quiescing the device is part of the ordering, not a cleanup detail.**
-  Right after re-auth and before the first destructive step, deletion suspends and drains every writer of account-scoped local state through `AuthenticatedBootstrapCoordinator.suspendAndDrain`: the one bootstrap chain plus the autonomous `AuthenticatedSessionWorker`s (`WorkoutImportCoordinator`, `MediaUploadManager`) that a drain alone cannot reach, because a HealthKit observer or an upload retry starts on its own schedule.
+  Right after re-auth and before the first destructive step, deletion suspends and drains every writer of account-scoped local state through `AuthenticatedBootstrapCoordinator.suspendAndDrain`: the one bootstrap chain plus the autonomous `AuthenticatedSessionWorker`s listed in `AutonomousSessionWorkers.all` (`AppleHealthEnrichmentService`, `MediaUploadManager`) that a drain alone cannot reach, because an enrichment pass or an upload retry starts on its own schedule.
+  That list is shared with sign-out, which stops the same workers through `endAuthenticatedSession` - a worker registered in one place is covered at both ends of a session.
   Draining only stops what already started, so `isSuspended` stays raised for the whole flow and those workers refuse to begin a new pass while it is - that refusal is the second half of the guarantee, not a redundancy.
   The drain is bounded by `AuthenticatedBootstrapCoordinator.drainTimeout` and is safe to time out, and a timeout is recorded as both a diagnostic and a non-fatal under `authenticated_session_drain_timed_out` because the UserDefaults ring buffer that would otherwise hold it is wiped two steps later.
 - **A deletion that stops short of `user.delete()` resumes the suspended work; one that gets past it discards it.**
   Anything still running afterwards would write the deleted uid's rows back into a store that has just been emptied, and the sign-in ownership gate then correctly blocks the replacement account with the full-screen data-mismatch wall (#389).
   Fix the source state and the lifecycle when that wall appears - never weaken the gate, which is the only thing protecting a different climber's unsynced work.
 - **Clearing the persistent domain is not clearing the settings.**
-  `SettingsManager.shared` is process memory that survives `removePersistentDomain`, so deletion also calls `SettingsManager.resetInMemoryAfterAccountDeletion()`; without it a same-session re-signup inherits the deleted account's units, Apple Health auto-import, and base-level onboarding state.
+  `SettingsManager.shared` is process memory that survives `removePersistentDomain`, so deletion also calls `SettingsManager.resetInMemoryAfterAccountDeletion()`; without it a same-session re-signup inherits the deleted account's units, fitness level, and base-level onboarding state.
   That reset deliberately suppresses its own `didSet` writes so it cannot repopulate the domain deletion just cleared.
   Coverage: `AscendAppTests/AccountDeletionSessionWorkGateTests.swift`, `AccountDeletionSettingsTests.swift`, `AuthenticatedBootstrapCoordinatorTests.swift`.
 - Deleting a Sign in with Apple account must revoke the Apple token via `Auth.auth().revokeToken(withAuthorizationCode:)`, immediately after re-auth rather than just before `user.delete()`: the authorization code expires in about five minutes and the sweeps in between can outlast that window, so revoking later can silently no-op. The code is single-use and is captured during re-auth by `AuthenticationService.reauthenticateWithApple()`, which is the only place it is available. Revocation is deliberately best-effort: failing to delete is a worse guideline violation than a lingering token.

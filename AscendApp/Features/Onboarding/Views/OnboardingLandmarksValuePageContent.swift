@@ -1,16 +1,13 @@
 import SwiftUI
 
 struct OnboardingLandmarksValuePageContent: View {
-    let headline: String
     let subtitle: String
 
     private let cards: [LandmarkCard] = [
         LandmarkCard(label: "STATUE", imageName: "OnboardingLandmarkStatueCard"),
         LandmarkCard(label: "EMPIRE", imageName: "OnboardingLandmarkEmpireCard"),
         LandmarkCard(label: "EIFFEL", imageName: "OnboardingLandmarkEiffelCard"),
-        LandmarkCard(label: "BURJ", imageName: "OnboardingLandmarkBurjCard"),
-        LandmarkCard(label: "MACHU", imageName: "OnboardingLandmarkMachuCard"),
-        LandmarkCard(label: "EVEREST", imageName: "OnboardingLandmarkEverestCard")
+        LandmarkCard(label: "BURJ", imageName: "OnboardingLandmarkBurjCard")
     ]
 
     var body: some View {
@@ -26,8 +23,8 @@ struct OnboardingLandmarksValuePageContent: View {
                 VStack(spacing: layout.rowSpacing) {
                     ForEach(0..<2, id: \.self) { row in
                         HStack(spacing: layout.cardGap) {
-                            ForEach(0..<3, id: \.self) { column in
-                                let card = cards[row * 3 + column]
+                            ForEach(0..<2, id: \.self) { column in
+                                let card = cards[row * 2 + column]
                                 OnboardingLandmarkCardView(card: card)
                                     .frame(width: layout.cardSize.width, height: layout.cardSize.height)
                             }
@@ -47,7 +44,15 @@ struct OnboardingLandmarksValuePageContent: View {
             .background(Color.black)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Climb real landmarks. Choose a climb to complete from local towers to Mt. Everest so you always have something to aim for.")
+        .accessibilityLabel(accessibilityDescription)
+    }
+
+    private var accessibilityDescription: String {
+        let cardLabels = cards
+            .map { $0.label.localizedCapitalized }
+            .formatted(.list(type: .and))
+
+        return "\(Self.headlineText) \(subtitle) \(cardLabels)."
     }
 
     private func background(layout: OnboardingLandmarksValueLayout) -> some View {
@@ -113,10 +118,17 @@ struct OnboardingLandmarksValuePageContent: View {
     }
 
     private var styledHeadline: Text {
-        Text("Climb ")
+        Text(Self.headlineLead)
             .foregroundStyle(.white)
-        + Text("real\nlandmarks.")
+        + Text(Self.headlineAccent)
             .foregroundStyle(OnboardingValuePalette.lime)
+    }
+
+    private static let headlineLead = "Climb "
+    private static let headlineAccent = "real\nlandmarks."
+
+    private static var headlineText: String {
+        (headlineLead + headlineAccent).replacing("\n", with: " ")
     }
 }
 
@@ -274,7 +286,7 @@ private struct OnboardingLandmarksValueLayout {
     }
 
     private var cardHeight: CGFloat {
-        let maximumWidth = min((size.width - horizontalPadding * 2 - cardGap * 2) / 3, 106 * scaleX)
+        let maximumWidth = min((size.width - horizontalPadding * 2 - cardGap) / 2, 106 * scaleX)
         let maximumHeight = maximumWidth * (140 / 104)
         let availableHeight = (sharedLayout.textSectionTop - galleryMinimumTopPadding - galleryTextGap - rowSpacing) / 2
         let minimumHeight = size.height < 740 ? 104 * scaleY : 122 * typeScale
@@ -284,8 +296,9 @@ private struct OnboardingLandmarksValueLayout {
 }
 
 #Preview("Landmarks Value Page") {
-    OnboardingLandmarksValuePageContent(
-        headline: "Climb real\nlandmarks.",
-        subtitle: "Choose a climb to complete from local towers to Mt. Everest so you always have something to aim for."
-    )
+    if let page = OnboardingValuePages
+        .pages(raceableLandmarkCount: 30)
+        .first(where: { $0.id == "reason_to_come_back" }) {
+        OnboardingLandmarksValuePageContent(subtitle: page.subtitle)
+    }
 }

@@ -23,6 +23,11 @@ struct DeleteAccountConfirmationView: View {
     @FocusState private var isTextFieldFocused: Bool
 
     let onAccountDeleted: () -> Void
+    /// Reports whether a deletion still owns this dialog - running, or holding a failure the climber
+    /// has not acknowledged. A presenter may not dismiss while this is true: the auth account is
+    /// already gone several steps before the local sweep finishes, and an alert raised on a
+    /// dismissed sheet is a silent failure in an irreversible flow.
+    var onDeletionUnresolvedChange: (Bool) -> Void = { _ in }
 
     private let deletionService = AccountDeletionService()
     private let requiredConfirmation = "DELETE"
@@ -30,6 +35,10 @@ struct DeleteAccountConfirmationView: View {
 
     private var canDelete: Bool {
         confirmationText.uppercased() == requiredConfirmation
+    }
+
+    private var isDeletionUnresolved: Bool {
+        isDeleting || showError
     }
 
     var body: some View {
@@ -40,7 +49,11 @@ struct DeleteAccountConfirmationView: View {
                     .font(.montserratBold(size: 22))
                     .foregroundStyle(colorScheme == .dark ? .white : .black)
 
-                Text("This will permanently delete your account and all associated data. This action cannot be undone. For security, you may be asked to sign in again before deletion is completed.")
+                // Apple's "Offering account deletion in your app" asks by name that a subscriber be
+                // told billing continues through Apple and be asked to cancel first. Deleting the
+                // Ascend account cannot touch an App Store subscription, so silence here would be a
+                // surprise charge.
+                Text("This will permanently delete your account and all associated data. This action cannot be undone. If you have an Ascend subscription, it’s billed by Apple and keeps renewing after deletion, so cancel it in your Apple subscription settings before you continue. For security, you may be asked to sign in again before deletion is completed.")
                     .font(.montserratRegular(size: 15))
                     .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
                     .multilineTextAlignment(.center)
@@ -126,7 +139,10 @@ struct DeleteAccountConfirmationView: View {
         .padding(.top, 48)
         .padding(.bottom, 24)
         .appSheetBackground()
-        .appSheetStyle(.dialog(height: 400), isInteractiveDismissDisabled: isDeleting)
+        .appSheetStyle(.fittedScrolling(), isInteractiveDismissDisabled: isDeleting)
+        .onChange(of: isDeletionUnresolved) { _, isUnresolved in
+            onDeletionUnresolvedChange(isUnresolved)
+        }
         .onDisappear {
             cancelInFlightTasks()
         }

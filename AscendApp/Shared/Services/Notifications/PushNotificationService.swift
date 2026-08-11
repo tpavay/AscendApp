@@ -12,7 +12,7 @@ final class PushNotificationService: NSObject, MessagingDelegate {
     private let functions = Functions.functions(region: "us-central1")
     private var isConfigured = false
     private var lastRegisteredToken: String?
-    private var inFlightSyncTask: Task<Void, Never>?
+    private let deviceSyncQueue = PushDeviceSyncQueue()
 
     private override init() {
         super.init()
@@ -38,65 +38,50 @@ final class PushNotificationService: NSObject, MessagingDelegate {
 
     @discardableResult
     func requestClimbDropNotifications(opensSettingsWhenDenied: Bool) async -> UNAuthorizationStatus {
-        let center = UNUserNotificationCenter.current()
-        let settings = await center.notificationSettings()
-        LifecycleEventRecorder.shared.recordNotificationPermission(status: settings.authorizationStatus)
+        let request = ClimbDropNotificationEnableRequest(
+            currentAuthorizationStatus: { await self.authorizationStatus() },
+            presentSystemAuthorizationAlert: {
+                let center = UNUserNotificationCenter.current()
+                _ = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
+                return await self.authorizationStatus()
+            },
+            recordIntent: { ClimbDropNotificationPreferenceStore.isEnabled = $0 },
+            openSystemNotificationSettings: { self.openSystemNotificationSettings() },
+            synchronizeInBackground: { status in
+                self.deviceSyncQueue.enqueue { [self] in
+                    await synchronizePreferenceAndDevice(authorizationStatus: status)
+                }
+            }
+        )
 
-        let status: UNAuthorizationStatus
-        switch settings.authorizationStatus {
-        case .notDetermined:
-            _ = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
-            let updatedSettings = await center.notificationSettings()
-            LifecycleEventRecorder.shared.recordNotificationPermission(status: updatedSettings.authorizationStatus)
-            status = updatedSettings.authorizationStatus
-        case .denied:
-            status = settings.authorizationStatus
-        case .authorized, .provisional, .ephemeral:
-            status = settings.authorizationStatus
-        @unknown default:
-            status = settings.authorizationStatus
-        }
-
-        let isAllowed = status.allowsRemoteUserVisibleNotifications
-        ClimbDropNotificationPreferenceStore.isEnabled = isAllowed
-        await synchronizePreferenceAndDevice(authorizationStatus: status)
-
-        if !isAllowed, opensSettingsWhenDenied, status == .denied {
-            openSystemNotificationSettings()
-        }
-
-        return status
+        return await request.run(opensSettingsWhenDenied: opensSettingsWhenDenied)
     }
 
-    func disableClimbDropNotifications() async {
+    @discardableResult
+    func disableClimbDropNotifications() async -> UNAuthorizationStatus {
         ClimbDropNotificationPreferenceStore.isEnabled = false
-        await synchronizePreferenceAndDevice(authorizationStatus: await authorizationStatus())
+        let status = await authorizationStatus()
+        await deviceSyncQueue.enqueue { [self] in
+            await synchronizePreferenceAndDevice(authorizationStatus: status)
+        }.value
+        return status
     }
 
     func synchronizeAuthenticatedDeviceIfNeeded() async {
         guard Auth.auth().currentUser != nil else { return }
 
         // Launch fires this from several hooks at once (root task, APNS
-        // callback, FCM token refresh). Concurrent registerPushDevice calls
-        // contend on the same Firestore documents server-side, so overlapping
-        // requests join the in-flight sync instead of starting another.
-        if let inFlightSyncTask {
-            await inFlightSyncTask.value
-            return
-        }
-
-        let syncTask = Task {
+        // callback, FCM token refresh), and every foreground fires it again -
+        // which is also what carries a mutation's sync when the app was
+        // suspended before it landed.
+        //
+        // The stored preference is what the climber asked for; the authorization status is
+        // whether iOS will currently deliver it. Both travel to the backend as they stand -
+        // a denial reports itself and never rewrites the answer it was refusing.
+        await deviceSyncQueue.coalesce { [self] in
             let status = await authorizationStatus()
-
-            if status == .denied, ClimbDropNotificationPreferenceStore.isEnabled {
-                ClimbDropNotificationPreferenceStore.isEnabled = false
-            }
-
             await synchronizePreferenceAndDevice(authorizationStatus: status)
         }
-        inFlightSyncTask = syncTask
-        await syncTask.value
-        inFlightSyncTask = nil
     }
 
     func unregisterCurrentDevice() async {
@@ -141,11 +126,12 @@ final class PushNotificationService: NSObject, MessagingDelegate {
 
         await updateBackendPreference()
 
-        guard authorizationStatus.allowsRemoteUserVisibleNotifications else {
-            return
+        // A device that stops being allowed to deliver has to say so, or the
+        // send audience keeps its last authorized answer and pushes into a
+        // system that will drop them.
+        if authorizationStatus.allowsRemoteUserVisibleNotifications {
+            UIApplication.shared.registerForRemoteNotifications()
         }
-
-        UIApplication.shared.registerForRemoteNotifications()
 
         guard let token = await fetchFCMToken() else {
             return
@@ -230,7 +216,7 @@ final class PushNotificationService: NSObject, MessagingDelegate {
     }
 }
 
-private extension UNAuthorizationStatus {
+extension UNAuthorizationStatus {
     var allowsRemoteUserVisibleNotifications: Bool {
         switch self {
         case .authorized, .provisional, .ephemeral:

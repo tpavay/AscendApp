@@ -53,10 +53,12 @@ service firebase.storage {
         );
     }
 
+    // Owners must be able to enumerate their files for account deletion even
+    // after paid access lapses. Object reads and uploads remain paid features.
     // User workout photos.
     match /users/{userId}/photos/{fileName} {
       allow get: if isPaidOwner(userId) && validFileName(fileName);
-      allow list: if isPaidOwner(userId);
+      allow list: if isOwner(userId);
       allow create, update: if isPaidOwner(userId) &&
         validFileName(fileName) &&
         isImageUpload(15 * 1024 * 1024);
@@ -66,7 +68,7 @@ service firebase.storage {
     // User workout videos.
     match /users/{userId}/videos/{fileName} {
       allow get: if isPaidOwner(userId) && validFileName(fileName);
-      allow list: if isPaidOwner(userId);
+      allow list: if isOwner(userId);
       allow create, update: if isPaidOwner(userId) &&
         validFileName(fileName) &&
         isVideoUpload(200 * 1024 * 1024);
@@ -76,7 +78,7 @@ service firebase.storage {
     // User workout heart-rate sidecars.
     match /users/{userId}/workout_heart_rate/{fileName} {
       allow get: if isPaidOwner(userId) && validWorkoutHeartRateFileName(fileName);
-      allow list: if isPaidOwner(userId);
+      allow list: if isOwner(userId);
       allow create, update: if isPaidOwner(userId) &&
         validWorkoutHeartRateFileName(fileName) &&
         isCompressedHeartRateUpload(5 * 1024 * 1024);

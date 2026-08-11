@@ -14,16 +14,26 @@ struct RootView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(MediaUploadManager.self) private var uploadManager
     @Environment(ModerationStore.self) private var moderationStore
-    @State private var importCoordinator = WorkoutImportCoordinator.shared
+    @Environment(\.openURL) private var openURL
+    @State private var appVersionGateState = AppVersionGateState.shared
+    @State private var enrichmentService = AppleHealthEnrichmentService.shared
     @State private var postAuthOnboardingCoordinator = PostAuthOnboardingCoordinator()
     @State private var tabRouter = TabRouter()
     @State private var accountDataConflict: AccountDataOwnershipConflict?
+    @State private var isShowingGateAccountDeletion = false
+    @State private var isGateDeletionUnresolved = false
+    @State private var isGateDeletionDismissPending = false
     @State private var profileCompletionCheckTask: Task<Void, Never>?
     private let authenticatedBootstrapCoordinator = AuthenticatedBootstrapCoordinator.shared
 
     var body: some View {
         Group {
             switch rootRoute {
+            case .updateRequired:
+                AppUpdateRequiredView(
+                    onOpenAppStore: openAscendInAppStore,
+                    onDeleteAccount: gateAccountDeletionAction
+                )
             case .signedOut:
                 LandingScreen()
             case .signingIn:
@@ -45,28 +55,50 @@ struct RootView: View {
         .environment(tabRouter)
         .animation(.easeInOut(duration: 0.25), value: rootRoute)
         .themeAware()
+        // The soft nudge only. The lockout left this modifier when it became a route, so the two
+        // can never stack and nothing presented outside this hierarchy can cover the refusal.
+        .sheet(item: $appVersionGateState.nudgePresentation) { presentation in
+            AppUpdateSheet(
+                presentation: presentation,
+                onOpenAppStore: openAscendInAppStore,
+                onLater: appVersionGateState.dismissRecommended
+            )
+        }
+        // Deliberately outside the route switch: an entitlement refresh mid-deletion flips the
+        // route, and unmounting this sheet would cancel the deletion partway through its sweep
+        // with the failure alert on a view that is no longer on screen.
+        .sheet(isPresented: $isShowingGateAccountDeletion, onDismiss: resetGateAccountDeletionState) {
+            // Deleting the Firebase Auth account moves `authVM` to unauthenticated on its own,
+            // which routes back to the landing screen - there is nothing left here to dismiss the
+            // way Settings does.
+            DeleteAccountConfirmationView(
+                onAccountDeleted: {},
+                onDeletionUnresolvedChange: gateAccountDeletionDidChangeResolution
+            )
+        }
         .task {
             AppDiagnosticsRecorder.shared.record(
                 "app_root_task_started",
                 details: ["route": rootRoute.diagnosticName]
             )
-            importCoordinator.configure(modelContext: modelContext)
+            enrichmentService.configure(modelContext: modelContext)
             postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
             advancePostAuthOnboardingPastDisplayNameIfAvailable()
             scheduleAuthenticatedSessionWork()
+        }
+        // Its own task so the catalogue fetch runs alongside session work rather
+        // than behind it: pre-auth onboarding quotes the raceable count, and it
+        // is reachable a tap after launch.
+        .task {
+            await RaceableClimbCountStore.shared.resolve()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             AppDiagnosticsRecorder.shared.record(
                 "app_will_enter_foreground",
                 details: ["route": rootRoute.diagnosticName]
             )
-            // Backstop for a real-time connection dropped while suspended. Deliberately not
-            // awaited: the bootstrap below runs on the already-resolved values rather than waiting
-            // out a network fetch, and a switch flipped while the app slept lands moments later or
-            // on the next pass.
-            RemoteFeatureFlagService.shared.refresh()
             // Retry pending uploads when app comes to foreground (network may have restored)
-            importCoordinator.configure(modelContext: modelContext)
+            AppleHealthEnrichmentService.shared.configure(modelContext: modelContext)
             scheduleAuthenticatedSessionWork()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
@@ -83,6 +115,11 @@ struct RootView: View {
             )
         }
         .onChange(of: authVM.user?.uid) { _, _ in
+            // The sheet belongs to the session that opened it, or it re-presents itself unprompted
+            // over the next climber's gate. But deletion ends the session at the auth step, several
+            // steps before the local sweep finishes, so the clear waits for the dialog to say it is
+            // done rather than for the session to end.
+            dismissGateAccountDeletionWhenResolved()
             moderationStore.clear()
             AppDiagnosticsRecorder.shared.record(
                 "auth_user_changed",
@@ -105,6 +142,14 @@ struct RootView: View {
                 await monetizationManager.reconcileServerAppAccess()
             }
         }
+        // The lockout suppresses the session bootstrap, and the fetch that releases it lands after
+        // the foreground handler has already run and skipped. Without this, entitlement refresh,
+        // pending uploads, hydration, both sync coordinators and profile publication stay skipped
+        // until a further background/foreground cycle.
+        .onChange(of: appVersionGateState.isUpdateRequired) { _, isUpdateRequired in
+            guard !isUpdateRequired else { return }
+            scheduleAuthenticatedSessionWork()
+        }
         .onChange(of: authVM.hasRemoteDisplayName) { _, _ in
             advancePostAuthOnboardingPastDisplayNameIfAvailable()
             completePostAuthOnboardingIfRemoteProfileExists()
@@ -123,8 +168,48 @@ struct RootView: View {
         }
     }
 
+    @MainActor
+    private func dismissGateAccountDeletionWhenResolved() {
+        guard isGateDeletionUnresolved else {
+            isShowingGateAccountDeletion = false
+            return
+        }
+
+        isGateDeletionDismissPending = true
+    }
+
+    @MainActor
+    private func gateAccountDeletionDidChangeResolution(_ isUnresolved: Bool) {
+        isGateDeletionUnresolved = isUnresolved
+        guard !isUnresolved, isGateDeletionDismissPending else { return }
+
+        isGateDeletionDismissPending = false
+        isShowingGateAccountDeletion = false
+    }
+
+    @MainActor
+    private func resetGateAccountDeletionState() {
+        isGateDeletionUnresolved = false
+        isGateDeletionDismissPending = false
+    }
+
+    private func openAscendInAppStore() {
+        guard let url = AscendAppStoreDestination.productURL else { return }
+        openURL(url)
+    }
+
+    /// Deletion is only an exit for a climber who has an account. The lockout resolves above
+    /// authentication, so the route is reachable with no session at all - and there the link would
+    /// be a dead end rather than the required way out.
+    private var gateAccountDeletionAction: (() -> Void)? {
+        guard authVM.user != nil else { return nil }
+
+        return { isShowingGateAccountDeletion = true }
+    }
+
     private var rootRoute: AppRootRoute {
         let resolvedRoute = AppRootRouteResolver.resolve(
+            updatePresentation: appVersionGateState.presentation,
             authenticationState: authVM.authenticationState,
             userId: authVM.user?.uid,
             postAuthOnboardingPhase: postAuthOnboardingCoordinator.phase,
@@ -159,6 +244,11 @@ struct RootView: View {
             )
         } else {
             switch route {
+            case .updateRequired:
+                AppUpdateRequiredView(
+                    onOpenAppStore: openAscendInAppStore,
+                    onDeleteAccount: gateAccountDeletionAction
+                )
             case .signedOut:
                 LandingScreen()
             case .signingIn:
@@ -178,7 +268,9 @@ struct RootView: View {
                 )
 
             case .paywall:
-                AppAccessPaywallPlaceholderView()
+                AppAccessPaywallPlaceholderView(
+                    onDeleteAccount: { isShowingGateAccountDeletion = true }
+                )
 
             case .mainApp:
                 MainTabView(tabRouter: tabRouter)
@@ -188,6 +280,10 @@ struct RootView: View {
 
     @MainActor
     private func scheduleAuthenticatedSessionWork() {
+        // A build the operator retired does not get to keep hydrating, syncing and publishing
+        // behind a screen the climber cannot leave. The lockout refuses the binary, not just its UI.
+        guard !appVersionGateState.isUpdateRequired else { return }
+
         let expectedUserId = authVM.user?.uid
 
         authenticatedBootstrapCoordinator.schedule {
@@ -280,6 +376,21 @@ struct RootView: View {
                 modelContext: modelContext
             )
             guard isCurrentAuthenticatedSession(currentUserId) else { return }
+
+            // The only place enrichment is re-armed, and deliberately inside this chain rather
+            // than beside it in the foreground handler. A suspended app is not a reliable alarm
+            // clock - the timer's sleep does not advance while the process is frozen - so a
+            // foreground has to service a schedule that came due overnight, and this chain runs
+            // on foreground too. What it must not do is run while the update lockout is up:
+            // a pass writes through `WorkoutMutationHandler`, which marks pending remote upserts,
+            // rebuilds the leaderboard and kicks the sync coordinator and profile publication, so
+            // re-arming outside `scheduleAuthenticatedSessionWork`'s guard let a binary the
+            // operator retired go on writing behind a screen the climber cannot leave.
+            //
+            // Placed after hydration so a climb restored onto a fresh device is tracked too, and
+            // before the leaderboard rebuild because enrichment only ever adds metrics that
+            // rebuild already reads.
+            AppleHealthEnrichmentService.shared.resumeTracking(modelContext: modelContext)
 
             await WorkoutSyncCoordinator.shared.processPendingWorkouts(
                 modelContext: modelContext,
@@ -453,6 +564,8 @@ struct AccountDataConflictView: View {
 private extension AppRootRoute {
     var diagnosticName: String {
         switch self {
+        case .updateRequired:
+            return "update_required"
         case .signedOut:
             return "signed_out"
         case .signingIn:

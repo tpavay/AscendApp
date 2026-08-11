@@ -5,7 +5,8 @@ struct PreAuthOnboardingValueCarouselScreen: View {
     @State private var selectedIndex = 0
     @State private var isShowingSignUp = false
 
-    private let pages = OnboardingValuePages.all
+    @MainActor
+    private var pages: [OnboardingValuePage] { OnboardingValuePages.all }
 
     var body: some View {
         OnboardingScaffold(
@@ -22,6 +23,9 @@ struct PreAuthOnboardingValueCarouselScreen: View {
                 .ignoresSafeArea()
             }
         )
+        .task {
+            await RaceableClimbCountStore.shared.resolve()
+        }
         .navigationDestination(isPresented: $isShowingSignUp) {
             SignUpView()
         }
@@ -613,17 +617,13 @@ private struct PreAuthGuideScreenView: View {
 private struct PreAuthLandmarkCollage: View {
     let metrics: PreAuthGuideMetrics
 
-    // Six bundled landmark assets fill seven Figma card slots; the repeat (Burj) hides in
-    // the 29pt sliver bleeding off the top-left edge, diagonally opposite its full card.
+    // One slot per raceable landmark asset. The collage shows no landmark twice.
     private static let topRowImages = [
-        "OnboardingLandmarkBurjCard",
-        "OnboardingLandmarkMachuCard",
-        "OnboardingLandmarkEmpireCard",
-        "OnboardingLandmarkEverestCard"
+        "OnboardingLandmarkStatueCard",
+        "OnboardingLandmarkEmpireCard"
     ]
 
     private static let bottomRowImages = [
-        "OnboardingLandmarkStatueCard",
         "OnboardingLandmarkEiffelCard",
         "OnboardingLandmarkBurjCard"
     ]
@@ -634,7 +634,7 @@ private struct PreAuthLandmarkCollage: View {
                 .position(x: metrics.x(189.6), y: metrics.y(266.9))
 
             row(images: Self.bottomRowImages)
-                .position(x: metrics.x(190.8), y: metrics.y(409.2))
+                .position(x: metrics.x(190.8), y: metrics.y(422.9))
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)

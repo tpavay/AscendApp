@@ -16,8 +16,11 @@ enum WorkoutSource: String, CaseIterable, Codable {
     case hevy = "hevy"               // Legacy import source retained for old synced workouts
     case headphoneMotion = "headphone_motion" // Live tracking from compatible headphones
 
+    /// Only sources Ascend can still produce. The other cases stay readable so stored rows from
+    /// before manual logging and Apple Health import were removed keep rendering everywhere, but
+    /// offering them as filters advertises features that are gone.
     static var filterOptions: [WorkoutSource] {
-        [.manual, .appleHealth, .headphoneMotion]
+        [.headphoneMotion]
     }
 
     var displayName: String {
@@ -230,7 +233,7 @@ class Workout {
         weightConfiguration?.totalWeight ?? 0
     }
 
-    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int, floors: Int, stepsPerFloor: Int = Workout.defaultStepsPerFloor, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, hevyWorkoutId: String? = nil, photos: [Photo] = [], highlightedPhotoId: UUID? = nil, weightConfiguration: WeightConfiguration? = nil) {
+    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int, floors: Int, stepsPerFloor: Int = Workout.defaultStepsPerFloor, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, hevyWorkoutId: String? = nil, photos: [Photo] = [], highlightedPhotoId: UUID? = nil, weightConfiguration: WeightConfiguration? = nil) {
         let createdAt = Date()
         self.id = UUID()
         self.name = name.isEmpty ? "Workout" : name

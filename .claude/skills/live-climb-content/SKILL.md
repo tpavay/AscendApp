@@ -51,22 +51,40 @@ Each climb must include:
 }
 ```
 
-Optional field:
+Optional fields:
 
 ```json
-"imageSetVersion": 1
+"imageSetVersion": 1,
+"commonName": "John Hancock Center"
 ```
 
 If absent, the app defaults `imageSetVersion` to `1`.
 
+`commonName` is the name a city still uses for a renamed landmark. It never replaces `name`, which stays the official one, and no surface renders it yet. Populate it only with a citable source recorded in `docs/climb-coordinate-and-name-sources.md`, which is also where a climb's coordinate provenance goes.
+
+### Category is free-form, but the app branches on it
+
+Reuse an existing `category` where one fits. Introducing a new value is a code change as well as a data change, because three places switch on the string and each has a silent default:
+
+- `ClimbArtworkView` picks the SF Symbol placeholder shown until Storage artwork exists - unlisted falls back to `building.2.fill`.
+- `ClimbCameraFraming.isNatural` decides whether the globe and flyover frame the climb as terrain (pulled far back) or as a structure - unlisted is framed as a structure.
+- `Climb.globeCameraDistance` picks the distance band for non-natural categories - unlisted gets the tower band.
+
+`staircase` is classified natural because the one climb using it is an open hillside stair whose route *is* the terrain, so structure framing would crop it.
+
 ## Release States
 
 - `available`: visible and startable. First Ascent / leaderboard surfaces may activate.
-- `comingSoon`: visible teaser, not startable.
-- `hidden`: not visible. Use for planned content that should not tease.
-- `disabled`: not visible. Use for retired or blocked content.
+- `comingSoon`: visible teaser, not startable. Use for a route that is plausible but whose distance is not verified yet.
+- `hidden`: not raceable and off the browse surfaces. Use for planned content that should not tease, and for content retired from racing.
+- `disabled`: not raceable and off the browse surfaces. Use for retired or blocked content.
+
+Hidden means not raceable, never that earned history disappears. A climber's held First Ascent and claimed Collection card on a hidden climb keep rendering, and the detail screen reached through history states a truthful non-raceable action - never `Coming Soon`, which promises a drop that is not coming. `ClimbService.loadAllClimbs()` is the read for history-resolving surfaces; racing surfaces read the available set. Changing a climb's release state is safe for earned history in a way that **deleting its catalogue row is not**: a deleted row leaves a claim with nothing to render from. See `docs/launch-readiness-audit.md` for what that costs today.
 
 If images are missing or uncertain, default new climbs to `comingSoon` or `hidden`, not `available`.
+
+A climb only reaches `available` once its race distance is published in `realStairCount`.
+Without one it ranks climbers against `round(totalHeightMeters * 5.5)`, a height fact nobody raced, so `AscendAppTests/ClimbCatalogStairCountTests.swift` fails any `available` climb with a null count.
 
 ## Tier Rules
 
@@ -81,7 +99,21 @@ Set `tier` from the climb's reference step count:
 - `legendary`: 6,000-11,999
 - `mythic`: 12,000+
 
-The app uses `realStairCount ?? totalSteps` as the reference step count. If a verified public stair count exists, put it in `realStairCount`; otherwise keep `realStairCount: null` and use a reasonable height-derived `totalSteps`.
+The app uses `realStairCount ?? totalSteps` as the reference step count.
+
+## Step Counts Are Race Distances
+
+`totalSteps` is the architectural-height derivation, `round(totalHeightMeters * 5.5)`. It is a height fact, never a route: for a tower it converts an antenna spire nobody climbs, and for a mountain it converts elevation above sea level. Leave it alone.
+
+`realStairCount` is the verified count of the steps people actually climb, and it is what the app races and ranks on. Correcting a distance means populating `realStairCount`, never rewriting `totalSteps`.
+
+Every populated `realStairCount` needs a citable primary source recorded in `docs/climb-real-stair-counts.md` - the venue owner, the event organiser, the custodian body, or the Towerrunning World Association race record. Where published figures disagree, record the disagreement there rather than silently picking one. Where no defensible figure exists, leave `realStairCount: null`; a height-derived guess shipped as a race distance is worse than an admitted gap.
+
+`realClimbableHeightMeters` / `realClimbableHeightFeet` follow the same rule for the climbed vertical, and feed `referenceHeightMeters`.
+
+`calculatedFloors` renders as FLOORS beside STEPS on climb detail, so it answers for the same route. Set it from the route's published storey count where a source states one, and from `round(referenceStepCount / 19.8)` otherwise - never from `totalHeightMeters`, which is what put 876 floors next to Monserrate's 1,605 steps. A published *flight* or *landing* count is not a storey count and is not shipped as one unless a second independent source restates that same figure as storeys; otherwise record it in `docs/climb-real-stair-counts.md` and derive instead. That file states the rule in full and names the one climb that clears the bar.
+
+Changing a reference step count invalidates every recorded time on that climb, because it changes the distance raced. `AscendAppTests/ClimbCatalogStairCountTests.swift` enforces that both catalogue files stay byte-identical, that every `tier` matches its reference count, that `totalSteps` stays height-derived, and that every climb's steps-per-floor stays plausible.
 
 ## Image Assets
 
@@ -121,6 +153,8 @@ node scripts/sync-climb-images.mjs sync --from staging --to production --confirm
 
 Writes to production require `--confirm-production`. Sync copies only missing/changed objects (md5 compare) and never deletes. When adding a climb: upload images to dev/staging first, validate in-app, then sync to production alongside (or before) the catalog deploy that references them.
 
+`releaseState` is not per-environment: one catalogue file deploys to dev, staging, and production, so promoting a climb to `available` commits every environment to having its artwork. Audit the production bucket before that deploy, not after it.
+
 ## Workflow
 
 1. Read the existing catalog entries to match style, order, tags, and category naming.
@@ -132,6 +166,8 @@ Writes to production require `--confirm-production`. Sync copies only missing/ch
 7. Update `featuredClimbId` only if the user asked to feature the new climb.
 8. If dev replay fixtures should include the climb, add it to `ACTIVE_CLIMBS` or `WARM_CLIMBS` in `scripts/seed-live-replay-leaderboards.mjs`.
    To seed the climb with an open First Ascent slot instead of synthetic traffic, use `FIRST_ASCENT_OPEN_CLIMBS` in the same file and follow the constraints documented on that list.
+   Every seeded ID - there and in `scripts/seed/fixtures/profile-fixtures.mjs` - must be `available`, or it strands state no surface can reach; `scripts/test/live-replay-first-ascent.test.mjs` fails on one. The reverse is not required: an available climb with no fixture is just unseeded.
+   Retiring or deleting a climb therefore means re-pointing any fixture that named it.
 9. Validate JSON and schema by decoding both catalog files.
 10. Build web before deploying hosted catalog content.
 

@@ -123,12 +123,13 @@ struct ClimbDetailView: View {
         climb: Climb,
         showsBrowseBackButton: Bool = false,
         analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown,
-        onboardingCoach: ClimbDetailOnboardingCoachMode? = nil
+        onboardingCoach: ClimbDetailOnboardingCoachMode? = nil,
+        climbService: ClimbService = .shared
     ) {
         self.showsBrowseBackButton = showsBrowseBackButton
         self.analyticsEntryPoint = analyticsEntryPoint
         self.onboardingCoach = onboardingCoach
-        _viewModel = State(initialValue: ClimbDetailViewModel(climb: climb))
+        _viewModel = State(initialValue: ClimbDetailViewModel(climb: climb, climbService: climbService))
     }
 
     private var effectiveColorScheme: ColorScheme {
@@ -576,63 +577,12 @@ struct ClimbDetailView: View {
     }
 
     private var heroCardFront: some View {
-        ZStack(alignment: .bottomLeading) {
+        ClimbDetailHeroCardFront(
+            climb: viewModel.climb,
+            subtitle: viewModel.subtitle,
+            stripOrderText: viewModel.stripOrderText
+        ) {
             ClimbArtworkView(climb: viewModel.climb, variant: .hero)
-
-            LinearGradient(
-                colors: [
-                    .black.opacity(0.03),
-                    .black.opacity(0.1),
-                    .black.opacity(0.22),
-                    .black.opacity(0.52)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-
-            if let stripOrderText = viewModel.stripOrderText {
-                HStack(spacing: 0) {
-                    UnevenRoundedRectangle(
-                        cornerRadii: .init(
-                            topLeading: 28,
-                            bottomLeading: 28,
-                            bottomTrailing: 0,
-                            topTrailing: 0
-                        ),
-                        style: .continuous
-                    )
-                        .fill(viewModel.climb.tier.detailStripStyle)
-                        .frame(width: 48)
-                        .overlay {
-                            Text(stripOrderText)
-                                .font(.montserratBold(size: 12))
-                                .foregroundStyle(.white)
-                                .rotationEffect(.degrees(-90))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.74)
-                        }
-
-                    Spacer(minLength: 0)
-                }
-            }
-
-            VStack(spacing: 0) {
-                Spacer(minLength: 0)
-
-                LinearGradient(
-                    colors: [
-                        .clear,
-                        .black.opacity(0.18),
-                        .black.opacity(0.68),
-                        .black.opacity(0.94)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 132)
-            }
-
-            heroTextOverlay
         }
     }
 
@@ -694,29 +644,6 @@ struct ClimbDetailView: View {
             }
             .padding(24)
         }
-    }
-
-    private var heroTextOverlay: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(viewModel.climb.name)
-                .font(.montserratBold(size: 18))
-                .foregroundStyle(.white)
-                .lineLimit(2)
-                .minimumScaleFactor(0.72)
-                .allowsTightening(true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text(viewModel.subtitle)
-                .font(.montserratMedium(size: 12))
-                .foregroundStyle(.white.opacity(0.84))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .shadow(color: .black.opacity(0.55), radius: 16, x: 0, y: 4)
-        .padding(.leading, viewModel.stripOrderText == nil ? 20 : 64)
-        .padding(.trailing, 16)
-        .padding(.bottom, 70)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
     }
 
     private var flipCardButton: some View {
@@ -1153,7 +1080,7 @@ struct ClimbDetailView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 7) {
-                    Text(row.isCurrentUser ? "You" : row.identity.displayName)
+                    Text(row.identity.displayName)
                         .font(.montserratBold(size: 15))
                         .foregroundStyle(leaderboardPrimaryTextColor)
                         .lineLimit(1)
@@ -1673,7 +1600,7 @@ struct ClimbDetailView: View {
             return authDisplayName
         }
 
-        return "You"
+        return PublicClimberIdentity.systemHandle(for: Auth.auth().currentUser?.uid)
     }
 
     private var currentUserPhotoURL: URL? {
@@ -1721,7 +1648,7 @@ struct ClimbDetailView: View {
                 effectiveColorScheme: effectiveColorScheme
             )
             .accessibilityLabel(
-                avatar.isCurrentUser ? "You" : avatar.identity.displayName
+                avatar.identity.displayName
             )
         }
     }
@@ -1742,18 +1669,6 @@ struct ClimbDetailView: View {
 
     private var communitySecondaryColor: Color {
         effectiveColorScheme == .dark ? .white.opacity(0.62) : .black.opacity(0.58)
-    }
-
-    private static func avatarToken(for displayName: String) -> String {
-        let token = displayName
-            .split(separator: " ")
-            .prefix(2)
-            .compactMap(\.first)
-            .map(String.init)
-            .joined()
-            .uppercased()
-
-        return token.isEmpty ? "YOU" : token
     }
 
     private func historyMetric(value: String, label: String) -> some View {

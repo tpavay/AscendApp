@@ -26,6 +26,7 @@ struct AppAccountDeletionLocalCleanup: AccountDeletionLocalCleanup {
     private let userDefaults: UserDefaults
     private let persistentDomainName: String?
     private let settingsManager: SettingsManager
+    private let climbDropNotificationState: ClimbDropNotificationState
     private let bootstrapCoordinator: AuthenticatedBootstrapCoordinator
     private let autonomousSessionWorkers: [any AuthenticatedSessionWorker]
 
@@ -33,23 +34,22 @@ struct AppAccountDeletionLocalCleanup: AccountDeletionLocalCleanup {
         userDefaults: UserDefaults = .standard,
         persistentDomainName: String? = Bundle.main.bundleIdentifier,
         settingsManager: SettingsManager = .shared,
+        climbDropNotificationState: ClimbDropNotificationState = .shared,
         bootstrapCoordinator: AuthenticatedBootstrapCoordinator = .shared,
-        autonomousSessionWorkers: [any AuthenticatedSessionWorker] = [
-            WorkoutImportCoordinator.shared,
-            MediaUploadManager.shared
-        ]
+        autonomousSessionWorkers: [any AuthenticatedSessionWorker] = AutonomousSessionWorkers.all
     ) {
         self.userDefaults = userDefaults
         self.persistentDomainName = persistentDomainName
         self.settingsManager = settingsManager
+        self.climbDropNotificationState = climbDropNotificationState
         self.bootstrapCoordinator = bootstrapCoordinator
         self.autonomousSessionWorkers = autonomousSessionWorkers
     }
 
     /// Quiesces every writer of account-scoped local state, not just the bootstrap chain.
     ///
-    /// A HealthKit observer's auto-import reaches the same `ModelContext` from outside that chain,
-    /// so leaving it running let one imported workout land inside deletion's staged window - which
+    /// Apple Health enrichment reaches the same `ModelContext` from outside that chain on its own
+    /// schedule, so leaving it running let one write land inside deletion's staged window - which
     /// both saved the staged sweep early and left a row owned by the account being deleted.
     func suspendAuthenticatedSessionWork() async {
         await bootstrapCoordinator.suspendAndDrain(autonomousWorkers: autonomousSessionWorkers)
@@ -74,6 +74,7 @@ struct AppAccountDeletionLocalCleanup: AccountDeletionLocalCleanup {
         }
 
         settingsManager.resetInMemoryAfterAccountDeletion()
+        climbDropNotificationState.resetAfterAccountDeletion()
     }
 
     func clearImageCache() {

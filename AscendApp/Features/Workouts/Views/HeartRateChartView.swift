@@ -12,7 +12,7 @@ struct HeartRateChartDataSet: Equatable {
     static let minimumLineSampleCount = 3
     /// A gap this many times wider than the series' own median spacing is a
     /// dropout rather than cadence jitter. Scaling off the series keeps sparse
-    /// imported samples (minutes apart by nature) rendering as one trace while
+    /// Apple Health samples (minutes apart by nature) rendering as one trace while
     /// still breaking ~1 Hz live capture where the strap actually went silent.
     static let dropoutGapMultiplier: Double = 4
     /// Floor so a couple of skipped 1 Hz notifications never shatter the line.
@@ -314,6 +314,23 @@ struct HeartRateChartView: View {
         )
     }
 
+    /// What stands in for the trace when there are too few samples to draw one.
+    ///
+    /// A wearable that wrote two samples across a climb has answered - it just answered
+    /// sparsely, and the average and maximum above this line are real. So the copy reports the
+    /// count rather than reading as a failed load: "not enough to chart" is true of the curve,
+    /// not of the data (#438).
+    static func unavailableChartMessage(sampleCount: Int) -> String {
+        switch sampleCount {
+        case 0:
+            return "No heart-rate samples for this climb"
+        case 1:
+            return "Your wearable logged one reading for this climb - too few to chart"
+        default:
+            return "Your wearable logged \(sampleCount) readings for this climb - too few to chart"
+        }
+    }
+
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
@@ -404,7 +421,7 @@ struct HeartRateChartView: View {
                 .font(.system(size: 32, weight: .light))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.4) : .gray)
             
-            Text(heartRateData.isEmpty ? "No heart-rate samples available" : "Not enough heart-rate samples to chart")
+            Text(Self.unavailableChartMessage(sampleCount: heartRateData.count))
                 .font(.montserratRegular(size: 14))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
         }

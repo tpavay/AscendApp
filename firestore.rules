@@ -1310,8 +1310,18 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
+      // Read is owner-gated, not paid-gated, on every owner-private collection
+      // the account-deletion sweep enumerates (workouts, routines,
+      // routine_folders, profile_workouts). Deleting an account means listing
+      // each collection and deleting what comes back, and Firestore evaluates a
+      // list rule against the query rather than the stored documents - so a
+      // paid gate here refuses an unentitled owner's sweep even when the
+      // collection is empty, and guideline 5.1.1(v) deletion becomes impossible
+      // the moment a subscription lapses. Read therefore matches the delete
+      // gate exactly. Splitting `get` from `list` would buy nothing: a list
+      // returns full document bodies. Create and update stay paid.
       match /workouts/{workoutId} {
-        allow read: if isPaidOwner(userId);
+        allow read: if isOwner(userId);
         allow create: if isPaidOwner(userId) &&
           isValidWorkoutDocument(userId, workoutId);
         // The stored schema version may only move forward. Equality would make
@@ -1333,7 +1343,7 @@ service cloud.firestore {
       // away from the top-level `routine_templates`, which is server-owned
       // published content and must stay read-only to every client.
       match /routines/{routineId} {
-        allow read: if isPaidOwner(userId);
+        allow read: if isOwner(userId);
         allow create: if isPaidOwner(userId) &&
           isValidUserRoutineDocument(userId, routineId);
         // Same forward-only schema version rule as workouts, and for the same
@@ -1349,7 +1359,7 @@ service cloud.firestore {
       }
 
       match /routine_folders/{folderId} {
-        allow read: if isPaidOwner(userId);
+        allow read: if isOwner(userId);
         allow create: if isPaidOwner(userId) &&
           isValidRoutineFolderDocument(userId, folderId);
         allow update: if isPaidOwner(userId) &&
@@ -1396,8 +1406,11 @@ service cloud.firestore {
         allow delete: if isOwner(userId) && docId == "current";
       }
 
+      // Unlike the collections above this one is cross-account readable, so the
+      // paid gate stays for everyone else and the owner is added to it rather
+      // than replacing it.
       match /profile_workouts/{workoutId} {
-        allow read: if hasPaidAppAccess();
+        allow read: if isOwner(userId) || hasPaidAppAccess();
         allow create, update: if isPaidOwner(userId) &&
           isCanonicalWorkoutId(workoutId) &&
           isValidProfileWorkoutSummary();
@@ -1517,6 +1530,14 @@ service cloud.firestore {
 
     // Server-only collections managed by Cloud Functions / Admin SDK.
     match /email_jobs/{docId} {
+      allow read, write: if false;
+    }
+
+    match /notification_devices/{deviceId} {
+      allow read, write: if false;
+    }
+
+    match /notification_campaigns/{campaignId} {
       allow read, write: if false;
     }
 

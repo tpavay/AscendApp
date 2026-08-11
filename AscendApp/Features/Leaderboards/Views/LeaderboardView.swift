@@ -128,6 +128,9 @@ struct LeaderboardView: View {
         .onChange(of: authVM.displayPhotoURL) { _, _ in
             syncCurrentUserEntry()
         }
+        .onChange(of: authVM.displayName) { _, _ in
+            syncCurrentUserEntry()
+        }
     }
 
     private var header: some View {
@@ -482,6 +485,7 @@ struct LeaderboardView: View {
             case .unranked(let value, let formattedValue):
                 LeaderboardUserRowView(
                     unrankedFormattedValue: formattedValue,
+                    displayName: currentUserDisplayName,
                     photoURL: authVM.displayPhotoURL,
                     metric: viewModel.selectedMetric,
                     crownGapText: crownGapText(
@@ -662,27 +666,10 @@ struct LeaderboardView: View {
     }
 
     private var emptyStateView: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "person.3.fill")
-                .font(.system(size: 36, weight: .semibold))
-                .foregroundStyle(.accent)
-
-            // States which window is empty before it commands. "No entries yet" on a
-            // month that reset hours ago reads as lost data; "August is empty" reads as
-            // a fresh board.
-            Text("\(viewModel.selectedPeriod.windowSubject) is empty.")
-                .font(.montserratBold(size: 20))
-                .foregroundStyle(primaryTextColor)
-                .multilineTextAlignment(.center)
-
-            Text("Take the first spot.")
-                .font(.montserratRegular(size: 14))
-                .foregroundStyle(primaryTextColor.opacity(0.66))
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 44)
-        .padding(.horizontal, 20)
+        LeaderboardEmptyBoardView(
+            period: viewModel.selectedPeriod,
+            metric: viewModel.selectedMetric
+        )
     }
 
     private var filteredEmptyStateView: some View {
@@ -747,7 +734,11 @@ struct LeaderboardView: View {
         if let lockedMetric {
             viewModel.selectedMetric = lockedMetric
         }
-        viewModel.configure(userId: userId, modelContext: modelContext)
+        viewModel.configure(
+            userId: userId,
+            displayName: currentUserNameOverride,
+            modelContext: modelContext
+        )
         await loadData()
         syncCurrentUserEntry()
     }
@@ -780,8 +771,21 @@ struct LeaderboardView: View {
     private func syncCurrentUserEntry() {
         viewModel.updateCurrentUserProfile(
             userId: authVM.user?.uid,
+            displayName: currentUserNameOverride,
             photoURL: authVM.displayPhotoURL
         )
+    }
+
+    /// Nil until the account actually has a name. A fresh device reaches
+    /// `.authenticated` before the profile fetch lands, and an empty override
+    /// would replace the climber's published board name with a system handle.
+    private var currentUserNameOverride: String? {
+        let trimmed = authVM.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var currentUserDisplayName: String {
+        currentUserNameOverride ?? PublicClimberIdentity.systemHandle(for: authVM.user?.uid)
     }
 }
 

@@ -3,7 +3,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 ---
 <BaseLayout
   title="Support - Ascend"
-  description="Get help with your Ascend account, subscription, Apple Health imports, Bluetooth heart-rate monitor, notifications, or account deletion."
+  description="Get help with your Ascend account, subscription, heart-rate monitor, Apple Health connection, notifications, or account deletion."
 >
   <style>
     .support-page {
@@ -186,9 +186,9 @@ import BaseLayout from '../layouts/BaseLayout.astro';
   <div class="support-page">
     <main>
       <p class="eyebrow">Ascend Support</p>
-      <h1>Get back to climbing.</h1>
+      <h1>Get back to racing.</h1>
       <p class="intro">
-        Fix account access, restore a subscription, reconnect workout data, or remove your account.
+        Fix account access, restore a subscription, reconnect a heart-rate source, or remove your account.
         Start with the steps below, then email us if the problem keeps you off the stair stepper.
       </p>
 
@@ -228,7 +228,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
           <ul>
             <li>Start a new subscription from Ascend's in-app paywall.</li>
             <li>Restore an existing purchase from the paywall or <strong>Settings &gt; Restore Purchases</strong>.</li>
-            <li>Manage or cancel through your Apple Account subscription settings.</li>
+            <li>Manage or cancel from <strong>Settings &gt; Manage Subscription</strong> in Ascend, which opens your Apple Account subscription settings.</li>
           </ul>
           <p>
             Deleting Ascend or your Ascend account does not cancel an App Store subscription.
@@ -237,26 +237,28 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         </section>
 
         <section class="support-topic">
-          <h3>Apple Health import</h3>
+          <h3>Headphones and step counting</h3>
           <p>
-            Open <strong>Settings &gt; Edit Profile &gt; Integrations &gt; Apple Health</strong> to connect, reconnect, or change automatic import.
-            In the Health app, confirm Ascend can read workouts and the fitness data you want imported.
+            Ascend counts your steps from the motion sensors in your AirPods or Beats.
+            An Apple Watch or an iPhone in your pocket cannot count a climb, so a compatible pair is required to race.
           </p>
           <p>
-            Ascend imports supported stair-stepper workouts.
-            If a workout is missing, confirm it appears in Apple Health, then reopen Ascend and check the import flow again.
+            If Ascend will not start a climb, connect the headphones to this iPhone, wear both sides, and allow Ascend's Motion &amp; Fitness permission in <strong>iOS Settings &gt; Apps &gt; Ascend</strong>.
+            The in-app compatible-headphones list shows every supported model.
           </p>
         </section>
 
         <section class="support-topic">
-          <h3>Bluetooth heart-rate monitors</h3>
+          <h3>Heart rate</h3>
           <p>
-            Open <strong>Settings &gt; Edit Profile &gt; Integrations &gt; Heart Rate Monitor</strong>.
+            For live heart rate and effort zones while you climb, open <strong>Settings &gt; Edit Profile &gt; Integrations &gt; Heart Rate Monitor</strong>.
             Ascend connects to Bluetooth chest straps that use the standard Bluetooth Heart Rate service.
+            Turn on Bluetooth, allow Ascend's Bluetooth permission, and disconnect the strap from any other app holding the connection.
           </p>
           <p>
-            Turn on Bluetooth, allow Ascend's Bluetooth permission, and disconnect the strap from any other app that is holding the connection.
             An Apple Watch cannot stream live heart rate directly to Ascend.
+            It can still supply heart rate after the fact: connect Apple Health in <strong>Settings &gt; Edit Profile &gt; Integrations &gt; Apple Health</strong> and allow Ascend to read heart rate, and Ascend attaches what your watch, or any wearable that writes to Apple Health, recorded while you were climbing.
+            Ascend does not import workouts from Apple Health.
           </p>
         </section>
 
@@ -275,6 +277,10 @@ import BaseLayout from '../layouts/BaseLayout.astro';
             For security, Ascend may ask you to sign in again.
           </p>
           <p>
+            If your subscription has lapsed and Ascend is held on the <strong>Open subscription options</strong> screen, use the <strong>Delete account</strong> link below Restore Purchases on that screen.
+            Deletion never requires an active subscription.
+          </p>
+          <p>
             If you cannot access the in-app deletion flow, email <a href="mailto:pavayt@gmail.com?subject=Ascend%20Account%20Deletion">pavayt@gmail.com</a> from the address tied to your account.
             We will verify ownership before acting.
           </p>
@@ -282,7 +288,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       </div>
 
       <p class="support-note">
-        Ascend is a fitness tracking and competition app, not a medical service.
+        Ascend is a racing and fitness app, not a medical service.
         Stop exercising and seek appropriate medical care if you experience pain, dizziness, chest pain, faintness, or another concerning symptom.
       </p>
     </main>

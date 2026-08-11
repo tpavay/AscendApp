@@ -13,15 +13,22 @@ climbs each. That gives a daily climb for a year plus one spare.
 
 | Continent     | Current catalog count | Target for 252 | Add for 252 | Target for 366 | Add for 366 |
 | ------------- | --------------------: | -------------: | ----------: | -------------: | ----------: |
-| Africa        |                     7 |             42 |          35 |             61 |          54 |
-| Asia          |                    17 |             42 |          25 |             61 |          44 |
-| Europe        |                    16 |             42 |          26 |             61 |          45 |
-| North America |                    16 |             42 |          26 |             61 |          45 |
+| Africa        |                     4 |             42 |          38 |             61 |          57 |
+| Asia          |                    25 |             42 |          17 |             61 |          36 |
+| Europe        |                    29 |             42 |          13 |             61 |          32 |
+| North America |                    14 |             42 |          28 |             61 |          47 |
 | Oceania       |                     8 |             42 |          34 |             61 |          53 |
-| South America |                    11 |             42 |          31 |             61 |          50 |
+| South America |                     7 |             42 |          35 |             61 |          54 |
 
-If V1 becomes "verified real stair-climb venues only," audit the current 75 too.
-Many current climbs are climb-equivalent targets, not known public stair venues.
+Counts are catalog rows in `web/public/climbs/catalog-v1.json`, `hidden` and `comingSoon` included;
+recount from that file rather than trusting this table after a catalog change.
+
+The "verified real stair-climb venues only" audit has since happened.
+[Issue #440](https://github.com/tpavay/AscendApp/issues/440) deleted the seventeen entries with no
+race anyone can run, hid the twenty-one mountains for a future endurance ladder, and left the seven
+plausible-but-unverified stair routes as `comingSoon`.
+See `docs/climb-real-stair-counts.md` for which entry fell into which bucket.
+Judge expansion candidates below against that bar.
 
 ## Eligibility Rules
 
@@ -32,8 +39,10 @@ A candidate should pass all of these before becoming catalog data:
 - Actual climbable stair route: official stair race, charity stair climb,
   public stair access, guided stair challenge, or a documented recurring event.
 - Source confirms the route, not just the building height.
-- Prefer source-confirmed `realStairCount`; otherwise source-confirmed floors or
-  climb height can be used with a lower confidence flag.
+- A source-confirmed `realStairCount`, recorded per the rules in
+  `docs/climb-real-stair-counts.md`. A height-derived step count is never a race
+  distance, so a candidate with no citable count is left null rather than
+  estimated from floors or height.
 - No proposed buildings, elevator-only landmarks, roof-access-only attractions,
   or height-only iconic venues.
 
@@ -43,10 +52,10 @@ interest, not evidence people climb the stairs.
 
 ## Verification Status
 
-- `confirmed`: source shows the venue is climbed and gives stairs, floors, or
-  route height.
-- `needs_metrics`: source shows a climb exists, but stair/floor/height data is
-  missing or inconsistent.
+- `confirmed`: source shows the venue is climbed and gives a citable stair count
+  for the route.
+- `needs_metrics`: source shows a climb exists, but the stair count is missing or
+  inconsistent.
 - `needs_access`: venue is plausible but no reliable public/event climb source
   is known yet.
 - `reject`: not a real public/event climb for Ascend's purposes.
@@ -71,11 +80,11 @@ research into normalized candidate JSON/CSV.
 | Venue                  | City        | Country | Known climb data                                                 | Status        | Source                                                                                                           |
 | ---------------------- | ----------- | ------- | ---------------------------------------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------- |
 | One World Trade Center | New York    | USA     | 2,226 stairs, 104 floors                                         | confirmed     | https://www.towerrunning.com/races/r2460/                                                                        |
-| 875 N Michigan Avenue  | Chicago     | USA     | 1,632 stairs, 94 floors                                          | confirmed     | https://www.towerrunning.com/races/r2115/                                                                        |
+| 875 N Michigan Avenue  | Chicago     | USA     | in current catalog; count verified, see `docs/climb-real-stair-counts.md` | confirmed     | https://www.towerrunning.com/races/r2115/                                                                        |
 | Empire State Building  | New York    | USA     | 1,576 stairs, 86 flights                                         | confirmed     | https://www.esbnyc.com/2025-esb-run-up                                                                           |
 | Republic Plaza         | Denver      | USA     | 1,098 stairs, 56 flights                                         | confirmed     | https://www.milehighstairclimb.com/                                                                              |
 | U.S. Bank Tower        | Los Angeles | USA     | 1,664 steps, 75 stories                                          | confirmed     | https://raceroster.com/events/2025/110229/ymca-stair-climb-and-urban-hike                                        |
-| Space Needle           | Seattle     | USA     | Base 2 Space event; event step count needs final reconciliation  | needs_metrics | https://www.spaceneedle.com/                                                                                     |
+| Space Needle           | Seattle     | USA     | in current catalog; count verified, see `docs/climb-real-stair-counts.md` | confirmed | https://www.spaceneedle.com/base2space                                                                           |
 | Tower of the Americas  | San Antonio | USA     | annual stair climb; 65 flights climbed twice for memorial format | needs_metrics | https://www.ksat.com/news/local/2023/09/11/annual-stair-climb-at-tower-of-the-americas-stirs-up-memories-of-911/ |
 
 ### South America
@@ -84,9 +93,9 @@ research into normalized candidate JSON/CSV.
 | ------------------- | ---------- | -------- | ------------------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------- |
 | Torre Colpatria     | Bogota     | Colombia | 980 stairs, 50 floors                                               | confirmed    | https://www.towerrunning.com/races/r1400/                                                    |
 | We Apartments       | Chapeco    | Brazil   | 508 race steps, 100 m race height                                   | confirmed    | https://www.skyrunning.com/qualified-race-label/                                             |
-| Gran Torre Santiago | Santiago   | Chile    | building exists in current catalog; stair climb access not verified | needs_access | https://group.schindler.com/en/media/stories/costanera-center-delivering-on-every-level.html |
-| Farol Santander     | Sao Paulo  | Brazil   | in current catalog; stair climb route not verified                  | needs_access | Current catalog                                                                              |
-| Palacio Salvo       | Montevideo | Uruguay  | in current catalog; stair climb route not verified                  | needs_access | Current catalog                                                                              |
+| Gran Torre Santiago | Santiago   | Chile    | removed from the catalog by #440; stair climb access not verified   | needs_access | https://group.schindler.com/en/media/stories/costanera-center-delivering-on-every-level.html |
+| Farol Santander     | Sao Paulo  | Brazil   | in current catalog; route and count verified, see `docs/climb-real-stair-counts.md` | confirmed | https://www.towerrunning.com/races/r3075/                                                    |
+| Palacio Salvo       | Montevideo | Uruguay  | removed from the catalog by #440; stair climb route not verified    | needs_access | Prior catalog entry                                                                          |
 
 South America needs deeper research. The first pass should focus on Colombia,
 Brazil, Chile, Argentina, Uruguay, and Peru tower-run organizers and charity
@@ -96,11 +105,11 @@ climbs.
 
 | Venue                  | City       | Country        | Known climb data                       | Status    | Source                                                                                                                                |
 | ---------------------- | ---------- | -------------- | -------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| TK Elevator Test Tower | Rottweil   | Germany        | 1,390 steps to public viewing platform | confirmed | https://towerrun.tkelevator.com/infos_en/                                                                                             |
-| MesseTurm              | Frankfurt  | Germany        | 1,200 stairs, 61 floors                | confirmed | https://www.towerrunning.com/races/                                                                                                   |
-| Post Tower             | Bonn       | Germany        | 828 stairs, 41 floors                  | confirmed | https://www.towerrunning.com/races/r2489/                                                                                             |
-| KoelnTurm              | Cologne    | Germany        | 705 stairs, 39 floors                  | confirmed | https://www.towerrunning.com/races/r1470/                                                                                             |
-| UFO Tower              | Bratislava | Slovakia       | 430 stairs, 23 floors                  | confirmed | https://www.towerrunning.com/races/                                                                                                   |
+| TK Elevator Test Tower | Rottweil   | Germany        | in current catalog; count verified, see `docs/climb-real-stair-counts.md` | confirmed | https://towerrun.tkelevator.com/infos_en/                                                                                             |
+| MesseTurm              | Frankfurt  | Germany        | in current catalog; count verified, see `docs/climb-real-stair-counts.md` | confirmed | https://www.towerrunning.com/races/                                                                                                   |
+| Post Tower             | Bonn       | Germany        | in current catalog; count verified, see `docs/climb-real-stair-counts.md` | confirmed | https://www.towerrunning.com/races/r2489/                                                                                             |
+| KoelnTurm              | Cologne    | Germany        | in current catalog; sources disagree, see `docs/climb-real-stair-counts.md` | confirmed | https://www.towerrunning.com/races/r1470/                                                                                             |
+| UFO Tower              | Bratislava | Slovakia       | in current catalog; count verified, see `docs/climb-real-stair-counts.md` | confirmed | https://www.towerrunning.com/races/                                                                                                   |
 | 22 Bishopsgate         | London     | United Kingdom | over 1,500 stairs, 58 floors           | confirmed | https://fundraise.rnli.org/event/tower-run/home                                                                                       |
 | Broadgate Tower        | London     | United Kingdom | 877 steps, 35 stories                  | confirmed | https://www.theguardian.com/lifeandstyle/the-running-blog/2017/dec/06/a-step-up-what-is-it-like-tower-running-up-a-35-storey-building |
 
@@ -110,10 +119,10 @@ climbs.
 | ------------------------------ | ------------ | -------------------- | ------------------------------------------------------------------- | ------------- | ---------------------------------------------------------- |
 | Abeno Harukas                  | Osaka        | Japan                | 1,610 stairs                                                        | confirmed     | https://verticalworldcircuit.com/                          |
 | Jumeirah Emirates Towers       | Dubai        | United Arab Emirates | 1,334 steps, 52 floors                                              | confirmed     | https://verticalworldcircuit.com/                          |
-| Macau Tower                    | Macau        | China                | 1,298 steps to 61st-floor Adventure Deck                            | confirmed     | https://www.oxfam.org.hk/en/join-our-events/oxfam-towerrun |
+| Macau Tower                    | Macau        | China                | in current catalog; count verified, see `docs/climb-real-stair-counts.md` | confirmed     | https://www.oxfam.org.hk/en/join-our-events/oxfam-towerrun |
 | Canton Tower                   | Guangzhou    | China                | 2,738 stairs, 112 floors                                            | confirmed     | https://www.towerrunning.com/races/r1739/                  |
 | Shimao Global Financial Center | Changsha     | China                | 2,238 stairs, 78 floors                                             | confirmed     | https://www.towerrunning.com/races/                        |
-| Taipei 101                     | Taipei       | Taiwan               | race confirmed; reconcile official stair count before catalog entry | needs_metrics | https://www.towerrunning.com/towerrunning-tour-2026/       |
+| Taipei 101                     | Taipei       | Taiwan               | in current catalog; count verified, see `docs/climb-real-stair-counts.md` | confirmed | https://www.taipei101-runup.com.tw/2024/en/en_introduction.aspx |
 | KL Tower                       | Kuala Lumpur | Malaysia             | race confirmed; stair count needs source confirmation               | needs_metrics | https://www.towerrunning.com/towerrunning-tour-2026/       |
 
 ### Africa

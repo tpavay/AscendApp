@@ -9,11 +9,11 @@ import SwiftData
 /// Fetches the in-app sensor workouts Apple Health enrichment can act on, without scanning the
 /// whole store.
 ///
-/// Enrichment only ever targets `.headphoneMotion` sessions - workouts Ascend recorded itself and
-/// wants Apple Health's heart rate, calories and METs for. Imported Apple Health workouts arrive
-/// with those metrics already attached and are never enrichment candidates, so predicating on
-/// source is what keeps this bounded by the user's *in-app* history rather than by the size of
-/// their Apple Health history (ASCEND-IOS-1K).
+/// Enrichment only ever targets `.headphoneMotion` sessions - climbs Ascend recorded itself and
+/// wants Apple Health's heart rate and calories for. Predicating on source is what keeps this
+/// bounded by the climber's *in-app* history rather than by the size of the whole local store,
+/// which for a long-standing account still holds records from before Ascend dropped importing
+/// (ASCEND-IOS-1K).
 enum InAppSensorWorkoutQuery {
     /// Every in-app sensor workout, oldest first.
     ///
@@ -22,7 +22,7 @@ enum InAppSensorWorkoutQuery {
     /// non-empty, which a store predicate cannot see inside `heartRateData`. Narrowing on the
     /// nullable metric columns would silently drop a workout whose series is present but decodes
     /// to empty - reachable today, because several write paths encode a series unconditionally
-    /// (`applyAppleHealthMetrics`, the live heart-rate buffer, restore) - and that workout would
+    /// (the live heart-rate buffer, restore) - and that workout would
     /// stop being retried. Callers keep their exact `needsAppleHealthEnrichment` check, so this
     /// stays a strict superset of the scan it replaced, with no change in enrichment semantics.
     ///
@@ -31,14 +31,7 @@ enum InAppSensorWorkoutQuery {
     /// what ASCEND-IOS-1K scaled on. Making it constant means normalising an empty heart-rate
     /// series to `nil` at every write site first - a workout-model change, not a query change.
     ///
-    /// State the cost at full size rather than at its best case: enrichment runs once per
-    /// imported candidate, so a backfill of *n* Apple Health workouts pays this fetch *n* times.
-    /// The retained shape is `n x (in-app session count)`, not one linear pass. That is still far
-    /// below the whole-store scan it replaced - imported Apple Health workouts, the rows that
-    /// grow without bound and carry the inline heart-rate series, are excluded by the predicate -
-    /// but it is not free, and hoisting it out of the per-candidate loop is not mechanical: it
-    /// would change when a just-imported sample can still merge into an existing in-app workout.
-    /// See `WorkoutImportCoordinator.importAppleHealthCandidate`.
+    /// One fetch per enrichment pass, linear in the climber's in-app session count.
     static func allInAppSensorWorkouts(in modelContext: ModelContext) throws -> [Workout] {
         let inAppSensorSourceRawValue = WorkoutSource.headphoneMotion.rawValue
         let descriptor = FetchDescriptor<Workout>(
@@ -46,6 +39,27 @@ enum InAppSensorWorkoutQuery {
                 workout.sourceRawValue == inAppSensorSourceRawValue
             },
             sortBy: [SortDescriptor(\.date, order: .forward)]
+        )
+
+        return try modelContext.fetch(descriptor)
+    }
+
+    /// In-app sensor workouts that started on or after `date`, newest first.
+    ///
+    /// What the enrichment scheduler re-arms from on launch and on foreground. Bounded by the
+    /// retry window rather than by the user's in-app history, so a climber with a thousand
+    /// sessions pays for the handful recorded in the last few days - the only ones any
+    /// schedule can still act on.
+    static func inAppSensorWorkouts(
+        startingOnOrAfter date: Date,
+        in modelContext: ModelContext
+    ) throws -> [Workout] {
+        let inAppSensorSourceRawValue = WorkoutSource.headphoneMotion.rawValue
+        let descriptor = FetchDescriptor<Workout>(
+            predicate: #Predicate<Workout> { workout in
+                workout.sourceRawValue == inAppSensorSourceRawValue && workout.date >= date
+            },
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
         )
 
         return try modelContext.fetch(descriptor)

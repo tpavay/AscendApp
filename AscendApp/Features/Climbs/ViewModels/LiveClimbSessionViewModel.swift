@@ -171,6 +171,10 @@ final class LiveClimbSessionViewModel {
     private let backgroundSessionService: LiveClimbBackgroundSessionService
     private let draftStore: ActiveHeadphoneWorkoutDraftStore
     private let heartRateRecorder: LiveHeartRateRecorder
+    /// Read once per session. `leaderboardRows` is rebuilt on every step and
+    /// elapsed tick, so the climber's name cannot be resolved from the cache
+    /// inside it.
+    private let currentUserDisplayName = UserDataRepository.shared.getCachedDisplayName()
 
     private(set) var phase: LiveClimbSessionPhase = .idle
     private(set) var recordedResult: HeadphoneMotionSessionResult?
@@ -348,14 +352,16 @@ final class LiveClimbSessionViewModel {
             return [
                 LiveReplayLeaderboardRow.currentUser(
                     rank: nil,
-                    steps: totalRecordedSteps
+                    steps: totalRecordedSteps,
+                    displayName: currentUserDisplayName
                 )
             ]
         }
 
         return leaderboardWindow.locallyRankedRows(
             currentSteps: totalRecordedSteps,
-            currentElapsedSeconds: Int(displayedDuration.rounded(.down))
+            currentElapsedSeconds: Int(displayedDuration.rounded(.down)),
+            displayName: currentUserDisplayName
         )
     }
 
@@ -751,7 +757,7 @@ final class LiveClimbSessionViewModel {
     }
 
     /// Buffers one reading per second-tick while recording so completed
-    /// workouts carry the same heart-rate series shape as imported ones —
+    /// workouts carry the same heart-rate series shape enrichment writes -
     /// the existing sync pipeline uploads it with zero extra plumbing.
     func recordHeartRateSampleForSessionTick(at now: Date = Date()) {
         guard let measurement = heartRateRecorder.currentMeasurement else { return }
@@ -1119,12 +1125,10 @@ final class LiveClimbSessionViewModel {
             newWorkouts: [workout],
             changedWorkouts: [workout]
         )
-        Task { @MainActor in
-            await WorkoutImportCoordinator.shared.enrichInAppWorkoutWithAppleHealthIfPossible(
-                workout,
-                modelContext: modelContext
-            )
-        }
+        AppleHealthEnrichmentService.shared.trackNewlyRecordedWorkout(
+            workout,
+            modelContext: modelContext
+        )
 
         // Just Climb sessions have no attempt to rank - saving one is the finish.
         return SavedLiveClimbSession(

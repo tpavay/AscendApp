@@ -4,11 +4,15 @@ import test from "node:test";
 
 import {
   APP_PARAMETER_SOURCE_PATHS,
+  SETTING_PARAMETERS,
   appFlagKeys,
   findActiveKillSwitches,
+  findArmedSettings,
   flagParityProblems,
+  isMonotonicSetting,
   isParameterOff,
   isSettingParameter,
+  overrideRecoveryStep,
   templateParameters,
   templateShapeProblems,
   templateVersionNumber,
@@ -39,8 +43,15 @@ function parameterSource(fileName) {
   return source;
 }
 
+// A live project in the healthy state: exactly what publishing the checked-in template produces,
+// which is the baseline `findArmedSettings` compares against.
+function liveTemplateMatchingCheckedIn() {
+  return structuredClone({ parameters: templateParameters(localTemplate) });
+}
+
 const flagSource = parameterSource("RemoteFeatureFlag.swift");
 const settingSource = parameterSource("RemoteConfigSetting.swift");
+const appVersionSource = parameterSource("RemoteAppVersionParameter.swift");
 
 test("every checked-in parameter ships in its healthy shape", () => {
   assert.ok(Object.keys(templateParameters(localTemplate)).length > 0);
@@ -190,6 +201,15 @@ test("a setting is held to its own shape contract, not the kill-switch one", () 
   assert.ok(problems.some((problem) => problem.includes("healthy baseline")));
 });
 
+test("minimum and recommended app versions ship as inert strings", () => {
+  for (const key of ["minimum_supported_app_version", "recommended_app_version"]) {
+    assert.ok(isSettingParameter(key));
+    assert.ok(appFlagKeys(appVersionSource).includes(key));
+    assert.equal(localTemplate.parameters[key].valueType, "STRING");
+    assert.equal(localTemplate.parameters[key].defaultValue.value, "0.0.0");
+  }
+});
+
 test("a flag the app reads with no parameter behind it is reported", () => {
   const problems = flagParityProblems({parameters: {}}, 'case newSwitch = "new_switch_enabled"');
 
@@ -260,6 +280,132 @@ test("a parameter missing from the live project is not mistaken for a kill switc
   assert.deepEqual(findActiveKillSwitches({ parameters: {} }, localTemplate), []);
 });
 
+test("a setting an operator parked at false still refuses an automated republish", () => {
+  // The client reads `stringValue` and never inspects `valueType`, so a setting holding "false"
+  // is honoured exactly like a switch. Excluding settings wholesale would let the automated
+  // publisher restate it as its healthy baseline mid-incident.
+  const live = {
+    parameters: {
+      workout_sync_recovery_epoch: { defaultValue: { value: "false" } },
+    },
+  };
+
+  assert.deepEqual(findActiveKillSwitches(live, localTemplate), ["workout_sync_recovery_epoch"]);
+});
+
+test("an armed minimum version stops the full replace that would return it to 0.0.0", () => {
+  // The hazard the Boolean guard cannot see: a threshold has no "false" to recognise, and the
+  // checked-in template is pinned to the inert baseline, so publishing it IS the disarm.
+  const live = liveTemplateMatchingCheckedIn();
+  live.parameters.minimum_supported_app_version.defaultValue.value = "1.4.0";
+
+  assert.deepEqual(findArmedSettings(live, localTemplate), [
+    "minimum_supported_app_version",
+  ]);
+});
+
+test("a threshold armed only through a condition is caught as well", () => {
+  // The shape the App Review guidance tells a captain to use: the default stays inert and the
+  // lockout rides on a Firebase App version condition, which a full replace would drop.
+  const live = liveTemplateMatchingCheckedIn();
+  live.parameters.minimum_supported_app_version.conditionalValues = {
+    "iOS build 1.3.0": { value: "1.4.0" },
+  };
+
+  assert.deepEqual(findArmedSettings(live, localTemplate), [
+    "minimum_supported_app_version",
+  ]);
+});
+
+test("a bumped sync recovery epoch stops the full replace the same way", () => {
+  // Same shape as an armed threshold, and the reason the guard covers every setting rather than
+  // the captain-only two. The client compares the recovery basis for difference rather than
+  // magnitude, so restating "0" does not strand the lever - it fires it, re-opening every stopped
+  // sync series fleet-wide at a moment nobody chose.
+  const live = liveTemplateMatchingCheckedIn();
+  live.parameters.workout_sync_recovery_epoch.defaultValue.value = "3";
+
+  assert.deepEqual(findArmedSettings(live, localTemplate), ["workout_sync_recovery_epoch"]);
+});
+
+test("overriding the epoch's permanent refusal comes with the value to put back", () => {
+  // The epoch never returns to the checked-in floor, so unlike a switch or a threshold its
+  // refusal is permanent and the override is the only way past it. That makes the follow-up part
+  // of the operation rather than a tidy-up, so the tool names it with the live number.
+  const live = liveTemplateMatchingCheckedIn();
+  live.parameters.workout_sync_recovery_epoch.defaultValue.value = "3";
+
+  const step = overrideRecoveryStep("workout_sync_recovery_epoch", live);
+
+  assert.match(step, /workout_sync_recovery_epoch/);
+  assert.match(step, /"3"/);
+  assert.match(step, /back to at least/);
+});
+
+test("a lever that returns to parity on its own needs no follow-up step", () => {
+  // A threshold disarms back to the checked-in baseline, so publishing it IS the disarm. Only a
+  // monotonic setting is left below where it was.
+  const live = liveTemplateMatchingCheckedIn();
+  live.parameters.minimum_supported_app_version.defaultValue.value = "1.4.0";
+
+  assert.equal(overrideRecoveryStep("minimum_supported_app_version", live), null);
+  assert.equal(overrideRecoveryStep("workout_cloud_backup_writes_enabled", live), null);
+});
+
+test("only settings marked monotonic carry the permanent-refusal follow-up", () => {
+  assert.ok(isMonotonicSetting("workout_sync_recovery_epoch"));
+  assert.equal(isMonotonicSetting("minimum_supported_app_version"), false);
+  assert.equal(isMonotonicSetting("workout_cloud_backup_writes_enabled"), false);
+});
+
+test("the full replace prints the follow-up on refusal and on the way through", () => {
+  // Printed on both paths on purpose: the acknowledged run is the last output before the publish
+  // that makes the follow-up necessary, and is the run that will not be read twice.
+  const deploy = repositoryText("scripts/deploy-remote-config.mjs");
+
+  assert.match(deploy, /overrideRecoveryStep/);
+  assert.match(deploy, /recoverySteps\(unacknowledged, liveTemplate\)/);
+  assert.match(deploy, /recoverySteps\(leversInUse, liveTemplate\)/);
+});
+
+test("every setting is covered by the full replace guard, not a named subset", () => {
+  // Enumerated from the catalog, so a setting added later is guarded without being wired in
+  // here - the drift that left the epoch uncovered when the guard was written for thresholds.
+  for (const key of Object.keys(SETTING_PARAMETERS)) {
+    const live = liveTemplateMatchingCheckedIn();
+    live.parameters[key].defaultValue.value = "an operator moved this";
+
+    assert.deepEqual(findArmedSettings(live, localTemplate), [key]);
+  }
+});
+
+test("settings published at their healthy baseline let the full replace proceed", () => {
+  assert.deepEqual(findArmedSettings(liveTemplateMatchingCheckedIn(), localTemplate), []);
+});
+
+test("a project that has never held the settings is not reported as moved", () => {
+  // The first publish, which is exactly what a captain runs this script to do.
+  assert.deepEqual(findArmedSettings({ parameters: {} }, localTemplate), []);
+});
+
+test("the full replace refuses on a moved setting, not just on an off switch", () => {
+  const deploy = repositoryText("scripts/deploy-remote-config.mjs");
+
+  assert.match(deploy, /findArmedSettings/);
+  assert.match(deploy, /moved away from its checked-in baseline/);
+  assert.match(deploy, /--allow-overwriting-active-kill-switch/);
+});
+
+test("a captain-only parameter is never treated as an automated publish's blocker", () => {
+  const live = {
+    parameters: {
+      minimum_supported_app_version: { defaultValue: { value: "false" } },
+    },
+  };
+
+  assert.deepEqual(findActiveKillSwitches(live, localTemplate), []);
+});
+
 test("an empty live template is reported as every switch being unreachable", () => {
   // This is #318 exactly, and the reason the gap survived: the checked-in template was
   // right, RemoteFeatureFlag.swift was right, and CI compared those two to each other
@@ -299,9 +445,9 @@ test("both RemoteConfig enums declare keys the published check covers", () => {
 test("a setting missing from the live backend fails the archive like a switch does", () => {
   const live = {
     parameters: Object.fromEntries(
-      appFlagKeys(flagSource).map((key) => [
+      [...appFlagKeys(flagSource), ...appFlagKeys(appVersionSource)].map((key) => [
         key,
-        { valueType: "BOOLEAN", defaultValue: { value: "true" } },
+        localTemplate.parameters[key],
       ]),
     ),
   };
@@ -313,6 +459,17 @@ test("a setting missing from the live backend fails the archive like a switch do
 
   assert.equal(problems.length, 1);
   assert.match(problems[0], /workout_sync_recovery_epoch is missing from the live template/);
+});
+
+test("captain-only version parameters remain mandatory in the live archive check", () => {
+  const versionKeys = appFlagKeys(appVersionSource);
+  const problems = unpublishedFlagProblems({}, versionKeys);
+
+  assert.equal(problems.length, 2);
+  for (const key of versionKeys) {
+    assert.ok(problems.some((problem) => problem.includes(key)));
+  }
+  assert.deepEqual(unpublishedFlagProblems(localTemplate, versionKeys), []);
 });
 
 test("a setting published at its own declared type is not reported as mistyped", () => {

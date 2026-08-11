@@ -53,7 +53,14 @@ final class ClimbDetailViewModel {
     }
 
     var actionTitle: String {
-        climb.isAvailable ? "Start Live Climb" : "Coming Soon"
+        switch climb.releaseState {
+        case .available:
+            "Start Live Climb"
+        case .comingSoon:
+            "Coming Soon"
+        case .hidden, .disabled:
+            "Not Raceable"
+        }
     }
 
     var isActionEnabled: Bool {
@@ -132,14 +139,13 @@ final class ClimbDetailViewModel {
     }
 
     var stripOrderText: String? {
-        guard communityCompletedCount > 0 else { return nil }
-
-        if let order = personalFinisherOrder,
-           order <= communityCompletedCount {
-            return "#\(order.formatted())/\(communityCompletedCount.formatted())"
+        guard let order = personalFinisherOrder,
+              communityCompletedCount > 0,
+              order <= communityCompletedCount else {
+            return nil
         }
 
-        return "--/\(communityCompletedCount.formatted())"
+        return "#\(order.formatted())/\(communityCompletedCount.formatted())"
     }
 
     func refresh(modelContext: ModelContext) {
