@@ -114,6 +114,48 @@ struct PublicProfileAchievementsVisualEvidenceTests {
         )
     }
 
+    /// The shelf scrolls horizontally, so a phone-width photograph cuts the tail off. This one
+    /// is drawn wide enough to hold all six badges at once, which is the only frame that shows
+    /// the ladder's order end to end and that TOP 10 / TOP 100 kept their framed tiles while
+    /// the four cut-out badges stand free.
+    @Test
+    func theWholeOwnProfileLadderFitsInOneReviewableFrame() throws {
+        try Self.captureOwnShelf(
+            name: "own-profile-achievements-full-ladder-wide",
+            caption: "Own profile, whole shelf unscrolled: First Ascents · CHAMPION · #2 · #3 free-standing, TOP 10 · TOP 100 still framed",
+            achievements: Self.champion,
+            held: [
+                firstAscent(id: "eiffel", name: "Eiffel Tower"),
+                firstAscent(id: "cn", name: "CN Tower")
+            ],
+            width: 680
+        )
+    }
+
+    @Test
+    func theWholeOtherClimberLadderFitsInOneReviewableFrame() throws {
+        try Self.capture(
+            name: "public-profile-achievements-full-ladder-wide",
+            caption: "Another climber, whole shelf unscrolled: CHAMPION · #2 · #3 · TOP 10 · TOP 100, no TOP 3",
+            achievements: Self.champion,
+            isOtherLoading: false,
+            width: 680
+        )
+    }
+
+    /// The activation state stands the same cut-out flag beside its copy. It carries no circle
+    /// clip and no stroke, because clipping a cut-out to a circle slices the flag off.
+    @Test
+    func theActivationStateStandsTheFirstAscentFlagFree() throws {
+        try Self.captureOwnShelf(
+            name: "own-profile-achievements-activation-empty",
+            caption: "Nothing earned yet: the First Ascent flag stands free, no circle clip, no stroke",
+            achievements: .empty,
+            held: [],
+            open: [firstAscent(id: "burj", name: "Burj Khalifa")]
+        )
+    }
+
     private func firstAscent(id: String, name: String) -> ProfileFirstAscentSummary {
         ProfileFirstAscentSummary(
             climbId: id,
@@ -129,7 +171,9 @@ struct PublicProfileAchievementsVisualEvidenceTests {
         name: String,
         caption: String,
         achievements: ProfileAchievementLadder,
-        held: [ProfileFirstAscentSummary]
+        held: [ProfileFirstAscentSummary],
+        open: [ProfileFirstAscentSummary] = [],
+        width: CGFloat = 402
     ) throws {
         let content = VStack(alignment: .leading, spacing: 14) {
             Text(caption)
@@ -139,7 +183,7 @@ struct PublicProfileAchievementsVisualEvidenceTests {
 
             PrestigeSection(
                 held: held,
-                open: [],
+                open: open,
                 achievements: achievements,
                 mode: .own,
                 notificationState: ClimbDropNotificationState(
@@ -149,31 +193,32 @@ struct PublicProfileAchievementsVisualEvidenceTests {
             )
         }
         .padding(20)
-        .frame(width: 402, alignment: .topLeading)
+        .frame(width: width, alignment: .topLeading)
         .background(ProfileVisualStyle.background)
         .environment(\.colorScheme, .dark)
 
         let host = UIHostingController(rootView: content)
         host.overrideUserInterfaceStyle = .dark
-        let window = try makeWindow(host: host)
+        let window = try makeWindow(host: host, width: width)
         defer { tearDown(window) }
 
         var fitted: CGFloat = 400
         for _ in 0..<10 {
             pump(window)
             fitted = host.sizeThatFits(
-                in: CGSize(width: 402, height: CGFloat.greatestFiniteMagnitude)
+                in: CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
             ).height
         }
 
-        try write(draw(window, fittingHeight: fitted), name: name)
+        try write(draw(window, width: width, fittingHeight: fitted), name: name)
     }
 
     private static func capture(
         name: String,
         caption: String,
         achievements: ProfileAchievementLadder,
-        isOtherLoading: Bool
+        isOtherLoading: Bool,
+        width: CGFloat = 402
     ) throws {
         let content = VStack(alignment: .leading, spacing: 14) {
             Text(caption)
@@ -201,33 +246,36 @@ struct PublicProfileAchievementsVisualEvidenceTests {
             }
         }
         .padding(20)
-        .frame(width: 402, alignment: .topLeading)
+        .frame(width: width, alignment: .topLeading)
         .background(ProfileVisualStyle.background)
         .environment(\.colorScheme, .dark)
 
         let host = UIHostingController(rootView: content)
         host.overrideUserInterfaceStyle = .dark
-        let window = try makeWindow(host: host)
+        let window = try makeWindow(host: host, width: width)
         defer { tearDown(window) }
 
         var fitted: CGFloat = 400
         for _ in 0..<10 {
             pump(window)
             fitted = host.sizeThatFits(
-                in: CGSize(width: 402, height: CGFloat.greatestFiniteMagnitude)
+                in: CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
             ).height
         }
 
-        try write(draw(window, fittingHeight: fitted), name: name)
+        try write(draw(window, width: width, fittingHeight: fitted), name: name)
     }
 
-    private static func makeWindow(host: UIHostingController<some View>) throws -> UIWindow {
+    private static func makeWindow(
+        host: UIHostingController<some View>,
+        width: CGFloat
+    ) throws -> UIWindow {
         let scene = try #require(
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first,
             "test host app should expose a live UIWindowScene"
         )
         let window = UIWindow(windowScene: scene)
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: 500)
+        window.frame = CGRect(x: 0, y: 0, width: width, height: 500)
         window.overrideUserInterfaceStyle = .dark
         window.rootViewController = host
         window.makeKeyAndVisible()
@@ -240,8 +288,12 @@ struct PublicProfileAchievementsVisualEvidenceTests {
         RunLoop.current.run(until: Date())
     }
 
-    private static func draw(_ window: UIWindow, fittingHeight: CGFloat) -> UIImage {
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: ceil(fittingHeight))
+    private static func draw(
+        _ window: UIWindow,
+        width: CGFloat,
+        fittingHeight: CGFloat
+    ) -> UIImage {
+        window.frame = CGRect(x: 0, y: 0, width: width, height: ceil(fittingHeight))
         pump(window)
 
         let format = UIGraphicsImageRendererFormat.default()

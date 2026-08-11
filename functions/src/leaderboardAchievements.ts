@@ -231,11 +231,13 @@ function achievementType(
 
 /**
  * These counters are deliberately time-frame agnostic: a weekly, monthly, or
- * yearly finish all land on the same band counter, because the profile badges
- * show one total per band (CHAMPION / TOP 3 / TOP 10 / TOP 100) with no period
- * noun. The per-frame breakdown lives on the achievement records themselves,
- * which is what the achievement history sheet reads. Counting is cumulative:
+ * yearly finish all land on the same band counter, because a profile badge
+ * shows one total per band with no period noun. Counting is cumulative:
  * a Top 1 finish also counts toward Top 3, Top 10, and Top 100.
+ * The per-frame breakdown - and the exact finishing rank the profile shelf
+ * needs for its #2 and #3 badges, which no band counter can supply - lives on
+ * the achievement records themselves, which is what the achievement history
+ * sheet reads. See docs/quality/contracts/podium-placement-badge-ladder.md.
  * @param {number} rank Final leaderboard rank for the closed period.
  * @return {Record<string, unknown>} Merge payload for the profile stats doc.
  */
