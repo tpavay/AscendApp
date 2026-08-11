@@ -49,6 +49,9 @@ description: Use when working on Ascend profiles - own vs other-user profile sur
 - The profile tab entry point remains `ProfileView`, but it should delegate to the own-profile surface rather than owning all profile layout and business logic directly.
 - Profile sections render in this order: identity hero, other-user comparison, Active Standings, Activity + Streak, Collection, Achievements, First Ascents, Records, Trends, Recent Workouts.
 - Active Standings stays above Activity because active competition is more urgent than long-arc history. First Ascents stay above Records because permanent competitive prestige is more aspirational than personal records. Trends sit between Records and Recent Workouts.
+- Both modes render leaderboard achievement bands through the same shelf, `ProfilePrestigeBadgeShelf`, which takes the achievement records as an optional: a record set - even an empty one - makes each band open its history sheet, and `nil` renders plain art.
+  The other-user profile passes `nil` because its public snapshot carries counts without records, so a public badge is deliberately not tappable.
+  That section also stays absent while the other climber's snapshot loads, rather than showing a count nobody has confirmed yet.
 - Collection on Profile is a 3-card preview, never the full Pokedex. Card composition adapts to claimed climbs: 0 claimed shows 3 recommended unclaimed; 1 claimed shows 1 claimed + 2 recommended unclaimed; 2 claimed shows 2 claimed + 1 recommended unclaimed; 3+ claimed shows the 3 most recent claimed.
 - Claimed climbs retain the Climb action. A small checkmark badge overlay on the thumbnail signals claimed state; the action button is never replaced or hidden by completion.
 - Recommended unclaimed Collection cards sort by tier ascending, then step count ascending, and exclude climbs the user has already claimed. The full collection grid lives behind the `View all` link as a separate page.

@@ -128,9 +128,8 @@ struct LeaderboardUserRowView: View {
                     HStack(spacing: 5) {
                         Image("LeaderboardCrown")
                             .resizable()
-                            .scaledToFill()
+                            .scaledToFit()
                             .frame(width: 16, height: 16)
-                            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                             .accessibilityHidden(true)
 
                         Text(crownGapText)

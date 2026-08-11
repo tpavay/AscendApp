@@ -379,6 +379,11 @@ private struct ProfileComparisonBioTab: View {
                 }
             }
 
+            PublicProfileAchievementsSection(
+                achievements: otherUser.achievements,
+                isOtherLoading: isOtherLoading
+            )
+
             ProfileComparisonSection(title: "ALL-TIME") {
                 VStack(spacing: 0) {
                     ProfileComparisonStatRow(
@@ -494,27 +499,6 @@ private struct ProfileComparisonBioTab: View {
 
     private func formatSPM(_ value: Double) -> String {
         value > 0 ? "\(Int(value.rounded()))" : "-"
-    }
-}
-
-private struct ProfileComparisonSection<Content: View>: View {
-    let title: String
-    let content: Content
-
-    init(title: String, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(title)
-                .font(.montserratBold(size: 12))
-                .foregroundStyle(ProfileVisualStyle.secondaryText)
-                .tracking(3)
-
-            content
-        }
     }
 }
 

@@ -75,7 +75,7 @@ private struct LeaderboardPodiumSlotView: View {
         slot.entry
     }
 
-    /// The climber's true competition rank — what the label and medal reflect.
+    /// The climber's true competition rank - what the label and medal reflect.
     private var rank: Int {
         slot.displayedRank
     }
@@ -167,7 +167,11 @@ private struct LeaderboardPodiumSlotView: View {
             Spacer()
                 .frame(height: topInset)
 
-            crownedAvatar
+            if isChampionSlot, entry != nil {
+                crownMarker
+            }
+
+            avatar
                 .frame(width: avatarSize, height: avatarSize)
 
             Text(CompetitionRanking.rankLabel(rank, isTied: isTied))
@@ -203,26 +207,15 @@ private struct LeaderboardPodiumSlotView: View {
         .frame(minHeight: position == 1 ? 184 : 176, alignment: .bottom)
     }
 
-    private var crownedAvatar: some View {
-        avatar
-            .overlay(alignment: .topTrailing) {
-                if rank == 1 {
-                    crownMarker
-                        .offset(x: 7, y: -12)
-                }
-            }
+    private var isChampionSlot: Bool {
+        rank == 1
     }
 
     private var crownMarker: some View {
         Image("LeaderboardCrown")
             .resizable()
-            .scaledToFill()
+            .scaledToFit()
             .frame(width: 30, height: 30)
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(LeaderboardMedal.gold.opacity(colorScheme == .dark ? 0.55 : 0.38), lineWidth: 1)
-            )
             .shadow(color: LeaderboardMedal.gold.opacity(colorScheme == .dark ? 0.48 : 0.26), radius: 6, x: 0, y: 2)
             .accessibilityHidden(true)
     }
@@ -260,11 +253,15 @@ private struct LeaderboardPodiumSlotView: View {
     private var placeholderAvatar: some View {
         Circle()
             .fill(colorScheme == .dark ? .white.opacity(0.10) : .black.opacity(0.08))
-            .overlay(
-                Image(systemName: entry == nil ? "sparkles" : "person.fill")
-                    .font(.system(size: position == 1 ? 24 : 20, weight: .semibold))
-                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.56) : .black.opacity(0.42))
-            )
+            .overlay {
+                if isChampionSlot, entry == nil {
+                    crownMarker
+                } else {
+                    Image(systemName: entry == nil ? "sparkles" : "person.fill")
+                        .font(.system(size: position == 1 ? 24 : 20, weight: .semibold))
+                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.56) : .black.opacity(0.42))
+                }
+            }
     }
 }
 

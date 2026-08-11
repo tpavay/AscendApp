@@ -666,27 +666,10 @@ struct LeaderboardView: View {
     }
 
     private var emptyStateView: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "person.3.fill")
-                .font(.system(size: 36, weight: .semibold))
-                .foregroundStyle(.accent)
-
-            // States which window is empty before it commands. "No entries yet" on a
-            // month that reset hours ago reads as lost data; "August is empty" reads as
-            // a fresh board.
-            Text("\(viewModel.selectedPeriod.windowSubject) is empty.")
-                .font(.montserratBold(size: 20))
-                .foregroundStyle(primaryTextColor)
-                .multilineTextAlignment(.center)
-
-            Text("Take the first spot.")
-                .font(.montserratRegular(size: 14))
-                .foregroundStyle(primaryTextColor.opacity(0.66))
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 44)
-        .padding(.horizontal, 20)
+        LeaderboardEmptyBoardView(
+            period: viewModel.selectedPeriod,
+            metric: viewModel.selectedMetric
+        )
     }
 
     private var filteredEmptyStateView: some View {
