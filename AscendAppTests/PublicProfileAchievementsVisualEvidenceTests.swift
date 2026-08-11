@@ -116,13 +116,13 @@ struct PublicProfileAchievementsVisualEvidenceTests {
 
     /// The shelf scrolls horizontally, so a phone-width photograph cuts the tail off. This one
     /// is drawn wide enough to hold all six badges at once, which is the only frame that shows
-    /// the ladder's order end to end and that TOP 10 / TOP 100 kept their framed tiles while
-    /// the four cut-out badges stand free.
+    /// the ladder's order end to end and that every badge, TOP 10 and TOP 100 included, now
+    /// stands free as cut-out art with no tile and no stroke.
     @Test
     func theWholeOwnProfileLadderFitsInOneReviewableFrame() throws {
         try Self.captureOwnShelf(
             name: "own-profile-achievements-full-ladder-wide",
-            caption: "Own profile, whole shelf unscrolled: First Ascents · CHAMPION · #2 · #3 free-standing, TOP 10 · TOP 100 still framed",
+            caption: "Own profile, whole shelf unscrolled: First Ascents · CHAMPION · #2 · #3 · TOP 10 · TOP 100, every badge free-standing",
             achievements: Self.champion,
             held: [
                 firstAscent(id: "eiffel", name: "Eiffel Tower"),

@@ -23,6 +23,8 @@ The shelf reads First Ascents, CHAMPION, #2, #3, TOP 10, TOP 100, on their own p
 - [ ] AC-3: A profile whose achievement records did not load renders no #2 and no #3 badge, and still renders every badge its banded counters support.
 - [ ] AC-4: The retired TOP 3 band badge never renders, and no code references the `LeaderboardTop3` asset.
 - [ ] AC-5: First Ascents, CHAMPION, #2 and #3 render free-standing - no clip, no tile, no border. TOP 10 and TOP 100 keep their framed tile.
+      Superseded on 2026-08-11 once the TOP 10 and TOP 100 cut-out art landed: every shelf badge is now free-standing,
+      the framed branch and the `usesFreeStandingArt` flag were deleted, and the shelf art contract lives in `ascend-profile`.
 - [ ] AC-6: None of the four replaced assets is set to `template` rendering intent, so each keeps its own colour.
 - [ ] AC-7: Tapping a placement badge on the own-profile shelf lists only the finishes at that exact rank; a band badge still lists every finish inside the band.
 
@@ -53,8 +55,8 @@ That path is reached when a climber's `achievements` subcollection returns empty
 | AC-2 | `ProfileAchievementLadderTests.placementsCountTheExactRecordedRanks` and `.placementsIgnoreRecordsWithNoLeaderboardRankBand`. | Counts exact ranks and proves a First Ascent never becomes a placement. |
 | AC-3 | `PublicProfileAchievementRenderingTests.aProfileWithoutRecordsRendersTheBandsAndNoPlacements`, `ProfileAchievementLadderTests.theBandedFallbackWithholdsBothPlacementBadges`. | Proves the banded ladder emits no placement badge and still emits the bands. |
 | AC-4 | `ProfileAchievementLadderTests.theRetiredTopThreeBandNeverBecomesABadge`, repo-wide grep for `LeaderboardTop3`. | Proves a top-three record raises no TOP 3 badge and the asset reference is gone. |
-| AC-5 | `ProfileAchievementLadderTests.onlyTheFramedBandBadgesKeepTheirTile`, rendered shelf evidence. | Splits the tokens by presentation and photographs the result. |
-| AC-6 | Asset-catalog inspection of the four `Contents.json` files. | Each declares `template-rendering-intent: original`. |
+| AC-5 | Rendered shelf evidence. The token-splitting test was deleted with the flag it read; `PublicProfileAchievementRenderingTests.everyShelfBadgeShipsAsFreeStandingColourArt` now guards the single free-standing presentation. | Photographs the presentation and fails on any asset that reintroduces an opaque backing or template rendering. |
+| AC-6 | `PublicProfileAchievementRenderingTests.everyShelfBadgeShipsAsFreeStandingColourArt`, which superseded the manual `Contents.json` inspection once TOP 10 and TOP 100 joined the free-standing set. | Asserts every shelf asset resolves as `.alwaysOriginal`, so no replacement can reintroduce `template` rendering intent. |
 | AC-7 | `ProfileAchievementLadderTests.aPlacementBadgeListsOnlyItsOwnRankInHistory` and `.aBandBadgeStillListsEveryFinishInsideIt`. | Proves the history filter separates exact placements from bands. |
 
 ## UX evidence

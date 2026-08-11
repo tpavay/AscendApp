@@ -20,6 +20,16 @@ struct PublicProfileAchievementRenderingTests {
         ]
     )
 
+    /// Every asset the achievement shelf can render, First Ascents included.
+    static let shelfAssets = [
+        "FirstAscentBadgeDetailed",
+        "LeaderboardCrown",
+        "LeaderboardSilverMedal",
+        "LeaderboardBronzeMedal",
+        "LeaderboardTop10",
+        "LeaderboardTop100"
+    ]
+
     static func achievementRecord(
         id: String,
         type: ProfileAchievementType,
@@ -214,7 +224,9 @@ struct PublicProfileAchievementRenderingTests {
                 }
             }
             .padding(20)
-            .frame(width: 420, height: 410, alignment: .topLeading)
+            // Wide enough for all five ladder badges: the shelf scrolls in the app, but a
+            // clipped evidence image proves nothing about the badge that fell off its edge.
+            .frame(width: 500, height: 410, alignment: .topLeading)
             .background(ProfileVisualStyle.background)
         )
         renderer.scale = 3
@@ -222,6 +234,95 @@ struct PublicProfileAchievementRenderingTests {
         let image = try #require(renderer.uiImage)
         let png = try #require(image.pngData())
         let url = URL.temporaryDirectory.appending(path: "crown-and-prestige-tokens.png")
+        try png.write(to: url, options: .atomic)
+
+        print("ASCEND_EVIDENCE_PNG \(url.path)")
+    }
+
+    /// The shelf is free-standing cut-out art on every badge. Template rendering would throw the
+    /// colour away and stamp a flat silhouette, and an opaque backing would reintroduce the tile
+    /// the frame removal just deleted - both have to fail here rather than in review.
+    @Test
+    func everyShelfBadgeShipsAsFreeStandingColourArt() throws {
+        for asset in Self.shelfAssets {
+            let image = try #require(UIImage(named: asset), "\(asset) is missing from the catalogue")
+
+            #expect(
+                image.renderingMode == .alwaysOriginal,
+                "\(asset) must declare template-rendering-intent original"
+            )
+
+            let cgImage = try #require(image.cgImage, "\(asset) has no bitmap")
+            let alphaInfo = cgImage.alphaInfo
+            #expect(
+                alphaInfo != .none && alphaInfo != .noneSkipFirst && alphaInfo != .noneSkipLast,
+                "\(asset) carries no alpha channel"
+            )
+
+            let corners = try cornerAlpha(of: cgImage)
+            #expect(corners.allSatisfy { $0 == 0 }, "\(asset) is opaque-backed: corner alpha \(corners)")
+        }
+    }
+
+    /// TOP 10 and TOP 100 render at 46pt and 54pt and nowhere else, so 512px on the long edge is
+    /// well clear of the 54pt @3x ceiling. A future replacement that lands at source resolution
+    /// bloats the bundle for no rendered pixel.
+    @Test
+    func theBandBadgesCarryShelfSizedArt() throws {
+        for asset in ["LeaderboardTop10", "LeaderboardTop100"] {
+            let image = try #require(UIImage(named: asset))
+            let longEdge = max(image.size.width, image.size.height) * image.scale
+
+            #expect(longEdge == 512, "\(asset) is \(longEdge)px on the long edge, expected 512")
+        }
+    }
+
+    @Test
+    func theBandBadgesProduceReviewablePixelsAtShelfSizes() throws {
+        let tokens = ProfilePrestigeToken.leaderboardTokens(for: Self.podiumLadder)
+        let crown = try #require(tokens.first { $0.id == "top1" })
+        let topTen = try #require(tokens.first { $0.id == "top10" })
+        let topHundred = try #require(tokens.first { $0.id == "top100" })
+        let renderer = ImageRenderer(
+            content: VStack(alignment: .leading, spacing: 20) {
+                Text("BAND BADGES ON THE SHELF")
+                    .font(.montserratBold(size: 14))
+                    .foregroundStyle(.white)
+
+                ForEach([CGFloat(46), CGFloat(54)], id: \.self) { size in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("\(Int(size)) PT - PUBLIC PROFILE\(size == 54 ? " / OWN PROFILE" : "")")
+                            .font(.montserratSemiBold(size: 9))
+                            .foregroundStyle(ProfileVisualStyle.secondaryText)
+
+                        HStack(alignment: .top, spacing: 4) {
+                            ProfilePrestigeBadgeView(token: crown, imageSize: size)
+                            ProfilePrestigeBadgeView(token: topTen, imageSize: size)
+                            ProfilePrestigeBadgeView(token: topHundred, imageSize: size)
+                        }
+                    }
+                }
+
+                Text("TRANSPARENCY CHECK - AN OPAQUE BACKING WOULD SHOW AS A BOX")
+                    .font(.montserratSemiBold(size: 9))
+                    .foregroundStyle(ProfileVisualStyle.secondaryText)
+
+                HStack(alignment: .top, spacing: 4) {
+                    ProfilePrestigeBadgeView(token: topTen, imageSize: 54)
+                    ProfilePrestigeBadgeView(token: topHundred, imageSize: 54)
+                }
+                .padding(8)
+                .background(Color.ascendAccent)
+            }
+            .padding(20)
+            .frame(width: 420, height: 520, alignment: .topLeading)
+            .background(ProfileVisualStyle.background)
+        )
+        renderer.scale = 3
+
+        let image = try #require(renderer.uiImage)
+        let png = try #require(image.pngData())
+        let url = URL.temporaryDirectory.appending(path: "band-badges-at-shelf-sizes.png")
         try png.write(to: url, options: .atomic)
 
         print("ASCEND_EVIDENCE_PNG \(url.path)")
@@ -292,6 +393,30 @@ struct PublicProfileAchievementRenderingTests {
         try png.write(to: url, options: .atomic)
 
         print("ASCEND_EVIDENCE_PNG \(url.path)")
+    }
+
+    /// Alpha at the four corners, read out of a premultiplied buffer - CoreGraphics offers no
+    /// straight-alpha 8-bit context, and alpha itself is unaffected by the premultiply.
+    private func cornerAlpha(of image: CGImage) throws -> [UInt8] {
+        let width = image.width
+        let height = image.height
+        let context = try #require(
+            CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                    | CGBitmapInfo.byteOrder32Big.rawValue
+            )
+        )
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let pixels = try #require(context.data).assumingMemoryBound(to: UInt8.self)
+
+        return [(0, 0), (width - 1, 0), (0, height - 1), (width - 1, height - 1)]
+            .map { x, y in pixels[(y * width + x) * 4 + 3] }
     }
 
     private func renderedElements(
