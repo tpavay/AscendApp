@@ -16,7 +16,10 @@ if (!MIXPANEL_CONFIGURATION_CONTRACTS.has(configurationName) || !artifactPath) {
 
 let plist;
 if (artifactPath.endsWith(".ipa")) {
-  const zipinfo = spawnSync("zipinfo", ["-1", artifactPath], {encoding: "utf8"});
+  const zipinfo = spawnSync("zipinfo", ["-1", artifactPath], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024
+  });
   if (zipinfo.status !== 0) {
     fail(`Could not inspect the ${configurationName} IPA contents.`);
   }

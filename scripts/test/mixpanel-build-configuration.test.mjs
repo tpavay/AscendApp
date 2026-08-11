@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
-import {chmod, mkdir, mkdtemp, readFile, readdir, writeFile} from "node:fs/promises";
+import {mkdtemp, readFile, readdir} from "node:fs/promises";
 import {tmpdir} from "node:os";
-import {delimiter, join} from "node:path";
+import {join} from "node:path";
 import test from "node:test";
 import {fileURLToPath} from "node:url";
 
+import {plutilStubEnvironment, writeIpa} from "./support/ipa-fixtures.mjs";
 import {mainAppInfoPlistPath} from "../lib/ipa-bundle.mjs";
 import {
   MIXPANEL_CONFIGURATION_CONTRACTS,
@@ -99,14 +100,7 @@ test("the IPA bundle selector accepts only one root-level iOS app plist", () => 
 
 test("the IPA verifier reads the phone plist when a watch app is embedded", async () => {
   const root = await mkdtemp(join(tmpdir(), "ascend mixpanel ipa "));
-  const fakeBin = join(root, "bin");
-  await mkdir(fakeBin);
-  const fakePlutil = join(fakeBin, "plutil");
-  await writeFile(
-    fakePlutil,
-    "#!/usr/bin/env node\nprocess.stdin.pipe(process.stdout);\n"
-  );
-  await chmod(fakePlutil, 0o755);
+  const verifierEnvironment = await plutilStubEnvironment(root);
 
   const project = await readFile(projectPath, "utf8");
   const staging = mixpanelConfigurationsFromProject(project).get("Staging");
@@ -119,14 +113,10 @@ test("the IPA verifier reads the phone plist when a watch app is embedded", asyn
   const watchInfo = {
     CFBundleIdentifier: "com.TylerPavay.AscendApp.staging.watch"
   };
-  const ipaPath = await writeIpa(root, "valid.ipa", [
+  const ipaPath = await writeIpa(join(root, "valid.ipa"), [
     ["Payload/AscendApp.app/Watch/AscendWatch.app/Info.plist", watchInfo],
     ["Payload/AscendApp.app/Info.plist", validPhoneInfo]
   ]);
-  const verifierEnvironment = {
-    ...process.env,
-    PATH: `${fakeBin}${delimiter}${process.env.PATH ?? ""}`
-  };
 
   const verified = spawnSync(
     process.execPath,
@@ -137,7 +127,7 @@ test("the IPA verifier reads the phone plist when a watch app is embedded", asyn
   assert.match(verified.stdout, /Verified the Staging bundle/);
 
   validPhoneInfo.AscendMixpanelProjectID = "wrong-project";
-  const wrongDestinationPath = await writeIpa(root, "wrong-destination.ipa", [
+  const wrongDestinationPath = await writeIpa(join(root, "wrong-destination.ipa"), [
     ["Payload/AscendApp.app/Watch/AscendWatch.app/Info.plist", watchInfo],
     ["Payload/AscendApp.app/Info.plist", validPhoneInfo]
   ]);
@@ -149,7 +139,7 @@ test("the IPA verifier reads the phone plist when a watch app is embedded", asyn
   assert.equal(rejected.status, 1);
   assert.match(rejected.stderr, /Staging bundle resolved the wrong Mixpanel project ID/);
 
-  const ambiguousPath = await writeIpa(root, "ambiguous.ipa", [
+  const ambiguousPath = await writeIpa(join(root, "ambiguous.ipa"), [
     ["Payload/AscendApp.app/Info.plist", validPhoneInfo],
     ["Payload/Unexpected.app/Info.plist", validPhoneInfo]
   ]);
@@ -205,20 +195,3 @@ test("Mixpanel SDK imports stay inside the telemetry adapter", async () => {
     "Mixpanel session replay must stay disabled"
   );
 });
-
-async function writeIpa(root, name, entries) {
-  const archiveRoot = join(root, name.replace(/\.ipa$/, ""));
-  for (const [entryPath, contents] of entries) {
-    const path = join(archiveRoot, entryPath);
-    await mkdir(join(path, ".."), {recursive: true});
-    await writeFile(path, `${JSON.stringify(contents)}\n`);
-  }
-
-  const ipaPath = join(root, name);
-  const zipped = spawnSync("zip", ["-q", "-r", ipaPath, "Payload"], {
-    cwd: archiveRoot,
-    encoding: "utf8"
-  });
-  assert.equal(zipped.status, 0, zipped.stderr);
-  return ipaPath;
-}
