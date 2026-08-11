@@ -87,7 +87,7 @@ xcodebuild -project AscendApp.xcodeproj -scheme "AscendApp-Staging" \
 
 # iOS Release compile check (unsigned, device SDK - catches Release-only errors)
 xcodebuild -project AscendApp.xcodeproj -scheme "AscendApp" \
-  -configuration Release -sdk iphoneos -destination "generic/platform=iOS" \
+  -configuration Release -destination "generic/platform=iOS" \
   CODE_SIGNING_ALLOWED=NO build
 
 npm run test:firebase-rules            # Firestore/Storage rules (emulator)

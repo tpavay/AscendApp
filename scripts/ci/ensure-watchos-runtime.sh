@@ -23,20 +23,41 @@
 set -euo pipefail
 
 needed="$(xcrun --show-sdk-version --sdk watchos)"
-# The runtime is named by major.minor, and a runtime whose patch differs still
-# satisfies the scheme, so compare on the major version the SDK reports.
-needed_major="${needed%%.*}"
+# The runtime is named by major.minor. A runtime whose patch differs still
+# satisfies the scheme; a runtime whose minor differs does not - a watchOS 26.0
+# runtime against an SDK 26.2 scheme produces exactly the refusal above - so
+# compare on the two leading components rather than the major alone.
+needed_version="$(printf '%s' "$needed" | cut -d. -f1,2)"
 
-if xcrun simctl list runtimes | grep -q "watchOS ${needed_major}"; then
-  echo "watchOS ${needed_major} runtime already installed for watchOS SDK ${needed}."
+# Matched on the parsed runtime list rather than a substring grep: the plain
+# listing also carries entries suffixed `(unavailable, ...)`, which read as
+# installed while offering nothing to build against.
+installed_watchos_runtime() {
+  xcrun simctl list runtimes -j | jq -r --arg needed "$needed_version" '
+    [.runtimes[]
+      | select(.isAvailable and (.identifier | startswith("com.apple.CoreSimulator.SimRuntime.watchOS-")))
+      | select((.version | split(".") | .[0:2] | join(".")) == $needed)]
+    | sort_by(.version | split(".") | map(tonumber))
+    | last | .version // empty
+  '
+}
+
+runtime="$(installed_watchos_runtime)"
+
+if [ -n "$runtime" ]; then
+  echo "watchOS ${runtime} runtime already installed for watchOS SDK ${needed}."
 else
-  echo "No watchOS ${needed_major} runtime for watchOS SDK ${needed}; downloading the one Xcode expects."
-  xcodebuild -downloadPlatform watchOS
+  echo "No watchOS ${needed_version} runtime for watchOS SDK ${needed}; downloading the one Xcode expects."
+  # A failed download still falls through to the diagnostics and the error below.
+  xcodebuild -downloadPlatform watchOS || echo "::warning::Downloading the watchOS runtime failed."
+  runtime="$(installed_watchos_runtime)"
 fi
 
-xcrun simctl list runtimes | grep -i watch
+xcrun simctl list runtimes | grep -i watch || true
 
-if ! xcrun simctl list runtimes | grep -q "watchOS ${needed_major}"; then
-  echo "::error::No watchOS ${needed_major} runtime is available, so any scheme embedding the watch app will refuse to build."
+if [ -z "$runtime" ]; then
+  echo "::error::No watchOS ${needed_version} runtime is available, so any scheme embedding the watch app will refuse to build."
   exit 1
 fi
+
+echo "Resolved watchOS ${runtime} runtime for watchOS SDK ${needed}."

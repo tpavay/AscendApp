@@ -4,7 +4,7 @@ import {join} from "node:path";
 import test from "node:test";
 import {fileURLToPath} from "node:url";
 
-import {settingValue} from "../lib/monetization-build-settings.mjs";
+import {buildConfigurations, settingValue} from "../lib/monetization-build-settings.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 const projectPath = join(repositoryRoot, "AscendApp.xcodeproj/project.pbxproj");
@@ -22,20 +22,17 @@ const EXPECTED_IDENTIFIERS = new Map([
 
 const WATCH_SUFFIX = ".watchkitapp";
 
-const CONFIGURATION_PATTERN =
-  /[A-F0-9]{24} \/\* (Debug|Staging|Release) \*\/ = \{\n\s+isa = XCBuildConfiguration;\n\s+buildSettings = \{([\s\S]*?)\n\s+\};\n\s+name = \1;\n\s+\};/g;
-
 async function watchBuildConfigurations() {
   const project = await readFile(projectPath, "utf8");
   const configurations = new Map();
 
-  for (const [, name, buildSettings] of project.matchAll(CONFIGURATION_PATTERN)) {
-    const bundleID = settingValue(buildSettings, "PRODUCT_BUNDLE_IDENTIFIER");
+  for (const configuration of buildConfigurations(project)) {
+    const {name, bundleID} = configuration;
     if (bundleID === null || !bundleID.endsWith(WATCH_SUFFIX)) {
       continue;
     }
 
-    configurations.set(name, {name, bundleID, buildSettings});
+    configurations.set(name, configuration);
   }
 
   return configurations;
