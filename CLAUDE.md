@@ -61,6 +61,8 @@ AscendApp/
 └── Shared/             # Components · Extensions · Managers · Models · Repositories · Services · Views
 AscendAppTests/         # Swift Testing suite
 AscendLiveActivityWidgets/  # Live Activity / Dynamic Island extension
+AscendWatch/            # watchOS companion app, embedded in the iOS app bundle
+AscendWatchShared/      # Compiled into BOTH binaries - platform-neutral value types only
 .claude/skills/         # Project skills (see Skill Router)
 AppStoreAssets/         # Shipped en-US iPhone screenshot set and its renderer
 data/ascend-support-page-and-product-page-package/  # Durable en-US App Store product copy
@@ -77,15 +79,19 @@ web/                    # Website source
 
 `AscendApp/App/Firebase/` needs the plist for the environment you're building - the Dev plist is committed, Staging and Production are gitignored and linked in locally; see the README there. CI decodes them from base64 secrets.
 
+Both app schemes embed the watch app, so either `xcodebuild` below refuses to build without an installed watchOS simulator runtime matching the watchOS **SDK** (not the deployment target, whatever the destination). `scripts/ci/ensure-watchos-runtime.sh` provisions it and runs locally too; CI runs it before both iOS jobs and before each deploy pipeline's archive.
+
 ```bash
 # iOS tests (mirrors CI - .github/workflows/ci.yml)
 xcodebuild -project AscendApp.xcodeproj -scheme "AscendApp-Staging" \
   -configuration Staging -destination "platform=iOS Simulator,name=iPhone 16 Pro" \
   ENABLE_TESTABILITY=YES test
 
-# iOS Release compile check (unsigned, device SDK - catches Release-only errors)
+# iOS Release compile check (unsigned, device destination - catches Release-only
+# errors). Never add -sdk iphoneos: it can build the embedded watch app for iOS
+# and still report success (`ascend-deploy`).
 xcodebuild -project AscendApp.xcodeproj -scheme "AscendApp" \
-  -configuration Release -sdk iphoneos -destination "generic/platform=iOS" \
+  -configuration Release -destination "generic/platform=iOS" \
   CODE_SIGNING_ALLOWED=NO build
 
 npm run test:firebase-rules            # Firestore/Storage rules (emulator)
