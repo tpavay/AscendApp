@@ -175,8 +175,9 @@ How this plan collides with existing CLAUDE.md / project skill rules and the cod
    so Tier B is still unbuilt and this note's lean still holds: ship Tier A straps + SPM zones
    first. Most of the maintenance surface is already paid for - the CI platform and runtime guards
    are in place, and signing is wired end to end - while anything Health-related on the watch
-   remains outstanding. The watch app is targeted at the 1.0 submission, so its App Store listing
-   artwork is the captain's listing work rather than an open question this plan carries.
+   remains outstanding. The watch app ships in 1.1, not 1.0: 1.0 is submitted without it while the
+   watch keeps being exercised in staging, so its App Store listing artwork is the captain's 1.1
+   listing work rather than a 1.0 blocker or an open question this plan carries.
    `ascend-deploy` owns the CI and signing side.
 5. **SPM zone bands must stay absolute.** Per Workout Measurement rules, no user-calibrated
    effort baselines (base level is deprecated). Apple's personalized HR zones are Apple's model —
