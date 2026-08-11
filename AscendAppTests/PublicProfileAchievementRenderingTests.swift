@@ -305,7 +305,7 @@ struct PublicProfileAchievementRenderingTests {
 
                 Text("TRANSPARENCY CHECK - AN OPAQUE BACKING WOULD SHOW AS A BOX")
                     .font(.montserratSemiBold(size: 9))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(ProfileVisualStyle.secondaryText)
 
                 HStack(alignment: .top, spacing: 4) {
                     ProfilePrestigeBadgeView(token: topTen, imageSize: 54)
