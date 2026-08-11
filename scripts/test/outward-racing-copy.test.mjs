@@ -13,7 +13,8 @@ const sourcePaths = {
   privacy: pathFromRoot("web/src/pages/privacy.astro"),
   terms: pathFromRoot("web/src/pages/terms.astro"),
   proposal: pathFromRoot("docs/app-store-racing-repositioning-proposal.md"),
-  projectMemory: pathFromRoot("CLAUDE.md")
+  projectMemory: pathFromRoot("CLAUDE.md"),
+  demoSeed: pathFromRoot("scripts/seed-demo-user.mjs")
 };
 
 async function source(name) {
@@ -28,6 +29,15 @@ function sectionBetween(contents, start, end) {
   assert.notEqual(endIndex, -1, `missing section end: ${end}`);
 
   return contents.slice(startIndex, endIndex);
+}
+
+function fencedBlockAfter(contents, heading) {
+  const sectionStart = contents.indexOf(`## ${heading}`);
+  assert.notEqual(sectionStart, -1, `missing proposal heading: ${heading}`);
+
+  const match = contents.slice(sectionStart).match(/```text\n([\s\S]*?)\n```/);
+  assert.ok(match, `missing proposal block: ${heading}`);
+  return match[1];
 }
 
 function textCodeBlockAfter(contents, heading) {
@@ -61,6 +71,82 @@ test("the App Store proposal pins the settled racing metadata", async () => {
     .filter((keyword) => indexedTokens.has(keyword));
 
   assert.deepEqual(repeatedTokens, []);
+});
+
+test("the proposed listing copy sells nothing #437 removed", async () => {
+  const proposal = await source("proposal");
+  const description = fencedBlockAfter(proposal, "Description");
+  const reviewNotes = fencedBlockAfter(proposal, "App Review notes");
+
+  // The live listing sold "Log stair-stepper workouts in Ascend or import
+  // supported workouts from Apple Health", and the live review notes told the
+  // reviewer to exercise the app that way. #437 deleted both paths on
+  // 2026-08-08, which makes each sentence a Guideline 2.1/2.3 problem as well
+  // as an untruth.
+  //
+  // Both words survive in exactly one place each: the sentence that denies the
+  // feature. Those sentences are asserted, then cut, and whatever still says
+  // "manual" or "import" afterwards is the promise coming back.
+  const denials = {
+    description: [
+      "Every climb and every record in Ascend comes from a session you performed in Ascend. There is no manual entry and no importing from other apps."
+    ],
+    "review notes": [
+      "There is no manual entry and no import.",
+      "Typed-in workouts and Apple Health workout import were both removed"
+    ]
+  };
+  const forbidden = [
+    [/\blog(ging|s|ged)?\b/i, "promises logging"],
+    [/\bmanual(ly)?\b/i, "promises manual entry"],
+    [/\bimport(s|ing|ed)?\b/i, "promises importing"]
+  ];
+
+  const violations = [];
+  for (const [label, text] of [
+    ["description", description],
+    ["review notes", reviewNotes]
+  ]) {
+    let remainder = text;
+    for (const denial of denials[label]) {
+      assert.ok(
+        remainder.includes(denial),
+        `${label} no longer states the exclusion: ${denial}`
+      );
+      remainder = remainder.replace(denial, "");
+    }
+    for (const [pattern, promise] of forbidden) {
+      if (pattern.test(remainder)) {
+        violations.push(`${label}: ${promise}`);
+      }
+    }
+  }
+
+  assert.deepEqual(violations, []);
+
+  // Apple caps Notes for Review at 4,000 bytes, and the bracketed fields still
+  // have to grow into whatever is left.
+  const noteBytes = Buffer.byteLength(reviewNotes, "utf8");
+  assert.ok(
+    noteBytes <= 3_850,
+    `App Review notes are ${noteBytes} bytes; keep them under 3,850 so the filled-in credentials and video URL still fit Apple's 4,000-byte field`
+  );
+  assert.match(reviewNotes, /\[STABLE HTTPS URL, NO LOGIN\]/);
+});
+
+test("the demo seeder only creates sessions the app can still record", async () => {
+  const seeder = await source("demoSeed");
+
+  for (const [pattern, retiredSource] of [
+    [/source:\s*"manual"/, "manual"],
+    [/source:\s*"apple_health"/, "apple_health"]
+  ]) {
+    assert.doesNotMatch(
+      seeder,
+      pattern,
+      `seed-demo-user.mjs still seeds a ${retiredSource} workout, a source #437 removed from the app on 2026-08-08`
+    );
+  }
 });
 
 test("the public website consistently presents Ascend as racing", async () => {

@@ -120,6 +120,11 @@ const LIVE_CLIMB_SPECS = [
   {climbId: "statue-of-liberty", daysAgo: 27, spm: 88, finisherOrder: 1},
 ];
 
+// Non-climb sessions, here so Best Efforts and history have depth behind the
+// landmark races. Both are `headphone_motion`: #437 deleted manual entry and
+// Apple Health workout import on 2026-08-08, so seeding a `manual` or
+// `apple_health` row would put a workout in the demo account that the app can
+// no longer produce.
 const EXTRA_WORKOUT_SPECS = [
   {
     key: "record-20-min",
@@ -127,9 +132,9 @@ const EXTRA_WORKOUT_SPECS = [
     daysAgo: 35,
     durationSeconds: 1200,
     steps: 1927,
-    source: "manual",
-    integrityLevel: "unverified",
-    notes: "Demo manual log for best-effort depth.",
+    source: "headphone_motion",
+    integrityLevel: "verified",
+    notes: "Demo session for best-effort depth.",
   },
   {
     key: "long-climb",
@@ -137,9 +142,9 @@ const EXTRA_WORKOUT_SPECS = [
     daysAgo: 42,
     durationSeconds: 4820,
     steps: 6120,
-    source: "apple_health",
+    source: "headphone_motion",
     integrityLevel: "verified",
-    notes: "Demo imported workout for history depth.",
+    notes: "Demo session for history depth.",
   },
 ];
 
@@ -672,7 +677,7 @@ function workoutRecord(input) {
     avgHeartRateBpm: averageHeartRate(input.steps, input.durationSeconds),
     maxHeartRateBpm: averageHeartRate(input.steps, input.durationSeconds) + 24,
     caloriesBurned: Math.round(input.durationSeconds / 60 * 8.4),
-    effortRating: input.source === "manual" ? 4 : 4.5,
+    effortRating: 4.5,
     averageMETs: 8.2,
     deviceModel: "Ascend Demo Seed",
     participations: input.participations,
