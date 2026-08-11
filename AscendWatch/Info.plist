@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>$(ASCEND_WATCH_DISPLAY_NAME)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!-- Ascend uses only standard TLS and Apple-provided cryptography. The watch
+	     app is its own bundle with its own Info.plist, so it needs this
+	     declaration independently of the iPhone app's - a missing key on either
+	     bundle parks the upload in Missing Compliance. CI asserts both. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>WKApplication</key>
+	<true/>
+	<!-- Per configuration, and it must name the matching environment's iPhone
+	     bundle. A mismatch produces a watch app that installs but never pairs
+	     with the phone app, and nothing about the build says so. -->
+	<key>WKCompanionAppBundleIdentifier</key>
+	<string>$(ASCEND_WATCH_COMPANION_BUNDLE_IDENTIFIER)</string>
+</dict>
+</plist>

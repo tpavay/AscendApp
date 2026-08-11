@@ -61,6 +61,8 @@ AscendApp/
 └── Shared/             # Components · Extensions · Managers · Models · Repositories · Services · Views
 AscendAppTests/         # Swift Testing suite
 AscendLiveActivityWidgets/  # Live Activity / Dynamic Island extension
+AscendWatch/            # watchOS companion app, embedded in the iOS app bundle
+AscendWatchShared/      # Compiled into BOTH binaries - platform-neutral value types only
 .claude/skills/         # Project skills (see Skill Router)
 AppStoreAssets/         # Shipped en-US iPhone screenshot set and its renderer
 data/ascend-support-page-and-product-page-package/  # Durable en-US App Store product copy

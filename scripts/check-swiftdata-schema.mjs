@@ -32,6 +32,11 @@ import {
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const APP_ROOT = join(REPO_ROOT, "AscendApp");
+// AscendWatchShared/ is compiled into the app target as well as the watch app,
+// so an @Model declared there reaches the same persistent store as one under
+// AscendApp/. Every root the app target compiles has to be walked, or the gate
+// reports on a subset of the schema while reading as though it covered all of it.
+const MODEL_SOURCE_ROOTS = [APP_ROOT, join(REPO_ROOT, "AscendWatchShared")];
 const MIGRATIONS_DIR = join(APP_ROOT, "Shared/Models/Migrations");
 const PLAN_PATH = join(MIGRATIONS_DIR, "AscendMigrationPlan.swift");
 const ENTRY_POINT_PATH = join(APP_ROOT, "App/AscendApp.swift");
@@ -43,7 +48,7 @@ const BASELINE_PATH = join(REPO_ROOT, "SharedTestVectors/swiftdata-schema-shape.
  * @return {object} Parsed schemas, models, plan, and the baseline-shaped record they imply.
  */
 export function readSchemaFacts() {
-  const swiftFiles = collectSwiftFiles(APP_ROOT);
+  const swiftFiles = MODEL_SOURCE_ROOTS.flatMap(collectSwiftFiles);
   const liveModels = [];
   const frozenModels = [];
 

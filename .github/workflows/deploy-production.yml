@@ -7,6 +7,10 @@ on:
     paths:
       - "AscendApp/**"
       - "AscendLiveActivityWidgets/**"
+      # The watch app ships inside the iOS app bundle, so a watch-only
+      # change has to trigger the build that carries it.
+      - "AscendWatch/**"
+      - "AscendWatchShared/**"
       - "AscendApp.xcodeproj/**"
       - "fastlane/**"
       - "scripts/**"
