@@ -135,6 +135,11 @@ jobs:
               # AGENTS.md is a symlink to CLAUDE.md, so it gates identically.
               - "CLAUDE.md"
               - "AGENTS.md"
+              # The exported-IPA suite asserts both signed lanes publish their
+              # artifact by exact name, so a Fastfile edit must run it: a lane
+              # that goes back to picking a wildcard match hands every
+              # downstream verification a stale build.
+              - "fastlane/**"
               - ".github/workflows/**"
             web:
               - "web/**"

@@ -100,6 +100,27 @@ def write_export_plist(signing_certificate:, team_id:, provisioning_profiles:)
   path
 end
 
+# xcodebuild -exportArchive names the IPA after the scheme, so a directory that
+# already holds an IPA cannot tell this run's artifact from a previous run's.
+# Export into a directory emptied first, and publish out of it through a helper
+# that refuses anything but a single candidate: the build-number and Mixpanel
+# checks downstream read the published name and have no way to notice they were
+# handed a stale build.
+def prepared_export_dir(output_dir)
+  export_dir = File.join(output_dir, "export")
+  FileUtils.rm_rf(export_dir)
+  FileUtils.mkdir_p(export_dir)
+  export_dir
+end
+
+def publish_exported_ipa(export_dir:, target_ipa:)
+  script_path = File.expand_path("../scripts/ci/publish-exported-ipa.mjs", __dir__)
+
+  UI.user_error!("IPA publisher not found at #{script_path}") unless File.exist?(script_path)
+
+  sh("node #{script_path.shellescape} #{export_dir.shellescape} #{target_ipa.shellescape}")
+end
+
 platform :ios do
   desc "Build a signed staging IPA"
   lane :build_staging do
@@ -176,17 +197,18 @@ platform :ios do
 
     output_dir = File.expand_path("build")
     FileUtils.mkdir_p(output_dir)
+    export_dir = prepared_export_dir(output_dir)
 
     export_cmd = "xcodebuild -exportArchive" \
       " -archivePath #{archive_path.shellescape}" \
       " -exportOptionsPlist #{export_plist.shellescape}" \
-      " -exportPath #{output_dir.shellescape}"
+      " -exportPath #{export_dir.shellescape}"
     sh(export_cmd)
 
-    # Rename exported IPA to expected name
-    exported_ipa = Dir.glob(File.join(output_dir, "*.ipa")).first
-    target_ipa = File.join(output_dir, "AscendApp-Staging.ipa")
-    FileUtils.mv(exported_ipa, target_ipa) if exported_ipa && exported_ipa != target_ipa
+    publish_exported_ipa(
+      export_dir: export_dir,
+      target_ipa: File.join(output_dir, "AscendApp-Staging.ipa")
+    )
   end
 
   desc "Build a signed production IPA"
@@ -254,17 +276,18 @@ platform :ios do
 
     output_dir = File.expand_path("build")
     FileUtils.mkdir_p(output_dir)
+    export_dir = prepared_export_dir(output_dir)
 
     export_cmd = "xcodebuild -exportArchive" \
       " -archivePath #{archive_path.shellescape}" \
       " -exportOptionsPlist #{export_plist.shellescape}" \
-      " -exportPath #{output_dir.shellescape}"
+      " -exportPath #{export_dir.shellescape}"
     sh(export_cmd)
 
-    # Rename exported IPA to expected name
-    exported_ipa = Dir.glob(File.join(output_dir, "*.ipa")).first
-    target_ipa = File.join(output_dir, "AscendApp-Production.ipa")
-    FileUtils.mv(exported_ipa, target_ipa) if exported_ipa && exported_ipa != target_ipa
+    publish_exported_ipa(
+      export_dir: export_dir,
+      target_ipa: File.join(output_dir, "AscendApp-Production.ipa")
+    )
   end
 
   desc "Upload an IPA artifact to TestFlight"
