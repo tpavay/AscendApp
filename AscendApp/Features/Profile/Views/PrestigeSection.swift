@@ -57,8 +57,7 @@ struct PrestigeSection: View {
                     tint: ProfileVisualStyle.gold,
                     count: held.count,
                     label: held.count == 1 ? "First Ascent" : "First Ascents",
-                    historyFilter: nil,
-                    usesFreeStandingArt: true
+                    historyFilter: nil
                 )
             )
         }

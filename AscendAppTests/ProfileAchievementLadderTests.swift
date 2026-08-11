@@ -125,26 +125,6 @@ struct ProfileAchievementLadderTests {
     }
 
     @Test
-    func onlyTheFramedBandBadgesKeepTheirTile() {
-        let ladder = ProfileAchievementLadder(
-            records: [
-                record(id: "a", type: .weeklyTop1, rank: 1),
-                record(id: "b", type: .monthlyTop3, rank: 2),
-                record(id: "c", type: .weeklyTop3, rank: 3),
-                record(id: "d", type: .weeklyTop10, rank: 7),
-                record(id: "e", type: .weeklyTop100, rank: 55)
-            ]
-        )
-
-        let tokens = ProfilePrestigeToken.leaderboardTokens(for: ladder)
-        let freeStanding = tokens.filter(\.usesFreeStandingArt).map(\.id)
-        let framed = tokens.filter { !$0.usesFreeStandingArt }.map(\.id)
-
-        #expect(freeStanding == ["top1", "place2", "place3"])
-        #expect(framed == ["top10", "top100"])
-    }
-
-    @Test
     func aPlacementBadgeListsOnlyItsOwnRankInHistory() {
         let records = [
             record(id: "a", type: .weeklyTop1, rank: 1),

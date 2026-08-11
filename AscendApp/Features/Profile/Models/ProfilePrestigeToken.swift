@@ -10,7 +10,6 @@ struct ProfilePrestigeToken: Identifiable {
     /// placement badges spell their rank out instead.
     let accessibilityName: String
     let historyFilter: ProfileAchievementHistoryFilter?
-    let usesFreeStandingArt: Bool
 
     init(
         id: String,
@@ -19,8 +18,7 @@ struct ProfilePrestigeToken: Identifiable {
         count: Int,
         label: String,
         accessibilityName: String? = nil,
-        historyFilter: ProfileAchievementHistoryFilter?,
-        usesFreeStandingArt: Bool = false
+        historyFilter: ProfileAchievementHistoryFilter?
     ) {
         self.id = id
         self.asset = asset
@@ -29,7 +27,6 @@ struct ProfilePrestigeToken: Identifiable {
         self.label = label
         self.accessibilityName = accessibilityName ?? label
         self.historyFilter = historyFilter
-        self.usesFreeStandingArt = usesFreeStandingArt
     }
 
     /// The leaderboard ladder, in order: CHAMPION, #2, #3, TOP 10, TOP 100.
@@ -51,8 +48,7 @@ struct ProfilePrestigeToken: Identifiable {
                     tint: ProfileVisualStyle.gold,
                     count: achievements.top1,
                     label: ProfileTerminology.topOneAchievementLabel,
-                    historyFilter: .band(.top1),
-                    usesFreeStandingArt: true
+                    historyFilter: .band(.top1)
                 )
             )
         }
@@ -66,8 +62,7 @@ struct ProfilePrestigeToken: Identifiable {
                         count: placements.second,
                         label: ProfileTerminology.secondPlaceAchievementLabel,
                         accessibilityName: ProfileTerminology.secondPlaceAccessibilityName,
-                        historyFilter: .placement(2),
-                        usesFreeStandingArt: true
+                        historyFilter: .placement(2)
                     )
                 )
             }
@@ -80,8 +75,7 @@ struct ProfilePrestigeToken: Identifiable {
                         count: placements.third,
                         label: ProfileTerminology.thirdPlaceAchievementLabel,
                         accessibilityName: ProfileTerminology.thirdPlaceAccessibilityName,
-                        historyFilter: .placement(3),
-                        usesFreeStandingArt: true
+                        historyFilter: .placement(3)
                     )
                 )
             }
