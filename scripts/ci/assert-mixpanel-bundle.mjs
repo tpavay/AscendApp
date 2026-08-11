@@ -7,6 +7,7 @@ import {
   MIXPANEL_CONFIGURATION_CONTRACTS,
   builtBundleReasons
 } from "../lib/mixpanel-build-settings.mjs";
+import {mainAppInfoPlistPath} from "../lib/ipa-bundle.mjs";
 
 const [configurationName, artifactPath] = process.argv.slice(2);
 if (!MIXPANEL_CONFIGURATION_CONTRACTS.has(configurationName) || !artifactPath) {
@@ -15,9 +16,23 @@ if (!MIXPANEL_CONFIGURATION_CONTRACTS.has(configurationName) || !artifactPath) {
 
 let plist;
 if (artifactPath.endsWith(".ipa")) {
-  const unzip = spawnSync("unzip", ["-p", artifactPath, "Payload/*.app/Info.plist"]);
+  const zipinfo = spawnSync("zipinfo", ["-1", artifactPath], {encoding: "utf8"});
+  if (zipinfo.status !== 0) {
+    fail(`Could not inspect the ${configurationName} IPA contents.`);
+  }
+
+  let infoPlistPath;
+  try {
+    infoPlistPath = mainAppInfoPlistPath(zipinfo.stdout.split(/\r?\n/));
+  } catch (error) {
+    fail(`The ${configurationName} IPA ${error.message}`);
+  }
+
+  const unzip = spawnSync("unzip", ["-p", artifactPath, infoPlistPath]);
   if (unzip.status !== 0 || unzip.stdout.length === 0) {
-    fail(`Could not read the app Info.plist from the ${configurationName} IPA.`);
+    fail(
+      `Could not read the ${configurationName} iOS app Info.plist at ${infoPlistPath}.`
+    );
   }
   plist = unzip.stdout;
 } else {

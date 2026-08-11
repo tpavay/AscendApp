@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
-import {readFile, readdir} from "node:fs/promises";
-import {join} from "node:path";
+import {spawnSync} from "node:child_process";
+import {chmod, mkdir, mkdtemp, readFile, readdir, writeFile} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {delimiter, join} from "node:path";
 import test from "node:test";
 import {fileURLToPath} from "node:url";
 
+import {mainAppInfoPlistPath} from "../lib/ipa-bundle.mjs";
 import {
   MIXPANEL_CONFIGURATION_CONTRACTS,
   builtBundleReasons,
@@ -14,6 +17,7 @@ import {
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 const projectPath = join(repositoryRoot, "AscendApp.xcodeproj/project.pbxproj");
 const infoPlistPath = join(repositoryRoot, "AscendApp/Info.plist");
+const bundleVerifierPath = join(repositoryRoot, "scripts/ci/assert-mixpanel-bundle.mjs");
 
 test("each app build configuration owns its Mixpanel project and token", async () => {
   const project = await readFile(projectPath, "utf8");
@@ -70,6 +74,97 @@ test("the bundle contract rejects an archive whose telemetry envelope cannot val
   ]);
 });
 
+test("the IPA bundle selector accepts only one root-level iOS app plist", () => {
+  assert.equal(
+    mainAppInfoPlistPath([
+      "Payload/AscendApp.app/Watch/AscendWatch.app/Info.plist",
+      "Payload/AscendApp.app/PlugIns/AscendLiveActivityWidgets.appex/Info.plist",
+      "Payload/AscendApp.app/Info.plist"
+    ]),
+    "Payload/AscendApp.app/Info.plist"
+  );
+
+  assert.throws(
+    () => mainAppInfoPlistPath([
+      "Payload/AscendApp.app/Info.plist",
+      "Payload/Unexpected.app/Info.plist"
+    ]),
+    /contains 2 root-level iOS app Info.plists.*expected exactly one/
+  );
+  assert.throws(
+    () => mainAppInfoPlistPath(["Payload/AscendApp.app/Watch/AscendWatch.app/Info.plist"]),
+    /contains no root-level iOS app Info.plist/
+  );
+});
+
+test("the IPA verifier reads the phone plist when a watch app is embedded", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ascend mixpanel ipa "));
+  const fakeBin = join(root, "bin");
+  await mkdir(fakeBin);
+  const fakePlutil = join(fakeBin, "plutil");
+  await writeFile(
+    fakePlutil,
+    "#!/usr/bin/env node\nprocess.stdin.pipe(process.stdout);\n"
+  );
+  await chmod(fakePlutil, 0o755);
+
+  const project = await readFile(projectPath, "utf8");
+  const staging = mixpanelConfigurationsFromProject(project).get("Staging");
+  const validPhoneInfo = {
+    AscendMixpanelProjectID: staging.projectID,
+    AscendMixpanelToken: staging.token,
+    CFBundleShortVersionString: "1.0",
+    CFBundleVersion: "2026081103"
+  };
+  const watchInfo = {
+    CFBundleIdentifier: "com.TylerPavay.AscendApp.staging.watch"
+  };
+  const ipaPath = await writeIpa(root, "valid.ipa", [
+    ["Payload/AscendApp.app/Watch/AscendWatch.app/Info.plist", watchInfo],
+    ["Payload/AscendApp.app/Info.plist", validPhoneInfo]
+  ]);
+  const verifierEnvironment = {
+    ...process.env,
+    PATH: `${fakeBin}${delimiter}${process.env.PATH ?? ""}`
+  };
+
+  const verified = spawnSync(
+    process.execPath,
+    [bundleVerifierPath, "Staging", ipaPath],
+    {encoding: "utf8", env: verifierEnvironment}
+  );
+  assert.equal(verified.status, 0, verified.stderr);
+  assert.match(verified.stdout, /Verified the Staging bundle/);
+
+  validPhoneInfo.AscendMixpanelProjectID = "wrong-project";
+  const wrongDestinationPath = await writeIpa(root, "wrong-destination.ipa", [
+    ["Payload/AscendApp.app/Watch/AscendWatch.app/Info.plist", watchInfo],
+    ["Payload/AscendApp.app/Info.plist", validPhoneInfo]
+  ]);
+  const rejected = spawnSync(
+    process.execPath,
+    [bundleVerifierPath, "Staging", wrongDestinationPath],
+    {encoding: "utf8", env: verifierEnvironment}
+  );
+  assert.equal(rejected.status, 1);
+  assert.match(rejected.stderr, /Staging bundle resolved the wrong Mixpanel project ID/);
+
+  const ambiguousPath = await writeIpa(root, "ambiguous.ipa", [
+    ["Payload/AscendApp.app/Info.plist", validPhoneInfo],
+    ["Payload/Unexpected.app/Info.plist", validPhoneInfo]
+  ]);
+  const ambiguous = spawnSync(
+    process.execPath,
+    [bundleVerifierPath, "Staging", ambiguousPath],
+    {encoding: "utf8", env: verifierEnvironment}
+  );
+  assert.equal(ambiguous.status, 2);
+  assert.match(
+    ambiguous.stderr,
+    /contains 2 root-level iOS app Info.plists.*expected exactly one/
+  );
+});
+
 test("Info.plist expands both Mixpanel build settings", async () => {
   const infoPlist = await readFile(infoPlistPath, "utf8");
 
@@ -110,3 +205,20 @@ test("Mixpanel SDK imports stay inside the telemetry adapter", async () => {
     "Mixpanel session replay must stay disabled"
   );
 });
+
+async function writeIpa(root, name, entries) {
+  const archiveRoot = join(root, name.replace(/\.ipa$/, ""));
+  for (const [entryPath, contents] of entries) {
+    const path = join(archiveRoot, entryPath);
+    await mkdir(join(path, ".."), {recursive: true});
+    await writeFile(path, `${JSON.stringify(contents)}\n`);
+  }
+
+  const ipaPath = join(root, name);
+  const zipped = spawnSync("zip", ["-q", "-r", ipaPath, "Payload"], {
+    cwd: archiveRoot,
+    encoding: "utf8"
+  });
+  assert.equal(zipped.status, 0, zipped.stderr);
+  return ipaPath;
+}
