@@ -47,7 +47,6 @@ struct OwnProfileView: View {
             completedClimbSet: ClimbCompletionRepository.shared.read(modelContext: modelContext),
             bestEffortCacheEntries: bestEffortCacheEntries,
             achievements: viewModel.achievements,
-            achievementRecords: viewModel.achievementRecords,
             standings: viewModel.standings,
             climbs: climbs,
             fitnessLevel: settingsManager.fitnessLevel
@@ -140,7 +139,6 @@ struct OwnProfileView: View {
                     held: snapshot.firstAscentsHeld,
                     open: snapshot.openFirstAscents,
                     achievements: snapshot.achievements,
-                    achievementRecords: snapshot.achievementRecords,
                     mode: .own
                 )
 

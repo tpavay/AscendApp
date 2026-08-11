@@ -505,8 +505,7 @@ private struct NotificationPromptSurfaceHarness: View {
                 PrestigeSection(
                     held: [],
                     open: [],
-                    achievements: .zero,
-                    achievementRecords: [],
+                    achievements: .empty,
                     mode: .own,
                     notificationState: notificationState
                 )

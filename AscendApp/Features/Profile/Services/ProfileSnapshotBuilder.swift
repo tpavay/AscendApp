@@ -8,8 +8,7 @@ enum ProfileSnapshotBuilder {
         climbAttempts: [ClimbAttempt],
         completedClimbSet: CompletedClimbSet? = nil,
         bestEffortCacheEntries: [BestEffortCacheEntry],
-        achievements: ProfileAchievementCounts,
-        achievementRecords: [ProfileAchievementRecord] = [],
+        achievements: ProfileAchievementLadder,
         standings: [ProfileStanding],
         climbs: [Climb],
         fitnessLevel: FitnessLevel,
@@ -29,7 +28,7 @@ enum ProfileSnapshotBuilder {
             workouts: ownedWorkouts,
             completedAttempts: completedAttempts,
             completedCount: resolvedCompletedSet.completedCount,
-            achievements: achievements
+            achievements: achievements.counts
         )
         let summaries = workoutSummaries(
             from: ownedWorkouts,
@@ -52,7 +51,6 @@ enum ProfileSnapshotBuilder {
                 fitnessLevel: fitnessLevel
             ),
             achievements: achievements,
-            achievementRecords: achievementRecords,
             firstAscentsHeld: firstAscentsHeld(
                 completedAttempts: completedAttempts,
                 climbs: climbs
@@ -67,8 +65,7 @@ enum ProfileSnapshotBuilder {
     static func makeRemoteSnapshot(
         demographics: ProfileDemographicsSnapshot,
         stats: ProfileStatsSnapshot,
-        achievements: ProfileAchievementCounts,
-        achievementRecords: [ProfileAchievementRecord] = [],
+        achievements: ProfileAchievementLadder,
         standings: [ProfileStanding],
         workoutSummaries: [ProfileWorkoutSummary],
         firstAscentsHeld: [ProfileFirstAscentSummary],
@@ -88,7 +85,6 @@ enum ProfileSnapshotBuilder {
                 climbs: climbs
             ),
             achievements: achievements,
-            achievementRecords: achievementRecords,
             firstAscentsHeld: firstAscentsHeld,
             openFirstAscents: openFirstAscents,
             records: remoteRecordSummary(stats: stats),

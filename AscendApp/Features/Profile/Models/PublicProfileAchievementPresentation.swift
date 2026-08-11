@@ -1,8 +1,8 @@
 enum PublicProfileAchievementPresentation: Equatable {
     case hidden
-    case visible(ProfileAchievementCounts)
+    case visible(ProfileAchievementLadder)
 
-    init(achievements: ProfileAchievementCounts, isOtherLoading: Bool) {
+    init(achievements: ProfileAchievementLadder, isOtherLoading: Bool) {
         if isOtherLoading || !achievements.hasAny {
             self = .hidden
         } else {

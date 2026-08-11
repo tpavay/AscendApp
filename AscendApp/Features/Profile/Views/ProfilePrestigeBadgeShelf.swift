@@ -3,20 +3,20 @@ import SwiftUI
 struct ProfilePrestigeBadgeShelf: View {
     let tokens: [ProfilePrestigeToken]
     let imageSize: CGFloat
-    /// `nil` renders the shelf as plain art. A record set - empty or not - makes each
-    /// banded badge open its history.
+    /// `nil` renders the shelf as plain art. A record set - empty or not - makes every badge
+    /// that carries a history filter open its history.
     let history: [ProfileAchievementRecord]?
 
-    @State private var selectedAchievementBand: ProfileAchievementRankBand?
+    @State private var selectedHistoryFilter: ProfileAchievementHistoryFilter?
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: 16) {
                 ForEach(tokens) { token in
-                    if history != nil, let band = token.achievementBand {
+                    if history != nil, let filter = token.historyFilter {
                         Button {
                             HapticsManager.shared.trigger(.lightImpact)
-                            selectedAchievementBand = band
+                            selectedHistoryFilter = filter
                         } label: {
                             ProfilePrestigeBadgeView(token: token, imageSize: imageSize)
                         }
@@ -29,10 +29,10 @@ struct ProfilePrestigeBadgeShelf: View {
             .padding(.horizontal, 2)
             .padding(.vertical, 4)
         }
-        .sheet(item: $selectedAchievementBand) { band in
+        .sheet(item: $selectedHistoryFilter) { filter in
             AchievementHistorySheet(
-                band: band,
-                records: (history ?? []).filter { $0.countsToward(band) }
+                filter: filter,
+                records: (history ?? []).filter(filter.matches)
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)

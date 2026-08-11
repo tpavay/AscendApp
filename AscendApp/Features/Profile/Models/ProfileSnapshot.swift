@@ -40,8 +40,7 @@ struct ProfileSnapshot {
     var standings: [ProfileStanding]
     var activityWorkouts: [ProfileWorkoutSummary]
     var collection: ProfileCollectionSummary
-    var achievements: ProfileAchievementCounts
-    var achievementRecords: [ProfileAchievementRecord]
+    var achievements: ProfileAchievementLadder
     var firstAscentsHeld: [ProfileFirstAscentSummary]
     var openFirstAscents: [ProfileFirstAscentSummary]
     var records: ProfileRecordSummary

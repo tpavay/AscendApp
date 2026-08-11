@@ -64,14 +64,12 @@ enum ProfilePublicationService {
             )
             let climbs = (try? ClimbService.shared.loadAllClimbs()) ?? []
             let achievements = (try? await repository.fetchAchievements(userId: userId)) ?? []
-            let achievementCounts = ProfileAchievementCounts(records: achievements)
             let snapshot = ProfileSnapshotBuilder.makeOwnSnapshot(
                 demographics: identity.demographicsSnapshot,
                 workouts: workouts,
                 climbAttempts: attempts,
                 bestEffortCacheEntries: cacheEntries,
-                achievements: achievementCounts,
-                achievementRecords: achievements,
+                achievements: ProfileAchievementLadder(records: achievements),
                 standings: [],
                 climbs: climbs,
                 fitnessLevel: SettingsManager.shared.fitnessLevel

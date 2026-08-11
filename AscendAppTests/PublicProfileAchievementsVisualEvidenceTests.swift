@@ -12,7 +12,51 @@ import UIKit
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct PublicProfileAchievementsVisualEvidenceTests {
-    private static let champion = ProfileAchievementCounts(top1: 3, top3: 5, top10: 12, top100: 41)
+    /// Three champion periods, two seconds, one third, and a long tail of ranked finishes.
+    private static let champion = ProfileAchievementLadder(records: championRecords())
+
+    private static func championRecords() -> [ProfileAchievementRecord] {
+        var records: [ProfileAchievementRecord] = []
+
+        for index in 1...3 {
+            records.append(record(id: "champion-\(index)", type: .weeklyTop1, rank: 1))
+        }
+        for index in 1...2 {
+            records.append(record(id: "second-\(index)", type: .monthlyTop3, rank: 2))
+        }
+        records.append(record(id: "third-1", type: .weeklyTop3, rank: 3))
+        for index in 1...6 {
+            records.append(record(id: "top-ten-\(index)", type: .weeklyTop10, rank: 4 + index))
+        }
+        for index in 1...29 {
+            records.append(
+                record(id: "top-hundred-\(index)", type: .weeklyTop100, rank: 20 + index)
+            )
+        }
+
+        return records
+    }
+
+    private static func record(
+        id: String,
+        type: ProfileAchievementType,
+        rank: Int
+    ) -> ProfileAchievementRecord {
+        ProfileAchievementRecord(
+            id: id,
+            type: type,
+            scope: .global,
+            metric: .steps,
+            climbId: nil,
+            periodKey: nil,
+            periodStartAt: nil,
+            periodEndAt: nil,
+            earnedAt: Date(timeIntervalSince1970: 1_754_000_000),
+            rank: rank,
+            value: 12_000,
+            valueUnit: "steps"
+        )
+    }
 
     @Test
     func loadedChampionProfileShowsTheirCrownAndBandCounts() throws {
@@ -29,7 +73,7 @@ struct PublicProfileAchievementsVisualEvidenceTests {
         try Self.capture(
             name: "public-profile-achievements-loaded-empty",
             caption: "Snapshot loaded, zero achievements: no heading, no shell, PROFILE runs straight into ALL-TIME",
-            achievements: .zero,
+            achievements: .empty,
             isOtherLoading: false
         )
     }
@@ -44,10 +88,86 @@ struct PublicProfileAchievementsVisualEvidenceTests {
         )
     }
 
+    @Test
+    func ownProfileShelfShowsFirstAscentsThenTheFullLadder() throws {
+        try Self.captureOwnShelf(
+            name: "own-profile-achievements-full-ladder",
+            caption: "Own profile, records loaded: First Ascents, CHAMPION, #2, #3, TOP 10, TOP 100",
+            achievements: Self.champion,
+            held: [
+                firstAscent(id: "eiffel", name: "Eiffel Tower"),
+                firstAscent(id: "cn", name: "CN Tower")
+            ]
+        )
+    }
+
+    @Test
+    func ownProfileShelfWithoutRecordsShowsOnlyTheBandsItCanProve() throws {
+        try Self.captureOwnShelf(
+            name: "own-profile-achievements-banded-fallback",
+            caption: "Records missing, banded counters only: no #2 and no #3, because neither can be proven",
+            achievements: ProfileAchievementLadder(
+                bandedCounters: ProfileAchievementCounts(top1: 3, top3: 6, top10: 12, top100: 41)
+            ),
+            held: []
+        )
+    }
+
+    private func firstAscent(id: String, name: String) -> ProfileFirstAscentSummary {
+        ProfileFirstAscentSummary(
+            climbId: id,
+            climbName: name,
+            locationText: "Paris, France",
+            tier: .gold,
+            targetSteps: 1_665,
+            kind: .held(claimedAt: Date(timeIntervalSince1970: 1_754_000_000))
+        )
+    }
+
+    private static func captureOwnShelf(
+        name: String,
+        caption: String,
+        achievements: ProfileAchievementLadder,
+        held: [ProfileFirstAscentSummary]
+    ) throws {
+        let content = VStack(alignment: .leading, spacing: 14) {
+            Text(caption)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Color.ascendAccent)
+                .fixedSize(horizontal: false, vertical: true)
+
+            PrestigeSection(
+                held: held,
+                open: [],
+                achievements: achievements,
+                mode: .own
+            )
+        }
+        .padding(20)
+        .frame(width: 402, alignment: .topLeading)
+        .background(ProfileVisualStyle.background)
+        .environment(\.colorScheme, .dark)
+
+        let host = UIHostingController(rootView: content)
+        host.overrideUserInterfaceStyle = .dark
+        let window = try makeWindow(host: host)
+        defer { tearDown(window) }
+
+        var fitted: CGFloat = 400
+        for _ in 0..<10 {
+            pump(window)
+            fitted = host.sizeThatFits(
+                in: CGSize(width: 402, height: CGFloat.greatestFiniteMagnitude)
+            ).height
+        }
+
+        try write(draw(window, fittingHeight: fitted), name: name)
+    }
+
     private static func capture(
         name: String,
         caption: String,
-        achievements: ProfileAchievementCounts,
+        achievements: ProfileAchievementLadder,
         isOtherLoading: Bool
     ) throws {
         let content = VStack(alignment: .leading, spacing: 14) {
