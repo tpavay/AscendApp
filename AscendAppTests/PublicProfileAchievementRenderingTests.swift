@@ -201,17 +201,24 @@ struct PublicProfileAchievementRenderingTests {
     @Test
     func unclaimedFirstPlaceSeatsTheCrownInsideTheOpenPedestal() throws {
         let renderer = ImageRenderer(
-            content: LeaderboardPodiumView(entries: [], metric: .climb)
-                .padding(16)
-                .frame(width: 390, height: 260, alignment: .bottom)
-                .background(Color.black)
-                .environment(\.colorScheme, .dark)
+            content: LeaderboardEmptyBoardView(
+                period: LeaderboardPeriod(
+                    timeFrame: .monthly,
+                    key: "2026-M08",
+                    startAt: Date(timeIntervalSince1970: 1_754_006_400),
+                    endAt: Date(timeIntervalSince1970: 1_756_684_800)
+                ),
+                metric: .climb
+            )
+            .frame(width: 390, height: 340, alignment: .top)
+            .background(Color.black)
+            .environment(\.colorScheme, .dark)
         )
         renderer.scale = 3
 
         let image = try #require(renderer.uiImage)
         let png = try #require(image.pngData())
-        let url = URL.temporaryDirectory.appending(path: "podium-unclaimed-champion-crown.png")
+        let url = URL.temporaryDirectory.appending(path: "leaderboard-empty-board-crown.png")
         try png.write(to: url, options: .atomic)
 
         print("ASCEND_EVIDENCE_PNG \(url.path)")
