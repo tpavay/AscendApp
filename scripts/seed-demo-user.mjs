@@ -940,7 +940,7 @@ function achievementRecords(uid, now, firstAscentClimbId) {
   const records = [
     achievement(uid, "weekly_top_1", "2026-W22", 1, daysAgo(now, 2)),
     achievement(uid, "weekly_top_1", "2026-W21", 1, daysAgo(now, 9)),
-    achievement(uid, "monthly_top_3", "2026-M05", 3, daysAgo(now, 13)),
+    achievement(uid, "monthly_top_3", "2026-M05", 2, daysAgo(now, 13)),
     achievement(uid, "weekly_top_3", "2026-W20", 3, daysAgo(now, 16)),
     achievement(uid, "weekly_top_10", "2026-W19", 7, daysAgo(now, 24)),
     achievement(uid, "monthly_top_10", "2026-M04", 8, daysAgo(now, 32)),

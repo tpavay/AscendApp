@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import Testing
 import UIKit
+import UserNotifications
 @testable import AscendApp
 
 /// Photographs the shipping public-profile achievements section in the three states a viewer can
@@ -140,7 +141,11 @@ struct PublicProfileAchievementsVisualEvidenceTests {
                 held: held,
                 open: [],
                 achievements: achievements,
-                mode: .own
+                mode: .own,
+                notificationState: ClimbDropNotificationState(
+                    client: EvidenceNotificationStateClient(),
+                    observesEnvironmentChanges: false
+                )
             )
         }
         .padding(20)
@@ -275,4 +280,17 @@ struct PublicProfileAchievementsVisualEvidenceTests {
         }
         Issue.record("No writable evidence directory for \(name)")
     }
+}
+
+/// Keeps the shelf's `.task` off the simulator's real notification centre and off the
+/// process-wide shared state: this suite photographs badges, it does not test prompting.
+@MainActor
+private final class EvidenceNotificationStateClient: ClimbDropNotificationStateClient {
+    let isPreferenceEnabled = true
+
+    func authorizationStatus() async -> UNAuthorizationStatus { .authorized }
+    func requestDuringOnboarding() async -> UNAuthorizationStatus { .authorized }
+    func enable() async -> UNAuthorizationStatus { .authorized }
+    func disable() async -> UNAuthorizationStatus { .authorized }
+    func openSystemNotificationSettings() {}
 }
