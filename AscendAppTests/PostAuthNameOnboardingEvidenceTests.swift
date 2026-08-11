@@ -173,8 +173,7 @@ struct PostAuthNameOnboardingEvidenceTests {
                 launchedCards: [],
                 comingSoonClimbs: []
             ),
-            achievements: .zero,
-            achievementRecords: [],
+            achievements: .empty,
             firstAscentsHeld: [],
             openFirstAscents: [],
             records: ProfileRecordSummary(personalRecords: [], featuredBestEffort: nil),

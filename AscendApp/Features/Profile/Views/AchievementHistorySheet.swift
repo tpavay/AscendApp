@@ -3,7 +3,7 @@ import SwiftUI
 struct AchievementHistorySheet: View {
     @Environment(\.dismiss) private var dismiss
 
-    let band: ProfileAchievementRankBand
+    let filter: ProfileAchievementHistoryFilter
     let records: [ProfileAchievementRecord]
 
     private var sortedRecords: [ProfileAchievementRecord] {
@@ -58,7 +58,7 @@ struct AchievementHistorySheet: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(band.label.uppercased())
+            Text(filter.label.uppercased())
                 .font(.montserratBold(size: 28))
                 .foregroundStyle(.white)
                 .tracking(1.2)
@@ -77,7 +77,7 @@ struct AchievementHistorySheet: View {
                     .font(.montserratBold(size: 16))
                     .foregroundStyle(.white)
 
-                Text("Finish a leaderboard period inside \(band.label) and the proof lands here.")
+                Text(filter.emptyStatePrompt)
                     .font(.montserratMedium(size: 13))
                     .foregroundStyle(ProfileVisualStyle.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)

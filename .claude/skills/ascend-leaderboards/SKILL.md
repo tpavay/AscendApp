@@ -73,6 +73,7 @@ Two distinct surfaces - the global tab (community-wide aggregate stats) and per-
 - Top finishers (#1, #2, #3) get medal-color emphasis (see the medal tokens in the core guide's Design System). They're the *active* prize being chased.
 - The climb's First Ascent holder is surfaced as a quiet, persistent annotation - permanent prestige, but visually secondary to the active leaderboard chase. See the First Ascent principle in `ascend-live-climbs`.
 - Achievement terminology is locked to **Top 1**, **Top 3**, **Top 10**, and **Top 100**. Top 1 may be swapped to a product-approved label later, but it must be centralized as a single string constant.
+  That is the awarding taxonomy, not the badge set: which badges a profile shelf renders from it - and why the Top 3 band badge gave way to the exact `#2` and `#3` placements read off each record's rank - belongs to `ascend-profile`.
 - Achievement counts use cumulative inclusive counting: a Top 1 finish also counts toward Top 3, Top 10, and Top 100. Do not render these as mutually exclusive medal bands.
 - Achievement counts are also **time-frame agnostic**: a weekly, monthly, and yearly Top 10 finish all count toward the same Top 10 badge, because the badge shows one total per band with no period noun.
   The time frame is preserved on the individual achievement record (`weekly_top_1`, `monthly_top_1`, …), which is what the achievement history sheet reads.

@@ -30,7 +30,7 @@ struct ProfilePrestigeBadgeView: View {
         }
         .frame(width: 88)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(token.label), \(token.count)")
+        .accessibilityLabel("\(token.accessibilityName), \(token.count)")
     }
 
     private var artwork: some View {

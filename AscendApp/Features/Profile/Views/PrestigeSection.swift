@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// Merged competitive-prestige shelf: First Ascents held + leaderboard achievement bands,
-/// shown as a horizontal row of earned badges rather than a stack of cards. When nothing is
-/// earned yet, the section becomes an activation moment anchored to climb-drop notifications.
+/// Merged competitive-prestige shelf: First Ascents held, then the leaderboard ladder -
+/// CHAMPION, the exact podium placements, and the remaining bands - shown as a horizontal row
+/// of earned badges rather than a stack of cards. When nothing is earned yet, the section
+/// becomes an activation moment anchored to climb-drop notifications.
 struct PrestigeSection: View {
     let held: [ProfileFirstAscentSummary]
     let open: [ProfileFirstAscentSummary]
-    let achievements: ProfileAchievementCounts
-    let achievementRecords: [ProfileAchievementRecord]
+    let achievements: ProfileAchievementLadder
     let mode: ProfileViewMode
 
     @State private var notificationState: ClimbDropNotificationState
@@ -15,15 +15,13 @@ struct PrestigeSection: View {
     init(
         held: [ProfileFirstAscentSummary],
         open: [ProfileFirstAscentSummary],
-        achievements: ProfileAchievementCounts,
-        achievementRecords: [ProfileAchievementRecord],
+        achievements: ProfileAchievementLadder,
         mode: ProfileViewMode,
         notificationState: ClimbDropNotificationState = .shared
     ) {
         self.held = held
         self.open = open
         self.achievements = achievements
-        self.achievementRecords = achievementRecords
         self.mode = mode
         _notificationState = State(initialValue: notificationState)
     }
@@ -38,7 +36,7 @@ struct PrestigeSection: View {
                 ProfilePrestigeBadgeShelf(
                     tokens: tokens,
                     imageSize: 54,
-                    history: achievementRecords
+                    history: achievements.records
                 )
             }
         }
@@ -59,7 +57,8 @@ struct PrestigeSection: View {
                     tint: ProfileVisualStyle.gold,
                     count: held.count,
                     label: held.count == 1 ? "First Ascent" : "First Ascents",
-                    achievementBand: nil
+                    historyFilter: nil,
+                    usesFreeStandingArt: true
                 )
             )
         }
@@ -73,12 +72,12 @@ struct PrestigeSection: View {
     private var activationContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 14) {
+                // Free-standing, like the shelf badge it stands in for: the art is a cut-out,
+                // so a circular clip would slice the flag off.
                 Image("FirstAscentBadgeDetailed")
                     .resizable()
                     .scaledToFit()
                     .frame(width: 46, height: 46)
-                    .clipShape(Circle())
-                    .overlay(Circle().stroke(Color.white.opacity(0.14), lineWidth: 1))
                     .opacity(0.92)
                     .accessibilityHidden(true)
 

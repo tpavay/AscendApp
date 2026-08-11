@@ -6,8 +6,7 @@ import SwiftData
 @Observable
 final class ProfileScreenViewModel {
     var standings: [ProfileStanding] = []
-    var achievements: ProfileAchievementCounts = .zero
-    var achievementRecords: [ProfileAchievementRecord] = []
+    var achievements: ProfileAchievementLadder = .empty
     var firstAscentsHeld: [ProfileFirstAscentSummary] = []
     var openFirstAscents: [ProfileFirstAscentSummary] = []
     var otherUserSnapshot: ProfileSnapshot?
@@ -68,9 +67,7 @@ final class ProfileScreenViewModel {
             userId: userId,
             modelContext: modelContext
         )
-        let loadedAchievementSnapshot = await loadedAchievements
-        achievementRecords = loadedAchievementSnapshot.records
-        achievements = loadedAchievementSnapshot.counts
+        achievements = await loadedAchievements
         let summaries = await firstAscentSummaries
         firstAscentsHeld = summaries.held
         openFirstAscents = summaries.open
@@ -109,13 +106,15 @@ final class ProfileScreenViewModel {
             let bundle = try await remoteBundle
             let standings = await loadedStandings
             let firstAscents = await firstAscentSummaries
-            let achievementCounts = bundle.achievements.isEmpty
-                ? (bundle.stats?.achievementCounts ?? .zero)
-                : ProfileAchievementCounts(records: bundle.achievements)
+            // Records first: only they name the exact finishing rank. The banded counters are
+            // the fallback, and a ladder built from them proves no #2 or #3.
+            let achievements = bundle.achievements.isEmpty
+                ? ProfileAchievementLadder(bandedCounters: bundle.stats?.achievementCounts ?? .zero)
+                : ProfileAchievementLadder(records: bundle.achievements)
             let fallbackStats = fallbackStatsSnapshot(
                 summaries: bundle.workoutSummaries,
                 firstAscentCount: firstAscents.held.count,
-                achievementCounts: achievementCounts
+                achievementCounts: achievements.counts
             )
             let stats = mergedStats(remote: bundle.stats, fallback: fallbackStats)
             otherUserIdentity = (bundle.identity ?? seedIdentity)?
@@ -127,8 +126,7 @@ final class ProfileScreenViewModel {
             let snapshot = ProfileSnapshotBuilder.makeRemoteSnapshot(
                 demographics: otherUserDemographics(userId: userId),
                 stats: stats,
-                achievements: achievementCounts,
-                achievementRecords: bundle.achievements,
+                achievements: achievements,
                 standings: standings,
                 workoutSummaries: bundle.workoutSummaries,
                 firstAscentsHeld: firstAscents.held,
@@ -147,8 +145,7 @@ final class ProfileScreenViewModel {
             otherUserSnapshot = ProfileSnapshotBuilder.makeRemoteSnapshot(
                 demographics: otherUserDemographics(userId: userId),
                 stats: .empty,
-                achievements: .zero,
-                achievementRecords: [],
+                achievements: .empty,
                 standings: [],
                 workoutSummaries: [],
                 firstAscentsHeld: [],
@@ -231,19 +228,20 @@ final class ProfileScreenViewModel {
         )
     }
 
-    private func loadAchievements(
-        userId: String
-    ) async -> (records: [ProfileAchievementRecord], counts: ProfileAchievementCounts) {
+    /// Prefers the finalized records - they carry the exact finishing rank of every period -
+    /// and falls back to the banded `profile_stats` counters only when none arrived. The
+    /// fallback ladder can prove no exact placement, so it withholds those badges.
+    private func loadAchievements(userId: String) async -> ProfileAchievementLadder {
         do {
             let records = try await profileRepository.fetchAchievements(userId: userId)
             if !records.isEmpty {
-                return (records, ProfileAchievementCounts(records: records))
+                return ProfileAchievementLadder(records: records)
             }
 
             let stats = try await profileRepository.fetchStats(userId: userId)
-            return ([], stats?.achievementCounts ?? .zero)
+            return ProfileAchievementLadder(bandedCounters: stats?.achievementCounts ?? .zero)
         } catch {
-            return ([], .zero)
+            return .empty
         }
     }
 

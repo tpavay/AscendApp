@@ -82,7 +82,7 @@ struct ClimbCompletionRepositoryTests {
             climbAttempts: attempts,
             completedClimbSet: set,
             bestEffortCacheEntries: [],
-            achievements: .zero,
+            achievements: .empty,
             standings: [],
             climbs: catalog,
             fitnessLevel: .beginner
