@@ -8,6 +8,7 @@
 ## User outcome
 
 Leaderboard champions see a free-standing crown instead of a clipped square tile, and every climber can see another champion's earned leaderboard bands near the top of that climber's public profile.
+A board nobody has entered yet renders the three pedestals with the crown seated in the open first-place slot, so the empty state shows the prize instead of an absence notice.
 
 ## Non-goals
 
@@ -22,15 +23,16 @@ Leaderboard champions see a free-standing crown instead of a clipped square tile
 - [ ] AC-3: First Ascent, Top 3, Top 10, and Top 100 tokens retain their existing framed presentation.
 - [ ] AC-4: A loaded public profile renders only the other climber's nonzero leaderboard achievement bands and exact cumulative counts.
 - [ ] AC-5: A loaded public profile with no achievements renders no achievement section.
-- [ ] AC-6: A public profile whose remote snapshot is loading renders the achievement heading and matching skeleton badge placeholders.
-- [ ] AC-7: Tapping a public achievement badge opens the existing history sheet filtered to that other climber's records.
+- [ ] AC-6: A public profile whose remote snapshot is still loading renders no achievement section at all; the bands appear only once the counts resolve.
+- [ ] AC-7: Public achievement badges are non-interactive, because the public snapshot carries no records for the history sheet to show.
+      The own-profile shelf keeps its history sheet, including when a band has no backing records yet.
 
 ## State matrix
 
 | State | Expected behavior | Verification |
 |---|---|---|
-| Happy path | The other climber's crown and earned bands appear between Profile and All-Time, with exact counts and history access. | Hosted SwiftUI rendering test and simulator evidence. |
-| Loading | The achievement heading and skeleton badge placeholders appear while the other profile snapshot loads. | Hosted SwiftUI rendering test. |
+| Happy path | The other climber's crown and earned bands appear between Profile and All-Time, with exact counts and no tap target. | Hosted SwiftUI rendering test and simulator evidence. |
+| Loading | Nothing renders while the other profile snapshot loads - no heading, no placeholder badges - so no count is ever shown before it is known. | Hosted SwiftUI rendering test. |
 | Empty | The entire achievement section is absent after a zero-count snapshot loads. | Hosted SwiftUI rendering test. |
 | Error/offline | The existing remote profile loading/error behavior remains authoritative; this section reflects the snapshot state it receives. | Existing profile loading tests and regression review. |
 
@@ -43,15 +45,15 @@ Leaderboard champions see a free-standing crown instead of a clipped square tile
 | AC-3 | Rendered prestige shelf evidence with all non-crown tokens. | Detects any shared presentation regression. |
 | AC-4 | `PublicProfileAchievementRenderingTests` present-state case. | Hosts the shipping section and reads back every supplied count from accessibility output. |
 | AC-5 | `PublicProfileAchievementRenderingTests` absent-state case. | Proves no heading or badge remains after a zero-count load. |
-| AC-6 | `PublicProfileAchievementRenderingTests` loading-state case. | Proves the section exposes a loading value while rendering the shared skeleton component. |
-| AC-7 | Hosted accessibility activation and `AchievementHistorySheet` record filtering review. | Exercises the same button and generic record-set sheet used on the own profile. |
+| AC-6 | `PublicProfileAchievementRenderingTests.loadingAchievementsRenderNothingUntilTheCountsResolve`. | Proves no heading and no band label reaches the accessibility tree while the snapshot is loading. |
+| AC-7 | `PublicProfileAchievementRenderingTests.publicBadgesNeverOpenAchievementHistory` and `.ownProfileBadgesStayTappableWithNoFinalizedRows`. | Proves the public shelf exposes no button trait while the record-backed own-profile shelf still does. |
 
 ## UX evidence
 
 - Capture the 16-point leaderboard row crown, 30-point podium crown, 46-point public-profile crown, and 54-point own-profile crown in dark mode.
-- Capture the public profile in present, absent, and loading states on an iPhone 16 Pro device-type simulator.
-- Verify VoiceOver announces each achievement label and count, and announces the loading state without exposing decorative skeletons.
-- Verify the public badge buttons meet the 44-point minimum target and the non-crown tokens retain their frames.
+- Capture the public profile in present, absent, and loading states on an iPhone 16 Pro device-type simulator - the last two show no achievement section.
+- Verify VoiceOver announces each achievement label and count on a loaded public profile, and announces nothing for it while the snapshot loads.
+- Verify the public badges carry no button trait and the non-crown tokens retain their frames.
 
 ## Risk and rollout
 
