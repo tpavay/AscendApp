@@ -577,63 +577,12 @@ struct ClimbDetailView: View {
     }
 
     private var heroCardFront: some View {
-        ZStack(alignment: .bottomLeading) {
+        ClimbDetailHeroCardFront(
+            climb: viewModel.climb,
+            subtitle: viewModel.subtitle,
+            stripOrderText: viewModel.stripOrderText
+        ) {
             ClimbArtworkView(climb: viewModel.climb, variant: .hero)
-
-            LinearGradient(
-                colors: [
-                    .black.opacity(0.03),
-                    .black.opacity(0.1),
-                    .black.opacity(0.22),
-                    .black.opacity(0.52)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-
-            if let stripOrderText = viewModel.stripOrderText {
-                HStack(spacing: 0) {
-                    UnevenRoundedRectangle(
-                        cornerRadii: .init(
-                            topLeading: 28,
-                            bottomLeading: 28,
-                            bottomTrailing: 0,
-                            topTrailing: 0
-                        ),
-                        style: .continuous
-                    )
-                        .fill(viewModel.climb.tier.detailStripStyle)
-                        .frame(width: 48)
-                        .overlay {
-                            Text(stripOrderText)
-                                .font(.montserratBold(size: 12))
-                                .foregroundStyle(.white)
-                                .rotationEffect(.degrees(-90))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.74)
-                        }
-
-                    Spacer(minLength: 0)
-                }
-            }
-
-            VStack(spacing: 0) {
-                Spacer(minLength: 0)
-
-                LinearGradient(
-                    colors: [
-                        .clear,
-                        .black.opacity(0.18),
-                        .black.opacity(0.68),
-                        .black.opacity(0.94)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 132)
-            }
-
-            heroTextOverlay
         }
     }
 
@@ -695,29 +644,6 @@ struct ClimbDetailView: View {
             }
             .padding(24)
         }
-    }
-
-    private var heroTextOverlay: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(viewModel.climb.name)
-                .font(.montserratBold(size: 18))
-                .foregroundStyle(.white)
-                .lineLimit(2)
-                .minimumScaleFactor(0.72)
-                .allowsTightening(true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text(viewModel.subtitle)
-                .font(.montserratMedium(size: 12))
-                .foregroundStyle(.white.opacity(0.84))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .shadow(color: .black.opacity(0.55), radius: 16, x: 0, y: 4)
-        .padding(.leading, viewModel.stripOrderText == nil ? 20 : 64)
-        .padding(.trailing, 16)
-        .padding(.bottom, 70)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
     }
 
     private var flipCardButton: some View {

@@ -139,14 +139,13 @@ final class ClimbDetailViewModel {
     }
 
     var stripOrderText: String? {
-        guard communityCompletedCount > 0 else { return nil }
-
-        if let order = personalFinisherOrder,
-           order <= communityCompletedCount {
-            return "#\(order.formatted())/\(communityCompletedCount.formatted())"
+        guard let order = personalFinisherOrder,
+              communityCompletedCount > 0,
+              order <= communityCompletedCount else {
+            return nil
         }
 
-        return "--/\(communityCompletedCount.formatted())"
+        return "#\(order.formatted())/\(communityCompletedCount.formatted())"
     }
 
     func refresh(modelContext: ModelContext) {
