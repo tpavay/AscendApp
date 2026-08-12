@@ -18,7 +18,7 @@ test("the bundled share card templates are valid", () => {
   assert.deepEqual(validateBundledPayload(), []);
 });
 
-test("bundled templates render the Ascend brand with the wordmark element", () => {
+test("bundled templates never substitute plain text for the fixed wordmark", () => {
   const payload = JSON.parse(readFileSync(new URL(PATHS.payload, REPOSITORY_ROOT)));
   const brandedTextNodes = [];
 
@@ -42,6 +42,11 @@ test("bundled templates render the Ascend brand with the wordmark element", () =
 
   payload.templates.forEach((template) => visit(template.root, template.id));
   assert.deepEqual(brandedTextNodes, []);
+});
+
+test("bundled card copy never says global", () => {
+  const payload = readFileSync(new URL(PATHS.payload, REPOSITORY_ROOT), "utf8");
+  assert.equal(payload.toLowerCase().includes("global"), false);
 });
 
 test("the vocabulary is read out of the Swift sources", () => {

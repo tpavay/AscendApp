@@ -40,7 +40,7 @@ struct ShareComposerView: View {
     private let presets: [ShareComposerPreset]
     private let shareTitle: String
     private let accent = Color(red: 0.706, green: 0.8, blue: 0)
-    private static let storyAspectRatio: CGFloat = 9.0 / 16.0
+    private static let storyAspectRatio = ShareCardFormat.aspectRatio
 
     init(
         workout: Workout,
@@ -88,7 +88,11 @@ struct ShareComposerView: View {
             stats: viewModel.climbStats(),
             bestEfforts: viewModel.bestEffortStats,
             weeklyTotals: viewModel.weeklyTotalStats,
-            splits: viewModel.splits()
+            splits: viewModel.splits(),
+            standing: ResolvedShareStanding(
+                rank: viewModel.climbRank,
+                totalClimbers: viewModel.climbRankTotal
+            )
         )
         return .init(templates: templates, context: context, climb: climb)
     }
@@ -382,10 +386,12 @@ struct ShareComposerView: View {
                     if viewModel.draggingID == nil {
                         addPill.transition(.opacity.combined(with: .scale(scale: 0.8)))
                     }
-                    AscendWordmark(size: 13 * canvasScale, letterColor: .white.opacity(0.92))
-                        .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 1)
-                        .allowsHitTesting(false)
-                        .padding(.bottom, 12)
+                    if viewModel.shouldRenderCanvasWordmark {
+                        AscendWordmark(size: 13 * canvasScale, letterColor: .white.opacity(0.92))
+                            .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 1)
+                            .allowsHitTesting(false)
+                            .padding(.bottom, 12)
+                    }
                 }
 
                 // Chrome

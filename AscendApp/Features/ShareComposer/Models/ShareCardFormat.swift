@@ -89,10 +89,13 @@ struct ShareCardTemplate: Codable, Equatable, Identifiable, Sendable {
     var requires: [ShareCardRequirement]
     /// Card-level backdrop drawn beneath `root`.
     var background: ShareCardFill?
+    /// The fixed bottom wordmark tint. Its placement is owned by the template
+    /// wrapper so card content cannot move or omit the brand lockup.
+    var wordmarkTint: ShareCardTint
     var root: ShareCardNode
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, minRendererVersion, requires, background, root
+        case id, title, minRendererVersion, requires, background, wordmarkTint, root
     }
 
     init(
@@ -101,6 +104,7 @@ struct ShareCardTemplate: Codable, Equatable, Identifiable, Sendable {
         minRendererVersion: Int = ShareCardFormat.rendererVersion,
         requires: [ShareCardRequirement] = [],
         background: ShareCardFill? = nil,
+        wordmarkTint: ShareCardTint = ShareCardTint(.value),
         root: ShareCardNode
     ) {
         self.id = id
@@ -108,6 +112,7 @@ struct ShareCardTemplate: Codable, Equatable, Identifiable, Sendable {
         self.minRendererVersion = minRendererVersion
         self.requires = requires
         self.background = background
+        self.wordmarkTint = wordmarkTint
         self.root = root
     }
 
@@ -119,6 +124,7 @@ struct ShareCardTemplate: Codable, Equatable, Identifiable, Sendable {
             minRendererVersion: try container.value(.minRendererVersion, default: 1),
             requires: try container.value(.requires, default: []),
             background: try container.decodeIfPresent(ShareCardFill.self, forKey: .background),
+            wordmarkTint: try container.value(.wordmarkTint, default: ShareCardTint(.value)),
             root: try container.decode(ShareCardNode.self, forKey: .root)
         )
     }
@@ -127,12 +133,12 @@ struct ShareCardTemplate: Codable, Equatable, Identifiable, Sendable {
 enum ShareCardFormat {
     /// Bumped whenever the renderer gains an element type or a knob that a
     /// template may depend on. Templates above this are skipped by this binary.
-    static let rendererVersion = 1
+    static let rendererVersion = 2
 
     /// The card's design space. Every size in a template is in these units; the
     /// whole card is scaled once, never per element.
-    static let designSize = CGSize(width: 390, height: 390 / (9.0 / 16.0))
-    static let aspectRatio: CGFloat = 9.0 / 16.0
+    static let designSize = CGSize(width: 390, height: 390 / (9.0 / 19.5))
+    static let aspectRatio: CGFloat = 9.0 / 19.5
 }
 
 // MARK: - Node
@@ -231,6 +237,8 @@ enum ShareCardElement: Codable, Equatable, Sendable {
     case metric(ShareCardMetric)
     case artwork(ShareCardArtwork)
     case splits(ShareCardSplitsTableSpec)
+    case rankTab(ShareCardRankTabSpec)
+    case standing(ShareCardStandingSpec)
     case progress(ShareCardProgress)
     case shape(ShareCardShapeElement)
     case rule(ShareCardRule)
@@ -252,6 +260,8 @@ enum ShareCardElement: Codable, Equatable, Sendable {
         case "metric": self = .metric(try ShareCardMetric(from: decoder))
         case "artwork": self = .artwork(try ShareCardArtwork(from: decoder))
         case "splits": self = .splits(try ShareCardSplitsTableSpec(from: decoder))
+        case "rankTab": self = .rankTab(try ShareCardRankTabSpec(from: decoder))
+        case "standing": self = .standing(try ShareCardStandingSpec(from: decoder))
         case "progress": self = .progress(try ShareCardProgress(from: decoder))
         case "shape": self = .shape(try ShareCardShapeElement(from: decoder))
         case "rule": self = .rule(try ShareCardRule(from: decoder))
@@ -286,6 +296,12 @@ enum ShareCardElement: Codable, Equatable, Sendable {
         case .splits(let splits):
             try writeType("splits")
             try splits.encode(to: encoder)
+        case .rankTab(let rankTab):
+            try writeType("rankTab")
+            try rankTab.encode(to: encoder)
+        case .standing(let standing):
+            try writeType("standing")
+            try standing.encode(to: encoder)
         case .progress(let progress):
             try writeType("progress")
             try progress.encode(to: encoder)
@@ -608,6 +624,7 @@ struct ShareCardArtwork: Codable, Equatable, Sendable {
 /// come from recorded sensor data, so the format parameterises it rather than
 /// describing every cell.
 struct ShareCardSplitsTableSpec: Codable, Equatable, Sendable {
+    var layout: ShareCardSplitsLayout
     /// Overall width in design units. Column widths are fractions of it.
     var width: Double
     /// Drives every font size in the table.
@@ -617,32 +634,81 @@ struct ShareCardSplitsTableSpec: Codable, Equatable, Sendable {
     /// its own heading turns this off rather than drawing a second one.
     var showsTitle: Bool
     var showsHeader: Bool
+    var textTint: ShareCardTint
+    var fastTint: ShareCardTint
+    var slowTint: ShareCardTint
+    var trackTint: ShareCardTint
 
     init(
+        layout: ShareCardSplitsLayout = .timeline,
         width: Double = 270,
         baseSize: Double = 26,
         maxRows: Int? = nil,
         showsTitle: Bool = true,
-        showsHeader: Bool = true
+        showsHeader: Bool = true,
+        textTint: ShareCardTint = ShareCardTint(.value),
+        fastTint: ShareCardTint = ShareCardTint(.value),
+        slowTint: ShareCardTint = ShareCardTint(.hex("A8A8A8")),
+        trackTint: ShareCardTint = ShareCardTint(.hex("DEDEDE"))
     ) {
+        self.layout = layout
         self.width = width
         self.baseSize = baseSize
         self.maxRows = maxRows
         self.showsTitle = showsTitle
         self.showsHeader = showsHeader
+        self.textTint = textTint
+        self.fastTint = fastTint
+        self.slowTint = slowTint
+        self.trackTint = trackTint
     }
 
-    private enum CodingKeys: String, CodingKey { case width, baseSize, maxRows, showsTitle, showsHeader }
+    private enum CodingKeys: String, CodingKey {
+        case layout, width, baseSize, maxRows, showsTitle, showsHeader, textTint, fastTint, slowTint, trackTint
+    }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
+            layout: try container.value(.layout, default: .timeline),
             width: try container.value(.width, default: 270),
             baseSize: try container.value(.baseSize, default: 26),
             maxRows: try container.decodeIfPresent(Int.self, forKey: .maxRows),
             showsTitle: try container.value(.showsTitle, default: true),
-            showsHeader: try container.value(.showsHeader, default: true)
+            showsHeader: try container.value(.showsHeader, default: true),
+            textTint: try container.value(.textTint, default: ShareCardTint(.value)),
+            fastTint: try container.value(.fastTint, default: ShareCardTint(.value)),
+            slowTint: try container.value(.slowTint, default: ShareCardTint(.hex("A8A8A8"))),
+            trackTint: try container.value(.trackTint, default: ShareCardTint(.hex("DEDEDE")))
         )
+    }
+}
+
+enum ShareCardSplitsLayout: String, Codable, Sendable {
+    case timeline
+    case stepQuintiles
+}
+
+/// The right-edge leaderboard tab. This is data-backed rather than authored as
+/// text because a one-climber field must atomically become First Ascent.
+struct ShareCardRankTabSpec: Codable, Equatable, Sendable {
+    var width: Double
+    var height: Double
+
+    init(width: Double = 112, height: Double = 58) {
+        self.width = width
+        self.height = height
+    }
+}
+
+/// The percentile hero and distribution curve used only by Standing.
+struct ShareCardStandingSpec: Codable, Equatable, Sendable {
+    var width: Double
+    var height: Double
+
+    init(width: Double = 354, height: Double = 310) {
+        self.width = width
+        self.height = height
     }
 }
 

@@ -38,8 +38,17 @@ struct ShareCardRenderer: View {
         case .artwork(let spec):
             ShareCardArtworkView(spec: spec, source: artwork, context: context)
         case .splits(let spec):
-            if let splits = context.splits, !splits.rows.isEmpty {
+            if let splits = context.splits,
+               !splits.rows.isEmpty || !splits.stepQuintileRows.isEmpty {
                 ShareCardSplitsTable(splits: splits, spec: spec, context: context)
+            }
+        case .rankTab(let spec):
+            if let standing = context.standing {
+                ShareCardRankTabView(standing: standing, spec: spec, context: context)
+            }
+        case .standing(let spec):
+            if let standing = context.standing {
+                ShareCardStandingView(standing: standing, spec: spec, context: context)
             }
         case .progress(let progress):
             progressView(progress)

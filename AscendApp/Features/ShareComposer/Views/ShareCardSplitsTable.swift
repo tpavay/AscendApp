@@ -47,6 +47,15 @@ struct ShareCardSplitsTable: View {
     }
 
     var body: some View {
+        switch spec.layout {
+        case .timeline:
+            timelineTable
+        case .stepQuintiles:
+            stepQuintileTable
+        }
+    }
+
+    private var timelineTable: some View {
         VStack(alignment: .leading, spacing: base * 0.38) {
             if spec.showsTitle {
                 title
@@ -64,6 +73,57 @@ struct ShareCardSplitsTable: View {
             }
         }
         .frame(width: totalWidth, alignment: .leading)
+    }
+
+    private var stepQuintileTable: some View {
+        let textColor = spec.textTint.color(in: context)
+
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("SPLITS BY STEP")
+                    .font(context.font.swiftUIFont(size: base * 0.66, role: .heavy))
+                    .tracking(1.2)
+                Spacer()
+                Text("\(splits.averageStepsPerMinuteText) AVG STEPS/MIN")
+                    .font(context.font.swiftUIFont(size: base * 0.38, role: .medium))
+                    .tracking(0.8)
+            }
+            .foregroundStyle(textColor)
+
+            ForEach(splits.stepQuintileRows.prefix(5)) { row in
+                HStack(spacing: 9) {
+                    Text(row.rangeText)
+                        .frame(width: spec.width * 0.22, alignment: .leading)
+
+                    GeometryReader { geometry in
+                        Capsule(style: .continuous)
+                            .fill(spec.trackTint.color(in: context))
+                            .overlay(alignment: .leading) {
+                                Capsule(style: .continuous)
+                                    .fill(
+                                        (row.isFasterThanAverage == true ? spec.fastTint : spec.slowTint)
+                                            .color(in: context)
+                                    )
+                                    .frame(width: max(geometry.size.width * row.progress, 8))
+                            }
+                    }
+                    .frame(height: 6)
+
+                    Text(row.elapsedText ?? "--")
+                        .frame(width: spec.width * 0.15, alignment: .trailing)
+                }
+                .font(context.font.swiftUIFont(size: base * 0.48, role: .medium))
+                .foregroundStyle(textColor)
+                .monospacedDigit()
+            }
+
+            Text("DARK = FASTER THAN YOUR AVERAGE")
+                .font(context.font.swiftUIFont(size: base * 0.34, role: .medium))
+                .tracking(0.9)
+                .foregroundStyle(textColor.opacity(0.56))
+                .padding(.top, 2)
+        }
+        .frame(width: spec.width, alignment: .leading)
     }
 
     private var title: some View {

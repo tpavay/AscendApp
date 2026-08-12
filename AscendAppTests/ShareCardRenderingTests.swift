@@ -10,7 +10,7 @@ import UIKit
 /// image. Both defects were invisible in the model — the settings were stored
 /// correctly and thrown away at draw time — so an assertion that stops at the
 /// model would not have caught either one.
-/// Rendering six cards at 1080×1920 and reading every pixel back holds the main
+/// Rendering four cards at 1080×2340 and reading every pixel back holds the main
 /// actor for long enough to starve a suite waiting on a hosted appearance
 /// transition, so this takes the same gate they do.
 @MainActor
@@ -125,15 +125,15 @@ struct ShareCardRenderingTests {
     @Test
     func everyBundledTemplateRendersAtExportResolution() throws {
         let templates = try ShareCardTemplateStore(bundle: .main).loadTemplates()
-        #expect(templates.count == 6, "the six shipped cards must all survive")
+        #expect(templates.count == 4, "the four finalized cards must all survive")
 
         let context = Self.templateContext()
         for template in templates {
             let view = ShareCardTemplateView(template: template, context: context)
-                .frame(width: 1080, height: 1920)
-            let image = try #require(Self.render(view, size: CGSize(width: 1080, height: 1920)),
+                .frame(width: 1080, height: 2340)
+            let image = try #require(Self.render(view, size: CGSize(width: 1080, height: 2340)),
                                      "\(template.id) rendered nothing")
-            #expect(image.size.width == 1080 && image.size.height == 1920,
+            #expect(image.size.width == 1080 && image.size.height == 2340,
                     "\(template.id) must export at story resolution")
             #expect(try Self.nonBlankPixelFraction(image) > 0.02,
                     "\(template.id) rendered a blank card")
@@ -146,7 +146,7 @@ struct ShareCardRenderingTests {
     @Test
     func aTemplateDegradesWhenAStatIsMissing() throws {
         let templates = try ShareCardTemplateStore(bundle: .main).loadTemplates()
-        let summit = try #require(templates.first { $0.id == "summitPoster" })
+        let summit = try #require(templates.first { $0.id == "poster" })
 
         let full = Self.templateContext()
         let sparse = ShareCardRenderContext(stats: [
@@ -155,16 +155,52 @@ struct ShareCardRenderingTests {
         ])
 
         let rich = try #require(Self.render(
-            ShareCardTemplateView(template: summit, context: full).frame(width: 390, height: 693),
-            size: CGSize(width: 390, height: 693)
+            ShareCardTemplateView(template: summit, context: full).frame(width: 390, height: 845),
+            size: CGSize(width: 390, height: 845)
         ))
         let thin = try #require(Self.render(
-            ShareCardTemplateView(template: summit, context: sparse).frame(width: 390, height: 693),
-            size: CGSize(width: 390, height: 693)
+            ShareCardTemplateView(template: summit, context: sparse).frame(width: 390, height: 845),
+            size: CGSize(width: 390, height: 845)
         ))
 
         #expect(try Self.nonBlankPixelFraction(thin) > 0.02, "the card must still render")
         #expect(try Self.differingPixelFraction(rich, thin) > 0.01, "missing stats must drop their cells")
+    }
+
+    @Test
+    func everyCardDrawsRankAndFirstAscentAsDifferentTreatments() throws {
+        let templates = try ShareCardTemplateStore(bundle: .main).loadTemplates()
+        for template in templates {
+            let ranked = try #require(Self.render(
+                ShareCardTemplateView(template: template, context: Self.templateContext())
+                    .frame(width: 390, height: 845),
+                size: CGSize(width: 390, height: 845)
+            ))
+            let firstAscent = try #require(Self.render(
+                ShareCardTemplateView(
+                    template: template,
+                    context: Self.templateContext(
+                        standing: ResolvedShareStanding(rank: 1, totalClimbers: 1)
+                    )
+                )
+                .frame(width: 390, height: 845),
+                size: CGSize(width: 390, height: 845)
+            ))
+
+            #expect(
+                try Self.differingPixelFraction(ranked, firstAscent) > 0.001,
+                "\(template.id) did not change for First Ascent"
+            )
+            Self.writeEvidence(firstAscent, named: "\(template.id)-first-ascent")
+        }
+    }
+
+    @Test
+    func exportAndFixedWordmarkUseStoryGeometry() {
+        #expect(ShareCardFormat.aspectRatio == 9.0 / 19.5)
+        #expect(ShareComposerExporter.exportSize == CGSize(width: 1080, height: 2340))
+        #expect(ShareCardTemplateView.wordmarkClearance > ShareCardTemplateView.wordmarkSize)
+        #expect(ShareCardTemplateView.wordmarkBottomInset == 22)
     }
 
     // MARK: - Fixtures
@@ -213,7 +249,22 @@ struct ShareCardRenderingTests {
         )
     }
 
-    static func templateContext() -> ShareCardRenderContext {
+    static func templateContext(
+        standing: ResolvedShareStanding? = ResolvedShareStanding(rank: 7, totalClimbers: 2_460)
+    ) -> ShareCardRenderContext {
+        let quintileRows = (0..<5).map { index in
+            ResolvedShareSplitRow(
+                index: index,
+                segmentText: "\(index + 1)",
+                rangeText: "\(index * 409 + 1)-\((index + 1) * 409)",
+                stepsText: "409",
+                spmText: "\(88 + index)",
+                heartRateText: nil,
+                elapsedText: "4:\(10 + index)",
+                isFasterThanAverage: index.isMultiple(of: 2),
+                progress: 0.55 + Double(index) * 0.1
+            )
+        }
         let splits = ResolvedShareSplits(
             label: "SPLITS",
             value: "5 SEGMENTS",
@@ -229,12 +280,16 @@ struct ShareCardRenderingTests {
                     progress: 0.4 + Double(index) * 0.12
                 )
             },
+            stepQuintileRows: quintileRows,
+            averageStepsPerMinuteText: "94.5",
             hasHeartRate: true
         )
 
         return .template(
             stats: [
                 ResolvedShareStat(kind: .climbName, label: "LANDMARK", value: "Empire State Building"),
+                ResolvedShareStat(kind: .climbLocation, label: "LOCATION", value: "New York, United States"),
+                ResolvedShareStat(kind: .climbFloors, label: "FLOORS", value: "102"),
                 ResolvedShareStat(kind: .climbRank, label: "RANK", value: "#7"),
                 ResolvedShareStat(kind: .climbRankWithTotal, label: "RANK / TOTAL", value: "#7 / 2,460", detail: "2,460"),
                 ResolvedShareStat(kind: .duration, label: "DURATION", value: "22:10"),
@@ -250,7 +305,8 @@ struct ShareCardRenderingTests {
             ],
             bestEfforts: [ResolvedShareStat(kind: .bestEffort, label: "FASTEST 1K", value: "9:12")],
             weeklyTotals: [],
-            splits: splits
+            splits: splits,
+            standing: standing
         )
     }
 

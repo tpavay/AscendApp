@@ -105,6 +105,8 @@ final class ShareComposerViewModel {
             measurementSystem: measurementSystem,
             stepHeight: stepHeight,
             climbName: climbNameOverride ?? climbName,
+            climbLocation: climb?.displayLocation,
+            climbFloors: climb?.calculatedFloors,
             climbRank: climbRank,
             climbRankTotal: climbRankTotal,
             splitTargetSteps: climb?.referenceStepCount
@@ -124,6 +126,13 @@ final class ShareComposerViewModel {
     }
 
     var isClimb: Bool { climbName != nil }
+
+    /// Recap templates already burn in the fixed template wordmark. Other
+    /// backgrounds receive the canvas wordmark exactly once.
+    var shouldRenderCanvasWordmark: Bool {
+        guard case .recap? = background else { return true }
+        return false
+    }
 
     /// This-climb / this-workout stats that have a value, resolved for display.
     /// Best Efforts and Totals are surfaced as their own sections, not here.

@@ -11,6 +11,8 @@ struct ShareCardRenderContext: Equatable, Sendable {
     var stats: [ShareStatRef: ResolvedShareStat]
     /// Split rows for the `splits` element.
     var splits: ResolvedShareSplits?
+    /// Frozen rank and field size for rank tabs and Standing cards.
+    var standing: ResolvedShareStanding?
     /// Typeface for every text run; the role picks the weight within it.
     var font: ShareStickerFont
     /// Resolves `ShareCardColor.value`.
@@ -21,12 +23,14 @@ struct ShareCardRenderContext: Equatable, Sendable {
     init(
         stats: [ShareStatRef: ResolvedShareStat] = [:],
         splits: ResolvedShareSplits? = nil,
+        standing: ResolvedShareStanding? = nil,
         font: ShareStickerFont = .montserrat,
         valueColor: RGBAColor = .white,
         labelColor: RGBAColor = .lime
     ) {
         self.stats = stats
         self.splits = splits
+        self.standing = standing
         self.font = font
         self.valueColor = valueColor
         self.labelColor = labelColor
@@ -73,7 +77,7 @@ extension ShareCardNode {
     /// metric still disappears with that metric.
     var carriesData: Bool {
         switch element {
-        case .metric, .splits:
+        case .metric, .splits, .rankTab, .standing:
             return true
         case .text(let text):
             return (text.segments + (text.fallback ?? [])).contains { $0.stat != nil }
@@ -105,7 +109,9 @@ extension ShareCardNode {
         case .metric(let metric):
             return context.stat(for: metric.stat) != nil
         case .splits:
-            return context.splits.map { !$0.rows.isEmpty } ?? false
+            return context.splits.map { !$0.rows.isEmpty || !$0.stepQuintileRows.isEmpty } ?? false
+        case .rankTab, .standing:
+            return context.standing != nil
         case .artwork, .progress, .shape, .rule, .wordmark, .spacer:
             return true
         case .unsupported:

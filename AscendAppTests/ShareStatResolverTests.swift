@@ -139,6 +139,40 @@ struct ShareStatResolverTests {
         #expect(!resolver.availableKinds().contains(.climbRankWithTotal))
     }
 
+    @Test(arguments: [
+        (149, ["1-29", "30-58", "59-87", "88-116", "117-149"]),
+        (2_046, ["1-409", "410-818", "819-1227", "1228-1636", "1637-2046"])
+    ])
+    func climbSplitsAlwaysResolveFiveStepRanges(targetSteps: Int, expectedRanges: [String]) throws {
+        let interval = 30
+        let curve = LiveReplaySplitCurve(
+            intervalSeconds: interval,
+            steps: (1...5).map { index in
+                index == 5 ? targetSteps : Int((Double(targetSteps) * Double(index) / 5).rounded())
+            }
+        )
+        let metadata = HeadphoneMotionWorkoutMetadata(
+            sampleCount: 1_000,
+            climbId: "range-test",
+            targetStepCount: targetSteps,
+            stopReason: .targetReached,
+            splitCurve: curve
+        )
+        let workout = Workout(
+            name: "Live Climb",
+            duration: 150,
+            steps: targetSteps + 7,
+            floors: Workout.stepsToFloors(targetSteps + 7, stepsPerFloor: 16),
+            source: .headphoneMotion,
+            sourceMetadata: metadata.jsonString
+        )
+
+        let splits = try #require(makeResolver(workout: workout, splitTargetSteps: targetSteps).resolveSplits())
+        #expect(splits.stepQuintileRows.count == 5)
+        #expect(splits.stepQuintileRows.map(\.rangeText) == expectedRanges)
+        #expect(splits.stepQuintileRows.allSatisfy { $0.elapsedText != nil })
+    }
+
     private func makeResolver(
         workout: Workout,
         climbName: String? = nil,

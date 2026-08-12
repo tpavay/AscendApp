@@ -14,7 +14,7 @@ import UIKit
 @MainActor
 struct ShareComposerExporter {
     /// Story-format export resolution.
-    static let exportSize = CGSize(width: 1080, height: 1920)
+    static let exportSize = CGSize(width: 1080, height: 2340)
     private let climbImageRepository: any ClimbImageRepository
 
     init(climbImageRepository: any ClimbImageRepository = FirebaseClimbImageRepository.shared) {
