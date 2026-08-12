@@ -216,17 +216,25 @@ struct ShareStatClusterPresetEvidenceTests {
     /// The canvas is live: a drag mutates observed state, so every frame
     /// re-composites whatever the climber placed. The outline is four hard offset
     /// shadow copies, and chained `.shadow`s nest rather than compose, so the
-    /// worry was five offscreen rasterizations per run across the sixteen treated
-    /// runs the Splits cluster carries — the heaviest cluster on offer, which is
-    /// asserted below rather than assumed.
+    /// worry was five offscreen rasterizations per treated run across the Splits
+    /// cluster — the heaviest on offer, which is asserted below rather than
+    /// assumed, and whose run count is computed rather than quoted.
     ///
     /// The numbers that settle it are printed below. The Splits cluster, drawn
     /// with its real resolved data, renders a whole frame in ~2.6 ms against the
     /// 8.3 ms 120 Hz budget; forcing every treatment off the same tree reaches
-    /// ~2.1 ms, so the outline is worth about half a millisecond — ~5% of a
-    /// frame. It has to be drawn with real data: against an empty context the
-    /// split table and every stat-backed run draw nothing, and timing that
-    /// measures an empty tree. `ImageRenderer` does a full layout and
+    /// ~2.1 ms. That half-millisecond delta is the whole legibility system —
+    /// the outline on the small caps *and* the contact shadow on everything
+    /// else — because `untreated()` forces every run to `.none`, and the two
+    /// metric values in this cluster sit above `outlineBelow` and carry
+    /// `.shadow` rather than the outline.
+    ///
+    /// It has to be drawn with real data. An earlier version of this measurement
+    /// rendered the preset tree against an empty `ShareCardRenderContext`, where
+    /// the split table and every stat-backed run draw nothing, and reported
+    /// 0.38 ms for what was a nearly empty tree. That figure is void; the
+    /// methodology below — `presetPreview(for:)` with real resolved data — is
+    /// what produced ~2.6 ms. `ImageRenderer` does a full layout and
     /// rasterization from scratch, which is strictly more work than a drag frame
     /// — a transform-only change re-composites an existing layer tree — so even
     /// that is a conservative upper bound rather than the frame cost.
@@ -237,10 +245,12 @@ struct ShareStatClusterPresetEvidenceTests {
     /// custom `TextRenderer`. It is not a test of a genuinely single-pass glyph
     /// stroke. That alternative — an `AttributedString` / `NSAttributedString`
     /// negative `strokeWidth` with a `strokeColor` — was specified and
-    /// deliberately **not** measured: the whole treatment is worth ~0.5 ms, so
-    /// that is the ceiling on what a perfect single-pass version could win and no
-    /// result could change the decision. Revisiting the technique means
-    /// revisiting that reasoning, not re-running a benchmark that never existed.
+    /// deliberately **not** measured: the whole legibility treatment is worth
+    /// ~0.5 ms of an 8.3 ms frame, and part of that is contact shadows a stroke
+    /// would not replace, so that is the ceiling on what a perfect single-pass
+    /// version could win and no result could change the decision. Revisiting the
+    /// technique means revisiting that reasoning, not re-running a benchmark that
+    /// never existed.
     ///
     /// Every assertion is relative or structural, so it says the same thing on a
     /// loaded CI runner as on a desk: the treatment is not what makes a cluster
@@ -252,23 +262,25 @@ struct ShareStatClusterPresetEvidenceTests {
         let heaviest = try #require(viewModel.availablePresets().first { $0.id == "splits" })
         let drawn = viewModel.presetPreview(for: heaviest)
 
+        let treatedRuns = Self.treatedRunCount(of: drawn.node)
         let treated = Self.medianRenderDuration { Self.clusterFrame(drawn) }
         let untreated = Self.medianRenderDuration {
             Self.clusterFrame(drawn, node: Self.untreated(drawn.node))
         }
 
-        let shipped = Self.medianRenderDuration { Self.captionStack(inCustomRenderer: false) }
-        let relocated = Self.medianRenderDuration { Self.captionStack(inCustomRenderer: true) }
+        let shipped = Self.medianRenderDuration { Self.captionStack(runs: treatedRuns, inCustomRenderer: false) }
+        let relocated = Self.medianRenderDuration { Self.captionStack(runs: treatedRuns, inCustomRenderer: true) }
 
         let report = """
         Share cluster outline cost — one ImageRenderer pass, median of 9
 
-          Splits cluster (the heaviest, with its real data)
+          Splits cluster (the heaviest, with its real resolved data), \(treatedRuns) treated runs
             treated    \(Self.milliseconds(treated)) ms
-            untreated  \(Self.milliseconds(untreated)) ms  (every run's legibility forced to .none)
+            untreated  \(Self.milliseconds(untreated)) ms  (every run's legibility forced to .none,
+                       so the delta is the whole treatment: outline and contact shadows)
             ratio      \(String(format: "%.2f", treated / untreated))×
 
-          The same four-copy ring, 16 runs at the clusters' caption size
+          The same four-copy ring, \(treatedRuns) runs at the clusters' caption size
             shipped: four .shadow layers per run       \(Self.milliseconds(shipped)) ms
             relocated into a custom TextRenderer       \(Self.milliseconds(relocated)) ms
 
@@ -283,8 +295,7 @@ struct ShareStatClusterPresetEvidenceTests {
         Self.write(report, "08-outline-cost")
 
         #expect(
-            Self.treatedRunCount(of: drawn.node)
-                >= ShareStatClusterPresets.all.map { Self.treatedRunCount(of: $0.content) }.max() ?? 0,
+            treatedRuns >= ShareStatClusterPresets.all.map { Self.treatedRunCount(of: $0.content) }.max() ?? 0,
             """
             the cost argument rests on Splits being the heaviest cluster; something heavier \
             now ships and the measurement has to be taken against that one instead.
@@ -292,9 +303,11 @@ struct ShareStatClusterPresetEvidenceTests {
             """
         )
         #expect(
-            treated < untreated * 4,
+            treated < untreated * 2,
             """
-            the legibility treatment is not supposed to be what a cluster costs to draw.
+            the legibility treatment is not supposed to be what a cluster costs to draw. \
+            Both sides are measured on the same machine in the same run, so this ratio does \
+            not move with the runner.
             \(report)
             """
         )
@@ -303,6 +316,109 @@ struct ShareStatClusterPresetEvidenceTests {
             """
             the shipped spelling of the ring is supposed to be the cheaper of the two, \
             by a margin big enough not to be noise.
+            \(report)
+            """
+        )
+    }
+
+    /// What several of the heaviest cluster cost on one canvas.
+    ///
+    /// Dropping on as many stickers as you like is accepted product behavior, so
+    /// one cluster measured in isolation is not the whole answer. This places
+    /// one, three and five Splits clusters — the heaviest preset — with real
+    /// resolved data, and reports the two costs that get confused with each
+    /// other:
+    ///
+    /// - **Cold full layout**: an `ImageRenderer` pass over the whole canvas at
+    ///   export resolution. Full layout plus rasterization from scratch at
+    ///   1080-wide, which is far more work than an on-screen frame does — an
+    ///   upper bound, quoted as one.
+    /// - **Per drag frame**: the work *the composer's own code* re-does on a
+    ///   drag. A drag mutates only a transform, and `content(for:)` is memoized
+    ///   on the content-bearing parts of a sticker, so this is the lookup that
+    ///   replaced a rebuild. It mirrors `ShareComposerGestureCostEvidenceTests`:
+    ///   successive transform mutations across 120 frames, with every placed
+    ///   sticker's content read back each frame. It does **not** include
+    ///   SwiftUI's own compositing, which `ImageRenderer` cannot isolate — the
+    ///   two figures bracket the real frame cost from below and above.
+    ///
+    /// Asserted relatively, never against a wall clock: the drag path must stay
+    /// far below one cold layout however fast the runner is, and the cold layout
+    /// must not blow up super-linearly as clusters are added.
+    @Test
+    func severalOfTheHeaviestClusterOnOneCanvasStayCheapToDrag() throws {
+        let counts = [1, 3, 5]
+        var cold: [Int: Double] = [:]
+        var perFrame: [Int: Double] = [:]
+
+        for count in counts {
+            let viewModel = try Self.liveClimbViewModel()
+            let splits = try #require(viewModel.availablePresets().first { $0.id == "splits" })
+            for index in 0..<count {
+                viewModel.addPresetSticker(splits)
+                var placed = try #require(viewModel.stickers.last)
+                placed.position = CGPoint(x: 0.5, y: 0.2 + Double(index) * 0.15)
+                viewModel.update(placed)
+            }
+
+            cold[count] = Self.medianRenderDuration {
+                ShareExportCanvas(viewModel: viewModel, size: Self.exportSize)
+            }
+
+            for sticker in viewModel.stickers { _ = viewModel.content(for: sticker) }
+            let frames = 120
+            let dragged = Self.duration {
+                for frame in 0..<frames {
+                    viewModel.stickers[0].position = CGPoint(x: 0.5, y: 0.2 + Double(frame) / 1_000)
+                    for sticker in viewModel.stickers { _ = viewModel.content(for: sticker) }
+                }
+            }
+            perFrame[count] = dragged / Double(frames)
+        }
+
+        let rows = counts.map { count in
+            """
+              \(count) Splits cluster\(count == 1 ? " " : "s")
+                cold full layout   \(Self.milliseconds(cold[count] ?? 0)) ms \
+            (\(String(format: "%.0f", (cold[count] ?? 0) / 0.0083 * 100))% of an 8.3 ms frame)
+                per drag frame     \(Self.milliseconds(perFrame[count] ?? 0)) ms \
+            (\(String(format: "%.2f", (perFrame[count] ?? 0) / 0.0083 * 100))% of an 8.3 ms frame)
+            """
+        }.joined(separator: "\n")
+
+        let report = """
+        Several heaviest clusters on one canvas — median of 9 renders, 120 drag frames
+
+        \(rows)
+
+          Cold full layout is an ImageRenderer pass over the whole canvas at export
+          resolution (\(Int(Self.exportSize.width))×\(Int(Self.exportSize.height))): full layout plus rasterization from scratch, so it is a
+          ceiling well above an on-screen frame, not the frame cost.
+          Per drag frame is the composer's own per-frame work under a transform-only
+          mutation, the same methodology as ShareComposerGestureCostEvidenceTests. It
+          excludes SwiftUI's compositing, which ImageRenderer cannot isolate, so the two
+          figures bracket the real frame cost from below and above rather than pinning it.
+
+          120 Hz frame budget: 8.3 ms · 60 Hz frame budget: 16.7 ms
+        """
+        print(report)
+        Self.write(report, "09-multi-cluster-cost")
+
+        let heaviestDrag = perFrame.values.max() ?? 0
+        let cheapestCold = cold.values.min() ?? 0
+        #expect(
+            heaviestDrag * 20 < cheapestCold,
+            """
+            a drag frame is supposed to re-composite, not rebuild: five clusters dragging \
+            must stay far below the cost of laying one out once.
+            \(report)
+            """
+        )
+        #expect(
+            (cold[5] ?? 0) < (cold[1] ?? 0) * 6,
+            """
+            five clusters must not cost more than five separate layouts plus slack; \
+            something is scaling super-linearly.
             \(report)
             """
         )
@@ -359,17 +475,19 @@ struct ShareStatClusterPresetEvidenceTests {
         }
     }
 
-    /// Sixteen caption runs — what the Splits cluster carries — carrying the same
-    /// four-copy ring in each of its two spellings.
+    /// As many caption runs as the Splits cluster actually treats — the caller
+    /// passes `treatedRunCount`, so the comparison cannot drift away from the
+    /// cluster it stands in for — carrying the same four-copy ring in each of its
+    /// two spellings.
     ///
     /// Both sides treat each *run*, which is where the cost lives: wrapping the
-    /// stack once would measure five rasterizations against sixteen and prove
+    /// stack once would measure five rasterizations against fifteen and prove
     /// nothing.
-    private static func captionStack(inCustomRenderer: Bool) -> some View {
+    private static func captionStack(runs: Int, inCustomRenderer: Bool) -> some View {
         ZStack {
             Color.white
             VStack(spacing: 4) {
-                ForEach(0..<16, id: \.self) { index in
+                ForEach(0..<runs, id: \.self) { index in
                     let run = Text("1-409  \(index)  02:14")
                         .font(.system(size: 11.6, weight: .heavy))
                         .tracking(2.3)
@@ -434,6 +552,13 @@ struct ShareStatClusterPresetEvidenceTests {
 
     private static func milliseconds(_ seconds: Double) -> String {
         String(format: "%.2f", seconds * 1_000)
+    }
+
+    private static func duration(of work: () -> Void) -> Double {
+        let started = ContinuousClock.now
+        work()
+        let elapsed = (ContinuousClock.now - started).components
+        return Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
     }
 
     /// A caption drawn on white at export scale, so the measurement is of the

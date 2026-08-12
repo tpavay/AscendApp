@@ -247,21 +247,28 @@ extension View {
     /// offscreen rasterizations per run, on every frame of a drag.
     ///
     /// Measured, and it is not what a cluster costs. The Splits cluster - the
-    /// heaviest thing a climber can place, sixteen treated runs - draws a whole
-    /// frame in ~2.6 ms against the 8.3 ms 120 Hz budget, and forcing every
-    /// treatment off it only takes that to ~2.1 ms: the outline accounts for
-    /// about half a millisecond, roughly 5% of a frame. That figure is also an
-    /// upper bound rather than the frame cost, because it is a full layout and
-    /// rasterization from scratch, where a drag re-composites an existing layer
-    /// tree. Relocating the identical four-copy ring into a custom `TextRenderer`
-    /// measured *more* expensive, because a custom renderer opts every run out of
-    /// SwiftUI's fast text path.
+    /// heaviest thing a climber can place - draws a whole frame in ~2.6 ms
+    /// against the 8.3 ms 120 Hz budget, and forcing every run's legibility to
+    /// `.none` only takes that to ~2.1 ms. That half-millisecond delta is the
+    /// whole treatment, outline and contact shadows together, not the outline
+    /// alone. It is also an upper bound rather than the frame cost, because it is
+    /// a full layout and rasterization from scratch where a drag re-composites an
+    /// existing layer tree. Relocating the identical four-copy ring into a custom
+    /// `TextRenderer` measured *more* expensive, because a custom renderer opts
+    /// every run out of SwiftUI's fast text path.
+    ///
+    /// The measurement trap, because this number was wrong once: an earlier pass
+    /// rendered the preset tree against an empty `ShareCardRenderContext` and
+    /// reported 0.38 ms. With no resolved stats the split table and every
+    /// stat-backed run draw nothing, so it timed a nearly empty tree. That figure
+    /// is void. Measure through `presetPreview(for:)` with real resolved data.
     ///
     /// One thing was deliberately not measured: a genuinely single-pass stroked
     /// glyph (`AttributedString` negative `strokeWidth` with a `strokeColor`).
-    /// The whole treatment is worth ~0.5 ms, so that is the ceiling on what a
-    /// perfect single-pass version could win, and no result could change the
-    /// decision - which is the reasoning to argue with, not a benchmark to
+    /// The whole treatment is worth ~0.5 ms of an 8.3 ms frame and part of that
+    /// is contact shadows a stroke would not replace, so that is the ceiling on
+    /// what a perfect single-pass version could win, and no result could change
+    /// the decision - which is the reasoning to argue with, not a benchmark to
     /// re-run. `ShareStatClusterPresetEvidenceTests` holds the numbers.
     @ViewBuilder
     func shareCardTextLegibility(_ legibility: ShareCardTextLegibility) -> some View {
