@@ -155,6 +155,91 @@ struct ShareStatClusterPresetEvidenceTests {
         }
     }
 
+    /// The case bare white text actually loses: a blown-out photograph. Every
+    /// cluster goes over pure white, where the type itself is invisible and the
+    /// only thing that can be read is the treatment around it.
+    @Test
+    func everyClusterStaysReadableOnAWhiteout() async throws {
+        let viewModel = Self.liveClimbViewModel()
+        viewModel.background = .photo(Self.whiteout)
+
+        for preset in viewModel.availablePresets() {
+            let image = try #require(await Self.export(preset, on: viewModel))
+            let ink = try Self.inkFraction(of: image)
+            #expect(
+                ink > 0.004,
+                "\(preset.id) laid down almost no ink on a white background (\(ink)) - it would read as blank"
+            )
+            Self.write(image, "06-whiteout-\(preset.id)")
+        }
+    }
+
+    /// The mechanism, measured at the size it exists for.
+    ///
+    /// Over pure white the glyph contributes nothing, so the ink on the canvas is
+    /// exactly what the treatment put there. An untreated caption is invisible; a
+    /// drop shadow alone is thin at this size; the outline is what puts an edge
+    /// back on it. If this ordering ever inverts, small labels are washing out
+    /// again whatever the code claims.
+    @Test
+    func theOutlineIsWhatHoldsSmallTextUpNotTheShadow() throws {
+        var ink: [ShareCardTextLegibility: Double] = [:]
+        for treatment in [ShareCardTextLegibility.none, .shadow, .outline] {
+            let node = ShareCardNode(.text(ShareCardText(
+                segments: [ShareCardTextSegment(literal: "SPLITS BY STEP")],
+                style: ShareCardTextStyle(
+                    size: 11.6,          // the clusters' caption size
+                    tracking: 2.3,
+                    tint: ShareCardTint(.value),
+                    legibility: treatment
+                )
+            )))
+            let rendered = try #require(Self.renderOnWhite(node))
+            ink[treatment] = try Self.inkFraction(of: rendered)
+            Self.write(rendered, "07-caption-on-white-\(treatment.rawValue)")
+        }
+
+        let bare = try #require(ink[ShareCardTextLegibility.none])
+        let shadowed = try #require(ink[ShareCardTextLegibility.shadow])
+        let outlined = try #require(ink[ShareCardTextLegibility.outline])
+        #expect(bare < 0.001, "untreated white text on white should be invisible, measured \(bare)")
+        #expect(shadowed > bare, "the contact shadow put no ink down")
+        #expect(
+            outlined > shadowed * 1.5,
+            "the outline (\(outlined)) barely beat the shadow alone (\(shadowed)) at caption size"
+        )
+    }
+
+    /// A caption drawn on white at export scale, so the measurement is of the
+    /// pixels a climber would actually be shown.
+    private static func renderOnWhite(_ node: ShareCardNode) -> UIImage? {
+        let content = ZStack {
+            Color.white
+            ShareCardRenderer(node: node, context: ShareCardRenderContext())
+                .fixedSize()
+                .scaleEffect(exportSize.width / ShareCardFormat.designSize.width)
+        }
+        .frame(width: 400, height: 120)
+        let renderer = ImageRenderer(content: content)
+        renderer.scale = 1
+        renderer.isOpaque = true
+        return renderer.uiImage
+    }
+
+    /// Fraction of pixels meaningfully darker than white.
+    private static func inkFraction(of image: UIImage, threshold: Int = 205) throws -> Double {
+        let width = Int(image.size.width.rounded())
+        let height = Int(image.size.height.rounded())
+        let buffer = try pixels(of: image, width: width, height: height)
+
+        var dark = 0
+        for index in stride(from: 0, to: buffer.count, by: 4) {
+            let luminance = (Int(buffer[index]) * 21 + Int(buffer[index + 1]) * 72 + Int(buffer[index + 2]) * 7) / 100
+            if luminance < threshold { dark += 1 }
+        }
+        return Double(dark) / Double(width * height)
+    }
+
     /// The add sheet previews each cluster inside one fixed design box so every
     /// tile shows the same reduction. A cluster that outgrew the box would be
     /// clipped in the picker and only in the picker, which is the kind of defect
@@ -285,10 +370,28 @@ struct ShareStatClusterPresetEvidenceTests {
         return viewModel
     }
 
-    /// A bundled tower photograph stands in for the climber's own camera roll,
-    /// which a test cannot reach. It is a real photograph, not a flat fill: a
-    /// cluster that reads only against a solid color proves nothing.
-    private static let photograph: UIImage = UIImage(named: "OnboardingLandmarkEmpireCard") ?? UIImage()
+    /// A bundled photograph stands in for the climber's own camera roll, which a
+    /// test cannot reach. It is a real photograph, not a flat fill: a cluster
+    /// that reads only against a solid color proves nothing.
+    ///
+    /// Everest, deliberately - of the bundled set it has by far the largest area
+    /// of blown-out highlight (16% of pixels above 0.75 luminance, against 2% for
+    /// the Empire State sunset). White type on snow is the case bare text loses,
+    /// so it is the one the treatment is judged on.
+    private static let photograph: UIImage = UIImage(named: "OnboardingLandmarkEverestCard") ?? UIImage()
+
+    /// The brightest thing a camera roll can hand the composer. Nothing reads
+    /// against pure white on ink alone, so this is where the outline has to be
+    /// doing the work rather than the shadow.
+    private static let whiteout: UIImage = {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let size = CGSize(width: 900, height: 1_950)
+        return UIGraphicsImageRenderer(size: size, format: format).image { renderer in
+            UIColor.white.setFill()
+            renderer.fill(CGRect(origin: .zero, size: size))
+        }
+    }()
 
     // MARK: - Pixel readers
 

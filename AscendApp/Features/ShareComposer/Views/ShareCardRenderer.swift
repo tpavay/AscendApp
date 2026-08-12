@@ -145,6 +145,7 @@ struct ShareCardRenderer: View {
             .lineLimit(style.lineLimit)
             .minimumScaleFactor(style.minimumScaleFactor ?? 1)
             .multilineTextAlignment(style.alignment?.textAlignment ?? .leading)
+            .shareCardTextLegibility(style.legibility)
     }
 
     // MARK: - Metric
@@ -227,6 +228,45 @@ struct ShareCardRenderer: View {
                     .stroke(rule.tint.color(in: context), style: rule.strokeStyle)
                 }
             }
+    }
+}
+
+// MARK: - Legibility
+
+extension View {
+    /// Applies a text legibility treatment. The one place that decides what each
+    /// named intent costs, so a cluster, a template and a sticker cannot drift
+    /// into three different answers to "how do I stay readable over a photo".
+    ///
+    /// The contact shadow is tight and dark rather than broad and soft: blur
+    /// spread across a 12pt tracked-out cap dilutes the very ink that separates
+    /// it from the highlight behind it. The outline is four hard offset copies -
+    /// SwiftUI has no text stroke - which is what puts an edge back on the
+    /// glyph, and it is reserved for the smallest labels because on a large
+    /// number it would read as a thickened face.
+    @ViewBuilder
+    func shareCardTextLegibility(_ legibility: ShareCardTextLegibility) -> some View {
+        switch legibility {
+        case .none:
+            self
+        case .shadow:
+            contactShadow()
+        case .outline:
+            hairlineOutline().contactShadow()
+        }
+    }
+
+    private func contactShadow() -> some View {
+        shadow(color: .black.opacity(0.85), radius: 2.5, x: 0, y: 1.6)
+    }
+
+    private func hairlineOutline() -> some View {
+        let inset: CGFloat = 0.8
+        let ink = Color.black.opacity(0.55)
+        return shadow(color: ink, radius: 0, x: inset, y: inset)
+            .shadow(color: ink, radius: 0, x: -inset, y: inset)
+            .shadow(color: ink, radius: 0, x: inset, y: -inset)
+            .shadow(color: ink, radius: 0, x: -inset, y: -inset)
     }
 }
 

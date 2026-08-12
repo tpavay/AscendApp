@@ -135,7 +135,8 @@ enum ShareStatClusterPresets {
                     textTint: ShareCardTint(.value),
                     fastTint: ShareCardTint(.value),
                     slowTint: ShareCardTint(.value, opacity: 0.42),
-                    trackTint: ShareCardTint(.value, opacity: 0.16)
+                    trackTint: ShareCardTint(.value, opacity: 0.16),
+                    legibility: .outline
                 )),
                 modifiers: ShareCardModifiers(padding: ShareCardEdgeInsets(top: Design.u(9)))
             ),
@@ -361,7 +362,8 @@ enum ShareStatClusterPresets {
             // Towers are not all called Taipei 101. Inside a bounded cluster a
             // long landmark shrinks to fit rather than dragging the whole
             // arrangement wider than it was designed to be.
-            minimumScaleFactor: 0.5
+            minimumScaleFactor: 0.5,
+            legibility: legibility(at: size)
         )
     }
 
@@ -370,14 +372,29 @@ enum ShareStatClusterPresets {
         opacity: Double = 1,
         alignment: ShareCardTextAlignment? = nil
     ) -> ShareCardTextStyle {
-        ShareCardTextStyle(
+        let size = Design.u(mockSize)
+        return ShareCardTextStyle(
             role: .heavy,
-            size: Design.u(mockSize),
+            size: size,
             tint: ShareCardTint(.value, opacity: opacity),
             lineLimit: 1,
             minimumScaleFactor: 0.5,
-            alignment: alignment
+            alignment: alignment,
+            legibility: legibility(at: size)
         )
+    }
+
+    /// A cluster is bare text over somebody's photograph, so every run carries a
+    /// treatment - the question is only which.
+    ///
+    /// Below this size the run is a tracked-out cap a few pixels thick, and
+    /// against snow or a blown-out sky a drop shadow alone leaves it washed out;
+    /// it takes the outline as well. Above it, a number has ink enough that the
+    /// outline would only thicken the face.
+    private static let outlineBelow = Design.u(14)
+
+    private static func legibility(at size: Double) -> ShareCardTextLegibility {
+        size < outlineBelow ? .outline : .shadow
     }
 
     // MARK: - Node vocabulary

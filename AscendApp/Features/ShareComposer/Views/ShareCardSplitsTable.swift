@@ -97,8 +97,12 @@ struct ShareCardSplitsTable: View {
 
             ForEach(splits.stepQuintileRows.prefix(5)) { row in
                 HStack(spacing: 9) {
+                    // The treatment goes on each run of type, never on the row:
+                    // wrapped around the bar it draws four offset copies of a
+                    // solid capsule and the row grows a dark slab behind it.
                     Text(row.rangeText)
                         .frame(width: spec.width * 0.22, alignment: .leading)
+                        .shareCardTextLegibility(spec.legibility)
 
                     GeometryReader { geometry in
                         Capsule(style: .continuous)
@@ -116,6 +120,7 @@ struct ShareCardSplitsTable: View {
 
                     Text(row.elapsedText ?? "--")
                         .frame(width: spec.width * 0.15, alignment: .trailing)
+                        .shareCardTextLegibility(spec.legibility)
                 }
                 .font(context.font.swiftUIFont(size: base * 0.48, role: .medium))
                 .foregroundStyle(textColor)

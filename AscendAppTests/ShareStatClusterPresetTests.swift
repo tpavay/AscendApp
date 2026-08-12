@@ -176,6 +176,99 @@ struct ShareStatClusterPresetTests {
         }
     }
 
+    // MARK: - Legibility over a photograph
+
+    /// A cluster is bare text on somebody's photograph, so no run of it may ship
+    /// untreated — and the small tracked-out caps, which a drop shadow alone
+    /// leaves washed out against snow or a blown sky, take the outline as well.
+    ///
+    /// The plate is not the answer here: it is the climber's one-tap choice, and
+    /// the default has to hold up without it.
+    @Test
+    func everyRunOfClusterTextCarriesALegibilityTreatment() {
+        /// Design units. Below this a run is a few pixels of tracked-out cap and
+        /// needs an edge, not more blur.
+        let smallText: Double = 20
+
+        for preset in ShareStatClusterPresets.all {
+            var styles: [(run: String, style: ShareCardTextStyle)] = []
+            var splitTables = 0
+
+            for element in Self.elements(of: preset.content) {
+                switch element {
+                case .text(let text):
+                    styles.append(("text", text.style))
+                case .metric(let metric):
+                    styles.append(("value", metric.value))
+                    styles.append(("label", metric.label))
+                case .splits(let spec):
+                    splitTables += 1
+                    #expect(
+                        spec.legibility == .outline,
+                        "\(preset.id) left the split table's row text untreated"
+                    )
+                default:
+                    break
+                }
+            }
+
+            #expect(!styles.isEmpty, "\(preset.id) drew no text at all")
+            for entry in styles {
+                #expect(
+                    entry.style.legibility != .none,
+                    "\(preset.id) ships a bare \(entry.run) at \(entry.style.size)"
+                )
+                if entry.style.size < smallText {
+                    #expect(
+                        entry.style.legibility == .outline,
+                        "\(preset.id)'s \(entry.run) at \(entry.style.size) is small enough to need the outline"
+                    )
+                }
+            }
+            if preset.id == "splits" { #expect(splitTables == 1) }
+        }
+    }
+
+    /// The treatment belongs to the run, not to the plate: adding a panel is the
+    /// climber's choice and must not be the thing that makes text readable.
+    @Test
+    func addingAPanelDoesNotChangeTheTextTreatment() throws {
+        let viewModel = Self.liveClimbViewModel()
+        let hero = try #require(viewModel.availablePresets().first { $0.id == "hero" })
+        viewModel.addPresetSticker(hero)
+        let placed = try #require(viewModel.stickers.first)
+
+        let bare = Self.legibilities(of: viewModel.content(for: placed).node)
+        viewModel.cycleTextBackground(for: placed.id)
+        let plated = try #require(viewModel.stickers.first)
+        #expect(Self.legibilities(of: viewModel.content(for: plated).node) == bare)
+        #expect(!bare.contains(.none))
+    }
+
+    /// A card drawn on its own solid panel takes no treatment: the shipped recap
+    /// templates must be untouched by this.
+    @Test
+    func bundledRecapTemplatesTakeNoLegibilityTreatment() throws {
+        let templates = ShareCardTemplateStore(bundle: .main).templates(for: [.climb, .standing])
+        #expect(!templates.isEmpty)
+        for template in templates {
+            #expect(
+                Self.legibilities(of: template.root).allSatisfy { $0 == .none },
+                "\(template.id) picked up a treatment meant for bare text"
+            )
+        }
+    }
+
+    private static func legibilities(of node: ShareCardNode) -> [ShareCardTextLegibility] {
+        elements(of: node).flatMap { element -> [ShareCardTextLegibility] in
+            switch element {
+            case .text(let text): return [text.style.legibility]
+            case .metric(let metric): return [metric.value.legibility, metric.label.legibility]
+            default: return []
+            }
+        }
+    }
+
     // MARK: - Branding
 
     /// The canvas lockup is the only place the brand appears. A cluster that

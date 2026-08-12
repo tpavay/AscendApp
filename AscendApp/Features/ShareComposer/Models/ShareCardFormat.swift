@@ -136,7 +136,11 @@ struct ShareCardTemplate: Codable, Equatable, Identifiable, Sendable {
 enum ShareCardFormat {
     /// Bumped whenever the renderer gains an element type or a knob that a
     /// template may depend on. Templates above this are skipped by this binary.
-    static let rendererVersion = 2
+    ///
+    /// 3 added `legibility` to text styles and the splits table — a template
+    /// that asks for the outline treatment would draw unreadable over a
+    /// photograph on a binary that ignores it.
+    static let rendererVersion = 3
 
     /// The card's design space. Every size in a template is in these units; the
     /// whole card is scaled once, never per element.
@@ -643,6 +647,9 @@ struct ShareCardSplitsTableSpec: Codable, Equatable, Sendable {
     var fastTint: ShareCardTint
     var slowTint: ShareCardTint
     var trackTint: ShareCardTint
+    /// What holds the table's small row text up. A card draws it on its own
+    /// panel and needs nothing; a stat cluster lays it bare over a photograph.
+    var legibility: ShareCardTextLegibility
 
     init(
         layout: ShareCardSplitsLayout = .timeline,
@@ -654,7 +661,8 @@ struct ShareCardSplitsTableSpec: Codable, Equatable, Sendable {
         textTint: ShareCardTint = ShareCardTint(.value),
         fastTint: ShareCardTint = ShareCardTint(.value),
         slowTint: ShareCardTint = ShareCardTint(.hex("A8A8A8")),
-        trackTint: ShareCardTint = ShareCardTint(.hex("DEDEDE"))
+        trackTint: ShareCardTint = ShareCardTint(.hex("DEDEDE")),
+        legibility: ShareCardTextLegibility = .none
     ) {
         self.layout = layout
         self.width = width
@@ -666,10 +674,12 @@ struct ShareCardSplitsTableSpec: Codable, Equatable, Sendable {
         self.fastTint = fastTint
         self.slowTint = slowTint
         self.trackTint = trackTint
+        self.legibility = legibility
     }
 
     private enum CodingKeys: String, CodingKey {
-        case layout, width, baseSize, maxRows, showsTitle, showsHeader, textTint, fastTint, slowTint, trackTint
+        case layout, width, baseSize, maxRows, showsTitle, showsHeader,
+             textTint, fastTint, slowTint, trackTint, legibility
     }
 
     init(from decoder: any Decoder) throws {
@@ -684,7 +694,8 @@ struct ShareCardSplitsTableSpec: Codable, Equatable, Sendable {
             textTint: try container.value(.textTint, default: ShareCardTint(.value)),
             fastTint: try container.value(.fastTint, default: ShareCardTint(.value)),
             slowTint: try container.value(.slowTint, default: ShareCardTint(.hex("A8A8A8"))),
-            trackTint: try container.value(.trackTint, default: ShareCardTint(.hex("DEDEDE")))
+            trackTint: try container.value(.trackTint, default: ShareCardTint(.hex("DEDEDE"))),
+            legibility: try container.value(.legibility, default: .none)
         )
     }
 }

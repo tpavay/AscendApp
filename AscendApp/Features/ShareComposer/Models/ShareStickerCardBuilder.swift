@@ -71,11 +71,7 @@ enum ShareStickerCardBuilder {
         var modifiers = preset.content.modifiers
         switch textBackground {
         case .none:
-            modifiers.shadow = ShareCardShadow(
-                tint: ShareCardTint(.hex("000000"), opacity: 0.55),
-                radius: clusterShadowRadius,
-                y: 2
-            )
+            modifiers.shadow = clusterContactShadow
         case .dark, .grey:
             let tint = textBackground == .dark
                 ? ShareCardTint(.hex("000000"), opacity: 0.6)
@@ -93,7 +89,18 @@ enum ShareStickerCardBuilder {
         return ShareCardNode(preset.content.element, modifiers: modifiers)
     }
 
-    static let clusterShadowRadius: Double = 7
+    /// Lifts the parts of a cluster that are not type — the rule, the split
+    /// bars — off the photograph. Each run of text carries its own treatment, so
+    /// this stays a tight contact shadow: widened toward the broad ambient half
+    /// of the review page's text shadow it stops reading as depth on a stack of
+    /// five split bars and starts reading as a dark slab behind them, which is
+    /// the plate the default exists to avoid.
+    static let clusterContactShadow = ShareCardShadow(
+        tint: ShareCardTint(.hex("000000"), opacity: 0.5),
+        radius: 3,
+        y: 1.5
+    )
+
     /// The review page's own plate padding (14 × 16 mock points) in design units.
     static let clusterPlateInset: (vertical: Double, horizontal: Double) = (23, 26)
 
