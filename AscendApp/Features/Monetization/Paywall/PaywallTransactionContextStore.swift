@@ -2,17 +2,14 @@ import Foundation
 
 @MainActor
 final class PaywallTransactionContextStore {
-    struct Context: Equatable, Sendable {
-        let placement: String
-        let presentationID: String?
-    }
+    typealias Context = RevenueCatPurchaseAnalyticsContext
 
     static let shared = PaywallTransactionContextStore()
 
     private var contextsByProductID: [String: Context] = [:]
 
     func record(
-        placement: String,
+        placement: String?,
         presentationID: String?,
         productID: String
     ) {
