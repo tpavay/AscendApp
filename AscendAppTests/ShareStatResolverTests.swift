@@ -139,9 +139,165 @@ struct ShareStatResolverTests {
         #expect(!resolver.availableKinds().contains(.climbRankWithTotal))
     }
 
+    /// FLOORS shares a row with STEPS and AVG SPM, both of which are the
+    /// attempt's own numbers, so it reports the attempt too. It is scaled from
+    /// the catalogue's own rate rather than re-derived: `Workout.floors` divides
+    /// by 16, the catalogue does not, and the two disagree on every one of the
+    /// 87 shipped climbs. Empire State Building is the real entry - 1,576 steps
+    /// to 86 floors - and `ClimbDetailView` shows 86 under the same FLOORS title.
+    @Test(arguments: [
+        (1_576, "86"),
+        (500, "27"),
+        (1_700, "93"),
+        (0, "0")
+    ])
+    func floorsScaleTheTowersCatalogueRateByTheAttempt(steps: Int, expected: String) throws {
+        let climb = Climb.preview
+        #expect(climb.referenceStepCount == 1_576)
+        #expect(climb.calculatedFloors == 86)
+
+        let resolver = makeResolver(
+            workout: Self.climbWorkout(steps: steps),
+            climbName: climb.name,
+            climbFloors: climb.calculatedFloors,
+            climbReferenceStepCount: climb.referenceStepCount
+        )
+
+        let floors = try #require(resolver.resolve(.climbFloors))
+        #expect(floors.label == "FLOORS")
+        #expect(floors.value == expected)
+    }
+
+    /// Without a catalogue rate there is no honest number to publish, so the
+    /// cell drops rather than falling back on a different divisor.
+    @Test
+    func floorsAreOmittedWithoutACatalogueRate() {
+        let workout = Self.climbWorkout(steps: 1_576)
+
+        #expect(
+            makeResolver(workout: workout, climbName: "Empire State Building")
+                .resolve(.climbFloors) == nil
+        )
+        #expect(
+            makeResolver(
+                workout: workout,
+                climbName: "Empire State Building",
+                climbFloors: 0,
+                climbReferenceStepCount: 1_576
+            ).resolve(.climbFloors) == nil
+        )
+        #expect(
+            makeResolver(
+                workout: workout,
+                climbName: "Empire State Building",
+                climbFloors: 86,
+                climbReferenceStepCount: 0
+            ).resolve(.climbFloors) == nil
+        )
+    }
+
+    @Test
+    func floorsAreNotOfferedForANonClimbWorkout() {
+        let resolver = makeResolver(
+            workout: Self.climbWorkout(steps: 500),
+            climbFloors: 86,
+            climbReferenceStepCount: 1_576
+        )
+
+        #expect(resolver.resolve(.climbFloors) == nil)
+        #expect(!resolver.availableKinds().contains(.climbFloors))
+    }
+
+    private static func climbWorkout(steps: Int) -> Workout {
+        Workout(
+            name: "Live Climb",
+            duration: 600,
+            steps: steps,
+            floors: Workout.stepsToFloors(steps, stepsPerFloor: 16),
+            source: .headphoneMotion
+        )
+    }
+
+    @Test(arguments: [
+        (149, ["1-29", "30-58", "59-87", "88-116", "117-149"]),
+        (2_046, ["1-409", "410-818", "819-1227", "1228-1636", "1637-2046"])
+    ])
+    func climbSplitsAlwaysResolveFiveStepRanges(recordedSteps: Int, expectedRanges: [String]) throws {
+        let splits = try #require(
+            Self.climbSplits(recordedSteps: recordedSteps, towerSteps: recordedSteps, stopReason: .targetReached)
+        )
+
+        #expect(splits.stepQuintileRows.count == 5)
+        #expect(splits.stepQuintileRows.map(\.rangeText) == expectedRanges)
+        #expect(splits.stepQuintileRows.allSatisfy { $0.elapsedText != nil })
+    }
+
+    /// An attempt that stopped short has no recorded pace past where it stopped.
+    /// Ranging over the tower instead invented rows reading a single second at an
+    /// impossible pace, which also collapsed every genuine bar to its minimum.
+    @Test
+    func aPartialClimbSplitsTheStepsItRecordedNotTheWholeTower() throws {
+        let splits = try #require(
+            Self.climbSplits(recordedSteps: 500, towerSteps: 2_046, stopReason: .userStopped)
+        )
+
+        #expect(splits.stepQuintileRows.count == 5)
+        #expect(splits.stepQuintileRows.map(\.rangeText) == [
+            "1-100", "101-200", "201-300", "301-400", "401-500"
+        ])
+        #expect(
+            splits.stepQuintileRows.allSatisfy { $0.elapsedText != "0:01" },
+            "no range may fall past the recorded progress curve"
+        )
+        #expect(
+            splits.stepQuintileRows.allSatisfy { $0.progress > 0.5 },
+            "an evenly paced attempt must not collapse its bars"
+        )
+    }
+
+    /// A live climb whose recorded curve ramps evenly to `recordedSteps` over
+    /// five 30-second buckets, shared by the step-range cases.
+    private static func climbSplits(
+        recordedSteps: Int,
+        towerSteps: Int,
+        stopReason: HeadphoneMotionSessionStopReason
+    ) -> ResolvedShareSplits? {
+        let curve = LiveReplaySplitCurve(
+            intervalSeconds: 30,
+            steps: (1...5).map { index in
+                index == 5 ? recordedSteps : Int((Double(recordedSteps) * Double(index) / 5).rounded())
+            }
+        )
+        let metadata = HeadphoneMotionWorkoutMetadata(
+            sampleCount: 1_000,
+            climbId: "range-test",
+            targetStepCount: towerSteps,
+            stopReason: stopReason,
+            splitCurve: curve
+        )
+        let workout = Workout(
+            name: "Live Climb",
+            duration: 150,
+            steps: recordedSteps,
+            floors: Workout.stepsToFloors(recordedSteps, stepsPerFloor: 16),
+            source: .headphoneMotion,
+            sourceMetadata: metadata.jsonString
+        )
+
+        return ShareStatResolver(
+            workout: workout,
+            measurementSystem: .imperial,
+            stepHeight: MeasurementSystem.imperial.defaultStepHeight,
+            climbName: "Empire State Building",
+            splitTargetSteps: towerSteps
+        ).resolveSplits()
+    }
+
     private func makeResolver(
         workout: Workout,
         climbName: String? = nil,
+        climbFloors: Int? = nil,
+        climbReferenceStepCount: Int? = nil,
         climbRank: Int? = nil,
         climbRankTotal: Int? = nil,
         splitTargetSteps: Int? = nil
@@ -151,6 +307,8 @@ struct ShareStatResolverTests {
             measurementSystem: .imperial,
             stepHeight: MeasurementSystem.imperial.defaultStepHeight,
             climbName: climbName,
+            climbFloors: climbFloors,
+            climbReferenceStepCount: climbReferenceStepCount,
             climbRank: climbRank,
             climbRankTotal: climbRankTotal,
             splitTargetSteps: splitTargetSteps

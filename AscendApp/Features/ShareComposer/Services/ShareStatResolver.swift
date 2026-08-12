@@ -11,6 +11,13 @@ struct ShareStatResolver {
     let measurementSystem: MeasurementSystem
     let stepHeight: Double
     var climbName: String?
+    var climbLocation: String? = nil
+    /// The tower's published storey count, paired with the step count it is
+    /// published against. Floors on a card are the attempt's share of that one
+    /// rate; re-deriving them from any other divisor puts a number on the export
+    /// that the climb's own screens contradict.
+    var climbFloors: Int? = nil
+    var climbReferenceStepCount: Int? = nil
     var climbRank: Int?
     var climbRankTotal: Int?
     var splitTargetSteps: Int?
@@ -84,6 +91,14 @@ struct ShareStatResolver {
             guard let climbName else { return nil }
             return ResolvedShareStat(kind: kind, label: "LANDMARK", value: climbName)
 
+        case .climbLocation:
+            guard let climbLocation else { return nil }
+            return ResolvedShareStat(kind: kind, label: "LOCATION", value: climbLocation)
+
+        case .climbFloors:
+            guard let floors = attemptFloors() else { return nil }
+            return ResolvedShareStat(kind: kind, label: "FLOORS", value: Self.integer(floors))
+
         case .climbRank:
             guard let climbRank, climbRank > 0 else { return nil }
             return ResolvedShareStat(kind: kind, label: "RANK", value: "#\(climbRank)")
@@ -106,20 +121,36 @@ struct ShareStatResolver {
         }
     }
 
+    /// How much of the tower this attempt actually covered, in the tower's own
+    /// floors: it sits beside STEPS and AVG SPM, so it reports the attempt, and
+    /// it is scaled from the catalogue rate, so a completed climb reads the same
+    /// number the climb's detail screen shows. An overshoot is left alone — a
+    /// climber who kept going past the summit did the extra floors.
+    private func attemptFloors() -> Int? {
+        guard isClimb,
+              let climbFloors, climbFloors > 0,
+              let climbReferenceStepCount, climbReferenceStepCount > 0 else {
+            return nil
+        }
+
+        let floors = Double(climbFloors) * Double(workout.steps) / Double(climbReferenceStepCount)
+        return Int(floors.rounded())
+    }
+
     /// Resolve live sampled progress into split rows for the share sticker.
     /// Total-only/manual workouts do not get this even though split math could be
     /// reconstructed, because splits should reflect recorded timeline data.
     func resolveSplits() -> ResolvedShareSplits? {
         guard let metadata = Self.recordedSplitMetadata(for: workout) else { return nil }
 
-        let targetSteps = max(
+        let timelineTargetSteps = max(
             splitTargetSteps ?? metadata.climbTargetStepCount ?? metadata.targetStepCount ?? workout.steps,
             workout.steps,
             1
         )
         let splits = LiveClimbWorkoutSummaryData.paceSplits(
             for: workout,
-            targetSteps: targetSteps
+            targetSteps: timelineTargetSteps
         )
         guard !splits.isEmpty else { return nil }
 
@@ -149,8 +180,87 @@ struct ShareStatResolver {
             value: segmentText,
             subtitle: "\(segmentText) · \(averageText)",
             rows: rows,
+            stepQuintileRows: stepQuintileRows(recordedSteps: max(workout.steps, 0)),
+            averageStepsPerMinuteText: workout.stepsPerMinute.map { Self.decimal($0, 1) } ?? "0.0",
             hasHeartRate: hasHeartRate
         )
+    }
+
+    /// Builds five equal step ranges and interpolates the recorded progress
+    /// curve to find how long each range took.
+    ///
+    /// The ranges span the steps this attempt actually recorded, never the
+    /// tower's reference count: an attempt that stopped short has no recorded
+    /// pace past where it stopped, and ranging over the tower invented rows that
+    /// read as a single second at an impossible pace.
+    private func stepQuintileRows(recordedSteps: Int) -> [ResolvedShareSplitRow] {
+        guard recordedSteps >= 5 else { return [] }
+
+        let points = LiveClimbWorkoutSummaryData.progressPoints(for: workout, targetSteps: recordedSteps)
+        guard points.count >= 2 else { return [] }
+
+        let baseSteps = recordedSteps / 5
+        let average = workout.stepsPerMinute ?? 0
+        var rows: [ResolvedShareSplitRow] = []
+
+        for index in 0..<5 {
+            let startStep = index * baseSteps + 1
+            let endStep = index == 4 ? recordedSteps : (index + 1) * baseSteps
+            let blockSteps = endStep - startStep + 1
+            let startElapsed = elapsedSeconds(atCumulativeSteps: startStep - 1, points: points)
+            let endElapsed = elapsedSeconds(atCumulativeSteps: endStep, points: points)
+            let duration = max(endElapsed - startElapsed, 1)
+            let stepsPerMinute = Double(blockSteps) / (Double(duration) / 60)
+
+            rows.append(
+                ResolvedShareSplitRow(
+                    index: index,
+                    segmentText: "\(index + 1)",
+                    rangeText: "\(startStep)-\(endStep)",
+                    stepsText: Self.integer(blockSteps),
+                    spmText: Self.decimal(stepsPerMinute, 1),
+                    heartRateText: nil,
+                    elapsedText: Self.clockTime(duration),
+                    isFasterThanAverage: stepsPerMinute > average,
+                    progress: stepsPerMinute
+                )
+            )
+        }
+
+        let fastest = max(rows.map(\.progress).max() ?? 0, 1)
+        return rows.map { row in
+            ResolvedShareSplitRow(
+                index: row.index,
+                segmentText: row.segmentText,
+                rangeText: row.rangeText,
+                stepsText: row.stepsText,
+                spmText: row.spmText,
+                heartRateText: nil,
+                elapsedText: row.elapsedText,
+                isFasterThanAverage: row.isFasterThanAverage,
+                progress: row.progress / fastest
+            )
+        }
+    }
+
+    private func elapsedSeconds(
+        atCumulativeSteps targetSteps: Int,
+        points: [LiveClimbProgressPoint]
+    ) -> Int {
+        guard targetSteps > 0 else { return 0 }
+        guard let upperIndex = points.firstIndex(where: { $0.steps >= targetSteps }) else {
+            return max(Int(workout.duration.rounded()), 1)
+        }
+        guard upperIndex > 0 else { return points[upperIndex].elapsedSeconds }
+
+        let lower = points[upperIndex - 1]
+        let upper = points[upperIndex]
+        let stepSpan = upper.steps - lower.steps
+        guard stepSpan > 0 else { return upper.elapsedSeconds }
+
+        let fraction = Double(targetSteps - lower.steps) / Double(stepSpan)
+        let elapsedSpan = upper.elapsedSeconds - lower.elapsedSeconds
+        return lower.elapsedSeconds + Int((Double(elapsedSpan) * fraction).rounded())
     }
 
     // MARK: - Formatting

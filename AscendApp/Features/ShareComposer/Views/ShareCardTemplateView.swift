@@ -9,6 +9,9 @@ import UIKit
 /// path, which is what `CLAUDE.md`'s content-driven rule asks for.
 struct ShareCardTemplateView: View {
     static let aspectRatio = ShareCardFormat.aspectRatio
+    static let wordmarkClearance: CGFloat = 62
+    static let wordmarkBottomInset: CGFloat = 22
+    static let wordmarkSize: CGFloat = 12
 
     let template: ShareCardTemplate
     let context: ShareCardRenderContext
@@ -35,11 +38,27 @@ struct ShareCardTemplateView: View {
 
     @ViewBuilder
     private var card: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             if let background = template.background {
                 ShareCardFillView(fill: background, context: context)
             }
             ShareCardRenderer(node: template.root, context: context, artwork: artwork)
+                .frame(
+                    width: ShareCardFormat.designSize.width,
+                    height: ShareCardFormat.designSize.height - Self.wordmarkClearance,
+                    alignment: .top
+                )
+                .clipped()
+
+            VStack {
+                Spacer()
+                AscendWordmark(
+                    size: Self.wordmarkSize,
+                    letterColor: template.wordmarkTint.color(in: context),
+                    markColor: template.wordmarkTint.color(in: context)
+                )
+                .padding(.bottom, Self.wordmarkBottomInset)
+            }
         }
     }
 }
@@ -54,7 +73,8 @@ extension ShareCardRenderContext {
         stats: [ResolvedShareStat],
         bestEfforts: [ResolvedShareStat],
         weeklyTotals: [ResolvedShareStat],
-        splits: ResolvedShareSplits?
+        splits: ResolvedShareSplits?,
+        standing: ResolvedShareStanding? = nil
     ) -> ShareCardRenderContext {
         var table: [ShareStatRef: ResolvedShareStat] = [:]
         for stat in stats {
@@ -75,6 +95,6 @@ extension ShareCardRenderContext {
             table[ShareStatRef(kind: .totals)] = first
         }
 
-        return ShareCardRenderContext(stats: table, splits: splits)
+        return ShareCardRenderContext(stats: table, splits: splits, standing: standing)
     }
 }

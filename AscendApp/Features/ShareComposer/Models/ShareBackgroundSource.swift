@@ -6,7 +6,7 @@ import UIKit
 enum ShareBackgroundSource: Identifiable {
     /// A still image chosen from the user's Camera Roll.
     case photo(UIImage)
-    /// A generated 9:16 recap poster. Unlike arbitrary photos, this must not be
+    /// A generated 9:19.5 recap card. Unlike arbitrary photos, this must not be
     /// aspect-fill cropped when it is used as the canvas background.
     case recap(UIImage)
     /// A looping video chosen from the user's Camera Roll. (Export support is a

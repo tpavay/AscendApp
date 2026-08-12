@@ -23,6 +23,8 @@ enum ShareStatStickerKind: String, CaseIterable, Identifiable, Codable, Sendable
     case splits
     // Climb-specific
     case climbName
+    case climbLocation
+    case climbFloors
     case climbRank       // "#1 rank"
     case climbRankWithTotal // "#1 / 2,460 rank"
     // Derived achievement (resolved from the Best Effort cache, not the workout)
@@ -36,7 +38,7 @@ enum ShareStatStickerKind: String, CaseIterable, Identifiable, Codable, Sendable
     /// Live Climb completion.
     var isClimbOnly: Bool {
         switch self {
-        case .climbName, .climbRank, .climbRankWithTotal:
+        case .climbName, .climbLocation, .climbFloors, .climbRank, .climbRankWithTotal:
             return true
         default:
             return false
@@ -271,7 +273,28 @@ struct ResolvedShareSplits: Equatable {
     let value: String
     let subtitle: String
     let rows: [ResolvedShareSplitRow]
+    /// Exactly five step-range rows used by the finalized Result card.
+    let stepQuintileRows: [ResolvedShareSplitRow]
+    let averageStepsPerMinuteText: String
     let hasHeartRate: Bool
+
+    init(
+        label: String,
+        value: String,
+        subtitle: String,
+        rows: [ResolvedShareSplitRow],
+        stepQuintileRows: [ResolvedShareSplitRow] = [],
+        averageStepsPerMinuteText: String = "",
+        hasHeartRate: Bool
+    ) {
+        self.label = label
+        self.value = value
+        self.subtitle = subtitle
+        self.rows = rows
+        self.stepQuintileRows = stepQuintileRows
+        self.averageStepsPerMinuteText = averageStepsPerMinuteText
+        self.hasHeartRate = hasHeartRate
+    }
 }
 
 struct ResolvedShareSplitRow: Identifiable, Equatable {
@@ -281,8 +304,34 @@ struct ResolvedShareSplitRow: Identifiable, Equatable {
     let stepsText: String
     let spmText: String
     let heartRateText: String?
+    /// Duration of this row when it represents a fixed step range.
+    let elapsedText: String?
+    /// Whether this block beat the climb's own average pace.
+    let isFasterThanAverage: Bool?
     /// 0...1 bar fill, already normalized for display.
     let progress: Double
+
+    init(
+        index: Int,
+        segmentText: String,
+        rangeText: String,
+        stepsText: String,
+        spmText: String,
+        heartRateText: String?,
+        elapsedText: String? = nil,
+        isFasterThanAverage: Bool? = nil,
+        progress: Double
+    ) {
+        self.index = index
+        self.segmentText = segmentText
+        self.rangeText = rangeText
+        self.stepsText = stepsText
+        self.spmText = spmText
+        self.heartRateText = heartRateText
+        self.elapsedText = elapsedText
+        self.isFasterThanAverage = isFasterThanAverage
+        self.progress = progress
+    }
 
     var id: Int { index }
 }

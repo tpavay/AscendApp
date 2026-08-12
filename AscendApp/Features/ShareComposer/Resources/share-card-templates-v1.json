@@ -2,1144 +2,245 @@
   "formatVersion": 1,
   "templates": [
     {
-      "id": "summitPoster",
-      "title": "Summit Poster",
-      "minRendererVersion": 1,
+      "id": "result",
+      "title": "Result",
+      "minRendererVersion": 2,
       "requires": ["climb"],
+      "background": "#FFFFFF",
+      "wordmarkTint": "#0D0D10",
       "root": {
         "type": "stack",
         "axis": "depth",
+        "alignment": "topLeading",
+        "frame": {"width": 390, "height": 783, "alignment": "topLeading"},
         "children": [
-          {
-            "type": "artwork",
-            "variant": "hero",
-            "overlay": [
-              {"color": "#000000", "opacity": 0.18},
-              {"color": "#000000", "opacity": 0.34},
-              {"color": "#000000", "opacity": 0.82}
-            ]
-          },
           {
             "type": "stack",
             "axis": "vertical",
-            "children": [
-              {
-                "type": "stack",
-                "axis": "horizontal",
-                "children": [
-                  {
-                    "type": "text",
-                    "segments": ["LIVE CLIMB COMPLETE"],
-                    "style": {"size": 9, "tracking": 1.5},
-                    "padding": {"horizontal": 13, "vertical": 9},
-                    "background": {"color": "value", "opacity": 0.13},
-                    "backgroundShape": "capsule",
-                    "border": {
-                      "tint": {"color": "value", "opacity": 0.18},
-                      "width": 1
-                    }
-                  },
-                  {"type": "spacer"},
-                  {
-                    "type": "text",
-                    "segments": [
-                      {"stat": "climbRank", "placeholder": "#1"}
-                    ],
-                    "style": {"size": 44}
-                  }
-                ],
-                "padding": {"horizontal": 30, "top": 44}
-              },
-              {"type": "spacer"},
-              {
-                "type": "stack",
-                "axis": "vertical",
-                "children": [
-                  {
-                    "type": "text",
-                    "segments": [
-                      {"stat": "climbName"}
-                    ],
-                    "style": {"size": 46, "lineLimit": 2, "minimumScaleFactor": 0.56}
-                  },
-                  {
-                    "type": "text",
-                    "segments": [
-                      {"stat": "climbRankWithTotal"},
-                      " · ",
-                      {"stat": "steps", "placeholder": "--"},
-                      " STEPS"
-                    ],
-                    "style": {"size": 12, "role": "medium", "tracking": 1.6, "tint": "label"},
-                    "fallback": [
-                      {"stat": "climbRank", "placeholder": "#1"},
-                      " / the field",
-                      " · ",
-                      {"stat": "steps", "placeholder": "--"},
-                      " STEPS"
-                    ]
-                  }
-                ],
-                "spacing": 12,
-                "alignment": "leading",
-                "frame": {"maxWidth": "infinity", "alignment": "leading"},
-                "padding": {"horizontal": 30}
-              },
-              {
-                "type": "stack",
-                "axis": "vertical",
-                "children": [
-                  {
-                    "type": "stack",
-                    "axis": "horizontal",
-                    "children": [
-                      {
-                        "type": "metric",
-                        "stat": "duration",
-                        "labelPlacement": "below",
-                        "value": {"size": 22, "lineLimit": 1, "minimumScaleFactor": 0.6},
-                        "label": {"size": 8, "tracking": 1.4, "tint": "label"},
-                        "spacing": 5,
-                        "frame": {"maxWidth": "infinity"}
-                      },
-                      {
-                        "type": "metric",
-                        "stat": "steps",
-                        "labelPlacement": "below",
-                        "value": {"size": 22, "lineLimit": 1, "minimumScaleFactor": 0.6},
-                        "label": {"size": 8, "tracking": 1.4, "tint": "label"},
-                        "spacing": 5,
-                        "frame": {"maxWidth": "infinity"}
-                      },
-                      {
-                        "type": "metric",
-                        "stat": "pace",
-                        "labelPlacement": "below",
-                        "value": {"size": 22, "lineLimit": 1, "minimumScaleFactor": 0.6},
-                        "label": {"size": 8, "tracking": 1.4, "tint": "label"},
-                        "spacing": 5,
-                        "frame": {"maxWidth": "infinity"}
-                      },
-                      {
-                        "type": "metric",
-                        "stat": "avgHeartRate",
-                        "labelPlacement": "below",
-                        "value": {"size": 22, "lineLimit": 1, "minimumScaleFactor": 0.6},
-                        "label": {"size": 8, "tracking": 1.4, "tint": "label"},
-                        "labelOverride": "AVG HR",
-                        "spacing": 5,
-                        "frame": {"maxWidth": "infinity"}
-                      },
-                      {
-                        "type": "metric",
-                        "stat": "calories",
-                        "labelPlacement": "below",
-                        "value": {"size": 22, "lineLimit": 1, "minimumScaleFactor": 0.6},
-                        "label": {"size": 8, "tracking": 1.4, "tint": "label"},
-                        "spacing": 5,
-                        "frame": {"maxWidth": "infinity"}
-                      },
-                      {
-                        "type": "metric",
-                        "stat": "verticalClimb",
-                        "labelPlacement": "below",
-                        "value": {"size": 22, "lineLimit": 1, "minimumScaleFactor": 0.6},
-                        "label": {"size": 8, "tracking": 1.4, "tint": "label"},
-                        "spacing": 5,
-                        "frame": {"maxWidth": "infinity"}
-                      }
-                    ],
-                    "spacing": 0,
-                    "maxVisibleChildren": 3,
-                    "padding": {"vertical": 17},
-                    "background": {"color": "value", "opacity": 0.08},
-                    "backgroundShape": {"kind": "roundedRectangle", "cornerRadius": 22},
-                    "border": {
-                      "tint": {"color": "value", "opacity": 0.12},
-                      "width": 1
-                    }
-                  }
-                ],
-                "spacing": 0,
-                "padding": {"horizontal": 24, "top": 28}
-              },
-              {"type": "spacer", "minLength": 96}
-            ],
-            "spacing": 0,
-            "frame": {"maxWidth": "infinity", "maxHeight": "infinity"}
-          }
-        ]
-      }
-    },
-    {
-      "id": "splitsPoster",
-      "title": "Splits Poster",
-      "minRendererVersion": 1,
-      "requires": ["climb"],
-      "root": {
-        "type": "stack",
-        "axis": "depth",
-        "children": [
-          {
-            "type": "artwork",
-            "variant": "hero",
-            "overlay": [
-              {"color": "#000000", "opacity": 0.42},
-              {"color": "#000000", "opacity": 0.62},
-              {"color": "#000000", "opacity": 0.9}
-            ]
-          },
-          {
-            "type": "stack",
-            "axis": "vertical",
-            "children": [
-              {"type": "spacer", "minLength": 0},
-              {
-                "type": "text",
-                "segments": [
-                  {"stat": "climbName"}
-                ],
-                "style": {"size": 42, "lineLimit": 2, "minimumScaleFactor": 0.58}
-              },
-              {
-                "type": "text",
-                "segments": ["SPLITS"],
-                "style": {"size": 22, "tracking": 3.5},
-                "padding": {"top": 2}
-              },
-              {
-                "type": "text",
-                "segments": [
-                  {"stat": "splits", "facet": "detail"}
-                ],
-                "style": {"size": 10, "tracking": 1.5, "tint": "label"},
-                "fallback": [
-                  {"stat": "steps", "placeholder": "--"},
-                  " STEPS · ",
-                  {"stat": "pace", "placeholder": "--"},
-                  " SPM AVG"
-                ],
-                "transform": "uppercase",
-                "padding": {"top": 8}
-              },
-              {
-                "type": "rule",
-                "thickness": 1,
-                "tint": {"color": "value", "opacity": 0.65},
-                "padding": {"vertical": 18}
-              },
-              {
-                "type": "stack",
-                "axis": "vertical",
-                "children": [
-                  {"type": "splits", "width": 297, "baseSize": 37.5, "maxRows": 6, "showsTitle": false, "showsHeader": true},
-                  {
-                    "type": "text",
-                    "segments": ["SPLITS UNAVAILABLE"],
-                    "style": {
-                      "size": 15,
-                      "tracking": 2,
-                      "tint": {"color": "value", "opacity": 0.65}
-                    }
-                  }
-                ],
-                "alignment": "leading",
-                "maxVisibleChildren": 1,
-                "frame": {"maxWidth": "infinity", "alignment": "leading"}
-              },
-              {"type": "spacer", "minLength": 0}
-            ],
-            "spacing": 0,
             "alignment": "leading",
-            "frame": {"maxWidth": "infinity", "maxHeight": "infinity", "alignment": "leading"},
-            "padding": {"horizontal": 30, "top": 160, "bottom": 128}
-          }
-        ]
-      }
-    },
-    {
-      "id": "raceBibResult",
-      "title": "Race Bib",
-      "minRendererVersion": 1,
-      "requires": ["climb"],
-      "background": "#F4F1E7",
-      "root": {
-        "type": "stack",
-        "axis": "vertical",
-        "children": [
-          {
-            "type": "stack",
-            "axis": "depth",
+            "spacing": 0,
+            "frame": {"width": 390, "height": 783, "alignment": "topLeading"},
             "children": [
               {
                 "type": "artwork",
                 "variant": "hero",
-                "overlay": [
-                  {"color": "#000000", "opacity": 0.18},
-                  {"color": "#000000", "opacity": 0.28},
-                  {"color": "#000000", "opacity": 0.8}
-                ]
+                "overlay": [{"color": "#000000", "opacity": 0.08}, {"color": "#000000", "opacity": 0.16}],
+                "frame": {"maxWidth": "infinity", "maxHeight": "infinity"}
               },
               {
                 "type": "stack",
                 "axis": "vertical",
+                "alignment": "leading",
+                "spacing": 15,
+                "frame": {"width": 354, "alignment": "topLeading"},
+                "padding": {"top": 12, "leading": 18, "bottom": 12},
                 "children": [
                   {
                     "type": "stack",
                     "axis": "horizontal",
-                    "children": [
-                      {"type": "wordmark", "size": 10, "tint": "label"},
-                      {
-                        "type": "text",
-                        "segments": ["RESULT"],
-                        "style": {"size": 10, "tracking": 2, "tint": "label"}
-                      }
-                    ],
-                    "spacing": 7
-                  },
-                  {
-                    "type": "text",
-                    "segments": [
-                      {"stat": "climbName"}
-                    ],
-                    "style": {"size": 34, "lineLimit": 2, "minimumScaleFactor": 0.62}
-                  }
-                ],
-                "spacing": 8,
-                "alignment": "leading",
-                "padding": 26
-              }
-            ],
-            "alignment": "bottomLeading",
-            "frame": {"height": 310}
-          },
-          {
-            "type": "stack",
-            "axis": "vertical",
-            "children": [
-              {
-                "type": "stack",
-                "axis": "horizontal",
-                "children": [
-                  {
-                    "type": "text",
-                    "segments": [
-                      {"stat": "climbRank", "placeholder": "#1"}
-                    ],
-                    "style": {"size": 72, "tint": "#000000"}
-                  },
-                  {"type": "spacer"},
-                  {
-                    "type": "stack",
-                    "axis": "vertical",
+                    "alignment": "top",
+                    "spacing": 8,
+                    "frame": {"width": 354, "alignment": "topLeading"},
                     "children": [
                       {
-                        "type": "text",
-                        "segments": ["GLOBAL"],
-                        "style": {
-                          "size": 10,
-                          "tracking": 2,
-                          "tint": {"color": "#000000", "opacity": 0.45}
-                        }
+                        "type": "stack",
+                        "axis": "vertical",
+                        "alignment": "leading",
+                        "spacing": 3,
+                        "frame": {"width": 224, "alignment": "leading"},
+                        "children": [
+                          {"type": "text", "segments": [{"stat": "climbName"}], "style": {"size": 25, "tint": "#0D0D10", "lineLimit": 2, "minimumScaleFactor": 0.65}},
+                          {"type": "text", "segments": [{"stat": "climbLocation"}], "style": {"size": 9, "role": "medium", "tracking": 1.2, "tint": {"color": "#0D0D10", "opacity": 0.55}, "lineLimit": 1, "minimumScaleFactor": 0.7}, "transform": "uppercase"}
+                        ]
                       },
-                      {
-                        "type": "text",
-                        "segments": [
-                          "of ",
-                          {"stat": "climbRankWithTotal", "facet": "detail", "placeholder": "the field"}
-                        ],
-                        "style": {"size": 20, "tint": "#000000"}
-                      }
-                    ],
-                    "spacing": 5,
-                    "alignment": "trailing"
-                  }
-                ],
-                "alignment": "firstTextBaseline"
-              },
-              {
-                "type": "stack",
-                "axis": "horizontal",
-                "children": [
-                  {
-                    "type": "stack",
-                    "axis": "vertical",
-                    "children": [
-                      {
-                        "type": "metric",
-                        "stat": "duration",
-                        "labelPlacement": "above",
-                        "value": {"size": 20, "tint": "#000000", "lineLimit": 1, "minimumScaleFactor": 0.58},
-                        "label": {
-                          "size": 8,
-                          "tracking": 1.4,
-                          "tint": {"color": "#000000", "opacity": 0.46}
-                        },
-                        "labelOverride": "TIME",
-                        "spacing": 5,
-                        "alignment": "leading",
-                        "frame": {"maxWidth": "infinity", "alignment": "leading"}
-                      }
-                    ],
-                    "spacing": 0,
-                    "alignment": "leading",
-                    "frame": {"maxWidth": "infinity", "alignment": "leading"},
-                    "padding": 12,
-                    "background": {"color": "#000000", "opacity": 0.06},
-                    "backgroundShape": {"kind": "roundedRectangle", "cornerRadius": 12}
+                      {"type": "spacer"},
+                      {"type": "metric", "stat": "duration", "labelOverride": "FINISH", "value": {"size": 29, "tint": "#0D0D10", "lineLimit": 1, "minimumScaleFactor": 0.7}, "label": {"size": 7, "tracking": 1.5, "tint": {"color": "#0D0D10", "opacity": 0.5}}, "alignment": "trailing"}
+                    ]
                   },
                   {
-                    "type": "stack",
-                    "axis": "vertical",
-                    "children": [
-                      {
-                        "type": "metric",
-                        "stat": "steps",
-                        "labelPlacement": "above",
-                        "value": {"size": 20, "tint": "#000000", "lineLimit": 1, "minimumScaleFactor": 0.58},
-                        "label": {
-                          "size": 8,
-                          "tracking": 1.4,
-                          "tint": {"color": "#000000", "opacity": 0.46}
-                        },
-                        "spacing": 5,
-                        "alignment": "leading",
-                        "frame": {"maxWidth": "infinity", "alignment": "leading"}
-                      }
-                    ],
-                    "spacing": 0,
-                    "alignment": "leading",
-                    "frame": {"maxWidth": "infinity", "alignment": "leading"},
-                    "padding": 12,
-                    "background": {"color": "#000000", "opacity": 0.06},
-                    "backgroundShape": {"kind": "roundedRectangle", "cornerRadius": 12}
+                    "type": "splits",
+                    "layout": "stepQuintiles",
+                    "width": 354,
+                    "baseSize": 18,
+                    "textTint": "#0D0D10",
+                    "fastTint": "#0D0D10",
+                    "slowTint": "#A8A8A8",
+                    "trackTint": "#DEDEDE"
                   },
+                  {"type": "rule", "thickness": 1, "tint": {"color": "#0D0D10", "opacity": 0.1}, "frame": {"width": 354}},
                   {
                     "type": "stack",
-                    "axis": "vertical",
-                    "children": [
-                      {
-                        "type": "metric",
-                        "stat": "pace",
-                        "labelPlacement": "above",
-                        "value": {"size": 20, "tint": "#000000", "lineLimit": 1, "minimumScaleFactor": 0.58},
-                        "label": {
-                          "size": 8,
-                          "tracking": 1.4,
-                          "tint": {"color": "#000000", "opacity": 0.46}
-                        },
-                        "spacing": 5,
-                        "alignment": "leading",
-                        "frame": {"maxWidth": "infinity", "alignment": "leading"}
-                      }
-                    ],
+                    "axis": "horizontal",
                     "spacing": 0,
-                    "alignment": "leading",
-                    "frame": {"maxWidth": "infinity", "alignment": "leading"},
-                    "padding": 12,
-                    "background": {"color": "#000000", "opacity": 0.06},
-                    "backgroundShape": {"kind": "roundedRectangle", "cornerRadius": 12}
-                  },
-                  {
-                    "type": "stack",
-                    "axis": "vertical",
+                    "frame": {"width": 354},
                     "children": [
-                      {
-                        "type": "metric",
-                        "stat": "calories",
-                        "labelPlacement": "above",
-                        "value": {"size": 20, "tint": "#000000", "lineLimit": 1, "minimumScaleFactor": 0.58},
-                        "label": {
-                          "size": 8,
-                          "tracking": 1.4,
-                          "tint": {"color": "#000000", "opacity": 0.46}
-                        },
-                        "spacing": 5,
-                        "alignment": "leading",
-                        "frame": {"maxWidth": "infinity", "alignment": "leading"}
-                      }
-                    ],
-                    "spacing": 0,
-                    "alignment": "leading",
-                    "frame": {"maxWidth": "infinity", "alignment": "leading"},
-                    "padding": 12,
-                    "background": {"color": "#000000", "opacity": 0.06},
-                    "backgroundShape": {"kind": "roundedRectangle", "cornerRadius": 12}
-                  },
-                  {
-                    "type": "stack",
-                    "axis": "vertical",
-                    "children": [
-                      {
-                        "type": "metric",
-                        "stat": "avgHeartRate",
-                        "labelPlacement": "above",
-                        "value": {"size": 20, "tint": "#000000", "lineLimit": 1, "minimumScaleFactor": 0.58},
-                        "label": {
-                          "size": 8,
-                          "tracking": 1.4,
-                          "tint": {"color": "#000000", "opacity": 0.46}
-                        },
-                        "labelOverride": "AVG HR",
-                        "spacing": 5,
-                        "alignment": "leading",
-                        "frame": {"maxWidth": "infinity", "alignment": "leading"}
-                      }
-                    ],
-                    "spacing": 0,
-                    "alignment": "leading",
-                    "frame": {"maxWidth": "infinity", "alignment": "leading"},
-                    "padding": 12,
-                    "background": {"color": "#000000", "opacity": 0.06},
-                    "backgroundShape": {"kind": "roundedRectangle", "cornerRadius": 12}
-                  }
-                ],
-                "spacing": 10,
-                "maxVisibleChildren": 3
-              },
-              {
-                "type": "rule",
-                "thickness": 1,
-                "tint": {"color": "#000000", "opacity": 0.24},
-                "dash": [7, 6]
-              },
-              {
-                "type": "stack",
-                "axis": "horizontal",
-                "children": [
-                  {"type": "wordmark", "size": 14, "tint": "#000000"},
-                  {"type": "spacer"},
-                  {
-                    "type": "text",
-                    "segments": [
-                      {"stat": "date"}
-                    ],
-                    "style": {
-                      "size": 10,
-                      "tracking": 1.4,
-                      "tint": {"color": "#000000", "opacity": 0.55}
-                    },
-                    "transform": "uppercase"
+                      {"type": "metric", "stat": "steps", "value": {"size": 20, "tint": "#0D0D10"}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "#0D0D10", "opacity": 0.5}}, "frame": {"maxWidth": "infinity"}},
+                      {"type": "metric", "stat": "pace", "labelOverride": "AVG SPM", "value": {"size": 20, "tint": "#0D0D10"}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "#0D0D10", "opacity": 0.5}}, "frame": {"maxWidth": "infinity"}},
+                      {"type": "metric", "stat": "climbFloors", "value": {"size": 20, "tint": "#0D0D10"}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "#0D0D10", "opacity": 0.5}}, "frame": {"maxWidth": "infinity"}}
+                    ]
                   }
                 ]
               }
-            ],
-            "spacing": 18,
-            "padding": 26
-          },
-          {"type": "spacer", "minLength": 0}
-        ],
-        "spacing": 0,
-        "frame": {"maxWidth": "infinity", "maxHeight": "infinity"}
-      }
-    },
-    {
-      "id": "glassHUD",
-      "title": "Glass HUD",
-      "minRendererVersion": 1,
-      "requires": ["climb"],
-      "root": {
-        "type": "stack",
-        "axis": "depth",
-        "children": [
-          {
-            "type": "artwork",
-            "variant": "hero",
-            "overlay": [
-              {"color": "#000000", "opacity": 0.24},
-              {"color": "#000000", "opacity": 0.48},
-              {"color": "#000000", "opacity": 0.84}
             ]
           },
-          {
-            "type": "stack",
-            "axis": "vertical",
-            "children": [
-              {
-                "type": "stack",
-                "axis": "horizontal",
-                "children": [
-                  {
-                    "type": "stack",
-                    "axis": "horizontal",
-                    "children": [
-                      {
-                        "type": "wordmark",
-                        "size": 11,
-                        "tint": {"color": "value", "opacity": 0.82}
-                      },
-                      {
-                        "type": "text",
-                        "segments": ["HUD"],
-                        "style": {
-                          "size": 11,
-                          "tracking": 2.2,
-                          "tint": {"color": "value", "opacity": 0.82}
-                        }
-                      }
-                    ],
-                    "spacing": 7
-                  },
-                  {"type": "spacer"},
-                  {
-                    "type": "text",
-                    "segments": [
-                      {"stat": "climbRank", "placeholder": "#1"}
-                    ],
-                    "style": {"size": 22, "tint": "label"}
-                  }
-                ]
-              },
-              {"type": "spacer"},
-              {
-                "type": "stack",
-                "axis": "vertical",
-                "children": [
-                  {
-                    "type": "text",
-                    "segments": [
-                      {"stat": "climbName"}
-                    ],
-                    "style": {"size": 38, "lineLimit": 2, "minimumScaleFactor": 0.6}
-                  },
-                  {
-                    "type": "text",
-                    "segments": [
-                      "LIVE RESULT · ",
-                      {"stat": "steps", "placeholder": "--"},
-                      " STEPS"
-                    ],
-                    "style": {"size": 10, "tracking": 1.8, "tint": "label"}
-                  }
-                ],
-                "spacing": 8,
-                "alignment": "leading"
-              },
-              {
-                "type": "stack",
-                "axis": "vertical",
-                "children": [
-                  {
-                    "type": "stack",
-                    "axis": "horizontal",
-                    "children": [
-                      {
-                        "type": "metric",
-                        "stat": "duration",
-                        "labelPlacement": "above",
-                        "value": {"size": 20},
-                        "label": {
-                          "size": 8,
-                          "tracking": 1.5,
-                          "tint": {"color": "value", "opacity": 0.48}
-                        },
-                        "spacing": 4,
-                        "alignment": "leading",
-                        "frame": {"width": 104, "alignment": "leading"}
-                      },
-                      {
-                        "type": "progress",
-                        "fraction": 0.72,
-                        "track": {"color": "value", "opacity": 0.12},
-                        "fill": "label",
-                        "height": 10
-                      }
-                    ],
-                    "spacing": 12
-                  },
-                  {
-                    "type": "stack",
-                    "axis": "horizontal",
-                    "children": [
-                      {
-                        "type": "metric",
-                        "stat": "steps",
-                        "labelPlacement": "above",
-                        "value": {"size": 20},
-                        "label": {
-                          "size": 8,
-                          "tracking": 1.5,
-                          "tint": {"color": "value", "opacity": 0.48}
-                        },
-                        "spacing": 4,
-                        "alignment": "leading",
-                        "frame": {"width": 104, "alignment": "leading"}
-                      },
-                      {
-                        "type": "progress",
-                        "fraction": 0.84,
-                        "track": {"color": "value", "opacity": 0.12},
-                        "fill": "label",
-                        "height": 10
-                      }
-                    ],
-                    "spacing": 12
-                  },
-                  {
-                    "type": "stack",
-                    "axis": "horizontal",
-                    "children": [
-                      {
-                        "type": "metric",
-                        "stat": "pace",
-                        "labelPlacement": "above",
-                        "value": {"size": 20},
-                        "label": {
-                          "size": 8,
-                          "tracking": 1.5,
-                          "tint": {"color": "value", "opacity": 0.48}
-                        },
-                        "spacing": 4,
-                        "alignment": "leading",
-                        "frame": {"width": 104, "alignment": "leading"}
-                      },
-                      {
-                        "type": "progress",
-                        "fraction": 0.66,
-                        "track": {"color": "value", "opacity": 0.12},
-                        "fill": "label",
-                        "height": 10
-                      }
-                    ],
-                    "spacing": 12
-                  },
-                  {
-                    "type": "stack",
-                    "axis": "horizontal",
-                    "children": [
-                      {
-                        "type": "metric",
-                        "stat": "avgHeartRate",
-                        "labelPlacement": "above",
-                        "value": {"size": 20},
-                        "label": {
-                          "size": 8,
-                          "tracking": 1.5,
-                          "tint": {"color": "value", "opacity": 0.48}
-                        },
-                        "labelOverride": "AVG HR",
-                        "spacing": 4,
-                        "alignment": "leading",
-                        "frame": {"width": 104, "alignment": "leading"}
-                      },
-                      {
-                        "type": "progress",
-                        "fraction": 0.58,
-                        "track": {"color": "value", "opacity": 0.12},
-                        "fill": "label",
-                        "height": 10
-                      }
-                    ],
-                    "spacing": 12
-                  },
-                  {
-                    "type": "stack",
-                    "axis": "horizontal",
-                    "children": [
-                      {
-                        "type": "metric",
-                        "stat": "calories",
-                        "labelPlacement": "above",
-                        "value": {"size": 20},
-                        "label": {
-                          "size": 8,
-                          "tracking": 1.5,
-                          "tint": {"color": "value", "opacity": 0.48}
-                        },
-                        "spacing": 4,
-                        "alignment": "leading",
-                        "frame": {"width": 104, "alignment": "leading"}
-                      },
-                      {
-                        "type": "progress",
-                        "fraction": 0.62,
-                        "track": {"color": "value", "opacity": 0.12},
-                        "fill": "label",
-                        "height": 10
-                      }
-                    ],
-                    "spacing": 12
-                  },
-                  {
-                    "type": "stack",
-                    "axis": "horizontal",
-                    "children": [
-                      {
-                        "type": "metric",
-                        "stat": "verticalClimb",
-                        "labelPlacement": "above",
-                        "value": {"size": 20},
-                        "label": {
-                          "size": 8,
-                          "tracking": 1.5,
-                          "tint": {"color": "value", "opacity": 0.48}
-                        },
-                        "spacing": 4,
-                        "alignment": "leading",
-                        "frame": {"width": 104, "alignment": "leading"}
-                      },
-                      {
-                        "type": "progress",
-                        "fraction": 0.62,
-                        "track": {"color": "value", "opacity": 0.12},
-                        "fill": "label",
-                        "height": 10
-                      }
-                    ],
-                    "spacing": 12
-                  }
-                ],
-                "spacing": 10,
-                "maxVisibleChildren": 3,
-                "padding": 18,
-                "background": {"kind": "material", "material": "ultraThin", "opacity": 0.76},
-                "backgroundShape": {"kind": "roundedRectangle", "cornerRadius": 22},
-                "border": {
-                  "tint": {"color": "value", "opacity": 0.16},
-                  "width": 1
-                }
-              }
-            ],
-            "spacing": 18,
-            "alignment": "leading",
-            "frame": {"maxWidth": "infinity", "maxHeight": "infinity", "alignment": "leading"},
-            "padding": {"horizontal": 28, "top": 58, "bottom": 84}
-          }
+          {"type": "rankTab", "width": 112, "height": 58, "padding": {"top": 32, "leading": 290}}
         ]
       }
     },
     {
-      "id": "officialFinish",
-      "title": "Official Finish",
-      "minRendererVersion": 1,
+      "id": "poster",
+      "title": "Poster",
+      "minRendererVersion": 2,
       "requires": ["climb"],
-      "background": {
-        "kind": "radialGradient",
-        "stops": ["#1A1A12", "#000000"],
-        "center": "top",
-        "startRadius": 0,
-        "endRadius": 660
-      },
-      "root": {
-        "type": "stack",
-        "axis": "vertical",
-        "children": [
-          {
-            "type": "text",
-            "segments": ["OFFICIAL FINISH"],
-            "style": {"size": 12, "tracking": 2.7, "tint": "label"}
-          },
-          {
-            "type": "stack",
-            "axis": "depth",
-            "children": [
-              {
-                "type": "stack",
-                "axis": "depth",
-                "children": [
-                  {
-                    "type": "shape",
-                    "shape": "circle",
-                    "fill": "#151515",
-                    "stroke": {"tint": "#B9903E", "width": 3}
-                  },
-                  {
-                    "type": "text",
-                    "segments": [
-                      {"stat": "climbRank", "placeholder": "#1"}
-                    ],
-                    "style": {"size": 70}
-                  }
-                ],
-                "frame": {"width": 190, "height": 190}
-              }
-            ],
-            "padding": {"top": 36}
-          },
-          {
-            "type": "text",
-            "segments": [
-              {"stat": "climbName"}
-            ],
-            "style": {"size": 38, "lineLimit": 2, "minimumScaleFactor": 0.58, "alignment": "center"},
-            "padding": {"horizontal": 12, "top": 28}
-          },
-          {
-            "type": "text",
-            "segments": [
-              "Finished ",
-              {"stat": "climbRankWithTotal"}
-            ],
-            "style": {
-              "size": 15,
-              "role": "regular",
-              "tint": {"color": "value", "opacity": 0.62}
-            },
-            "fallback": [
-              "Finished ",
-              {"stat": "climbRank", "placeholder": "#1"},
-              " / the field"
-            ],
-            "padding": {"top": 8}
-          },
-          {"type": "spacer"},
-          {
-            "type": "stack",
-            "axis": "horizontal",
-            "children": [
-              {
-                "type": "metric",
-                "stat": "duration",
-                "labelPlacement": "below",
-                "value": {"size": 22, "lineLimit": 1, "minimumScaleFactor": 0.6},
-                "label": {"size": 8, "tracking": 1.4, "tint": "label"},
-                "spacing": 5,
-                "frame": {"maxWidth": "infinity"}
-              },
-              {
-                "type": "metric",
-                "stat": "steps",
-                "labelPlacement": "below",
-                "value": {"size": 22, "lineLimit": 1, "minimumScaleFactor": 0.6},
-                "label": {"size": 8, "tracking": 1.4, "tint": "label"},
-                "spacing": 5,
-                "frame": {"maxWidth": "infinity"}
-              },
-              {
-                "type": "metric",
-                "stat": "pace",
-                "labelPlacement": "below",
-                "value": {"size": 22, "lineLimit": 1, "minimumScaleFactor": 0.6},
-                "label": {"size": 8, "tracking": 1.4, "tint": "label"},
-                "spacing": 5,
-                "frame": {"maxWidth": "infinity"}
-              },
-              {
-                "type": "metric",
-                "stat": "avgHeartRate",
-                "labelPlacement": "below",
-                "value": {"size": 22, "lineLimit": 1, "minimumScaleFactor": 0.6},
-                "label": {"size": 8, "tracking": 1.4, "tint": "label"},
-                "labelOverride": "AVG HR",
-                "spacing": 5,
-                "frame": {"maxWidth": "infinity"}
-              },
-              {
-                "type": "metric",
-                "stat": "calories",
-                "labelPlacement": "below",
-                "value": {"size": 22, "lineLimit": 1, "minimumScaleFactor": 0.6},
-                "label": {"size": 8, "tracking": 1.4, "tint": "label"},
-                "spacing": 5,
-                "frame": {"maxWidth": "infinity"}
-              },
-              {
-                "type": "metric",
-                "stat": "verticalClimb",
-                "labelPlacement": "below",
-                "value": {"size": 22, "lineLimit": 1, "minimumScaleFactor": 0.6},
-                "label": {"size": 8, "tracking": 1.4, "tint": "label"},
-                "spacing": 5,
-                "frame": {"maxWidth": "infinity"}
-              }
-            ],
-            "spacing": 0,
-            "maxVisibleChildren": 3,
-            "padding": {"vertical": 17},
-            "background": {"color": "value", "opacity": 0.08},
-            "backgroundShape": {"kind": "roundedRectangle", "cornerRadius": 22},
-            "border": {
-              "tint": {"color": "value", "opacity": 0.12},
-              "width": 1
-            }
-          }
-        ],
-        "spacing": 0,
-        "frame": {"maxWidth": "infinity", "maxHeight": "infinity"},
-        "padding": {"horizontal": 28, "top": 76, "bottom": 84}
-      }
-    },
-    {
-      "id": "bestEffortStamp",
-      "title": "Best Effort",
-      "minRendererVersion": 1,
-      "requires": ["climb"],
+      "background": "#0D0D10",
+      "wordmarkTint": "#FFFFFF",
       "root": {
         "type": "stack",
         "axis": "depth",
+        "alignment": "topLeading",
+        "frame": {"width": 390, "height": 783, "alignment": "topLeading"},
         "children": [
-          {
-            "type": "artwork",
-            "variant": "hero",
-            "overlay": [
-              {"color": "#000000", "opacity": 0.36},
-              {"color": "#000000", "opacity": 0.58},
-              {"color": "#000000", "opacity": 0.9}
-            ]
-          },
+          {"type": "artwork", "variant": "hero", "overlay": [{"color": "#000000", "opacity": 0}, {"color": "#000000", "opacity": 0.08}, {"color": "#000000", "opacity": 0.88}], "frame": {"width": 390, "height": 783}},
           {
             "type": "stack",
             "axis": "vertical",
+            "alignment": "leading",
+            "spacing": 7,
+            "frame": {"width": 354, "height": 260, "alignment": "bottomLeading"},
+            "padding": {"top": 496, "leading": 18},
             "children": [
+              {"type": "text", "segments": [{"stat": "climbName"}], "style": {"size": 35, "lineLimit": 2, "minimumScaleFactor": 0.62}},
+              {"type": "text", "segments": [{"stat": "climbLocation"}], "style": {"size": 10, "role": "medium", "tracking": 1.6, "tint": {"color": "value", "opacity": 0.68}}, "transform": "uppercase"},
+              {"type": "metric", "stat": "duration", "labelOverride": "FINISH TIME", "value": {"size": 64, "lineLimit": 1, "minimumScaleFactor": 0.7}, "label": {"size": 7, "tracking": 1.8, "tint": {"color": "value", "opacity": 0.6}}},
+              {"type": "rule", "thickness": 1, "tint": {"color": "value", "opacity": 0.22}, "frame": {"width": 354}},
               {
                 "type": "stack",
                 "axis": "horizontal",
+                "spacing": 0,
+                "frame": {"width": 354},
                 "children": [
-                  {"type": "spacer"},
-                  {
-                    "type": "stack",
-                    "axis": "depth",
-                    "children": [
-                      {
-                        "type": "shape",
-                        "shape": "circle",
-                        "stroke": {
-                          "tint": "label",
-                          "width": 4,
-                          "dash": [8, 7]
-                        }
-                      },
-                      {
-                        "type": "stack",
-                        "axis": "vertical",
-                        "children": [
-                          {
-                            "type": "text",
-                            "segments": ["BEST"],
-                            "style": {"size": 17}
-                          },
-                          {
-                            "type": "text",
-                            "segments": ["EFFORT"],
-                            "style": {"size": 17}
-                          },
-                          {
-                            "type": "text",
-                            "segments": [
-                              {"stat": "bestEffort", "facet": "label", "placeholder": "CLIMB"}
-                            ],
-                            "style": {"size": 8, "tracking": 1.3}
-                          }
-                        ],
-                        "spacing": 4,
-                        "rotationDegrees": -12
-                      }
-                    ],
-                    "frame": {"width": 158, "height": 158}
-                  }
+                  {"type": "metric", "stat": "steps", "value": {"size": 19}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "value", "opacity": 0.58}}, "alignment": "leading", "frame": {"maxWidth": "infinity"}},
+                  {"type": "metric", "stat": "pace", "labelOverride": "AVG SPM", "value": {"size": 19}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "value", "opacity": 0.58}}, "frame": {"maxWidth": "infinity"}},
+                  {"type": "metric", "stat": "climbFloors", "value": {"size": 19}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "value", "opacity": 0.58}}, "alignment": "trailing", "frame": {"maxWidth": "infinity"}}
                 ]
-              },
-              {"type": "spacer"},
+              }
+            ]
+          },
+          {"type": "rankTab", "width": 112, "height": 58, "padding": {"top": 32, "leading": 290}}
+        ]
+      }
+    },
+    {
+      "id": "sticker",
+      "title": "Sticker",
+      "minRendererVersion": 2,
+      "requires": ["climb"],
+      "background": "#0D0D10",
+      "wordmarkTint": "#FFFFFF",
+      "root": {
+        "type": "stack",
+        "axis": "depth",
+        "alignment": "topLeading",
+        "frame": {"width": 390, "height": 783, "alignment": "topLeading"},
+        "children": [
+          {"type": "artwork", "variant": "hero", "overlay": [{"color": "#000000", "opacity": 0.03}, {"color": "#000000", "opacity": 0.2}], "frame": {"width": 390, "height": 783}},
+          {
+            "type": "stack",
+            "axis": "depth",
+            "alignment": "topLeading",
+            "padding": {"top": 596, "leading": 14},
+            "children": [
               {
-                "type": "text",
-                "segments": [
-                  {"stat": "bestEffort"}
-                ],
-                "style": {"size": 70, "lineLimit": 1, "minimumScaleFactor": 0.5},
-                "fallback": [
-                  {"stat": "climbRank", "placeholder": "#1"}
-                ]
-              },
-              {
-                "type": "text",
-                "segments": [
-                  {"stat": "bestEffort", "facet": "label"}
-                ],
-                "style": {"size": 12, "tracking": 2.2, "tint": "label"},
-                "fallback": ["GLOBAL RANK"]
-              },
-              {
-                "type": "text",
-                "segments": [
-                  {"stat": "climbName"}
-                ],
-                "style": {"size": 32, "lineLimit": 2, "minimumScaleFactor": 0.58},
-                "padding": {"top": 22}
+                "type": "shape",
+                "shape": {"kind": "roundedRectangle", "cornerRadius": 16},
+                "fill": {"kind": "color", "tint": {"color": "#0D0D10", "opacity": 0.82}},
+                "stroke": {"tint": {"color": "#FFFFFF", "opacity": 0.1}, "width": 1},
+                "frame": {"width": 362, "height": 137}
               },
               {
                 "type": "stack",
                 "axis": "vertical",
+                "alignment": "leading",
+                "spacing": 3,
+                "frame": {"width": 334, "height": 109, "alignment": "topLeading"},
+                "padding": {"top": 14, "leading": 14},
                 "children": [
+                  {"type": "text", "segments": [{"stat": "climbName"}], "style": {"size": 17, "lineLimit": 1, "minimumScaleFactor": 0.7}},
+                  {"type": "text", "segments": [{"stat": "climbLocation"}], "style": {"size": 9, "role": "medium", "tracking": 1.1, "tint": {"color": "value", "opacity": 0.6}, "lineLimit": 1, "minimumScaleFactor": 0.7}, "transform": "uppercase"},
+                  {"type": "rule", "thickness": 1, "tint": {"color": "value", "opacity": 0.14}, "frame": {"width": 334}, "padding": {"top": 7}},
                   {
                     "type": "stack",
                     "axis": "horizontal",
-                    "children": [
-                      {
-                        "type": "metric",
-                        "stat": "duration",
-                        "labelPlacement": "below",
-                        "value": {"size": 22, "lineLimit": 1, "minimumScaleFactor": 0.6},
-                        "label": {"size": 8, "tracking": 1.4, "tint": "label"},
-                        "spacing": 5,
-                        "frame": {"maxWidth": "infinity"}
-                      },
-                      {
-                        "type": "metric",
-                        "stat": "steps",
-                        "labelPlacement": "below",
-                        "value": {"size": 22, "lineLimit": 1, "minimumScaleFactor": 0.6},
-                        "label": {"size": 8, "tracking": 1.4, "tint": "label"},
-                        "spacing": 5,
-                        "frame": {"maxWidth": "infinity"}
-                      },
-                      {
-                        "type": "metric",
-                        "stat": "pace",
-                        "labelPlacement": "below",
-                        "value": {"size": 22, "lineLimit": 1, "minimumScaleFactor": 0.6},
-                        "label": {"size": 8, "tracking": 1.4, "tint": "label"},
-                        "spacing": 5,
-                        "frame": {"maxWidth": "infinity"}
-                      },
-                      {
-                        "type": "metric",
-                        "stat": "avgHeartRate",
-                        "labelPlacement": "below",
-                        "value": {"size": 22, "lineLimit": 1, "minimumScaleFactor": 0.6},
-                        "label": {"size": 8, "tracking": 1.4, "tint": "label"},
-                        "labelOverride": "AVG HR",
-                        "spacing": 5,
-                        "frame": {"maxWidth": "infinity"}
-                      },
-                      {
-                        "type": "metric",
-                        "stat": "calories",
-                        "labelPlacement": "below",
-                        "value": {"size": 22, "lineLimit": 1, "minimumScaleFactor": 0.6},
-                        "label": {"size": 8, "tracking": 1.4, "tint": "label"},
-                        "spacing": 5,
-                        "frame": {"maxWidth": "infinity"}
-                      },
-                      {
-                        "type": "metric",
-                        "stat": "verticalClimb",
-                        "labelPlacement": "below",
-                        "value": {"size": 22, "lineLimit": 1, "minimumScaleFactor": 0.6},
-                        "label": {"size": 8, "tracking": 1.4, "tint": "label"},
-                        "spacing": 5,
-                        "frame": {"maxWidth": "infinity"}
-                      }
-                    ],
                     "spacing": 0,
-                    "maxVisibleChildren": 3,
-                    "padding": {"vertical": 17},
-                    "background": {"color": "value", "opacity": 0.08},
-                    "backgroundShape": {"kind": "roundedRectangle", "cornerRadius": 22},
-                    "border": {
-                      "tint": {"color": "value", "opacity": 0.12},
-                      "width": 1
-                    }
+                    "frame": {"width": 334},
+                    "children": [
+                      {"type": "metric", "stat": "duration", "labelOverride": "TIME", "value": {"size": 27}, "label": {"size": 7, "tracking": 1.1, "tint": {"color": "value", "opacity": 0.58}}, "alignment": "leading", "frame": {"maxWidth": "infinity"}},
+                      {"type": "metric", "stat": "steps", "value": {"size": 22}, "label": {"size": 7, "tracking": 1.1, "tint": {"color": "value", "opacity": 0.58}}, "frame": {"maxWidth": "infinity"}},
+                      {"type": "metric", "stat": "pace", "labelOverride": "AVG SPM", "value": {"size": 22}, "label": {"size": 7, "tracking": 1.1, "tint": {"color": "value", "opacity": 0.58}}, "alignment": "trailing", "frame": {"maxWidth": "infinity"}}
+                    ]
                   }
-                ],
-                "spacing": 0,
-                "padding": {"top": 24}
+                ]
               }
-            ],
-            "spacing": 0,
+            ]
+          },
+          {"type": "rankTab", "width": 112, "height": 58, "padding": {"top": 32, "leading": 290}}
+        ]
+      }
+    },
+    {
+      "id": "standing",
+      "title": "Standing",
+      "minRendererVersion": 2,
+      "requires": ["climb", "standing"],
+      "background": "#0D0D10",
+      "wordmarkTint": "#FFFFFF",
+      "root": {
+        "type": "stack",
+        "axis": "depth",
+        "alignment": "topLeading",
+        "frame": {"width": 390, "height": 783, "alignment": "topLeading"},
+        "children": [
+          {
+            "type": "stack",
+            "axis": "vertical",
             "alignment": "leading",
-            "frame": {"maxWidth": "infinity", "maxHeight": "infinity", "alignment": "leading"},
-            "padding": {"horizontal": 28, "top": 70, "bottom": 84}
-          }
+            "spacing": 0,
+            "frame": {"width": 390, "height": 783, "alignment": "topLeading"},
+            "children": [
+              {
+                "type": "artwork",
+                "variant": "hero",
+                "overlay": [{"color": "#000000", "opacity": 0.04}, {"color": "#0D0D10", "opacity": 0.12}, "#0D0D10"],
+                "frame": {"maxWidth": "infinity", "maxHeight": "infinity"}
+              },
+              {
+                "type": "stack",
+                "axis": "vertical",
+                "alignment": "leading",
+                "spacing": 13,
+                "frame": {"width": 354, "alignment": "topLeading"},
+                "padding": {"leading": 18, "bottom": 12},
+                "children": [
+                  {"type": "text", "segments": [{"stat": "climbName"}], "style": {"size": 25, "lineLimit": 1, "minimumScaleFactor": 0.68}},
+                  {"type": "text", "segments": [{"stat": "climbLocation"}], "style": {"size": 9, "role": "medium", "tracking": 1.3, "tint": {"color": "value", "opacity": 0.58}}, "transform": "uppercase"},
+                  {"type": "standing", "width": 354},
+                  {"type": "rule", "thickness": 1, "tint": {"color": "value", "opacity": 0.14}, "frame": {"width": 354}},
+                  {
+                    "type": "stack",
+                    "axis": "horizontal",
+                    "spacing": 0,
+                    "frame": {"width": 354},
+                    "children": [
+                      {"type": "metric", "stat": "duration", "labelOverride": "TIME", "value": {"size": 19}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "value", "opacity": 0.5}}, "alignment": "leading", "frame": {"maxWidth": "infinity"}},
+                      {"type": "metric", "stat": "steps", "value": {"size": 19}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "value", "opacity": 0.5}}, "frame": {"maxWidth": "infinity"}},
+                      {"type": "metric", "stat": "pace", "labelOverride": "AVG SPM", "value": {"size": 19}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "value", "opacity": 0.5}}, "alignment": "trailing", "frame": {"maxWidth": "infinity"}}
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {"type": "rankTab", "width": 112, "height": 58, "padding": {"top": 32, "leading": 290}}
         ]
       }
     }
