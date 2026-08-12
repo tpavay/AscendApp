@@ -353,7 +353,6 @@ struct ActiveRoutineView: View {
             leaderboardRank: viewModel.completionLeaderboardRank,
             leaderboardTotal: viewModel.completionLeaderboardTotal,
             leaderboardRankBasis: .liveSession,
-            allowsRatingPrompt: false,
             leaderboardContext: viewModel.completionLeaderboardContext,
             moment: .freshCompletion,
             rankingLabelOverride: "ROUTINE RANK",
@@ -361,7 +360,7 @@ struct ActiveRoutineView: View {
             ranksOnLeaderboard: presentation.ranksOnLeaderboard,
             achievementTitleOverride: presentation.achievementTitleOverride,
             achievementIconNameOverride: presentation.achievementIconNameOverride,
-            onDone: {
+            onDone: { _ in
                 dismiss()
             }
         )

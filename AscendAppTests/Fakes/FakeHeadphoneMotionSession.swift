@@ -13,6 +13,9 @@ final class FakeHeadphoneMotionSession: HeadphoneMotionSessionServicing {
     var trackingIntegrity: HeadphoneMotionTrackingIntegrity = .verified
     var startError: (any Error)?
     var onStartRecording: (() -> Void)?
+    /// What the sensor hands back when the session is stopped. Left nil, stopping still refuses
+    /// the way a session that was never recording does.
+    var stopResult: HeadphoneMotionSessionResult?
     private(set) var startRecordingCallCount = 0
 
     func applyStepCorrection(
@@ -39,6 +42,11 @@ final class FakeHeadphoneMotionSession: HeadphoneMotionSessionServicing {
     func stopRecording(
         reason: HeadphoneMotionSessionStopReason
     ) async throws -> HeadphoneMotionSessionResult {
-        throw HeadphoneMotionSessionError.notRecording
+        guard let stopResult else {
+            throw HeadphoneMotionSessionError.notRecording
+        }
+
+        status = .idle
+        return stopResult
     }
 }

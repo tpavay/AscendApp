@@ -6,7 +6,6 @@ paths:
   - AscendLiveActivityWidgets/**
   - AscendApp/Shared/Services/AppleHealthEnrichment*
   - AscendApp/Features/Workouts/Views/HeartRateChartView.swift
-  - AscendApp/Features/Workouts/Views/Components/WorkoutHeartRateRecoveryCard.swift
 ---
 
 # Live Climbs V1 Architecture
@@ -61,6 +60,7 @@ A completed climb is **1:1 with a `Workout`** (the sole canonical record; verdic
 - A background-execution helper runs alongside the headphone-motion session so the session survives backgrounding. The helper must not write HealthKit workouts or request new Health permissions.
 - A Live Activity / Dynamic Island surface mirrors session state (compact: steps + rank; expanded: name + image + duration + steps + intent-driven controls). The widget extension reads from the session view model only - never Firestore, never the replay index directly.
 - Completed sessions transition to a post-save summary before dismissal - adaptive pace splits, vertical-gain display, share carousel with a Live Climb-specific share card when climb metadata is available, and direct affordances to add notes and media to the climb workout. The completion summary is the moment for adding context; we don't gather notes / media via a deferred review sheet.
+  Nothing may cover that summary to ask the climber for something: the app-owned "Enjoying Ascend?" sentiment question after a first Live Climb is presented by `LiveClimbSessionView` once the summary has been dismissed (`AscendAppTests/LiveClimbRatingPromptPlacementEvidenceTests.swift`), and answering `Yes` still calls `AppStore.requestReview(in:)` - Apple decides whether the system prompt appears.
 
 ## Replay leaderboard architecture
 - The replay leaderboard is a context-agnostic system reusable for Live Climbs and future race surfaces (challenge climbs). Don't clone climb-specific comparison logic per surface - share the context / sampler / service abstractions.
@@ -93,14 +93,14 @@ A completed climb is **1:1 with a `Workout`** (the sole canonical record; verdic
   What genuinely differs between them is sample density and whether the device wrote anything, so a sparse series is a real answer that ends the retry series, not a failed read.
   There is no matching step and no foreign workout record is read or written; Apple Health workout import was deleted with #437.
 - **Enrichment retries on a bounded persisted schedule, because one read at save time races the wearable and loses.** Health had published nothing yet, so enrichment found nothing and never looked again (#438).
-  `AppleHealthEnrichmentSchedule` is the curve (nine attempts reaching ~10h), `AppleHealthEnrichmentAttemptStore` persists eligibility as an absolute date so the budget survives relaunch and several surfaces asking at once cannot spend it in one instant, and one timer serves every tracked climb rather than one per climb.
+  `AppleHealthEnrichmentSchedule` is the curve (nine attempts reaching ~10h), `AppleHealthEnrichmentAttemptStore` persists eligibility as an absolute date so the budget survives relaunch and several callers asking at once cannot spend it in one instant, and one timer serves every tracked climb rather than one per climb.
   The service is an `AuthenticatedSessionWorker`, so sign-out and account deletion stop it; re-arming happens on authenticated bootstrap and on foreground, because a suspended app's `Task.sleep` is not an alarm clock.
   Regression coverage: `AscendAppTests/AppleHealthEnrichmentServiceTests.swift`.
-- Automatic retries are additionally bounded by a window measured from the end of the workout (currently 72h). Once the budget or the window lapses on a still-incomplete climb, Ascend stops checking automatically and says so.
-- **Every state the climber can be in is stated out loud; a blank heart-rate slot is the bug.** `AppleHealthEnrichmentService.Phase` is the single source for that copy - checking, waiting, stopped looking, checks paused, connect, access revoked, unavailable, not applicable - and `WorkoutHeartRateRecoveryCard` renders each one. Never resolve heart-rate availability a second way in a view.
+- Automatic retries are additionally bounded by a window measured from the end of the workout (currently 72h).
+- **The completion summary and Workout Detail are show-or-hide.** A stored heart-rate series renders its chart; no series renders nothing at all - no heading, no card, no explanation, no empty state - while enrichment keeps looking underneath. Workout Detail's remote-series restore state stays, because it means data exists and is arriving.
+  Settings -> Integrations is the only Apple Health connection and revoked-access surface, and nothing here may resolve a per-climb Health status to narrate. Contract and coverage: `ascend-apple-health-enrichment`.
 - Enrichment preserves the Live Climb's source, steps, floors, duration, and attempt participation - it only adds heart rate and calories.
 - Enrichment is **silent** about its *results*. An enriched Live Climb never asks the user to confirm or edit the merged data. If the data arrives after the completion summary has been dismissed, it shows up on the workout detail next time the user looks - no notification, no review.
-- The one thing the completion summary does carry is the **contextual offer to connect Apple Health**, and only for a climber who has never connected and whose climb has no heart rate (`offersConnectionPrompt`). Hard-gating enrichment on an existing connection is what made it inert for everyone else, and this is the moment the ask is earned. It is a dismissible card among the others, never a gate, and it disappears once connected.
 - The user gathers notes / media for a Live Climb at the **completion summary**. Nothing about enrichment's *results* may interrupt that moment.
 
 ## Climb content (catalog + images)

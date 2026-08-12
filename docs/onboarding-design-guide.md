@@ -842,27 +842,30 @@ Design principle:
 User goal: see heart rate and calories on a climb they ran in Ascend.
 
 Primary path:
-1. Connect Apple Health - from Integrations, or from the dismissible offer on a completion summary whose climb has no heart rate
+1. Connect Apple Health from Settings -> Integrations, the only place Ascend offers the connection
 2. Silent enrichment of climbs Ascend recorded, retried on a bounded persisted schedule until Health writes the samples
-3. Heart rate and calories appear on workout detail
+3. Heart rate and calories appear on workout detail once they exist
 
 App surfaces:
-- Integrations - Apple Health card and manage sheet
-- Live Climb completion summary - contextual connect offer, never a gate
+- Settings -> Integrations - Apple Health card and manage sheet, and the only surface that explains connection or revoked-access state
 - `AppleHealthEnrichmentService`
-- Workout detail heart-rate states
+- Workout detail heart-rate chart, shown only when a series exists
 
 State and data:
 - Apple Health is read-only, and Ascend imports nothing: it reads `heartRate` and `activeEnergyBurned` over a climb's own time window and never touches a foreign `HKWorkout` (#437).
 - Enrichment is silent about its *results*. It never asks the climber to confirm or edit merged data.
-- Every state the climber can be in is named out loud by `AppleHealthEnrichmentService.Phase`; a blank heart-rate slot is the bug (#438). Contract: `ascend-apple-health-enrichment`.
+- The Live Climb completion summary and workout detail are deliberately silent about absence: chart when a stored series exists, nothing at all when it does not, while enrichment keeps looking on its schedule (#438).
+  Workout detail still shows its remote-series restore state, which means data exists and is arriving, not that the climb has no heart rate.
+  No view resolves a per-climb Apple Health status to narrate.
+  Contract: `ascend-apple-health-enrichment`.
 - A live-captured chest-strap series outranks Health's wrist data; enrichment still fills calories.
 
 Success condition:
 - A climb shows what it cost the climber without any of Ascend's numbers coming from somewhere it cannot stand behind.
 
 Design principle:
-- Permission requests should be served at the point of value. Ask for Health access when the climber is looking at a climb missing its heart rate, not as generic onboarding setup.
+- A screen that celebrates a climb never begs for a permission.
+  The ask lives in Settings -> Integrations, where a climber goes to manage connections, and the result surfaces show earned data or nothing.
 
 ### 8. Profile, Collection, And Prestige
 
