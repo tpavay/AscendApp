@@ -40,6 +40,9 @@ extension AppLifecycleAnalyticsEvent {
         case foreground
     }
 
+    /// The bounded set of routes a session reports. Mirrors ``AppRootRoute`` one for one, plus
+    /// `unresolved` for a cold launch whose routing inputs had still not settled when the bounded
+    /// wait expired - a real, countable outcome, never a fallback for an unmapped route.
     enum RootRoute: String, CaseIterable, Sendable {
         case updateRequired = "update_required"
         case signedOut = "signed_out"
@@ -49,6 +52,18 @@ extension AppLifecycleAnalyticsEvent {
         case onboarding
         case paywall
         case mainApp = "main_app"
+        case unresolved
+
+        /// `signing_in`, `restoring_session` and `resolving` are waypoints the app leaves on its
+        /// own, so a launch that is sitting on one has not chosen a destination yet.
+        var isResolved: Bool {
+            switch self {
+            case .updateRequired, .signedOut, .onboarding, .paywall, .mainApp:
+                true
+            case .signingIn, .restoringSession, .resolving, .unresolved:
+                false
+            }
+        }
 
         init(_ route: AppRootRoute) {
             switch route {
@@ -72,11 +87,24 @@ extension AppLifecycleAnalyticsEvent {
         }
     }
 
+    /// The bounded set of authentication answers a session reports, plus `unresolved` for a cold
+    /// launch whose Firebase session restore had not finished when the bounded wait expired.
     enum AuthState: String, CaseIterable, Sendable {
         case authenticated
         case authenticating
         case restoringSession = "restoring_session"
         case unauthenticated
+        case unresolved
+
+        /// Signed in or signed out are answers. Restoring and authenticating are the question.
+        var isResolved: Bool {
+            switch self {
+            case .authenticated, .unauthenticated:
+                true
+            case .authenticating, .restoringSession, .unresolved:
+                false
+            }
+        }
 
         init(_ state: AuthenticationState) {
             switch state {

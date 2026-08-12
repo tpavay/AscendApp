@@ -4,17 +4,28 @@ import Testing
 
 @MainActor
 struct AppSessionTelemetryCoordinatorTests {
-    @Test("Cold launch emits one session even when the root task appears again")
-    func coldLaunchEmitsExactlyOnce() throws {
+    @Test("Cold launch waits for routing to settle, then reports the real route exactly once")
+    func coldLaunchReportsResolvedDimensionsExactlyOnce() throws {
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let coordinator = makeCoordinator(sink: sink)
 
-        coordinator.recordColdLaunch(
-            rootRoute: .signedOut,
-            authenticationState: .unauthenticated
+        coordinator.observeColdLaunch(
+            rootRoute: .restoringSession,
+            authenticationState: .restoringSession
         )
-        coordinator.recordColdLaunch(
+        coordinator.observeColdLaunch(
+            rootRoute: .resolving,
+            authenticationState: .authenticated
+        )
+        #expect(sink.records.isEmpty)
+
+        coordinator.observeColdLaunch(
             rootRoute: .mainApp,
+            authenticationState: .authenticated
+        )
+        // A remount replays the root task over an already-reported launch.
+        coordinator.observeColdLaunch(
+            rootRoute: .paywall,
             authenticationState: .authenticated
         )
 
@@ -23,9 +34,71 @@ struct AppSessionTelemetryCoordinatorTests {
         #expect(record.name == "app_session_started")
         #expect(record.parameters["session_id"] == .string(Self.coldLaunchID.uuidString))
         #expect(record.parameters["session_type"] == .string("cold_launch"))
-        #expect(record.parameters["root_route"] == .string("signed_out"))
-        #expect(record.parameters["auth_state"] == .string("unauthenticated"))
+        #expect(record.parameters["root_route"] == .string("main_app"))
+        #expect(record.parameters["auth_state"] == .string("authenticated"))
         #expect(Set(record.parameters.keys) == Self.sessionParameterKeys)
+    }
+
+    @Test("A launch that never settles still reports, marking both dimensions unresolved")
+    func coldLaunchTimeoutReportsUnresolvedDimensions() async throws {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let coordinator = makeCoordinator(sink: sink, coldLaunchResolutionWait: {})
+
+        coordinator.observeColdLaunch(
+            rootRoute: .resolving,
+            authenticationState: .restoringSession
+        )
+
+        try await waitForColdLaunchResolutionTimeout(coordinator)
+
+        #expect(sink.records.count == 1)
+        let record = try #require(sink.records.first)
+        #expect(record.parameters["session_type"] == .string("cold_launch"))
+        #expect(record.parameters["root_route"] == .string("unresolved"))
+        #expect(record.parameters["auth_state"] == .string("unresolved"))
+        #expect(Set(record.parameters.keys) == Self.sessionParameterKeys)
+    }
+
+    @Test("The timeout only marks the dimension that is genuinely still unknown")
+    func coldLaunchTimeoutKeepsTheDimensionThatSettled() async throws {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let coordinator = makeCoordinator(sink: sink, coldLaunchResolutionWait: {})
+
+        // The lockout resolves above authentication, so the route can settle while the Firebase
+        // session restore is still in flight.
+        coordinator.observeColdLaunch(
+            rootRoute: .updateRequired,
+            authenticationState: .restoringSession
+        )
+
+        try await waitForColdLaunchResolutionTimeout(coordinator)
+
+        let record = try #require(sink.records.first)
+        #expect(record.parameters["root_route"] == .string("update_required"))
+        #expect(record.parameters["auth_state"] == .string("unresolved"))
+    }
+
+    @Test("A launch that settles before the timeout is never reported twice")
+    func coldLaunchTimeoutCannotReportASecondSession() async throws {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let coordinator = makeCoordinator(sink: sink, coldLaunchResolutionWait: {})
+
+        coordinator.observeColdLaunch(
+            rootRoute: .resolving,
+            authenticationState: .restoringSession
+        )
+        let pendingWait = try #require(coordinator.coldLaunchResolutionTask)
+
+        coordinator.observeColdLaunch(
+            rootRoute: .mainApp,
+            authenticationState: .authenticated
+        )
+        await pendingWait.value
+
+        #expect(sink.records.count == 1)
+        let record = try #require(sink.records.first)
+        #expect(record.parameters["root_route"] == .string("main_app"))
+        #expect(record.parameters["auth_state"] == .string("authenticated"))
     }
 
     @Test("Brief app switches do not start sessions, while the inactivity boundary does")
@@ -34,7 +107,7 @@ struct AppSessionTelemetryCoordinatorTests {
         let coordinator = makeCoordinator(sink: sink)
         let initialDate = Date(timeIntervalSince1970: 10_000)
 
-        coordinator.recordColdLaunch(
+        coordinator.observeColdLaunch(
             rootRoute: .mainApp,
             authenticationState: .authenticated
         )
@@ -95,7 +168,8 @@ struct AppSessionTelemetryCoordinatorTests {
                 "resolving",
                 "onboarding",
                 "paywall",
-                "main_app"
+                "main_app",
+                "unresolved"
             ]
         )
         #expect(
@@ -103,16 +177,39 @@ struct AppSessionTelemetryCoordinatorTests {
                 "authenticated",
                 "authenticating",
                 "restoring_session",
-                "unauthenticated"
+                "unauthenticated",
+                "unresolved"
             ]
         )
     }
 
-    private func makeCoordinator(sink: InMemoryTelemetrySink) -> AppSessionTelemetryCoordinator {
+    /// The bounded wait is the only thing that can report the session from here, so awaiting the
+    /// task it armed is what proves the timeout emitted rather than a race deciding it.
+    private func waitForColdLaunchResolutionTimeout(
+        _ coordinator: AppSessionTelemetryCoordinator
+    ) async throws {
+        let pendingWait = try #require(coordinator.coldLaunchResolutionTask)
+        await pendingWait.value
+    }
+
+    private func makeCoordinator(
+        sink: InMemoryTelemetrySink,
+        coldLaunchResolutionWait: (@Sendable () async -> Void)? = nil
+    ) -> AppSessionTelemetryCoordinator {
         var sessionIDs = [Self.coldLaunchID, Self.foregroundID]
+        let makeSessionID: () -> UUID = { sessionIDs.removeFirst() }
+
+        guard let coldLaunchResolutionWait else {
+            return AppSessionTelemetryCoordinator(
+                telemetry: makeTestTelemetry(sink: sink),
+                sessionID: makeSessionID
+            )
+        }
+
         return AppSessionTelemetryCoordinator(
             telemetry: makeTestTelemetry(sink: sink),
-            sessionID: { sessionIDs.removeFirst() }
+            sessionID: makeSessionID,
+            coldLaunchResolutionWait: coldLaunchResolutionWait
         )
     }
 

@@ -3,6 +3,7 @@ name: ascend-analytics
 description: Use when working on Ascend analytics or telemetry - event definitions, the analytics facade, telemetry sinks (Firebase Analytics, Mixpanel, SuperWall, Crashlytics, Sentry), screen tracking, funnel/engagement/quality measurement, event parameter privacy, the server-exported subscription lifecycle events, or the debug telemetry console. Covers what is worth logging, which destination owns which job, and the low-cardinality parameter rule.
 paths:
   - AscendApp/Shared/Services/Telemetry/**
+  - AscendApp/App/Analytics/**
   - AscendApp/Features/*/Analytics/**
   - functions/src/revenueCat/analytics*.ts
 ---
