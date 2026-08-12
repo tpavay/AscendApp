@@ -717,9 +717,12 @@ struct ShareCardRankTabSpec: Codable, Equatable, Sendable {
 /// The percentile hero and distribution curve used only by Standing.
 struct ShareCardStandingSpec: Codable, Equatable, Sendable {
     var width: Double
-    var height: Double
+    /// Nil sizes the visualization to whatever it actually draws. A First Ascent
+    /// has no field to plot, so the curve is dropped - and a reserved height
+    /// would leave its slot behind as a black void under the hero.
+    var height: Double?
 
-    init(width: Double = 354, height: Double = 310) {
+    init(width: Double = 354, height: Double? = nil) {
         self.width = width
         self.height = height
     }
@@ -730,7 +733,7 @@ struct ShareCardStandingSpec: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             width: try container.value(.width, default: 354),
-            height: try container.value(.height, default: 310)
+            height: try container.decodeIfPresent(Double.self, forKey: .height)
         )
     }
 }

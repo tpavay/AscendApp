@@ -17,7 +17,7 @@ struct ShareCardStandingView: View {
                 distribution
             }
         }
-        .frame(width: spec.width, height: spec.height, alignment: .topLeading)
+        .frame(width: spec.width, height: spec.height.map { CGFloat($0) }, alignment: .topLeading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityText)
     }

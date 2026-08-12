@@ -15,61 +15,70 @@
         "frame": {"width": 390, "height": 783, "alignment": "topLeading"},
         "children": [
           {
-            "type": "artwork",
-            "variant": "hero",
-            "overlay": [{"color": "#000000", "opacity": 0.08}, {"color": "#000000", "opacity": 0.16}],
-            "frame": {"width": 390, "height": 423}
-          },
-          {
             "type": "stack",
             "axis": "vertical",
             "alignment": "leading",
-            "spacing": 15,
-            "frame": {"width": 354, "height": 336, "alignment": "topLeading"},
-            "padding": {"top": 435, "leading": 18},
+            "spacing": 0,
+            "frame": {"width": 390, "height": 783, "alignment": "topLeading"},
             "children": [
               {
+                "type": "artwork",
+                "variant": "hero",
+                "overlay": [{"color": "#000000", "opacity": 0.08}, {"color": "#000000", "opacity": 0.16}],
+                "frame": {"maxWidth": "infinity", "maxHeight": "infinity"}
+              },
+              {
                 "type": "stack",
-                "axis": "horizontal",
-                "alignment": "top",
-                "spacing": 8,
+                "axis": "vertical",
+                "alignment": "leading",
+                "spacing": 15,
                 "frame": {"width": 354, "alignment": "topLeading"},
+                "padding": {"top": 12, "leading": 18, "bottom": 12},
                 "children": [
                   {
                     "type": "stack",
-                    "axis": "vertical",
-                    "alignment": "leading",
-                    "spacing": 3,
-                    "frame": {"width": 224, "alignment": "leading"},
+                    "axis": "horizontal",
+                    "alignment": "top",
+                    "spacing": 8,
+                    "frame": {"width": 354, "alignment": "topLeading"},
                     "children": [
-                      {"type": "text", "segments": [{"stat": "climbName"}], "style": {"size": 25, "tint": "#0D0D10", "lineLimit": 2, "minimumScaleFactor": 0.65}},
-                      {"type": "text", "segments": [{"stat": "climbLocation"}], "style": {"size": 9, "role": "medium", "tracking": 1.2, "tint": {"color": "#0D0D10", "opacity": 0.55}, "lineLimit": 1, "minimumScaleFactor": 0.7}, "transform": "uppercase"}
+                      {
+                        "type": "stack",
+                        "axis": "vertical",
+                        "alignment": "leading",
+                        "spacing": 3,
+                        "frame": {"width": 224, "alignment": "leading"},
+                        "children": [
+                          {"type": "text", "segments": [{"stat": "climbName"}], "style": {"size": 25, "tint": "#0D0D10", "lineLimit": 2, "minimumScaleFactor": 0.65}},
+                          {"type": "text", "segments": [{"stat": "climbLocation"}], "style": {"size": 9, "role": "medium", "tracking": 1.2, "tint": {"color": "#0D0D10", "opacity": 0.55}, "lineLimit": 1, "minimumScaleFactor": 0.7}, "transform": "uppercase"}
+                        ]
+                      },
+                      {"type": "spacer"},
+                      {"type": "metric", "stat": "duration", "labelOverride": "FINISH", "value": {"size": 29, "tint": "#0D0D10", "lineLimit": 1, "minimumScaleFactor": 0.7}, "label": {"size": 7, "tracking": 1.5, "tint": {"color": "#0D0D10", "opacity": 0.5}}, "alignment": "trailing"}
                     ]
                   },
-                  {"type": "spacer"},
-                  {"type": "metric", "stat": "duration", "labelOverride": "FINISH", "value": {"size": 29, "tint": "#0D0D10", "lineLimit": 1, "minimumScaleFactor": 0.7}, "label": {"size": 7, "tracking": 1.5, "tint": {"color": "#0D0D10", "opacity": 0.5}}, "alignment": "trailing"}
-                ]
-              },
-              {
-                "type": "splits",
-                "layout": "stepQuintiles",
-                "width": 354,
-                "baseSize": 18,
-                "textTint": "#0D0D10",
-                "fastTint": "#0D0D10",
-                "slowTint": "#A8A8A8",
-                "trackTint": "#DEDEDE"
-              },
-              {"type": "rule", "thickness": 1, "tint": {"color": "#0D0D10", "opacity": 0.1}, "frame": {"width": 354}},
-              {
-                "type": "stack",
-                "axis": "horizontal",
-                "spacing": 0,
-                "frame": {"width": 354},
-                "children": [
-                  {"type": "metric", "stat": "steps", "value": {"size": 20, "tint": "#0D0D10"}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "#0D0D10", "opacity": 0.5}}, "frame": {"maxWidth": "infinity"}},
-                  {"type": "metric", "stat": "pace", "labelOverride": "AVG SPM", "value": {"size": 20, "tint": "#0D0D10"}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "#0D0D10", "opacity": 0.5}}, "frame": {"maxWidth": "infinity"}},
-                  {"type": "metric", "stat": "climbFloors", "value": {"size": 20, "tint": "#0D0D10"}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "#0D0D10", "opacity": 0.5}}, "frame": {"maxWidth": "infinity"}}
+                  {
+                    "type": "splits",
+                    "layout": "stepQuintiles",
+                    "width": 354,
+                    "baseSize": 18,
+                    "textTint": "#0D0D10",
+                    "fastTint": "#0D0D10",
+                    "slowTint": "#A8A8A8",
+                    "trackTint": "#DEDEDE"
+                  },
+                  {"type": "rule", "thickness": 1, "tint": {"color": "#0D0D10", "opacity": 0.1}, "frame": {"width": 354}},
+                  {
+                    "type": "stack",
+                    "axis": "horizontal",
+                    "spacing": 0,
+                    "frame": {"width": 354},
+                    "children": [
+                      {"type": "metric", "stat": "steps", "value": {"size": 20, "tint": "#0D0D10"}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "#0D0D10", "opacity": 0.5}}, "frame": {"maxWidth": "infinity"}},
+                      {"type": "metric", "stat": "pace", "labelOverride": "AVG SPM", "value": {"size": 20, "tint": "#0D0D10"}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "#0D0D10", "opacity": 0.5}}, "frame": {"maxWidth": "infinity"}},
+                      {"type": "metric", "stat": "climbFloors", "value": {"size": 20, "tint": "#0D0D10"}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "#0D0D10", "opacity": 0.5}}, "frame": {"maxWidth": "infinity"}}
+                    ]
+                  }
                 ]
               }
             ]
@@ -191,28 +200,42 @@
         "alignment": "topLeading",
         "frame": {"width": 390, "height": 783, "alignment": "topLeading"},
         "children": [
-          {"type": "artwork", "variant": "hero", "overlay": [{"color": "#000000", "opacity": 0.04}, {"color": "#0D0D10", "opacity": 0.12}, "#0D0D10"], "frame": {"width": 390, "height": 338}},
           {
             "type": "stack",
             "axis": "vertical",
             "alignment": "leading",
-            "spacing": 13,
-            "frame": {"width": 354, "height": 455, "alignment": "topLeading"},
-            "padding": {"top": 278, "leading": 18},
+            "spacing": 0,
+            "frame": {"width": 390, "height": 783, "alignment": "topLeading"},
             "children": [
-              {"type": "text", "segments": [{"stat": "climbName"}], "style": {"size": 25, "lineLimit": 1, "minimumScaleFactor": 0.68}},
-              {"type": "text", "segments": [{"stat": "climbLocation"}], "style": {"size": 9, "role": "medium", "tracking": 1.3, "tint": {"color": "value", "opacity": 0.58}}, "transform": "uppercase"},
-              {"type": "standing", "width": 354, "height": 310},
-              {"type": "rule", "thickness": 1, "tint": {"color": "value", "opacity": 0.14}, "frame": {"width": 354}},
+              {
+                "type": "artwork",
+                "variant": "hero",
+                "overlay": [{"color": "#000000", "opacity": 0.04}, {"color": "#0D0D10", "opacity": 0.12}, "#0D0D10"],
+                "frame": {"maxWidth": "infinity", "maxHeight": "infinity"}
+              },
               {
                 "type": "stack",
-                "axis": "horizontal",
-                "spacing": 0,
-                "frame": {"width": 354},
+                "axis": "vertical",
+                "alignment": "leading",
+                "spacing": 13,
+                "frame": {"width": 354, "alignment": "topLeading"},
+                "padding": {"leading": 18, "bottom": 12},
                 "children": [
-                  {"type": "metric", "stat": "duration", "labelOverride": "TIME", "value": {"size": 19}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "value", "opacity": 0.5}}, "alignment": "leading", "frame": {"maxWidth": "infinity"}},
-                  {"type": "metric", "stat": "steps", "value": {"size": 19}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "value", "opacity": 0.5}}, "frame": {"maxWidth": "infinity"}},
-                  {"type": "metric", "stat": "pace", "labelOverride": "AVG SPM", "value": {"size": 19}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "value", "opacity": 0.5}}, "alignment": "trailing", "frame": {"maxWidth": "infinity"}}
+                  {"type": "text", "segments": [{"stat": "climbName"}], "style": {"size": 25, "lineLimit": 1, "minimumScaleFactor": 0.68}},
+                  {"type": "text", "segments": [{"stat": "climbLocation"}], "style": {"size": 9, "role": "medium", "tracking": 1.3, "tint": {"color": "value", "opacity": 0.58}}, "transform": "uppercase"},
+                  {"type": "standing", "width": 354},
+                  {"type": "rule", "thickness": 1, "tint": {"color": "value", "opacity": 0.14}, "frame": {"width": 354}},
+                  {
+                    "type": "stack",
+                    "axis": "horizontal",
+                    "spacing": 0,
+                    "frame": {"width": 354},
+                    "children": [
+                      {"type": "metric", "stat": "duration", "labelOverride": "TIME", "value": {"size": 19}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "value", "opacity": 0.5}}, "alignment": "leading", "frame": {"maxWidth": "infinity"}},
+                      {"type": "metric", "stat": "steps", "value": {"size": 19}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "value", "opacity": 0.5}}, "frame": {"maxWidth": "infinity"}},
+                      {"type": "metric", "stat": "pace", "labelOverride": "AVG SPM", "value": {"size": 19}, "label": {"size": 7, "tracking": 1.2, "tint": {"color": "value", "opacity": 0.5}}, "alignment": "trailing", "frame": {"maxWidth": "infinity"}}
+                    ]
+                  }
                 ]
               }
             ]
