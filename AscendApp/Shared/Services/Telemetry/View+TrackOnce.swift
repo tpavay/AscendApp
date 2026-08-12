@@ -14,4 +14,13 @@ extension View {
     ) -> some View {
         modifier(TrackOnceModifier(payload: .screen(screen), telemetry: telemetry))
     }
+
+    /// Reports a route boundary from the reviewed catalog. This is the overload product
+    /// surfaces use; the one above exists for the telemetry layer and its tests.
+    func trackOnce(
+        screen: TelemetryScreenName,
+        telemetry: TelemetryManager = .shared
+    ) -> some View {
+        trackOnce(screen: TelemetryScreen(screen), telemetry: telemetry)
+    }
 }

@@ -192,6 +192,9 @@ struct WorkoutDetailView: View {
         .overlay(alignment: .top) {
             copyConfirmationOverlay
         }
+        // On `content` rather than on `body`, because `body` branches on
+        // `embedsInNavigationStack` and only this side is rendered either way.
+        .trackOnce(screen: .workoutDetail)
     }
 
     // MARK: - Media Layout

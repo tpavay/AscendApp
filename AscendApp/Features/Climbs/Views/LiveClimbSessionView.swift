@@ -177,6 +177,7 @@ struct LiveClimbSessionView: View {
                 await viewModel.updateLiveActivity()
             }
         }
+        .trackOnce(screen: .liveClimbSession)
     }
 
     private func handleCompletionSummaryDismissed(

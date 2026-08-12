@@ -133,6 +133,7 @@ struct ClimbBrowseHelpSheet: View {
             }
             .appSheetButtonStyle(tone: .primary)
         }
+        .trackOnce(screen: .climbBrowseHelp)
     }
 
     private func sectionCard<Content: View>(

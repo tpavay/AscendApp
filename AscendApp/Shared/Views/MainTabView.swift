@@ -51,6 +51,9 @@ struct MainTabView: View {
                 if tab.identifier == tabRouter.selectedTab {
                     // Keep hidden tabs unmounted so inactive tab roots do not run SwiftData queries or animations.
                     tabContent(for: tab.identifier)
+                        // Hidden tabs stay unmounted, so the guard inside this modifier dies
+                        // with the tab it belonged to and the next visit reports itself.
+                        .trackOnce(screen: tab.identifier.telemetryScreenName)
                         .tag(tab.identifier)
                         .tabItem {
                             Text(tab.title)

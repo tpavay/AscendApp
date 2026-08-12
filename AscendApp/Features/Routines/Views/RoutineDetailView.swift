@@ -118,6 +118,7 @@ struct RoutineDetailView: View {
                 Text("This action cannot be undone.")
             }
         }
+        .trackOnce(screen: .routineDetail)
     }
 
     // MARK: - Detail Pages

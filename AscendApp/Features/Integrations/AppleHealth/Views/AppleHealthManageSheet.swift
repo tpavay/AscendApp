@@ -39,6 +39,7 @@ struct AppleHealthManageSheet: View {
         .padding(.bottom, 12)
         .appSheetBackground()
         .appSheetStyle(.actionMenu)
+        .trackOnce(screen: .appleHealthManage)
     }
 
     private func manageActionButton(

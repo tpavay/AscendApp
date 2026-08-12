@@ -26,6 +26,7 @@ struct ReportProfileSheet: View {
                 }
             }
         }
+        .trackOnce(screen: .reportProfile)
     }
 
     private var cancelButton: some View {

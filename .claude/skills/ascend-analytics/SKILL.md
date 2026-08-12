@@ -76,6 +76,31 @@ Pick the right project first, then separate server from client events by `build_
 - Event contracts are verifiable. Tests should exercise event-emission paths without requiring a live analytics runtime.
 - Telemetry collection is force-disabled under XCTest (see `TelemetryManager.shouldEnableCollection`), so `TelemetryManager.shared` never emits in tests and assertions against it pass vacuously. To assert emission, build the manager with `makeTestTelemetry(sink:)` from `AscendAppTests/TelemetryTestSupport.swift` - it wires an `InMemoryTelemetrySink` with `collectionEnabledOverride: true` and calls `configure()`, which is what actually applies the override. Don't hand-roll that construction per test file. This is why emitters like `PostAuthOnboardingCoordinator` and `MonetizationManager` take an injected `TelemetryManager` instead of reaching for the singleton.
 
+## Screen views
+
+There is exactly one screen event, `screen_view`, carrying `screen_name` and `screen_class`.
+Never invent an event name per screen: that puts navigation into the event catalog, and every funnel becomes a rewrite when a surface is renamed.
+
+Both values come from `TelemetryScreenName` (`AscendApp/Shared/Services/Telemetry/TelemetryScreenName.swift`), a bounded catalog of literals.
+Nothing may derive either from a Swift type at runtime - `String(describing:)` turns a refactor into a new Mixpanel series and orphans every saved report built on the old one.
+A surface reports with `.trackOnce(screen: .someCase)`; the free-form `TelemetryScreen(name:screenClass:)` initializer belongs to the telemetry layer and its tests, and `TelemetryScreenCatalogTests` fails when a product source calls it.
+Firebase's automatic screen reporting is disabled in `AscendApp/Info.plist` (`FirebaseAutomaticScreenReportingEnabled` = `false`), so this catalog is the only producer of `screen_view` in Firebase as well as Mixpanel rather than competing with a per-`UIHostingController` stream under the same reserved name.
+
+What earns a case: a root route, a tab root, a surface the climber navigates to, a modal they read or complete a task in.
+What does not: a reusable leaf component, a picker or action menu that edits the surface behind it, a transient banner, DEBUG-only tooling.
+
+Two mappings make an uninstrumented route a compile error rather than a review miss - `AppRootRoute.telemetryScreenName` and `AppTab.telemetryScreenName`, both exhaustive.
+`AppRootRoute.mainApp` is the one `nil`: it is a container, and the selected tab reports instead.
+`RootView` attaches the route screen *inside each switch branch*, never once above the switch - one instance spanning every route would report whichever route resolved first and then stay silent for the session.
+
+The onboarding funnel is not measured here.
+Its 21 steps own `onboarding_screen_viewed`; this catalog reports only the two route boundaries containing them, `landing` and `onboarding_flow`.
+Entry-point detail likewise stays on the events that already carry it (`live_climb_detail_view` and friends) rather than being duplicated onto the screen.
+
+Contracts: `AscendAppTests/TelemetryScreenCatalogTests.swift` pins every name/class pair, refuses an orphan catalog entry, and refuses an ad-hoc screen; `AscendAppTests/RouteScreenViewEvidenceTests.swift` proves once-per-appearance, per-tab-switch, re-presented-sheet, and app-entry behavior against the shipped modifier.
+Host those windows on the test host's `UIWindowScene`.
+A scene-less `UIWindow` mounts a `TabView` that was there from the first render but silently never mounts one that *arrives* on a later state change - no tab bar controller, no tab root, no `body` call - so the first tab of a session reports nothing and the harness, not the app, is what is broken.
+
 ## Local inspection
 
 DEBUG builds expose a developer-visible analytics console so events and screen views can be inspected without leaving the simulator (`DebugTelemetryConsoleSink`, `TelemetryConsoleView`).

@@ -60,6 +60,7 @@ struct DailyWorkoutDetailView: View {
                 }
             )
         }
+        .trackOnce(screen: .dailyWorkoutDetail)
     }
     
     private var customHeader: some View {

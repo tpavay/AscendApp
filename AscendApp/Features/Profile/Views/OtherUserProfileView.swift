@@ -178,6 +178,7 @@ struct OtherUserProfileView: View {
         .onReceive(NotificationCenter.default.publisher(for: .climbCatalogDidChange)) { _ in
             catalogRevision += 1
         }
+        .trackOnce(screen: .otherUserProfile)
     }
 
 }

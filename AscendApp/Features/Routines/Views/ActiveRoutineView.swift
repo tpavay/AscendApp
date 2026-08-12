@@ -125,6 +125,7 @@ struct ActiveRoutineView: View {
         } message: {
             Text("Would you like to log your progress before leaving this routine?")
         }
+        .trackOnce(screen: .activeRoutine)
     }
 
     private var activeWorkoutView: some View {

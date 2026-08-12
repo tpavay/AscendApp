@@ -34,6 +34,7 @@ struct BlockedClimbersView: View {
         } message: {
             Text(errorMessage ?? "Check your connection and try again.")
         }
+        .trackOnce(screen: .blockedClimbers)
     }
 
     private var blockedClimberList: some View {

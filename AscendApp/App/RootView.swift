@@ -31,18 +31,13 @@ struct RootView: View {
         Group {
             switch rootRoute {
             case .updateRequired:
-                AppUpdateRequiredView(
-                    onOpenAppStore: openAscendInAppStore,
-                    onDeleteAccount: gateAccountDeletionAction
-                )
+                routeContent(for: rootRoute)
             case .signedOut:
-                LandingScreen()
+                routeContent(for: rootRoute)
             case .signingIn:
-                ProgressView("Signing In...")
-                    .themedBackground()
+                routeContent(for: rootRoute)
             case .restoringSession:
-                ProgressView("Restoring Session...")
-                    .themedBackground()
+                routeContent(for: rootRoute)
             case .resolving:
                 authenticatedContent(for: .resolving)
             case .onboarding:
@@ -64,6 +59,7 @@ struct RootView: View {
                 onOpenAppStore: openAscendInAppStore,
                 onLater: appVersionGateState.dismissRecommended
             )
+            .trackOnce(screen: .appUpdateNudge)
         }
         // Deliberately outside the route switch: an entitlement refresh mid-deletion flips the
         // route, and unmounting this sheet would cancel the deletion partway through its sweep
@@ -270,39 +266,95 @@ struct RootView: View {
                 conflict: accountDataConflict,
                 onSignOut: authVM.signOut
             )
+            .trackOnce(screen: .accountDataConflict)
         } else {
-            switch route {
-            case .updateRequired:
+            routeContent(for: route)
+        }
+    }
+
+    /// The one route-to-view mapping, shared by both callers so a route is spelled once.
+    ///
+    /// Exhaustive on purpose: a new `AppRootRoute` case has to be given a view here and a
+    /// screen name in `AppRootRoute.telemetryScreenName`, or the app does not compile.
+    /// The routing decision stays in `body` - `authenticatedContent` first has to answer the
+    /// account-data conflict, and sending the landing screen or the update lockout through
+    /// that check would let a stale conflict cover a refusal the climber cannot leave.
+    @ViewBuilder
+    private func routeContent(for route: AppRootRoute) -> some View {
+        switch route {
+        case .updateRequired:
+            routeScreen(route) {
                 AppUpdateRequiredView(
                     onOpenAppStore: openAscendInAppStore,
                     onDeleteAccount: gateAccountDeletionAction
                 )
-            case .signedOut:
+            }
+
+        case .signedOut:
+            routeScreen(route) {
                 LandingScreen()
-            case .signingIn:
+            }
+
+        case .signingIn:
+            routeScreen(route) {
                 ProgressView("Signing In...")
                     .themedBackground()
-            case .restoringSession:
+            }
+
+        case .restoringSession:
+            routeScreen(route) {
                 ProgressView("Restoring Session...")
                     .themedBackground()
-            case .resolving:
-                AppAccessResolvingView(onSignOut: authVM.signOut)
+            }
 
-            case .onboarding(let stage):
+        case .resolving:
+            routeScreen(route) {
+                AppAccessResolvingView(onSignOut: authVM.signOut)
+            }
+
+        case .onboarding(let stage):
+            routeScreen(route) {
                 PostAuthOnboardingFlowView(
                     stage: stage,
                     onBack: postAuthOnboardingCoordinator.moveBack,
                     onContinue: postAuthOnboardingCoordinator.completeCurrentStage
                 )
+            }
 
-            case .paywall:
+        case .paywall:
+            routeScreen(route) {
                 AppAccessPaywallPlaceholderView(
                     onDeleteAccount: { isShowingGateAccountDeletion = true }
                 )
+            }
 
-            case .mainApp:
+        case .mainApp:
+            routeScreen(route) {
                 MainTabView(tabRouter: tabRouter)
             }
+        }
+    }
+
+    /// Reports the route's screen from inside its own switch branch.
+    ///
+    /// Deliberately not one modifier above the switch: the once-per-appearance guard belongs
+    /// to a view instance, and a single instance spanning every route would report the first
+    /// route the app resolved and then stay silent for the rest of the session. Each branch
+    /// is its own identity, so a route change tears the guard down and the next route
+    /// reports itself.
+    ///
+    /// The stage of an `.onboarding` route is not an identity change, so a climber walking
+    /// the post-auth flow banks one `onboarding_flow` view, not one per step - the 21 steps
+    /// are the onboarding funnel's job.
+    @ViewBuilder
+    private func routeScreen(
+        _ route: AppRootRoute,
+        @ViewBuilder content: () -> some View
+    ) -> some View {
+        if let screen = route.telemetryScreenName {
+            content().trackOnce(screen: screen)
+        } else {
+            content()
         }
     }
 
