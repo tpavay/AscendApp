@@ -12,6 +12,12 @@ struct ShareStatResolver {
     let stepHeight: Double
     var climbName: String?
     var climbLocation: String? = nil
+    /// The tower's published storey count, paired with the step count it is
+    /// published against. Floors on a card are the attempt's share of that one
+    /// rate; re-deriving them from any other divisor puts a number on the export
+    /// that the climb's own screens contradict.
+    var climbFloors: Int? = nil
+    var climbReferenceStepCount: Int? = nil
     var climbRank: Int?
     var climbRankTotal: Int?
     var splitTargetSteps: Int?
@@ -90,11 +96,8 @@ struct ShareStatResolver {
             return ResolvedShareStat(kind: kind, label: "LOCATION", value: climbLocation)
 
         case .climbFloors:
-            // The attempt's own floors, never the tower's catalogue height: this
-            // sits beside STEPS and AVG SPM, so all three have to report the
-            // same climb the climber actually made.
-            guard isClimb, workout.floors > 0 else { return nil }
-            return ResolvedShareStat(kind: kind, label: "FLOORS", value: Self.integer(workout.floors))
+            guard let floors = attemptFloors() else { return nil }
+            return ResolvedShareStat(kind: kind, label: "FLOORS", value: Self.integer(floors))
 
         case .climbRank:
             guard let climbRank, climbRank > 0 else { return nil }
@@ -116,6 +119,22 @@ struct ShareStatResolver {
             // single Workout, so the view model supplies them.
             return nil
         }
+    }
+
+    /// How much of the tower this attempt actually covered, in the tower's own
+    /// floors: it sits beside STEPS and AVG SPM, so it reports the attempt, and
+    /// it is scaled from the catalogue rate, so a completed climb reads the same
+    /// number the climb's detail screen shows. An overshoot is left alone — a
+    /// climber who kept going past the summit did the extra floors.
+    private func attemptFloors() -> Int? {
+        guard isClimb,
+              let climbFloors, climbFloors > 0,
+              let climbReferenceStepCount, climbReferenceStepCount > 0 else {
+            return nil
+        }
+
+        let floors = Double(climbFloors) * Double(workout.steps) / Double(climbReferenceStepCount)
+        return Int(floors.rounded())
     }
 
     /// Resolve live sampled progress into split rows for the share sticker.

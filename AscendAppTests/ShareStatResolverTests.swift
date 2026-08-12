@@ -140,37 +140,82 @@ struct ShareStatResolverTests {
     }
 
     /// FLOORS shares a row with STEPS and AVG SPM, both of which are the
-    /// attempt's own numbers, so it reports the attempt too - a climber who
-    /// stopped a quarter of the way up a 102-floor tower did not climb 102.
-    @Test
-    func floorsReportTheAttemptNotTheTowersCatalogueHeight() throws {
-        let workout = Workout(
-            name: "Live Climb",
-            duration: 600,
-            steps: 500,
-            floors: Workout.stepsToFloors(500, stepsPerFloor: 16),
-            source: .headphoneMotion
+    /// attempt's own numbers, so it reports the attempt too. It is scaled from
+    /// the catalogue's own rate rather than re-derived: `Workout.floors` divides
+    /// by 16, the catalogue does not, and the two disagree on every one of the
+    /// 87 shipped climbs. Empire State Building is the real entry - 1,576 steps
+    /// to 86 floors - and `ClimbDetailView` shows 86 under the same FLOORS title.
+    @Test(arguments: [
+        (1_576, "86"),
+        (500, "27"),
+        (1_700, "93"),
+        (0, "0")
+    ])
+    func floorsScaleTheTowersCatalogueRateByTheAttempt(steps: Int, expected: String) throws {
+        let climb = Climb.preview
+        #expect(climb.referenceStepCount == 1_576)
+        #expect(climb.calculatedFloors == 86)
+
+        let resolver = makeResolver(
+            workout: Self.climbWorkout(steps: steps),
+            climbName: climb.name,
+            climbFloors: climb.calculatedFloors,
+            climbReferenceStepCount: climb.referenceStepCount
         )
-        let resolver = makeResolver(workout: workout, climbName: "Empire State Building")
 
         let floors = try #require(resolver.resolve(.climbFloors))
         #expect(floors.label == "FLOORS")
-        #expect(floors.value == "31")
+        #expect(floors.value == expected)
+    }
+
+    /// Without a catalogue rate there is no honest number to publish, so the
+    /// cell drops rather than falling back on a different divisor.
+    @Test
+    func floorsAreOmittedWithoutACatalogueRate() {
+        let workout = Self.climbWorkout(steps: 1_576)
+
+        #expect(
+            makeResolver(workout: workout, climbName: "Empire State Building")
+                .resolve(.climbFloors) == nil
+        )
+        #expect(
+            makeResolver(
+                workout: workout,
+                climbName: "Empire State Building",
+                climbFloors: 0,
+                climbReferenceStepCount: 1_576
+            ).resolve(.climbFloors) == nil
+        )
+        #expect(
+            makeResolver(
+                workout: workout,
+                climbName: "Empire State Building",
+                climbFloors: 86,
+                climbReferenceStepCount: 0
+            ).resolve(.climbFloors) == nil
+        )
     }
 
     @Test
     func floorsAreNotOfferedForANonClimbWorkout() {
-        let workout = Workout(
-            name: "Stair Workout",
-            duration: 600,
-            steps: 500,
-            floors: Workout.stepsToFloors(500, stepsPerFloor: 16),
-            source: .headphoneMotion
+        let resolver = makeResolver(
+            workout: Self.climbWorkout(steps: 500),
+            climbFloors: 86,
+            climbReferenceStepCount: 1_576
         )
-        let resolver = makeResolver(workout: workout)
 
         #expect(resolver.resolve(.climbFloors) == nil)
         #expect(!resolver.availableKinds().contains(.climbFloors))
+    }
+
+    private static func climbWorkout(steps: Int) -> Workout {
+        Workout(
+            name: "Live Climb",
+            duration: 600,
+            steps: steps,
+            floors: Workout.stepsToFloors(steps, stepsPerFloor: 16),
+            source: .headphoneMotion
+        )
     }
 
     @Test(arguments: [
@@ -251,6 +296,8 @@ struct ShareStatResolverTests {
     private func makeResolver(
         workout: Workout,
         climbName: String? = nil,
+        climbFloors: Int? = nil,
+        climbReferenceStepCount: Int? = nil,
         climbRank: Int? = nil,
         climbRankTotal: Int? = nil,
         splitTargetSteps: Int? = nil
@@ -260,6 +307,8 @@ struct ShareStatResolverTests {
             measurementSystem: .imperial,
             stepHeight: MeasurementSystem.imperial.defaultStepHeight,
             climbName: climbName,
+            climbFloors: climbFloors,
+            climbReferenceStepCount: climbReferenceStepCount,
             climbRank: climbRank,
             climbRankTotal: climbRankTotal,
             splitTargetSteps: splitTargetSteps
