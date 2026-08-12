@@ -43,7 +43,9 @@ struct ShareExportCanvas: View {
                 }
             }
 
-            // Always-on Ascend wordmark burned into every shared image.
+            // Every shared image carries the wordmark exactly once: a recap
+            // background already burns in the template's own fixed lockup, so
+            // the canvas adds its own only for the other background sources.
             if viewModel.shouldRenderCanvasWordmark {
                 VStack {
                     Spacer()
