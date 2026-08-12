@@ -81,6 +81,10 @@ Two distinct surfaces - the global tab (community-wide aggregate stats) and per-
   Changing what a badge counts is a product decision, not a bug fix.
 - Per-climb leaderboards rank *completed attempts on one climb*, not aggregate community totals. They don't share a layout with the global aggregate leaderboards.
 - The static per-climb leaderboard shows **every completed attempt**, not best-per-user. A user appears as many times as they've completed the climb; this surface is the historical record of completions. Contrast with the in-session live race, which ranks against best-per-user (see the replay leaderboard architecture in `ascend-live-climbs`).
+- **The board states a climber's own time and rank once - on their own row, wearing the YOU pill - and carries no separate personal rank summary above it.**
+  Climb Detail's Leaderboard tab lost that duplicated card on 2026-08-12; History is the home for a climber's own results, and the hero card's finisher strip still carries the standing.
+  The accepted cost is that a climber ranked past the 25-row page must scroll to find themselves; reintroducing a pinned current-user row is a product decision, not a fix.
+  The predicate that survived the card, `ClimbDetailViewModel.hasPersonalCompletionStanding`, is not leftover gating: rank and rows arrive from two separate fetches, and it is the only thing stopping a climber who has just finished from being told nobody has (`ClimbLeaderboardPageContent`).
 
 ### Tie handling (applies to global and per-climb)
 - Ties are ranked using **standard competition ranking** ("1, 2, 2, 4"). Tied users share the same rank; the next rank is skipped by the count of tied users. This matches the sports convention and honors the honest outcome.
