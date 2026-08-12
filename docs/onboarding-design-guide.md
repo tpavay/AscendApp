@@ -854,10 +854,10 @@ App surfaces:
 State and data:
 - Apple Health is read-only, and Ascend imports nothing: it reads `heartRate` and `activeEnergyBurned` over a climb's own time window and never touches a foreign `HKWorkout` (#437).
 - Enrichment is silent about its *results*. It never asks the climber to confirm or edit merged data.
-- `AppleHealthEnrichmentService.Phase` stays the single source for any surface that narrates enrichment state, and no view may resolve heart-rate availability a second way.
-  Contract: `ascend-apple-health-enrichment`.
 - The Live Climb completion summary and workout detail are deliberately silent about absence: chart when a stored series exists, nothing at all when it does not, while enrichment keeps looking on its schedule (#438).
   Workout detail still shows its remote-series restore state, which means data exists and is arriving, not that the climb has no heart rate.
+  No view resolves a per-climb Apple Health status to narrate.
+  Contract: `ascend-apple-health-enrichment`.
 - A live-captured chest-strap series outranks Health's wrist data; enrichment still fills calories.
 
 Success condition:

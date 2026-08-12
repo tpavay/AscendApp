@@ -22,14 +22,12 @@ struct WorkoutDetailHeartRateVisibilityTests {
 
         let workout = makeWorkout()
 
-        #expect(
-            AppleHealthEnrichmentService.shared.phase(for: workout) != .notApplicable,
-            """
-            The fixture has to stay a climb enrichment is still considering. Once it reads as \
-            notApplicable - a foreign source, or heart rate already attached - the absence \
-            assertions below pass for the wrong reason and stop guarding anything.
-            """
-        )
+        // The fixture has to stay a climb enrichment is still considering. A foreign source, or
+        // heart rate already attached, would make the absence assertions below pass for the
+        // wrong reason and stop guarding anything.
+        #expect(workout.isInAppSensorWorkout)
+        #expect(workout.avgHeartRate == nil)
+        #expect(workout.heartRateTimeSeries.isEmpty)
 
         let text = try await recognizedTextAcrossDetail(
             workout,

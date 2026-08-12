@@ -9,8 +9,9 @@ import Vision
 /// Product-level evidence that the completion summary stays focused on the earned result.
 ///
 /// This hosts the shipping completion summary in a real phone-sized window with Health in the
-/// never-connected state. The service still considers the climb eligible for enrichment, so the
-/// screenshot proves the view suppresses the connect offer rather than relying on test setup.
+/// never-connected state and a climb carrying no heart rate - the exact conditions the connect
+/// offer used to appear under - so the screenshot proves the view says nothing about heart rate
+/// rather than relying on test setup to hide it.
 @MainActor
 @Suite(.hostsAWindow)
 struct LiveClimbCompletionSummaryHealthPromptEvidenceTests {
@@ -41,7 +42,9 @@ struct LiveClimbCompletionSummaryHealthPromptEvidenceTests {
         context.insert(workout)
         try context.save()
 
-        #expect(AppleHealthEnrichmentService.shared.offersConnectionPrompt(for: workout))
+        #expect(workout.isInAppSensorWorkout, "the fixture has to be a climb enrichment tracks")
+        #expect(workout.avgHeartRate == nil)
+        #expect(workout.heartRateTimeSeries.isEmpty)
 
         let screen = LiveClimbCompletionSummaryView(
             climb: nil,
