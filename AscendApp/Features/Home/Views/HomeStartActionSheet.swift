@@ -18,6 +18,7 @@ struct HomeStartActionSheet: View {
             }
         }
         .preferredColorScheme(.dark)
+        .trackOnce(screen: .homeStartAction)
     }
 }
 

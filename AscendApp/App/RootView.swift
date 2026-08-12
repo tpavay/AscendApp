@@ -31,18 +31,26 @@ struct RootView: View {
         Group {
             switch rootRoute {
             case .updateRequired:
-                AppUpdateRequiredView(
-                    onOpenAppStore: openAscendInAppStore,
-                    onDeleteAccount: gateAccountDeletionAction
-                )
+                routeScreen(rootRoute) {
+                    AppUpdateRequiredView(
+                        onOpenAppStore: openAscendInAppStore,
+                        onDeleteAccount: gateAccountDeletionAction
+                    )
+                }
             case .signedOut:
-                LandingScreen()
+                routeScreen(rootRoute) {
+                    LandingScreen()
+                }
             case .signingIn:
-                ProgressView("Signing In...")
-                    .themedBackground()
+                routeScreen(rootRoute) {
+                    ProgressView("Signing In...")
+                        .themedBackground()
+                }
             case .restoringSession:
-                ProgressView("Restoring Session...")
-                    .themedBackground()
+                routeScreen(rootRoute) {
+                    ProgressView("Restoring Session...")
+                        .themedBackground()
+                }
             case .resolving:
                 authenticatedContent(for: .resolving)
             case .onboarding:
@@ -64,6 +72,7 @@ struct RootView: View {
                 onOpenAppStore: openAscendInAppStore,
                 onLater: appVersionGateState.dismissRecommended
             )
+            .trackOnce(screen: .appUpdateNudge)
         }
         // Deliberately outside the route switch: an entitlement refresh mid-deletion flips the
         // route, and unmounting this sheet would cancel the deletion partway through its sweep
@@ -270,39 +279,79 @@ struct RootView: View {
                 conflict: accountDataConflict,
                 onSignOut: authVM.signOut
             )
+            .trackOnce(screen: .accountDataConflict)
         } else {
             switch route {
             case .updateRequired:
-                AppUpdateRequiredView(
-                    onOpenAppStore: openAscendInAppStore,
-                    onDeleteAccount: gateAccountDeletionAction
-                )
+                routeScreen(route) {
+                    AppUpdateRequiredView(
+                        onOpenAppStore: openAscendInAppStore,
+                        onDeleteAccount: gateAccountDeletionAction
+                    )
+                }
             case .signedOut:
-                LandingScreen()
+                routeScreen(route) {
+                    LandingScreen()
+                }
             case .signingIn:
-                ProgressView("Signing In...")
-                    .themedBackground()
+                routeScreen(route) {
+                    ProgressView("Signing In...")
+                        .themedBackground()
+                }
             case .restoringSession:
-                ProgressView("Restoring Session...")
-                    .themedBackground()
+                routeScreen(route) {
+                    ProgressView("Restoring Session...")
+                        .themedBackground()
+                }
             case .resolving:
-                AppAccessResolvingView(onSignOut: authVM.signOut)
+                routeScreen(route) {
+                    AppAccessResolvingView(onSignOut: authVM.signOut)
+                }
 
             case .onboarding(let stage):
-                PostAuthOnboardingFlowView(
-                    stage: stage,
-                    onBack: postAuthOnboardingCoordinator.moveBack,
-                    onContinue: postAuthOnboardingCoordinator.completeCurrentStage
-                )
+                routeScreen(route) {
+                    PostAuthOnboardingFlowView(
+                        stage: stage,
+                        onBack: postAuthOnboardingCoordinator.moveBack,
+                        onContinue: postAuthOnboardingCoordinator.completeCurrentStage
+                    )
+                }
 
             case .paywall:
-                AppAccessPaywallPlaceholderView(
-                    onDeleteAccount: { isShowingGateAccountDeletion = true }
-                )
+                routeScreen(route) {
+                    AppAccessPaywallPlaceholderView(
+                        onDeleteAccount: { isShowingGateAccountDeletion = true }
+                    )
+                }
 
             case .mainApp:
-                MainTabView(tabRouter: tabRouter)
+                routeScreen(route) {
+                    MainTabView(tabRouter: tabRouter)
+                }
             }
+        }
+    }
+
+    /// Reports the route's screen from inside its own switch branch.
+    ///
+    /// Deliberately not one modifier above the switch: the once-per-appearance guard belongs
+    /// to a view instance, and a single instance spanning every route would report the first
+    /// route the app resolved and then stay silent for the rest of the session. Each branch
+    /// is its own identity, so a route change tears the guard down and the next route
+    /// reports itself.
+    ///
+    /// The stage of an `.onboarding` route is not an identity change, so a climber walking
+    /// the post-auth flow banks one `onboarding_flow` view, not one per step - the 21 steps
+    /// are the onboarding funnel's job.
+    @ViewBuilder
+    private func routeScreen(
+        _ route: AppRootRoute,
+        @ViewBuilder content: () -> some View
+    ) -> some View {
+        if let screen = route.telemetryScreenName {
+            content().trackOnce(screen: screen)
+        } else {
+            content()
         }
     }
 

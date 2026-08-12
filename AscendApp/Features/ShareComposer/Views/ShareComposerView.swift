@@ -258,6 +258,7 @@ struct ShareComposerView: View {
             // Both injections feed the templates, so build the tab after them.
             recapPreview = makeRecapPreview()
         }
+        .trackOnce(screen: .shareComposer)
     }
 
     // MARK: - Composer canvas

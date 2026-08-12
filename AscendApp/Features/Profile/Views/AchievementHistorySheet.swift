@@ -54,6 +54,7 @@ struct AchievementHistorySheet: View {
             }
         }
         .presentationBackground(ProfileVisualStyle.background)
+        .trackOnce(screen: .achievementHistory)
     }
 
     private var header: some View {

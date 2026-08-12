@@ -253,6 +253,7 @@ struct ClimbDetailView: View {
                 await refreshPublicResultSyncStatusIfNeeded()
             }
         }
+        .trackOnce(screen: .climbDetail)
     }
 
     private func startOnboardingCoachIfNeeded() {

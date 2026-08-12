@@ -68,6 +68,7 @@ struct ProfileBirthdayEditorView: View {
         .navigationTitle("Birthday")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+        .trackOnce(screen: .profileBirthdayEditor)
     }
 
     private var allowedRange: ClosedRange<Date> {

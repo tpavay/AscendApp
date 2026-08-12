@@ -110,6 +110,7 @@ struct ClimbBrowseView: View {
         .onDisappear {
             searchFocusTask?.cancel()
         }
+        .trackOnce(screen: .climbBrowse)
     }
 
     private func globeVerticalOffset(sheetHeight: CGFloat) -> CGFloat {

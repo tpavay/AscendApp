@@ -39,6 +39,7 @@ struct ContactUsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+        .trackOnce(screen: .contactUs)
     }
 
     private func contactOptionRow(type: FeedbackType) -> some View {

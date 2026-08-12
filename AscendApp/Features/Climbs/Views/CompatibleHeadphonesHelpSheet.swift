@@ -59,6 +59,7 @@ struct CompatibleHeadphonesHelpSheet: View {
         .padding(.top, 28)
         .padding(.bottom, 10)
         .appSheetBackground()
+        .trackOnce(screen: .compatibleHeadphonesHelp)
     }
 
     private func compatibleHeadphoneGroup(title: String, headphones: [String]) -> some View {

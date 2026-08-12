@@ -92,6 +92,7 @@ struct ProfileNameEditorView: View {
         .onAppear {
             focusedField = field
         }
+        .trackOnce(screen: .profileNameEditor)
     }
 
     private func nameField(for field: ProfileNameField) -> some View {

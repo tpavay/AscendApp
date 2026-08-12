@@ -47,6 +47,7 @@ struct NotificationSettingsView: View {
         .task {
             await notificationState.refreshIfNeeded()
         }
+        .trackOnce(screen: .notificationSettings)
     }
 
     /// Turning the preference off is always the climber's to make here and needs nothing from iOS,

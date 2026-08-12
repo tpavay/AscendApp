@@ -155,6 +155,7 @@ struct DeleteAccountConfirmationView: View {
                 Text(error)
             }
         }
+        .trackOnce(screen: .deleteAccountConfirmation)
     }
 
     // MARK: - Actions

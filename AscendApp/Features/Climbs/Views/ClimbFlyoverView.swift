@@ -239,5 +239,6 @@ struct ClimbFlyoverScreen: View {
             }
         }
         .background(Color.black.ignoresSafeArea())
+        .trackOnce(screen: .climbFlyover)
     }
 }

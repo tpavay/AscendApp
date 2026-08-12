@@ -38,6 +38,7 @@ struct MeasurementSystemSelectionView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+        .trackOnce(screen: .measurementSystemSettings)
     }
     
     private func measurementSystemRow(system: MeasurementSystem) -> some View {

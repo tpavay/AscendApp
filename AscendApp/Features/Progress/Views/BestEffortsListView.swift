@@ -72,6 +72,7 @@ struct BestEffortsListView: View {
         .themedBackground()
         .navigationTitle("Best Efforts")
         .navigationBarTitleDisplayMode(.inline)
+        .trackOnce(screen: .bestEfforts)
     }
 
     private var emptyState: some View {
@@ -285,6 +286,7 @@ struct BestEffortRecordDetailView: View {
         .themedBackground()
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .trackOnce(screen: .bestEffortRecordDetail)
     }
 
     private var detailModePicker: some View {

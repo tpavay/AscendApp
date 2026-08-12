@@ -130,6 +130,7 @@ struct RoutineEditorView: View {
             isInteractingWithTimeline = false
         }
         .appSheetBackground()
+        .trackOnce(screen: .routineEditor)
     }
 
     // MARK: - Timeline

@@ -87,6 +87,7 @@ struct ProfileGenderEditorView: View {
         .navigationTitle("Gender")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+        .trackOnce(screen: .profileGenderEditor)
     }
 
     private func save() {

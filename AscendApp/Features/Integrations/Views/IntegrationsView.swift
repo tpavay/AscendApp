@@ -35,6 +35,7 @@ struct IntegrationsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+        .trackOnce(screen: .integrations)
     }
 }
 

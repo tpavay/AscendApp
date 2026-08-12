@@ -122,6 +122,7 @@ struct ClimbsCollectionView: View {
             guard mode == .own else { return }
             await notificationState.refreshIfNeeded()
         }
+        .trackOnce(screen: .climbsCollection)
     }
 
     private var topBar: some View {

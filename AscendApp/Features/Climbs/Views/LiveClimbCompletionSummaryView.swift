@@ -118,6 +118,7 @@ struct LiveClimbCompletionSummaryView: View {
             await resolveCompletionRank()
             trackSummaryViewedIfNeeded()
         }
+        .trackOnce(screen: .liveClimbSummary)
     }
 
     private var header: some View {
