@@ -81,7 +81,18 @@ struct ShareComposerView: View {
     /// every evaluation of `body`.
     private func makeRecapPreview() -> ShareBackgroundPickerView.RecapPreview? {
         guard let climb = viewModel.climb else { return nil }
-        let templates = templateStore.templates(for: [.climb])
+
+        // The standing requirement is what keeps the Standing card out of the
+        // picker when no rank resolved: the other three still read correctly
+        // with their rank tabs dropped, that one would be a hollow frame.
+        let standing = ResolvedShareStanding(
+            rank: viewModel.climbRank,
+            totalClimbers: viewModel.climbRankTotal
+        )
+        var requirements: Set<ShareCardRequirement> = [.climb]
+        if standing != nil { requirements.insert(.standing) }
+
+        let templates = templateStore.templates(for: requirements)
         guard !templates.isEmpty else { return nil }
 
         let context = ShareCardRenderContext.template(
@@ -89,10 +100,7 @@ struct ShareComposerView: View {
             bestEfforts: viewModel.bestEffortStats,
             weeklyTotals: viewModel.weeklyTotalStats,
             splits: viewModel.splits(),
-            standing: ResolvedShareStanding(
-                rank: viewModel.climbRank,
-                totalClimbers: viewModel.climbRankTotal
-            )
+            standing: standing
         )
         return .init(templates: templates, context: context, climb: climb)
     }
@@ -280,7 +288,8 @@ struct ShareComposerView: View {
                 // Double-tap resets it to fit.
                 if let background = viewModel.background {
                     let panActive = viewModel.backgroundIsManipulated
-                    let scale = viewModel.backgroundScale * bgZoomLive
+                    let scale = viewModel.backgroundScale
+                        * (viewModel.backgroundSupportsTransform ? bgZoomLive : 1)
                     let offX = viewModel.backgroundOffset.width * canvasSize.width + (panActive ? bgPanLive.width : 0)
                     let offY = viewModel.backgroundOffset.height * canvasSize.height + (panActive ? bgPanLive.height : 0)
                     ShareBackgroundView(

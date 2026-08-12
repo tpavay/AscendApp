@@ -182,7 +182,7 @@
       "id": "standing",
       "title": "Standing",
       "minRendererVersion": 2,
-      "requires": ["climb"],
+      "requires": ["climb", "standing"],
       "background": "#0D0D10",
       "wordmarkTint": "#FFFFFF",
       "root": {

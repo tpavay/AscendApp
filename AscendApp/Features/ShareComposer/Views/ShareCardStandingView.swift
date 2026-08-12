@@ -6,6 +6,10 @@ struct ShareCardStandingView: View {
     let spec: ShareCardStandingSpec
     let context: ShareCardRenderContext
 
+    /// Half the rendered width of the "YOU" caption, used to keep it inside the
+    /// plot when the marker sits against either edge.
+    private static let labelHalfWidth: CGFloat = 13
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             hero
@@ -43,31 +47,40 @@ struct ShareCardStandingView: View {
     private var distribution: some View {
         VStack(spacing: 5) {
             GeometryReader { geometry in
-                let progress = standing.isFirstAscent ? 0 : Double(standing.percentile) / 100
-                let markerX = geometry.size.width * progress
+                let width = geometry.size.width
+                let markerX: CGFloat = width * CGFloat(standing.percentile) / 100
 
                 ZStack(alignment: .leading) {
                     ShareStandingCurve()
                         .fill(.white.opacity(0.16))
 
+                    // Masked rather than framed: a `Shape` lays its path out in
+                    // the rect it is given, so framing to the marker would
+                    // squeeze the whole bell curve instead of revealing the
+                    // share of the field this climber actually beat.
                     ShareStandingCurve()
                         .fill(Color(hex: "86D30A").opacity(0.72))
-                        .frame(width: markerX)
-                        .clipped()
+                        .mask(alignment: .leading) {
+                            Rectangle().frame(width: markerX)
+                        }
 
-                    if !standing.isFirstAscent {
-                        Rectangle()
-                            .fill(Color(hex: "86D30A"))
-                            .frame(width: 2, height: 73)
-                            .position(x: markerX, y: 50)
-                            .overlay(alignment: .top) {
-                                Text("YOU")
-                                    .font(context.font.swiftUIFont(size: 8, role: .heavy))
-                                    .tracking(1)
-                                    .foregroundStyle(Color(hex: "86D30A"))
-                                    .offset(x: markerX - geometry.size.width / 2, y: -4)
-                            }
-                    }
+                    Rectangle()
+                        .fill(Color(hex: "86D30A"))
+                        .frame(width: 2, height: 73)
+                        .position(x: min(max(markerX, 1), width - 1), y: 50)
+                        .overlay(alignment: .top) {
+                            Text("YOU")
+                                .font(context.font.swiftUIFont(size: 8, role: .heavy))
+                                .tracking(1)
+                                .foregroundStyle(Color(hex: "86D30A"))
+                                // Kept inside the plot at both extremes, where
+                                // the marker itself sits on the edge.
+                                .offset(
+                                    x: min(max(markerX, Self.labelHalfWidth), width - Self.labelHalfWidth)
+                                        - width / 2,
+                                    y: -4
+                                )
+                        }
                 }
             }
             .frame(height: 104)

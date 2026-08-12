@@ -127,12 +127,20 @@ final class ShareComposerViewModel {
 
     var isClimb: Bool { climbName != nil }
 
-    /// Recap templates already burn in the fixed template wordmark. Other
-    /// backgrounds receive the canvas wordmark exactly once.
-    var shouldRenderCanvasWordmark: Bool {
-        guard case .recap? = background else { return true }
+    /// A baked recap card is designed art, not repositionable photo content.
+    private var isRecapBackground: Bool {
+        if case .recap? = background { return true }
         return false
     }
+
+    /// Recap templates already burn in the fixed template wordmark. Other
+    /// backgrounds receive the canvas wordmark exactly once.
+    var shouldRenderCanvasWordmark: Bool { !isRecapBackground }
+
+    /// Pan/zoom is refused for a recap: the template's burned-in lockup is the
+    /// card's only brand mark, and zooming or dragging could push it off the
+    /// export, shrink it below legibility, or crop it away entirely.
+    var backgroundSupportsTransform: Bool { !isRecapBackground }
 
     /// This-climb / this-workout stats that have a value, resolved for display.
     /// Best Efforts and Totals are surfaced as their own sections, not here.
@@ -381,15 +389,17 @@ final class ShareComposerViewModel {
     /// fit. In that state a drag repositions it; at the default fit a horizontal
     /// drag instead cycles the filter (and double-tap returns to this state).
     var backgroundIsManipulated: Bool {
-        abs(backgroundScale - 1) > 0.01 || backgroundOffset != .zero
+        backgroundSupportsTransform && (abs(backgroundScale - 1) > 0.01 || backgroundOffset != .zero)
     }
 
     func commitBackgroundZoom(_ factor: CGFloat) {
+        guard backgroundSupportsTransform else { return }
         // Free-form: allow shrinking below fit (zoom out) and growing up to 5×.
         backgroundScale = min(max(backgroundScale * factor, 0.3), 5)
     }
 
     func commitBackgroundPan(dxFraction: CGFloat, dyFraction: CGFloat) {
+        guard backgroundSupportsTransform else { return }
         backgroundOffset = CGSize(width: backgroundOffset.width + dxFraction,
                                   height: backgroundOffset.height + dyFraction)
     }

@@ -6,13 +6,18 @@ struct ShareCardRankTabView: View {
     let spec: ShareCardRankTabSpec
     let context: ShareCardRenderContext
 
+    /// The tab bleeds off the card's right edge by design, so only the span from
+    /// its leading inset to the card edge is ever drawn. The First Ascent lockup
+    /// is sized to fit inside that, not inside `spec.width`.
+    private static let badgeSize: CGFloat = 25
+
     var body: some View {
         HStack(spacing: 8) {
             if standing.isFirstAscent {
                 Image("FirstAscentBadgeDetailed")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 31, height: 31)
+                    .frame(width: Self.badgeSize, height: Self.badgeSize)
 
                 Text("FIRST\nASCENT")
                     .font(context.font.swiftUIFont(size: 10, role: .heavy))

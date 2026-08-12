@@ -122,11 +122,11 @@ struct ShareStatResolver {
     func resolveSplits() -> ResolvedShareSplits? {
         guard let metadata = Self.recordedSplitMetadata(for: workout) else { return nil }
 
-        let rangeTargetSteps = max(
+        let timelineTargetSteps = max(
             splitTargetSteps ?? metadata.climbTargetStepCount ?? metadata.targetStepCount ?? workout.steps,
+            workout.steps,
             1
         )
-        let timelineTargetSteps = max(rangeTargetSteps, workout.steps, 1)
         let splits = LiveClimbWorkoutSummaryData.paceSplits(
             for: workout,
             targetSteps: timelineTargetSteps
@@ -159,7 +159,7 @@ struct ShareStatResolver {
             value: segmentText,
             subtitle: "\(segmentText) · \(averageText)",
             rows: rows,
-            stepQuintileRows: stepQuintileRows(targetSteps: rangeTargetSteps),
+            stepQuintileRows: stepQuintileRows(recordedSteps: max(workout.steps, 0)),
             averageStepsPerMinuteText: workout.stepsPerMinute.map { Self.decimal($0, 1) } ?? "0.0",
             hasHeartRate: hasHeartRate
         )
@@ -167,19 +167,24 @@ struct ShareStatResolver {
 
     /// Builds five equal step ranges and interpolates the recorded progress
     /// curve to find how long each range took.
-    private func stepQuintileRows(targetSteps: Int) -> [ResolvedShareSplitRow] {
-        guard targetSteps >= 5 else { return [] }
+    ///
+    /// The ranges span the steps this attempt actually recorded, never the
+    /// tower's reference count: an attempt that stopped short has no recorded
+    /// pace past where it stopped, and ranging over the tower invented rows that
+    /// read as a single second at an impossible pace.
+    private func stepQuintileRows(recordedSteps: Int) -> [ResolvedShareSplitRow] {
+        guard recordedSteps >= 5 else { return [] }
 
-        let points = LiveClimbWorkoutSummaryData.progressPoints(for: workout, targetSteps: targetSteps)
+        let points = LiveClimbWorkoutSummaryData.progressPoints(for: workout, targetSteps: recordedSteps)
         guard points.count >= 2 else { return [] }
 
-        let baseSteps = targetSteps / 5
+        let baseSteps = recordedSteps / 5
         let average = workout.stepsPerMinute ?? 0
         var rows: [ResolvedShareSplitRow] = []
 
         for index in 0..<5 {
             let startStep = index * baseSteps + 1
-            let endStep = index == 4 ? targetSteps : (index + 1) * baseSteps
+            let endStep = index == 4 ? recordedSteps : (index + 1) * baseSteps
             let blockSteps = endStep - startStep + 1
             let startElapsed = elapsedSeconds(atCumulativeSteps: startStep - 1, points: points)
             let endElapsed = elapsedSeconds(atCumulativeSteps: endStep, points: points)

@@ -77,6 +77,9 @@ private struct DecodedTemplate: Decodable {
 /// holes in it.
 enum ShareCardRequirement: String, Codable, Sendable {
     case climb
+    /// A resolved leaderboard standing. A card built around the percentile is
+    /// hollow without one, so it is not offered rather than drawn empty.
+    case standing
 }
 
 struct ShareCardTemplate: Codable, Equatable, Identifiable, Sendable {
@@ -699,6 +702,16 @@ struct ShareCardRankTabSpec: Codable, Equatable, Sendable {
         self.width = width
         self.height = height
     }
+
+    private enum CodingKeys: String, CodingKey { case width, height }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            width: try container.value(.width, default: 112),
+            height: try container.value(.height, default: 58)
+        )
+    }
 }
 
 /// The percentile hero and distribution curve used only by Standing.
@@ -709,6 +722,16 @@ struct ShareCardStandingSpec: Codable, Equatable, Sendable {
     init(width: Double = 354, height: Double = 310) {
         self.width = width
         self.height = height
+    }
+
+    private enum CodingKeys: String, CodingKey { case width, height }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            width: try container.value(.width, default: 354),
+            height: try container.value(.height, default: 310)
+        )
     }
 }
 

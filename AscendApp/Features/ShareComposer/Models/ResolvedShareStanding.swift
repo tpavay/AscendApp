@@ -26,12 +26,14 @@ struct ResolvedShareStanding: Equatable, Sendable {
         self.rank = min(rank, totalClimbers)
         self.totalClimbers = totalClimbers
         if let percentile {
-            self.percentile = min(max(percentile, 1), 99)
+            self.percentile = min(max(percentile, 0), 99)
         } else if totalClimbers == 1 {
             self.percentile = 99
         } else {
+            // Last place beat nobody, so the floor is 0: the card reports the
+            // leaderboard, it does not round the result up to flatter it.
             let fieldBeat = Double(totalClimbers - self.rank) / Double(totalClimbers)
-            self.percentile = min(max(Int((fieldBeat * 100).rounded(.down)), 1), 99)
+            self.percentile = min(max(Int((fieldBeat * 100).rounded(.down)), 0), 99)
         }
     }
 

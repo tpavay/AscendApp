@@ -11,7 +11,18 @@ struct ResolvedShareStandingTests {
         #expect(!standing.isFirstAscent)
     }
 
-    @Test(arguments: [1, 99])
+    /// Last place beat nobody. The card says so rather than rounding the result
+    /// up to a percentile the leaderboard does not support.
+    @Test
+    func lastPlaceReadsZeroPercentInsteadOfAFlatteringFloor() throws {
+        let standing = try #require(ResolvedShareStanding(rank: 240, totalClimbers: 240))
+
+        #expect(standing.percentile == 0)
+        #expect(!standing.isFirstAscent)
+        #expect(standing.formattedFieldSize == "240")
+    }
+
+    @Test(arguments: [0, 1, 99])
     func explicitPercentilePreservesBothExtremes(percentile: Int) throws {
         let standing = try #require(
             ResolvedShareStanding(rank: 50, totalClimbers: 100, percentile: percentile)

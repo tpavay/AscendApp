@@ -119,6 +119,12 @@ export function validate(vocabulary, document) {
     if (template.background !== undefined) {
       checkColor(template.background, `${id}.background`, problems);
     }
+    // The wordmark tint sits on the template, not in `root`, so the walk below
+    // never reaches it — and a typo here ships the one mark every card must
+    // show as opaque black.
+    if (template.wordmarkTint !== undefined) {
+      checkColor(template.wordmarkTint, `${id}.wordmarkTint`, problems);
+    }
     if (!template.root) {
       problems.push(`${id}: no root node`);
       continue;
@@ -135,6 +141,7 @@ export function validate(vocabulary, document) {
  */
 const COLOR_KEYS = new Set([
   "tint", "color", "fill", "track", "stroke", "border", "background", "stops", "overlay",
+  "wordmarkTint", "textTint", "fastTint", "slowTint", "trackTint",
 ]);
 
 /** Color names the renderer resolves against the render context. */
