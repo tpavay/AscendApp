@@ -214,6 +214,45 @@ struct FinalizedShareCardSetEvidenceTests {
         }
     }
 
+    /// The bottom gap is only half the story: a slot reserved for something a
+    /// variant does not draw opens its void *between* two content rows, where a
+    /// bottom-anchored measurement cannot see it. This reads the void directly -
+    /// the tallest run of identical rows anywhere above the wordmark band.
+    ///
+    /// Real breathing room between rows measures under 35 design points on every
+    /// card, so the tolerance is 48 - about 5.7% of the card. Restoring the
+    /// Standing slot's old fixed 310pt height, the drift this guards against,
+    /// measures 95pt ranked and 246pt on a First Ascent that draws no curve.
+    @Test
+    func noVariantReservesASlotItDoesNotDraw() throws {
+        let maximumFlatBand: CGFloat = 48
+        let store = ShareCardTemplateStore(bundle: .main)
+        let variants: [(name: String, rank: Int, field: Int)] = [
+            ("ranked", 4, 1_284),
+            ("first-ascent", 1, 1)
+        ]
+
+        for variant in variants {
+            let viewModel = Self.rankedViewModel(rank: variant.rank, total: variant.field)
+            let standing = try #require(
+                ResolvedShareStanding(rank: variant.rank, totalClimbers: variant.field)
+            )
+            let context = Self.context(for: viewModel, standing: standing)
+
+            for id in ["result", "standing"] {
+                let template = try #require(
+                    store.templates(for: [.climb, .standing]).first { $0.id == id }
+                )
+                let image = try #require(Self.export(template, context: context))
+                let band = try #require(Self.tallestFlatBandAboveWordmark(of: image))
+                #expect(
+                    band <= maximumFlatBand,
+                    "\(id) (\(variant.name)) left a \(band)pt band of nothing inside the card"
+                )
+            }
+        }
+    }
+
     /// The card is a fixed design, so a reader at the largest accessibility size
     /// gets the same pixels as one at the default — nothing can reflow into the
     /// wordmark's band.
@@ -525,6 +564,40 @@ struct FinalizedShareCardSetEvidenceTests {
             }
         }
         return nil
+    }
+
+    /// Tallest run of pixel-identical rows above the wordmark band, in design
+    /// points.
+    ///
+    /// A run of identical rows is a strip of the card that draws nothing:
+    /// artwork never repeats a row, a gradient never repeats a row, and text
+    /// and bars break the run the moment they start. Spacing between rows makes
+    /// short runs; a reserved slot makes a long one.
+    private static func tallestFlatBandAboveWordmark(of image: UIImage) -> CGFloat? {
+        let width = Int(image.size.width.rounded())
+        let height = Int(image.size.height.rounded())
+        guard let buffer = try? pixels(of: image, width: width, height: height) else { return nil }
+
+        let scale = image.size.width / ShareCardFormat.designSize.width
+        let bandTop = Int(
+            (ShareCardFormat.designSize.height - ShareCardTemplateView.wordmarkClearance) * scale
+        )
+        guard bandTop > 1, bandTop <= height else { return nil }
+
+        let stride = width * 4
+        var tallest = 0
+        var run = 1
+        for y in 1..<bandTop {
+            let current = buffer[(y * stride)..<((y + 1) * stride)]
+            let previous = buffer[((y - 1) * stride)..<(y * stride)]
+            if current.elementsEqual(previous) {
+                run += 1
+                tallest = max(tallest, run)
+            } else {
+                run = 1
+            }
+        }
+        return CGFloat(tallest) / scale
     }
 
     private static func key(_ buffer: [UInt8], _ index: Int) -> UInt32 {

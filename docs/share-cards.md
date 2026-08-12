@@ -30,7 +30,11 @@ The measured gap between the last content row and the top of the band stays
 within 24 design points - about 3% of the card.
 A fixed panel height, or a reserved slot for something a variant does not draw,
 is how this regressed once already.
-Anchor: `FinalizedShareCardSetEvidenceTests.theLastContentRowStaysAgainstTheWordmarkBandOnResultAndStanding`.
+A reserved slot opens its void between two content rows rather than under the
+last one, so the tallest run of identical rows anywhere above the band is
+measured too, and stays under 48 design points.
+Anchors: `FinalizedShareCardSetEvidenceTests.theLastContentRowStaysAgainstTheWordmarkBandOnResultAndStanding`
+and `FinalizedShareCardSetEvidenceTests.noVariantReservesASlotItDoesNotDraw`.
 
 ## Rank
 
