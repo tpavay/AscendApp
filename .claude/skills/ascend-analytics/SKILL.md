@@ -97,7 +97,9 @@ The onboarding funnel is not measured here.
 Its 21 steps own `onboarding_screen_viewed`; this catalog reports only the two route boundaries containing them, `landing` and `onboarding_flow`.
 Entry-point detail likewise stays on the events that already carry it (`live_climb_detail_view` and friends) rather than being duplicated onto the screen.
 
-Contracts: `AscendAppTests/TelemetryScreenCatalogTests.swift` pins every name/class pair, refuses an orphan catalog entry, and refuses an ad-hoc screen; `AscendAppTests/RouteScreenViewEvidenceTests.swift` proves once-per-appearance, per-tab-switch, and re-presented-sheet behavior against the shipped modifier.
+Contracts: `AscendAppTests/TelemetryScreenCatalogTests.swift` pins every name/class pair, refuses an orphan catalog entry, and refuses an ad-hoc screen; `AscendAppTests/RouteScreenViewEvidenceTests.swift` proves once-per-appearance, per-tab-switch, re-presented-sheet, and app-entry behavior against the shipped modifier.
+Host those windows on the test host's `UIWindowScene`.
+A scene-less `UIWindow` mounts a `TabView` that was there from the first render but silently never mounts one that *arrives* on a later state change - no tab bar controller, no tab root, no `body` call - so the first tab of a session reports nothing and the harness, not the app, is what is broken.
 
 ## Local inspection
 

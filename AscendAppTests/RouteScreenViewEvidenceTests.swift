@@ -86,12 +86,42 @@ struct RouteScreenViewEvidenceTests {
         presentation.isPresented = true
         #expect(try await pump(window) { sink.screenCount(of: .justClimbSetup) == 1 })
 
+        // A real presentation takes a real dismissal: re-presenting before the modal is gone
+        // is a state the climber cannot reach, and UIKit swallows it.
         presentation.isPresented = false
+        #expect(try await pump(window) { window.rootViewController?.presentedViewController == nil })
+
         try await drain(window)
         #expect(sink.screenCount(of: .justClimbSetup) == 1)
 
         presentation.isPresented = true
         #expect(try await pump(window) { sink.screenCount(of: .justClimbSetup) == 2 })
+    }
+
+    /// Entering the app is the first hop of every session, and the one route change that lands
+    /// on a container: `.mainApp` reports nothing itself, so the tab it mounts is the only
+    /// thing that can report the arrival. Tab-to-tab switching cannot cover this - the tab
+    /// container is already mounted by then.
+    @Test
+    func arrivingInTheAppFromTheGateReportsTheFirstTab() async throws {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let telemetry = makeTestTelemetry(sink: sink)
+        let route = RouteBox()
+
+        let window = hostWindow(RouteHarness(route: route, telemetry: telemetry))
+        defer { teardown(window) }
+
+        #expect(try await pump(window) { sink.screenCount(of: .appAccessGate) == 1 })
+
+        route.route = .mainApp
+        #expect(try await pump(window) { sink.screenCount(of: .home) == 1 })
+
+        try await drain(window)
+
+        // The gate is behind the climber, and the container it handed off to is not a screen.
+        #expect(sink.screenCount(of: .home) == 1)
+        #expect(sink.screenCount(of: .appAccessGate) == 1)
+        #expect(sink.screens.allSatisfy { $0.name != "main_app" })
     }
 
     /// Every root route resolves to a decision, and the container resolves to no event.
@@ -127,12 +157,21 @@ struct RouteScreenViewEvidenceTests {
 
     // MARK: - Rendering
 
+    /// Borrows the host's window scene rather than standing a scene-less window up.
+    ///
+    /// Not cosmetic: a window off the scene never mounts a `TabView` that *arrives* after the
+    /// first render - no tab bar controller, no tab root, no `body` call - while one that was
+    /// there from the first render mounts fine. That asymmetry reads as a missing screen view
+    /// on the app's most common entry, and it cost this suite a false alarm once already.
     private func hostWindow(_ view: some View) -> UIWindow {
         let size = CGSize(width: 390, height: 640)
         let controller = UIHostingController(rootView: view)
         controller.view.frame = CGRect(origin: .zero, size: size)
 
         let window = UIWindow(frame: controller.view.frame)
+        window.windowScene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first
         window.rootViewController = controller
         window.makeKeyAndVisible()
         return window
@@ -142,6 +181,7 @@ struct RouteScreenViewEvidenceTests {
         window.resignKey()
         window.isHidden = true
         window.rootViewController = nil
+        window.windowScene = nil
     }
 
     /// Drives layout until the condition holds, so a slow machine costs latency rather than a
@@ -192,6 +232,56 @@ private final class RedrawCounter {
 @Observable
 private final class SheetPresentation {
     var isPresented = false
+}
+
+@MainActor
+@Observable
+private final class RouteBox {
+    var route: AppRootRoute = .paywall
+}
+
+/// Reproduces `RootView`'s route composition around the tab container: the `Group` over a
+/// switch, the crossfade the route change animates through, and the screen attached *inside*
+/// each branch through the shipped `AppRootRoute` mapping - so `.mainApp` contributes no event
+/// and the tab has to report the arrival itself.
+///
+/// `RootView` proper needs an authenticated session and a resolved entitlement to reach these
+/// two routes; the shape it is being held to is the modifier placement, which is reproduced
+/// exactly.
+private struct RouteHarness: View {
+    @Bindable var route: RouteBox
+    let telemetry: TelemetryManager
+    let router = TabRouter()
+
+    var body: some View {
+        Group {
+            switch route.route {
+            case .paywall:
+                routeScreen(.paywall) {
+                    Color.clear.frame(width: 390, height: 640)
+                }
+            case .mainApp:
+                routeScreen(.mainApp) {
+                    TabHarness(router: router, telemetry: telemetry)
+                }
+            default:
+                Color.clear
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: route.route)
+    }
+
+    @ViewBuilder
+    private func routeScreen(
+        _ route: AppRootRoute,
+        @ViewBuilder content: () -> some View
+    ) -> some View {
+        if let screen = route.telemetryScreenName {
+            content().trackOnce(screen: screen, telemetry: telemetry)
+        } else {
+            content()
+        }
+    }
 }
 
 private struct ScreenHarness: View {
