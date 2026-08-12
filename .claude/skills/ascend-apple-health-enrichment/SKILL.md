@@ -1,6 +1,6 @@
 ---
 name: ascend-apple-health-enrichment
-description: Use when working on Ascend's Apple Health integration - connecting Health, the enrichment service and its bounded retry ledger, the heart-rate phases every surface renders, or the requested HealthKit read set - and when writing any screen `.task` or service `configure` that touches the workout store, which fires from Home and other feature code far outside the Integrations folder. Covers why Ascend reads Health over a climb's own time window and never touches a foreign workout record, why a pass that cannot run must not re-arm, and the bounded-query rules that keep the entry path off the main thread's critical section.
+description: Use when working on Ascend's Apple Health integration - connecting Health, the enrichment service and its bounded retry ledger, the heart-rate phases exposed to UI, or the requested HealthKit read set - and when writing any screen `.task` or service `configure` that touches the workout store, which fires from Home and other feature code far outside the Integrations folder. Covers why Ascend reads Health over a climb's own time window and never touches a foreign workout record, why a pass that cannot run must not re-arm, and the bounded-query rules that keep the entry path off the main thread's critical section.
 ---
 
 # Apple Health enrichment
@@ -52,11 +52,14 @@ There is no second coordinator and no second status enum; do not add one.
 - A climb that carries a **live-captured** heart-rate series (a strap paired to Ascend during the session) keeps it.
   That data is first-party and denser than anything a wrist writes afterwards; enrichment still fills calories.
 
-## The phases every surface renders
+## The phases available to UI
 
-`AppleHealthEnrichmentService.Phase` is the one answer, and **no case renders blank** - a silent absence was the original bug (#438).
+`AppleHealthEnrichmentService.Phase` remains the one answer for any surface that chooses to narrate enrichment state.
 `notApplicable`, `connectionOffered`, `unavailable`, `accessRevoked`, `checking`, `waiting`, `stoppedLooking`, `checksPaused`.
-No view may resolve heart-rate availability a second way, and no phase may carry a countdown: `Task.sleep` does not advance while the app is suspended, so a rendered number would be wrong in exactly the case a climber checks it.
+No view may resolve those states a second way, and no phase may carry a countdown: `Task.sleep` does not advance while the app is suspended, so a rendered number would be wrong in exactly the case a climber checks it.
+The Live Climb completion summary and Workout Detail are deliberate exceptions to narration: they render the chart when a stored series exists and render nothing about heart rate when it does not.
+Workout Detail may still show its remote-series restore state because that means data exists and is arriving, not that the climb has no heart rate.
+Settings -> Integrations is the only surface that offers Apple Health connection or explains revoked access.
 
 `FetchResult` keeps the honest answers apart for a hand-requested check: `foundNothing` means Ascend read Health and nothing covered this climb, `couldNotLook` means it never read, and `checkFailed` means it started and could not finish.
 Reporting any of those as another is the dishonest blank this service exists to remove - `checkFailed` in particular must never read as `foundNothing`, which sends the climber to their own equipment for a failure that was Ascend's.
@@ -68,7 +71,7 @@ The automatic series stays silent whatever happens to it: Home refreshes enrichm
 The same reasoning bounds the `apple_health_integration_changed` lifecycle event, which costs a callable and a Firestore transaction: a completed pass reports the connection state only when it actually changed, and only the climber-initiated authorization path reports unconditionally.
 
 Resolve the phase once per pass, outside the view body.
-`RemoteFeatureFlagStore` is lock-guarded rather than `@Observable`, so reading the kill switch registers no SwiftUI dependency - surfaces that render a phase re-resolve on `.remoteFeatureFlagsDidChange` (`WorkoutDetailView`, `LiveClimbCompletionSummaryView`), which is the shape `MediaUploadBanner` already proved.
+`RemoteFeatureFlagStore` is lock-guarded rather than `@Observable`, so a surface that renders a phase must re-resolve when `.remoteFeatureFlagsDidChange` fires.
 
 ## The kill switch
 

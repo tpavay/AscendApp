@@ -1,230 +1,162 @@
 import Foundation
-import HealthKit
+import SwiftData
 import SwiftUI
 import Testing
 import UIKit
+import Vision
+
 @testable import AscendApp
 
-/// Visual evidence that the heart-rate slot on Workout Detail is never blank.
+/// Window-hosted coverage for Workout Detail's show-or-hide heart-rate contract.
 ///
-/// `WorkoutDetailView` decides what the slot shows purely from
-/// `AppleHealthEnrichmentService.phase(for:)`. This test builds real `Workout` values in each
-/// state a climber can actually be in, asks a real service for the phase, applies the same
-/// visibility rule the view uses, and renders the real `WorkoutHeartRateRecoveryCard` to a PNG
-/// a reviewer can inspect.
-///
-/// The rendered copy is the point as much as the visibility: none of it names a device, because
-/// heart rate reaches Ascend as Apple Health samples whoever wrote them (#438).
+/// Each test mounts the shipping `WorkoutDetailView`, scrolls through every viewport, and OCRs
+/// what a climber can actually see.
 @MainActor
+@Suite(.serialized, .hostsAWindow)
 struct WorkoutHeartRateRecoverySnapshotTests {
-    @Test
-    func rendersAnHonestStateForEveryPhase() throws {
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let insideWindow = now.addingTimeInterval(-(2 * 60 * 60))
-        let outsideWindow = now.addingTimeInterval(-(80 * 60 * 60))
+    @Test("Workout Detail says nothing about heart rate when the climb has none")
+    func noHeartRateRendersNoSection() async throws {
+        let previousAuthorizationState = HealthKitSyncState.hasRequestedAuthorization
+        HealthKitSyncState.hasRequestedAuthorization = false
+        defer { HealthKitSyncState.hasRequestedAuthorization = previousAuthorizationState }
 
-        let connected = makeService(connectionState: .connected, now: now)
-        let neverConnected = makeService(connectionState: .neverConnected, now: now)
-        let revoked = makeService(connectionState: .revoked, now: now)
-        let paused = makeService(
-            connectionState: .connected,
-            now: now,
-            featureFlags: RemoteFeatureFlagStore(
-                snapshot: .resolving(
-                    remoteValues: [RemoteFeatureFlag.appleHealthEnrichment.key: false]
-                )
+        let workout = makeWorkout()
+        let text = try await recognizedTextAcrossDetail(workout)
+
+        #expect(text.contains("heart rate") == false)
+        #expect(text.contains("connect apple health") == false)
+        #expect(text.contains("checking apple health") == false)
+        #expect(text.contains("waiting on your wearable") == false)
+    }
+
+    @Test("Workout Detail still renders the heart-rate chart when samples exist")
+    func heartRateSamplesRenderTheChart() async throws {
+        let workout = makeWorkout()
+        let samples = (0..<24).map { index in
+            HeartRateDataPoint(
+                timestamp: workout.date.addingTimeInterval(Double(index) * 45),
+                heartRate: 128 + index
             )
-        )
+        }
+        workout.heartRateData = samples.encoded
+        workout.avgHeartRate = 139
+        workout.maxHeartRate = 151
 
-        let waiting = makeSensorWorkout(start: insideWindow)
-        let stopped = makeSensorWorkout(start: outsideWindow)
-        let offered = makeSensorWorkout(start: insideWindow)
-        let revokedWorkout = makeSensorWorkout(start: insideWindow)
-        let pausedWorkout = makeSensorWorkout(start: insideWindow)
+        let text = try await recognizedTextAcrossDetail(workout)
 
-        let complete = makeSensorWorkout(start: insideWindow)
-        complete.avgHeartRate = 148
-        complete.maxHeartRate = 174
-        complete.heartRateData = [
-            HeartRateDataPoint(timestamp: insideWindow.addingTimeInterval(600), heartRate: 149)
-        ].encoded
-
-        let scenarios = [
-            RecoveryScenario(
-                id: "waiting",
-                caption: "Connected · nothing published yet · more checks are scheduled",
-                phase: connected.phase(for: waiting)
-            ),
-            RecoveryScenario(
-                id: "stoppedLooking",
-                caption: "Connected · past the retry window · manual check still works",
-                phase: connected.phase(for: stopped)
-            ),
-            RecoveryScenario(
-                id: "connectionOffered",
-                caption: "Never connected · the offer is made here, not silently skipped",
-                phase: neverConnected.phase(for: offered)
-            ),
-            RecoveryScenario(
-                id: "accessRevoked",
-                caption: "Access turned off in the Health app",
-                phase: revoked.phase(for: revokedWorkout)
-            ),
-            RecoveryScenario(
-                id: "checking",
-                caption: "A read is in flight right now",
-                phase: .checking
-            ),
-            RecoveryScenario(
-                id: "checksPaused",
-                caption: "Enrichment switched off at the backend · the climb keeps its place",
-                phase: paused.phase(for: pausedWorkout)
-            ),
-            RecoveryScenario(
-                id: "notApplicable",
-                caption: "Heart rate attached · the chart replaces the card",
-                phase: connected.phase(for: complete)
-            ),
-        ]
-
-        #expect(scenarios[0].phase == .waiting)
-        #expect(scenarios[1].phase == .stoppedLooking)
-        #expect(scenarios[2].phase == .connectionOffered)
-        #expect(scenarios[3].phase == .accessRevoked)
-        #expect(scenarios[5].phase == .checksPaused)
-        #expect(scenarios[6].phase == .notApplicable)
-
-        // The whole point of the fix: every state a climber can be in says something.
-        let visibleCount = scenarios.filter(\.isCardVisible).count
-        #expect(visibleCount == scenarios.count - 1)
-        #expect(scenarios[6].isCardVisible == false)
-
-        let renderer = ImageRenderer(content: RecoveryStatesProof(scenarios: scenarios))
-        renderer.scale = 3
-
-        let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory)
-            .appending(path: "workout-heart-rate-recovery-states.png")
-        try png.write(to: url)
-
-        #expect(png.count > 5_000)
+        #expect(text.contains("heart rate"))
+        #expect(text.contains("avg"))
+        #expect(text.contains("max"))
+        #expect(text.contains("connect apple health") == false)
     }
 
-    private func makeService(
-        connectionState: AppleHealthConnectionState,
-        now: Date,
-        featureFlags: RemoteFeatureFlagStore = RemoteFeatureFlagStore()
-    ) -> AppleHealthEnrichmentService {
-        AppleHealthEnrichmentService(
-            authorizationController: RecoveryCardAuthorizationController(
-                connectionState: connectionState
-            ),
-            metricsReader: RecoveryCardMetricsReader(),
-            attemptStore: AppleHealthEnrichmentAttemptStore(
-                defaults: UserDefaults(suiteName: "recovery-card-\(UUID().uuidString)")!
-            ),
-            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
-            featureFlags: featureFlags,
-            now: { now }
-        )
-    }
+    private static let container: ModelContainer? = try? ModelContainer(
+        for: Workout.self,
+        WorkoutSourceLink.self,
+        WorkoutParticipation.self,
+        BestEffortCacheEntry.self,
+        BestEffortCacheMetadata.self,
+        configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+    )
 
-    private func makeSensorWorkout(start: Date) -> Workout {
+    private func makeWorkout() -> Workout {
         Workout(
-            name: "Live Climb",
-            date: start,
-            duration: 1_200,
-            steps: 1_600,
-            floors: Workout.stepsToFloors(1_600, stepsPerFloor: 16),
+            name: "CN Tower Live Climb",
+            date: Date(timeIntervalSince1970: 1_800_000_000),
+            duration: 1_908,
+            steps: 2_579,
+            floors: 144,
             stepsPerFloor: 16,
             source: .headphoneMotion
         )
     }
-}
 
-private struct RecoveryScenario: Identifiable {
-    let id: String
-    let caption: String
-    let phase: AppleHealthEnrichmentService.Phase
+    private func recognizedTextAcrossDetail(_ workout: Workout) async throws -> String {
+        let container = try #require(Self.container, "The detail test needs an in-memory store")
+        container.mainContext.insert(workout)
+        try container.mainContext.save()
 
-    /// Mirrors `WorkoutDetailView`'s rule: everything except `notApplicable` renders the card.
-    var isCardVisible: Bool {
-        phase != .notApplicable
+        let host = UIHostingController(
+            rootView: WorkoutDetailView(workout: workout, embedsInNavigationStack: false)
+                .environment(AuthenticationViewModel())
+                .environment(MediaUploadManager.shared)
+                .modelContainer(container)
+        )
+
+        let scene = try #require(
+            UIApplication.shared.connectedScenes.first as? UIWindowScene,
+            "The test host app should expose a live window scene"
+        )
+        let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            previousKeyWindow?.makeKey()
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+
+        pump(window, for: 0.6)
+        let scrollView = try #require(firstScrollView(in: window), "Workout Detail should scroll")
+        let maximumOffset = max(scrollView.contentSize.height - scrollView.bounds.height, 0)
+        let pageStride = max(scrollView.bounds.height * 0.7, 1)
+        var offsets = Array(stride(from: CGFloat.zero, through: maximumOffset, by: pageStride))
+        if offsets.last != maximumOffset {
+            offsets.append(maximumOffset)
+        }
+
+        var recognizedPages: [String] = []
+        for offset in offsets {
+            scrollView.contentOffset = CGPoint(x: 0, y: offset)
+            pump(window, for: 0.08)
+            recognizedPages.append(try await recognizedText(in: screenshot(window)))
+        }
+
+        return recognizedPages.joined(separator: " ").lowercased()
     }
-}
 
-private struct RecoveryStatesProof: View {
-    let scenarios: [RecoveryScenario]
+    private func firstScrollView(in view: UIView) -> UIScrollView? {
+        if let scrollView = view as? UIScrollView {
+            return scrollView
+        }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            Text("Workout Detail · Apple Health heart-rate states")
-                .font(.montserratBold(size: 20))
-                .foregroundStyle(.white)
-
-            ForEach(scenarios) { scenario in
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("\(scenario.id.uppercased()) · \(scenario.caption)")
-                        .font(.montserratSemiBold(size: 11))
-                        .foregroundStyle(Color.ascendAccent.opacity(0.9))
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    if scenario.isCardVisible {
-                        WorkoutHeartRateRecoveryCard(
-                            phase: scenario.phase,
-                            message: nil,
-                            effectiveColorScheme: .dark,
-                            onPrimaryAction: {}
-                        )
-                    } else {
-                        Text("Recovery card hidden")
-                            .font(.montserratMedium(size: 12))
-                            .foregroundStyle(.white.opacity(0.45))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(16)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .stroke(.white.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
-                            )
-                    }
-                }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(.white.opacity(0.05))
-                )
+        for subview in view.subviews {
+            if let scrollView = firstScrollView(in: subview) {
+                return scrollView
             }
         }
-        .padding(28)
-        .frame(width: 420)
-        .background(Color.black)
-    }
-}
 
-@MainActor
-private final class RecoveryCardAuthorizationController: HealthKitAuthorizationControlling {
-    let isHealthDataAvailable = true
-    let hasRequestedAuthorization = true
-    var authorizationRequestStatus: HKAuthorizationRequestStatus = .unnecessary
-    var lastPermissionErrorMessage: String?
-    let connectionState: AppleHealthConnectionState
-
-    init(connectionState: AppleHealthConnectionState) {
-        self.connectionState = connectionState
+        return nil
     }
 
-    func refreshAuthorizationRequestStatus() async {}
+    private func pump(_ window: UIWindow, for duration: TimeInterval) {
+        window.setNeedsLayout()
+        window.layoutIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(duration))
+        window.layoutIfNeeded()
+    }
 
-    func requestAuthorization() async -> Bool { true }
-}
+    private func screenshot(_ window: UIWindow) -> UIImage {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 3
+        return UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { context in
+            if window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) == false {
+                window.layer.render(in: context.cgContext)
+            }
+        }
+    }
 
-@MainActor
-private final class RecoveryCardMetricsReader: HealthKitMetricsReading {
-    func fetchMetrics(during dateRange: ClosedRange<Date>) async -> WorkoutMetrics {
-        WorkoutMetrics()
+    private func recognizedText(in image: UIImage) async throws -> String {
+        let cgImage = try #require(image.cgImage, "The screenshot should have a CGImage")
+        var request = RecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = false
+
+        return try await request.perform(on: cgImage)
+            .compactMap { $0.topCandidates(1).first?.string }
+            .joined(separator: " ")
     }
 }

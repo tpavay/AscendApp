@@ -255,13 +255,12 @@ struct CompletedClimbRankSummaryEvidenceTests {
                 leaderboardRank: nil,
                 leaderboardTotal: nil,
                 leaderboardRankBasis: .current,
-                allowsRatingPrompt: false,
                 leaderboardContext: nil,
                 rankingLabelOverride: "ROUTINE RANK",
                 ranksOnLeaderboard: presentation.ranksOnLeaderboard,
                 achievementTitleOverride: presentation.achievementTitleOverride,
                 achievementIconNameOverride: presentation.achievementIconNameOverride,
-                onDone: {}
+                onDone: { _ in }
             )
             .modelContainer(for: Self.summaryModels, inMemory: true),
             settleSeconds: 0.4
@@ -302,9 +301,8 @@ struct CompletedClimbRankSummaryEvidenceTests {
                 // A rank this surface recomputed against today's rows - the one basis that is
                 // still allowed to say "current".
                 leaderboardRankBasis: .current,
-                allowsRatingPrompt: false,
                 leaderboardContext: .justClimbGlobal(targetSteps: 2_096),
-                onDone: {}
+                onDone: { _ in }
             )
             .modelContainer(for: Self.summaryModels, inMemory: true),
             settleSeconds: 0.4
@@ -334,11 +332,10 @@ struct CompletedClimbRankSummaryEvidenceTests {
             leaderboardRank: nil,
             leaderboardTotal: nil,
             leaderboardRankBasis: .current,
-            allowsRatingPrompt: false,
             leaderboardContext: context,
             rankingLabelOverride: nil,
             ranksOnLeaderboard: true,
-            onDone: {}
+            onDone: { _ in }
         )
         .modelContainer(try summaryContainer())
     }

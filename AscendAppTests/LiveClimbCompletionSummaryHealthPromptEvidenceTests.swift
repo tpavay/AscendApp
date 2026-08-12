@@ -6,16 +6,16 @@ import Vision
 
 @testable import AscendApp
 
-/// Product-level evidence for #438's contextual Apple Health connection offer.
+/// Product-level evidence that the completion summary stays focused on the earned result.
 ///
 /// This hosts the shipping completion summary in a real phone-sized window with Health in the
-/// never-connected state. The screenshot proves the prompt lands after the earned climb stats
-/// while Share and Done remain available, rather than becoming a permission gate.
+/// never-connected state. The service still considers the climb eligible for enrichment, so the
+/// screenshot proves the view suppresses the connect offer rather than relying on test setup.
 @MainActor
 @Suite(.hostsAWindow)
 struct LiveClimbCompletionSummaryHealthPromptEvidenceTests {
-    @Test("A never-connected climber sees the Health offer inside the completed climb summary")
-    func rendersPromptWithoutBlockingSummaryActions() async throws {
+    @Test("A completed climb summary never asks for Apple Health")
+    func hidesHeartRateAbsenceAndKeepsSummaryActions() async throws {
         let previousAuthorizationState = HealthKitSyncState.hasRequestedAuthorization
         HealthKitSyncState.hasRequestedAuthorization = false
         defer { HealthKitSyncState.hasRequestedAuthorization = previousAuthorizationState }
@@ -49,18 +49,18 @@ struct LiveClimbCompletionSummaryHealthPromptEvidenceTests {
             leaderboardRank: 1,
             leaderboardTotal: 1,
             leaderboardRankBasis: .atCompletion,
-            allowsRatingPrompt: false,
             leaderboardContext: .justClimbGlobal(targetSteps: 2_579),
             moment: .freshCompletion,
-            onDone: {}
+            onDone: { _ in }
         )
         .modelContainer(container)
 
         let image = try screenshot(of: screen)
         let recognized = try await recognizedText(in: image)
 
-        #expect(recognized.contains("no heart rate on this climb"))
-        #expect(recognized.contains("connect apple health"))
+        #expect(recognized.contains("no heart rate on this climb") == false)
+        #expect(recognized.contains("connect apple health") == false)
+        #expect(recognized.contains("heart rate") == false)
         #expect(recognized.contains("share"))
         #expect(recognized.contains("done"))
 
@@ -68,10 +68,10 @@ struct LiveClimbCompletionSummaryHealthPromptEvidenceTests {
         let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
             ?? NSTemporaryDirectory()
         let url = URL(filePath: directory)
-            .appending(path: "live-climb-completion-summary-health-prompt.png")
+            .appending(path: "live-climb-completion-summary-without-heart-rate-prompt.png")
         try png.write(to: url)
         #expect(png.count > 5_000)
-        print("Rendered Health prompt evidence: \(url.path())")
+        print("Rendered prompt-free completion summary evidence: \(url.path())")
     }
 
     private static let screenSize = CGSize(width: 393, height: 852)

@@ -289,14 +289,13 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             leaderboardRank: rank,
             leaderboardTotal: total,
             leaderboardRankBasis: basis,
-            allowsRatingPrompt: false,
             // The hero only renders where there is a population to rank against, so the
             // screen needs a context even though the standing is handed in directly.
             leaderboardContext: .justClimbGlobal(targetSteps: 2_579),
             moment: moment,
             rankingLabelOverride: labelOverride,
             completedDetailOverride: completedDetailOverride,
-            onDone: {}
+            onDone: { _ in }
         )
         .modelContainer(container)
 

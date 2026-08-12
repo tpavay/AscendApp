@@ -6,7 +6,6 @@ paths:
   - AscendLiveActivityWidgets/**
   - AscendApp/Shared/Services/AppleHealthEnrichment*
   - AscendApp/Features/Workouts/Views/HeartRateChartView.swift
-  - AscendApp/Features/Workouts/Views/Components/WorkoutHeartRateRecoveryCard.swift
 ---
 
 # Live Climbs V1 Architecture
@@ -96,11 +95,12 @@ A completed climb is **1:1 with a `Workout`** (the sole canonical record; verdic
   `AppleHealthEnrichmentSchedule` is the curve (nine attempts reaching ~10h), `AppleHealthEnrichmentAttemptStore` persists eligibility as an absolute date so the budget survives relaunch and several surfaces asking at once cannot spend it in one instant, and one timer serves every tracked climb rather than one per climb.
   The service is an `AuthenticatedSessionWorker`, so sign-out and account deletion stop it; re-arming happens on authenticated bootstrap and on foreground, because a suspended app's `Task.sleep` is not an alarm clock.
   Regression coverage: `AscendAppTests/AppleHealthEnrichmentServiceTests.swift`.
-- Automatic retries are additionally bounded by a window measured from the end of the workout (currently 72h). Once the budget or the window lapses on a still-incomplete climb, Ascend stops checking automatically and says so.
-- **Every state the climber can be in is stated out loud; a blank heart-rate slot is the bug.** `AppleHealthEnrichmentService.Phase` is the single source for that copy - checking, waiting, stopped looking, checks paused, connect, access revoked, unavailable, not applicable - and `WorkoutHeartRateRecoveryCard` renders each one. Never resolve heart-rate availability a second way in a view.
+- Automatic retries are additionally bounded by a window measured from the end of the workout (currently 72h).
+- `AppleHealthEnrichmentService.Phase` remains the single source for any UI that narrates checking, waiting, stopped looking, checks paused, connection, access revoked, unavailable, or not applicable.
+- The completion summary and Workout Detail deliberately do not narrate absence: if a stored heart-rate series exists they show its chart, and otherwise they render nothing about heart rate while enrichment keeps running.
+- Settings -> Integrations is the only Apple Health connection and revoked-access surface.
 - Enrichment preserves the Live Climb's source, steps, floors, duration, and attempt participation - it only adds heart rate and calories.
 - Enrichment is **silent** about its *results*. An enriched Live Climb never asks the user to confirm or edit the merged data. If the data arrives after the completion summary has been dismissed, it shows up on the workout detail next time the user looks - no notification, no review.
-- The one thing the completion summary does carry is the **contextual offer to connect Apple Health**, and only for a climber who has never connected and whose climb has no heart rate (`offersConnectionPrompt`). Hard-gating enrichment on an existing connection is what made it inert for everyone else, and this is the moment the ask is earned. It is a dismissible card among the others, never a gate, and it disappears once connected.
 - The user gathers notes / media for a Live Climb at the **completion summary**. Nothing about enrichment's *results* may interrupt that moment.
 
 ## Climb content (catalog + images)

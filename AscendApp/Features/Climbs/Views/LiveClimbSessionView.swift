@@ -21,6 +21,7 @@ struct LiveClimbSessionView: View {
     @State private var stepSyncValue = ""
     @State private var selectedTab: LiveClimbSessionTab = .justMe
     @State private var liveActivityControlRegistrationID = UUID().uuidString
+    @State private var showingRatingEnjoymentPrompt = false
 
     private let liveTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -53,7 +54,11 @@ struct LiveClimbSessionView: View {
             Color.black
                 .ignoresSafeArea()
 
-            if let savedWorkout = viewModel.savedWorkout,
+            if showingRatingEnjoymentPrompt {
+                Color.black
+                    .ignoresSafeArea()
+                    .accessibilityHidden(true)
+            } else if let savedWorkout = viewModel.savedWorkout,
                viewModel.shouldShowRankedCompletionSummary {
                 LiveClimbCompletionSummaryView(
                     climb: viewModel.mode.climb,
@@ -61,10 +66,9 @@ struct LiveClimbSessionView: View {
                     leaderboardRank: viewModel.completionLeaderboardRank,
                     leaderboardTotal: viewModel.completionLeaderboardTotal,
                     leaderboardRankBasis: .liveSession,
-                    allowsRatingPrompt: true,
                     leaderboardContext: viewModel.replayContext,
                     moment: .freshCompletion,
-                    onDone: { dismiss() }
+                    onDone: handleCompletionSummaryDismissed
                 )
             } else {
                 sessionContent
@@ -92,6 +96,17 @@ struct LiveClimbSessionView: View {
         .sheet(isPresented: $showingCompatibleHeadphones) {
             CompatibleHeadphonesHelpSheet()
                 .appSheetStyle(.fitted())
+        }
+        .alert("Enjoying Ascend?", isPresented: $showingRatingEnjoymentPrompt) {
+            Button("Yes") {
+                handleRatingEnjoymentResponse(.yes)
+            }
+
+            Button("No", role: .cancel) {
+                handleRatingEnjoymentResponse(.no)
+            }
+        } message: {
+            Text("If Ascend made this climb better, leave a quick rating.")
         }
         .onAppear {
             if viewModel.phase != .idle {
@@ -153,6 +168,45 @@ struct LiveClimbSessionView: View {
                 await viewModel.updateLiveActivity()
             }
         }
+    }
+
+    private func handleCompletionSummaryDismissed(
+        _ surface: LiveClimbAnalyticsEvent.SummaryDismissSurface
+    ) {
+        guard case .doneButton = surface,
+              viewModel.mode.climb != nil,
+              AppStoreRatingManager.shared.shouldAskEnjoymentQuestionAfterFirstLiveClimb(
+                  completedLiveClimbCount: completedLiveClimbCount
+              ) else {
+            dismiss()
+            return
+        }
+
+        // The result screen has already been dismissed at this point. The app-owned sentiment
+        // question therefore lands after the celebration instead of covering the rank and stats
+        // the climber just earned.
+        showingRatingEnjoymentPrompt = true
+    }
+
+    private func handleRatingEnjoymentResponse(_ response: AppStoreRatingManager.EnjoymentResponse) {
+        AppStoreRatingManager.shared.recordEnjoymentResponse(response)
+
+        if response == .yes {
+            AppStoreRatingManager.shared.requestReview()
+        }
+
+        dismiss()
+    }
+
+    private var completedLiveClimbCount: Int {
+        let completedStatus = ClimbAttemptStatus.completed.rawValue
+        let descriptor = FetchDescriptor<ClimbAttempt>(
+            predicate: #Predicate<ClimbAttempt> { attempt in
+                attempt.statusRawValue == completedStatus
+            }
+        )
+
+        return (try? modelContext.fetchCount(descriptor)) ?? 0
     }
 
     private var sessionContent: some View {

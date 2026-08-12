@@ -271,16 +271,6 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
             coordinator.configure(modelContext: modelContext)
 
             let before = coordinator.phase(for: climb)
-            let beforeCard = try Self.render(
-                WorkoutHeartRateRecoveryCard(
-                    phase: before,
-                    message: nil,
-                    effectiveColorScheme: .dark,
-                    onPrimaryAction: {}
-                )
-                .padding(20),
-                width: 402
-            )
 
             await coordinator.refreshPendingEnrichment(modelContext: modelContext)
 
@@ -291,7 +281,7 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
 
             let after = coordinator.phase(for: climb)
             #expect(before == .waiting)
-            #expect(after == .notApplicable, "the recovery card must disappear once heart rate lands")
+            #expect(after == .notApplicable, "the enrichment phase should settle once heart rate lands")
 
             let afterChart = try Self.render(
                 HeartRateChartView(
@@ -311,7 +301,6 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
 
             try Self.write(
                 try Self.renderProofSheet([
-                    ("Before · Ascend-recorded climb, Health has not answered yet (status: \(before))", beforeCard),
                     ("After · one enrichment pass over the climb's own window (status: \(after))", afterChart),
                 ]),
                 named: "07-enrichment-still-attaches-heart-rate.png"

@@ -48,9 +48,8 @@ struct LiveClimbPaceSplitRowLayoutEvidenceTests {
             leaderboardRank: nil,
             leaderboardTotal: nil,
             leaderboardRankBasis: .current,
-            allowsRatingPrompt: false,
             leaderboardContext: nil,
-            onDone: {}
+            onDone: { _ in }
         )
         .modelContainer(container)
     }
