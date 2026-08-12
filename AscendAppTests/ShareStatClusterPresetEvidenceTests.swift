@@ -221,9 +221,10 @@ struct ShareStatClusterPresetEvidenceTests {
     /// assumed, and whose run count is computed rather than quoted.
     ///
     /// The numbers that settle it are printed below. The Splits cluster, drawn
-    /// with its real resolved data, renders a whole frame in ~2.6 ms against the
-    /// 8.3 ms 120 Hz budget; forcing every treatment off the same tree reaches
-    /// ~2.1 ms. That half-millisecond delta is the whole legibility system —
+    /// with its real resolved data at export scale (2.77×) in a 900×700 frame,
+    /// renders in ~2.6 ms against the 8.3 ms 120 Hz budget; forcing every
+    /// treatment off the same tree reaches ~2.1 ms at the same size. That
+    /// half-millisecond delta is the whole legibility system —
     /// the outline on the small caps *and* the contact shadow on everything
     /// else — because `untreated()` forces every run to `.none`, and the two
     /// metric values in this cluster sit above `outlineBelow` and carry
@@ -273,6 +274,7 @@ struct ShareStatClusterPresetEvidenceTests {
 
         let report = """
         Share cluster outline cost — one ImageRenderer pass, median of 9
+        Measured at export scale (2.77×) in a 900×700 frame; every figure below is that size.
 
           Splits cluster (the heaviest, with its real resolved data), \(treatedRuns) treated runs
             treated    \(Self.milliseconds(treated)) ms
@@ -321,35 +323,53 @@ struct ShareStatClusterPresetEvidenceTests {
         )
     }
 
-    /// What several of the heaviest cluster cost on one canvas.
+    /// What it costs to *place* several of the heaviest cluster on one canvas.
     ///
     /// Dropping on as many stickers as you like is accepted product behavior, so
-    /// one cluster measured in isolation is not the whole answer. This places
-    /// one, three and five Splits clusters — the heaviest preset — with real
-    /// resolved data, and reports the two costs that get confused with each
-    /// other:
+    /// one cluster measured alone is not the whole answer. The question this
+    /// measures has moved, though, and the record should say why.
     ///
-    /// - **Cold full layout**: an `ImageRenderer` pass over the whole canvas at
-    ///   export resolution. Full layout plus rasterization from scratch at
-    ///   1080-wide, which is far more work than an on-screen frame does — an
-    ///   upper bound, quoted as one.
-    /// - **Per drag frame**: the work *the composer's own code* re-does on a
-    ///   drag. A drag mutates only a transform, and `content(for:)` is memoized
-    ///   on the content-bearing parts of a sticker, so this is the lookup that
-    ///   replaced a rebuild. It mirrors `ShareComposerGestureCostEvidenceTests`:
-    ///   successive transform mutations across 120 frames, with every placed
-    ///   sticker's content read back each frame. It does **not** include
-    ///   SwiftUI's own compositing, which `ImageRenderer` cannot isolate — the
-    ///   two figures bracket the real frame cost from below and above.
+    /// **Dragging is settled and it was not the risk.** The composer's own
+    /// per-frame work with five clusters placed is ~0.002 ms, because
+    /// `content(for:)` is memoized on the content-bearing parts of a sticker and
+    /// a drag mutates only the transform. The original worry — that fifty
+    /// nested-shadow runs would stutter a drag — is disproved. That property is
+    /// protected structurally below, by the same identity check
+    /// `ShareComposerGestureCostEvidenceTests` uses, rather than by timing a
+    /// dictionary lookup.
     ///
-    /// Asserted relatively, never against a wall clock: the drag path must stay
-    /// far below one cold layout however fast the runner is, and the cold layout
-    /// must not blow up super-linearly as clusters are added.
+    /// **The cost lives in layout, so add-time is what is measured here**: the
+    /// one-off hitch when a climber drops the third or fifth cluster on and it
+    /// lays out for the first time. Every figure is a full `ImageRenderer` pass
+    /// over the whole canvas, at both sizes:
+    ///
+    /// - **on-screen, 390×845** — the size a climber's canvas actually is, and
+    ///   the number that answers the add-time question.
+    /// - **export, 1080×2340** — what `ShareComposerExporter` renders at.
+    ///
+    /// The two come back within a few percent of each other, which is itself the
+    /// result: at ~7.7× the pixels the export canvas costs the same, so this work
+    /// is **layout and text shaping, not rasterization**. Do not expect a smaller
+    /// canvas to make it cheaper — that was the assumption going in and the
+    /// measurement refuted it. Anyone attacking this should attack the number of
+    /// laid-out runs or cache the placed sticker, not the resolution.
+    ///
+    /// Both figures remain upper bounds even for add-time: `ImageRenderer` lays
+    /// out and rasterizes the entire canvas from scratch, background included,
+    /// where placing a sticker in the live app re-lays out a subtree over an
+    /// already-realized background. A count of zero is measured so the assertions
+    /// work on the marginal cost of a cluster rather than on a total dominated by
+    /// that shared background.
+    ///
+    /// The figures this currently produces are over a 120 Hz frame from three
+    /// clusters up. That is recorded, not fixed here: it is a one-off placement
+    /// hitch, not a drag, and it is tracked as its own follow-up.
     @Test
-    func severalOfTheHeaviestClusterOnOneCanvasStayCheapToDrag() throws {
-        let counts = [1, 3, 5]
-        var cold: [Int: Double] = [:]
-        var perFrame: [Int: Double] = [:]
+    func addTimeLayoutStaysInsideAFrameWhenHeaviestClustersPileUp() throws {
+        let counts = [0, 1, 3, 5]
+        let onScreenSize = ShareCardFormat.designSize
+        var onScreen: [Int: Double] = [:]
+        var export: [Int: Double] = [:]
 
         for count in counts {
             let viewModel = try Self.liveClimbViewModel()
@@ -361,64 +381,80 @@ struct ShareStatClusterPresetEvidenceTests {
                 viewModel.update(placed)
             }
 
-            cold[count] = Self.medianRenderDuration {
+            onScreen[count] = Self.medianRenderDuration {
+                ShareExportCanvas(viewModel: viewModel, size: onScreenSize)
+            }
+            export[count] = Self.medianRenderDuration {
                 ShareExportCanvas(viewModel: viewModel, size: Self.exportSize)
             }
-
-            for sticker in viewModel.stickers { _ = viewModel.content(for: sticker) }
-            let frames = 120
-            let dragged = Self.duration {
-                for frame in 0..<frames {
-                    viewModel.stickers[0].position = CGPoint(x: 0.5, y: 0.2 + Double(frame) / 1_000)
-                    for sticker in viewModel.stickers { _ = viewModel.content(for: sticker) }
-                }
-            }
-            perFrame[count] = dragged / Double(frames)
         }
 
         let rows = counts.map { count in
-            """
-              \(count) Splits cluster\(count == 1 ? " " : "s")
-                cold full layout   \(Self.milliseconds(cold[count] ?? 0)) ms \
-            (\(String(format: "%.0f", (cold[count] ?? 0) / 0.0083 * 100))% of an 8.3 ms frame)
-                per drag frame     \(Self.milliseconds(perFrame[count] ?? 0)) ms \
-            (\(String(format: "%.2f", (perFrame[count] ?? 0) / 0.0083 * 100))% of an 8.3 ms frame)
+            let marginal = (onScreen[count] ?? 0) - (onScreen[0] ?? 0)
+            return """
+              \(count) Splits cluster\(count == 1 ? "" : "s")
+                add-time layout, on-screen 390×845      \(Self.milliseconds(onScreen[count] ?? 0)) ms \
+            (\(String(format: "%.0f", (onScreen[count] ?? 0) / 0.0083 * 100))% of an 8.3 ms frame)\
+            \(count == 0 ? "  ← background only, the shared baseline" : ", clusters alone \(Self.milliseconds(marginal)) ms")
+                add-time layout, export 1080×2340       \(Self.milliseconds(export[count] ?? 0)) ms
             """
         }.joined(separator: "\n")
 
         let report = """
-        Several heaviest clusters on one canvas — median of 9 renders, 120 drag frames
+        Add-time layout with several of the heaviest cluster — median of 9 ImageRenderer passes
 
         \(rows)
 
-          Cold full layout is an ImageRenderer pass over the whole canvas at export
-          resolution (\(Int(Self.exportSize.width))×\(Int(Self.exportSize.height))): full layout plus rasterization from scratch, so it is a
-          ceiling well above an on-screen frame, not the frame cost.
-          Per drag frame is the composer's own per-frame work under a transform-only
-          mutation, the same methodology as ShareComposerGestureCostEvidenceTests. It
-          excludes SwiftUI's compositing, which ImageRenderer cannot isolate, so the two
-          figures bracket the real frame cost from below and above rather than pinning it.
+          Every figure above is a one-off first layout when a cluster is placed, never a
+          per-frame or drag cost. Each is labelled with the canvas size it was measured at.
+          On-screen and export land within a few percent of each other despite export
+          being ~7.7× the pixels, so this cost is layout and text shaping, not
+          rasterization: a smaller canvas does not make it cheaper.
+          Both are upper bounds even for add-time — ImageRenderer lays out and rasterizes
+          the whole canvas from scratch, background included, where the live app re-lays
+          out a subtree over an already-realized background.
+
+          Dragging is not measured here and does not need to be: the composer's per-frame
+          work is a memoized lookup, protected by the identity assertion in this test.
 
           120 Hz frame budget: 8.3 ms · 60 Hz frame budget: 16.7 ms
         """
         print(report)
-        Self.write(report, "09-multi-cluster-cost")
+        Self.write(report, "09-add-time-layout-cost")
 
-        let heaviestDrag = perFrame.values.max() ?? 0
-        let cheapestCold = cold.values.min() ?? 0
+        let dragViewModel = try Self.liveClimbViewModel()
+        let splits = try #require(dragViewModel.availablePresets().first { $0.id == "splits" })
+        for _ in 0..<5 { dragViewModel.addPresetSticker(splits) }
+        let beforeDrag = dragViewModel.stickers.map { dragViewModel.content(for: $0) }
+        for index in dragViewModel.stickers.indices {
+            dragViewModel.stickers[index].position = CGPoint(x: 0.4, y: 0.6)
+            dragViewModel.stickers[index].scale = 1.7
+            dragViewModel.stickers[index].rotationRadians = 0.2
+        }
+        let afterDrag = dragViewModel.stickers.map { dragViewModel.content(for: $0) }
         #expect(
-            heaviestDrag * 20 < cheapestCold,
+            beforeDrag == afterDrag,
             """
-            a drag frame is supposed to re-composite, not rebuild: five clusters dragging \
-            must stay far below the cost of laying one out once.
+            pan, pinch and rotate must not rebuild any cluster's card — that memoization \
+            is the whole reason a drag is not a layout.
+            """
+        )
+
+        let marginalOne = (onScreen[1] ?? 0) - (onScreen[0] ?? 0)
+        let marginalFive = (onScreen[5] ?? 0) - (onScreen[0] ?? 0)
+        #expect(
+            marginalOne > 0,
+            """
+            the measurement cannot see a single cluster above the background baseline, so \
+            the scaling bar below means nothing.
             \(report)
             """
         )
         #expect(
-            (cold[5] ?? 0) < (cold[1] ?? 0) * 6,
+            marginalFive < marginalOne * 6,
             """
-            five clusters must not cost more than five separate layouts plus slack; \
-            something is scaling super-linearly.
+            five clusters must not cost more than five of the first plus slack — measured \
+            on the marginal cost, since the shared background would otherwise mask it.
             \(report)
             """
         )

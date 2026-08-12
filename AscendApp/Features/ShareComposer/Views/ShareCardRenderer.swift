@@ -247,15 +247,26 @@ extension View {
     /// offscreen rasterizations per run, on every frame of a drag.
     ///
     /// Measured, and it is not what a cluster costs. The Splits cluster - the
-    /// heaviest thing a climber can place - draws a whole frame in ~2.6 ms
-    /// against the 8.3 ms 120 Hz budget, and forcing every run's legibility to
-    /// `.none` only takes that to ~2.1 ms. That half-millisecond delta is the
-    /// whole treatment, outline and contact shadows together, not the outline
-    /// alone. It is also an upper bound rather than the frame cost, because it is
-    /// a full layout and rasterization from scratch where a drag re-composites an
-    /// existing layer tree. Relocating the identical four-copy ring into a custom
-    /// `TextRenderer` measured *more* expensive, because a custom renderer opts
-    /// every run out of SwiftUI's fast text path.
+    /// heaviest thing a climber can place - draws in ~2.6 ms against the 8.3 ms
+    /// 120 Hz budget at export scale (2.77×) in a 900×700 frame, and forcing
+    /// every run's legibility to `.none` only takes that to ~2.1 ms at the same
+    /// size. That half-millisecond delta is the whole treatment, outline and
+    /// contact shadows together, not the outline alone. It is also an upper bound
+    /// rather than the frame cost, because it is a full layout and rasterization
+    /// from scratch where a drag re-composites an existing layer tree. Relocating
+    /// the identical four-copy ring into a custom `TextRenderer` measured *more*
+    /// expensive, because a custom renderer opts every run out of SwiftUI's fast
+    /// text path.
+    ///
+    /// Dragging is settled and it was not the risk: with five clusters placed the
+    /// composer's per-frame work is ~0.002 ms, because `content(for:)` is
+    /// memoized and a drag mutates only the transform. What costs is *layout*,
+    /// paid once when a cluster is placed;
+    /// `addTimeLayoutStaysInsideAFrameWhenHeaviestClustersPileUp` measures that
+    /// and finds the on-screen canvas (390×845) and the export canvas
+    /// (1080×2340) cost the same despite ~7.7× the pixels - so add-time is
+    /// layout and text shaping, not rasterization, and a smaller canvas will not
+    /// make it cheaper. Always quote a figure with the canvas size it came from.
     ///
     /// The measurement trap, because this number was wrong once: an earlier pass
     /// rendered the preset tree against an empty `ShareCardRenderContext` and
