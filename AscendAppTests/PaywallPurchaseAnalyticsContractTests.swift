@@ -238,10 +238,10 @@ struct PaywallPurchaseAnalyticsContractTests {
     }
 
     @Test
-    func purchaseWithoutPresentationIDCarriesOnlyItsBoundedPlacement() async {
+    func purchaseWithoutPresentationIDCarriesOnlyItsPlacement() async {
         let harness = Self.makePurchaseHarness(refreshedState: .inactive)
         harness.contextStore.record(
-            placement: .appAccessGate,
+            placement: SuperwallPlacement.appAccessGate.rawValue,
             presentationID: nil,
             productID: Self.productID
         )
@@ -261,12 +261,56 @@ struct PaywallPurchaseAnalyticsContractTests {
         }
     }
 
+    /// A purchase terminal has to join to the `paywall_*` events of the same presentation, so the
+    /// operator-authored campaign name travels verbatim - including a dashboard placement Ascend
+    /// never registers in `SuperwallPlacement`. Only a purchase that reached RevenueCat with no
+    /// placement at all reports `unknown`.
     @Test
-    func everyPurchasePlacementUsesTheBoundedEnumValue() {
-        #expect(RevenueCatPurchasePlacement(.onboardingPaywall).analyticsValue == "onboarding_paywall")
-        #expect(RevenueCatPurchasePlacement(.appLaunchHardGate).analyticsValue == "app_launch_hard_gate")
-        #expect(RevenueCatPurchasePlacement(.appAccessGate).analyticsValue == "app_access_gate")
+    func everyRealPlacementSurvivesAndOnlyAnAbsentOneReadsUnknown() async {
+        #expect(RevenueCatPurchasePlacement(SuperwallPlacement.onboardingPaywall.rawValue).analyticsValue == "onboarding_paywall")
+        #expect(RevenueCatPurchasePlacement(SuperwallPlacement.appLaunchHardGate.rawValue).analyticsValue == "app_launch_hard_gate")
+        #expect(RevenueCatPurchasePlacement(SuperwallPlacement.appAccessGate.rawValue).analyticsValue == "app_access_gate")
+        #expect(RevenueCatPurchasePlacement("winback_campaign_q3").analyticsValue == "winback_campaign_q3")
         #expect(RevenueCatPurchasePlacement(nil).analyticsValue == "unknown")
+        #expect(RevenueCatPurchasePlacement("   ").analyticsValue == "unknown")
+
+        let harness = Self.makePurchaseHarness(refreshedState: .active([Self.entitlementID]))
+        Self.recordPaywallContext(in: harness.contextStore, placement: "app_launch")
+
+        _ = await harness.executor.executePurchase(productID: Self.productID) {
+            RevenueCatPurchaseExecutor.PurchaseResponse(userCancelled: false)
+        }
+
+        let records = harness.sink.records
+        #expect(records.map(\.name) == [
+            "revenuecat_purchase_started",
+            "revenuecat_purchase_completed"
+        ])
+        for record in records {
+            #expect(record.parameters["placement"] == .string("app_launch"))
+        }
+    }
+
+    /// A purchase that never went through a Superwall presentation still reports one terminal, and
+    /// both events agree that no placement reached it.
+    @Test
+    func aPurchaseWithNoRecordedPresentationReportsUnknownOnBothEvents() async {
+        let harness = Self.makePurchaseHarness(refreshedState: .active([Self.entitlementID]))
+
+        _ = await harness.executor.executePurchase(productID: Self.productID) {
+            RevenueCatPurchaseExecutor.PurchaseResponse(userCancelled: false)
+        }
+
+        let records = harness.sink.records
+        #expect(records.map(\.name) == [
+            "revenuecat_purchase_started",
+            "revenuecat_purchase_completed"
+        ])
+        Self.expectOnePurchaseTerminal(in: records)
+        for record in records {
+            #expect(record.parameters["placement"] == .string("unknown"))
+            #expect(record.parameters["presentation_id"] == nil)
+        }
     }
 
     /// Every message a climber can be shown names Ascend and an action, never RevenueCat,
@@ -685,10 +729,11 @@ private extension PaywallPurchaseAnalyticsContractTests {
 
     static func recordPaywallContext(
         in contextStore: PaywallTransactionContextStore,
+        placement: String = SuperwallPlacement.onboardingPaywall.rawValue,
         presentationID: String? = "presentation-1"
     ) {
         contextStore.record(
-            placement: .onboardingPaywall,
+            placement: placement,
             presentationID: presentationID,
             productID: productID
         )

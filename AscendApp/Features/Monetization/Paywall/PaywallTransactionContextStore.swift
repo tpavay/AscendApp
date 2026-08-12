@@ -9,7 +9,7 @@ final class PaywallTransactionContextStore {
     private var contextsByProductID: [String: Context] = [:]
 
     func record(
-        placement: SuperwallPlacement?,
+        placement: String?,
         presentationID: String?,
         productID: String
     ) {

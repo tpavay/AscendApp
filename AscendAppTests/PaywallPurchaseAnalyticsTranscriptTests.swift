@@ -14,6 +14,8 @@ import Testing
 struct PaywallPurchaseAnalyticsTranscriptTests {
     private static let productID = "ascend_yearly"
     private static let entitlementID = "app_access"
+    nonisolated private static let placement = SuperwallPlacement.onboardingPaywall.rawValue
+    nonisolated private static let presentationID = "pres_9f2c"
 
     @Test
     func everyPurchaseAndRestoreSituationShipsExactlyOneHonestTerminal() async {
@@ -24,8 +26,8 @@ struct PaywallPurchaseAnalyticsTranscriptTests {
             let harness = PurchaseHarness(entitlementID: Self.entitlementID, refresh: situation.refresh)
             if situation.hasPaywallContext {
                 harness.contextStore.record(
-                    placement: .onboardingPaywall,
-                    presentationID: "pres_9f2c",
+                    placement: Self.placement,
+                    presentationID: Self.presentationID,
                     productID: Self.productID
                 )
             }
@@ -64,13 +66,14 @@ struct PaywallPurchaseAnalyticsTranscriptTests {
                 Issue.record("\(situation.title) shipped no terminal event")
                 continue
             }
-            if situation.preCallFailure == nil, situation.hasPaywallContext {
+            if situation.preCallFailure == nil {
                 #expect(
-                    terminal.parameters["placement"] == .string("onboarding_paywall"),
+                    terminal.parameters["placement"] == .string(situation.expectedPlacement),
                     "\(situation.title) lost its paywall placement"
                 )
                 #expect(
-                    terminal.parameters["presentation_id"] == .string("pres_9f2c"),
+                    terminal.parameters["presentation_id"]
+                        == situation.expectedPresentationID.map(TelemetryValue.string),
                     "\(situation.title) lost its presentation ID"
                 )
             } else {
@@ -148,6 +151,16 @@ private extension PaywallPurchaseAnalyticsTranscriptTests {
         let expectedStream: [String]
         let expectedTerminal: String
         let expectedSuperwallTerminal: String
+
+        /// A purchase that reached RevenueCat always carries a placement; `unknown` is what a
+        /// purchase with no recorded presentation reports, never a real campaign name.
+        var expectedPlacement: String {
+            hasPaywallContext ? PaywallPurchaseAnalyticsTranscriptTests.placement : "unknown"
+        }
+
+        var expectedPresentationID: String? {
+            hasPaywallContext ? PaywallPurchaseAnalyticsTranscriptTests.presentationID : nil
+        }
     }
 
     struct RestoreSituation {

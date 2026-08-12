@@ -4,7 +4,7 @@ struct RevenueCatPurchaseAnalyticsContext: Equatable, Sendable {
     let placement: RevenueCatPurchasePlacement
     let presentationID: String?
 
-    init(placement: SuperwallPlacement?, presentationID: String?) {
+    init(placement: String?, presentationID: String?) {
         self.placement = RevenueCatPurchasePlacement(placement)
         self.presentationID = presentationID
     }
