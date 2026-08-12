@@ -76,23 +76,38 @@ struct LiveClimbRatingPromptPlacementEvidenceTests {
             // The question is a presented controller, so waiting for it is a fact about the
             // screen rather than a guess at how long presentation takes on a busy host.
             let alert = try await presentedAlert(in: window)
-            #expect(alert.title == "Enjoying Ascend?")
+            let question = try #require(alert as? UIAlertController, "The question is a UIKit alert")
+            #expect(question.title == "Enjoying Ascend?")
+            #expect(question.message == "If Ascend made this climb better, leave a quick rating.")
 
-            let (promptFrame, promptText) = try await frameShowing("enjoying ascend", in: window)
+            // The question is read off the alert rather than off the pixels: a live
+            // `UIAlertController` is presented in its own window and draws through a hierarchy
+            // neither `drawHierarchy` nor `layer.render(in:)` can reach in a test host with no
+            // screen, so a capture of it proves what machine the suite ran on rather than where
+            // Ascend asks. What the hosted window does own is the other half of this claim - that
+            // the earned result is already gone by the time the question is asked - and that is
+            // what it is photographed for.
+            settle(window, for: 0.3)
+            let promptFrame = screenshot(window)
+            let promptText = try await recognizedText(in: promptFrame)
 
-            #expect(
-                promptText.contains("enjoying ascend"),
-                "Dismissing the summary is what asks the question. Read: \(promptText)"
-            )
             #expect(
                 promptText.contains("splits") == false,
                 "The earned result must be off screen by the time the question is asked"
             )
 
+            let elementsBehindTheQuestion = try await settledAccessibilityElements(under: window) {
+                $0.contains { element in element.accessibilityLabel == "DONE" } == false
+            }
+            #expect(
+                elementsBehindTheQuestion.contains { $0.accessibilityLabel == "DONE" } == false,
+                "The summary the climber just dismissed must not still be behind the question"
+            )
+
             try writeProofSheet(
                 [
                     ("1 · Summary as the climber earns it - no rating question over it", summaryFrame),
-                    ("2 · DONE pressed - the question follows the celebration", promptFrame),
+                    ("2 · DONE pressed - the earned result is gone before the question is asked", promptFrame),
                 ],
                 named: "live-climb-rating-prompt-follows-summary.png"
             )
@@ -209,29 +224,6 @@ struct LiveClimbRatingPromptPlacementEvidenceTests {
             window.rootViewController?.presentedViewController,
             "Pressing DONE on a first completed climb has to present the sentiment question"
         )
-    }
-
-    /// Captures until the frame actually contains `expected`. A window that lost key status
-    /// mid-run draws a blank frame, which reads as the feature being wrong rather than the
-    /// capture being early.
-    private func frameShowing(
-        _ expected: String,
-        in window: UIWindow
-    ) async throws -> (UIImage, String) {
-        var lastFrame = screenshot(window)
-        var lastText = ""
-
-        for _ in 0..<10 {
-            window.makeKeyAndVisible()
-            settle(window, for: 0.3)
-            lastFrame = screenshot(window)
-            lastText = try await recognizedText(in: lastFrame)
-            if lastText.contains(expected) {
-                break
-            }
-        }
-
-        return (lastFrame, lastText)
     }
 
     /// Answers the question and waits for it to go away.
