@@ -14,10 +14,34 @@ enum AppTab: Hashable {
     case profile
 }
 
+/// Why the app is showing the tab it is showing. A tab root that reports where a
+/// climber came from reads this instead of inferring it from the tab alone, which
+/// cannot tell a tab-bar tap apart from a card that routes to the same tab.
+enum TabSelectionReason: Sendable, CaseIterable {
+    case appLaunch
+    case tabBarTap
+    case homeRankCard
+    case appRouting
+}
+
 @MainActor
 @Observable
 final class TabRouter {
-    var selectedTab: AppTab = .home
+    private var currentTab: AppTab = .home
+
+    private(set) var selectionReason: TabSelectionReason = .appLaunch
+
+    /// Plain assignment cannot name an entry point, so it settles on `appRouting`
+    /// rather than leaving a previous entry's reason standing.
+    var selectedTab: AppTab {
+        get { currentTab }
+        set { select(newValue, reason: .appRouting) }
+    }
+
+    func select(_ tab: AppTab, reason: TabSelectionReason) {
+        selectionReason = reason
+        currentTab = tab
+    }
 }
 
 struct TabItem: Identifiable, Hashable {

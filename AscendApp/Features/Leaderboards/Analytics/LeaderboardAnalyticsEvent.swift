@@ -6,21 +6,9 @@ struct LeaderboardAnalyticsContext: Sendable {
     let ageGroup: LeaderboardAgeGroup?
     let bodyWeightFilter: LeaderboardBodyWeightFilter
     let locationFilter: LeaderboardLocationFilter
-    let activeFilterCount: Int
 
-    init(
-        metric: LeaderboardMetric,
-        timeFrame: LeaderboardTimeFrame,
-        ageGroup: LeaderboardAgeGroup?,
-        bodyWeightFilter: LeaderboardBodyWeightFilter,
-        locationFilter: LeaderboardLocationFilter
-    ) {
-        self.metric = metric
-        self.timeFrame = timeFrame
-        self.ageGroup = ageGroup
-        self.bodyWeightFilter = bodyWeightFilter
-        self.locationFilter = locationFilter
-        self.activeFilterCount = [
+    var activeFilterCount: Int {
+        [
             ageGroup != nil,
             bodyWeightFilter != .all,
             locationFilter != .all
@@ -78,16 +66,19 @@ enum LeaderboardAnalyticsEvent: TelemetryEvent {
 }
 
 extension LeaderboardAnalyticsEvent {
+    /// The entry a climber used to reach the board. Exhaustive over
+    /// `TabSelectionReason` on purpose: a new way into the leaderboard is a
+    /// compile error here rather than an entry that silently reports as the tab.
     enum ViewSource: String, CaseIterable, Sendable {
         case tab
-        case metricDetail = "metric_detail"
+        case homeRankCard = "home_rank_card"
 
-        init(lockedMetric: LeaderboardMetric?) {
-            switch lockedMetric {
-            case .none:
+        init(tabSelection reason: TabSelectionReason) {
+            switch reason {
+            case .homeRankCard:
+                self = .homeRankCard
+            case .tabBarTap, .appLaunch, .appRouting:
                 self = .tab
-            case .some:
-                self = .metricDetail
             }
         }
     }

@@ -122,7 +122,11 @@ struct MainTabView: View {
             .id("TrainingNavigationStack")
         case .leaderboard:
             NavigationStack {
-                LeaderboardView()
+                LeaderboardView(
+                    viewSource: LeaderboardAnalyticsEvent.ViewSource(
+                        tabSelection: tabRouter.selectionReason
+                    )
+                )
             }
             .id("LeaderboardNavigationStack")
         case .profile:
@@ -147,7 +151,7 @@ struct MainTabView: View {
 
             let generator = UIImpactFeedbackGenerator(style: .light)
             generator.impactOccurred()
-            tabRouter.selectedTab = tab.identifier
+            tabRouter.select(tab.identifier, reason: .tabBarTap)
         }
     }
 
