@@ -24,7 +24,7 @@ struct PaywallPurchaseAnalyticsTranscriptTests {
             let harness = PurchaseHarness(entitlementID: Self.entitlementID, refresh: situation.refresh)
             if situation.hasPaywallContext {
                 harness.contextStore.record(
-                    placement: "onboarding_paywall",
+                    placement: .onboardingPaywall,
                     presentationID: "pres_9f2c",
                     productID: Self.productID
                 )
@@ -60,6 +60,23 @@ struct PaywallPurchaseAnalyticsTranscriptTests {
             #expect(terminals.first == situation.expectedTerminal, "\(situation.title)")
             #expect(records.map(\.name) == situation.expectedStream, "\(situation.title)")
             #expect(Self.superwallTerminalName(for: result) == situation.expectedSuperwallTerminal)
+            guard let terminal = records.last else {
+                Issue.record("\(situation.title) shipped no terminal event")
+                continue
+            }
+            if situation.preCallFailure == nil, situation.hasPaywallContext {
+                #expect(
+                    terminal.parameters["placement"] == .string("onboarding_paywall"),
+                    "\(situation.title) lost its paywall placement"
+                )
+                #expect(
+                    terminal.parameters["presentation_id"] == .string("pres_9f2c"),
+                    "\(situation.title) lost its presentation ID"
+                )
+            } else {
+                #expect(terminal.parameters["placement"] == nil, "\(situation.title)")
+                #expect(terminal.parameters["presentation_id"] == nil, "\(situation.title)")
+            }
             Self.expectNoRawErrorText(in: records, situation: situation.title)
             completedNames.append(contentsOf: terminals.filter { $0 == "revenuecat_purchase_completed" })
         }

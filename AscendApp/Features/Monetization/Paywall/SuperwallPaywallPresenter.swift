@@ -134,7 +134,7 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
         case .transactionStart(let product, let paywallInfo):
             let context = PaywallAnalyticsContext(paywallInfo: paywallInfo)
             transactionContextStore.record(
-                placement: context.placement,
+                placement: SuperwallPlacement(rawValue: context.placement),
                 presentationID: context.presentationID,
                 productID: product.productIdentifier
             )
