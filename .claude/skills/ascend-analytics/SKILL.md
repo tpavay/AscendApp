@@ -84,6 +84,7 @@ Never invent an event name per screen: that puts navigation into the event catal
 Both values come from `TelemetryScreenName` (`AscendApp/Shared/Services/Telemetry/TelemetryScreenName.swift`), a bounded catalog of literals.
 Nothing may derive either from a Swift type at runtime - `String(describing:)` turns a refactor into a new Mixpanel series and orphans every saved report built on the old one.
 A surface reports with `.trackOnce(screen: .someCase)`; the free-form `TelemetryScreen(name:screenClass:)` initializer belongs to the telemetry layer and its tests, and `TelemetryScreenCatalogTests` fails when a product source calls it.
+Firebase's automatic screen reporting is disabled in `AscendApp/Info.plist` (`FirebaseAutomaticScreenReportingEnabled` = `false`), so this catalog is the only producer of `screen_view` in Firebase as well as Mixpanel rather than competing with a per-`UIHostingController` stream under the same reserved name.
 
 What earns a case: a root route, a tab root, a surface the climber navigates to, a modal they read or complete a task in.
 What does not: a reusable leaf component, a picker or action menu that edits the surface behind it, a transient banner, DEBUG-only tooling.

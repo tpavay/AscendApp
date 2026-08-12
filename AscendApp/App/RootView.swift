@@ -31,26 +31,13 @@ struct RootView: View {
         Group {
             switch rootRoute {
             case .updateRequired:
-                routeScreen(rootRoute) {
-                    AppUpdateRequiredView(
-                        onOpenAppStore: openAscendInAppStore,
-                        onDeleteAccount: gateAccountDeletionAction
-                    )
-                }
+                routeContent(for: rootRoute)
             case .signedOut:
-                routeScreen(rootRoute) {
-                    LandingScreen()
-                }
+                routeContent(for: rootRoute)
             case .signingIn:
-                routeScreen(rootRoute) {
-                    ProgressView("Signing In...")
-                        .themedBackground()
-                }
+                routeContent(for: rootRoute)
             case .restoringSession:
-                routeScreen(rootRoute) {
-                    ProgressView("Restoring Session...")
-                        .themedBackground()
-                }
+                routeContent(for: rootRoute)
             case .resolving:
                 authenticatedContent(for: .resolving)
             case .onboarding:
@@ -281,53 +268,69 @@ struct RootView: View {
             )
             .trackOnce(screen: .accountDataConflict)
         } else {
-            switch route {
-            case .updateRequired:
-                routeScreen(route) {
-                    AppUpdateRequiredView(
-                        onOpenAppStore: openAscendInAppStore,
-                        onDeleteAccount: gateAccountDeletionAction
-                    )
-                }
-            case .signedOut:
-                routeScreen(route) {
-                    LandingScreen()
-                }
-            case .signingIn:
-                routeScreen(route) {
-                    ProgressView("Signing In...")
-                        .themedBackground()
-                }
-            case .restoringSession:
-                routeScreen(route) {
-                    ProgressView("Restoring Session...")
-                        .themedBackground()
-                }
-            case .resolving:
-                routeScreen(route) {
-                    AppAccessResolvingView(onSignOut: authVM.signOut)
-                }
+            routeContent(for: route)
+        }
+    }
 
-            case .onboarding(let stage):
-                routeScreen(route) {
-                    PostAuthOnboardingFlowView(
-                        stage: stage,
-                        onBack: postAuthOnboardingCoordinator.moveBack,
-                        onContinue: postAuthOnboardingCoordinator.completeCurrentStage
-                    )
-                }
+    /// The one route-to-view mapping, shared by both callers so a route is spelled once.
+    ///
+    /// Exhaustive on purpose: a new `AppRootRoute` case has to be given a view here and a
+    /// screen name in `AppRootRoute.telemetryScreenName`, or the app does not compile.
+    /// The routing decision stays in `body` - `authenticatedContent` first has to answer the
+    /// account-data conflict, and sending the landing screen or the update lockout through
+    /// that check would let a stale conflict cover a refusal the climber cannot leave.
+    @ViewBuilder
+    private func routeContent(for route: AppRootRoute) -> some View {
+        switch route {
+        case .updateRequired:
+            routeScreen(route) {
+                AppUpdateRequiredView(
+                    onOpenAppStore: openAscendInAppStore,
+                    onDeleteAccount: gateAccountDeletionAction
+                )
+            }
 
-            case .paywall:
-                routeScreen(route) {
-                    AppAccessPaywallPlaceholderView(
-                        onDeleteAccount: { isShowingGateAccountDeletion = true }
-                    )
-                }
+        case .signedOut:
+            routeScreen(route) {
+                LandingScreen()
+            }
 
-            case .mainApp:
-                routeScreen(route) {
-                    MainTabView(tabRouter: tabRouter)
-                }
+        case .signingIn:
+            routeScreen(route) {
+                ProgressView("Signing In...")
+                    .themedBackground()
+            }
+
+        case .restoringSession:
+            routeScreen(route) {
+                ProgressView("Restoring Session...")
+                    .themedBackground()
+            }
+
+        case .resolving:
+            routeScreen(route) {
+                AppAccessResolvingView(onSignOut: authVM.signOut)
+            }
+
+        case .onboarding(let stage):
+            routeScreen(route) {
+                PostAuthOnboardingFlowView(
+                    stage: stage,
+                    onBack: postAuthOnboardingCoordinator.moveBack,
+                    onContinue: postAuthOnboardingCoordinator.completeCurrentStage
+                )
+            }
+
+        case .paywall:
+            routeScreen(route) {
+                AppAccessPaywallPlaceholderView(
+                    onDeleteAccount: { isShowingGateAccountDeletion = true }
+                )
+            }
+
+        case .mainApp:
+            routeScreen(route) {
+                MainTabView(tabRouter: tabRouter)
             }
         }
     }

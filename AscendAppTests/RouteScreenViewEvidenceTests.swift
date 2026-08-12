@@ -210,18 +210,37 @@ private struct ScreenHarness: View {
     }
 }
 
-/// Mirrors how `MainTabView` mounts exactly the selected tab and leaves the rest unmounted,
-/// which is what makes a tab return a fresh appearance.
+/// Hosts the shipped `MainTabView` shape - the same `TabView(selection:)`, the same binding
+/// indirection that writes back through `TabRouter.select`, the same mount guard that leaves
+/// hidden tabs unmounted, and the same `.tag` / `.tabItem` / `.toolbar` chain around the
+/// tracking modifier. Only the tab roots are stubbed, so the test needs no model container.
+///
+/// Proving the pattern instead of the shipped view is a failure mode this subsystem has
+/// already paid for: driving `TabRouter` directly hid a real binding defect.
 private struct TabHarness: View {
     let router: TabRouter
     let telemetry: TelemetryManager
 
+    private var tabSelection: Binding<AppTab> {
+        Binding(
+            get: { router.selectedTab },
+            set: { router.select($0, reason: .appRouting) }
+        )
+    }
+
     var body: some View {
-        ForEach(TabItem.activeTabs) { tab in
-            if tab.identifier == router.selectedTab {
-                Color.clear
-                    .frame(width: 100, height: 100)
-                    .trackOnce(screen: tab.identifier.telemetryScreenName, telemetry: telemetry)
+        TabView(selection: tabSelection) {
+            ForEach(TabItem.activeTabs) { tab in
+                if tab.identifier == router.selectedTab {
+                    Color.clear
+                        .frame(width: 100, height: 100)
+                        .trackOnce(screen: tab.identifier.telemetryScreenName, telemetry: telemetry)
+                        .tag(tab.identifier)
+                        .tabItem {
+                            Text(tab.title)
+                        }
+                        .toolbar(.hidden, for: .tabBar)
+                }
             }
         }
     }
