@@ -861,9 +861,8 @@ struct ClimbDetailView: View {
                 publicResultSyncStatusRow(for: status)
             }
 
-            if shouldShowLeaderboardLoadingState {
-                leaderboardLoadingState
-            } else if viewModel.hasCompletionLeaderboardRows {
+            switch leaderboardPageContent {
+            case .rows:
                 VStack(spacing: 8) {
                     ForEach(moderatedCompletionLeaderboardRows) { row in
                         completionLeaderboardRowLink(for: row)
@@ -876,8 +875,12 @@ struct ClimbDetailView: View {
                         leaderboardLoadingMoreState
                     }
                 }
-            } else if !viewModel.hasPersonalCompletionStanding {
+            case .loading:
+                leaderboardLoadingState
+            case .empty:
                 leaderboardEmptyState
+            case .unavailable:
+                EmptyView()
             }
 
             if viewModel.leaderboardErrorMessage != nil,
@@ -1397,24 +1400,14 @@ struct ClimbDetailView: View {
         }
     }
 
-    private var shouldShowLeaderboardLoadingState: Bool {
-        guard !viewModel.hasCompletionLeaderboardRows else { return false }
-
-        if viewModel.isLeaderboardLoading {
-            return true
-        }
-
-        guard !viewModel.hasPersonalCompletionStanding,
-              let status = latestPublicResultSyncStatus else {
-            return false
-        }
-
-        switch status.phase {
-        case .pending, .syncingRanking:
-            return true
-        case .savedOnDevice, .syncFailedRetry, .published:
-            return false
-        }
+    private var leaderboardPageContent: ClimbLeaderboardPageContent {
+        ClimbLeaderboardPageContent.resolve(
+            hasCompletionRows: viewModel.hasCompletionLeaderboardRows,
+            isLeaderboardLoading: viewModel.isLeaderboardLoading,
+            hasPersonalCompletionStanding: viewModel.hasPersonalCompletionStanding,
+            hasLeaderboardError: viewModel.leaderboardErrorMessage != nil,
+            publicResultSyncPhase: latestPublicResultSyncStatus?.phase
+        )
     }
 
     private func publicResultSyncTitle(
