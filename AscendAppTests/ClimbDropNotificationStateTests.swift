@@ -422,7 +422,7 @@ struct NotificationSettingsDeliveryStatusTests {
             try activateAccessibilityElement(in: root) {
                 $0.accessibilityHint == routingHint
             }
-            await renderNextUpdate(in: root)
+            await renderUpdates(in: root) { state.isPreferenceEnabled }
 
             #expect(state.isPreferenceEnabled)
             #expect(client.enableCount == 1)
@@ -461,6 +461,30 @@ struct NotificationSettingsDeliveryStatusTests {
             await Task.yield()
             view.setNeedsLayout()
             view.layoutIfNeeded()
+        }
+    }
+
+    /// Renders until the tap's outcome has landed, for the one wait that follows a row the view
+    /// answers with a detached task rather than an awaited call. That chain - the button's task,
+    /// the state's queued mutation, the client's own suspension, the apply that follows it - takes
+    /// four scheduling hops with no slack, and every main-actor job a concurrently running test
+    /// enqueues consumes one of them. Counting hops is a race a loaded machine loses; waiting on
+    /// the outcome costs a busy machine latency instead of a red build.
+    private func renderUpdates(
+        in view: UIView,
+        iterations: Int = 200,
+        until isSettled: () -> Bool
+    ) async {
+        for _ in 0..<iterations {
+            await Task.yield()
+            view.setNeedsLayout()
+            view.layoutIfNeeded()
+
+            if isSettled() {
+                return
+            }
+
+            try? await Task.sleep(for: .milliseconds(10))
         }
     }
 
