@@ -36,6 +36,8 @@ Everything drawn on a share - a sticker on the canvas, a full recap template, ev
 **Card content does not scale with Dynamic Type; composer chrome does.** `ShareStickerFont.swiftUIFont` uses `Font.custom(_:fixedSize:)` because the exported image renders at the default text size for everyone - a canvas that scaled would show the author something the export cannot reproduce, and an export that scaled would make one template produce a different image per reader.
 The composer's own chrome - the add sheet, the font and structure pickers, action pills, toasts, the background picker - uses `Font.montserrat*` (`relativeTo:`) and **must keep scaling**; that is reading UI, not card content.
 Do not unify the two in either direction.
+The trap is that `AscendWordmark` is drawn with a scaling face, so the canvas lockup obeys the reader's text size unless something pins it: `ShareCardTemplateView` pins the whole card, `ShareExportCanvas` pins itself, and the live canvas pins the lockup alone because the chrome around it must keep scaling.
+Any new card-content view under the composer needs the same `.dynamicTypeSize(.large)`.
 
 ## Label placement and policy - the rule that keeps getting rewritten wrong
 - **Where a label sits is a property of the element** (`ShareCardLabelPlacement`), not of the arrangement and not of which renderer ran. Changing the arrangement, or adding a metric, must leave it alone.
@@ -46,6 +48,19 @@ Do not unify the two in either direction.
 - Stat values are read from the canonical `Workout` (and, for climbs, the attempt/leaderboard data) - never recomputed or stored on a share model. The composer reads derived values it trusts to be current.
 - **Resolution never happens in the render path.** `ShareComposerViewModel` memoizes the resolver, the resolved stats, and each sticker's built card behind `@ObservationIgnored`, keyed on the content-bearing parts of the sticker only. A drag changes the transform, so it must not rebuild anything. Resolving splits filters the whole heart-rate series once per split; doing that inside `body` cost ~13 ms per frame (`ShareComposerGestureCostEvidenceTests`).
 - Low-cardinality, privacy-safe: stickers display the same measured/derived metrics the rest of the app shows. No raw PII, no exact location.
+
+## Stat clusters - pre-formatted groups, not a second sticker system
+
+A **cluster** is a curated arrangement a climber drops on as one unit, so nobody has to lay stats out and nobody is pushed onto a recap card just to use their own photo.
+It is an ordinary `ShareStickerInstance` carrying a `presetID`; the catalog is `Models/ShareStatClusterPreset.swift` and the tree is the same `ShareCardNode` format, drawn by the same interpreter.
+Never grow a parallel model, renderer or gesture path for one.
+
+- **Availability follows the data, never the session type.** A preset declares `requires`; `ShareComposerViewModel.availablePresets()` offers it only when every one of those stats resolves. That single rule is why one catalog serves a Live Climb, a routine and a Just Climb - do not branch on `trackingMode` to decide what to show.
+- **Plate-free by default.** A cluster ships with no backing panel and stays legible on its shadow alone; the edit rail's existing text-background control is still the only way a panel appears. `ShareStickerCardBuilder.clusterNode` owns that, so `.none` is a real branch there rather than a no-op.
+- **The cluster owns its arrangement.** Label placement, the structure sheet and `toggleStat` do not apply - the rail hides them and the view model refuses them. Font and color still do.
+- Sizes are the approved review page's own pixel values through `Design.u` (236pt mock -> 390pt design space), so the page stays the readable spec. A run that draws a landmark name needs a bounded `width` for `minimumScaleFactor` to shrink into, or a long tower drags the cluster past its own rule.
+- Heart-rate copy is standardized in `ShareStatResolver` once: **AVERAGE HR** and **MAX HR**, no BPM suffix and no glyph. Every sticker and cluster reads it from there.
+- `ShareStatClusterPresetTests` and `ShareStatClusterPresetEvidenceTests` hold the rules a cluster cannot keep on its own, including that no cluster outgrows the add sheet's preview tile.
 
 ## Export pipeline
 - **Photo background**: composite background + rendered sticker views into a single image (`ImageRenderer` for the stickers, drawn onto the background) -> save to Photos / share.

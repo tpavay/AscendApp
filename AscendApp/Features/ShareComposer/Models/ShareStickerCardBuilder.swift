@@ -50,11 +50,52 @@ enum ShareStickerCardBuilder {
         if let variant = instance.climbImageVariant {
             return artworkNode(variant: variant)
         }
+        if let preset = instance.preset {
+            return clusterNode(preset, textBackground: instance.textBackground)
+        }
         if instance.isStructured {
             return splitsNode(textBackground: instance.textBackground)
         }
         return statsNode(instance: instance, refs: resolvedRefs)
     }
+
+    // MARK: - Curated stat clusters
+
+    /// A preset arrives already arranged, so the builder's only job is the plate
+    /// the climber may have asked for. It starts plate-free — legible over a
+    /// photograph on its shadow alone — which is why `.none` is not a no-op here.
+    private static func clusterNode(
+        _ preset: ShareStatClusterPreset,
+        textBackground: ShareTextBackground
+    ) -> ShareCardNode {
+        var modifiers = preset.content.modifiers
+        switch textBackground {
+        case .none:
+            modifiers.shadow = ShareCardShadow(
+                tint: ShareCardTint(.hex("000000"), opacity: 0.55),
+                radius: clusterShadowRadius,
+                y: 2
+            )
+        case .dark, .grey:
+            let tint = textBackground == .dark
+                ? ShareCardTint(.hex("000000"), opacity: 0.6)
+                : ShareCardTint(.hex("FFFFFF"), opacity: 0.18)
+            modifiers.padding = ShareCardEdgeInsets(
+                top: clusterPlateInset.vertical,
+                leading: clusterPlateInset.horizontal,
+                bottom: clusterPlateInset.vertical,
+                trailing: clusterPlateInset.horizontal
+            )
+            modifiers.background = .color(tint)
+            modifiers.backgroundShape = .roundedRectangle(cornerRadius: 23)
+            modifiers.shadow = nil
+        }
+        return ShareCardNode(preset.content.element, modifiers: modifiers)
+    }
+
+    static let clusterShadowRadius: Double = 7
+    /// The review page's own plate padding (14 × 16 mock points) in design units.
+    static let clusterPlateInset: (vertical: Double, horizontal: Double) = (23, 26)
 
     // MARK: - Stat stickers
 

@@ -79,16 +79,21 @@ struct ShareCardSplitsTable: View {
         let textColor = spec.textTint.color(in: context)
 
         return VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("SPLITS BY STEP")
-                    .font(context.font.swiftUIFont(size: base * 0.66, role: .heavy))
-                    .tracking(1.2)
-                Spacer()
-                Text("\(splits.averageStepsPerMinuteText) AVG STEPS/MIN")
-                    .font(context.font.swiftUIFont(size: base * 0.38, role: .medium))
-                    .tracking(0.8)
+            // A card wants the heading and the legend; a stat cluster writes its
+            // own heading above the rows and states the average beneath them, so
+            // both are the caller's call rather than the table's.
+            if spec.showsTitle {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("SPLITS BY STEP")
+                        .font(context.font.swiftUIFont(size: base * 0.66, role: .heavy))
+                        .tracking(1.2)
+                    Spacer()
+                    Text("\(splits.averageStepsPerMinuteText) AVG STEPS/MIN")
+                        .font(context.font.swiftUIFont(size: base * 0.38, role: .medium))
+                        .tracking(0.8)
+                }
+                .foregroundStyle(textColor)
             }
-            .foregroundStyle(textColor)
 
             ForEach(splits.stepQuintileRows.prefix(5)) { row in
                 HStack(spacing: 9) {
@@ -117,11 +122,13 @@ struct ShareCardSplitsTable: View {
                 .monospacedDigit()
             }
 
-            Text("DARK = FASTER THAN YOUR AVERAGE")
-                .font(context.font.swiftUIFont(size: base * 0.34, role: .medium))
-                .tracking(0.9)
-                .foregroundStyle(textColor.opacity(0.56))
-                .padding(.top, 2)
+            if spec.showsHeader {
+                Text("DARK = FASTER THAN YOUR AVERAGE")
+                    .font(context.font.swiftUIFont(size: base * 0.34, role: .medium))
+                    .tracking(0.9)
+                    .foregroundStyle(textColor.opacity(0.56))
+                    .padding(.top, 2)
+            }
         }
         .frame(width: spec.width, alignment: .leading)
     }

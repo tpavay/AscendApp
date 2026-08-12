@@ -6,6 +6,7 @@ import SwiftUI
 /// share entry point.
 struct ShareComposerView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
     @Query(sort: \Workout.date, order: .reverse) private var allWorkouts: [Workout]
 
@@ -171,11 +172,18 @@ struct ShareComposerView: View {
         }
         .sheet(isPresented: $showAddSheet) {
             ShareAddStatSheet(
+                presets: viewModel.availablePresets(),
+                presetPreview: { viewModel.presetPreview(for: $0) },
                 climbStats: viewModel.climbStats(),
                 bestEffortStats: viewModel.bestEffortStats,
                 weeklyTotalStats: viewModel.weeklyTotalStats,
                 climb: viewModel.climb,
                 imageVariants: viewModel.climbImageStickerVariants,
+                onPickPreset: { preset in
+                    HapticsManager.shared.trigger(.lightImpact)
+                    viewModel.addPresetSticker(preset)
+                    showAddSheet = false
+                },
                 onPickStat: { stat in
                     HapticsManager.shared.trigger(.lightImpact)
                     viewModel.addSticker(kind: stat.kind)
@@ -255,9 +263,27 @@ struct ShareComposerView: View {
             })
             // Inject this-week totals for the Totals tab.
             viewModel.injectWeeklyTotals(from: allWorkouts)
+            viewModel.setRoutineIntervalCount(routineIntervalCount())
             // Both injections feed the templates, so build the tab after them.
             recapPreview = makeRecapPreview()
         }
+    }
+
+    /// How many intervals the routine behind this session planned, or nil when
+    /// the session was not a routine or its routine has since been deleted.
+    ///
+    /// Fetched by id and limited to one row: the cost cannot grow with the
+    /// climber's history, which is what keeps this off the entry path's
+    /// critical section.
+    private func routineIntervalCount() -> Int? {
+        guard let routineId = LiveClimbWorkoutSummaryData.metadata(for: viewModel.workout)?.routineId,
+              let id = UUID(uuidString: routineId) else {
+            return nil
+        }
+        var descriptor = FetchDescriptor<Routine>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        let count = (try? modelContext.fetch(descriptor))?.first?.intervalCount
+        return (count ?? 0) > 0 ? count : nil
     }
 
     // MARK: - Composer canvas
@@ -399,6 +425,10 @@ struct ShareComposerView: View {
                         AscendWordmark(size: 13 * canvasScale, letterColor: .white.opacity(0.92))
                             .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 1)
                             .allowsHitTesting(false)
+                            // Card content, not chrome: the export renders at the
+                            // default text size, so a lockup that grew here would
+                            // show the author something the export cannot reproduce.
+                            .dynamicTypeSize(.large)
                             .padding(.bottom, 12)
                     }
                 }
@@ -496,8 +526,10 @@ struct ShareComposerView: View {
         if let sticker = selectedSticker, !sticker.isImage {
             VStack(spacing: 14) {
                 // Structure: arrange multiple metrics (row / grid / column),
-                // move their labels, and toggle which show.
-                if sticker.kind.supportsComposite {
+                // move their labels, and toggle which show. A curated cluster
+                // arrives already arranged, so neither control applies to it —
+                // its whole point is that nobody has to lay stats out.
+                if sticker.kind.supportsComposite, !sticker.isPreset {
                     railButton(systemName: "square.grid.2x2") {
                         HapticsManager.shared.trigger(.lightImpact)
                         showStructureSheet = true
@@ -516,7 +548,7 @@ struct ShareComposerView: View {
                 // Label position. Applies to every metric on the sticker,
                 // however many there are — the control used to advance a value
                 // the multi-metric renderer ignored, so tapping it did nothing.
-                if !sticker.isStructured {
+                if !sticker.isStructured, !sticker.isPreset {
                     railButton(systemName: sticker.labelPlacement.symbolName) {
                         HapticsManager.shared.trigger(.lightImpact)
                         withAnimation(ShareComposerAnimation.content) {
@@ -784,15 +816,32 @@ struct ShareComposerView: View {
     }
 }
 
+/// Geometry the add sheet previews a curated cluster at.
+///
+/// Every tile reduces the same fixed design box, so the groups are shown at one
+/// scale relative to each other rather than each filling its tile. Named here
+/// rather than buried in the sheet because a cluster that outgrows the box is
+/// clipped in the picker alone, which is what the evidence suite measures.
+enum ShareAddStatSheetLayout {
+    /// Sized to the widest cluster (Splits, 324) and the tallest (HR Hero, 286)
+    /// with a little headroom. `everyClusterFitsTheAddSheetsPreviewBox` fails if
+    /// a new cluster outgrows it.
+    static let presetPreviewBox = CGSize(width: 340, height: 300)
+    static let presetPreviewScale: CGFloat = 0.4
+}
+
 /// Bottom sheet for adding stickers. A Climb | Totals toggle (Aura-style)
 /// switches between this-climb content (artwork + stats + Best Efforts) and
 /// this-week totals.
 private struct ShareAddStatSheet: View {
+    let presets: [ShareStatClusterPreset]
+    let presetPreview: (ShareStatClusterPreset) -> ShareStickerContent
     let climbStats: [ResolvedShareStat]
     let bestEffortStats: [ResolvedShareStat]
     let weeklyTotalStats: [ResolvedShareStat]
     let climb: Climb?
     let imageVariants: [ClimbImageVariant]
+    let onPickPreset: (ShareStatClusterPreset) -> Void
     let onPickStat: (ResolvedShareStat) -> Void
     let onPickInjected: (ResolvedShareStat) -> Void
     let onPickImage: (ClimbImageVariant) -> Void
@@ -860,6 +909,10 @@ private struct ShareAddStatSheet: View {
 
     private var primaryContent: some View {
         VStack(alignment: .leading, spacing: 22) {
+            if !presets.isEmpty {
+                section("GROUPS") { presetGrid }
+            }
+
             if let climb, !imageVariants.isEmpty {
                 section("CLIMB") {
                     HStack(spacing: 12) {
@@ -903,6 +956,47 @@ private struct ShareAddStatSheet: View {
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 32)
+    }
+
+    // MARK: - Curated clusters
+
+    /// Each tile draws the real cluster through the real interpreter, scaled
+    /// down inside a fixed design box — so every group is previewed at the same
+    /// reduction and the tile shows exactly what the canvas will place.
+    private var presetGrid: some View {
+        LazyVGrid(columns: columns, spacing: 12) {
+            ForEach(presets) { preset in
+                Button { onPickPreset(preset) } label: { presetTile(preset) }
+                    .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func presetTile(_ preset: ShareStatClusterPreset) -> some View {
+        let content = presetPreview(preset)
+        let box = ShareAddStatSheetLayout.presetPreviewBox
+        let scale = ShareAddStatSheetLayout.presetPreviewScale
+        return VStack(spacing: 8) {
+            ShareCardRenderer(node: content.node, context: content.context, artwork: .none)
+                .fixedSize()
+                .frame(width: box.width, height: box.height)
+                .scaleEffect(scale)
+                .frame(width: box.width * scale, height: box.height * scale)
+                .clipped()
+
+            Text(preset.title.uppercased())
+                .font(.montserratSemiBold(size: 10))
+                .tracking(1.2)
+                .foregroundStyle(lime)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.white.opacity(0.05))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
+        )
     }
 
     // MARK: - Reusable bits

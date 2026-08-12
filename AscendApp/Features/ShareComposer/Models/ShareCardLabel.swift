@@ -76,7 +76,8 @@ extension ShareStatStickerKind {
         case .date, .workoutName, .climbName, .climbLocation, .climbRank, .climbRankWithTotal:
             return true
         case .duration, .steps, .calories, .pace, .avgHeartRate, .maxHeartRate,
-             .verticalClimb, .addedWeight, .splits, .climbFloors, .bestEffort, .totals:
+             .verticalClimb, .addedWeight, .splits, .climbFloors, .routineIntervals,
+             .bestEffort, .totals:
             return false
         }
     }

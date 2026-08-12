@@ -434,7 +434,7 @@ struct ShareCardText: Codable, Equatable, Sendable {
 enum ShareCardStatFacet: String, Codable, Sendable {
     /// The formatted value: `2,096`, `22:10`, `#60`.
     case value
-    /// The short uppercase label: `STEPS`, `AVG BPM`.
+    /// The short uppercase label: `STEPS`, `AVERAGE HR`.
     case label
     /// A secondary facet the stat carries: the splits subtitle, a rank's field size.
     case detail
@@ -506,7 +506,7 @@ struct ShareCardMetric: Codable, Equatable, Sendable {
     var stat: ShareStatRef?
     var labelPlacement: ShareCardLabelPlacement
     var labelPolicy: ShareCardLabelPolicy
-    /// Template-supplied label copy, replacing the stat's own (`AVG BPM` → `AVG HR`).
+    /// Template-supplied label copy, replacing the stat's own (`DURATION` → `TIME`).
     var labelOverride: String?
     var value: ShareCardTextStyle
     var label: ShareCardTextStyle
@@ -633,9 +633,11 @@ struct ShareCardSplitsTableSpec: Codable, Equatable, Sendable {
     /// Drives every font size in the table.
     var baseSize: Double
     var maxRows: Int?
-    /// The table's own `SPLITS` heading, subtitle, and rule. A card that writes
-    /// its own heading turns this off rather than drawing a second one.
+    /// The table's own heading. A card — or a stat cluster — that writes its own
+    /// turns this off rather than drawing a second one.
     var showsTitle: Bool
+    /// The supporting row under the heading: column names on the timeline
+    /// layout, the faster-than-average legend on the step ranges.
     var showsHeader: Bool
     var textTint: ShareCardTint
     var fastTint: ShareCardTint

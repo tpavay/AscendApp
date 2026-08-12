@@ -43,6 +43,10 @@ final class ShareComposerViewModel {
     /// This-week aggregate stats (steps, workouts, time, vertical), injected from
     /// the full workout history. Each has a unique `label` used as the key.
     private(set) var weeklyTotalStats: [ResolvedShareStat] = []
+    /// Interval count of the routine this session ran, injected by the view (the
+    /// resolver cannot reach the routine from the `Workout` alone). Nil for
+    /// anything that was not a routine.
+    private(set) var routineIntervalCount: Int?
 
     // Transient drag feedback (driven by ShareStickerView callbacks)
     var draggingID: UUID?
@@ -96,6 +100,7 @@ final class ShareComposerViewModel {
     @ObservationIgnored private var statCache: [ShareStatRef: ResolvedShareStat?] = [:]
     @ObservationIgnored private var splitsCache: ResolvedShareSplits??
     @ObservationIgnored private var availableStatsCache: [ResolvedShareStat]?
+    @ObservationIgnored private var availablePresetsCache: [ShareStatClusterPreset]?
     @ObservationIgnored private var stickerContentCache: [UUID: ShareStickerContent] = [:]
 
     private var resolver: ShareStatResolver {
@@ -110,7 +115,8 @@ final class ShareComposerViewModel {
             climbReferenceStepCount: climb?.referenceStepCount,
             climbRank: climbRank,
             climbRankTotal: climbRankTotal,
-            splitTargetSteps: climb?.referenceStepCount
+            splitTargetSteps: climb?.referenceStepCount,
+            routineIntervalCount: routineIntervalCount
         )
         cachedResolver = resolver
         return resolver
@@ -123,6 +129,7 @@ final class ShareComposerViewModel {
         statCache.removeAll()
         splitsCache = nil
         availableStatsCache = nil
+        availablePresetsCache = nil
         stickerContentCache.removeAll()
     }
 
@@ -152,6 +159,20 @@ final class ShareComposerViewModel {
         return stats
     }
 
+    /// The curated stat clusters this session's data actually supports.
+    ///
+    /// Availability follows the data, never the session type: a cluster is
+    /// offered when every stat it is built around resolves, which is why the one
+    /// catalog serves a Live Climb, a routine and a Just Climb.
+    func availablePresets() -> [ShareStatClusterPreset] {
+        if let availablePresetsCache { return availablePresetsCache }
+        let presets = ShareStatClusterPresets.all.filter { preset in
+            preset.requires.allSatisfy { resolved($0) != nil }
+        }
+        availablePresetsCache = presets
+        return presets
+    }
+
     /// Resolve a single stat reference. Injected kinds (`.bestEffort`, `.totals`)
     /// look up their value by key; everything else resolves from the workout.
     func resolved(_ ref: ShareStatRef) -> ResolvedShareStat? {
@@ -177,9 +198,16 @@ final class ShareComposerViewModel {
         return splits
     }
 
-    /// Structured split payload for the split sticker.
+    /// Structured split payload for a sticker that draws split rows — the split
+    /// sticker itself, or a cluster that names splits among its metrics.
+    ///
+    /// Resolving splits filters the whole heart-rate series once per split, so
+    /// this asks whether the sticker actually draws them rather than handing the
+    /// work to every sticker that might.
     func resolvedSplits(for instance: ShareStickerInstance) -> ResolvedShareSplits? {
-        guard instance.isStructured else { return nil }
+        guard instance.isStructured || instance.statRefs.contains(where: { $0.kind == .splits }) else {
+            return nil
+        }
         return splits()
     }
 
@@ -204,6 +232,23 @@ final class ShareComposerViewModel {
             return cached
         }
 
+        let content = buildContent(for: instance)
+        stickerContentCache[instance.id] = content
+        return content
+    }
+
+    /// The card tree for a cluster the climber has not placed yet, so the add
+    /// sheet's tile shows exactly what the canvas will draw. Deliberately
+    /// uncached: nothing on the canvas is keyed to it.
+    func presetPreview(for preset: ShareStatClusterPreset) -> ShareStickerContent {
+        buildContent(for: ShareStickerInstance(
+            kind: preset.stats.first?.kind ?? .duration,
+            font: preset.font,
+            presetID: preset.id
+        ))
+    }
+
+    private func buildContent(for instance: ShareStickerInstance) -> ShareStickerContent {
         let refs = instance.statRefs
         let resolvedPairs = refs.compactMap { ref in resolved(ref).map { (ref, $0) } }
         let splits = resolvedSplits(for: instance)
@@ -214,13 +259,11 @@ final class ShareComposerViewModel {
             valueColor: instance.color,
             labelColor: instance.color.isWhite ? .lime : instance.color
         )
-        let content = ShareStickerContent(
+        return ShareStickerContent(
             node: ShareStickerCardBuilder.node(for: instance, resolvedRefs: resolvedPairs.map(\.0)),
             context: context,
             signature: ShareStickerContentSignature(instance)
         )
-        stickerContentCache[instance.id] = content
-        return content
     }
 
     // MARK: - Structure (composite stickers)
@@ -264,6 +307,9 @@ final class ShareComposerViewModel {
     func toggleStat(_ ref: ShareStatRef, for id: UUID) {
         guard let i = stickers.firstIndex(where: { $0.id == id }) else { return }
         var sticker = stickers[i]
+        // A cluster's metric set is the curated one; editing it would leave the
+        // arrangement drawing stats it was not designed around.
+        guard !sticker.isPreset else { return }
         guard sticker.kind.supportsComposite, ref.kind.supportsComposite else { return }
         if sticker.primaryStatRef == ref {
             guard !sticker.extraStats.isEmpty else { return } // never remove the last metric
@@ -286,6 +332,13 @@ final class ShareComposerViewModel {
         invalidateResolvedData()
     }
 
+    /// The interval count of the routine this session ran, looked up by the view.
+    func setRoutineIntervalCount(_ count: Int?) {
+        guard routineIntervalCount != count else { return }
+        routineIntervalCount = count
+        invalidateResolvedData()
+    }
+
     // MARK: - Climb rename
 
     func setClimbName(_ name: String) {
@@ -303,6 +356,23 @@ final class ShareComposerViewModel {
             kind: kind,
             labelPlacement: labelPlacement,
             position: CGPoint(x: 0.5, y: 0.42 + offset)
+        )
+        stickers.append(instance)
+        selectedID = instance.id
+    }
+
+    /// Place a curated cluster. It starts plate-free and in the face it was
+    /// designed in; the edit rail can still change both.
+    func addPresetSticker(_ preset: ShareStatClusterPreset) {
+        let offset = CGFloat(stickers.count % 5) * 0.04
+        let instance = ShareStickerInstance(
+            // The cluster's own tree decides what is drawn; the primary kind is
+            // only what the font sheet previews.
+            kind: preset.stats.first?.kind ?? .duration,
+            position: CGPoint(x: 0.5, y: 0.42 + offset),
+            font: preset.font,
+            textBackground: .none,
+            presetID: preset.id
         )
         stickers.append(instance)
         selectedID = instance.id
