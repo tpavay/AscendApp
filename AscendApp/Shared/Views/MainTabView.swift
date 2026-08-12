@@ -38,10 +38,15 @@ struct MainTabView: View {
 
     private var effectiveColorScheme: ColorScheme { .dark }
 
-    var body: some View {
-        @Bindable var tabRouter = tabRouter
+    private var tabSelection: Binding<AppTab> {
+        Binding(
+            get: { tabRouter.selectedTab },
+            set: { tabRouter.select($0, reason: .appRouting) }
+        )
+    }
 
-        TabView(selection: $tabRouter.selectedTab) {
+    var body: some View {
+        TabView(selection: tabSelection) {
             ForEach(tabs) { tab in
                 if tab.identifier == tabRouter.selectedTab {
                     // Keep hidden tabs unmounted so inactive tab roots do not run SwiftData queries or animations.
@@ -122,7 +127,11 @@ struct MainTabView: View {
             .id("TrainingNavigationStack")
         case .leaderboard:
             NavigationStack {
-                LeaderboardView()
+                LeaderboardView(
+                    viewSource: LeaderboardAnalyticsEvent.ViewSource(
+                        tabSelection: tabRouter.selectionReason
+                    )
+                )
             }
             .id("LeaderboardNavigationStack")
         case .profile:
@@ -147,7 +156,7 @@ struct MainTabView: View {
 
             let generator = UIImpactFeedbackGenerator(style: .light)
             generator.impactOccurred()
-            tabRouter.selectedTab = tab.identifier
+            tabRouter.select(tab.identifier, reason: .tabBarTap)
         }
     }
 
@@ -219,7 +228,7 @@ struct MainTabView: View {
         guard homeNavigationPath.isEmpty else { return }
         guard let climbId = OnboardingFirstClimbHandoffStore().consume(for: userId) else { return }
 
-        tabRouter.selectedTab = .home
+        tabRouter.select(.home, reason: .appRouting)
         homeNavigationPath = [.onboardingFirstClimb(climbId)]
     }
 
@@ -229,7 +238,7 @@ struct MainTabView: View {
         switch destination {
         case .climbDetail(let climbId):
             if let climb = try? ClimbService.shared.climb(for: climbId) {
-                tabRouter.selectedTab = .home
+                tabRouter.select(.home, reason: .appRouting)
                 homeNavigationPath = [.pushClimbDrop(climb.id)]
             }
         }
@@ -238,7 +247,7 @@ struct MainTabView: View {
     private func consumePendingLiveActivityRouteIfNeeded() {
         guard let route = LiveClimbActivityRouter.shared.consumePendingRoute() else { return }
 
-        tabRouter.selectedTab = .home
+        tabRouter.select(.home, reason: .appRouting)
         homeNavigationPath = [.liveActivitySession(route.sessionID, route.climbID)]
     }
 

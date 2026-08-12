@@ -10,7 +10,6 @@ import SwiftData
 
 struct LeaderboardView: View {
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.dismiss) private var dismiss
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.modelContext) private var modelContext
     @Environment(NetworkConnectivityService.self) private var connectivityService
@@ -19,7 +18,7 @@ struct LeaderboardView: View {
     @State private var viewModel: LeaderboardViewModel
     @State private var scrollResetTrigger = 0
 
-    private let lockedMetric: LeaderboardMetric?
+    private let viewSource: LeaderboardAnalyticsEvent.ViewSource
     private let selectableTimeFrames: [LeaderboardTimeFrame] = [.weekly, .monthly, .yearly, .allTime]
 
     private enum ScrollTarget: Hashable {
@@ -27,23 +26,19 @@ struct LeaderboardView: View {
     }
 
     @MainActor
-    init(lockedMetric: LeaderboardMetric? = nil, initialTimeFrame: LeaderboardTimeFrame = .weekly) {
-        self.lockedMetric = lockedMetric
+    init(
+        initialTimeFrame: LeaderboardTimeFrame = .weekly,
+        viewSource: LeaderboardAnalyticsEvent.ViewSource
+    ) {
+        self.viewSource = viewSource
 
         let vm = LeaderboardViewModel()
-        if let lockedMetric {
-            vm.selectedMetric = lockedMetric
-        }
         vm.selectedTimeFrame = initialTimeFrame
         _viewModel = State(initialValue: vm)
     }
 
     private var metricTitle: String {
         viewModel.selectedMetric.displayName
-    }
-
-    private var isLockedMetricView: Bool {
-        lockedMetric != nil
     }
 
     private var backgroundColor: Color {
@@ -98,17 +93,18 @@ struct LeaderboardView: View {
         .background(backgroundColor.ignoresSafeArea())
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(isLockedMetricView)
         .toolbar(.hidden, for: .navigationBar)
+        .trackOnce(
+            LeaderboardAnalyticsEvent.viewed(
+                context: viewModel.analyticsContext,
+                source: viewSource
+            )
+        )
         .task {
             resetScrollPosition()
             await setupAndLoad()
         }
-        .onChange(of: viewModel.selectedMetric) { _, newMetric in
-            if let lockedMetric, newMetric != lockedMetric {
-                viewModel.selectedMetric = lockedMetric
-                return
-            }
+        .onChange(of: viewModel.selectedMetric) { _, _ in
             resetScrollPosition()
             Task { await loadData() }
         }
@@ -136,18 +132,7 @@ struct LeaderboardView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                if isLockedMetricView {
-                    OnboardingBackButton {
-                        HapticsManager.shared.trigger(.lightImpact)
-                        dismiss()
-                    }
-                }
-
-                if isLockedMetricView {
-                    titleLabel
-                } else {
-                    metricTitleMenu
-                }
+                metricTitleMenu
 
                 Spacer(minLength: 10)
             }
@@ -731,9 +716,6 @@ struct LeaderboardView: View {
 
     private func setupAndLoad() async {
         guard let userId = authVM.user?.uid else { return }
-        if let lockedMetric {
-            viewModel.selectedMetric = lockedMetric
-        }
         viewModel.configure(
             userId: userId,
             displayName: currentUserNameOverride,
@@ -791,7 +773,7 @@ struct LeaderboardView: View {
 
 #Preview {
     NavigationStack {
-        LeaderboardView()
+        LeaderboardView(viewSource: .tab)
             .environment(AuthenticationViewModel())
             .environment(ModerationStore.shared)
             .environment(NetworkConnectivityService.shared)
