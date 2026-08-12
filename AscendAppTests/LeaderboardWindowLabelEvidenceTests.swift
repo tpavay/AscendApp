@@ -70,7 +70,7 @@ struct LeaderboardWindowLabelEvidenceTests {
         )
 
         return NavigationStack {
-            LeaderboardView(initialTimeFrame: initialTimeFrame)
+            LeaderboardView(initialTimeFrame: initialTimeFrame, viewSource: .tab)
         }
         .environment(AuthenticationViewModel())
         .environment(ModerationStore.shared)

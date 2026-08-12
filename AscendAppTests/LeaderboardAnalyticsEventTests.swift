@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 import Testing
 import UIKit
@@ -132,12 +133,28 @@ struct LeaderboardAnalyticsEventTests {
     func anUnattributedTabChangeReportsTheTab() {
         let router = TabRouter()
         router.select(.leaderboard, reason: .homeRankCard)
-        router.selectedTab = .home
-        router.selectedTab = .leaderboard
+        router.select(.home, reason: .appRouting)
+        router.select(.leaderboard, reason: .appRouting)
 
         #expect(router.selectionReason == .appRouting)
         #expect(LeaderboardAnalyticsEvent.ViewSource(tabSelection: router.selectionReason) == .tab)
         #expect(LeaderboardAnalyticsEvent.ViewSource(tabSelection: TabRouter().selectionReason) == .tab)
+    }
+
+    /// Re-selecting the tab already showing is what a SwiftUI selection binding
+    /// echoes back, and it may not downgrade the entry that put the climber there.
+    @MainActor
+    @Test
+    func reselectingTheShowingTabKeepsItsAttribution() {
+        let router = TabRouter()
+        router.select(.leaderboard, reason: .homeRankCard)
+        router.select(.leaderboard, reason: .appRouting)
+        router.select(.leaderboard, reason: .tabBarTap)
+
+        #expect(router.selectionReason == .homeRankCard)
+        #expect(
+            LeaderboardAnalyticsEvent.ViewSource(tabSelection: router.selectionReason) == .homeRankCard
+        )
     }
 
     @Test(arguments: TabSelectionReason.allCases)
@@ -158,15 +175,19 @@ struct LeaderboardAnalyticsEventTests {
         let window = hostWindow(
             LeaderboardViewEventHarness(filters: filters, telemetry: telemetry)
         )
-        defer { window.isHidden = true }
-        try await settle(window)
+        defer { teardown(window) }
+
+        let emitted = try await pump(window) { sink.viewEventCount == 1 }
+        #expect(emitted)
 
         let rendersBeforeFilterChange = filters.renderCount
         filters.metric = .duration
         filters.ageGroup = .age40To44
-        try await settle(window)
 
-        #expect(filters.renderCount > rendersBeforeFilterChange)
+        let rerendered = try await pump(window) { filters.renderCount > rendersBeforeFilterChange }
+        #expect(rerendered)
+
+        try await drain(window)
 
         let viewEvents = sink.records.filter { $0.name == "leaderboard_viewed" }
         #expect(viewEvents.count == 1)
@@ -183,25 +204,103 @@ struct LeaderboardAnalyticsEventTests {
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let telemetry = makeTestTelemetry(sink: sink)
 
-        for _ in 0..<2 {
+        for visit in 1...2 {
             let window = hostWindow(
                 LeaderboardViewEventHarness(
                     filters: LeaderboardViewEventHarnessFilters(),
                     telemetry: telemetry
                 )
             )
-            try await settle(window)
-            window.isHidden = true
+            let emitted = try await pump(window) { sink.viewEventCount == visit }
+            teardown(window)
+
+            #expect(emitted)
         }
 
-        #expect(sink.records.filter { $0.name == "leaderboard_viewed" }.count == 2)
+        #expect(sink.viewEventCount == 2)
+    }
+
+    /// Screen views ride the same once-per-instance guard, so view-level tracking
+    /// has one mechanism rather than two.
+    @MainActor
+    @Test
+    func screenViewsEmitOnceThroughTheSameGuard() async throws {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let telemetry = makeTestTelemetry(sink: sink)
+        let filters = LeaderboardViewEventHarnessFilters()
+
+        let window = hostWindow(
+            TrackOnceScreenHarness(filters: filters, telemetry: telemetry)
+        )
+        defer { teardown(window) }
+
+        let emitted = try await pump(window) { sink.screens.isEmpty == false }
+        #expect(emitted)
+
+        let rendersBeforeChange = filters.renderCount
+        filters.metric = .duration
+        let rerendered = try await pump(window) { filters.renderCount > rendersBeforeChange }
+        #expect(rerendered)
+
+        try await drain(window)
+
+        #expect(sink.screens.count == 1)
+        #expect(sink.screens.first?.name == "leaderboard")
+    }
+
+    /// The rank-card entry survives the selection binding `MainTabView` hands to
+    /// SwiftUI, which is the one place an echoed write could downgrade it to `tab`.
+    @MainActor
+    @Test
+    func mainTabViewKeepsTheRankCardEntryDistinctFromTheTab() async throws {
+        let router = TabRouter()
+        router.select(.leaderboard, reason: .homeRankCard)
+
+        let window = hostWindow(try mainTabView(tabRouter: router))
+        defer { teardown(window) }
+
+        try await drain(window)
+
+        #expect(router.selectedTab == .leaderboard)
+        #expect(router.selectionReason == .homeRankCard)
+        #expect(
+            LeaderboardAnalyticsEvent.ViewSource(tabSelection: router.selectionReason) == .homeRankCard
+        )
+
+        router.select(.home, reason: .appRouting)
+        router.select(.leaderboard, reason: .tabBarTap)
+        try await drain(window)
+
+        #expect(router.selectionReason == .tabBarTap)
+        #expect(LeaderboardAnalyticsEvent.ViewSource(tabSelection: router.selectionReason) == .tab)
     }
 
     // MARK: - Rendering
 
     @MainActor
+    private func mainTabView(tabRouter: TabRouter) throws -> some View {
+        let container = try ModelContainer(
+            for: Workout.self,
+            WorkoutSourceLink.self,
+            WorkoutParticipation.self,
+            ActiveHeadphoneWorkoutDraft.self,
+            ClimbAttempt.self,
+            BestEffortCacheEntry.self,
+            BestEffortCacheMetadata.self,
+            LeaderboardStats.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+
+        return MainTabView(tabRouter: tabRouter)
+            .environment(AuthenticationViewModel())
+            .environment(ModerationStore.shared)
+            .environment(NetworkConnectivityService.shared)
+            .modelContainer(container)
+    }
+
+    @MainActor
     private func hostWindow(_ view: some View) -> UIWindow {
-        let size = CGSize(width: 200, height: 200)
+        let size = CGSize(width: 390, height: 640)
         let controller = UIHostingController(rootView: view)
         controller.view.frame = CGRect(origin: .zero, size: size)
 
@@ -212,12 +311,45 @@ struct LeaderboardAnalyticsEventTests {
     }
 
     @MainActor
-    private func settle(_ window: UIWindow) async throws {
-        for _ in 0..<4 {
+    private func teardown(_ window: UIWindow) {
+        window.resignKey()
+        window.isHidden = true
+        window.rootViewController = nil
+    }
+
+    /// Drives layout until the condition holds, so a slow machine costs latency
+    /// rather than a red build.
+    @MainActor
+    private func pump(
+        _ window: UIWindow,
+        iterations: Int = 200,
+        until isSatisfied: () -> Bool
+    ) async throws -> Bool {
+        for _ in 0..<iterations {
             window.setNeedsLayout()
             window.layoutIfNeeded()
-            try await Task.sleep(for: .milliseconds(20))
+
+            if isSatisfied() {
+                return true
+            }
+
+            try await Task.sleep(for: .milliseconds(10))
         }
+
+        return false
+    }
+
+    /// A bounded drain for the assertions that something did NOT happen - there
+    /// is no condition to wait on, only a window in which it could have.
+    @MainActor
+    private func drain(_ window: UIWindow, iterations: Int = 12) async throws {
+        _ = try await pump(window, iterations: iterations) { false }
+    }
+}
+
+private extension InMemoryTelemetrySink {
+    var viewEventCount: Int {
+        records.filter { $0.name == "leaderboard_viewed" }.count
     }
 }
 
@@ -257,6 +389,26 @@ private struct LeaderboardViewEventHarness: View {
                         locationFilter: .all
                     ),
                     source: .tab
+                ),
+                telemetry: telemetry
+            )
+    }
+}
+
+private struct TrackOnceScreenHarness: View {
+    let filters: LeaderboardViewEventHarnessFilters
+    let telemetry: TelemetryManager
+
+    var body: some View {
+        let _ = filters.recordRender()
+
+        Color.clear
+            .frame(width: 100, height: 100)
+            .trackOnce(
+                screen: TelemetryScreen(
+                    name: "leaderboard",
+                    screenClass: "LeaderboardView",
+                    parameters: ["metric": .string(filters.metric.rawValue)]
                 ),
                 telemetry: telemetry
             )

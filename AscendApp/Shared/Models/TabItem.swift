@@ -27,20 +27,17 @@ enum TabSelectionReason: Sendable, CaseIterable {
 @MainActor
 @Observable
 final class TabRouter {
-    private var currentTab: AppTab = .home
+    private(set) var selectedTab: AppTab = .home
 
     private(set) var selectionReason: TabSelectionReason = .appLaunch
 
-    /// Plain assignment cannot name an entry point, so it settles on `appRouting`
-    /// rather than leaving a previous entry's reason standing.
-    var selectedTab: AppTab {
-        get { currentTab }
-        set { select(newValue, reason: .appRouting) }
-    }
-
+    /// Re-selecting the tab already showing is not an entry, so it leaves the
+    /// standing attribution alone: SwiftUI echoing a selection binding back must
+    /// not downgrade the entry that put the climber there.
     func select(_ tab: AppTab, reason: TabSelectionReason) {
+        guard tab != selectedTab else { return }
         selectionReason = reason
-        currentTab = tab
+        selectedTab = tab
     }
 }
 

@@ -249,7 +249,7 @@ struct HomeView: View {
         case .browseClimbs:
             presentClimbBrowse()
         case .routines:
-            tabRouter.selectedTab = .training
+            tabRouter.select(.training, reason: .appRouting)
         }
     }
 
