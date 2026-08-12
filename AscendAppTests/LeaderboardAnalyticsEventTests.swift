@@ -4,6 +4,10 @@ import Testing
 import UIKit
 @testable import AscendApp
 
+/// Hosts real windows for the once-per-route-instance cases, so it takes the same
+/// gate every other hosting suite takes rather than starving one mid-capture.
+@MainActor
+@Suite(.serialized, .hostsAWindow)
 struct LeaderboardAnalyticsEventTests {
     @Test
     func visibleLeaderboardVisitCarriesTheCompleteBoundedContext() {
@@ -110,7 +114,6 @@ struct LeaderboardAnalyticsEventTests {
         )
     }
 
-    @MainActor
     @Test
     func eachRealEntryIntoTheBoardMapsToItsOwnSource() {
         let tapped = TabRouter()
@@ -128,7 +131,6 @@ struct LeaderboardAnalyticsEventTests {
 
     /// A tab change that names no entry point reports the tab rather than
     /// inheriting the last named entry's attribution.
-    @MainActor
     @Test
     func anUnattributedTabChangeReportsTheTab() {
         let router = TabRouter()
@@ -143,7 +145,6 @@ struct LeaderboardAnalyticsEventTests {
 
     /// Re-selecting the tab already showing is what a SwiftUI selection binding
     /// echoes back, and it may not downgrade the entry that put the climber there.
-    @MainActor
     @Test
     func reselectingTheShowingTabKeepsItsAttribution() {
         let router = TabRouter()
@@ -165,7 +166,6 @@ struct LeaderboardAnalyticsEventTests {
         #expect(LeaderboardAnalyticsEvent.ViewSource.allCases.contains(source))
     }
 
-    @MainActor
     @Test
     func repeatedRendersAndFilterChangesEmitNoSecondViewEvent() async throws {
         let sink = InMemoryTelemetrySink(destination: .analytics)
@@ -198,7 +198,6 @@ struct LeaderboardAnalyticsEventTests {
 
     /// The dedupe belongs to the route instance, not to the app: a board rebuilt
     /// for a later visit reports that visit.
-    @MainActor
     @Test
     func aReconstructedRouteVisitEmitsAgain() async throws {
         let sink = InMemoryTelemetrySink(destination: .analytics)
@@ -222,7 +221,6 @@ struct LeaderboardAnalyticsEventTests {
 
     /// Screen views ride the same once-per-instance guard, so view-level tracking
     /// has one mechanism rather than two.
-    @MainActor
     @Test
     func screenViewsEmitOnceThroughTheSameGuard() async throws {
         let sink = InMemoryTelemetrySink(destination: .analytics)
@@ -250,7 +248,6 @@ struct LeaderboardAnalyticsEventTests {
 
     /// The rank-card entry survives the selection binding `MainTabView` hands to
     /// SwiftUI, which is the one place an echoed write could downgrade it to `tab`.
-    @MainActor
     @Test
     func mainTabViewKeepsTheRankCardEntryDistinctFromTheTab() async throws {
         let router = TabRouter()
@@ -277,17 +274,9 @@ struct LeaderboardAnalyticsEventTests {
 
     // MARK: - Rendering
 
-    @MainActor
     private func mainTabView(tabRouter: TabRouter) throws -> some View {
         let container = try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            ActiveHeadphoneWorkoutDraft.self,
-            ClimbAttempt.self,
-            BestEffortCacheEntry.self,
-            BestEffortCacheMetadata.self,
-            LeaderboardStats.self,
+            for: AscendLocalStore.schema,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
 
@@ -298,7 +287,6 @@ struct LeaderboardAnalyticsEventTests {
             .modelContainer(container)
     }
 
-    @MainActor
     private func hostWindow(_ view: some View) -> UIWindow {
         let size = CGSize(width: 390, height: 640)
         let controller = UIHostingController(rootView: view)
@@ -310,7 +298,6 @@ struct LeaderboardAnalyticsEventTests {
         return window
     }
 
-    @MainActor
     private func teardown(_ window: UIWindow) {
         window.resignKey()
         window.isHidden = true
@@ -319,7 +306,6 @@ struct LeaderboardAnalyticsEventTests {
 
     /// Drives layout until the condition holds, so a slow machine costs latency
     /// rather than a red build.
-    @MainActor
     private func pump(
         _ window: UIWindow,
         iterations: Int = 200,
@@ -341,7 +327,6 @@ struct LeaderboardAnalyticsEventTests {
 
     /// A bounded drain for the assertions that something did NOT happen - there
     /// is no condition to wait on, only a window in which it could have.
-    @MainActor
     private func drain(_ window: UIWindow, iterations: Int = 12) async throws {
         _ = try await pump(window, iterations: iterations) { false }
     }
