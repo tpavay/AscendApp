@@ -25,6 +25,7 @@ struct RootView: View {
     @State private var isGateDeletionDismissPending = false
     @State private var profileCompletionCheckTask: Task<Void, Never>?
     private let authenticatedBootstrapCoordinator = AuthenticatedBootstrapCoordinator.shared
+    private let appSessionTelemetryCoordinator = AppSessionTelemetryCoordinator.shared
 
     var body: some View {
         Group {
@@ -77,6 +78,10 @@ struct RootView: View {
             )
         }
         .task {
+            appSessionTelemetryCoordinator.recordColdLaunch(
+                rootRoute: rootRoute,
+                authenticationState: authVM.authenticationState
+            )
             AppDiagnosticsRecorder.shared.record(
                 "app_root_task_started",
                 details: ["route": rootRoute.diagnosticName]
@@ -93,6 +98,10 @@ struct RootView: View {
             await RaceableClimbCountStore.shared.resolve()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            appSessionTelemetryCoordinator.recordWillEnterForeground(
+                rootRoute: rootRoute,
+                authenticationState: authVM.authenticationState
+            )
             AppDiagnosticsRecorder.shared.record(
                 "app_will_enter_foreground",
                 details: ["route": rootRoute.diagnosticName]
@@ -102,6 +111,7 @@ struct RootView: View {
             scheduleAuthenticatedSessionWork()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            appSessionTelemetryCoordinator.recordDidEnterBackground()
             AppDiagnosticsRecorder.shared.record(
                 "app_did_enter_background",
                 details: ["route": rootRoute.diagnosticName]
