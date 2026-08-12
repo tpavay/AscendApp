@@ -60,9 +60,11 @@ Two distinct surfaces - the global tab (community-wide aggregate stats) and per-
 ## Leaderboard UX Flow
 
 ### Global leaderboard tab - aggregate stats across the community
-- The tab root is a category hub previewing each canonical metric (climb, workouts, duration, pace per the Week Start + Leaderboard Windowing rules). A "see all" affordance opens a per-metric detail screen.
-- Per-metric detail screens lock the metric and filter by time frame (weekly, monthly, all-time).
-- Detail screens compose from focused, reusable subviews - time-frame picker, podium (top 3), pinned current-user row when not in podium, rank list. Don't reimplement these patterns per metric.
+- **The tab root is one board, not a category hub.**
+  `LeaderboardView` shows a single canonical metric (climb, workouts, duration, pace per the Week Start + Leaderboard Windowing rules) and switches between them through its title menu; there is no "see all" affordance and no per-metric detail route.
+  The locked-metric mode that once backed one lost its last caller and was deleted, so a metric-detail route is a product decision to rebuild rather than a parameter to pass.
+- The board filters by time frame (weekly, monthly, yearly, all-time) and by the demographic filters (age group, body weight, location).
+- The board composes from focused, reusable subviews - time-frame picker, podium (top 3), pinned current-user row when not in podium, rank list. Don't reimplement these patterns per metric.
 - The podium always renders three slots even when sparse; empty slots use a motivational empty-slot treatment.
 - The current user appears in exactly one place at a time. If they're in the podium, they're not duplicated in the rank list below.
 - **A rank is earned by climbing inside the window; it is never conferred by holding an account.** A climber with nothing logged this period is *unranked* - `LeaderboardCurrentUserReconciler` drops them from the ranked entries, and their pinned row renders with no rank number (`LeaderboardUserStanding.unranked`). Never synthesise one from list position: that is what put a "rank 2, 0 steps" row directly beneath a podium whose second plinth read `OPEN`. This is the live recurring board, not a completed climb, so the frozen-rank rule does not apply.
