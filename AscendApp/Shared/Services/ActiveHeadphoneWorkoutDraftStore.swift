@@ -270,6 +270,7 @@ enum ActiveHeadphoneWorkoutDraftSaver {
             climbId: draft.climbId,
             routineId: draft.routineId?.uuidString,
             routineTemplateId: draft.routineTemplateId,
+            routineIntervalCount: draft.routineIntervalCount,
             targetStepCount: draft.targetStepCount,
             climbTargetStepCount: climbTargetStepCount(for: draft),
             targetDurationSeconds: draft.targetDurationSeconds,

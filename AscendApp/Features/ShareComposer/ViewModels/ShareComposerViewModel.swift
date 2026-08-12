@@ -43,10 +43,6 @@ final class ShareComposerViewModel {
     /// This-week aggregate stats (steps, workouts, time, vertical), injected from
     /// the full workout history. Each has a unique `label` used as the key.
     private(set) var weeklyTotalStats: [ResolvedShareStat] = []
-    /// Interval count of the routine this session ran, injected by the view (the
-    /// resolver cannot reach the routine from the `Workout` alone). Nil for
-    /// anything that was not a routine.
-    private(set) var routineIntervalCount: Int?
 
     // Transient drag feedback (driven by ShareStickerView callbacks)
     var draggingID: UUID?
@@ -115,8 +111,7 @@ final class ShareComposerViewModel {
             climbReferenceStepCount: climb?.referenceStepCount,
             climbRank: climbRank,
             climbRankTotal: climbRankTotal,
-            splitTargetSteps: climb?.referenceStepCount,
-            routineIntervalCount: routineIntervalCount
+            splitTargetSteps: climb?.referenceStepCount
         )
         cachedResolver = resolver
         return resolver
@@ -164,13 +159,28 @@ final class ShareComposerViewModel {
     /// Availability follows the data, never the session type: a cluster is
     /// offered when every stat it is built around resolves, which is why the one
     /// catalog serves a Live Climb, a routine and a Just Climb.
+    ///
+    /// A split table is asked about the rows it actually draws rather than the
+    /// stat behind them: `.splits` resolves off the pace timeline, and a session
+    /// too short to divide into five step ranges resolves it while the step-range
+    /// table has nothing to lay out — which offered the Splits cluster a heading,
+    /// a rule and a gap where its rows belong.
     func availablePresets() -> [ShareStatClusterPreset] {
         if let availablePresetsCache { return availablePresetsCache }
         let presets = ShareStatClusterPresets.all.filter { preset in
             preset.requires.allSatisfy { resolved($0) != nil }
+                && preset.splitLayouts.allSatisfy(drawsSplitRows)
         }
         availablePresetsCache = presets
         return presets
+    }
+
+    private func drawsSplitRows(_ layout: ShareCardSplitsLayout) -> Bool {
+        guard let splits = splits() else { return false }
+        switch layout {
+        case .timeline: return !splits.rows.isEmpty
+        case .stepQuintiles: return !splits.stepQuintileRows.isEmpty
+        }
     }
 
     /// Resolve a single stat reference. Injected kinds (`.bestEffort`, `.totals`)
@@ -329,13 +339,6 @@ final class ShareComposerViewModel {
     /// Best Efforts read from the Best Effort cache by the view.
     func setBestEffortStats(_ stats: [ResolvedShareStat]) {
         bestEffortStats = stats
-        invalidateResolvedData()
-    }
-
-    /// The interval count of the routine this session ran, looked up by the view.
-    func setRoutineIntervalCount(_ count: Int?) {
-        guard routineIntervalCount != count else { return }
-        routineIntervalCount = count
         invalidateResolvedData()
     }
 

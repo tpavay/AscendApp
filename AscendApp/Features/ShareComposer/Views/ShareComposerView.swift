@@ -6,7 +6,6 @@ import SwiftUI
 /// share entry point.
 struct ShareComposerView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
     @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
     @Query(sort: \Workout.date, order: .reverse) private var allWorkouts: [Workout]
 
@@ -263,27 +262,9 @@ struct ShareComposerView: View {
             })
             // Inject this-week totals for the Totals tab.
             viewModel.injectWeeklyTotals(from: allWorkouts)
-            viewModel.setRoutineIntervalCount(routineIntervalCount())
             // Both injections feed the templates, so build the tab after them.
             recapPreview = makeRecapPreview()
         }
-    }
-
-    /// How many intervals the routine behind this session planned, or nil when
-    /// the session was not a routine or its routine has since been deleted.
-    ///
-    /// Fetched by id and limited to one row: the cost cannot grow with the
-    /// climber's history, which is what keeps this off the entry path's
-    /// critical section.
-    private func routineIntervalCount() -> Int? {
-        guard let routineId = LiveClimbWorkoutSummaryData.metadata(for: viewModel.workout)?.routineId,
-              let id = UUID(uuidString: routineId) else {
-            return nil
-        }
-        var descriptor = FetchDescriptor<Routine>(predicate: #Predicate { $0.id == id })
-        descriptor.fetchLimit = 1
-        let count = (try? modelContext.fetch(descriptor))?.first?.intervalCount
-        return (count ?? 0) > 0 ? count : nil
     }
 
     // MARK: - Composer canvas

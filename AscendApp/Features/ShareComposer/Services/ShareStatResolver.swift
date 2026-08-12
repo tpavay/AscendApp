@@ -21,12 +21,22 @@ struct ShareStatResolver {
     var climbRank: Int?
     var climbRankTotal: Int?
     var splitTargetSteps: Int?
-    /// How many intervals the routine behind this session planned. Nil for any
-    /// workout that was not a routine, which is what keeps the routine cluster
-    /// out of a Live Climb's picker without branching on the session type.
-    var routineIntervalCount: Int?
 
     var isClimb: Bool { climbName != nil }
+
+    /// How many intervals this session actually ran, read out of the workout's
+    /// own metadata rather than off the `Routine` record.
+    ///
+    /// A card that says 8 intervals has to mean the session ran 8. Resolving the
+    /// live routine would let one edit to "Pyramid 24" turn every card the
+    /// climber already shared into a claim about a workout that never happened -
+    /// the rule already settled for fabricated splits, the flattered last place
+    /// and borrowed floors. A session that recorded no count is not offered the
+    /// stat at all, which is also what keeps the routine cluster out of a Live
+    /// Climb's picker without branching on the session type.
+    private var routineIntervalCount: Int? {
+        LiveClimbWorkoutSummaryData.metadata(for: workout)?.routineIntervalCount
+    }
 
     /// The catalog filtered to stats that actually have a value for this workout.
     func availableKinds() -> [ShareStatStickerKind] {

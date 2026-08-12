@@ -240,10 +240,19 @@ extension View {
     ///
     /// The contact shadow is tight and dark rather than broad and soft: blur
     /// spread across a 12pt tracked-out cap dilutes the very ink that separates
-    /// it from the highlight behind it. The outline is four hard offset copies -
-    /// SwiftUI has no text stroke - which is what puts an edge back on the
-    /// glyph, and it is reserved for the smallest labels because on a large
-    /// number it would read as a thickened face.
+    /// it from the highlight behind it.
+    ///
+    /// The outline is four hard offset shadow copies. `Text` has no stroke, and
+    /// the obvious replacement - a `TextRenderer` laying the ring down in one
+    /// drawing pass - was built and measured against this: it costs about 1.6×
+    /// as much, because a custom renderer opts every run out of SwiftUI's fast
+    /// text path, and shrinking its ring from eight offsets to four barely moved
+    /// the number. Chained `.shadow`s do nest rather than compose, but a nested
+    /// hard shadow on a run of type is cheap, and the whole Splits cluster - the
+    /// heaviest thing a climber can place, sixteen treated runs - draws a frame
+    /// in well under a tenth of the 120 Hz budget. The numbers are kept in
+    /// `ShareStatClusterPresetEvidenceTests`; do not re-litigate this without
+    /// re-running them.
     @ViewBuilder
     func shareCardTextLegibility(_ legibility: ShareCardTextLegibility) -> some View {
         switch legibility {

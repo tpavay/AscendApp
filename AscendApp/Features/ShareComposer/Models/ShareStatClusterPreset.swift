@@ -34,6 +34,28 @@ struct ShareStatClusterPreset: Identifiable, Sendable {
     /// The cluster itself, plate-free. `ShareStickerCardBuilder` wraps it in the
     /// climber's chosen text background.
     let content: ShareCardNode
+
+    /// The split tables this cluster's tree actually draws.
+    ///
+    /// Read off the tree rather than declared beside it, because the two would
+    /// drift: a `.splits` stat resolves off the pace timeline, while a step-range
+    /// table is built from a different array that a short session leaves empty.
+    /// Availability asks this so a preset cannot be offered an arrangement whose
+    /// rows it has nothing to fill.
+    var splitLayouts: Set<ShareCardSplitsLayout> {
+        Self.splitLayouts(in: content)
+    }
+
+    private static func splitLayouts(in node: ShareCardNode) -> Set<ShareCardSplitsLayout> {
+        switch node.element {
+        case .splits(let spec):
+            return [spec.layout]
+        case .stack(let stack):
+            return stack.children.reduce(into: []) { $0.formUnion(splitLayouts(in: $1)) }
+        default:
+            return []
+        }
+    }
 }
 
 /// The approved clusters.
@@ -127,7 +149,7 @@ enum ShareStatClusterPresets {
                 .splits(ShareCardSplitsTableSpec(
                     layout: .stepQuintiles,
                     width: Design.u(196),
-                    baseSize: 24,
+                    baseSize: Design.u(14.5),
                     // The cluster writes its own heading and needs no legend:
                     // this is a sticker over a photograph, not a full card.
                     showsTitle: false,
@@ -391,7 +413,9 @@ enum ShareStatClusterPresets {
     /// against snow or a blown-out sky a drop shadow alone leaves it washed out;
     /// it takes the outline as well. Above it, a number has ink enough that the
     /// outline would only thicken the face.
-    private static let outlineBelow = Design.u(14)
+    /// The one number behind that split, so the catalog, the tests and the skill
+    /// cannot each carry their own answer to where the outline starts.
+    static let outlineBelow = Design.u(14)
 
     private static func legibility(at size: Double) -> ShareCardTextLegibility {
         size < outlineBelow ? .outline : .shadow

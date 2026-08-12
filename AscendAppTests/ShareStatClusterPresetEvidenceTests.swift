@@ -20,7 +20,7 @@ struct ShareStatClusterPresetEvidenceTests {
     /// Every cluster a ranked climb supports, exported over a tower photograph.
     @Test
     func everyClimbClusterExportsOverAPhotographAtStoryResolution() async throws {
-        let viewModel = Self.liveClimbViewModel()
+        let viewModel = try Self.liveClimbViewModel()
         let presets = viewModel.availablePresets()
         #expect(
             presets.map(\.id) == ["hero", "rank", "row", "splits", "receipt", "minimal",
@@ -47,8 +47,8 @@ struct ShareStatClusterPresetEvidenceTests {
     @Test
     func aRoutineAndAJustClimbExportTheirOwnClusters() async throws {
         let sessions: [(name: String, viewModel: ShareComposerViewModel)] = [
-            ("routine", Self.routineViewModel()),
-            ("just-climb", Self.justClimbViewModel())
+            ("routine", try Self.routineViewModel()),
+            ("just-climb", try Self.justClimbViewModel())
         ]
 
         for session in sessions {
@@ -69,7 +69,7 @@ struct ShareStatClusterPresetEvidenceTests {
     /// photograph, before and after the edit rail's existing panel control.
     @Test
     func theSamePhotographShowsThePlateFreeDefaultAndTheOptionalPanel() async throws {
-        let viewModel = Self.liveClimbViewModel()
+        let viewModel = try Self.liveClimbViewModel()
         let hero = try #require(viewModel.availablePresets().first { $0.id == "hero" })
 
         let plateFree = try #require(await Self.export(hero, on: viewModel, keepSticker: true))
@@ -92,7 +92,7 @@ struct ShareStatClusterPresetEvidenceTests {
     /// one, and the recap's burned-in lockup stays the export's only wordmark.
     @Test
     func aClusterExportsOnTopOfARecapBackground() async throws {
-        let viewModel = Self.liveClimbViewModel()
+        let viewModel = try Self.liveClimbViewModel()
         let standing = try #require(
             ResolvedShareStanding(rank: viewModel.climbRank, totalClimbers: viewModel.climbRankTotal)
         )
@@ -138,7 +138,7 @@ struct ShareStatClusterPresetEvidenceTests {
     /// spelled the brand or shifted the lockup shows up as a different ink box.
     @Test
     func theCanvasWordmarkStaysTheOnlyOneOnEveryCluster() async throws {
-        let viewModel = Self.liveClimbViewModel()
+        let viewModel = try Self.liveClimbViewModel()
         let bare = try #require(await ShareComposerExporter().renderImage(viewModel: viewModel))
         let band = Self.wordmarkBand
         let bareBand = try #require(Self.crop(bare, to: band))
@@ -160,7 +160,7 @@ struct ShareStatClusterPresetEvidenceTests {
     /// only thing that can be read is the treatment around it.
     @Test
     func everyClusterStaysReadableOnAWhiteout() async throws {
-        let viewModel = Self.liveClimbViewModel()
+        let viewModel = try Self.liveClimbViewModel()
         viewModel.background = .photo(Self.whiteout)
 
         for preset in viewModel.availablePresets() {
@@ -210,6 +210,138 @@ struct ShareStatClusterPresetEvidenceTests {
         )
     }
 
+    /// What the outline costs on a gesture frame, and why it is spelled the way
+    /// it is.
+    ///
+    /// The canvas is live: a drag mutates observed state, so every frame
+    /// re-composites whatever the climber placed. The outline is four hard offset
+    /// shadow copies, and chained `.shadow`s nest rather than compose, so the
+    /// worry was five offscreen rasterizations per run across the sixteen treated
+    /// runs the Splits cluster carries — the heaviest thing on offer.
+    ///
+    /// Both halves of this are measured, because the obvious alternative loses.
+    /// A `TextRenderer` laying the same ring down in one drawing pass — what a
+    /// stroked glyph would cost if `Text` accepted one — is reconstructed here
+    /// and comes out *more* expensive: a custom renderer opts every run out of
+    /// SwiftUI's fast text path, and the cost barely moves with the size of the
+    /// ring. The shipped treatment stays because it is the cheaper of the two and
+    /// the cluster draws a frame far inside the budget, not because nobody
+    /// checked.
+    @Test
+    func theOutlineStaysFarInsideAGestureFrameAndBeatsAStrokedGlyph() throws {
+        let nested = Self.medianRenderDuration { Self.captionStack(stroked: false) }
+        let stroked = Self.medianRenderDuration { Self.captionStack(stroked: true) }
+
+        let cluster = try #require(ShareStatClusterPresets.preset(id: "splits"))
+        let clusterFrame = Self.medianRenderDuration {
+            ShareCardRenderer(node: cluster.content, context: ShareCardRenderContext())
+                .fixedSize()
+                .scaleEffect(Self.exportSize.width / ShareCardFormat.designSize.width)
+                .frame(width: 900, height: 700)
+        }
+
+        let report = """
+        Share cluster outline cost (16 treated runs at the clusters' caption size, export scale)
+
+          shipped: nested offset copies  \(Self.milliseconds(nested)) ms
+          rejected: TextRenderer stroke  \(Self.milliseconds(stroked)) ms
+
+          Splits cluster — the heaviest cluster — one frame: \(Self.milliseconds(clusterFrame)) ms
+          120 Hz frame budget: 8.3 ms · 60 Hz frame budget: 16.7 ms
+        """
+        print(report)
+        Self.write(report, "08-outline-cost")
+
+        #expect(
+            nested < stroked,
+            """
+            the shipped treatment is meant to be the cheaper of the two.
+            \(report)
+            """
+        )
+        #expect(
+            clusterFrame < 8.3 / 1_000 / 2,
+            """
+            the heaviest cluster must draw a frame in well under half the 120 Hz budget.
+            \(report)
+            """
+        )
+    }
+
+    /// Sixteen caption runs — what the Splits cluster carries — treated either by
+    /// the shipping outline or by the stroked-glyph alternative.
+    ///
+    /// Both sides treat each *run*, which is where the cost lives: wrapping the
+    /// stack once would measure five rasterizations against sixteen and prove
+    /// nothing.
+    private static func captionStack(stroked: Bool) -> some View {
+        ZStack {
+            Color.white
+            VStack(spacing: 4) {
+                ForEach(0..<16, id: \.self) { index in
+                    let run = Text("1-409  \(index)  02:14")
+                        .font(.system(size: 11.6, weight: .heavy))
+                        .tracking(2.3)
+                        .foregroundStyle(.white)
+                    if stroked {
+                        run.textRenderer(StrokedGlyphOutline())
+                    } else {
+                        run.shareCardTextLegibility(.outline)
+                    }
+                }
+            }
+            .fixedSize()
+            .scaleEffect(exportSize.width / ShareCardFormat.designSize.width)
+        }
+        .frame(width: 900, height: 700)
+    }
+
+    /// The alternative the shipped treatment was measured against: the ring and
+    /// the contact shadow laid down inside one drawing pass. Kept here, out of
+    /// app code, so the comparison stays runnable without offering a second way
+    /// to draw a card.
+    private struct StrokedGlyphOutline: TextRenderer {
+        func draw(layout: Text.Layout, in context: inout GraphicsContext) {
+            let inset: CGFloat = 0.8
+            for offset in [
+                CGSize(width: inset, height: inset), CGSize(width: -inset, height: inset),
+                CGSize(width: inset, height: -inset), CGSize(width: -inset, height: -inset)
+            ] {
+                var stroke = context
+                stroke.translateBy(x: offset.width, y: offset.height)
+                stroke.opacity = 0.55
+                stroke.addFilter(.colorMultiply(.black))
+                for line in layout { stroke.draw(line) }
+            }
+
+            var glyphs = context
+            glyphs.addFilter(.shadow(color: .black.opacity(0.85), radius: 2.5, x: 0, y: 1.6))
+            for line in layout { glyphs.draw(line) }
+        }
+    }
+
+    /// Median of nine renders. The first pays for font and formatter setup, and
+    /// quoting that as the per-frame cost would overstate both sides.
+    private static func medianRenderDuration<Content: View>(
+        of content: @escaping () -> Content
+    ) -> Double {
+        var samples: [Double] = []
+        for _ in 0..<9 {
+            let renderer = ImageRenderer(content: content())
+            renderer.scale = 1
+            renderer.isOpaque = true
+            let start = ContinuousClock.now
+            _ = renderer.uiImage
+            let elapsed = start.duration(to: .now).components
+            samples.append(Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18)
+        }
+        return samples.sorted()[samples.count / 2]
+    }
+
+    private static func milliseconds(_ seconds: Double) -> String {
+        String(format: "%.2f", seconds * 1_000)
+    }
+
     /// A caption drawn on white at export scale, so the measurement is of the
     /// pixels a climber would actually be shown.
     private static func renderOnWhite(_ node: ShareCardNode) -> UIImage? {
@@ -247,7 +379,7 @@ struct ShareStatClusterPresetEvidenceTests {
     @Test
     func everyClusterFitsTheAddSheetsPreviewBox() throws {
         let box = ShareAddStatSheetLayout.presetPreviewBox
-        for viewModel in [Self.liveClimbViewModel(), Self.routineViewModel(), Self.justClimbViewModel()] {
+        for viewModel in [try Self.liveClimbViewModel(), try Self.routineViewModel(), try Self.justClimbViewModel()] {
             for preset in viewModel.availablePresets() {
                 let content = viewModel.presetPreview(for: preset)
                 let size = try #require(Self.intrinsicSize(of: content))
@@ -272,7 +404,7 @@ struct ShareStatClusterPresetEvidenceTests {
     /// size gets the pixels the author saw.
     @Test
     func dynamicTypeCannotReflowACluster() throws {
-        let viewModel = Self.liveClimbViewModel()
+        let viewModel = try Self.liveClimbViewModel()
         let hero = try #require(viewModel.availablePresets().first { $0.id == "hero" })
         viewModel.addPresetSticker(hero)
         defer { viewModel.stickers.removeAll() }
@@ -321,7 +453,7 @@ struct ShareStatClusterPresetEvidenceTests {
 
     // MARK: - Fixtures
 
-    private static func liveClimbViewModel() -> ShareComposerViewModel {
+    private static func liveClimbViewModel() throws -> ShareComposerViewModel {
         let viewModel = ShareComposerViewModel(
             workout: ShareStatClusterPresetTests.recordedWorkout(
                 name: "Live Climb",
@@ -336,27 +468,17 @@ struct ShareStatClusterPresetEvidenceTests {
             climbRank: 4,
             climbRankTotal: 1_284
         )
-        viewModel.background = .photo(photograph)
+        viewModel.background = .photo(try photograph())
         return viewModel
     }
 
-    private static func routineViewModel() -> ShareComposerViewModel {
-        let viewModel = ShareComposerViewModel(
-            workout: ShareStatClusterPresetTests.recordedWorkout(
-                name: "Pyramid 24",
-                trackingMode: .routine,
-                routineId: UUID().uuidString,
-                heartRate: true
-            ),
-            measurementSystem: .imperial,
-            stepHeight: MeasurementSystem.imperial.defaultStepHeight
-        )
-        viewModel.setRoutineIntervalCount(8)
-        viewModel.background = .photo(photograph)
+    private static func routineViewModel() throws -> ShareComposerViewModel {
+        let viewModel = ShareStatClusterPresetTests.routineViewModel()
+        viewModel.background = .photo(try photograph())
         return viewModel
     }
 
-    private static func justClimbViewModel() -> ShareComposerViewModel {
+    private static func justClimbViewModel() throws -> ShareComposerViewModel {
         let viewModel = ShareComposerViewModel(
             workout: ShareStatClusterPresetTests.recordedWorkout(
                 name: "Just Climb",
@@ -366,7 +488,7 @@ struct ShareStatClusterPresetEvidenceTests {
             measurementSystem: .imperial,
             stepHeight: MeasurementSystem.imperial.defaultStepHeight
         )
-        viewModel.background = .photo(photograph)
+        viewModel.background = .photo(try photograph())
         return viewModel
     }
 
@@ -378,7 +500,16 @@ struct ShareStatClusterPresetEvidenceTests {
     /// of blown-out highlight (16% of pixels above 0.75 luminance, against 2% for
     /// the Empire State sunset). White type on snow is the case bare text loses,
     /// so it is the one the treatment is judged on.
-    private static let photograph: UIImage = UIImage(named: "OnboardingLandmarkEverestCard") ?? UIImage()
+    ///
+    /// Required rather than defaulted: a suite whose stated job is to judge the
+    /// clusters on the hardest photograph in the bundle must not be able to pass
+    /// against a blank canvas because the asset was renamed.
+    private static func photograph() throws -> UIImage {
+        try #require(
+            UIImage(named: "OnboardingLandmarkEverestCard"),
+            "the evidence photograph is missing from the test bundle"
+        )
+    }
 
     /// The brightest thing a camera roll can hand the composer. Nothing reads
     /// against pure white on ink alone, so this is where the outline has to be
@@ -477,9 +608,17 @@ struct ShareStatClusterPresetEvidenceTests {
 
     private static func write(_ image: UIImage, _ name: String) {
         guard let data = image.pngData() else { return }
+        write(data, name, extension: "png")
+    }
+
+    private static func write(_ report: String, _ name: String) {
+        write(Data(report.utf8), name, extension: "txt")
+    }
+
+    private static func write(_ data: Data, _ name: String, extension pathExtension: String) {
         let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
             .map { URL(filePath: $0) } ?? FileManager.default.temporaryDirectory
-        let url = directory.appending(path: "stat-cluster-\(name).png")
+        let url = directory.appending(path: "stat-cluster-\(name).\(pathExtension)")
         try? data.write(to: url)
         print("evidence: \(url.path())")
     }

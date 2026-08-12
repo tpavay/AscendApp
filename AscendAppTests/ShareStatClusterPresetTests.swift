@@ -54,6 +54,55 @@ struct ShareStatClusterPresetTests {
         #expect(justClimb.isDisjoint(with: ["hero", "rank", "receipt", "routine", "full-grid"]))
     }
 
+    /// A session that never recorded how many intervals it ran is not offered the
+    /// cluster built around that number.
+    ///
+    /// The count is frozen into the workout at save time, so a routine the
+    /// climber has since edited cannot rewrite a card, and a session from before
+    /// the count was recorded simply loses a stat it never truthfully had rather
+    /// than being handed today's answer.
+    @Test
+    func aRoutineSessionThatNeverRecordedItsIntervalCountIsNotOfferedTheRoutineCluster() {
+        let recorded = Self.routineViewModel()
+        let unrecorded = Self.routineViewModel(intervalCount: nil)
+
+        #expect(recorded.resolved(ShareStatRef(kind: .routineIntervals))?.value == "8")
+        #expect(recorded.availablePresets().map(\.id).contains("routine"))
+
+        #expect(unrecorded.resolved(ShareStatRef(kind: .routineIntervals)) == nil)
+        #expect(!unrecorded.availablePresets().map(\.id).contains("routine"))
+        // Everything that does not read the interval count survives its absence.
+        #expect(unrecorded.availablePresets().map(\.id).contains("row"))
+    }
+
+    /// A session too short to divide into five step ranges is not offered the
+    /// Splits cluster.
+    ///
+    /// The trap the gate has to survive: `.splits` resolves off the pace
+    /// timeline, which a two-second session still has, while the step-range
+    /// table the cluster actually draws is built from a different array that
+    /// comes back empty. Gated on the stat, the picker offered a heading, a rule
+    /// and a gap where five rows belong.
+    @Test
+    func aSessionTooShortForStepRangesIsNotOfferedTheSplitsCluster() {
+        let viewModel = ShareComposerViewModel(
+            workout: Self.recordedWorkout(
+                name: "Just Climb",
+                trackingMode: .justClimb,
+                heartRate: false,
+                recordedSteps: 4
+            ),
+            measurementSystem: .imperial,
+            stepHeight: MeasurementSystem.imperial.defaultStepHeight
+        )
+
+        let splits = viewModel.splits()
+        #expect(viewModel.resolved(ShareStatRef(kind: .splits)) != nil, "the old gate would not have fired")
+        #expect(splits?.rows.isEmpty == false)
+        #expect(splits?.stepQuintileRows.isEmpty == true)
+        #expect(!viewModel.availablePresets().map(\.id).contains("splits"))
+    }
+
     /// Every cluster on offer actually draws: the tree resolves against the
     /// session's data rather than being placed as an empty frame.
     @Test
@@ -186,9 +235,9 @@ struct ShareStatClusterPresetTests {
     /// the default has to hold up without it.
     @Test
     func everyRunOfClusterTextCarriesALegibilityTreatment() {
-        /// Design units. Below this a run is a few pixels of tracked-out cap and
-        /// needs an edge, not more blur.
-        let smallText: Double = 20
+        // The catalog's own threshold, read rather than restated: three numbers
+        // for one rule is how the next change picks the wrong one.
+        let smallText = ShareStatClusterPresets.outlineBelow
 
         for preset in ShareStatClusterPresets.all {
             var styles: [(run: String, style: ShareCardTextStyle)] = []
@@ -393,19 +442,21 @@ struct ShareStatClusterPresetTests {
         )
     }
 
-    private static func routineViewModel() -> ShareComposerViewModel {
-        let viewModel = ShareComposerViewModel(
+    /// The interval count is frozen into the session's own metadata, exactly as
+    /// the routine recorder writes it, so the fixture cannot claim a number the
+    /// workout never carried.
+    static func routineViewModel(intervalCount: Int? = 8) -> ShareComposerViewModel {
+        ShareComposerViewModel(
             workout: recordedWorkout(
                 name: "Pyramid 24",
                 trackingMode: .routine,
                 routineId: UUID().uuidString,
+                routineIntervalCount: intervalCount,
                 heartRate: true
             ),
             measurementSystem: .imperial,
             stepHeight: MeasurementSystem.imperial.defaultStepHeight
         )
-        viewModel.setRoutineIntervalCount(8)
-        return viewModel
     }
 
     private static func justClimbViewModel() -> ShareComposerViewModel {
@@ -427,6 +478,7 @@ struct ShareStatClusterPresetTests {
         trackingMode: HeadphoneMotionWorkoutTrackingMode,
         climbId: String? = nil,
         routineId: String? = nil,
+        routineIntervalCount: Int? = nil,
         heartRate: Bool,
         recordedSteps: Int = 2_046
     ) -> Workout {
@@ -451,6 +503,7 @@ struct ShareStatClusterPresetTests {
             trackingMode: trackingMode,
             climbId: climbId,
             routineId: routineId,
+            routineIntervalCount: routineIntervalCount,
             targetStepCount: recordedSteps,
             climbTargetStepCount: climbId == nil ? nil : recordedSteps,
             stopReason: .targetReached,
