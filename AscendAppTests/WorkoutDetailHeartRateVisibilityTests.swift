@@ -31,7 +31,10 @@ struct WorkoutDetailHeartRateVisibilityTests {
             """
         )
 
-        let text = try await recognizedTextAcrossDetail(workout)
+        let text = try await recognizedTextAcrossDetail(
+            workout,
+            evidenceName: "workout-detail-without-heart-rate"
+        )
 
         #expect(text.contains("heart rate") == false)
         #expect(text.contains("connect apple health") == false)
@@ -52,7 +55,10 @@ struct WorkoutDetailHeartRateVisibilityTests {
         workout.avgHeartRate = 139
         workout.maxHeartRate = 151
 
-        let text = try await recognizedTextAcrossDetail(workout)
+        let text = try await recognizedTextAcrossDetail(
+            workout,
+            evidenceName: "workout-detail-with-heart-rate"
+        )
 
         #expect(text.contains("heart rate"))
         #expect(text.contains("avg"))
@@ -72,16 +78,58 @@ struct WorkoutDetailHeartRateVisibilityTests {
         )
     }
 
-    private func recognizedTextAcrossDetail(_ workout: Workout) async throws -> String {
+    private func recognizedTextAcrossDetail(
+        _ workout: Workout,
+        evidenceName: String
+    ) async throws -> String {
         try await HostedWorkoutDetailScreen.run(for: workout) { screen in
             var recognizedPages: [String] = []
+            var pages: [UIImage] = []
             for offset in screen.pageOffsets {
                 screen.scroll(to: offset)
                 screen.settle(for: 0.08)
-                recognizedPages.append(try await recognizedText(in: screen.screenshot()))
+                let shot = screen.screenshot()
+                pages.append(shot)
+                recognizedPages.append(try await recognizedText(in: shot))
             }
 
+            writeEvidence(pages: pages, named: evidenceName)
+
             return recognizedPages.joined(separator: " ").lowercased()
+        }
+    }
+
+    /// Saves what the OCR above actually read, so a reviewer can see the screen rather than
+    /// take the assertions' word for it.
+    private func writeEvidence(pages: [UIImage], named name: String) {
+        guard let strip = horizontalStrip(of: pages), let png = strip.pngData() else { return }
+
+        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
+            ?? NSTemporaryDirectory()
+        let url = URL(filePath: directory).appending(path: "\(name).png")
+        try? png.write(to: url)
+        print("Rendered Workout Detail evidence: \(url.path())")
+    }
+
+    private func horizontalStrip(of pages: [UIImage]) -> UIImage? {
+        guard let first = pages.first else { return nil }
+
+        let gutter: CGFloat = 16
+        let size = CGSize(
+            width: first.size.width * CGFloat(pages.count) + gutter * CGFloat(pages.count - 1),
+            height: first.size.height
+        )
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 2
+
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            for (index, page) in pages.enumerated() {
+                page.draw(
+                    at: CGPoint(x: (first.size.width + gutter) * CGFloat(index), y: 0)
+                )
+            }
         }
     }
 
