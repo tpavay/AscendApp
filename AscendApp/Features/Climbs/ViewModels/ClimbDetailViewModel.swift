@@ -111,15 +111,13 @@ final class ClimbDetailViewModel {
         )
     }
 
-    var shouldShowPersonalRankSummary: Bool {
+    /// This climber has a published completion on this climb, so the board is not empty even on
+    /// the frame where its rows have not arrived. The leaderboard page reads it to keep the
+    /// "First Ascent open" empty state - and the still-syncing loading state - off a screen whose
+    /// owner has already finished the climb.
+    var hasPersonalCompletionStanding: Bool {
         guard personalCurrentCompletionRank != nil else { return false }
         return communityCompletedCount > 0
-    }
-
-    var personalBestCompletionDurationSeconds: TimeInterval? {
-        currentUserBestCompletion?.completionDurationSeconds ??
-            personalFinisherStatus?.bestCompletionDurationSeconds ??
-            historySummary.bestCompletionDurationSeconds.map(TimeInterval.init)
     }
 
     var personalFinisherOrder: Int? {

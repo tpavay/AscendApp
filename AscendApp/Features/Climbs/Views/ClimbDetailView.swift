@@ -861,10 +861,6 @@ struct ClimbDetailView: View {
                 publicResultSyncStatusRow(for: status)
             }
 
-            if viewModel.shouldShowPersonalRankSummary {
-                personalLeaderboardRankSummary
-            }
-
             if shouldShowLeaderboardLoadingState {
                 leaderboardLoadingState
             } else if viewModel.hasCompletionLeaderboardRows {
@@ -880,7 +876,7 @@ struct ClimbDetailView: View {
                         leaderboardLoadingMoreState
                     }
                 }
-            } else if !viewModel.shouldShowPersonalRankSummary {
+            } else if !viewModel.hasPersonalCompletionStanding {
                 leaderboardEmptyState
             }
 
@@ -928,10 +924,8 @@ struct ClimbDetailView: View {
         identity: ResolvedUserIdentity,
         completedAt: Date
     ) -> some View {
-        HStack(alignment: .center, spacing: 8) {
-            Image(systemName: "flag.fill")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(leaderboardGold)
+        HStack(alignment: .center, spacing: 4) {
+            ClimbFirstAscentMark()
 
             Text(
                 "First Ascent: \(identity.displayName) · " +
@@ -1008,57 +1002,6 @@ struct ClimbDetailView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, 16)
-    }
-
-    @ViewBuilder
-    private var personalLeaderboardRankSummary: some View {
-        if let personalCurrentCompletionRank = viewModel.personalCurrentCompletionRank,
-           let bestCompletionDurationSeconds = viewModel.personalBestCompletionDurationSeconds {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Your best")
-                        .font(.montserratSemiBold(size: 12))
-                        .tracking(1.0)
-                        .foregroundStyle(Color.customGray)
-
-                    Text(DurationFormatter.format(duration: bestCompletionDurationSeconds))
-                        .font(.montserratBold(size: 20))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                        .monospacedDigit()
-                }
-
-                Spacer(minLength: 0)
-
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(
-                        CompetitionRanking.rankLabel(
-                            personalCurrentCompletionRank.rank,
-                            isTied: personalCurrentCompletionRank.isTied,
-                            untiedPrefix: "#"
-                        )
-                    )
-                    .font(.montserratBold(size: 20))
-                    .foregroundStyle(.accent)
-                    .monospacedDigit()
-                    .accessibilityLabel(
-                        CompetitionRanking.rankAccessibilityLabel(
-                            personalCurrentCompletionRank.rank,
-                            isTied: personalCurrentCompletionRank.isTied
-                        )
-                    )
-
-                    Text("of \(personalCurrentCompletionRank.completedCount.formatted())")
-                        .font(.montserratSemiBold(size: 12))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.58) : .black.opacity(0.5))
-                        .monospacedDigit()
-                }
-            }
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.accent.opacity(effectiveColorScheme == .dark ? 0.12 : 0.10))
-            )
-        }
     }
 
     private func leaderboardRow(
@@ -1461,7 +1404,7 @@ struct ClimbDetailView: View {
             return true
         }
 
-        guard !viewModel.shouldShowPersonalRankSummary,
+        guard !viewModel.hasPersonalCompletionStanding,
               let status = latestPublicResultSyncStatus else {
             return false
         }
