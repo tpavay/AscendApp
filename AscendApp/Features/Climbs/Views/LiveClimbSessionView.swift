@@ -22,6 +22,11 @@ struct LiveClimbSessionView: View {
     @State private var selectedTab: LiveClimbSessionTab = .justMe
     @State private var liveActivityControlRegistrationID = UUID().uuidString
     @State private var showingRatingEnjoymentPrompt = false
+    /// Latched for the rest of this screen's life once the summary hands off to the sentiment
+    /// question. The alert's own binding cannot stand in for it: SwiftUI clears that binding as
+    /// the answer is tapped, which would remount the summary - and re-fire its `summaryViewed`
+    /// telemetry - underneath the pop animation.
+    @State private var didHandOffToRatingPrompt = false
 
     private let liveTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -54,10 +59,8 @@ struct LiveClimbSessionView: View {
             Color.black
                 .ignoresSafeArea()
 
-            if showingRatingEnjoymentPrompt {
-                Color.black
-                    .ignoresSafeArea()
-                    .accessibilityHidden(true)
+            if didHandOffToRatingPrompt {
+                EmptyView()
             } else if let savedWorkout = viewModel.savedWorkout,
                viewModel.shouldShowRankedCompletionSummary {
                 LiveClimbCompletionSummaryView(
@@ -107,6 +110,12 @@ struct LiveClimbSessionView: View {
             }
         } message: {
             Text("If Ascend made this climb better, leave a quick rating.")
+        }
+        .onChange(of: showingRatingEnjoymentPrompt) { _, isPresenting in
+            // The alert closing is the only way off this screen once the summary has handed off,
+            // whether the climber answered or the system took the alert away.
+            guard didHandOffToRatingPrompt, !isPresenting else { return }
+            dismiss()
         }
         .onAppear {
             if viewModel.phase != .idle {
@@ -185,17 +194,16 @@ struct LiveClimbSessionView: View {
         // The result screen has already been dismissed at this point. The app-owned sentiment
         // question therefore lands after the celebration instead of covering the rank and stats
         // the climber just earned.
+        didHandOffToRatingPrompt = true
         showingRatingEnjoymentPrompt = true
     }
 
     private func handleRatingEnjoymentResponse(_ response: AppStoreRatingManager.EnjoymentResponse) {
         AppStoreRatingManager.shared.recordEnjoymentResponse(response)
 
-        if response == .yes {
-            AppStoreRatingManager.shared.requestReview()
-        }
+        guard response == .yes else { return }
 
-        dismiss()
+        AppStoreRatingManager.shared.requestReview()
     }
 
     private var completedLiveClimbCount: Int {
