@@ -210,71 +210,162 @@ struct ShareStatClusterPresetEvidenceTests {
         )
     }
 
-    /// What the outline costs on a gesture frame, and why it is spelled the way
-    /// it is.
+    /// What the outline costs to draw, and — just as important — what was and
+    /// was not measured to settle it.
     ///
     /// The canvas is live: a drag mutates observed state, so every frame
     /// re-composites whatever the climber placed. The outline is four hard offset
     /// shadow copies, and chained `.shadow`s nest rather than compose, so the
     /// worry was five offscreen rasterizations per run across the sixteen treated
-    /// runs the Splits cluster carries — the heaviest thing on offer.
+    /// runs the Splits cluster carries — the heaviest cluster on offer, which is
+    /// asserted below rather than assumed.
     ///
-    /// Both halves of this are measured, because the obvious alternative loses.
-    /// A `TextRenderer` laying the same ring down in one drawing pass — what a
-    /// stroked glyph would cost if `Text` accepted one — is reconstructed here
-    /// and comes out *more* expensive: a custom renderer opts every run out of
-    /// SwiftUI's fast text path, and the cost barely moves with the size of the
-    /// ring. The shipped treatment stays because it is the cheaper of the two and
-    /// the cluster draws a frame far inside the budget, not because nobody
-    /// checked.
+    /// The numbers that settle it are printed below. The Splits cluster, drawn
+    /// with its real resolved data, renders a whole frame in ~2.6 ms against the
+    /// 8.3 ms 120 Hz budget; forcing every treatment off the same tree reaches
+    /// ~2.1 ms, so the outline is worth about half a millisecond — ~5% of a
+    /// frame. It has to be drawn with real data: against an empty context the
+    /// split table and every stat-backed run draw nothing, and timing that
+    /// measures an empty tree. `ImageRenderer` does a full layout and
+    /// rasterization from scratch, which is strictly more work than a drag frame
+    /// — a transform-only change re-composites an existing layer tree — so even
+    /// that is a conservative upper bound rather than the frame cost.
+    ///
+    /// What the two caption stacks compare is **two spellings of the same
+    /// four-copy ring**: the shipped one, applied in the view layer, against
+    /// `FourOffsetRingTextRenderer`, the same four offsets relocated into a
+    /// custom `TextRenderer`. It is not a test of a genuinely single-pass glyph
+    /// stroke. That alternative — an `AttributedString` / `NSAttributedString`
+    /// negative `strokeWidth` with a `strokeColor` — was specified and
+    /// deliberately **not** measured: the whole treatment is worth ~0.5 ms, so
+    /// that is the ceiling on what a perfect single-pass version could win and no
+    /// result could change the decision. Revisiting the technique means
+    /// revisiting that reasoning, not re-running a benchmark that never existed.
+    ///
+    /// Every assertion is relative or structural, so it says the same thing on a
+    /// loaded CI runner as on a desk: the treatment is not what makes a cluster
+    /// expensive, and moving the identical ring into a custom renderer does not
+    /// make it cheaper.
     @Test
-    func theOutlineStaysFarInsideAGestureFrameAndBeatsAStrokedGlyph() throws {
-        let nested = Self.medianRenderDuration { Self.captionStack(stroked: false) }
-        let stroked = Self.medianRenderDuration { Self.captionStack(stroked: true) }
+    func theOutlineIsNotWhatMakesAClusterExpensiveToDraw() throws {
+        let viewModel = try Self.liveClimbViewModel()
+        let heaviest = try #require(viewModel.availablePresets().first { $0.id == "splits" })
+        let drawn = viewModel.presetPreview(for: heaviest)
 
-        let cluster = try #require(ShareStatClusterPresets.preset(id: "splits"))
-        let clusterFrame = Self.medianRenderDuration {
-            ShareCardRenderer(node: cluster.content, context: ShareCardRenderContext())
-                .fixedSize()
-                .scaleEffect(Self.exportSize.width / ShareCardFormat.designSize.width)
-                .frame(width: 900, height: 700)
+        let treated = Self.medianRenderDuration { Self.clusterFrame(drawn) }
+        let untreated = Self.medianRenderDuration {
+            Self.clusterFrame(drawn, node: Self.untreated(drawn.node))
         }
 
+        let shipped = Self.medianRenderDuration { Self.captionStack(inCustomRenderer: false) }
+        let relocated = Self.medianRenderDuration { Self.captionStack(inCustomRenderer: true) }
+
         let report = """
-        Share cluster outline cost (16 treated runs at the clusters' caption size, export scale)
+        Share cluster outline cost — one ImageRenderer pass, median of 9
 
-          shipped: nested offset copies  \(Self.milliseconds(nested)) ms
-          rejected: TextRenderer stroke  \(Self.milliseconds(stroked)) ms
+          Splits cluster (the heaviest, with its real data)
+            treated    \(Self.milliseconds(treated)) ms
+            untreated  \(Self.milliseconds(untreated)) ms  (every run's legibility forced to .none)
+            ratio      \(String(format: "%.2f", treated / untreated))×
 
-          Splits cluster — the heaviest cluster — one frame: \(Self.milliseconds(clusterFrame)) ms
+          The same four-copy ring, 16 runs at the clusters' caption size
+            shipped: four .shadow layers per run       \(Self.milliseconds(shipped)) ms
+            relocated into a custom TextRenderer       \(Self.milliseconds(relocated)) ms
+
           120 Hz frame budget: 8.3 ms · 60 Hz frame budget: 16.7 ms
+          An ImageRenderer pass is full layout plus rasterization from scratch, so it
+          is an upper bound on a drag frame rather than the drag frame itself.
+
+          NOT measured: the single-pass AttributedString negative-strokeWidth stroke.
+          See this test's documentation for why it was not worth running.
         """
         print(report)
         Self.write(report, "08-outline-cost")
 
         #expect(
-            nested < stroked,
+            Self.treatedRunCount(of: drawn.node)
+                >= ShareStatClusterPresets.all.map { Self.treatedRunCount(of: $0.content) }.max() ?? 0,
             """
-            the shipped treatment is meant to be the cheaper of the two.
+            the cost argument rests on Splits being the heaviest cluster; something heavier \
+            now ships and the measurement has to be taken against that one instead.
             \(report)
             """
         )
         #expect(
-            clusterFrame < 8.3 / 1_000 / 2,
+            treated < untreated * 4,
             """
-            the heaviest cluster must draw a frame in well under half the 120 Hz budget.
+            the legibility treatment is not supposed to be what a cluster costs to draw.
+            \(report)
+            """
+        )
+        #expect(
+            shipped < relocated * 0.9,
+            """
+            the shipped spelling of the ring is supposed to be the cheaper of the two, \
+            by a margin big enough not to be noise.
             \(report)
             """
         )
     }
 
-    /// Sixteen caption runs — what the Splits cluster carries — treated either by
-    /// the shipping outline or by the stroked-glyph alternative.
+    private static func clusterFrame(_ content: ShareStickerContent, node: ShareCardNode? = nil) -> some View {
+        ZStack {
+            Color.white
+            ShareCardRenderer(node: node ?? content.node, context: content.context)
+                .fixedSize()
+                .scaleEffect(exportSize.width / ShareCardFormat.designSize.width)
+        }
+        .frame(width: 900, height: 700)
+    }
+
+    /// The same tree with every legibility treatment removed, so the treated
+    /// render has a same-machine baseline to be measured against.
+    private static func untreated(_ node: ShareCardNode) -> ShareCardNode {
+        var node = node
+        switch node.element {
+        case .text(var text):
+            text.style.legibility = .none
+            node.element = .text(text)
+        case .metric(var metric):
+            metric.value.legibility = .none
+            metric.label.legibility = .none
+            node.element = .metric(metric)
+        case .splits(var spec):
+            spec.legibility = .none
+            node.element = .splits(spec)
+        case .stack(var stack):
+            stack.children = stack.children.map(untreated)
+            node.element = .stack(stack)
+        default:
+            break
+        }
+        return node
+    }
+
+    /// Runs of type a cluster asks to be treated. The split table draws two runs
+    /// per row on top of the tree's own, which is what makes Splits the heaviest.
+    private static func treatedRunCount(of node: ShareCardNode) -> Int {
+        switch node.element {
+        case .text(let text):
+            return text.style.legibility == .none ? 0 : 1
+        case .metric(let metric):
+            return [metric.value, metric.label].count { $0.legibility != .none }
+        case .splits(let spec):
+            return spec.legibility == .none ? 0 : 10
+        case .stack(let stack):
+            return stack.children.reduce(0) { $0 + treatedRunCount(of: $1) }
+        default:
+            return 0
+        }
+    }
+
+    /// Sixteen caption runs — what the Splits cluster carries — carrying the same
+    /// four-copy ring in each of its two spellings.
     ///
     /// Both sides treat each *run*, which is where the cost lives: wrapping the
     /// stack once would measure five rasterizations against sixteen and prove
     /// nothing.
-    private static func captionStack(stroked: Bool) -> some View {
+    private static func captionStack(inCustomRenderer: Bool) -> some View {
         ZStack {
             Color.white
             VStack(spacing: 4) {
@@ -283,8 +374,8 @@ struct ShareStatClusterPresetEvidenceTests {
                         .font(.system(size: 11.6, weight: .heavy))
                         .tracking(2.3)
                         .foregroundStyle(.white)
-                    if stroked {
-                        run.textRenderer(StrokedGlyphOutline())
+                    if inCustomRenderer {
+                        run.textRenderer(FourOffsetRingTextRenderer())
                     } else {
                         run.shareCardTextLegibility(.outline)
                     }
@@ -296,22 +387,25 @@ struct ShareStatClusterPresetEvidenceTests {
         .frame(width: 900, height: 700)
     }
 
-    /// The alternative the shipped treatment was measured against: the ring and
-    /// the contact shadow laid down inside one drawing pass. Kept here, out of
-    /// app code, so the comparison stays runnable without offering a second way
-    /// to draw a card.
-    private struct StrokedGlyphOutline: TextRenderer {
+    /// The shipped ring relocated into a custom `TextRenderer`: the same four
+    /// offset copies, drawn as four translated passes plus a fifth for the
+    /// glyphs, inside one `GraphicsContext` rather than as view-layer shadows.
+    ///
+    /// It is not a stroked glyph and not a single pass. It is kept here, out of
+    /// app code, only so the two spellings of the ring stay comparable without
+    /// offering a second way to draw a card.
+    private struct FourOffsetRingTextRenderer: TextRenderer {
         func draw(layout: Text.Layout, in context: inout GraphicsContext) {
             let inset: CGFloat = 0.8
             for offset in [
                 CGSize(width: inset, height: inset), CGSize(width: -inset, height: inset),
                 CGSize(width: inset, height: -inset), CGSize(width: -inset, height: -inset)
             ] {
-                var stroke = context
-                stroke.translateBy(x: offset.width, y: offset.height)
-                stroke.opacity = 0.55
-                stroke.addFilter(.colorMultiply(.black))
-                for line in layout { stroke.draw(line) }
+                var ring = context
+                ring.translateBy(x: offset.width, y: offset.height)
+                ring.opacity = 0.55
+                ring.addFilter(.colorMultiply(.black))
+                for line in layout { ring.draw(line) }
             }
 
             var glyphs = context
