@@ -34,6 +34,10 @@ final class AppInstallationTelemetryReporter {
         )
     }
 
+    /// A suite of its own, deliberately outside the app's own persistent domain: account deletion
+    /// clears that domain wholesale (`AppAccountDeletionLocalCleanup.clearUserDefaults`), and a
+    /// boundary that a sign-out or a deletion can clear would let one installation report a second
+    /// first open. The sentinel is scoped to the installation, not to the account.
     static func installationDefaults(
         bundleIdentifier: String = Bundle.main.bundleIdentifier ?? "AscendApp"
     ) -> UserDefaults {
