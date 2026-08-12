@@ -3,6 +3,7 @@ name: ascend-analytics
 description: Use when working on Ascend analytics or telemetry - event definitions, the analytics facade, telemetry sinks (Firebase Analytics, Mixpanel, SuperWall, Crashlytics, Sentry), screen tracking, funnel/engagement/quality measurement, event parameter privacy, the server-exported subscription lifecycle events, or the debug telemetry console. Covers what is worth logging, which destination owns which job, and the low-cardinality parameter rule.
 paths:
   - AscendApp/Shared/Services/Telemetry/**
+  - AscendApp/App/Analytics/**
   - AscendApp/Features/*/Analytics/**
   - functions/src/revenueCat/analytics*.ts
 ---
@@ -69,7 +70,7 @@ Pick the right project first, then separate server from client events by `build_
 
 ## Implementation principles
 - One analytics facade. Feature code never imports a provider directly; it logs through the facade, which routes to the right destination. Sinks conform to `TelemetrySink` under `AscendApp/Shared/Services/Telemetry/`.
-- Event definitions are typed, discoverable, and feature-owned. Don't pass arbitrary string event names - events are values defined alongside the feature that emits them (see `AscendApp/Features/*/Analytics/`).
+- Event definitions are typed, discoverable, and feature-owned. Don't pass arbitrary string event names - events are values defined alongside the feature that emits them (see `AscendApp/Features/*/Analytics/`). App-lifecycle events belong to no feature, so they live in `AscendApp/App/Analytics/` - see "App install and session boundaries" below.
 - Log from logic layers (view models, coordinators, services), not from view bodies. View-lifecycle telemetry is the exception - a screen view, or an event whose subject is *reaching a route* - and it goes through the one shared `.trackOnce` modifier (`AscendApp/Shared/Services/Telemetry/TrackOnceModifier.swift`), which takes either an event or a screen. Its guard is `@State`, so it belongs to the view instance: re-renders and state changes behind it re-emit nothing, while a route rebuilt for a later visit reports that visit. Don't hand-roll a second once-per-appearance guard.
 - Parameters stay low-cardinality and privacy-safe: never log raw user input, email, DOB, exact location, exact health samples, or any PII. Bucket continuous values into categories before logging.
 - Event contracts are verifiable. Tests should exercise event-emission paths without requiring a live analytics runtime.
@@ -78,6 +79,30 @@ Pick the right project first, then separate server from client events by `build_
 ## Local inspection
 
 DEBUG builds expose a developer-visible analytics console so events and screen views can be inspected without leaving the simulator (`DebugTelemetryConsoleSink`, `TelemetryConsoleView`).
+
+## App install and session boundaries
+
+Acquisition and retention hang off two always-on lifecycle events, defined in `AscendApp/App/Analytics/AppLifecycleAnalyticsEvent.swift` and routed through `TelemetryManager` like every other event - never straight to a provider, and never as a super-property or a user property.
+
+- **`app_first_opened` is the install boundary, once per installation.**
+  It is emitted from `AscendApp.init` before onboarding and before `AuthenticationViewModel` exists, so it is anonymous at emission and joins to the Firebase UID through the later `identify`.
+  Its sentinel is persisted *before* the event reaches any sink, in an installation-scoped `UserDefaults` suite, so a crash, a relaunch, a sign-out, a sign-in, or account deletion's persistent-domain wipe can never mint a second first open.
+  It is consumed even when collection is disabled, so a later launch cannot masquerade as the first.
+  It carries `first_open_app_version` and `first_open_build_number` plus the envelope, nothing else.
+  An opt-in, `onboarding_flow_started`, or an SDK's own session event is not the install boundary; do not substitute one.
+- **`app_session_started` is the engagement boundary.**
+  One per cold launch, plus one per foreground that follows at least `AppSessionTelemetryCoordinator.inactivityThreshold` (30 minutes) in the background.
+  A briefer app switch stays inside the current session, and a foreground with no preceding background emits nothing.
+  It carries `session_id`, `session_type` (`cold_launch` / `foreground`), `root_route`, and `auth_state`, and every one of those but `session_id` is a bounded Swift enum.
+  `session_id` is the deliberate exception to the low-cardinality rule: it is a per-session join key, generated on the spot and tied to no user or device.
+- **The cold-launch session is reported when the launch settles, not when the root task first ticks.**
+  Routing and authentication both resolve after launch and either can move without the other, so `RootView` re-observes on every change.
+  The coordinator reports once both are resolved, once `coldLaunchResolutionTimeout` expires, or when a background flushes the still-pending launch - whichever lands first - marking `unresolved` only for the dimension genuinely still unknown.
+  `unresolved` is a countable outcome, never a stand-in for an unmapped route.
+- **`root_route` has one mapping.**
+  `RootView`'s diagnostics breadcrumb renders `AppLifecycleAnalyticsEvent.RootRoute` too; a second mapping would name the same launch two ways across two streams.
+
+Enforced by `AscendAppTests/AppInstallationTelemetryReporterTests.swift` and `AscendAppTests/AppSessionTelemetryCoordinatorTests.swift`.
 
 ## Onboarding funnel contract
 

@@ -25,6 +25,7 @@ struct RootView: View {
     @State private var isGateDeletionDismissPending = false
     @State private var profileCompletionCheckTask: Task<Void, Never>?
     private let authenticatedBootstrapCoordinator = AuthenticatedBootstrapCoordinator.shared
+    private let appSessionTelemetryCoordinator = AppSessionTelemetryCoordinator.shared
 
     var body: some View {
         Group {
@@ -77,6 +78,7 @@ struct RootView: View {
             )
         }
         .task {
+            observeColdLaunchSession()
             AppDiagnosticsRecorder.shared.record(
                 "app_root_task_started",
                 details: ["route": rootRoute.diagnosticName]
@@ -92,7 +94,20 @@ struct RootView: View {
         .task {
             await RaceableClimbCountStore.shared.resolve()
         }
+        // The launch route and the authentication answer both land after the root task's first
+        // tick, and either can settle without moving the other - a lockout resolves above auth, and
+        // entitlement resolves long after it. So the cold-launch session watches both.
+        .onChange(of: rootRoute) { _, _ in
+            observeColdLaunchSession()
+        }
+        .onChange(of: coldLaunchAuthState) { _, _ in
+            observeColdLaunchSession()
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            appSessionTelemetryCoordinator.recordWillEnterForeground(
+                rootRoute: rootRoute,
+                authenticationState: authVM.authenticationState
+            )
             AppDiagnosticsRecorder.shared.record(
                 "app_will_enter_foreground",
                 details: ["route": rootRoute.diagnosticName]
@@ -102,6 +117,7 @@ struct RootView: View {
             scheduleAuthenticatedSessionWork()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            appSessionTelemetryCoordinator.recordDidEnterBackground()
             AppDiagnosticsRecorder.shared.record(
                 "app_did_enter_background",
                 details: ["route": rootRoute.diagnosticName]
@@ -225,6 +241,18 @@ struct RootView: View {
         }
 
         return resolvedRoute
+    }
+
+    private var coldLaunchAuthState: AppLifecycleAnalyticsEvent.AuthState {
+        AppLifecycleAnalyticsEvent.AuthState(authVM.authenticationState)
+    }
+
+    @MainActor
+    private func observeColdLaunchSession() {
+        appSessionTelemetryCoordinator.observeColdLaunch(
+            rootRoute: rootRoute,
+            authenticationState: authVM.authenticationState
+        )
     }
 
     private var onboardingFlowCompletionCandidate: OnboardingFlowCompletionReason? {
@@ -562,25 +590,10 @@ struct AccountDataConflictView: View {
 }
 
 private extension AppRootRoute {
+    /// Deliberately the analytics mapping rather than a second one: a diagnostics breadcrumb and a
+    /// session event that name the same route differently split one stream into two.
     var diagnosticName: String {
-        switch self {
-        case .updateRequired:
-            return "update_required"
-        case .signedOut:
-            return "signed_out"
-        case .signingIn:
-            return "signing_in"
-        case .restoringSession:
-            return "restoring_session"
-        case .resolving:
-            return "resolving"
-        case .onboarding:
-            return "onboarding"
-        case .paywall:
-            return "paywall"
-        case .mainApp:
-            return "main_app"
-        }
+        AppLifecycleAnalyticsEvent.RootRoute(self).rawValue
     }
 }
 
