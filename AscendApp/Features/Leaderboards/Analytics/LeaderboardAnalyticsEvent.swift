@@ -1,11 +1,11 @@
 import Foundation
 
-struct LeaderboardAnalyticsContext: Sendable, Hashable {
-    let metric: String
-    let timeFrame: String
-    let ageGroup: String
-    let bodyWeightFilter: String
-    let locationFilter: String
+struct LeaderboardAnalyticsContext: Sendable {
+    let metric: LeaderboardMetric
+    let timeFrame: LeaderboardTimeFrame
+    let ageGroup: LeaderboardAgeGroup?
+    let bodyWeightFilter: LeaderboardBodyWeightFilter
+    let locationFilter: LeaderboardLocationFilter
     let activeFilterCount: Int
 
     init(
@@ -15,11 +15,11 @@ struct LeaderboardAnalyticsContext: Sendable, Hashable {
         bodyWeightFilter: LeaderboardBodyWeightFilter,
         locationFilter: LeaderboardLocationFilter
     ) {
-        self.metric = metric.rawValue
-        self.timeFrame = timeFrame.rawValue
-        self.ageGroup = ageGroup?.rawValue ?? "all"
-        self.bodyWeightFilter = bodyWeightFilter.rawValue
-        self.locationFilter = locationFilter.rawValue
+        self.metric = metric
+        self.timeFrame = timeFrame
+        self.ageGroup = ageGroup
+        self.bodyWeightFilter = bodyWeightFilter
+        self.locationFilter = locationFilter
         self.activeFilterCount = [
             ageGroup != nil,
             bodyWeightFilter != .all,
@@ -29,6 +29,10 @@ struct LeaderboardAnalyticsContext: Sendable, Hashable {
 }
 
 enum LeaderboardAnalyticsEvent: TelemetryEvent {
+    case viewed(
+        context: LeaderboardAnalyticsContext,
+        source: ViewSource
+    )
     case demographicFilterChanged(
         context: LeaderboardAnalyticsContext,
         filterType: FilterType,
@@ -38,6 +42,17 @@ enum LeaderboardAnalyticsEvent: TelemetryEvent {
 
     var record: TelemetryRecord {
         switch self {
+        case .viewed(let context, let source):
+            return TelemetryRecord(
+                name: "leaderboard_viewed",
+                parameters: [
+                    "source": .string(source.rawValue),
+                    "metric": .string(context.metric.rawValue),
+                    "time_frame": .string(context.timeFrame.rawValue),
+                    "has_active_filters": .bool(context.activeFilterCount > 0)
+                ]
+            )
+
         case .demographicFilterChanged(let context, let filterType, let selectedValue):
             var parameters = context.parameters
             parameters["filter_group"] = .string("demographic")
@@ -63,6 +78,20 @@ enum LeaderboardAnalyticsEvent: TelemetryEvent {
 }
 
 extension LeaderboardAnalyticsEvent {
+    enum ViewSource: String, CaseIterable, Sendable {
+        case tab
+        case metricDetail = "metric_detail"
+
+        init(lockedMetric: LeaderboardMetric?) {
+            switch lockedMetric {
+            case .none:
+                self = .tab
+            case .some:
+                self = .metricDetail
+            }
+        }
+    }
+
     enum FilterType: String, Sendable {
         case ageGroup = "age_group"
         case bodyWeight = "body_weight"
@@ -73,11 +102,11 @@ extension LeaderboardAnalyticsEvent {
 private extension LeaderboardAnalyticsContext {
     var parameters: [String: TelemetryValue] {
         [
-            "metric": .string(metric),
-            "time_frame": .string(timeFrame),
-            "age_group": .string(ageGroup),
-            "body_weight_filter": .string(bodyWeightFilter),
-            "location_filter": .string(locationFilter),
+            "metric": .string(metric.rawValue),
+            "time_frame": .string(timeFrame.rawValue),
+            "age_group": .string(ageGroup?.rawValue ?? "all"),
+            "body_weight_filter": .string(bodyWeightFilter.rawValue),
+            "location_filter": .string(locationFilter.rawValue),
             "active_filter_count": .int(activeFilterCount)
         ]
     }

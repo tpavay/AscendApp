@@ -18,6 +18,7 @@ struct LeaderboardView: View {
 
     @State private var viewModel: LeaderboardViewModel
     @State private var scrollResetTrigger = 0
+    @State private var viewAnalyticsRecorder = LeaderboardViewAnalyticsRecorder()
 
     private let lockedMetric: LeaderboardMetric?
     private let selectableTimeFrames: [LeaderboardTimeFrame] = [.weekly, .monthly, .yearly, .allTime]
@@ -100,6 +101,9 @@ struct LeaderboardView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(isLockedMetricView)
         .toolbar(.hidden, for: .navigationBar)
+        .onAppear {
+            recordVisibleVisitIfNeeded()
+        }
         .task {
             resetScrollPosition()
             await setupAndLoad()
@@ -741,6 +745,13 @@ struct LeaderboardView: View {
         )
         await loadData()
         syncCurrentUserEntry()
+    }
+
+    private func recordVisibleVisitIfNeeded() {
+        viewAnalyticsRecorder.recordVisibleVisitIfNeeded(
+            context: viewModel.analyticsContext,
+            source: LeaderboardAnalyticsEvent.ViewSource(lockedMetric: lockedMetric)
+        )
     }
 
     private func loadData() async {

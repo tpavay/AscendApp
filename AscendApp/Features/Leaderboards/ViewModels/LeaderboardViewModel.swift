@@ -452,7 +452,7 @@ final class LeaderboardViewModel {
         hasActiveDemographicFilters ? demographicFilterFetchLimit : defaultFetchLimit
     }
 
-    private var analyticsContext: LeaderboardAnalyticsContext {
+    var analyticsContext: LeaderboardAnalyticsContext {
         LeaderboardAnalyticsContext(
             metric: selectedMetric,
             timeFrame: selectedTimeFrame,
