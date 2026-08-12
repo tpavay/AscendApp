@@ -66,7 +66,15 @@ final class AppSessionTelemetryCoordinator {
         )
     }
 
+    /// Reports any still-pending cold-launch session before stamping the background, because iOS
+    /// suspends the bounded wait's sleep the moment the process leaves the foreground. Left armed,
+    /// that sleep either never resumes - the system terminates the app and the launch is never
+    /// counted at all - or resumes behind the foreground session it was supposed to precede,
+    /// carrying a route the climber reached half an hour later. The flush is the only path with
+    /// runtime left to get it right, so it cannot be simplified away.
     func recordDidEnterBackground(at date: Date = .now) {
+        flushPendingColdLaunch()
+
         if backgroundedAt == nil {
             backgroundedAt = date
         }
@@ -99,6 +107,15 @@ final class AppSessionTelemetryCoordinator {
 
             self?.recordColdLaunchWithWhateverSettled()
         }
+    }
+
+    /// Only a launch whose wait is still armed has anything to flush. A launch that already
+    /// reported has none, and a background that arrives before the root view ever observed one is
+    /// not a launch this coordinator saw - inventing a session for it would count a launch twice.
+    private func flushPendingColdLaunch() {
+        guard coldLaunchResolutionTask != nil else { return }
+
+        recordColdLaunchWithWhateverSettled()
     }
 
     private func recordColdLaunchWithWhateverSettled() {

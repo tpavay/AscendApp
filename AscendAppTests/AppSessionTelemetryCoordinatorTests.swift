@@ -101,6 +101,93 @@ struct AppSessionTelemetryCoordinatorTests {
         #expect(record.parameters["auth_state"] == .string("authenticated"))
     }
 
+    @Test("Backgrounding an unsettled launch flushes it, marking only what is still unknown")
+    func backgroundBeforeResolutionFlushesTheColdLaunch() throws {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let coordinator = makeCoordinator(sink: sink, coldLaunchResolutionWait: {})
+
+        coordinator.observeColdLaunch(
+            rootRoute: .updateRequired,
+            authenticationState: .restoringSession
+        )
+        coordinator.recordDidEnterBackground(at: Date(timeIntervalSince1970: 10_000))
+
+        #expect(sink.records.count == 1)
+        let record = try #require(sink.records.first)
+        #expect(record.parameters["session_id"] == .string(Self.coldLaunchID.uuidString))
+        #expect(record.parameters["session_type"] == .string("cold_launch"))
+        #expect(record.parameters["root_route"] == .string("update_required"))
+        #expect(record.parameters["auth_state"] == .string("unresolved"))
+        #expect(Set(record.parameters.keys) == Self.sessionParameterKeys)
+    }
+
+    @Test("The bounded wait cannot report again after a background flushed the launch")
+    func resumeAfterABackgroundFlushDoesNotReportAgain() async throws {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let coordinator = makeCoordinator(sink: sink, coldLaunchResolutionWait: {})
+        let initialDate = Date(timeIntervalSince1970: 10_000)
+
+        coordinator.observeColdLaunch(
+            rootRoute: .resolving,
+            authenticationState: .restoringSession
+        )
+        let pendingWait = try #require(coordinator.coldLaunchResolutionTask)
+
+        coordinator.recordDidEnterBackground(at: initialDate)
+        await pendingWait.value
+
+        coordinator.observeColdLaunch(
+            rootRoute: .mainApp,
+            authenticationState: .authenticated
+        )
+        coordinator.recordWillEnterForeground(
+            at: initialDate.addingTimeInterval(
+                AppSessionTelemetryCoordinator.inactivityThreshold
+            ),
+            rootRoute: .mainApp,
+            authenticationState: .authenticated
+        )
+
+        #expect(sink.records.count == 2)
+        let coldLaunch = try #require(sink.records.first)
+        #expect(coldLaunch.parameters["session_type"] == .string("cold_launch"))
+        #expect(coldLaunch.parameters["root_route"] == .string("unresolved"))
+        #expect(coldLaunch.parameters["auth_state"] == .string("unresolved"))
+
+        let foreground = try #require(sink.records.last)
+        #expect(foreground.parameters["session_type"] == .string("foreground"))
+        #expect(foreground.parameters["root_route"] == .string("main_app"))
+        #expect(foreground.parameters["auth_state"] == .string("authenticated"))
+    }
+
+    @Test("Backgrounding a launch that already reported does not report a second one")
+    func backgroundAfterResolutionDoesNotDoubleReport() throws {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let coordinator = makeCoordinator(sink: sink, coldLaunchResolutionWait: {})
+
+        coordinator.observeColdLaunch(
+            rootRoute: .mainApp,
+            authenticationState: .authenticated
+        )
+        coordinator.recordDidEnterBackground(at: Date(timeIntervalSince1970: 10_000))
+
+        #expect(sink.records.count == 1)
+        let record = try #require(sink.records.first)
+        #expect(record.parameters["session_type"] == .string("cold_launch"))
+        #expect(record.parameters["root_route"] == .string("main_app"))
+        #expect(record.parameters["auth_state"] == .string("authenticated"))
+    }
+
+    @Test("A background before the root view ever observed a launch reports nothing")
+    func backgroundWithoutAnObservedLaunchReportsNothing() {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let coordinator = makeCoordinator(sink: sink, coldLaunchResolutionWait: {})
+
+        coordinator.recordDidEnterBackground(at: Date(timeIntervalSince1970: 10_000))
+
+        #expect(sink.records.isEmpty)
+    }
+
     @Test("Brief app switches do not start sessions, while the inactivity boundary does")
     func foregroundSessionHonorsBothSidesOfInactivityThreshold() throws {
         let sink = InMemoryTelemetrySink(destination: .analytics)
