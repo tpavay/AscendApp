@@ -106,7 +106,6 @@ final class ShareComposerViewModel {
             stepHeight: stepHeight,
             climbName: climbNameOverride ?? climbName,
             climbLocation: climb?.displayLocation,
-            climbFloors: climb?.calculatedFloors,
             climbRank: climbRank,
             climbRankTotal: climbRankTotal,
             splitTargetSteps: climb?.referenceStepCount

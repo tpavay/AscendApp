@@ -139,6 +139,40 @@ struct ShareStatResolverTests {
         #expect(!resolver.availableKinds().contains(.climbRankWithTotal))
     }
 
+    /// FLOORS shares a row with STEPS and AVG SPM, both of which are the
+    /// attempt's own numbers, so it reports the attempt too - a climber who
+    /// stopped a quarter of the way up a 102-floor tower did not climb 102.
+    @Test
+    func floorsReportTheAttemptNotTheTowersCatalogueHeight() throws {
+        let workout = Workout(
+            name: "Live Climb",
+            duration: 600,
+            steps: 500,
+            floors: Workout.stepsToFloors(500, stepsPerFloor: 16),
+            source: .headphoneMotion
+        )
+        let resolver = makeResolver(workout: workout, climbName: "Empire State Building")
+
+        let floors = try #require(resolver.resolve(.climbFloors))
+        #expect(floors.label == "FLOORS")
+        #expect(floors.value == "31")
+    }
+
+    @Test
+    func floorsAreNotOfferedForANonClimbWorkout() {
+        let workout = Workout(
+            name: "Stair Workout",
+            duration: 600,
+            steps: 500,
+            floors: Workout.stepsToFloors(500, stepsPerFloor: 16),
+            source: .headphoneMotion
+        )
+        let resolver = makeResolver(workout: workout)
+
+        #expect(resolver.resolve(.climbFloors) == nil)
+        #expect(!resolver.availableKinds().contains(.climbFloors))
+    }
+
     @Test(arguments: [
         (149, ["1-29", "30-58", "59-87", "88-116", "117-149"]),
         (2_046, ["1-409", "410-818", "819-1227", "1228-1636", "1637-2046"])

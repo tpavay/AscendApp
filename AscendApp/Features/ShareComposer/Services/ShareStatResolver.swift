@@ -12,7 +12,6 @@ struct ShareStatResolver {
     let stepHeight: Double
     var climbName: String?
     var climbLocation: String? = nil
-    var climbFloors: Int? = nil
     var climbRank: Int?
     var climbRankTotal: Int?
     var splitTargetSteps: Int?
@@ -91,8 +90,11 @@ struct ShareStatResolver {
             return ResolvedShareStat(kind: kind, label: "LOCATION", value: climbLocation)
 
         case .climbFloors:
-            guard let climbFloors, climbFloors > 0 else { return nil }
-            return ResolvedShareStat(kind: kind, label: "FLOORS", value: Self.integer(climbFloors))
+            // The attempt's own floors, never the tower's catalogue height: this
+            // sits beside STEPS and AVG SPM, so all three have to report the
+            // same climb the climber actually made.
+            guard isClimb, workout.floors > 0 else { return nil }
+            return ResolvedShareStat(kind: kind, label: "FLOORS", value: Self.integer(workout.floors))
 
         case .climbRank:
             guard let climbRank, climbRank > 0 else { return nil }
