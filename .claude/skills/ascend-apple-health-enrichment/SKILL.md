@@ -39,7 +39,7 @@ There is no second coordinator and no second status enum; do not add one.
 - Health writes a climb's samples *after* the climb ends, so one attempt at save time answers for nobody.
   `AppleHealthEnrichmentSchedule` is the bounded curve - nine attempts reaching roughly ten hours past the climb, dense early and sparse late - plus a 72-hour eligibility window for a climb the curve never covered (one hydrated onto a fresh device, one whose ledger entry was lost).
 - `AppleHealthEnrichmentAttemptStore` is the ledger, and eligibility is a **persisted absolute date**, never a counter with a cooldown.
-  Several surfaces ask about the same climb in the same instant - the completion summary, the workout detail, an app foreground and the timer itself - and a counter would let three of them spend three attempts on one millisecond.
+  Several callers ask about the same climb in the same instant - the save-time pass, the workout detail, an app foreground and the timer itself - and a counter would let three of them spend three attempts on one millisecond.
   An absolute date is unanimous whoever reads it, and it survives relaunch, so a force-quit does not hand out a fresh budget.
   The service reads its curve back off the ledger (`attemptStore.schedule`) rather than holding a second copy.
 - One timer serves every tracked climb: it sleeps until the earliest due attempt across all of them, runs one pass, and re-arms.
@@ -76,7 +76,7 @@ Resolve the phase once per pass, outside the view body.
 ## The kill switch
 
 `apple_health_enrichment_enabled` (`RemoteFeatureFlag.appleHealthEnrichment`) gates enrichment where the work can be *deferred*, so a blocked pass leaves the attempt ledger untouched and the climb resumes its own series when the flag comes back.
-While it is off, the connect offer is withheld too: asking for Health access would spend a real iOS permission prompt - the one thing a climber can only be asked once - on a benefit the app has been told not to deliver.
+While it is off, `offersConnectionPrompt` refuses too, so no surface built on it may ask for Health access: that would spend a real iOS permission prompt - the one thing a climber can only be asked once - on a benefit the app has been told not to deliver.
 See `docs/remote-config-kill-switches.md`.
 
 ## Entry-path cost (the ASCEND-IOS-1K rule)
@@ -107,4 +107,4 @@ See `docs/remote-config-kill-switches.md`.
 - Enrichment writes columns; it never changes the store's shape. A new stored property is a schema migration - see `ascend-data-migration`.
 - Load the `healthkit` skill for Apple Health API work.
 - The canonical workout contract, plausibility gate and source-vs-participation split live in `ascend-workout-model`.
-- The climb surfaces that render these phases - completion summary, workout detail - belong to `ascend-live-climbs`.
+- What the climb surfaces - completion summary, workout detail - do with heart rate belongs to `ascend-live-climbs`.

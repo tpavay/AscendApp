@@ -36,12 +36,15 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
 
     /// What Ascend can honestly tell a climber about their heart rate for one climb.
     ///
-    /// Every case is something the UI says out loud. There is no case that renders as a blank
-    /// - a silent absence was the original bug.
+    /// This is the single answer for any surface that chooses to narrate enrichment state, and
+    /// no such surface may resolve it a second way. The climb surfaces deliberately narrate
+    /// none of it: the Live Climb completion summary and Workout Detail show the chart when a
+    /// stored series exists and nothing at all when it does not, and Settings -> Integrations
+    /// is the only place that explains connection and permission state.
     enum Phase: Equatable {
         /// Not a climb Ascend recorded, or its heart rate is already attached.
         case notApplicable
-        /// Health has never been connected. The climber is offered the connection here.
+        /// Health has never been connected. Settings -> Integrations is where that is offered.
         case connectionOffered
         /// This device cannot read Apple Health at all.
         case unavailable
@@ -55,7 +58,7 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         /// cannot keep: `Task.sleep` does not advance while the app is suspended, so the number
         /// would be wrong in exactly the case a climber checks it - after backgrounding.
         case waiting
-        /// The automatic series is spent. Manual fetch is still offered.
+        /// The automatic series is spent. A hand-requested read can still run.
         case stoppedLooking
         /// Enrichment is switched off at the backend. Nothing is being read, and nothing was
         /// spent - distinct from `stoppedLooking`, which says Ascend looked and found nothing.
@@ -365,9 +368,10 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
 
     /// Whether this climb is one a Health connection would still pay off for.
     ///
-    /// What the post-climb connect prompt asks. It is deliberately not conditioned on the
-    /// retry ledger: a climber who has never connected has never had an attempt run, and the
-    /// offer is the point.
+    /// No shipped surface asks this today - the post-climb connect card was removed, and
+    /// Settings -> Integrations offers the connection without reference to a single climb. It
+    /// is deliberately not conditioned on the retry ledger: a climber who has never connected
+    /// has never had an attempt run, and the offer would be the point.
     ///
     /// It is conditioned on the kill switch, though. Asking for Health access while enrichment
     /// is switched off spends a permission prompt - the one thing a climber can only be asked
