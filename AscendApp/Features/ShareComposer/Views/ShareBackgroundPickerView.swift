@@ -5,13 +5,18 @@ import SwiftUI
 struct ShareBackgroundPickerView: View {
     let title: String
     let presets: [ShareComposerPreset]
+    /// Which tabs to draw. The same value the sources coach mark describes, so the pill and the
+    /// card can never name a different set of sources.
+    let sourceOptions: ShareComposerSourceOptions
     /// Optional one-tap recap cards (climb hero + auto-arranged stats).
     var recap: RecapPreview?
     let onPick: (ShareBackgroundSource) -> Void
     var onPickRecap: ((ShareCardTemplate) -> Void)?
     let onClose: () -> Void
+    let walkthrough: ShareComposerWalkthroughCoordinator
 
     @State private var selectedTab: Tab = .cameraRoll
+    @AccessibilityFocusState private var sourceTabsAreFocused: Bool
 
     private let accent = Color(red: 0.706, green: 0.8, blue: 0)
 
@@ -31,10 +36,11 @@ struct ShareBackgroundPickerView: View {
             VStack(spacing: 0) {
                 header
                 tabPill
+                    .accessibilityFocused($sourceTabsAreFocused)
                     .padding(.top, 18)
                     .padding(.bottom, 8)
 
-                switch selectedTab {
+                switch visibleTab {
                 case .cameraRoll:
                     ShareCameraRollGrid(onPick: onPick)
                 case .presets:
@@ -46,6 +52,33 @@ struct ShareBackgroundPickerView: View {
                 Spacer(minLength: 0)
             }
         }
+        .onChange(of: walkthrough.restingFocusTarget) { _, target in
+            guard target == .sources else { return }
+            sourceTabsAreFocused = true
+        }
+    }
+
+    /// A selection can only ever name a tab the pill is drawing.
+    private var visibleTab: Tab {
+        switch selectedTab {
+        case .presets:
+            return offersPresets ? .presets : .cameraRoll
+        case .recaps:
+            return offersRecaps ? .recaps : .cameraRoll
+        case .cameraRoll:
+            return .cameraRoll
+        }
+    }
+
+    private var offersPresets: Bool {
+        sourceOptions.hasPresets && !presets.isEmpty
+    }
+
+    /// A tab is only offered once it has something behind it: recap templates resolve after the
+    /// first render, and a failed load leaves none at all.
+    private var offersRecaps: Bool {
+        guard sourceOptions.hasRecaps, let recap, !recap.templates.isEmpty else { return false }
+        return onPickRecap != nil
     }
 
     // MARK: - Header
@@ -80,14 +113,17 @@ struct ShareBackgroundPickerView: View {
     private var tabPill: some View {
         HStack(spacing: 0) {
             tabButton("Camera Roll", tab: .cameraRoll)
-            tabButton("Presets", tab: .presets)
-            if recap != nil {
+            if offersPresets {
+                tabButton("Presets", tab: .presets)
+            }
+            if offersRecaps {
                 tabButton("Recaps", tab: .recaps)
             }
         }
         .padding(4)
         .background(.white.opacity(0.06), in: Capsule(style: .continuous))
         .overlay(Capsule(style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
+        .shareComposerCoachMarkTarget(.sources)
         .padding(.horizontal, 24)
     }
 
@@ -99,11 +135,11 @@ struct ShareBackgroundPickerView: View {
         } label: {
             Text(label)
                 .font(.montserratSemiBold(size: 14))
-                .foregroundStyle(selectedTab == tab ? .white : .white.opacity(0.5))
+                .foregroundStyle(visibleTab == tab ? .white : .white.opacity(0.5))
                 .frame(maxWidth: .infinity)
-                .frame(height: 40)
+                .frame(height: 44)
                 .background {
-                    if selectedTab == tab {
+                    if visibleTab == tab {
                         Capsule(style: .continuous).fill(.white.opacity(0.12))
                     }
                 }
@@ -145,7 +181,7 @@ struct ShareBackgroundPickerView: View {
     private var recapsContent: some View {
         ScrollView {
             VStack(spacing: 12) {
-                if let recap, let onPickRecap {
+                if offersRecaps, let recap, let onPickRecap {
                     LazyVGrid(
                         columns: [
                             GridItem(.flexible(), spacing: 14),

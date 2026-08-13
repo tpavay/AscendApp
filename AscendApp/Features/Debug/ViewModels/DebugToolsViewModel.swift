@@ -15,6 +15,7 @@ import SwiftData
 @Observable
 class DebugToolsViewModel {
     private let service = DebugToolsService.shared
+    private let shareComposerWalkthroughStore: ShareComposerWalkthroughStore
 
     private enum ActionTitle {
         static let seedWorkouts = "Seed Workouts"
@@ -24,6 +25,7 @@ class DebugToolsViewModel {
         static let replayFullOnboardingFromLanding = "Replay From Landing"
         static let completePostAuthOnboarding = "Complete Post-Auth Onboarding"
         static let resetRoutineBuilderWalkthrough = "Reset Routine Builder Walkthrough"
+        static let resetShareComposerWalkthrough = "Reset Share Composer Walkthrough"
         static let forceAppAccessGate = "Force App Access Gate"
         static let clearAppAccessGateOverride = "Clear App Access Gate Override"
         static let presentAppAccessPaywall = "Present App Access Paywall"
@@ -36,6 +38,12 @@ class DebugToolsViewModel {
     var executingActionId: UUID?  // Track which specific action is executing
     var errorMessage: String?
     var successMessage: String?
+
+    init(
+        shareComposerWalkthroughStore: ShareComposerWalkthroughStore = ShareComposerWalkthroughStore()
+    ) {
+        self.shareComposerWalkthroughStore = shareComposerWalkthroughStore
+    }
 
     // MARK: - Debug Sections Configuration
 
@@ -94,6 +102,12 @@ class DebugToolsViewModel {
                     title: ActionTitle.resetRoutineBuilderWalkthrough,
                     description: "Clears the device-local first-open flag so the routine builder coach marks play again.",
                     icon: "hand.draw.fill",
+                    iconColor: .accent
+                ),
+                DebugAction(
+                    title: ActionTitle.resetShareComposerWalkthrough,
+                    description: "Clears the device-local first-open flag so the Share Composer coach marks play again.",
+                    icon: "photo.badge.plus",
                     iconColor: .accent
                 )
             ]
@@ -191,6 +205,9 @@ class DebugToolsViewModel {
                 UserDefaults.standard.removeObject(forKey: RoutineWindowCoachMark.seenStorageKey)
                 successMessage = "Routine builder walkthrough will play again on this device."
 
+            case ActionTitle.resetShareComposerWalkthrough:
+                resetShareComposerWalkthrough()
+
             case ActionTitle.replayPostAuthOnboarding:
                 let userId = try currentUserId()
                 PostAuthOnboardingStore().beginDebugReplay(for: userId)
@@ -267,6 +284,11 @@ class DebugToolsViewModel {
         }
 
         executingActionId = nil
+    }
+
+    func resetShareComposerWalkthrough() {
+        shareComposerWalkthroughStore.reset()
+        successMessage = "Share Composer walkthrough will play again on this device."
     }
 
     // ✅ Helper to check if a specific action is executing

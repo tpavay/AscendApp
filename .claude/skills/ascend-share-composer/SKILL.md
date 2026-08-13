@@ -79,6 +79,16 @@ Never grow a parallel model, renderer or gesture path for one.
 ## Composer motion
 Nothing on the canvas used to be animated. `ShareComposerAnimation` names the three curves - chrome around a drag, content reflow, sticker placement - and every canvas mutation goes through one of them. `withAnimation` lives in the view: `ShareComposerViewModel` does not import SwiftUI, so a mutation that should animate returns a fact (`handleDragEnded` returns whether it deleted) and the view decides.
 
+## First-open walkthrough
+
+The first composer open on an installation plays a four-step walkthrough - background sources, the stats sheet, the selected sticker's edit rail, filters - and never returns.
+`ShareComposerWalkthroughCoordinator` owns the sequence, `ShareComposerWalkthroughStore` owns the single device-local key, and Debug Tools clears it.
+**`docs/quality/contracts/issue-491.md` owns the step contract** (the ordering, the bounded wait for the picker's tabs, the fixed-length progress row, Skip and direct-entry behavior); read it before changing an order, a copy string, or what a step waits for.
+
+- **It draws through the shared coach-mark component, never a composer-local one.** `CoachMarkOverlay` and `CoachMarkPresentation` render both this and the routine builder's marks - see `ascend-design-system`. The same "never a second renderer" discipline as the card format applies here.
+- **A mark may only describe what is on screen.** The picker's tab pill and the sources card read one `ShareComposerSourceOptions`, and the edit-rail card is built from the selected sticker's own rail (`ShareComposerEditRailOptions`), so no card can name a control the climber does not have. A tab is offered only once something is behind it: no presets, no Presets tab; no resolved recap templates, no Recaps tab.
+- **The walkthrough follows the composer; it never drives it.** Choosing a recap still skips the automatic stats-sheet stagger, so that journey waits for a manual Add Stats rather than opening the sheet just to have something to point at.
+
 ## Boundaries
 - Photos library permission is requested at first share (point of use), never in onboarding.
 - Card templates ship **bundled**, and are rendered on-device. Do not build a remote template service or server-rendered card images. The format is shaped so a payload *could* later arrive over the wire; when a real reason appears (a campaign card, a template that ships broken), point the same decoder at the hosted climb-catalog channel this app already trusts (`HostedClimbCatalogRepository`) rather than adopting a second remote-content pattern. `minRendererVersion` filtering, unknown-element no-ops, and nullable stat references are already in place for that day.

@@ -6,10 +6,14 @@ import SwiftUI
 /// share entry point.
 struct ShareComposerView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
     @Query(sort: \Workout.date, order: .reverse) private var allWorkouts: [Workout]
 
     @State private var viewModel: ShareComposerViewModel
+    @State private var walkthrough: ShareComposerWalkthroughCoordinator
+    @AccessibilityFocusState private var editRailIsFocused: Bool
+    @AccessibilityFocusState private var filterButtonIsFocused: Bool
     @State private var showAddSheet = false
     @State private var showFilterSheet = false
     @State private var showFontSheet = false
@@ -46,7 +50,8 @@ struct ShareComposerView: View {
         workout: Workout,
         climb: Climb? = nil,
         liveClimbRank: Int? = nil,
-        liveClimbRankTotal: Int? = nil
+        liveClimbRankTotal: Int? = nil,
+        walkthroughStore: ShareComposerWalkthroughStore = ShareComposerWalkthroughStore()
     ) {
         let settings = SettingsManager.shared
         _viewModel = State(initialValue: ShareComposerViewModel(
@@ -66,6 +71,17 @@ struct ShareComposerView: View {
             presets = [.climbImage(climb, .hero)]
         }
         self.presets = presets
+
+        // Seeded with what is knowable synchronously. Recaps stay off until their templates
+        // resolve, so nothing ever promises a tab the picker has not drawn.
+        _walkthrough = State(initialValue: ShareComposerWalkthroughCoordinator(
+            entry: .picker,
+            sourceOptions: ShareComposerSourceOptions(
+                hasPresets: !presets.isEmpty,
+                hasRecaps: false
+            ),
+            store: walkthroughStore
+        ))
 
         if let climb {
             self.shareTitle = climb.name
@@ -105,6 +121,23 @@ struct ShareComposerView: View {
         return .init(templates: templates, context: context, climb: climb)
     }
 
+    /// True only once the Recaps tab has something to show, so nothing offers an empty shelf.
+    private var offersRecaps: Bool {
+        guard viewModel.climb != nil, let recapPreview else { return false }
+        return !recapPreview.templates.isEmpty
+    }
+
+    /// The sources this picker can offer right now.
+    private var liveSourceOptions: ShareComposerSourceOptions {
+        ShareComposerSourceOptions(hasPresets: !presets.isEmpty, hasRecaps: offersRecaps)
+    }
+
+    /// The one value behind both the picker's tabs and the sources mark's copy. While that mark is
+    /// on screen it is the frozen set the card names; otherwise it tracks what is available.
+    private var sourceOptions: ShareComposerSourceOptions {
+        walkthrough.presentedSourceOptions ?? liveSourceOptions
+    }
+
     /// Bake the selected template to an image and use it as the background.
     /// The user can then add stickers on top or save as-is.
     private func applyTemplate(_ template: ShareCardTemplate) {
@@ -123,6 +156,7 @@ struct ShareComposerView: View {
                 return
             }
             viewModel.resetForNewBackground(.recap(image))
+            walkthrough.backgroundSelected(.recap)
         }
     }
 
@@ -134,17 +168,21 @@ struct ShareComposerView: View {
                 ShareBackgroundPickerView(
                     title: shareTitle,
                     presets: presets,
+                    sourceOptions: sourceOptions,
                     recap: recapPreview,
                     onPick: { source in
                         // Re-picking a background starts a clean canvas.
                         viewModel.resetForNewBackground(source)
-                        Task {
-                            try? await Task.sleep(for: .seconds(0.35))
-                            showAddSheet = true
+                        if walkthrough.backgroundSelected(.photoOrPreset) {
+                            Task {
+                                try? await Task.sleep(for: .seconds(0.35))
+                                showAddSheet = true
+                            }
                         }
                     },
-                    onPickRecap: viewModel.climb != nil ? { template in applyTemplate(template) } : nil,
-                    onClose: { dismiss() }
+                    onPickRecap: offersRecaps ? { template in applyTemplate(template) } : nil,
+                    onClose: { dismiss() },
+                    walkthrough: walkthrough
                 )
             } else {
                 composer
@@ -169,7 +207,28 @@ struct ShareComposerView: View {
                 )
             }
         }
-        .sheet(isPresented: $showAddSheet) {
+        .overlayPreferenceValue(ShareComposerCoachMarkAnchorKey.self) { anchors in
+            GeometryReader { proxy in
+                if !applyingRecap,
+                   walkthrough.target != .stats,
+                   let target = walkthrough.target,
+                   let presentation = walkthrough.presentation {
+                    CoachMarkOverlay(
+                        presentation: presentation,
+                        targetRect: anchors[target].map { proxy[$0] },
+                        containerSize: proxy.size,
+                        onNext: advanceWalkthrough,
+                        onSkip: skipWalkthrough
+                    )
+                    .transition(.opacity)
+                }
+            }
+            // The canvas runs under the status bar, so the dim has to as well or a lit band is
+            // left above it. Scoped here so nothing else in the composer animates with the mark.
+            .ignoresSafeArea()
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: walkthrough.state)
+        }
+        .sheet(isPresented: $showAddSheet, onDismiss: walkthrough.statsSheetDismissed) {
             ShareAddStatSheet(
                 presets: viewModel.availablePresets(),
                 presetPreview: { viewModel.presetPreview(for: $0) },
@@ -178,6 +237,7 @@ struct ShareComposerView: View {
                 weeklyTotalStats: viewModel.weeklyTotalStats,
                 climb: viewModel.climb,
                 imageVariants: viewModel.climbImageStickerVariants,
+                walkthrough: walkthrough,
                 onPickPreset: { preset in
                     HapticsManager.shared.trigger(.lightImpact)
                     viewModel.addPresetSticker(preset)
@@ -199,6 +259,9 @@ struct ShareComposerView: View {
                     showAddSheet = false
                 }
             )
+            .onAppear {
+                walkthrough.statsSheetPresented()
+            }
             .presentationDetents([.fraction(0.6), .large])
             .presentationDragIndicator(.visible)
             .presentationBackground(Color(hex: "121212"))
@@ -248,6 +311,19 @@ struct ShareComposerView: View {
             Text("Rename how this climb appears on your share. Stat values can't be changed.")
         }
         .overlay(alignment: .bottom) { toastView }
+        .onChange(of: viewModel.selectedID) {
+            walkthrough.stickerSelected(selectedSticker)
+        }
+        .onChange(of: walkthrough.restingFocusTarget) { _, target in
+            switch target {
+            case .editRail:
+                editRailIsFocused = true
+            case .filters:
+                filterButtonIsFocused = true
+            case .sources, .stats, nil:
+                break
+            }
+        }
         .task {
             // Inject the workout's Best Efforts (from the cache) so each can be
             // added as its own sticker — they get their own add-sheet section.
@@ -264,6 +340,12 @@ struct ShareComposerView: View {
             viewModel.injectWeeklyTotals(from: allWorkouts)
             // Both injections feed the templates, so build the tab after them.
             recapPreview = makeRecapPreview()
+            walkthrough.sourceOptionsResolved(liveSourceOptions)
+        }
+        .task {
+            try? await Task.sleep(for: ShareComposerWalkthroughCoordinator.sourceOptionsResolutionLimit)
+            guard !Task.isCancelled else { return }
+            walkthrough.sourceOptionsResolutionTimedOut()
         }
         .trackOnce(screen: .shareComposer)
     }
@@ -465,16 +547,18 @@ struct ShareComposerView: View {
             HStack {
                 // Back to the background picker (not exit). Exit happens from
                 // the picker's chevron-down.
-                circleButton(systemName: "chevron.left") {
+                circleButton(systemName: "chevron.left", accessibilityLabel: "Choose another background") {
                     viewModel.deselect()
                     viewModel.background = nil
                 }
                 Spacer()
-                circleButton(systemName: "camera.filters") {
+                circleButton(systemName: "camera.filters", accessibilityLabel: "Background filters") {
                     viewModel.deselect()
                     HapticsManager.shared.trigger(.lightImpact)
                     showFilterSheet = true
                 }
+                .shareComposerCoachMarkTarget(.filters)
+                .accessibilityFocused($filterButtonIsFocused)
             }
             .padding(.horizontal, 12)
             .padding(.top, 52)
@@ -512,7 +596,7 @@ struct ShareComposerView: View {
                 // arrives already arranged, so neither control applies to it -
                 // its whole point is that nobody has to lay stats out.
                 if sticker.kind.supportsComposite, !sticker.isPreset {
-                    railButton(systemName: "square.grid.2x2") {
+                    railButton(systemName: "square.grid.2x2", accessibilityLabel: "Arrange stats") {
                         HapticsManager.shared.trigger(.lightImpact)
                         showStructureSheet = true
                     }
@@ -520,7 +604,7 @@ struct ShareComposerView: View {
 
                 // Rename — only when the sticker includes the climb name.
                 if sticker.containsClimbName {
-                    railButton(systemName: "pencil") {
+                    railButton(systemName: "pencil", accessibilityLabel: "Rename climb") {
                         HapticsManager.shared.trigger(.lightImpact)
                         renameText = viewModel.resolve(sticker)?.value ?? ""
                         showRenameClimb = true
@@ -531,20 +615,22 @@ struct ShareComposerView: View {
                 // however many there are — the control used to advance a value
                 // the multi-metric renderer ignored, so tapping it did nothing.
                 if !sticker.isStructured, !sticker.isPreset {
-                    railButton(systemName: sticker.labelPlacement.symbolName) {
+                    railButton(systemName: sticker.labelPlacement.symbolName, accessibilityLabel: "Change alignment") {
                         HapticsManager.shared.trigger(.lightImpact)
                         withAnimation(ShareComposerAnimation.content) {
                             viewModel.cycleLabelPlacement(for: sticker.id)
                         }
                     }
                 }
-                railButton(systemName: "character") { showFontSheet = true }
+                railButton(systemName: "character", accessibilityLabel: "Sticker font") { showFontSheet = true }
 
                 ColorPicker("", selection: colorBinding(sticker.id))
                     .labelsHidden()
-                    .frame(width: 36, height: 36)
+                    .frame(width: 44, height: 44)
+                    .contentShape(.rect)
+                    .accessibilityLabel("Sticker color")
 
-                railButton(systemName: textBackgroundIcon(sticker.textBackground)) {
+                railButton(systemName: textBackgroundIcon(sticker.textBackground), accessibilityLabel: "Sticker panel") {
                     HapticsManager.shared.trigger(.lightImpact)
                     withAnimation(ShareComposerAnimation.content) {
                         viewModel.cycleTextBackground(for: sticker.id)
@@ -552,11 +638,17 @@ struct ShareComposerView: View {
                 }
             }
             .padding(.trailing, 14)
+            .shareComposerCoachMarkTarget(.editRail)
+            .accessibilityFocused($editRailIsFocused)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         }
     }
 
-    private func railButton(systemName: String, action: @escaping () -> Void) -> some View {
+    private func railButton(
+        systemName: String,
+        accessibilityLabel: String,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 16, weight: .semibold))
@@ -564,7 +656,10 @@ struct ShareComposerView: View {
                 .frame(width: 36, height: 36)
                 .background(Circle().fill(.black.opacity(0.4)).overlay(Circle().stroke(.white.opacity(0.2), lineWidth: 1)))
         }
+        .frame(width: 44, height: 44)
+        .contentShape(.rect)
         .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
     }
 
     private func textBackgroundIcon(_ bg: ShareTextBackground) -> String {
@@ -597,6 +692,7 @@ struct ShareComposerView: View {
                 .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 1))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Add stats")
     }
 
     /// Action strip in its own space below the photo — never overlaps the image.
@@ -706,7 +802,11 @@ struct ShareComposerView: View {
         .buttonStyle(.plain)
     }
 
-    private func circleButton(systemName: String, action: @escaping () -> Void) -> some View {
+    private func circleButton(
+        systemName: String,
+        accessibilityLabel: String,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 16, weight: .semibold))
@@ -714,7 +814,10 @@ struct ShareComposerView: View {
                 .frame(width: 36, height: 36)
                 .background(Circle().fill(.black.opacity(0.32)))
         }
+        .frame(width: 44, height: 44)
+        .contentShape(.rect)
         .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
     }
 
     @ViewBuilder
@@ -729,6 +832,16 @@ struct ShareComposerView: View {
                 .padding(.bottom, 120)
                 .transition(.opacity)
         }
+    }
+
+    // MARK: - First-open walkthrough
+
+    private func advanceWalkthrough() {
+        walkthrough.advance()
+    }
+
+    private func skipWalkthrough() {
+        walkthrough.skip()
     }
 
     // MARK: - Export actions
@@ -823,12 +936,14 @@ private struct ShareAddStatSheet: View {
     let weeklyTotalStats: [ResolvedShareStat]
     let climb: Climb?
     let imageVariants: [ClimbImageVariant]
+    let walkthrough: ShareComposerWalkthroughCoordinator
     let onPickPreset: (ShareStatClusterPreset) -> Void
     let onPickStat: (ResolvedShareStat) -> Void
     let onPickInjected: (ResolvedShareStat) -> Void
     let onPickImage: (ClimbImageVariant) -> Void
 
     @State private var tab: Tab = .primary
+    @AccessibilityFocusState private var statsTabsAreFocused: Bool
     enum Tab { case primary, totals }
 
     private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
@@ -840,6 +955,7 @@ private struct ShareAddStatSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             tabPill
+                .accessibilityFocused($statsTabsAreFocused)
                 .padding(.horizontal, 24)
                 .padding(.top, 18)
                 .padding(.bottom, 16)
@@ -851,8 +967,34 @@ private struct ShareAddStatSheet: View {
                     totalsContent
                 }
             }
+            .shareComposerCoachMarkTarget(.stats)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onChange(of: walkthrough.restingFocusTarget) { _, target in
+            guard target == .stats else { return }
+            statsTabsAreFocused = true
+        }
+        .overlayPreferenceValue(ShareComposerCoachMarkAnchorKey.self) { anchors in
+            GeometryReader { proxy in
+                if walkthrough.target == .stats,
+                   let presentation = walkthrough.presentation {
+                    CoachMarkOverlay(
+                        presentation: presentation,
+                        targetRect: anchors[.stats]
+                            .map { proxy[$0] }
+                            .flatMap {
+                                ShareComposerCoachMarkGeometry.statsSpotlightRect(
+                                    for: $0,
+                                    in: proxy.size
+                                )
+                            },
+                        containerSize: proxy.size,
+                        onNext: walkthrough.advance,
+                        onSkip: walkthrough.skip
+                    )
+                }
+            }
+        }
     }
 
     // MARK: - Tabs
@@ -877,7 +1019,7 @@ private struct ShareAddStatSheet: View {
                 .font(.montserratSemiBold(size: 14))
                 .foregroundStyle(tab == destination ? .white : .white.opacity(0.5))
                 .frame(maxWidth: .infinity)
-                .frame(height: 38)
+                .frame(height: 44)
                 .background {
                     if tab == destination {
                         Capsule(style: .continuous).fill(.white.opacity(0.12))

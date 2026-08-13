@@ -21,6 +21,13 @@ struct ShareStatClusterPickerEvidenceTests {
 
     @Test
     func theGroupsPickerAndAPlacedClusterArePhotographed() async throws {
+        let defaultsSuite = "ShareStatClusterPickerEvidenceTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
+        defaults.removePersistentDomain(forName: defaultsSuite)
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let walkthroughStore = ShareComposerWalkthroughStore(defaults: defaults)
+        walkthroughStore.markSeen()
+
         let container = try ModelContainer(
             for: Workout.self,
             WorkoutSourceLink.self,
@@ -44,7 +51,8 @@ struct ShareStatClusterPickerEvidenceTests {
             workout: workout,
             climb: .preview,
             liveClimbRank: 4,
-            liveClimbRankTotal: 1_284
+            liveClimbRankTotal: 1_284,
+            walkthroughStore: walkthroughStore
         )
         .modelContainer(container)
 
