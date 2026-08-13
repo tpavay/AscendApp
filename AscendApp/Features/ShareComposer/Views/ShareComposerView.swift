@@ -515,7 +515,11 @@ struct ShareComposerView: View {
         }
     }
 
-    private static func fittedStoryCanvasSize(in container: CGSize) -> CGSize {
+    /// The story frame the canvas draws in, fitted inside whatever the chrome
+    /// leaves. Not private: it is the on-screen half of the pair that has to
+    /// agree with `ShareComposerExporter.exportSize`, and a test that recomputed
+    /// it would only be checking its own arithmetic.
+    static func fittedStoryCanvasSize(in container: CGSize) -> CGSize {
         guard container.width > 0, container.height > 0 else { return .zero }
 
         let widthFromHeight = container.height * storyAspectRatio

@@ -8,9 +8,10 @@ import UIKit
 /// Renders the composed share to an image and routes it to Photos, Instagram
 /// Stories, or the system share sheet.
 ///
-/// V1: photo + preset backgrounds export fully. A video background exports a
-/// still (poster frame + burned-in stickers); full motion-video export
-/// (`AVVideoCompositionCoreAnimationTool`) is the documented fast-follow.
+/// Photo, recap and preset backgrounds compose to a still through
+/// `renderImage`. A video background composes to a movie through `exportVideo`
+/// instead, with the overlay burned onto every frame by Core Image. Both write
+/// `exportSize`, because both are the frame the climber arranged on the canvas.
 @MainActor
 struct ShareComposerExporter {
     /// Story-format export resolution.
@@ -142,16 +143,21 @@ struct ShareComposerExporter {
     /// Exports the video background with the sticker/wordmark overlay burned in,
     /// returning a temporary file URL (or nil on failure). The overlay is
     /// rendered once and composited over every frame via Core Image.
+    ///
+    /// The movie is written at `exportSize`, not at the source video's own frame.
+    /// The canvas previews a video through `resizeAspectFill` inside the story
+    /// frame, so a 4:3 clip is already shown cropped to it while the climber
+    /// arranges the stickers; exporting the source frame instead handed back a
+    /// composition nobody composed, and a share that letterboxed on the phone it
+    /// came from.
     func exportVideo(viewModel: ShareComposerViewModel) async -> URL? {
         guard case .video(let url) = viewModel.background else { return nil }
         let asset = AVURLAsset(url: url)
-        guard let renderSize = await Self.videoRenderSize(asset) else { return nil }
         let climbArtworkOverrides = await climbArtworkOverrides(for: viewModel)
 
-        // Render the overlay at the video's display size so it aligns 1:1.
         guard let overlay = renderOverlay(
             viewModel: viewModel,
-            size: renderSize,
+            size: Self.exportSize,
             climbArtworkOverrides: climbArtworkOverrides
         ),
               let overlayCI = CIImage(image: overlay) else {
@@ -160,6 +166,7 @@ struct ShareComposerExporter {
         return await Self.composeVideo(
             asset: asset,
             overlay: UncheckedCIImage(image: overlayCI),
+            frameSize: Self.exportSize,
             backgroundScale: viewModel.backgroundScale,
             backgroundOffset: viewModel.backgroundOffset,
             backgroundFilter: viewModel.backgroundFilter
@@ -186,21 +193,10 @@ struct ShareComposerExporter {
         )
     }
 
-    /// The asset's display (orientation-applied) size.
-    nonisolated private static func videoRenderSize(_ asset: AVURLAsset) async -> CGSize? {
-        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
-              let natural = try? await track.load(.naturalSize),
-              let transform = try? await track.load(.preferredTransform) else {
-            return nil
-        }
-        let rect = CGRect(origin: .zero, size: natural).applying(transform)
-        let size = CGSize(width: abs(rect.width), height: abs(rect.height))
-        return (size.width > 0 && size.height > 0) ? size : natural
-    }
-
     nonisolated private static func composeVideo(
         asset: AVURLAsset,
         overlay: UncheckedCIImage,
+        frameSize: CGSize,
         backgroundScale: CGFloat,
         backgroundOffset: CGSize,
         backgroundFilter: ShareBackgroundFilter
@@ -210,6 +206,7 @@ struct ShareComposerExporter {
         guard let videoComposition = await videoComposition(
             for: asset,
             overlay: overlay,
+            frameSize: frameSize,
             safeScale: safeScale,
             backgroundOffset: backgroundOffset,
             backgroundFilter: backgroundFilter
@@ -235,37 +232,56 @@ struct ShareComposerExporter {
     nonisolated private static func videoComposition(
         for asset: AVAsset,
         overlay: UncheckedCIImage,
+        frameSize: CGSize,
         safeScale: CGFloat,
         backgroundOffset: CGSize,
         backgroundFilter: ShareBackgroundFilter
     ) async -> AVVideoComposition? {
-        await withCheckedContinuation { continuation in
+        let frame = CGRect(origin: .zero, size: frameSize)
+        let composition: AVVideoComposition? = await withCheckedContinuation { continuation in
             AVVideoComposition.videoComposition(with: asset) { request in
                 let source = request.sourceImage
                 let extent = source.extent
                 let filteredSource = applyVideoColorFilter(backgroundFilter, to: source)
                     .cropped(to: extent)
-                let scaledWidth = extent.width * safeScale
-                let scaledHeight = extent.height * safeScale
-                let offsetX = backgroundOffset.width * extent.width
-                let offsetY = backgroundOffset.height * extent.height
+
+                // Fill the story frame the way the canvas previews it
+                // (`resizeAspectFill`), then apply the climber's own pinch and
+                // pan on top of that fit - the same order the canvas applies
+                // them in, so the two agree whatever shape the clip is.
+                let fill = max(frame.width / extent.width, frame.height / extent.height)
+                let scale = fill * safeScale
+                let scaledWidth = extent.width * scale
+                let scaledHeight = extent.height * scale
+                let offsetX = backgroundOffset.width * frame.width
+                let offsetY = backgroundOffset.height * frame.height
                 let transform = CGAffineTransform(
-                    a: safeScale,
+                    a: scale,
                     b: 0,
                     c: 0,
-                    d: safeScale,
-                    tx: extent.minX + ((extent.width - scaledWidth) / 2) + offsetX,
-                    ty: extent.minY + ((extent.height - scaledHeight) / 2) - offsetY
+                    d: scale,
+                    tx: frame.midX - (scaledWidth / 2) - (extent.minX * scale) + offsetX,
+                    ty: frame.midY - (scaledHeight / 2) - (extent.minY * scale) - offsetY
                 )
                 let transformedSource = filteredSource.transformed(by: transform)
-                let background = CIImage(color: .black).cropped(to: extent)
+                let background = CIImage(color: .black).cropped(to: frame)
                 let compositedBackground = transformedSource.composited(over: background)
                 let composited = overlay.image.composited(over: compositedBackground)
-                request.finish(with: composited.cropped(to: source.extent), context: nil)
+                request.finish(with: composited.cropped(to: frame), context: nil)
             } completionHandler: { videoComposition, _ in
                 continuation.resume(returning: videoComposition)
             }
         }
+
+        // The factory sizes the composition to the asset, so the story frame has
+        // to be set afterwards on a mutable copy. Without this the handler's
+        // output is scaled back down into the source video's own frame and the
+        // reframing above buys nothing.
+        guard let mutable = composition?.mutableCopy() as? AVMutableVideoComposition else {
+            return composition
+        }
+        mutable.renderSize = frameSize
+        return mutable
     }
 
     nonisolated private static func applyVideoColorFilter(_ filter: ShareBackgroundFilter, to image: CIImage) -> CIImage {
