@@ -150,6 +150,11 @@ struct ShareComposerExporter {
     /// arranges the stickers; exporting the source frame instead handed back a
     /// composition nobody composed, and a share that letterboxed on the phone it
     /// came from.
+    ///
+    /// The canvas crops before it transforms - the player layer fills and clips
+    /// to the canvas bounds, and only then does SwiftUI scale and offset that
+    /// canvas-sized view - so the export fills, crops to the story frame, and
+    /// applies the climber's pinch and pan last, in that order.
     func exportVideo(viewModel: ShareComposerViewModel) async -> URL? {
         guard case .video(let url) = viewModel.background else { return nil }
         let asset = AVURLAsset(url: url)
@@ -245,25 +250,39 @@ struct ShareComposerExporter {
                 let filteredSource = applyVideoColorFilter(backgroundFilter, to: source)
                     .cropped(to: extent)
 
-                // Fill the story frame the way the canvas previews it
-                // (`resizeAspectFill`), then apply the climber's own pinch and
-                // pan on top of that fit - the same order the canvas applies
-                // them in, so the two agree whatever shape the clip is.
+                // The canvas fills the story frame with the clip and clips it to
+                // those bounds (`resizeAspectFill` on the player layer), and only
+                // then scales and offsets that canvas-sized view. Mirror that
+                // order: fill, crop to the frame, then the climber's own pinch
+                // and pan. Fusing the two scales into one transform on the
+                // uncropped source shows footage in the export that the preview
+                // had already cropped away.
                 let fill = max(frame.width / extent.width, frame.height / extent.height)
-                let scale = fill * safeScale
-                let scaledWidth = extent.width * scale
-                let scaledHeight = extent.height * scale
-                let offsetX = backgroundOffset.width * frame.width
-                let offsetY = backgroundOffset.height * frame.height
-                let transform = CGAffineTransform(
-                    a: scale,
+                let filledWidth = extent.width * fill
+                let filledHeight = extent.height * fill
+                let fillTransform = CGAffineTransform(
+                    a: fill,
                     b: 0,
                     c: 0,
-                    d: scale,
-                    tx: frame.midX - (scaledWidth / 2) - (extent.minX * scale) + offsetX,
-                    ty: frame.midY - (scaledHeight / 2) - (extent.minY * scale) - offsetY
+                    d: fill,
+                    tx: frame.midX - (filledWidth / 2) - (extent.minX * fill),
+                    ty: frame.midY - (filledHeight / 2) - (extent.minY * fill)
                 )
-                let transformedSource = filteredSource.transformed(by: transform)
+                let filled = filteredSource.transformed(by: fillTransform).cropped(to: frame)
+
+                // Core Image's origin is bottom-left and the canvas offset is
+                // top-down, so the vertical offset is subtracted.
+                let offsetX = backgroundOffset.width * frame.width
+                let offsetY = backgroundOffset.height * frame.height
+                let climberTransform = CGAffineTransform(
+                    a: safeScale,
+                    b: 0,
+                    c: 0,
+                    d: safeScale,
+                    tx: frame.midX * (1 - safeScale) + offsetX,
+                    ty: frame.midY * (1 - safeScale) - offsetY
+                )
+                let transformedSource = filled.transformed(by: climberTransform)
                 let background = CIImage(color: .black).cropped(to: frame)
                 let compositedBackground = transformedSource.composited(over: background)
                 let composited = overlay.image.composited(over: compositedBackground)
@@ -276,9 +295,10 @@ struct ShareComposerExporter {
         // The factory sizes the composition to the asset, so the story frame has
         // to be set afterwards on a mutable copy. Without this the handler's
         // output is scaled back down into the source video's own frame and the
-        // reframing above buys nothing.
+        // reframing above buys nothing - so a copy that cannot be made is a
+        // failed export, not a silently letterboxed one.
         guard let mutable = composition?.mutableCopy() as? AVMutableVideoComposition else {
-            return composition
+            return nil
         }
         mutable.renderSize = frameSize
         return mutable

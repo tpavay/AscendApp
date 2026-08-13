@@ -95,7 +95,7 @@ struct ShareComposerBackgroundFillEvidenceTests {
         // Dimensions alone would pass on a movie that reached the story frame by
         // padding the clip with black, which is the defect wearing a disguise.
         let frame = try #require(await Self.posterFrame(of: exported), "no frame came back")
-        let bands = try Self.uniformEdgeBands(frame)
+        let bands = try Self.uniformEdgeBands(frame, baseTolerance: Self.movieBaseTolerance)
         Self.writeEvidence(frame, named: "export-video-frame")
 
         let report = """
@@ -124,6 +124,145 @@ struct ShareComposerBackgroundFillEvidenceTests {
             The exported movie reached the story frame with bare canvas at its edges - \
             top \(bands.top), bottom \(bands.bottom), left \(bands.left), right \(bands.right). \
             A 9:16 clip has to be filled into the frame, not padded to it.
+            """
+        )
+    }
+
+    /// The clip a camera roll actually hands over: landscape frames carrying a
+    /// 90-degree preferred transform, so the display frame is portrait and the
+    /// fill axis flips from the one the portrait fixture exercises. This is where
+    /// the horizontal slack is largest, and it is the case that proves the export
+    /// reads the clip the way the canvas shows it rather than the way it is stored.
+    @Test
+    func aRotatedLandscapeVideoBackgroundFillsTheStoryFrame() async throws {
+        let source = try await Self.videoFile(
+            size: CGSize(width: 1920, height: 1440),
+            transform: CGAffineTransform(rotationAngle: .pi / 2),
+            marksLeadingEdge: true
+        )
+        let viewModel = Self.makeViewModel(background: .video(source))
+        let exported = try #require(
+            await Self.exporter().exportVideo(viewModel: viewModel),
+            "the rotated video export produced no file"
+        )
+        let rendered = try #require(
+            await Self.displaySize(of: exported),
+            "the exported movie has no video track"
+        )
+        let composed = try #require(await Self.displaySize(of: source))
+        let frame = try #require(await Self.posterFrame(of: exported), "no frame came back")
+        let bands = try Self.uniformEdgeBands(frame, baseTolerance: Self.movieBaseTolerance)
+        let marker = try Self.markerEdgeBands(frame)
+        Self.writeEvidence(frame, named: "export-video-rotated-frame")
+
+        let report = """
+        Share composer video export, rotated landscape source
+          source video   1920x1440 px stored, \(Int(composed.width))x\(Int(composed.height)) px displayed
+          exported movie \(Int(rendered.width))x\(Int(rendered.height)) px
+          frame bands    top \(bands.top) bottom \(bands.bottom) left \(bands.left) right \(bands.right)
+          marker bands   top \(marker.top) bottom \(marker.bottom) left \(marker.left) right \(marker.right)
+        """
+        print(report)
+        Self.writeEvidence(report, named: "share-composer-video-export-rotated")
+
+        #expect(
+            rendered == ShareComposerExporter.exportSize,
+            """
+            A rotated landscape clip exported \(Int(rendered.width))x\(Int(rendered.height)), \
+            not the \(Int(ShareComposerExporter.exportSize.width))x\
+            \(Int(ShareComposerExporter.exportSize.height)) story frame it was composed in.
+            """
+        )
+        #expect(
+            bands.top <= Self.bandTolerance && bands.bottom <= Self.bandTolerance
+                && bands.left <= Self.bandTolerance && bands.right <= Self.bandTolerance,
+            """
+            The rotated clip reached the story frame with bare canvas at its edges - \
+            top \(bands.top), bottom \(bands.bottom), left \(bands.left), right \(bands.right).
+            """
+        )
+        // The marker paints the leading edge of the *stored* landscape frame. Read
+        // through the preferred transform it is a horizontal band the vertical fill
+        // keeps; read as stored it is a vertical band the horizontal fill crops
+        // away entirely, so where it lands says which frame the export composed.
+        #expect(
+            max(marker.top, marker.bottom) > 100 && marker.left == 0 && marker.right == 0,
+            """
+            The source's leading-edge marker landed as top \(marker.top), bottom \(marker.bottom), \
+            left \(marker.left), right \(marker.right). The export filled the clip's stored \
+            landscape frame instead of the portrait frame the canvas previews.
+            """
+        )
+    }
+
+    /// The canvas crops the clip to its bounds before it applies the climber's
+    /// pinch and pan: the player layer fills and clips, and SwiftUI then scales
+    /// and offsets that canvas-sized view. Zoomed out, that leaves bare canvas in
+    /// a measurable place. Fusing the fill and the pinch into one transform on the
+    /// uncropped source puts source footage there instead - footage the preview
+    /// had already cropped away - so the bands are measured, not the comment.
+    @Test
+    func aZoomedOutVideoBackgroundCropsBeforeItTransforms() async throws {
+        let source = try await Self.videoFile()
+        let viewModel = Self.makeViewModel(background: .video(source))
+        viewModel.backgroundScale = 0.5
+        viewModel.backgroundOffset = CGSize(width: 0.1, height: 0.05)
+
+        let exported = try #require(
+            await Self.exporter().exportVideo(viewModel: viewModel),
+            "the zoomed-out video export produced no file"
+        )
+        let frame = try #require(await Self.posterFrame(of: exported), "no frame came back")
+        Self.writeEvidence(frame, named: "export-video-zoomed-frame")
+
+        // The wordmark is burned into the bottom of every share, so a bare-canvas
+        // band measured from that edge stops at the lockup rather than at the
+        // footage. Outside that fixed band the clip is the only colored thing in
+        // the frame, so the footage is measured by chroma instead.
+        let content = try #require(
+            Self.coloredContentBounds(frame),
+            "no footage came back in the exported frame"
+        )
+
+        // The canvas-sized crop shrinks to half about the frame center, then
+        // slides right by a tenth of the width and down by a twentieth of the
+        // height. That is where the footage has to land, and it is half the frame
+        // wide - filling and pinching in one transform on the uncropped clip
+        // leaves a wider strip than the canvas ever showed.
+        let size = ShareComposerExporter.exportSize
+        let expected = CGRect(
+            x: size.width * 0.25 + size.width * 0.1,
+            y: size.height * 0.25 + size.height * 0.05,
+            width: size.width * 0.5,
+            height: size.height * 0.5
+        )
+
+        let report = """
+        Share composer video export, zoomed to 0.5 and panned
+          footage measured x \(content.minX)..\(content.maxX) y \(content.minY)..\(content.maxY)
+          canvas expects   x \(Int(expected.minX))..\(Int(expected.maxX)) \
+        y \(Int(expected.minY))..\(Int(expected.maxY))
+        """
+        print(report)
+        Self.writeEvidence(report, named: "share-composer-video-export-zoomed")
+
+        #expect(
+            abs(content.minX - Int(expected.minX)) <= Self.zoomedBandTolerance
+                && abs(content.maxX - Int(expected.maxX)) <= Self.zoomedBandTolerance,
+            """
+            Zoomed to half and panned right, the canvas puts the footage at \
+            x \(Int(expected.minX))..\(Int(expected.maxX)); the export put it at \
+            \(content.minX)..\(content.maxX). A wider strip than the canvas showed means the pinch \
+            was applied to the uncropped clip instead of to the canvas-sized crop.
+            """
+        )
+        #expect(
+            abs(content.minY - Int(expected.minY)) <= Self.zoomedBandTolerance
+                && abs(content.maxY - Int(expected.maxY)) <= Self.zoomedBandTolerance,
+            """
+            Zoomed to half and panned down, the canvas puts the footage at \
+            y \(Int(expected.minY))..\(Int(expected.maxY)); the export put it at \
+            \(content.minY)..\(content.maxY).
             """
         )
     }
@@ -208,12 +347,23 @@ struct ShareComposerBackgroundFillEvidenceTests {
     /// the eye reads as a band is far above this.
     private static let bandTolerance = 2
 
-    /// The base `ShareExportCanvas` lays under the background. A band of exactly
-    /// this at an edge is canvas showing through, which is what letterboxing is.
-    /// Any other flat band is the background's own art - the recap card ends in a
-    /// white wordmark band by design, and calling that a letterbox would make the
+    /// Only the black `ShareExportCanvas` base counts as a letterbox. Any other
+    /// flat band is the background's own art - the recap card ends in a white
+    /// wordmark band by design, and calling that a letterbox would make the
     /// measurement lie.
-    private static let canvasBase: UInt32 = 0x00_00_00
+    ///
+    /// A still is read back from the bitmap that produced it, so bare canvas is
+    /// exactly the base color. A movie frame has been through an H.264 encode,
+    /// which lifts flat black off zero and rings along a hard content edge, so
+    /// the movie cases allow that much drift before a pixel stops being canvas.
+    /// Without it a letterbox band reads as content and the measurement lies in
+    /// the reassuring direction.
+    private static let movieBaseTolerance = 16
+
+    /// How far a measured edge may sit from where the canvas puts it. Wide enough
+    /// for encode ringing at the boundary, far narrower than the difference
+    /// between cropping before the pinch and cropping after it.
+    private static let zoomedBandTolerance = 20
 
     private struct EdgeBands {
         let top: Int
@@ -224,33 +374,89 @@ struct ShareComposerBackgroundFillEvidenceTests {
 
     /// How many rows/columns at each edge are bare canvas - what a letterboxed or
     /// pillarboxed composition leaves behind.
-    private static func uniformEdgeBands(_ image: UIImage) throws -> EdgeBands {
+    private static func uniformEdgeBands(_ image: UIImage, baseTolerance: Int = 0) throws -> EdgeBands {
+        try edgeBands(image) { red, green, blue in
+            Int(red) <= baseTolerance && Int(green) <= baseTolerance && Int(blue) <= baseTolerance
+        }
+    }
+
+    /// How many rows/columns at each edge carry the fixture's leading-edge marker.
+    private static func markerEdgeBands(_ image: UIImage) throws -> EdgeBands {
+        try edgeBands(image) { red, green, blue in
+            Int(red) > 140 && Int(green) < 110 && Int(blue) < 110
+        }
+    }
+
+    private struct ContentBounds {
+        let minX: Int
+        let minY: Int
+        let maxX: Int
+        let maxY: Int
+    }
+
+    /// Every share burns the wordmark into a fixed band at the bottom, and its
+    /// lime letter is as chromatic as the footage. Excluding a band this deep
+    /// keeps the lockup out of a footage measurement without reaching anywhere a
+    /// composed background lands.
+    private static let wordmarkBandHeight = 200
+
+    /// The bounding box of chromatic pixels - the fixture's teal-to-pink gradient
+    /// and its yellow border. Black canvas and white type are achromatic, so this
+    /// reads the footage's own rectangle and nothing else.
+    private static func coloredContentBounds(_ image: UIImage) -> ContentBounds? {
+        guard let cgImage = image.cgImage, let buffer = try? pixels(of: cgImage) else { return nil }
+        let width = cgImage.width
+        let height = cgImage.height
+        var minX = width, minY = height, maxX = -1, maxY = -1
+
+        for y in stride(from: 0, to: max(height - wordmarkBandHeight, 0), by: 2) {
+            for x in stride(from: 0, to: width, by: 2) {
+                let index = (y * width + x) * 4
+                let red = Int(buffer[index])
+                let green = Int(buffer[index + 1])
+                let blue = Int(buffer[index + 2])
+                guard max(red, green, blue) - min(red, green, blue) > 40 else { continue }
+                minX = min(minX, x)
+                maxX = max(maxX, x)
+                minY = min(minY, y)
+                maxY = max(maxY, y)
+            }
+        }
+
+        guard maxX >= 0, maxY >= 0 else { return nil }
+        return ContentBounds(minX: minX, minY: minY, maxX: maxX, maxY: maxY)
+    }
+
+    private static func edgeBands(
+        _ image: UIImage,
+        matches: @escaping (UInt8, UInt8, UInt8) -> Bool
+    ) throws -> EdgeBands {
         let cgImage = try #require(image.cgImage)
         let width = cgImage.width
         let height = cgImage.height
         let buffer = try pixels(of: cgImage)
 
-        func color(_ x: Int, _ y: Int) -> UInt32 {
+        func isMatch(_ x: Int, _ y: Int) -> Bool {
             let index = (y * width + x) * 4
-            return UInt32(buffer[index]) << 16 | UInt32(buffer[index + 1]) << 8 | UInt32(buffer[index + 2])
+            return matches(buffer[index], buffer[index + 1], buffer[index + 2])
         }
 
-        func rowIsBase(_ y: Int) -> Bool {
-            !stride(from: 0, to: width, by: 4).contains { color($0, y) != canvasBase }
+        func rowMatches(_ y: Int) -> Bool {
+            !stride(from: 0, to: width, by: 4).contains { !isMatch($0, y) }
         }
 
-        func columnIsBase(_ x: Int) -> Bool {
-            !stride(from: 0, to: height, by: 4).contains { color(x, $0) != canvasBase }
+        func columnMatches(_ x: Int) -> Bool {
+            !stride(from: 0, to: height, by: 4).contains { !isMatch(x, $0) }
         }
 
         var top = 0
-        while top < height, rowIsBase(top) { top += 1 }
+        while top < height, rowMatches(top) { top += 1 }
         var bottom = 0
-        while bottom < height - top, rowIsBase(height - 1 - bottom) { bottom += 1 }
+        while bottom < height - top, rowMatches(height - 1 - bottom) { bottom += 1 }
         var left = 0
-        while left < width, columnIsBase(left) { left += 1 }
+        while left < width, columnMatches(left) { left += 1 }
         var right = 0
-        while right < width - left, columnIsBase(width - 1 - right) { right += 1 }
+        while right < width - left, columnMatches(width - 1 - right) { right += 1 }
 
         return EdgeBands(top: top, bottom: bottom, left: left, right: right)
     }
@@ -297,8 +503,10 @@ struct ShareComposerBackgroundFillEvidenceTests {
     }
 
     /// A gradient with a bright border, so a crop and a letterbox look different
-    /// from each other in the evidence PNG.
-    private static func photograph(size: CGSize) -> UIImage {
+    /// from each other in the evidence PNG. `marksLeadingEdge` paints the leading
+    /// fifth of the *stored* frame, on top of the border so nothing crosses it -
+    /// where that band lands in the export says which frame was filled.
+    private static func photograph(size: CGSize, marksLeadingEdge: Bool = false) -> UIImage {
         let renderer = UIGraphicsImageRenderer(size: size, format: {
             let format = UIGraphicsImageRendererFormat.default()
             format.scale = 1
@@ -323,21 +531,33 @@ struct ShareComposerBackgroundFillEvidenceTests {
             let path = UIBezierPath(rect: CGRect(origin: .zero, size: size).insetBy(dx: inset, dy: inset))
             path.lineWidth = inset / 2
             path.stroke()
+
+            if marksLeadingEdge {
+                UIColor.red.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: size.width * 0.2, height: size.height))
+            }
         }
     }
 
     /// A real one-second movie on disk. The export path reads a poster frame off
-    /// an `AVURLAsset`, so a stub URL would not exercise it.
-    private static func videoFile() async throws -> URL {
+    /// an `AVURLAsset`, so a stub URL would not exercise it. `transform` is the
+    /// preferred transform a camera-roll clip carries: real footage is stored
+    /// landscape and rotated for display, so the frame the canvas previews is not
+    /// the frame the file is written in.
+    private static func videoFile(
+        size: CGSize = CGSize(width: 1080, height: 1920),
+        transform: CGAffineTransform = .identity,
+        marksLeadingEdge: Bool = false
+    ) async throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appending(path: "ascend-share-fixture-\(UUID().uuidString).mov")
-        let size = CGSize(width: 1080, height: 1920)
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: Int(size.width),
             AVVideoHeightKey: Int(size.height)
         ])
+        input.transform = transform
         input.expectsMediaDataInRealTime = false
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(
             assetWriterInput: input,
@@ -347,7 +567,7 @@ struct ShareComposerBackgroundFillEvidenceTests {
         guard writer.startWriting() else { throw MeasurementError.noVideoWriter }
         writer.startSession(atSourceTime: .zero)
 
-        let frame = photograph(size: size)
+        let frame = photograph(size: size, marksLeadingEdge: marksLeadingEdge)
         for index in 0..<12 {
             guard let pool = adaptor.pixelBufferPool else { throw MeasurementError.noVideoWriter }
             var buffer: CVPixelBuffer?
