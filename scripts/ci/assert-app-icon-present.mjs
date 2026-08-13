@@ -25,6 +25,18 @@
 // and the phone icon set it carries is the per-configuration one (AppIconDev,
 // AppIconStaging) that the Release compile check never resolves.
 //
+// An IPA carrying no watch app passes, loudly. This guard's job is "the icon
+// Apple rejects is present"; it must not also quietly assert "the watch app
+// ships". Whether the watch app rides along in the 1.0 submission is an open
+// product decision, and the research on it recommended dropping it from 1.0 -
+// so a hard requirement here would fail the deploy after the archive is already
+// built, at exactly the moment someone is unblocking a submission. Announcing
+// the absence keeps a watch app that silently vanished from the scheme visible
+// in the deploy log without blocking anyone on it. A friendlier failure message
+// was considered and rejected: it still hard-fails an intentional removal. More
+// than one nested watch bundle stays fatal, because that is a real defect
+// however the scope question lands.
+//
 // Usage: assert-app-icon-present.mjs <path/to/Bundle.app> <expected-idiom>
 //        assert-app-icon-present.mjs <path/to/App.ipa>
 
@@ -77,10 +89,11 @@ function assertArchive(ipaPath) {
   }
 
   const watchInfoPlists = entries.filter((entry) => WATCH_APP_INFO_PLIST_PATTERN.test(entry));
-  if (watchInfoPlists.length !== 1) {
+  if (watchInfoPlists.length > 1) {
     fail(
       `${ipaPath} contains ${watchInfoPlists.length} watch app bundles at ` +
-        "Payload/<app>.app/Watch/<watch app>.app; expected exactly one."
+        `Payload/<app>.app/Watch/<watch app>.app (${watchInfoPlists.join(", ")}); ` +
+        "expected at most one."
     );
   }
 
@@ -89,6 +102,16 @@ function assertArchive(ipaPath) {
   process.on("exit", () => rmSync(staging, {recursive: true, force: true}));
 
   assertBundle(extractBundle(ipaPath, path.dirname(mainInfoPlist), staging), "phone");
+
+  if (watchInfoPlists.length === 0) {
+    console.log(
+      `Skipped the nested icon check: ${ipaPath} embeds no watch app at ` +
+        "Payload/<app>.app/Watch/<watch app>.app. If the watch app is still meant to ship, " +
+        "it has left the scheme."
+    );
+    return;
+  }
+
   assertBundle(extractBundle(ipaPath, path.dirname(watchInfoPlists[0]), staging), "watch");
 }
 
