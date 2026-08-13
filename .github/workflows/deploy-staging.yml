@@ -246,7 +246,7 @@ jobs:
           echo "BUILD_NUMBER=${build_number}" >> "$GITHUB_ENV"
           echo "build_number=${build_number}" >> "$GITHUB_OUTPUT"
 
-      - name: Ensure watchOS runtime
+      - name: Provision watchOS runtime (best effort)
         shell: bash
         run: ./scripts/ci/ensure-watchos-runtime.sh
 

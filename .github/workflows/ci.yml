@@ -622,7 +622,7 @@ jobs:
           echo "Selected simulator ${simulator_id} on ${runtime}."
           echo "id=$simulator_id" >> "$GITHUB_OUTPUT"
 
-      - name: Ensure watchOS runtime
+      - name: Provision watchOS runtime (best effort)
         shell: bash
         run: ./scripts/ci/ensure-watchos-runtime.sh
 
@@ -707,7 +707,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-spm-
 
-      - name: Ensure watchOS runtime
+      - name: Provision watchOS runtime (best effort)
         shell: bash
         run: ./scripts/ci/ensure-watchos-runtime.sh
 

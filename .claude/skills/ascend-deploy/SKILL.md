@@ -56,9 +56,11 @@ Every verify job is gated on the changed paths, so a functions-only PR skips the
   It runs `test` only (no build step) with `-scheme "AscendApp-Staging" -configuration Staging ENABLE_TESTABILITY=YES`.
   Its `Select simulator` step provisions the simulator at runtime via `xcrun simctl` against the newest installed iOS runtime - downloading the runtime if the image ships none - then reuses a preferred iPhone model, falls back to any iPhone, and finally creates one, failing only when the runtime supports no iPhone device type. It does not pass `CODE_SIGNING_ALLOWED=NO`.
   Both iOS jobs run `scripts/ci/ensure-watchos-runtime.sh` before `xcodebuild`, and so does each deploy pipeline's `build-ios` job before its Fastlane archive.
-  The watch target remains a build dependency for 1.1 even though the 1.0 phone app does not embed its product, so every scheme that builds that target still needs the runtime.
-  The refusal that proved this was a hard precondition (`This scheme builds an embedded Apple Watch app`) keyed off the embed phase, so with 1.0 embedding nothing it is unverified whether a dependency-only build still demands an installed runtime - issue #496 records that verification.
-  Until it lands the step is **best effort**: it provisions what it can and warns instead of failing, so a runtime that genuinely is required surfaces as Xcode's own accurate error rather than as a guess made minutes earlier.
+  The watch target remains a build dependency for 1.1 even though the 1.0 phone app does not embed its product, so a scheme that builds that target **may** still need the runtime - whether it does is unverified.
+  The refusal that proved this was a hard precondition (`This scheme builds an embedded Apple Watch app`) keyed off the embed phase, and 1.0 embeds nothing, so no evidence in the repository says a dependency-only build still demands an installed runtime - issue #496 records that verification.
+  Until it lands the step is **best effort** end to end: every inability - an uninstalled watchOS platform, a `simctl`/`jq` failure, a failed download, no matching runtime afterwards - warns and exits 0.
+  There is exactly one authority on whether a build can proceed and it is `xcodebuild`, so a runtime that genuinely is required surfaces as Xcode's own accurate error rather than as a guess made minutes earlier, and a runtime that is not required never fails four jobs for a condition the build would tolerate.
+  Do not re-tighten it into a hard failure, and do not read a green step as proof a runtime was installed.
   When Xcode does want a runtime it wants the one matching the **SDK**, not the deployment target and regardless of the destination.
   The runner image's runtime set changes without notice and the jobs pin `xcode-version: latest-stable`, so the required version moves whenever the runner's Xcode does.
   The step provisions rather than assuming, in the same defensive style as `Select simulator`.

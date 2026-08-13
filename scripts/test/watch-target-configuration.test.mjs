@@ -91,9 +91,13 @@ test("the phone target keeps its build dependency on the retained watch target",
     ].map(([, identifier]) => identifier)
   );
 
+  // Bounded to one block but tolerant of intervening keys: Xcode emits
+  // `platformFilter`/`platformFilters` on a dependency in some project states,
+  // and those sort before `target`, so demanding adjacency would report a
+  // missing dependency on a re-serialized project whose dependency is intact.
   const watchDependencies = [
     ...project.matchAll(
-      /([0-9A-F]+) \/\* PBXTargetDependency \*\/ = \{\s*isa = PBXTargetDependency;\s*target = [0-9A-F]+ \/\* AscendWatch \*\/;/gi
+      /([0-9A-F]+) \/\* PBXTargetDependency \*\/ = \{[^}]*?\btarget = [0-9A-F]+ \/\* AscendWatch \*\/;/gi
     )
   ].map(([, identifier]) => identifier);
 
