@@ -80,9 +80,9 @@ web/                    # Website source
 `AscendApp/App/Firebase/` needs the plist for the environment you're building - the Dev plist is committed, Staging and Production are gitignored and linked in locally; see the README there. CI decodes them from base64 secrets.
 
 Both app schemes build the retained watch target as a dependency, but the 1.0 phone app does not embed it.
-The watch target still requires an installed watchOS simulator runtime matching the watchOS **SDK** (not the deployment target, whatever the destination).
-`scripts/ci/ensure-watchos-runtime.sh` provisions it and runs locally too; CI runs it before both iOS jobs and before each deploy pipeline's archive.
-`docs/heart-rate-zones-plan.md` owns the 1.0 and 1.1 packaging decision.
+Whether a dependency-only build still demands an installed watchOS simulator runtime matching the watchOS **SDK** (not the deployment target, whatever the destination) is unverified now that nothing is embedded (#496), so `scripts/ci/ensure-watchos-runtime.sh` provisions one **best effort** - it warns and exits 0 on every failure, leaving `xcodebuild` the only authority on whether a build can proceed.
+It runs locally too; CI runs it before both iOS jobs and before each deploy pipeline's archive.
+`docs/heart-rate-zones-plan.md` owns the 1.0 and 1.1 packaging decision; `ascend-deploy` owns the CI side.
 
 ```bash
 # iOS tests (mirrors CI - .github/workflows/ci.yml)
