@@ -32,10 +32,10 @@
 // so a hard requirement here would fail the deploy after the archive is already
 // built, at exactly the moment someone is unblocking a submission. Announcing
 // the absence keeps a watch app that silently vanished from the scheme visible
-// in the deploy log without blocking anyone on it. A friendlier failure message
-// was considered and rejected: it still hard-fails an intentional removal. More
-// than one nested watch bundle stays fatal, because that is a real defect
-// however the scope question lands.
+// on the deploy run summary without blocking anyone on it. A friendlier failure
+// message was considered and rejected: it still hard-fails an intentional
+// removal. More than one nested watch bundle stays fatal, because that is a
+// real defect however the scope question lands.
 //
 // Usage: assert-app-icon-present.mjs <path/to/Bundle.app> <expected-idiom>
 //        assert-app-icon-present.mjs <path/to/App.ipa>
@@ -104,7 +104,7 @@ function assertArchive(ipaPath) {
   assertBundle(extractBundle(ipaPath, path.dirname(mainInfoPlist), staging), "phone");
 
   if (watchInfoPlists.length === 0) {
-    console.log(
+    warn(
       `Skipped the nested icon check: ${ipaPath} embeds no watch app at ` +
         "Payload/<app>.app/Watch/<watch app>.app. If the watch app is still meant to ship, " +
         "it has left the scheme."
@@ -240,6 +240,13 @@ function readPlist(plistPath) {
 
 function nonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+// An annotation on the run summary rather than a log line, because GitHub
+// Actions collapses the logs of steps that pass and this notice exists to be
+// seen without failing anything.
+function warn(message) {
+  console.log(`::warning::${message}`);
 }
 
 function fail(message, code = 1) {
