@@ -22,9 +22,13 @@ The walkthrough can be skipped from every step, does not return after completion
 
 - [ ] AC-1: A fresh installation sees source tabs, stats sheet, selected-sticker edit rail, and filter button marks in that order as it advances through the real picker-to-composer flow.
 - [ ] AC-2: The source mark explains Camera Roll, Presets, and Recaps without promising recap transforms.
+The picker itself is on screen from the first frame; only the mark waits, for at most one second, while recap availability resolves.
+Whatever it lands naming is what it keeps naming, and the pill it spotlights draws from the same value, so neither the copy nor the tabs can change under a card the climber is already reading.
+If the wait runs out, the mark names only the tabs already known to be there and says nothing about Recaps.
 - [ ] AC-3: The stats mark truthfully explains available session stats and ready-made groups, including how an item is added and then moved, resized, or deleted.
 - [ ] AC-4: The edit-rail mark explains the controls the selected sticker's own rail offers, naming arrangement and alignment only when that sticker shows them, and always naming font, color, and panel treatment.
 Whatever the climber adds, the walkthrough carries on: a sticker with no rail at all hands straight over to the filters mark rather than waiting for a control that will never appear.
+The progress dots count the marks that journey actually shows, so a dropped edit step is one fewer dot rather than a gap in the row.
 - [ ] AC-5: The filters mark explains that filters affect the whole picture, that photo and preset backgrounds support drag and pinch, and that recap backgrounds remain fixed.
 - [ ] AC-6: Skip from any of the four steps records the whole walkthrough as seen and dismisses it.
 - [ ] AC-7: Completing the fourth step records the walkthrough as seen, and a second open presents no mark.
@@ -37,13 +41,14 @@ Whatever the climber adds, the walkthrough carries on: a sticker with no rail at
 
 | State | Expected behavior | Verification |
 |---|---|---|
-| Fresh picker entry | Present the source-tabs mark with four-step progress. | Coordinator test and picker evidence image. |
+| Fresh picker entry | Draw the picker immediately and hold the source-tabs mark until its tabs resolve, then present with four-step progress. | Coordinator resolution test and picker evidence image. |
+| Source tabs unresolved after one second | Present the mark naming only the tabs already known, and ignore a later resolution rather than rewrite it. | Coordinator timeout and frozen-set tests. |
 | Picker mark advanced | Dismiss the mark and wait for a background choice before presenting a composer mark. | Coordinator transition test. |
 | Composer reached from picker | Present the stats-sheet mark when the stats sheet is available. | Coordinator test and stats-sheet evidence image. |
 | Any sticker with an edit rail selected | Present the edit-rail mark describing that rail's own controls. | Parameterized coordinator test and edit-rail evidence image. |
-| Sticker with no edit rail selected | Skip straight to the filters mark and still record the walkthrough as seen. | Coordinator test. |
+| Sticker with no edit rail selected | Drop the edit step from the journey, present the filters mark as the last of three, and still record the walkthrough as seen. | Coordinator test. |
 | Edit-rail mark advanced | Present the filters mark. | Coordinator order test and filters evidence image. |
-| Direct composer entry | Start at stats with three coherent progress steps. | Coordinator direct-entry test; no production route constructs it. |
+| Direct composer entry | Start at stats with three coherent progress steps. | Coordinator direct-entry test; no production route constructs it, see Risk and rollout. |
 | Skip from any mark | Persist seen state and dismiss all pending marks. | Parameterized Skip test across all steps. |
 | Completed or skipped installation | Present no walkthrough on any later open. | Second-open test. |
 | Recap background | Allow stickers but refuse background pan and zoom. | Existing view-model tests plus walkthrough copy test. |
@@ -56,7 +61,7 @@ Whatever the climber adds, the walkthrough carries on: a sticker with no rail at
 | Acceptance criterion | Automated test or evidence | Why it proves the behavior |
 |---|---|---|
 | AC-1 | Ordered coordinator transition test plus four evidence renders. | Verifies the state order and each target's rendered placement. |
-| AC-2 | Exact presentation-copy test. | Prevents source descriptions from drifting or inventing behavior. |
+| AC-2 | Exact presentation-copy test, plus the hold, timeout, and frozen-set coordinator tests. | Prevents source descriptions from drifting, inventing behavior, or rewriting themselves after the card has landed. |
 | AC-3 | Exact presentation-copy test and add-sheet host evidence. | Keeps the instruction aligned to tap-to-add and existing sticker gestures. |
 | AC-4 | Parameterized per-sticker copy and state test, plus the no-rail hand-off test. | Ensures each claim appears only where the rail offers that control, and that no addition can strand the walkthrough. |
 | AC-5 | Exact presentation-copy test plus existing transform support assertions. | Preserves the photo/preset versus recap transform boundary. |
@@ -82,7 +87,12 @@ Whatever the climber adds, the walkthrough carries on: a sticker with no rail at
 
 No data migration, backend contract, network, privacy declaration, authentication, payment, or deployment-order change is involved.
 The only persisted value is a device-local walkthrough seen flag equivalent to the routine builder's existing flag.
-The change is backward compatible because every share entry point retains its picker-first behavior, including the stagger before the stats sheet auto-presents; no production route opens the composer with a background already chosen, so that seam is not exposed as app API.
+The change is backward compatible because every share entry point retains its picker-first behavior, including the stagger before the stats sheet auto-presents.
+
+A `ShareComposerView(initialBackground:)` parameter was drafted so the composer could be opened with a background already chosen, and it was removed during firstmate's review of this branch.
+Both production entry points, `WorkoutDetailView` and `LiveClimbCompletionSummaryView`, construct the composer without it, so nothing but a test could reach it: it was production API whose only caller was the test suite.
+The composer-only sequence it existed to demonstrate is now covered directly against `ShareComposerWalkthroughCoordinator` through `Entry.composer`, which keeps the behavior specified and tested without shipping an unreachable seam.
+If a direct-entry share surface is added later, that entry is already modeled and only needs a host.
 No analytics event or new screen route is introduced.
 No feature flag is required because the new write is disposable presentation state rather than user-authored or server-synced product data, and Debug Tools can clear it.
 Rollback removes the presentation coordinator and host modifiers without affecting share content.

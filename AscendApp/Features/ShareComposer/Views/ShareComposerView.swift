@@ -72,8 +72,8 @@ struct ShareComposerView: View {
         }
         self.presets = presets
 
-        // Recaps stay off until their templates resolve, so the source copy never promises a tab
-        // the picker has not drawn.
+        // Seeded with what is knowable synchronously. Recaps stay off until their templates
+        // resolve, so nothing ever promises a tab the picker has not drawn.
         _walkthrough = State(initialValue: ShareComposerWalkthroughCoordinator(
             entry: .picker,
             sourceOptions: ShareComposerSourceOptions(
@@ -121,11 +121,21 @@ struct ShareComposerView: View {
         return .init(templates: templates, context: context, climb: climb)
     }
 
-    /// True only once the Recaps tab has something to show. Both the tab and the source copy that
-    /// names it hang off this, so neither offers an empty shelf.
+    /// True only once the Recaps tab has something to show, so nothing offers an empty shelf.
     private var offersRecaps: Bool {
         guard viewModel.climb != nil, let recapPreview else { return false }
         return !recapPreview.templates.isEmpty
+    }
+
+    /// The sources this picker can offer right now.
+    private var liveSourceOptions: ShareComposerSourceOptions {
+        ShareComposerSourceOptions(hasPresets: !presets.isEmpty, hasRecaps: offersRecaps)
+    }
+
+    /// The one value behind both the picker's tabs and the sources mark's copy. While that mark is
+    /// on screen it is the frozen set the card names; otherwise it tracks what is available.
+    private var sourceOptions: ShareComposerSourceOptions {
+        walkthrough.presentedSourceOptions ?? liveSourceOptions
     }
 
     /// Bake the selected template to an image and use it as the background.
@@ -158,6 +168,7 @@ struct ShareComposerView: View {
                 ShareBackgroundPickerView(
                     title: shareTitle,
                     presets: presets,
+                    sourceOptions: sourceOptions,
                     recap: recapPreview,
                     onPick: { source in
                         // Re-picking a background starts a clean canvas.
@@ -329,9 +340,12 @@ struct ShareComposerView: View {
             viewModel.injectWeeklyTotals(from: allWorkouts)
             // Both injections feed the templates, so build the tab after them.
             recapPreview = makeRecapPreview()
-            walkthrough.updateSourceOptions(
-                ShareComposerSourceOptions(hasPresets: !presets.isEmpty, hasRecaps: offersRecaps)
-            )
+            walkthrough.sourceOptionsResolved(liveSourceOptions)
+        }
+        .task {
+            try? await Task.sleep(for: ShareComposerWalkthroughCoordinator.sourceOptionsResolutionLimit)
+            guard !Task.isCancelled else { return }
+            walkthrough.sourceOptionsResolutionTimedOut()
         }
         .trackOnce(screen: .shareComposer)
     }

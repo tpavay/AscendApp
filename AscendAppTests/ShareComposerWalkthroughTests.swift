@@ -11,7 +11,7 @@ struct ShareComposerWalkthroughTests {
     func pickerEntryAdvancesThroughFourRealTargetsInOrder() {
         let fixture = DefaultsFixture()
         defer { fixture.cleanUp() }
-        let coordinator = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
+        let coordinator = pickerCoordinator(fixture)
 
         verify(coordinator, mark: .sources, target: .sources, step: 0, count: 4)
 
@@ -44,7 +44,7 @@ struct ShareComposerWalkthroughTests {
     func skipFromEveryMarkRecordsTheWholeWalkthroughAsSeen(_ mark: ShareComposerCoachMark) {
         let fixture = DefaultsFixture()
         defer { fixture.cleanUp() }
-        let coordinator = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
+        let coordinator = pickerCoordinator(fixture)
 
         drive(coordinator, to: mark)
         #expect(coordinator.mark == mark)
@@ -60,7 +60,7 @@ struct ShareComposerWalkthroughTests {
     func completingTheWalkthroughPreventsASecondOpen() {
         let fixture = DefaultsFixture()
         defer { fixture.cleanUp() }
-        let first = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
+        let first = pickerCoordinator(fixture)
 
         drive(first, to: .filters)
         first.advance()
@@ -97,7 +97,7 @@ struct ShareComposerWalkthroughTests {
     ) throws {
         let fixture = DefaultsFixture()
         defer { fixture.cleanUp() }
-        let coordinator = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
+        let coordinator = pickerCoordinator(fixture)
         drive(coordinator, to: .stats)
         coordinator.advance()
 
@@ -113,17 +113,19 @@ struct ShareComposerWalkthroughTests {
         #expect(fixture.store.hasSeenWalkthrough)
     }
 
+    /// The dropped edit step leaves no gap in the dot row: the journey is three marks long and the
+    /// filter mark is its third, not a fourth with an unfilled dot behind it.
     @Test(.bug(id: 491))
-    func aStickerWithNoEditRailHandsStraightOverToTheFilterMark() {
+    func aStickerWithNoEditRailHandsStraightOverToTheFilterMarkWithoutSkippingADot() {
         let fixture = DefaultsFixture()
         defer { fixture.cleanUp() }
-        let coordinator = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
+        let coordinator = pickerCoordinator(fixture)
         drive(coordinator, to: .stats)
         coordinator.advance()
 
         coordinator.stickerSelected(ShareStickerInstance(kind: .climbName, climbImageVariant: .thumb))
 
-        verify(coordinator, mark: .filters, target: .filters, step: 3, count: 4)
+        verify(coordinator, mark: .filters, target: .filters, step: 2, count: 3)
 
         coordinator.advance()
         #expect(coordinator.state == .finished)
@@ -134,7 +136,7 @@ struct ShareComposerWalkthroughTests {
     func aSecondOpenStaysSilentAfterAReadyMadeGroupCompletedTheFirst() {
         let fixture = DefaultsFixture()
         defer { fixture.cleanUp() }
-        let first = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
+        let first = pickerCoordinator(fixture)
         drive(first, to: .stats)
         first.advance()
         first.stickerSelected(StickerUnderTest.readyMadeGroup.sticker)
@@ -150,7 +152,7 @@ struct ShareComposerWalkthroughTests {
     func eachDismissedMarkLeavesFocusOnTheControlItExplained() {
         let fixture = DefaultsFixture()
         defer { fixture.cleanUp() }
-        let coordinator = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
+        let coordinator = pickerCoordinator(fixture)
         #expect(coordinator.restingFocusTarget == nil)
 
         coordinator.advance()
@@ -174,7 +176,7 @@ struct ShareComposerWalkthroughTests {
     func theFilterMarkLeavesFocusOnTheFilterControl() {
         let fixture = DefaultsFixture()
         defer { fixture.cleanUp() }
-        let coordinator = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
+        let coordinator = pickerCoordinator(fixture)
         drive(coordinator, to: .filters)
 
         coordinator.advance()
@@ -184,7 +186,7 @@ struct ShareComposerWalkthroughTests {
     }
 
     @Test(.bug(id: 491))
-    func sourceCopyOnlyNamesRecapsOnceTheirTemplatesResolve() throws {
+    func theSourceMarkHoldsUntilItsTabsResolveAndThenLandsAlreadyCorrect() throws {
         let fixture = DefaultsFixture()
         defer { fixture.cleanUp() }
         let coordinator = ShareComposerWalkthroughCoordinator(
@@ -193,16 +195,66 @@ struct ShareComposerWalkthroughTests {
             store: fixture.store
         )
 
-        #expect(try #require(coordinator.presentation).title == "Two ways to start.")
-        #expect(
-            try #require(coordinator.presentation).message
-                .localizedStandardContains("Recaps") == false
+        #expect(coordinator.state == .waitingForSourceOptions)
+        #expect(coordinator.mark == nil)
+        #expect(coordinator.presentation == nil)
+        #expect(coordinator.presentedSourceOptions == nil)
+
+        coordinator.sourceOptionsResolved(
+            ShareComposerSourceOptions(hasPresets: true, hasRecaps: true)
         )
 
-        coordinator.updateSourceOptions(ShareComposerSourceOptions(hasPresets: true, hasRecaps: true))
+        let presentation = try #require(coordinator.presentation)
+        #expect(presentation.title == "Three ways to start.")
+        #expect(presentation.message.localizedStandardContains("Recaps"))
+        #expect(coordinator.presentedSourceOptions?.hasRecaps == true)
+    }
 
-        #expect(try #require(coordinator.presentation).title == "Three ways to start.")
-        #expect(try #require(coordinator.presentation).message.localizedStandardContains("Recaps"))
+    /// The wait is bounded, and what lands after it stays landed: a late resolution must not
+    /// rewrite a card the climber is already reading, nor grow the pill it is spotlighting.
+    @Test(.bug(id: 491))
+    func aTimedOutSourceMarkNamesOnlyKnownTabsAndIsNeverRewritten() throws {
+        let fixture = DefaultsFixture()
+        defer { fixture.cleanUp() }
+        let coordinator = ShareComposerWalkthroughCoordinator(
+            entry: .picker,
+            sourceOptions: ShareComposerSourceOptions(hasPresets: true, hasRecaps: false),
+            store: fixture.store
+        )
+
+        coordinator.sourceOptionsResolutionTimedOut()
+
+        let landed = try #require(coordinator.presentation)
+        #expect(landed.title == "Two ways to start.")
+        #expect(landed.message.localizedStandardContains("Recaps") == false)
+        #expect(coordinator.presentedSourceOptions?.hasRecaps == false)
+
+        coordinator.sourceOptionsResolved(
+            ShareComposerSourceOptions(hasPresets: true, hasRecaps: true)
+        )
+
+        #expect(try #require(coordinator.presentation).title == landed.title)
+        #expect(try #require(coordinator.presentation).message == landed.message)
+        #expect(coordinator.presentedSourceOptions?.hasRecaps == false)
+    }
+
+    /// Once the mark is gone the picker is free to draw whatever has since resolved, so a frozen
+    /// set never outlives the card that froze it.
+    @Test(.bug(id: 491))
+    func theFrozenSourceSetIsReleasedWhenTheMarkLeaves() {
+        let fixture = DefaultsFixture()
+        defer { fixture.cleanUp() }
+        let coordinator = ShareComposerWalkthroughCoordinator(
+            entry: .picker,
+            sourceOptions: ShareComposerSourceOptions(hasPresets: true, hasRecaps: false),
+            store: fixture.store
+        )
+        coordinator.sourceOptionsResolutionTimedOut()
+        #expect(coordinator.presentedSourceOptions != nil)
+
+        coordinator.advance()
+
+        #expect(coordinator.presentedSourceOptions == nil)
     }
 
     @Test
@@ -239,6 +291,7 @@ struct ShareComposerWalkthroughTests {
             sourceOptions: .cameraRollOnly,
             store: fixture.store
         )
+        coordinator.sourceOptionsResolved(.cameraRollOnly)
         let presentation = try #require(coordinator.presentation)
 
         #expect(presentation.title == "Start with Camera Roll.")
@@ -251,7 +304,7 @@ struct ShareComposerWalkthroughTests {
     func pickerRecapWaitsForManualStatsSheetWithoutDanglingPresentation() {
         let fixture = DefaultsFixture()
         defer { fixture.cleanUp() }
-        let coordinator = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
+        let coordinator = pickerCoordinator(fixture)
 
         coordinator.advance()
         #expect(coordinator.backgroundSelected(.recap) == false)
@@ -297,7 +350,7 @@ struct ShareComposerWalkthroughTests {
         )
 
         #expect(fixture.defaults.object(forKey: ShareComposerCoachMark.seenStorageKey) == nil)
-        let replay = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
+        let replay = pickerCoordinator(fixture)
         #expect(replay.mark == .sources)
         #expect(debugTools.successMessage == "Share Composer walkthrough will play again on this device.")
         #endif
@@ -311,6 +364,17 @@ struct ShareComposerWalkthroughTests {
         )
 
         #expect(rect == CGRect(x: 8, y: 345, width: 374, height: 150))
+    }
+
+    /// A picker coordinator whose source tabs have already resolved, which is where every journey
+    /// through the marks starts.
+    private func pickerCoordinator(
+        _ fixture: DefaultsFixture,
+        sourceOptions: ShareComposerSourceOptions = .climb
+    ) -> ShareComposerWalkthroughCoordinator {
+        let coordinator = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
+        coordinator.sourceOptionsResolved(sourceOptions)
+        return coordinator
     }
 
     private func drive(
