@@ -174,6 +174,46 @@ struct ShareStatClusterPresetEvidenceTests {
         }
     }
 
+    /// The follow-up, judged where it was asked to be judged.
+    ///
+    /// The exports above drop each cluster at its default position, which on this
+    /// photograph lands on the dark sky - the easy case. The complaint was about
+    /// small type over highlights, so this puts the clusters on the brightest
+    /// 900x700 band the photograph actually contains, found by scanning it rather
+    /// than by eye, and writes the shipped treatment beside the same tree with
+    /// every treatment forced off. The pair is the before-and-after a reader can
+    /// look at; the assertion only guards that the two are not the same pixels.
+    @Test
+    func smallTextHoldsOverTheBrightestBandOfThePhotograph() throws {
+        let viewModel = try Self.liveClimbViewModel()
+        let band = try Self.brightestBand(of: try Self.photograph(), size: CGSize(width: 900, height: 700))
+
+        for id in ["splits", "hero", "receipt"] {
+            let preset = try #require(viewModel.availablePresets().first { $0.id == id })
+            let content = viewModel.presetPreview(for: preset)
+            let shipped = try #require(Self.render(content.node, context: content.context, over: band.image))
+            let untreated = try #require(
+                Self.render(Self.untreated(content.node), context: content.context, over: band.image)
+            )
+            Self.write(shipped, "10-bright-band-\(id)-shipped")
+            Self.write(untreated, "10-bright-band-\(id)-untreated")
+            #expect(
+                try Self.differingPixelFraction(shipped, untreated) > 0.001,
+                "\(id) drew the same pixels treated and untreated, so nothing is holding its small text up"
+            )
+        }
+
+        let report = """
+        Brightest band of the brightest bundled photograph (Everest), 900x700 at export scale
+          band top          y = \(band.top) of \(band.canvasHeight) canvas rows
+          mean luminance    \(String(format: "%.1f", band.meanLuminance)) / 255
+          Each cluster is written twice: '-shipped' carries the legibility treatment,
+          '-untreated' is the identical tree with every run forced to .none.
+        """
+        print(report)
+        Self.write(report, "10-bright-band")
+    }
+
     /// The mechanism, measured at the size it exists for.
     ///
     /// Over pure white the glyph contributes nothing, so the ink on the canvas is
@@ -608,6 +648,79 @@ struct ShareStatClusterPresetEvidenceTests {
         String(format: "%.2f", seconds * 1_000)
     }
 
+
+    /// The brightest window of the photograph, drawn the way the canvas draws it
+    /// so the band is one a climber could really drop a cluster onto.
+    private static func brightestBand(
+        of photo: UIImage,
+        size: CGSize
+    ) throws -> (image: UIImage, top: Int, canvasHeight: Int, meanLuminance: Double) {
+        let canvasHeight = (size.width * exportSize.height / exportSize.width).rounded()
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let filled = UIGraphicsImageRenderer(
+            size: CGSize(width: size.width, height: canvasHeight),
+            format: format
+        ).image { _ in
+            let scale = max(size.width / photo.size.width, canvasHeight / photo.size.height)
+            let drawn = CGSize(width: photo.size.width * scale, height: photo.size.height * scale)
+            photo.draw(in: CGRect(
+                x: (size.width - drawn.width) / 2,
+                y: (canvasHeight - drawn.height) / 2,
+                width: drawn.width,
+                height: drawn.height
+            ))
+        }
+
+        let width = Int(size.width)
+        let height = Int(canvasHeight)
+        let buffer = try pixels(of: filled, width: width, height: height)
+        let rows = (0..<height).map { y -> Double in
+            var total = 0
+            for x in 0..<width {
+                let index = (y * width + x) * 4
+                total += (Int(buffer[index]) * 21 + Int(buffer[index + 1]) * 72 + Int(buffer[index + 2]) * 7) / 100
+            }
+            return Double(total) / Double(width)
+        }
+
+        let bandHeight = Int(size.height)
+        var top = 0
+        var brightest = -1.0
+        for candidate in 0...(height - bandHeight) {
+            let mean = rows[candidate..<(candidate + bandHeight)].reduce(0, +) / Double(bandHeight)
+            if mean > brightest {
+                brightest = mean
+                top = candidate
+            }
+        }
+
+        guard let cropped = filled.cgImage?.cropping(
+            to: CGRect(x: 0, y: top, width: width, height: bandHeight)
+        ) else { throw EvidenceError.noBitmapContext }
+        return (UIImage(cgImage: cropped), top, height, brightest)
+    }
+
+    /// A cluster at export scale over a real background crop, which is what the
+    /// climber sees through the photograph rather than through a flat fill.
+    private static func render(
+        _ node: ShareCardNode,
+        context: ShareCardRenderContext,
+        over background: UIImage
+    ) -> UIImage? {
+        let content = ZStack {
+            Image(uiImage: background).resizable().scaledToFill()
+            ShareCardRenderer(node: node, context: context)
+                .fixedSize()
+                .scaleEffect(exportSize.width / ShareCardFormat.designSize.width)
+        }
+        .frame(width: background.size.width, height: background.size.height)
+        .clipped()
+        let renderer = ImageRenderer(content: content)
+        renderer.scale = 1
+        renderer.isOpaque = true
+        return renderer.uiImage
+    }
 
     /// A caption drawn on white at export scale, so the measurement is of the
     /// pixels a climber would actually be shown.
