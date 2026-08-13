@@ -20,99 +20,185 @@
 // glance. `Opaque` on the compiled rendition is the same fact `hasAlpha: no` on
 // the source PNG reports, read from the artifact that actually ships.
 //
+// Given an .ipa, both shipped bundles are checked - the installable app and the
+// watch app nested inside it - because the artifact Apple rejects is the IPA,
+// and the phone icon set it carries is the per-configuration one (AppIconDev,
+// AppIconStaging) that the Release compile check never resolves.
+//
 // Usage: assert-app-icon-present.mjs <path/to/Bundle.app> <expected-idiom>
+//        assert-app-icon-present.mjs <path/to/App.ipa>
 
 import {spawnSync} from "node:child_process";
-import {existsSync} from "node:fs";
+import {existsSync, mkdtempSync, rmSync} from "node:fs";
+import {tmpdir} from "node:os";
 import path from "node:path";
 import process from "node:process";
 
+import {mainAppInfoPlistPath} from "../lib/ipa-bundle.mjs";
+
 const REQUIRED_PIXEL_SIZE = 1024;
 
-const [appBundle, expectedIdiom] = process.argv.slice(2);
-if (!appBundle || !expectedIdiom) {
-  fail("Usage: assert-app-icon-present.mjs <path/to/Bundle.app> <expected-idiom>", 2);
-}
+// The nested bundle Apple names in the rejection: one app bundle beneath the
+// installable app's Watch directory.
+const WATCH_APP_INFO_PLIST_PATTERN = /^Payload\/[^/]+\.app\/Watch\/[^/]+\.app\/Info\.plist$/;
 
-const infoPlistPath = path.join(appBundle, "Info.plist");
-if (!existsSync(infoPlistPath)) {
-  fail(`No processed Info.plist at ${infoPlistPath}.`);
-}
+const [artifactPath, expectedIdiom] = process.argv.slice(2);
+const isArchive = artifactPath?.endsWith(".ipa") ?? false;
 
-const infoDictionary = readPlist(infoPlistPath);
-
-// Xcode writes the key at the top level for some target types and nested under
-// CFBundleIcons for others; Apple accepts either, so accept either here rather
-// than pinning the shape one SDK happens to produce.
-const iconName =
-  nonEmptyString(infoDictionary.CFBundleIconName) ??
-  nonEmptyString(infoDictionary.CFBundleIcons?.CFBundlePrimaryIcon?.CFBundleIconName);
-
-if (!iconName) {
+if (!artifactPath || (!isArchive && !expectedIdiom)) {
   fail(
-    `${infoPlistPath} declares no non-empty CFBundleIconName. The bundle's ` +
-      "ASSETCATALOG_COMPILER_APPICON_NAME must name an app icon set that has an image file."
+    "Usage: assert-app-icon-present.mjs <path/to/Bundle.app> <expected-idiom> | <path/to/App.ipa>",
+    2
   );
 }
 
-const assetsPath = path.join(appBundle, "Assets.car");
-if (!existsSync(assetsPath)) {
-  fail(`${appBundle} declares app icon '${iconName}' but ships no compiled Assets.car.`);
+if (isArchive) {
+  assertArchive(artifactPath);
+} else {
+  assertBundle(artifactPath, expectedIdiom);
 }
 
-const assetutil = spawnSync("xcrun", ["assetutil", "--info", assetsPath], {
-  encoding: "utf8",
-  maxBuffer: 64 * 1024 * 1024
-});
-if (assetutil.status !== 0) {
-  fail(`Could not inspect ${assetsPath}: ${assetutil.stderr?.trim() ?? "assetutil failed"}`);
+function assertArchive(ipaPath) {
+  const zipinfo = spawnSync("zipinfo", ["-1", ipaPath], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024
+  });
+  if (zipinfo.status !== 0) {
+    fail(`Could not inspect the contents of ${ipaPath}.`);
+  }
+
+  const entries = zipinfo.stdout.split(/\r?\n/);
+
+  let mainInfoPlist;
+  try {
+    mainInfoPlist = mainAppInfoPlistPath(entries);
+  } catch (error) {
+    fail(`${ipaPath} ${error.message}`);
+  }
+
+  const watchInfoPlists = entries.filter((entry) => WATCH_APP_INFO_PLIST_PATTERN.test(entry));
+  if (watchInfoPlists.length !== 1) {
+    fail(
+      `${ipaPath} contains ${watchInfoPlists.length} watch app bundles at ` +
+        "Payload/<app>.app/Watch/<watch app>.app; expected exactly one."
+    );
+  }
+
+  const staging = mkdtempSync(path.join(tmpdir(), "ascend-app-icon-"));
+  // fail() exits the process, so a finally block would never run.
+  process.on("exit", () => rmSync(staging, {recursive: true, force: true}));
+
+  assertBundle(extractBundle(ipaPath, path.dirname(mainInfoPlist), staging), "phone");
+  assertBundle(extractBundle(ipaPath, path.dirname(watchInfoPlists[0]), staging), "watch");
 }
 
-let renditions;
-try {
-  renditions = JSON.parse(assetutil.stdout);
-} catch {
-  fail(`Could not decode the asset catalog listing for ${assetsPath}.`);
+// Only the two members the check reads, so answering a question about two files
+// does not cost unpacking the whole archive. A member the archive does not carry
+// simply stays absent, which assertBundle reports in its own words.
+function extractBundle(ipaPath, bundleEntry, destination) {
+  for (const member of [`${bundleEntry}/Info.plist`, `${bundleEntry}/Assets.car`]) {
+    spawnSync("unzip", ["-o", "-q", ipaPath, member, "-d", destination]);
+  }
+
+  return path.join(destination, bundleEntry);
 }
 
-const iconImages = renditions.filter(
-  (rendition) =>
-    rendition.AssetType === "Icon Image" &&
-    rendition.Name === iconName &&
-    rendition.Idiom === expectedIdiom
-);
+function assertBundle(appBundle, idiom) {
+  const infoPlistPath = path.join(appBundle, "Info.plist");
+  if (!existsSync(infoPlistPath)) {
+    fail(`No processed Info.plist at ${infoPlistPath}.`);
+  }
 
-if (iconImages.length === 0) {
-  fail(
-    `${assetsPath} carries no '${expectedIdiom}' icon image named '${iconName}'. ` +
-      "The app icon set is declared but empty - give its size slot a filename."
+  const infoDictionary = readPlist(infoPlistPath);
+
+  // Xcode writes the key at the top level for some target types and nested under
+  // CFBundleIcons for others; Apple accepts either, so accept either here rather
+  // than pinning the shape one SDK happens to produce.
+  const iconName =
+    nonEmptyString(infoDictionary.CFBundleIconName) ??
+    nonEmptyString(infoDictionary.CFBundleIcons?.CFBundlePrimaryIcon?.CFBundleIconName);
+
+  if (!iconName) {
+    fail(
+      `${infoPlistPath} declares no non-empty CFBundleIconName. The bundle's ` +
+        "ASSETCATALOG_COMPILER_APPICON_NAME must name an app icon set that has an image file."
+    );
+  }
+
+  const assetsPath = path.join(appBundle, "Assets.car");
+  if (!existsSync(assetsPath)) {
+    fail(`${appBundle} declares app icon '${iconName}' but ships no compiled Assets.car.`);
+  }
+
+  const assetutil = spawnSync("xcrun", ["assetutil", "--info", assetsPath], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024
+  });
+  if (assetutil.status !== 0) {
+    fail(`Could not inspect ${assetsPath}: ${assetutil.stderr?.trim() ?? "assetutil failed"}`);
+  }
+
+  let renditions;
+  try {
+    renditions = JSON.parse(assetutil.stdout);
+  } catch {
+    fail(`Could not decode the asset catalog listing for ${assetsPath}.`);
+  }
+
+  const iconImages = renditions.filter(
+    (rendition) =>
+      rendition.AssetType === "Icon Image" &&
+      rendition.Name === iconName &&
+      rendition.Idiom === idiom
+  );
+
+  if (iconImages.length === 0) {
+    fail(
+      `${assetsPath} carries no '${idiom}' icon image named '${iconName}'. ` +
+        "The app icon set is declared but empty - give its size slot a filename."
+    );
+  }
+
+  // The dark and tinted variants are authored *without* a background, because
+  // the system composites its own behind them, so they are legitimately not
+  // opaque and asserting otherwise would fail a correct icon set the day
+  // someone fills those slots. assetutil tags them with an `Appearance`
+  // (`UIAppearanceDark`, `ISAppearanceTintable`) and leaves the key off the
+  // default icon, which is the one Apple rejects for carrying alpha.
+  const primaryIcons = iconImages.filter((rendition) => rendition.Appearance === undefined);
+  if (primaryIcons.length === 0) {
+    const variants = iconImages.map((r) => r.Appearance).join(", ");
+    fail(
+      `Icon '${iconName}' (${idiom}) in ${assetsPath} ships only appearance variants ` +
+        `(${variants}) and no default icon. The default size slot needs a filename.`
+    );
+  }
+
+  const marketingSize = primaryIcons.find(
+    (rendition) =>
+      rendition.PixelWidth === REQUIRED_PIXEL_SIZE && rendition.PixelHeight === REQUIRED_PIXEL_SIZE
+  );
+  if (!marketingSize) {
+    const sizes = primaryIcons.map((r) => `${r.PixelWidth}x${r.PixelHeight}`).join(", ");
+    fail(
+      `Icon '${iconName}' (${idiom}) in ${assetsPath} has no ` +
+        `${REQUIRED_PIXEL_SIZE}x${REQUIRED_PIXEL_SIZE} rendition. Found: ${sizes}.`
+    );
+  }
+
+  const transparent = primaryIcons.filter((rendition) => rendition.Opaque !== true);
+  if (transparent.length > 0) {
+    fail(
+      `Icon '${iconName}' (${idiom}) in ${assetsPath} has a rendition with transparency. ` +
+        "App icons must be fully opaque; Apple rejects the upload otherwise."
+    );
+  }
+
+  console.log(
+    `Verified ${appBundle} declares CFBundleIconName '${iconName}' and ships an opaque ` +
+      `${REQUIRED_PIXEL_SIZE}x${REQUIRED_PIXEL_SIZE} '${idiom}' rendition.`
   );
 }
-
-const marketingSize = iconImages.find(
-  (rendition) =>
-    rendition.PixelWidth === REQUIRED_PIXEL_SIZE && rendition.PixelHeight === REQUIRED_PIXEL_SIZE
-);
-if (!marketingSize) {
-  const sizes = iconImages.map((r) => `${r.PixelWidth}x${r.PixelHeight}`).join(", ");
-  fail(
-    `Icon '${iconName}' (${expectedIdiom}) in ${assetsPath} has no ` +
-      `${REQUIRED_PIXEL_SIZE}x${REQUIRED_PIXEL_SIZE} rendition. Found: ${sizes}.`
-  );
-}
-
-const transparent = iconImages.filter((rendition) => rendition.Opaque !== true);
-if (transparent.length > 0) {
-  fail(
-    `Icon '${iconName}' (${expectedIdiom}) in ${assetsPath} has a rendition with transparency. ` +
-      "App icons must be fully opaque; Apple rejects the upload otherwise."
-  );
-}
-
-console.log(
-  `Verified ${appBundle} declares CFBundleIconName '${iconName}' and ships an opaque ` +
-    `${REQUIRED_PIXEL_SIZE}x${REQUIRED_PIXEL_SIZE} '${expectedIdiom}' rendition.`
-);
 
 function readPlist(plistPath) {
   const converted = spawnSync("plutil", ["-convert", "json", "-o", "-", plistPath], {
