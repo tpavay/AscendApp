@@ -113,9 +113,9 @@ struct ShareComposerWalkthroughTests {
         #expect(fixture.store.hasSeenWalkthrough)
     }
 
-    /// The row is four dots on the first card and four on the last, and the filled dot moves by
-    /// exactly one position between them. The skipped edit step reads as already passed rather
-    /// than deleting a dot from the row or leaving a gap in it.
+    /// The row is four dots on the first card and four on the last, and the current dot moves by
+    /// exactly one position between them. The skipped edit step is explicitly passed rather than
+    /// deleting a dot from the row or leaving an indistinguishable pending dot.
     @Test(.bug(id: 491))
     func aStickerWithNoEditRailKeepsTheRowAtFourDotsAdvancingOneAtATime() {
         let fixture = DefaultsFixture()
@@ -135,6 +135,7 @@ struct ShareComposerWalkthroughTests {
         #expect(displayed.map(\.mark) == [.sources, .stats, .filters])
         #expect(displayed.map(\.stepCount) == [4, 4, 4])
         #expect(displayed.map(\.stepIndex) == [0, 1, 2])
+        #expect(displayed.map(\.passedStepIndices) == [[], [], [3]])
         #expect(zip(displayed, displayed.dropFirst()).allSatisfy { $1.stepIndex - $0.stepIndex == 1 })
 
         coordinator.advance()
@@ -407,7 +408,8 @@ struct ShareComposerWalkthroughTests {
             DisplayedCard(
                 mark: mark,
                 stepIndex: presentation.stepIndex,
-                stepCount: presentation.stepCount
+                stepCount: presentation.stepCount,
+                passedStepIndices: presentation.passedStepIndices
             )
         ]
     }
@@ -459,6 +461,7 @@ private struct DisplayedCard: Equatable {
     let mark: ShareComposerCoachMark
     let stepIndex: Int
     let stepCount: Int
+    let passedStepIndices: Set<Int>
 }
 
 /// The three shapes the edit rail draws differently: a plain metric offers every control, while a

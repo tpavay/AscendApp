@@ -187,11 +187,21 @@ struct CoachMarkOverlay: View {
         HStack(spacing: 6) {
             ForEach(0..<presentation.stepCount, id: \.self) { step in
                 Circle()
-                    .fill(step == presentation.stepIndex ? Color.accent : .white.opacity(0.22))
+                    .fill(progressDotColor(for: step))
                     .frame(width: 6, height: 6)
             }
         }
         .accessibilityHidden(true)
+    }
+
+    private func progressDotColor(for step: Int) -> Color {
+        if step == presentation.stepIndex {
+            return Color.accent
+        }
+        if presentation.passedStepIndices.contains(step) {
+            return Color.accent.opacity(0.45)
+        }
+        return .white.opacity(0.22)
     }
 
     private var actionButtons: some View {
