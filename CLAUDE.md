@@ -61,7 +61,7 @@ AscendApp/
 └── Shared/             # Components · Extensions · Managers · Models · Repositories · Services · Views
 AscendAppTests/         # Swift Testing suite
 AscendLiveActivityWidgets/  # Live Activity / Dynamic Island extension
-AscendWatch/            # watchOS companion app, embedded in the iOS app bundle
+AscendWatch/            # watchOS companion target retained for the 1.1 release
 AscendWatchShared/      # Compiled into BOTH binaries - platform-neutral value types only
 .claude/skills/         # Project skills (see Skill Router)
 AppStoreAssets/         # Shipped en-US iPhone screenshot set and its renderer
@@ -79,7 +79,10 @@ web/                    # Website source
 
 `AscendApp/App/Firebase/` needs the plist for the environment you're building - the Dev plist is committed, Staging and Production are gitignored and linked in locally; see the README there. CI decodes them from base64 secrets.
 
-Both app schemes embed the watch app, so either `xcodebuild` below refuses to build without an installed watchOS simulator runtime matching the watchOS **SDK** (not the deployment target, whatever the destination). `scripts/ci/ensure-watchos-runtime.sh` provisions it and runs locally too; CI runs it before both iOS jobs and before each deploy pipeline's archive.
+Both app schemes build the retained watch target as a dependency, but the 1.0 phone app does not embed it.
+The watch target still requires an installed watchOS simulator runtime matching the watchOS **SDK** (not the deployment target, whatever the destination).
+`scripts/ci/ensure-watchos-runtime.sh` provisions it and runs locally too; CI runs it before both iOS jobs and before each deploy pipeline's archive.
+`docs/heart-rate-zones-plan.md` owns the 1.0 and 1.1 packaging decision.
 
 ```bash
 # iOS tests (mirrors CI - .github/workflows/ci.yml)
@@ -88,8 +91,8 @@ xcodebuild -project AscendApp.xcodeproj -scheme "AscendApp-Staging" \
   ENABLE_TESTABILITY=YES test
 
 # iOS Release compile check (unsigned, device destination - catches Release-only
-# errors). Never add -sdk iphoneos: it can build the embedded watch app for iOS
-# and still report success (`ascend-deploy`).
+# errors). Never add -sdk iphoneos: it can override the retained watch target's
+# SDK and still report success (`ascend-deploy`).
 xcodebuild -project AscendApp.xcodeproj -scheme "AscendApp" \
   -configuration Release -destination "generic/platform=iOS" \
   CODE_SIGNING_ALLOWED=NO build

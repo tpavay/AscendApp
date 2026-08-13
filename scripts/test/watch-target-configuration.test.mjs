@@ -24,7 +24,14 @@ const WATCH_SUFFIX = ".watch";
 
 // No Xcode target compiles an asset catalog out of these, and walking them
 // costs more than the rest of the repository put together.
-const UNSEARCHED_DIRECTORY_NAMES = new Set([".git", "node_modules", "build", "dist"]);
+const UNSEARCHED_DIRECTORY_NAMES = new Set([
+  ".build",
+  ".git",
+  "DerivedData",
+  "node_modules",
+  "build",
+  "dist"
+]);
 
 async function watchBuildConfigurations() {
   const project = await readFile(projectPath, "utf8");
@@ -41,6 +48,22 @@ async function watchBuildConfigurations() {
 
   return configurations;
 }
+
+test("the 1.0 phone app does not embed the retained watch product", async () => {
+  const project = await readFile(projectPath, "utf8");
+
+  // docs/heart-rate-zones-plan.md owns the 1.0 and 1.1 packaging split.
+  // The target and product reference stay ready for 1.1, but no copy phase may
+  // place the watch bundle under the shipping phone app's Watch directory.
+  assert.match(project, /path = AscendWatch\.app;/);
+  assert.doesNotMatch(
+    project,
+    /isa = PBXBuildFile; fileRef = [^;]+ \/\* AscendWatch\.app \*\//
+  );
+  assert.doesNotMatch(project, /AscendWatch\.app in Embed Watch Content/);
+  assert.doesNotMatch(project, /name = "Embed Watch Content";/);
+  assert.doesNotMatch(project, /dstPath = "\$\(CONTENTS_FOLDER_PATH\)\/Watch";/);
+});
 
 async function appIconSetDirectories(directory) {
   const found = [];
@@ -100,11 +123,9 @@ test("the watch target builds for watchOS and nothing else", async () => {
     assert.equal(settingValue(buildSettings, "WATCHOS_DEPLOYMENT_TARGET"), "26.0", name);
 
     // Load-bearing beyond documentation. `-sdk <platform>` on an xcodebuild
-    // command line overrides SDKROOT for every target in the build, and the
-    // watch app is embedded regardless of what it was built for. Measured here:
-    // with this setting the override is refused and the embedded binary stays
-    // `platform WATCHOS`; without it, the same command produces `platform IOS`
-    // and still reports BUILD SUCCEEDED.
+    // command line overrides SDKROOT for every target in the build. Keeping the
+    // explicit supported-platform list prevents an iOS build of the retained
+    // watch target now and a wrong-platform bundle when 1.1 embeds it later.
     assert.equal(
       settingValue(buildSettings, "SUPPORTED_PLATFORMS"),
       "watchos watchsimulator",

@@ -7,8 +7,8 @@ on:
     paths:
       - "AscendApp/**"
       - "AscendLiveActivityWidgets/**"
-      # The watch app ships inside the iOS app bundle, so a watch-only
-      # change has to trigger the build that carries it.
+      # The retained watch target remains a build dependency for the 1.1
+      # release, so a watch-only change can still affect this archive.
       - "AscendWatch/**"
       - "AscendWatchShared/**"
       - "AscendApp.xcodeproj/**"
@@ -279,7 +279,7 @@ jobs:
       # The IPA is the artifact Apple's upload validation rejects, so the icon
       # check runs against it as well as against the Release compile check's
       # unsigned product.
-      - name: Verify both bundles in the IPA ship an app icon
+      - name: Verify app icons in the IPA
         run: node scripts/ci/assert-app-icon-present.mjs fastlane/build/AscendApp-Production.ipa
 
       - name: Upload production IPA artifact

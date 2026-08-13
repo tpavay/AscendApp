@@ -1,8 +1,9 @@
 #!/bin/bash
-# Provision the watchOS simulator runtime a scheme embedding a watch app needs.
+# Provision the watchOS simulator runtime the retained watch target needs.
 #
-# This is a hard precondition, not an optimisation. Any scheme that embeds an
-# Apple Watch app refuses to build at all without it, whatever the destination:
+# This is a hard precondition, not an optimization. Both phone schemes keep the
+# watch target as a build dependency for 1.1 even though the 1.0 app does not
+# embed its product. Xcode refuses to build the scheme without the runtime:
 #
 #   xcodebuild: error: Failed to build project AscendApp with scheme AscendApp.:
 #   This scheme builds an embedded Apple Watch app. watchOS 26.2 must be
@@ -56,7 +57,7 @@ fi
 xcrun simctl list runtimes | grep -i watch || true
 
 if [ -z "$runtime" ]; then
-  echo "::error::No watchOS ${needed_version} runtime is available, so any scheme embedding the watch app will refuse to build."
+  echo "::error::No watchOS ${needed_version} runtime is available, so any scheme building the retained watch target will refuse to build."
   exit 1
 fi
 
