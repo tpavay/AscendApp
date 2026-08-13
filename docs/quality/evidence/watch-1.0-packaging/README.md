@@ -29,12 +29,12 @@ This command returned no entries:
 zipinfo -1 AscendApp.ipa | rg '^Payload/[^/]+\.app/Watch/'
 ```
 
-The exported-IPA checks then reported:
+That `zipinfo` command is the artifact-level proof that the IPA carries no watch app.
+No CI check asserts that fact against an IPA; the only automated guard is source-side, over `project.pbxproj`, in `scripts/test/watch-target-configuration.test.mjs`.
+`scripts/ci/assert-app-icon-present.mjs` treats zero embedded watch bundles as the normal 1.0 warning path rather than a failure, which is what it did here.
 
-```text
-Verified IPA contains no Payload/<app>.app/Watch/ directory.
-Verified the phone bundle ships its opaque 1024x1024 AppIconStaging rendition.
-Skipped the nested icon check because the IPA embeds no watch app.
-Verified the Staging bundle resolves its dedicated Mixpanel destination.
-Verified CFBundleVersion 2026081103.
-```
+Summary of the exported-IPA checks that were run (paraphrased, not tool output):
+
+- `assert-app-icon-present.mjs` passed on the phone bundle's opaque 1024x1024 `AppIconStaging` rendition, and emitted its `::warning::` for the skipped nested watch-icon check.
+- `assert-mixpanel-bundle.mjs Staging` passed, resolving the Staging bundle's dedicated Mixpanel destination.
+- `verify-ipa-build-number.sh` reported build number `2026081103`.

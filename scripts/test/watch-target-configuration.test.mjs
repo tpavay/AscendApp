@@ -65,6 +65,49 @@ test("the 1.0 phone app does not embed the retained watch product", async () => 
   assert.doesNotMatch(project, /dstPath = "\$\(CONTENTS_FOLDER_PATH\)\/Watch";/);
 });
 
+function nativeTargetSection(project, targetName) {
+  const start = new RegExp(`\\/\\* ${targetName} \\*\\/ = \\{\\n\\s*isa = PBXNativeTarget;`).exec(project);
+  assert.ok(start, `${targetName} is not a native target in the project file`);
+
+  const end = project.indexOf("\n\t\t};", start.index);
+  assert.ok(end > start.index, `${targetName}'s native target section is unterminated`);
+
+  return project.slice(start.index, end);
+}
+
+test("the phone target keeps its build dependency on the retained watch target", async () => {
+  const project = await readFile(projectPath, "utf8");
+
+  // With the embed phase gone this dependency is the only edge that compiles and
+  // signs AscendWatch at all, and losing it is silent: the app still builds, CI
+  // still passes, and every watch assertion above goes on passing against a
+  // target nothing verifies until someone tries to ship 1.1. It is also the sole
+  // justification for the watchOS runtime step, the AscendWatch/** path filters,
+  // and the Fastlane signing entries.
+  const declared = new Set(
+    [
+      ...(nativeTargetSection(project, "AscendApp").match(/dependencies = \(([\s\S]*?)\);/)?.[1] ?? "")
+        .matchAll(/^\s*([0-9A-F]+) \/\*/gim)
+    ].map(([, identifier]) => identifier)
+  );
+
+  const watchDependencies = [
+    ...project.matchAll(
+      /([0-9A-F]+) \/\* PBXTargetDependency \*\/ = \{\s*isa = PBXTargetDependency;\s*target = [0-9A-F]+ \/\* AscendWatch \*\/;/gi
+    )
+  ].map(([, identifier]) => identifier);
+
+  assert.ok(
+    watchDependencies.length > 0,
+    "the project declares no PBXTargetDependency on AscendWatch, so no scheme builds the watch target"
+  );
+
+  assert.ok(
+    watchDependencies.some((identifier) => declared.has(identifier)),
+    "the AscendApp target dropped its dependency on AscendWatch, so the retained 1.1 target is no longer built or signed by any scheme"
+  );
+});
+
 async function appIconSetDirectories(directory) {
   const found = [];
 

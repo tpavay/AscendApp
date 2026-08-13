@@ -2,6 +2,14 @@
 # Assert that the watch app embedded in a built iOS app bundle is a watchOS
 # binary.
 #
+# PARKED, NOT DEAD. Ascend 1.0 embeds no watch app in any IPA - staging archives
+# included - so this guard has no caller and asserts nothing today. It is
+# retained for reactivation when 1.1 restores embedding, at which point wire it
+# back into `ios-verify-release` and both deploy pipelines. The release split is
+# owned by `docs/heart-rate-zones-plan.md`; `ascend-deploy` owns the CI side, and
+# `scripts/test/watch-target-configuration.test.mjs` holds the source-side
+# platform contract in the meantime.
+#
 # This failure is invisible without a check. `-sdk <platform>` on an xcodebuild
 # command line overrides SDKROOT for *every* target in the build, the watch app
 # is embedded regardless of what it was built for, and the build still reports
