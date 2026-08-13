@@ -112,6 +112,12 @@ struct CoachMarkOverlay: View {
         .accessibilityHidden(true)
     }
 
+    /// Sized against `cardRegion`, which is only meaningful when `containerSize` is the definite
+    /// geometry a presenting screen measured with `GeometryReader`. Both shipped hosts pass one.
+    /// Flattened standalone through `ImageRenderer` there is no such proposal, so the card
+    /// stretches and drops its heading - an artifact of the renderer, not of the screen. Evidence
+    /// for this card is therefore hosted in a real window; do not reshape the layout below to
+    /// make a standalone PNG look right.
     private var card: some View {
         ViewThatFits(in: .vertical) {
             VStack(alignment: .leading, spacing: 0) {

@@ -10,6 +10,30 @@ import UIKit
 struct ShareComposerWalkthroughEvidenceTests {
     private static let screenSize = CGSize(width: 393, height: 852)
 
+    /// One store for the whole suite, alive for the life of the test host.
+    ///
+    /// `ShareComposerView` reads SwiftData through `@Query`, and SwiftUI does not release that
+    /// hosted tree by the time the test returns - measured here, the container outlives the window
+    /// it was mounted in. A per-test in-memory container therefore leaves live observers pointed at
+    /// a store that is being torn down, and the next SwiftData save anywhere in the test host runs
+    /// them against it. Sharing one container that never goes away closes that window and changes
+    /// nothing about what is rendered.
+    private static let container: ModelContainer = {
+        do {
+            return try ModelContainer(
+                for: Workout.self,
+                WorkoutSourceLink.self,
+                WorkoutParticipation.self,
+                ClimbAttempt.self,
+                BestEffortCacheEntry.self,
+                BestEffortCacheMetadata.self,
+                configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+            )
+        } catch {
+            fatalError("The share walkthrough evidence store could not be built: \(error)")
+        }
+    }()
+
     @Test(.bug(id: 491))
     func fourMarksAreRenderedAgainstTheirRealTargets() async throws {
         let defaultsSuite = "ShareComposerWalkthroughEvidenceTests-\(UUID().uuidString)"
@@ -17,24 +41,15 @@ struct ShareComposerWalkthroughEvidenceTests {
         defaults.removePersistentDomain(forName: defaultsSuite)
         defer { defaults.removePersistentDomain(forName: defaultsSuite) }
 
-        let container = try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            ClimbAttempt.self,
-            BestEffortCacheEntry.self,
-            BestEffortCacheMetadata.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
-        let context = ModelContext(container)
+        let container = Self.container
         let workout = ShareStatClusterPresetTests.recordedWorkout(
             name: "Live Climb",
             trackingMode: .liveClimb,
             climbId: Climb.preview.id,
             heartRate: true
         )
-        context.insert(workout)
-        try context.save()
+        container.mainContext.insert(workout)
+        try container.mainContext.save()
 
         let composer = ShareComposerView(
             workout: workout,
@@ -225,15 +240,7 @@ struct ShareComposerWalkthroughEvidenceTests {
         let suiteName = "ShareComposerWalkthroughEvidenceTests-\(name)-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
-        let container = try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            ClimbAttempt.self,
-            BestEffortCacheEntry.self,
-            BestEffortCacheMetadata.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        let container = Self.container
         let workout = ShareStatClusterPresetTests.recordedWorkout(
             name: "Live Climb",
             trackingMode: .liveClimb,

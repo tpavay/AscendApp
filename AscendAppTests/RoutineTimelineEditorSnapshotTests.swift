@@ -90,28 +90,13 @@ struct RoutineTimelineEditorSnapshotTests {
         )
     }
 
-    @Test
-    func theWalkthroughSpotlightsTheTimeline() throws {
-        // A whole device, so the spotlight and the card are measured against the screen the
-        // climber actually sees rather than against a crop.
-        let device = CGSize(width: 402, height: 874)
-
-        try renderEvidence(
+    @Test(.hostsAWindow)
+    func theWalkthroughSpotlightsTheTimeline() async throws {
+        try await renderHostedCoachMarkEvidence(
             named: "routine-builder-coach-mark",
-            content: ZStack(alignment: .top) {
-                Color.black
-
-                EditorSurface(intervals: boardRoutine, selectedIndex: 0)
-
-                RoutineBuilderCoachMarkOverlay(
-                    presentation: RoutineBuilderCoachMark.timeline.presentation,
-                    targetRect: CGRect(x: 20, y: 78, width: 362, height: 262),
-                    containerSize: device,
-                    onNext: {},
-                    onSkip: {}
-                )
-            }
-            .frame(width: device.width, height: device.height)
+            presentation: RoutineBuilderCoachMark.timeline.presentation,
+            targetRect: CGRect(x: 20, y: 78, width: 362, height: 262),
+            surface: EditorSurface(intervals: boardRoutine, selectedIndex: 0)
         )
     }
 
@@ -219,28 +204,15 @@ struct RoutineTimelineEditorSnapshotTests {
     /// The one-off mark, spotlighting the overview rather than the timeline, with a single
     /// dot and a single Got it. No ring around the strip: the working window is already a lime
     /// outline, and a second one around it read as a box in a box.
-    @Test
-    func theWindowCoachMarkSpotlightsTheOverview() throws {
-        let device = CGSize(width: 402, height: 874)
-
-        try renderEvidence(
+    @Test(.hostsAWindow)
+    func theWindowCoachMarkSpotlightsTheOverview() async throws {
+        try await renderHostedCoachMarkEvidence(
             named: "routine-builder-window-coach-mark",
-            content: ZStack(alignment: .top) {
-                Color.black
-
-                EditorSurface(intervals: hiitSprint, selectedIndex: 0)
-
-                RoutineBuilderCoachMarkOverlay(
-                    presentation: RoutineWindowCoachMark.presentation,
-                    // The overview's own bounds on this surface: the card's content inset, and
-                    // the label plus the ridge it labels.
-                    targetRect: CGRect(x: 34, y: 88, width: 334, height: 58),
-                    containerSize: device,
-                    onNext: {},
-                    onSkip: {}
-                )
-            }
-            .frame(width: device.width, height: device.height)
+            presentation: RoutineWindowCoachMark.presentation,
+            // The overview's own bounds on this surface: the card's content inset, and the label
+            // plus the ridge it labels.
+            targetRect: CGRect(x: 34, y: 88, width: 334, height: 58),
+            surface: EditorSurface(intervals: hiitSprint, selectedIndex: 0)
         )
     }
 
@@ -256,6 +228,137 @@ struct RoutineTimelineEditorSnapshotTests {
             .background(Color.black)
             .environment(\.colorScheme, .dark)
         )
+    }
+
+    /// The coach mark's evidence comes from a real hosted window, not from `ImageRenderer`.
+    ///
+    /// The card sizes itself against the definite region a presenting screen hands down through
+    /// `GeometryReader`. Flattened standalone, that region resolves against an unbounded
+    /// proposal, so the card stretches over the whole free space and loses its heading - a
+    /// broken PNG of a screen that is correct on the device. Hosting it gives the same definite
+    /// geometry production gives it, and the frames read back below fail if the heading, the
+    /// message, the action row or the card's placement against its target regresses.
+    ///
+    /// A whole device, so the spotlight and the card are measured against the screen the climber
+    /// actually sees rather than against a crop.
+    private func renderHostedCoachMarkEvidence(
+        named name: String,
+        presentation: RoutineCoachMarkPresentation,
+        targetRect: CGRect,
+        surface: some View
+    ) async throws {
+        let device = CGSize(width: 402, height: 874)
+        let root = ZStack(alignment: .top) {
+            Color.black
+
+            surface
+
+            RoutineBuilderCoachMarkOverlay(
+                presentation: presentation,
+                targetRect: targetRect,
+                containerSize: device,
+                onNext: {},
+                onSkip: {}
+            )
+        }
+        .frame(width: device.width, height: device.height)
+        .transaction { $0.disablesAnimations = true }
+
+        try await withAccessibilityAutomation {
+            let controller = UIHostingController(rootView: root)
+            controller.overrideUserInterfaceStyle = .dark
+            controller.view.frame = CGRect(origin: .zero, size: device)
+            let scene = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .first
+            let window = scene.map { UIWindow(windowScene: $0) }
+                ?? UIWindow(frame: CGRect(origin: .zero, size: device))
+            window.frame = CGRect(origin: .zero, size: device)
+            window.overrideUserInterfaceStyle = .dark
+            window.rootViewController = controller
+            window.makeKeyAndVisible()
+            defer {
+                window.isHidden = true
+                window.rootViewController = nil
+                window.windowScene = nil
+            }
+
+            let elements = try await settledAccessibilityElements(under: window) { elements in
+                elements.contains { $0.accessibilityLabel == presentation.title }
+                    && elements.contains { $0.accessibilityLabel == presentation.message }
+                    && elements.contains { element in
+                        element.accessibilityLabel == presentation.primaryActionTitle
+                            && element.accessibilityTraits.contains(.button)
+                    }
+            }
+
+            func frame(of element: NSObject) -> CGRect {
+                window.convert(element.accessibilityFrame, from: nil)
+            }
+
+            let heading = try #require(
+                elements.first { $0.accessibilityLabel == presentation.title },
+                "The coach-mark heading was not drawn"
+            )
+            let message = try #require(
+                elements.first { $0.accessibilityLabel == presentation.message },
+                "The coach-mark message was not drawn"
+            )
+            let primaryAction = try #require(
+                elements.first {
+                    $0.accessibilityLabel == presentation.primaryActionTitle
+                        && $0.accessibilityTraits.contains(.button)
+                },
+                "The \(presentation.primaryActionTitle) action was not drawn"
+            )
+
+            var cardContents = [frame(of: heading), frame(of: message), frame(of: primaryAction)]
+            if presentation.showsSkip {
+                let skip = try #require(
+                    elements.first {
+                        $0.accessibilityLabel == "Skip" && $0.accessibilityTraits.contains(.button)
+                    },
+                    "The Skip action was not drawn"
+                )
+                cardContents.append(frame(of: skip))
+            } else {
+                #expect(elements.contains { $0.accessibilityLabel == "Skip" } == false)
+            }
+
+            let viewport = window.bounds.insetBy(dx: -0.5, dy: -0.5)
+            for content in cardContents {
+                #expect(viewport.contains(content))
+            }
+
+            // The card's own stack order: heading, then the message it heads, then the actions.
+            #expect(frame(of: heading).maxY <= frame(of: message).minY)
+            #expect(frame(of: message).maxY <= frame(of: primaryAction).minY)
+
+            // The card sits against the edge of the target it names rather than drifting into
+            // the middle of the free space, and hugs its content rather than filling the region.
+            let headingTop = frame(of: heading).minY
+            #expect(headingTop > targetRect.maxY)
+            #expect(headingTop - targetRect.maxY < 80)
+            let contentHeight = cardContents.map(\.maxY).max().map { $0 - headingTop } ?? 0
+            #expect(contentHeight < 260)
+
+            try photograph(window, named: name)
+        }
+    }
+
+    private func photograph(_ window: UIWindow, named name: String) throws {
+        let format = UIGraphicsImageRendererFormat.preferred()
+        format.scale = 3
+        let image = UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let png = try #require(image.pngData(), "UIImage produced no PNG data")
+
+        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
+            ?? NSTemporaryDirectory()
+        try png.write(to: URL(filePath: directory).appending(path: "\(name).png"))
+
+        #expect(png.count > 5_000)
     }
 
     private func renderEvidence(named name: String, content: some View) throws {
