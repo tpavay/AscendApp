@@ -60,7 +60,7 @@ struct ShareExportCanvas: View {
         // Everything here is card content, and the export renders at the default
         // text size for everyone. The wordmark's face scales with the reader's
         // setting, so without this one composition would produce a different
-        // image per author — the rule `ShareCardTemplateView` already keeps.
+        // image per author - the rule `ShareCardTemplateView` already keeps.
         .dynamicTypeSize(.large)
     }
 

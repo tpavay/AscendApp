@@ -13,7 +13,7 @@ struct ShareStatClusterPresetTests {
     // MARK: - Availability follows the data
 
     /// A climb that recorded no heart rate is offered every other cluster and
-    /// none of the heart-rate ones — the same rule the summary screen keeps:
+    /// none of the heart-rate ones - the same rule the summary screen keeps:
     /// show the data or do not.
     @Test
     func heartRateClustersAreWithheldFromAWorkoutWithoutHeartRate() {
@@ -41,7 +41,7 @@ struct ShareStatClusterPresetTests {
         #expect(liveClimb == Set(ShareStatClusterPresets.all.map(\.id)).subtracting(["routine"]))
 
         // A routine has no tower and no field, so nothing built on either is
-        // offered — but it does have its own cluster.
+        // offered - but it does have its own cluster.
         #expect(routine.contains("routine"))
         #expect(routine.contains("row"))
         #expect(routine.isDisjoint(with: ["hero", "rank", "receipt", "full-grid"]))
@@ -117,7 +117,7 @@ struct ShareStatClusterPresetTests {
     // MARK: - One movable unit
 
     /// Placing a cluster adds exactly one sticker, and moving, resizing and
-    /// deleting it are the ordinary sticker operations — there is no second
+    /// deleting it are the ordinary sticker operations - there is no second
     /// system underneath.
     @Test
     func aClusterIsOneStickerThatDragsResizesAndDeletes() throws {
@@ -228,7 +228,7 @@ struct ShareStatClusterPresetTests {
     // MARK: - Legibility over a photograph
 
     /// A cluster is bare text on somebody's photograph, so no run of it may ship
-    /// untreated — and the small tracked-out caps, which a drop shadow alone
+    /// untreated - and the small tracked-out caps, which a drop shadow alone
     /// leaves washed out against snow or a blown sky, take the outline as well.
     ///
     /// The plate is not the answer here: it is the climber's one-tap choice, and
@@ -381,7 +381,7 @@ struct ShareStatClusterPresetTests {
     // MARK: - Recap backgrounds
 
     /// A recap only skips the automatic stats sheet. The plus button still
-    /// works, so a cluster lands on one exactly as on any other background — and
+    /// works, so a cluster lands on one exactly as on any other background - and
     /// the recap's own burned-in lockup stays the only wordmark.
     @Test
     func aClusterCanBePlacedOnARecapBackground() throws {
@@ -470,8 +470,8 @@ struct ShareStatClusterPresetTests {
     /// A sensor-recorded session with a split curve, so the split cluster has
     /// real rows to draw rather than a reconstruction.
     ///
-    /// The pace deliberately varies — a hot start, a sag through the middle, a
-    /// finishing kick — because a perfectly even climb makes every split bar the
+    /// The pace deliberately varies - a hot start, a sag through the middle, a
+    /// finishing kick - because a perfectly even climb makes every split bar the
     /// same length and would prove nothing about how the table reads.
     static func recordedWorkout(
         name: String,

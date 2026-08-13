@@ -508,7 +508,7 @@ struct ShareComposerView: View {
             VStack(spacing: 14) {
                 // Structure: arrange multiple metrics (row / grid / column),
                 // move their labels, and toggle which show. A curated cluster
-                // arrives already arranged, so neither control applies to it —
+                // arrives already arranged, so neither control applies to it -
                 // its whole point is that nobody has to lay stats out.
                 if sticker.kind.supportsComposite, !sticker.isPreset {
                     railButton(systemName: "square.grid.2x2") {
@@ -942,7 +942,7 @@ private struct ShareAddStatSheet: View {
     // MARK: - Curated clusters
 
     /// Each tile draws the real cluster through the real interpreter, scaled
-    /// down inside a fixed design box — so every group is previewed at the same
+    /// down inside a fixed design box - so every group is previewed at the same
     /// reduction and the tile shows exactly what the canvas will place.
     private var presetGrid: some View {
         LazyVGrid(columns: columns, spacing: 12) {

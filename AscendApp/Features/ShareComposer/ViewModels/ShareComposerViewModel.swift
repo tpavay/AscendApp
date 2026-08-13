@@ -172,7 +172,7 @@ final class ShareComposerViewModel {
     /// A split table is asked about the rows it actually draws rather than the
     /// stat behind them: `.splits` resolves off the pace timeline, and a session
     /// too short to divide into five step ranges resolves it while the step-range
-    /// table has nothing to lay out — which offered the Splits cluster a heading,
+    /// table has nothing to lay out - which offered the Splits cluster a heading,
     /// a rule and a gap where its rows belong.
     func availablePresets() -> [ShareStatClusterPreset] {
         if let availablePresetsCache { return availablePresetsCache }
@@ -217,7 +217,7 @@ final class ShareComposerViewModel {
         return splits
     }
 
-    /// Structured split payload for a sticker that draws split rows — the split
+    /// Structured split payload for a sticker that draws split rows - the split
     /// sticker itself, or a cluster that names splits among its metrics.
     ///
     /// Resolving splits filters the whole heart-rate series once per split, so

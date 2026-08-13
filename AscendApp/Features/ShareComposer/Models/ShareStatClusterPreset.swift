@@ -17,7 +17,7 @@ import Foundation
 ///   control is how a climber adds one when their photo is busy.
 /// - **Availability follows the data.** `requires` names the stats without which
 ///   the arrangement is hollow. A preset whose required stats do not resolve is
-///   never offered — which is why the same catalog serves a Live Climb, a
+///   never offered - which is why the same catalog serves a Live Climb, a
 ///   routine and a Just Climb without ever branding a preset by session type.
 struct ShareStatClusterPreset: Identifiable, Sendable {
     let id: String
@@ -62,7 +62,13 @@ struct ShareStatClusterPreset: Identifiable, Sendable {
 ///
 /// Sizes are the design review's own pixel values put through `Design.u`, so the
 /// approved page stays the readable specification: a number here can be checked
-/// against the mock without arithmetic.
+/// against the mock without arithmetic. The settled rules a cluster has to keep
+/// are `docs/share-stat-clusters.md`.
+///
+/// That page is not in this repository. It is `.lavish/ascend-stat-clusters.html`
+/// revision 6, next to `data/ascend-summary-and-share-design.md`, both in the
+/// firstmate home. Every size below is still the mock's own pixel value through
+/// `Design.u`, so the catalog can be verified against the numbers without it.
 enum ShareStatClusterPresets {
     static let all: [ShareStatClusterPreset] = [
         hero, rank, row, splits, receipt, minimal, routine,
@@ -135,8 +141,8 @@ enum ShareStatClusterPresets {
         ])
     )
 
-    /// Five step-range rows with their bars and elapsed times — the Result
-    /// card's own table — then time and average.
+    /// Five step-range rows with their bars and elapsed times - the Result
+    /// card's own table - then time and average.
     private static let splits = ShareStatClusterPreset(
         id: "splits",
         title: "Splits",
@@ -259,8 +265,8 @@ enum ShareStatClusterPresets {
     // MARK: - Heart rate
     //
     // Only two heart-rate numbers exist per workout, average and peak, so these
-    // are stickers rather than a trace. The labels are standardized — AVERAGE HR
-    // and MAX HR, no BPM suffix and no heart glyph — and the resolver owns that
+    // are stickers rather than a trace. The labels are standardized - AVERAGE HR
+    // and MAX HR, no BPM suffix and no heart glyph - and the resolver owns that
     // copy, so every heart-rate sticker reads the same wherever it appears.
 
     /// Average large, max centered beneath it, then time and steps.
@@ -431,7 +437,7 @@ enum ShareStatClusterPresets {
     }
 
     /// A row of stats. Where it sits across the cluster is the enclosing
-    /// column's alignment, not the row's own — a left-aligned cluster's rows
+    /// column's alignment, not the row's own - a left-aligned cluster's rows
     /// start at the same edge as its heading because the column says so.
     private static func statRow(
         topPadding: Double = 0,

@@ -137,7 +137,7 @@ enum ShareCardFormat {
     /// Bumped whenever the renderer gains an element type or a knob that a
     /// template may depend on. Templates above this are skipped by this binary.
     ///
-    /// 3 added `legibility` to text styles and the splits table — a template
+    /// 3 added `legibility` to text styles and the splits table - a template
     /// that asks for the outline treatment would draw unreadable over a
     /// photograph on a binary that ignores it.
     static let rendererVersion = 3
@@ -637,7 +637,7 @@ struct ShareCardSplitsTableSpec: Codable, Equatable, Sendable {
     /// Drives every font size in the table.
     var baseSize: Double
     var maxRows: Int?
-    /// The table's own heading. A card — or a stat cluster — that writes its own
+    /// The table's own heading. A card - or a stat cluster - that writes its own
     /// turns this off rather than drawing a second one.
     var showsTitle: Bool
     /// The supporting row under the heading: column names on the timeline

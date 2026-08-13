@@ -62,8 +62,8 @@ enum ShareStickerCardBuilder {
     // MARK: - Curated stat clusters
 
     /// A preset arrives already arranged, so the builder's only job is the plate
-    /// the climber may have asked for. It starts plate-free — legible over a
-    /// photograph on its shadow alone — which is why `.none` is not a no-op here.
+    /// the climber may have asked for. It starts plate-free - legible over a
+    /// photograph on its shadow alone - which is why `.none` is not a no-op here.
     private static func clusterNode(
         _ preset: ShareStatClusterPreset,
         textBackground: ShareTextBackground
@@ -89,8 +89,8 @@ enum ShareStickerCardBuilder {
         return ShareCardNode(preset.content.element, modifiers: modifiers)
     }
 
-    /// Lifts the parts of a cluster that are not type — the rule, the split
-    /// bars — off the photograph. Each run of text carries its own treatment, so
+    /// Lifts the parts of a cluster that are not type - the rule, the split
+    /// bars - off the photograph. Each run of text carries its own treatment, so
     /// this stays a tight contact shadow: widened toward the broad ambient half
     /// of the review page's text shadow it stops reading as depth on a stack of
     /// five split bars and starts reading as a dark slab behind them, which is

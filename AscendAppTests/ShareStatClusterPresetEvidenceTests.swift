@@ -7,8 +7,8 @@ import UIKit
 /// Reviewer-facing evidence for the pre-formatted stat clusters.
 ///
 /// Every cluster the approved review page settled on is placed on a real
-/// photograph and pushed through `ShareComposerExporter.renderImage` — the same
-/// call the share button makes — then written out as a full-resolution PNG, so
+/// photograph and pushed through `ShareComposerExporter.renderImage` - the same
+/// call the share button makes - then written out as a full-resolution PNG, so
 /// the set can be looked at rather than described. The measurements alongside
 /// each render are the two rules a cluster cannot be trusted to keep on its own:
 /// it draws plate-free, and it does not put a second wordmark on the export.
@@ -250,23 +250,23 @@ struct ShareStatClusterPresetEvidenceTests {
         )
     }
 
-    /// What the outline costs to draw, and — just as important — what was and
+    /// What the outline costs to draw, and - just as important - what was and
     /// was not measured to settle it.
     ///
     /// The canvas is live: a drag mutates observed state, so every frame
     /// re-composites whatever the climber placed. The outline is four hard offset
     /// shadow copies, and chained `.shadow`s nest rather than compose, so the
     /// worry was five offscreen rasterizations per treated run across the Splits
-    /// cluster — the heaviest on offer, which is asserted below rather than
+    /// cluster - the heaviest on offer, which is asserted below rather than
     /// assumed, and whose run count is computed rather than quoted.
     ///
     /// The numbers that settle it are printed below. The Splits cluster, drawn
     /// with its real resolved data at export scale (2.77×) in a 900×700 frame,
     /// renders in ~2.6 ms against the 8.3 ms 120 Hz budget; forcing every
     /// treatment off the same tree reaches ~2.1 ms at the same size. That
-    /// half-millisecond delta is the whole legibility system —
+    /// half-millisecond delta is the whole legibility system -
     /// the outline on the small caps *and* the contact shadow on everything
-    /// else — because `untreated()` forces every run to `.none`, and the two
+    /// else - because `untreated()` forces every run to `.none`, and the two
     /// metric values in this cluster sit above `outlineBelow` and carry
     /// `.shadow` rather than the outline.
     ///
@@ -274,18 +274,18 @@ struct ShareStatClusterPresetEvidenceTests {
     /// rendered the preset tree against an empty `ShareCardRenderContext`, where
     /// the split table and every stat-backed run draw nothing, and reported
     /// 0.38 ms for what was a nearly empty tree. That figure is void; the
-    /// methodology below — `presetPreview(for:)` with real resolved data — is
+    /// methodology below - `presetPreview(for:)` with real resolved data - is
     /// what produced ~2.6 ms. `ImageRenderer` does a full layout and
-    /// rasterization from scratch, which is strictly more work than a drag frame
-    /// — a transform-only change re-composites an existing layer tree — so even
+    /// rasterization from scratch, which is strictly more work than a drag frame,
+    /// where a transform-only change re-composites an existing layer tree, so even
     /// that is a conservative upper bound rather than the frame cost.
     ///
     /// What the two caption stacks compare is **two spellings of the same
     /// four-copy ring**: the shipped one, applied in the view layer, against
     /// `FourOffsetRingTextRenderer`, the same four offsets relocated into a
     /// custom `TextRenderer`. It is not a test of a genuinely single-pass glyph
-    /// stroke. That alternative — an `AttributedString` / `NSAttributedString`
-    /// negative `strokeWidth` with a `strokeColor` — was specified and
+    /// stroke. That alternative - an `AttributedString` / `NSAttributedString`
+    /// negative `strokeWidth` with a `strokeColor` - was specified and
     /// deliberately **not** measured: the whole legibility treatment is worth
     /// ~0.5 ms of an 8.3 ms frame, and part of that is contact shadows a stroke
     /// would not replace, so that is the ceiling on what a perfect single-pass
@@ -313,7 +313,7 @@ struct ShareStatClusterPresetEvidenceTests {
         let relocated = Self.medianRenderDuration { Self.captionStack(runs: treatedRuns, inCustomRenderer: true) }
 
         let report = """
-        Share cluster outline cost — one ImageRenderer pass, median of 9
+        Share cluster outline cost - one ImageRenderer pass, median of 9
         Measured at export scale (2.77×) in a 900×700 frame; every figure below is that size.
 
           Splits cluster (the heaviest, with its real resolved data), \(treatedRuns) treated runs
@@ -372,8 +372,8 @@ struct ShareStatClusterPresetEvidenceTests {
     /// **Dragging is settled and it was not the risk.** The composer's own
     /// per-frame work with five clusters placed is ~0.002 ms, because
     /// `content(for:)` is memoized on the content-bearing parts of a sticker and
-    /// a drag mutates only the transform. The original worry — that fifty
-    /// nested-shadow runs would stutter a drag — is disproved. That property is
+    /// a drag mutates only the transform. The original worry - that fifty
+    /// nested-shadow runs would stutter a drag - is disproved. That property is
     /// protected below by counting builds rather than by timing a dictionary
     /// lookup or comparing values: `ShareStickerContent` is a value type, so a
     /// rebuilt tree compares equal to a cached one and equality alone cannot see
@@ -384,14 +384,14 @@ struct ShareStatClusterPresetEvidenceTests {
     /// lays out for the first time. Every figure is a full `ImageRenderer` pass
     /// over the whole canvas, at both sizes:
     ///
-    /// - **on-screen, 390×845** — the size a climber's canvas actually is, and
+    /// - **on-screen, 390×845** - the size a climber's canvas actually is, and
     ///   the number that answers the add-time question.
-    /// - **export, 1080×2340** — what `ShareComposerExporter` renders at.
+    /// - **export, 1080×2340** - what `ShareComposerExporter` renders at.
     ///
     /// The two come back within a few percent of each other, which is itself the
     /// result: at ~7.7× the pixels the export canvas costs the same, so this work
     /// is **layout and text shaping, not rasterization**. Do not expect a smaller
-    /// canvas to make it cheaper — that was the assumption going in and the
+    /// canvas to make it cheaper - that was the assumption going in and the
     /// measurement refuted it. Anyone attacking this should attack the number of
     /// laid-out runs or cache the placed sticker, not the resolution.
     ///
@@ -405,7 +405,7 @@ struct ShareStatClusterPresetEvidenceTests {
     /// The figures this currently produces are over a 120 Hz frame from three
     /// clusters up. That is recorded, not fixed here: it is a one-off placement
     /// hitch, not a drag, and it is tracked as issue #489. The assertions below
-    /// are about *scaling* and about the drag path, deliberately — this test does
+    /// are about *scaling* and about the drag path, deliberately - this test does
     /// not claim add-time fits in a frame, because it does not.
     @Test
     func addTimeLayoutScalesLinearlyAsHeaviestClustersPileUp() throws {
@@ -444,7 +444,7 @@ struct ShareStatClusterPresetEvidenceTests {
         }.joined(separator: "\n")
 
         let report = """
-        Add-time layout with several of the heaviest cluster — median of 9 ImageRenderer passes
+        Add-time layout with several of the heaviest cluster - median of 9 ImageRenderer passes
 
         \(rows)
 
@@ -453,7 +453,7 @@ struct ShareStatClusterPresetEvidenceTests {
           On-screen and export land within a few percent of each other despite export
           being ~7.7× the pixels, so this cost is layout and text shaping, not
           rasterization: a smaller canvas does not make it cheaper.
-          Both are upper bounds even for add-time — ImageRenderer lays out and rasterizes
+          Both are upper bounds even for add-time - ImageRenderer lays out and rasterizes
           the whole canvas from scratch, background included, where the live app re-lays
           out a subtree over an already-realized background.
 
@@ -511,7 +511,7 @@ struct ShareStatClusterPresetEvidenceTests {
         #expect(
             marginalFive < marginalOne * 6,
             """
-            five clusters must not cost more than five of the first plus slack — measured \
+            five clusters must not cost more than five of the first plus slack - measured \
             on the marginal cost, since the shared background would otherwise mask it.
             \(report)
             """
@@ -569,9 +569,9 @@ struct ShareStatClusterPresetEvidenceTests {
         }
     }
 
-    /// As many caption runs as the Splits cluster actually treats — the caller
+    /// As many caption runs as the Splits cluster actually treats - the caller
     /// passes `treatedRunCount`, so the comparison cannot drift away from the
-    /// cluster it stands in for — carrying the same four-copy ring in each of its
+    /// cluster it stands in for - carrying the same four-copy ring in each of its
     /// two spellings.
     ///
     /// Both sides treat each *run*, which is where the cost lives: wrapping the
@@ -771,7 +771,7 @@ struct ShareStatClusterPresetEvidenceTests {
         }
     }
 
-    /// What the cluster actually lays out at, with no size proposed to it —
+    /// What the cluster actually lays out at, with no size proposed to it -
     /// the same `fixedSize()` the canvas and the tile both render it under.
     private static func intrinsicSize(of content: ShareStickerContent) -> CGSize? {
         let renderer = ImageRenderer(
