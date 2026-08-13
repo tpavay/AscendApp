@@ -23,8 +23,11 @@ struct CoachMarkOverlayAccessibilityTests {
         let presentations = sharePresentations + [RoutineBuilderCoachMark.timeline.presentation]
 
         try await withAccessibilityAutomation {
-            for presentation in presentations {
-                try await verifyAccessibilityLayout(of: presentation)
+            for (index, presentation) in presentations.enumerated() {
+                try await verifyAccessibilityLayout(
+                    of: presentation,
+                    photographedAs: "dynamic-type-a5-\(index)"
+                )
             }
         }
     }
@@ -78,7 +81,8 @@ struct CoachMarkOverlayAccessibilityTests {
     }
 
     private func verifyAccessibilityLayout(
-        of presentation: CoachMarkPresentation
+        of presentation: CoachMarkPresentation,
+        photographedAs name: String? = nil
     ) async throws {
         let root = ZStack {
             Color.black
@@ -95,6 +99,7 @@ struct CoachMarkOverlayAccessibilityTests {
         .transaction { $0.disablesAnimations = true }
 
         let controller = UIHostingController(rootView: root)
+        controller.overrideUserInterfaceStyle = .dark
         controller.view.frame = CGRect(origin: .zero, size: Self.screenSize)
         let scene = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
@@ -102,6 +107,7 @@ struct CoachMarkOverlayAccessibilityTests {
         let window = scene.map { UIWindow(windowScene: $0) }
             ?? UIWindow(frame: CGRect(origin: .zero, size: Self.screenSize))
         window.frame = CGRect(origin: .zero, size: Self.screenSize)
+        window.overrideUserInterfaceStyle = .dark
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer {
@@ -142,6 +148,28 @@ struct CoachMarkOverlayAccessibilityTests {
             #expect(action.accessibilityFrame.width >= 44)
             #expect(action.accessibilityFrame.height >= 44)
         }
+
+        if let name {
+            try photograph(window, named: name)
+        }
+    }
+
+    /// The frames above prove the card and its actions stay reachable at Accessibility 5. The
+    /// picture proves the chrome around them is still readable rather than merely present.
+    private func photograph(_ window: UIWindow, named name: String) throws {
+        let format = UIGraphicsImageRendererFormat.preferred()
+        format.scale = 3
+        let image = UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let png = try #require(image.pngData(), "UIImage produced no PNG data")
+
+        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
+            ?? NSTemporaryDirectory()
+        let url = URL(filePath: directory).appending(path: "\(name).png")
+        try png.write(to: url)
+        #expect(png.count > 5_000)
+        print("evidence: \(url.path())")
     }
 }
 
