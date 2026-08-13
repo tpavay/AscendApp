@@ -68,21 +68,22 @@ struct CoachMarkOverlay: View {
             dimmedBackdrop
 
             if let spotlightRect, presentation.drawsSpotlightRing {
-                RoundedRectangle(cornerRadius: 20)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .stroke(Color.accent, lineWidth: 2)
                     .frame(width: spotlightRect.width, height: spotlightRect.height)
                     .offset(x: spotlightRect.minX, y: spotlightRect.minY)
                     .allowsHitTesting(false)
             }
 
-            VStack(spacing: 0) {
-                if !placesCardBelowTarget { Spacer(minLength: 0) }
-                card
-                    .frame(maxHeight: cardRegion.height)
-                if placesCardBelowTarget { Spacer(minLength: 0) }
-            }
-            .frame(width: cardRegion.width, height: cardRegion.height)
-            .offset(x: cardRegion.minX, y: cardRegion.minY)
+            // Pinned to the edge of the region that touches the spotlight, so the card sits
+            // beside the control it names instead of drifting to the middle of the free space.
+            card
+                .frame(
+                    width: cardRegion.width,
+                    height: cardRegion.height,
+                    alignment: placesCardBelowTarget ? .top : .bottom
+                )
+                .offset(x: cardRegion.minX, y: cardRegion.minY)
         }
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
@@ -98,7 +99,7 @@ struct CoachMarkOverlay: View {
                 .fill(.black.opacity(0.66))
 
             if let spotlightRect {
-                RoundedRectangle(cornerRadius: 20)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .frame(width: spotlightRect.width, height: spotlightRect.height)
                     .offset(x: spotlightRect.minX, y: spotlightRect.minY)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -130,11 +131,11 @@ struct CoachMarkOverlay: View {
             .frame(maxHeight: cardRegion.height)
         }
         .background(
-            RoundedRectangle(cornerRadius: 18)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(Color(red: 0.09, green: 0.09, blue: 0.09))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 18)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(.white.opacity(0.14), lineWidth: 1)
         )
         .accessibilityElement(children: .contain)

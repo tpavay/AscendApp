@@ -49,10 +49,17 @@ struct ShareBackgroundPickerView: View {
                 Spacer(minLength: 0)
             }
         }
-        .onChange(of: walkthrough.state) { oldState, newState in
-            guard oldState == .presenting(.sources), newState != oldState else { return }
+        .onChange(of: walkthrough.restingFocusTarget) { _, target in
+            guard target == .sources else { return }
             sourceTabsAreFocused = true
         }
+    }
+
+    /// A tab is only offered once it has something behind it: recap templates resolve after the
+    /// first render, and a failed load leaves none at all.
+    private var offersRecaps: Bool {
+        guard let recap, !recap.templates.isEmpty else { return false }
+        return onPickRecap != nil
     }
 
     // MARK: - Header
@@ -90,7 +97,7 @@ struct ShareBackgroundPickerView: View {
             if !presets.isEmpty {
                 tabButton("Presets", tab: .presets)
             }
-            if onPickRecap != nil {
+            if offersRecaps {
                 tabButton("Recaps", tab: .recaps)
             }
         }
@@ -155,7 +162,7 @@ struct ShareBackgroundPickerView: View {
     private var recapsContent: some View {
         ScrollView {
             VStack(spacing: 12) {
-                if let recap, let onPickRecap {
+                if offersRecaps, let recap, let onPickRecap {
                     LazyVGrid(
                         columns: [
                             GridItem(.flexible(), spacing: 14),

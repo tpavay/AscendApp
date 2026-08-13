@@ -43,7 +43,6 @@ struct ShareComposerView: View {
     private let templateStore = ShareCardTemplateStore()
     private let presets: [ShareComposerPreset]
     private let shareTitle: String
-    private let automaticallyPresentsInitialStatsSheet: Bool
     private let accent = Color(red: 0.706, green: 0.8, blue: 0)
     private static let storyAspectRatio = ShareCardFormat.aspectRatio
 
@@ -52,7 +51,6 @@ struct ShareComposerView: View {
         climb: Climb? = nil,
         liveClimbRank: Int? = nil,
         liveClimbRankTotal: Int? = nil,
-        initialBackground: ShareBackgroundSource? = nil,
         walkthroughStore: ShareComposerWalkthroughStore = ShareComposerWalkthroughStore()
     ) {
         let settings = SettingsManager.shared
@@ -63,23 +61,8 @@ struct ShareComposerView: View {
             climb: climb,
             climbName: climb?.name,
             climbRank: liveClimbRank,
-            climbRankTotal: liveClimbRankTotal,
-            initialBackground: initialBackground
+            climbRankTotal: liveClimbRankTotal
         ))
-        _walkthrough = State(initialValue: ShareComposerWalkthroughCoordinator(
-            entry: initialBackground == nil ? .picker : .composer,
-            sourceOptions: ShareComposerSourceOptions(
-                hasPresets: climb != nil,
-                hasRecaps: climb != nil
-            ),
-            store: walkthroughStore
-        ))
-
-        if case .recap? = initialBackground {
-            automaticallyPresentsInitialStatsSheet = false
-        } else {
-            automaticallyPresentsInitialStatsSheet = initialBackground != nil
-        }
 
         // Only the hero artwork is offered as a background preset; the card and
         // thumbnail are addable as stickers (in the Climb tab), not backgrounds.
@@ -88,6 +71,17 @@ struct ShareComposerView: View {
             presets = [.climbImage(climb, .hero)]
         }
         self.presets = presets
+
+        // Recaps stay off until their templates resolve, so the source copy never promises a tab
+        // the picker has not drawn.
+        _walkthrough = State(initialValue: ShareComposerWalkthroughCoordinator(
+            entry: .picker,
+            sourceOptions: ShareComposerSourceOptions(
+                hasPresets: !presets.isEmpty,
+                hasRecaps: false
+            ),
+            store: walkthroughStore
+        ))
 
         if let climb {
             self.shareTitle = climb.name
@@ -127,6 +121,13 @@ struct ShareComposerView: View {
         return .init(templates: templates, context: context, climb: climb)
     }
 
+    /// True only once the Recaps tab has something to show. Both the tab and the source copy that
+    /// names it hang off this, so neither offers an empty shelf.
+    private var offersRecaps: Bool {
+        guard viewModel.climb != nil, let recapPreview else { return false }
+        return !recapPreview.templates.isEmpty
+    }
+
     /// Bake the selected template to an image and use it as the background.
     /// The user can then add stickers on top or save as-is.
     private func applyTemplate(_ template: ShareCardTemplate) {
@@ -162,10 +163,13 @@ struct ShareComposerView: View {
                         // Re-picking a background starts a clean canvas.
                         viewModel.resetForNewBackground(source)
                         if walkthrough.backgroundSelected(.photoOrPreset) {
-                            showAddSheet = true
+                            Task {
+                                try? await Task.sleep(for: .seconds(0.35))
+                                showAddSheet = true
+                            }
                         }
                     },
-                    onPickRecap: viewModel.climb != nil ? { template in applyTemplate(template) } : nil,
+                    onPickRecap: offersRecaps ? { template in applyTemplate(template) } : nil,
                     onClose: { dismiss() },
                     walkthrough: walkthrough
                 )
@@ -208,6 +212,10 @@ struct ShareComposerView: View {
                     .transition(.opacity)
                 }
             }
+            // The canvas runs under the status bar, so the dim has to as well or a lit band is
+            // left above it. Scoped here so nothing else in the composer animates with the mark.
+            .ignoresSafeArea()
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: walkthrough.state)
         }
         .sheet(isPresented: $showAddSheet, onDismiss: walkthrough.statsSheetDismissed) {
             ShareAddStatSheet(
@@ -222,19 +230,16 @@ struct ShareComposerView: View {
                 onPickPreset: { preset in
                     HapticsManager.shared.trigger(.lightImpact)
                     viewModel.addPresetSticker(preset)
-                    walkthrough.stickerSelected(selectedSticker)
                     showAddSheet = false
                 },
                 onPickStat: { stat in
                     HapticsManager.shared.trigger(.lightImpact)
                     viewModel.addSticker(kind: stat.kind)
-                    walkthrough.stickerSelected(selectedSticker)
                     showAddSheet = false
                 },
                 onPickInjected: { stat in
                     HapticsManager.shared.trigger(.lightImpact)
                     viewModel.addInjectedSticker(stat)
-                    walkthrough.stickerSelected(selectedSticker)
                     showAddSheet = false
                 },
                 onPickImage: { variant in
@@ -295,28 +300,19 @@ struct ShareComposerView: View {
             Text("Rename how this climb appears on your share. Stat values can't be changed.")
         }
         .overlay(alignment: .bottom) { toastView }
-        .onAppear {
-            if automaticallyPresentsInitialStatsSheet,
-               walkthrough.state == .waitingForStatsSheet {
-                showAddSheet = true
-            }
-        }
         .onChange(of: viewModel.selectedID) {
             walkthrough.stickerSelected(selectedSticker)
         }
-        .onChange(of: walkthrough.state) { oldState, newState in
-            guard newState == .finished else { return }
-            switch oldState {
-            case .presenting(.editRail):
+        .onChange(of: walkthrough.restingFocusTarget) { _, target in
+            switch target {
+            case .editRail:
                 editRailIsFocused = true
-            case .presenting(.filters):
+            case .filters:
                 filterButtonIsFocused = true
-            case .presenting(.sources), .presenting(.stats), .waitingForBackground,
-                 .waitingForStatsSheet, .waitingForCompatibleSticker, .finished:
+            case .sources, .stats, nil:
                 break
             }
         }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: walkthrough.state)
         .task {
             // Inject the workout's Best Efforts (from the cache) so each can be
             // added as its own sticker — they get their own add-sheet section.
@@ -333,6 +329,9 @@ struct ShareComposerView: View {
             viewModel.injectWeeklyTotals(from: allWorkouts)
             // Both injections feed the templates, so build the tab after them.
             recapPreview = makeRecapPreview()
+            walkthrough.updateSourceOptions(
+                ShareComposerSourceOptions(hasPresets: !presets.isEmpty, hasRecaps: offersRecaps)
+            )
         }
         .trackOnce(screen: .shareComposer)
     }
@@ -957,8 +956,8 @@ private struct ShareAddStatSheet: View {
             .shareComposerCoachMarkTarget(.stats)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onChange(of: walkthrough.state) { oldState, newState in
-            guard oldState == .presenting(.stats), newState != oldState else { return }
+        .onChange(of: walkthrough.restingFocusTarget) { _, target in
+            guard target == .stats else { return }
             statsTabsAreFocused = true
         }
         .overlayPreferenceValue(ShareComposerCoachMarkAnchorKey.self) { anchors in

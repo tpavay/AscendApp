@@ -30,6 +30,48 @@ struct ShareComposerSourceOptions: Equatable {
     }
 }
 
+/// Which of the edit rail's controls the selected sticker actually shows, so the mark names only
+/// what the climber can see. A curated cluster arrives already arranged and a structured sticker
+/// owns its own rows, so neither offers arrangement or alignment.
+struct ShareComposerEditRailOptions: Equatable {
+    let offersArrangement: Bool
+    let offersAlignment: Bool
+
+    static let full = ShareComposerEditRailOptions(offersArrangement: true, offersAlignment: true)
+    static let styleOnly = ShareComposerEditRailOptions(offersArrangement: false, offersAlignment: false)
+
+    init(offersArrangement: Bool, offersAlignment: Bool) {
+        self.offersArrangement = offersArrangement
+        self.offersAlignment = offersAlignment
+    }
+
+    /// Nil when the sticker has no rail at all: climb artwork takes no text styling, so there is
+    /// no control left for a mark to point at.
+    init?(sticker: ShareStickerInstance) {
+        guard !sticker.isImage else { return nil }
+        self.init(
+            offersArrangement: sticker.kind.supportsComposite && !sticker.isPreset,
+            offersAlignment: !sticker.isStructured && !sticker.isPreset
+        )
+    }
+
+    var message: String {
+        var controls: [String] = []
+        if offersArrangement { controls.append("arrangement") }
+        if offersAlignment { controls.append("alignment") }
+        controls.append("font")
+        controls.append("color")
+        return "Change the \(Self.sentenceList(controls)). Add a panel when the picture is busy."
+    }
+
+    private static func sentenceList(_ items: [String]) -> String {
+        guard let last = items.last else { return "" }
+        guard items.count > 1 else { return last }
+        guard items.count > 2 else { return "\(items[0]) and \(last)" }
+        return items.dropLast().joined(separator: ", ") + ", and " + last
+    }
+}
+
 enum ShareComposerCoachMark: Int, CaseIterable, Identifiable {
     case sources
     case stats
@@ -58,17 +100,20 @@ enum ShareComposerCoachMark: Int, CaseIterable, Identifiable {
     }
 
     var message: String {
-        message(sourceOptions: .climb)
+        message(sourceOptions: .climb, editRailOptions: .full)
     }
 
-    func message(sourceOptions: ShareComposerSourceOptions) -> String {
+    func message(
+        sourceOptions: ShareComposerSourceOptions,
+        editRailOptions: ShareComposerEditRailOptions
+    ) -> String {
         switch self {
         case .sources:
             return sourceOptions.message
         case .stats:
             return "Tap any available session stat or a ready-made group to add it. Then move or resize the sticker, or drag it to the trash to delete it."
         case .editRail:
-            return "Change the arrangement, alignment, font, and color. Add a panel when the picture is busy."
+            return editRailOptions.message
         case .filters:
             return "Filters change the whole picture. Drag and pinch your photo or a preset background. Recaps stay fixed."
         }

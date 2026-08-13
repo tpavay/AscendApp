@@ -106,43 +106,26 @@ struct ShareComposerWalkthroughEvidenceTests {
                 previousTitle: ShareComposerCoachMark.editRail.title
             )
             try Self.photograph(window, named: "04-filters")
-        }
-    }
 
-    @Test(.bug(id: 491))
-    func directRecapWaitsForAddStatsBeforePresentingTheStatsMark() async throws {
-        let fixture = try makeFixture(named: "DirectRecap")
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
-        let recap = UIGraphicsImageRenderer(size: CGSize(width: 390, height: 844)).image { context in
-            UIColor.black.setFill()
-            context.fill(CGRect(origin: .zero, size: CGSize(width: 390, height: 844)))
-        }
-        let composer = ShareComposerView(
-            workout: fixture.workout,
-            climb: .preview,
-            initialBackground: .recap(recap),
-            walkthroughStore: ShareComposerWalkthroughStore(defaults: fixture.defaults)
-        )
-        .modelContainer(fixture.container)
-        .transaction { $0.disablesAnimations = true }
-
-        try await withHostedWindow(composer) { window in
-            let composerElements = try await settledAccessibilityElements(under: window) { elements in
-                elements.contains { $0.accessibilityLabel == "Add stats" }
+            // Dismissing the last mark has to hand the screen back: the dim goes, and the control
+            // the card just explained is reachable where VoiceOver is sent.
+            try activateAccessibilityElement(labelled: "Got it", in: window)
+            let afterDismissal = try await settledAccessibilityElements(under: window) { elements in
+                elements.contains {
+                    $0.accessibilityLabel == "Background filters"
+                        && $0.accessibilityTraits.contains(.button)
+                }
+                    && elements.contains {
+                        $0.accessibilityLabel == ShareComposerCoachMark.filters.title
+                    } == false
             }
             #expect(
-                composerElements.contains {
-                    ShareComposerCoachMark.allCases.map(\.title).contains($0.accessibilityLabel ?? "")
-                } == false
+                afterDismissal.contains {
+                    $0.accessibilityLabel == "Background filters"
+                        && $0.accessibilityTraits.contains(.button)
+                }
             )
-            #expect(
-                composerElements.contains {
-                    $0.accessibilityLabel == "Climb" && $0.accessibilityTraits.contains(.button)
-                } == false
-            )
-
-            try activateAccessibilityElement(labelled: "Add stats", in: window)
-            try await settle(window, title: ShareComposerCoachMark.stats.title)
+            #expect(afterDismissal.contains { $0.accessibilityLabel == "Skip" } == false)
         }
     }
 

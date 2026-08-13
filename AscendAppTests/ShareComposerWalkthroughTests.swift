@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import SwiftUI
 import Testing
 import UIKit
@@ -26,7 +27,7 @@ struct ShareComposerWalkthroughTests {
         verify(coordinator, mark: .stats, target: .stats, step: 1, count: 4)
 
         coordinator.advance()
-        #expect(coordinator.state == .waitingForCompatibleSticker)
+        #expect(coordinator.state == .waitingForSticker)
 
         coordinator.stickerSelected(ShareStickerInstance(kind: .duration))
         verify(coordinator, mark: .editRail, target: .editRail, step: 2, count: 4)
@@ -90,19 +91,118 @@ struct ShareComposerWalkthroughTests {
         verify(coordinator, mark: .filters, target: .filters, step: 2, count: 3)
     }
 
-    @Test
-    func editRailWaitsForAStickerThatActuallyOffersEveryNamedControl() {
+    @Test(.bug(id: 491), arguments: StickerUnderTest.allCases)
+    func everyStickerWithARailReachesTheEditMarkDescribingOnlyItsOwnControls(
+        _ subject: StickerUnderTest
+    ) throws {
         let fixture = DefaultsFixture()
         defer { fixture.cleanUp() }
-        let coordinator = ShareComposerWalkthroughCoordinator(entry: .composer, store: fixture.store)
-        coordinator.statsSheetPresented()
+        let coordinator = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
+        drive(coordinator, to: .stats)
         coordinator.advance()
 
-        coordinator.stickerSelected(ShareStickerInstance(kind: .splits))
-        #expect(coordinator.state == .waitingForCompatibleSticker)
+        coordinator.stickerSelected(subject.sticker)
+
+        verify(coordinator, mark: .editRail, target: .editRail, step: 2, count: 4)
+        #expect(try #require(coordinator.presentation).message == subject.expectedMessage)
+
+        coordinator.advance()
+        verify(coordinator, mark: .filters, target: .filters, step: 3, count: 4)
+        coordinator.advance()
+        #expect(coordinator.state == .finished)
+        #expect(fixture.store.hasSeenWalkthrough)
+    }
+
+    @Test(.bug(id: 491))
+    func aStickerWithNoEditRailHandsStraightOverToTheFilterMark() {
+        let fixture = DefaultsFixture()
+        defer { fixture.cleanUp() }
+        let coordinator = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
+        drive(coordinator, to: .stats)
+        coordinator.advance()
+
+        coordinator.stickerSelected(ShareStickerInstance(kind: .climbName, climbImageVariant: .thumb))
+
+        verify(coordinator, mark: .filters, target: .filters, step: 3, count: 4)
+
+        coordinator.advance()
+        #expect(coordinator.state == .finished)
+        #expect(fixture.store.hasSeenWalkthrough)
+    }
+
+    @Test(.bug(id: 491))
+    func aSecondOpenStaysSilentAfterAReadyMadeGroupCompletedTheFirst() {
+        let fixture = DefaultsFixture()
+        defer { fixture.cleanUp() }
+        let first = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
+        drive(first, to: .stats)
+        first.advance()
+        first.stickerSelected(StickerUnderTest.readyMadeGroup.sticker)
+        first.advance()
+        first.advance()
+
+        let second = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
+        #expect(second.state == .finished)
+        #expect(second.presentation == nil)
+    }
+
+    @Test(.bug(id: 491))
+    func eachDismissedMarkLeavesFocusOnTheControlItExplained() {
+        let fixture = DefaultsFixture()
+        defer { fixture.cleanUp() }
+        let coordinator = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
+        #expect(coordinator.restingFocusTarget == nil)
+
+        coordinator.advance()
+        #expect(coordinator.restingFocusTarget == .sources)
+
+        coordinator.backgroundSelected(.photoOrPreset)
+        coordinator.statsSheetPresented()
+        #expect(coordinator.restingFocusTarget == nil)
+
+        coordinator.advance()
+        #expect(coordinator.restingFocusTarget == .stats)
 
         coordinator.stickerSelected(ShareStickerInstance(kind: .duration))
-        #expect(coordinator.mark == .editRail)
+        #expect(coordinator.restingFocusTarget == nil)
+
+        coordinator.skip()
+        #expect(coordinator.restingFocusTarget == .editRail)
+    }
+
+    @Test(.bug(id: 491))
+    func theFilterMarkLeavesFocusOnTheFilterControl() {
+        let fixture = DefaultsFixture()
+        defer { fixture.cleanUp() }
+        let coordinator = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
+        drive(coordinator, to: .filters)
+
+        coordinator.advance()
+
+        #expect(coordinator.state == .finished)
+        #expect(coordinator.restingFocusTarget == .filters)
+    }
+
+    @Test(.bug(id: 491))
+    func sourceCopyOnlyNamesRecapsOnceTheirTemplatesResolve() throws {
+        let fixture = DefaultsFixture()
+        defer { fixture.cleanUp() }
+        let coordinator = ShareComposerWalkthroughCoordinator(
+            entry: .picker,
+            sourceOptions: ShareComposerSourceOptions(hasPresets: true, hasRecaps: false),
+            store: fixture.store
+        )
+
+        #expect(try #require(coordinator.presentation).title == "Two ways to start.")
+        #expect(
+            try #require(coordinator.presentation).message
+                .localizedStandardContains("Recaps") == false
+        )
+
+        coordinator.updateSourceOptions(ShareComposerSourceOptions(hasPresets: true, hasRecaps: true))
+
+        #expect(try #require(coordinator.presentation).title == "Three ways to start.")
+        #expect(try #require(coordinator.presentation).message.localizedStandardContains("Recaps"))
     }
 
     @Test
@@ -168,56 +268,39 @@ struct ShareComposerWalkthroughTests {
         #expect(coordinator.presentation == nil)
     }
 
+    /// Driven through the action the Debug Tools list actually publishes, so the routing the
+    /// screen relies on is exercised rather than the reset helper alone.
     @Test
-    func debugResetRemovesTheExactKeyReadByTheCoordinator() {
+    func debugResetRemovesTheExactKeyReadByTheCoordinator() async throws {
+        #if DEBUG
         let fixture = DefaultsFixture()
         defer { fixture.cleanUp() }
         fixture.store.markSeen()
         #expect(fixture.defaults.bool(forKey: ShareComposerCoachMark.seenStorageKey))
 
-        #if DEBUG
         let debugTools = DebugToolsViewModel(shareComposerWalkthroughStore: fixture.store)
-        debugTools.resetShareComposerWalkthrough()
+        let action = try #require(
+            debugTools.sections
+                .flatMap(\.actions)
+                .first { $0.title == "Reset Share Composer Walkthrough" },
+            "Debug Tools no longer publishes the Share Composer walkthrough reset"
+        )
+        let container = try ModelContainer(
+            for: Workout.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+
+        await debugTools.executeAction(
+            action,
+            modelContext: ModelContext(container),
+            authVM: AuthenticationViewModel(observesFirebaseAuth: false)
+        )
 
         #expect(fixture.defaults.object(forKey: ShareComposerCoachMark.seenStorageKey) == nil)
         let replay = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
         #expect(replay.mark == .sources)
         #expect(debugTools.successMessage == "Share Composer walkthrough will play again on this device.")
         #endif
-    }
-
-    @Test
-    func stagingBuildKeepsDebugToolsWiredToTheWalkthroughReset() throws {
-        let source = try String(
-            contentsOf: projectRoot.appending(
-                path: "AscendApp/Features/Debug/ViewModels/DebugToolsViewModel.swift"
-            ),
-            encoding: .utf8
-        )
-
-        #expect(source.contains("case ActionTitle.resetShareComposerWalkthrough:"))
-        #expect(source.contains("shareComposerWalkthroughStore.reset()"))
-    }
-
-    @Test
-    func hostsKeepVoiceOverFocusOnTheControlEachDismissedMarkExplained() throws {
-        let pickerSource = try String(
-            contentsOf: projectRoot.appending(
-                path: "AscendApp/Features/ShareComposer/Views/ShareBackgroundPickerView.swift"
-            ),
-            encoding: .utf8
-        )
-        let composerSource = try String(
-            contentsOf: projectRoot.appending(
-                path: "AscendApp/Features/ShareComposer/Views/ShareComposerView.swift"
-            ),
-            encoding: .utf8
-        )
-
-        #expect(pickerSource.contains(".accessibilityFocused($sourceTabsAreFocused)"))
-        #expect(composerSource.contains(".accessibilityFocused($statsTabsAreFocused)"))
-        #expect(composerSource.contains(".accessibilityFocused($editRailIsFocused)"))
-        #expect(composerSource.contains(".accessibilityFocused($filterButtonIsFocused)"))
     }
 
     @Test
@@ -258,11 +341,36 @@ struct ShareComposerWalkthroughTests {
         #expect(coordinator.presentation?.stepCount == count)
         #expect(coordinator.presentation?.showsSkip == true)
     }
+}
 
-    private var projectRoot: URL {
-        URL(filePath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
+/// The three shapes the edit rail draws differently: a plain metric offers every control, while a
+/// structured sticker and a curated cluster own their own arrangement and offer neither.
+enum StickerUnderTest: CaseIterable {
+    case singleMetric
+    case structured
+    case readyMadeGroup
+
+    var sticker: ShareStickerInstance {
+        switch self {
+        case .singleMetric:
+            return ShareStickerInstance(kind: .duration)
+        case .structured:
+            return ShareStickerInstance(kind: .splits)
+        case .readyMadeGroup:
+            return ShareStickerInstance(
+                kind: .steps,
+                presetID: ShareStatClusterPresets.all.first?.id
+            )
+        }
+    }
+
+    var expectedMessage: String {
+        switch self {
+        case .singleMetric:
+            return "Change the arrangement, alignment, font, and color. Add a panel when the picture is busy."
+        case .structured, .readyMadeGroup:
+            return "Change the font and color. Add a panel when the picture is busy."
+        }
     }
 }
 
