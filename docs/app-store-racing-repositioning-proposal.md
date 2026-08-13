@@ -325,7 +325,7 @@ Each item is a sentence in the notes that this repository cannot prove on its ow
 3. **The unentitled account still sees both products** and can complete an Apple test purchase and a restore.
 4. **The demo video is recorded on the submitted build**, is hosted at a stable HTTPS URL with no login, expiry or geographic restriction, and actually shows every artifact paragraph 2 claims it shows.
 5. **Delete Account is reachable from the subscription gate.** As audited on 2026-08-11 it was not: the gate auto-presents the Superwall paywall, which has no close control, and hides the recovery actions behind it. That is a separate submission blocker. If it is not fixed in the submitted build, delete that clause from the notes - it is the one sentence here that a reviewer can disprove in ten seconds.
-6. **The attached build is 2026081101, or the notes were re-checked against a newer one.** The watchOS target (#471) landed *after* 2026081101 and ships embedded in the iOS bundle. A build carrying it puts a watch app in front of the reviewer whose entire content is "No climb running - start one on your iPhone", which these notes do not mention and Guideline 2.3.1 says should be described.
+6. **The attached build is 2026081101, or the notes were re-checked against a newer one.** `docs/heart-rate-zones-plan.md` owns the decision to submit 1.0 without the watch app and ship it in 1.1.
 7. **The plan wording matches the live products.** The notes describe the plan structure rather than quoting prices, so a price change cannot make them false, but confirm the trial and billing terms still read as written.
 
 ## Out of scope for this proposal

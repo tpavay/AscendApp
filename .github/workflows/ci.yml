@@ -74,9 +74,9 @@ jobs:
               - "AscendApp/**"
               - "AscendAppTests/**"
               - "AscendLiveActivityWidgets/**"
-              # The watch app is embedded in the iOS app, so a watch-only change
-              # is an iOS change: it is what the Release job's platform guard and
-              # the export-compliance check read out of the built bundle.
+              # The retained watch target remains a build dependency for the
+              # 1.1 release, so a watch-only change is still an iOS change even
+              # though the 1.0 phone app does not embed its product.
               - "AscendWatch/**"
               - "AscendWatchShared/**"
               - "AscendApp.xcodeproj/**"
@@ -622,7 +622,7 @@ jobs:
           echo "Selected simulator ${simulator_id} on ${runtime}."
           echo "id=$simulator_id" >> "$GITHUB_OUTPUT"
 
-      - name: Ensure watchOS runtime
+      - name: Provision watchOS runtime (best effort)
         shell: bash
         run: ./scripts/ci/ensure-watchos-runtime.sh
 
@@ -707,7 +707,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-spm-
 
-      - name: Ensure watchOS runtime
+      - name: Provision watchOS runtime (best effort)
         shell: bash
         run: ./scripts/ci/ensure-watchos-runtime.sh
 
@@ -768,9 +768,8 @@ jobs:
       # not reliably accept a string-typed `false`, which is why the type is
       # asserted alongside the value.
       #
-      # The embedded watch app is a separate bundle with its own Info.plist, and
-      # a missing declaration on either bundle parks the upload in Missing
-      # Compliance. Both are checked, and each names its own source file.
+      # The 1.0 product has one shipped application bundle. The retained watch
+      # target is built for 1.1 but is not embedded in this phone app.
       - name: Verify Release bundle export compliance
         shell: bash
         env:
@@ -802,25 +801,11 @@ jobs:
           }
 
           assert_export_compliance "${APP_BUNDLE}/Info.plist" "AscendApp/Info.plist"
-          assert_export_compliance "${APP_BUNDLE}/Watch/AscendWatch.app/Info.plist" "AscendWatch/Info.plist"
-
-      # A green build that ships an iOS binary inside Watch/ is worse than a red
-      # one: it uploads, and the first sign of trouble is an App Store Connect
-      # rejection or a watch app that never launches. The script documents the
-      # exact measurement behind this.
-      - name: Verify the embedded watch app is a watchOS binary
-        shell: bash
-        env:
-          APP_BUNDLE: ${{ steps.product.outputs.app-bundle }}
-        run: |
-          set -euo pipefail
-
-          ./scripts/ci/assert-embedded-watch-platform.sh "$APP_BUNDLE"
 
       # An empty app icon set builds clean and is caught only by Apple's
       # server-side upload validation, a full deploy cycle later. The script
       # documents the rejection it prevents.
-      - name: Verify both bundles ship an app icon
+      - name: Verify the phone bundle ships an app icon
         shell: bash
         env:
           APP_BUNDLE: ${{ steps.product.outputs.app-bundle }}
@@ -828,7 +813,6 @@ jobs:
           set -euo pipefail
 
           node scripts/ci/assert-app-icon-present.mjs "$APP_BUNDLE" phone
-          node scripts/ci/assert-app-icon-present.mjs "${APP_BUNDLE}/Watch/AscendWatch.app" watch
 
       - name: Verify Release Mixpanel destination in the processed bundle
         shell: bash
