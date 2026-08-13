@@ -284,6 +284,11 @@ jobs:
       - name: Verify staging Mixpanel destination in the IPA
         run: node scripts/ci/assert-mixpanel-bundle.mjs Staging fastlane/build/AscendApp-Staging.ipa
 
+      # The IPA is the artifact Apple's upload validation rejects, and it is the
+      # only place the staging phone icon set is resolved at all.
+      - name: Verify both bundles in the IPA ship an app icon
+        run: node scripts/ci/assert-app-icon-present.mjs fastlane/build/AscendApp-Staging.ipa
+
       - name: Upload staging IPA artifact
         uses: actions/upload-artifact@v4
         with:

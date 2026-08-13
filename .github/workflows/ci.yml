@@ -817,6 +817,19 @@ jobs:
 
           ./scripts/ci/assert-embedded-watch-platform.sh "$APP_BUNDLE"
 
+      # An empty app icon set builds clean and is caught only by Apple's
+      # server-side upload validation, a full deploy cycle later. The script
+      # documents the rejection it prevents.
+      - name: Verify both bundles ship an app icon
+        shell: bash
+        env:
+          APP_BUNDLE: ${{ steps.product.outputs.app-bundle }}
+        run: |
+          set -euo pipefail
+
+          node scripts/ci/assert-app-icon-present.mjs "$APP_BUNDLE" phone
+          node scripts/ci/assert-app-icon-present.mjs "${APP_BUNDLE}/Watch/AscendWatch.app" watch
+
       - name: Verify Release Mixpanel destination in the processed bundle
         shell: bash
         env:

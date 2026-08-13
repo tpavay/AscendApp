@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import {readFile} from "node:fs/promises";
-import {join} from "node:path";
+import {readdir, readFile} from "node:fs/promises";
+import {basename, join, relative} from "node:path";
 import test from "node:test";
 import {fileURLToPath} from "node:url";
 
@@ -22,6 +22,10 @@ const EXPECTED_IDENTIFIERS = new Map([
 
 const WATCH_SUFFIX = ".watch";
 
+// No Xcode target compiles an asset catalog out of these, and walking them
+// costs more than the rest of the repository put together.
+const UNSEARCHED_DIRECTORY_NAMES = new Set([".git", "node_modules", "build", "dist"]);
+
 async function watchBuildConfigurations() {
   const project = await readFile(projectPath, "utf8");
   const configurations = new Map();
@@ -36,6 +40,26 @@ async function watchBuildConfigurations() {
   }
 
   return configurations;
+}
+
+async function appIconSetDirectories(directory) {
+  const found = [];
+
+  for (const entry of await readdir(directory, {withFileTypes: true})) {
+    if (!entry.isDirectory() || UNSEARCHED_DIRECTORY_NAMES.has(entry.name)) {
+      continue;
+    }
+
+    const child = join(directory, entry.name);
+    if (entry.name.endsWith(".appiconset")) {
+      found.push(child);
+      continue;
+    }
+
+    found.push(...(await appIconSetDirectories(child)));
+  }
+
+  return found;
 }
 
 function infoPlistString(plist, key) {
@@ -121,6 +145,50 @@ test("the watch target's distribution signing is conditioned on the watchOS SDK"
     "Automatic",
     "Debug"
   );
+});
+
+test("every app icon set the project names ships an image file", async () => {
+  const project = await readFile(projectPath, "utf8");
+
+  const iconNames = new Set(
+    [...project.matchAll(/ASSETCATALOG_COMPILER_APPICON_NAME = ([^;]+);/g)].map(([, value]) =>
+      value.trim().replace(/^"(.*)"$/, "$1")
+    )
+  );
+
+  // The watch app shipped exactly this defect: a single 1024x1024 slot with no
+  // filename. It builds clean, emits no rendition and no CFBundleIconName, and
+  // is caught only by Apple's server-side upload validation a whole deploy
+  // cycle later. Read from the project rather than from a list here, so the
+  // per-environment phone sets the Release compile check never resolves
+  // (AppIconDev, AppIconStaging) are covered by the same assertion.
+  assert.ok(iconNames.size > 0, "the project names no app icon set at all");
+
+  const iconSets = await appIconSetDirectories(repositoryRoot);
+
+  for (const iconName of iconNames) {
+    const matching = iconSets.filter(
+      (directory) => basename(directory) === `${iconName}.appiconset`
+    );
+
+    assert.ok(
+      matching.length > 0,
+      `the project builds against ${iconName} but no ${iconName}.appiconset exists`
+    );
+
+    for (const directory of matching) {
+      const contents = JSON.parse(await readFile(join(directory, "Contents.json"), "utf8"));
+      const withFiles = (contents.images ?? []).filter(
+        (image) => typeof image.filename === "string" && image.filename.trim().length > 0
+      );
+
+      assert.ok(
+        withFiles.length > 0,
+        `${relative(repositoryRoot, directory)} declares icon slots but names no image file, ` +
+          "so its bundle ships no icon and Apple rejects the upload"
+      );
+    }
+  }
 });
 
 test("the watch bundle declares what App Store Connect and the pairing need", async () => {

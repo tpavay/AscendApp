@@ -49,3 +49,4 @@ tabHomeSelected|house-simple|fill
 ## Notes
 - The sync script is run only when icons change, not on every app build.
 - Generated assets are `ph-*.imageset` in the app asset catalog.
+- This workflow is for in-app iconography only. The shipped **app icon** sets (`*.appiconset`) are not part of the manifest and have their own upload-validation contract - `ascend-deploy` owns it.

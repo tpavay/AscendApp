@@ -276,6 +276,12 @@ jobs:
       - name: Verify production Mixpanel destination in the IPA
         run: node scripts/ci/assert-mixpanel-bundle.mjs Release fastlane/build/AscendApp-Production.ipa
 
+      # The IPA is the artifact Apple's upload validation rejects, so the icon
+      # check runs against it as well as against the Release compile check's
+      # unsigned product.
+      - name: Verify both bundles in the IPA ship an app icon
+        run: node scripts/ci/assert-app-icon-present.mjs fastlane/build/AscendApp-Production.ipa
+
       - name: Upload production IPA artifact
         uses: actions/upload-artifact@v4
         with:
