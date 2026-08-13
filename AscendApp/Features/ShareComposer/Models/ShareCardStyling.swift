@@ -380,6 +380,28 @@ enum ShareCardTextAlignment: String, Codable, Sendable {
     case trailing
 }
 
+/// What keeps a run of text readable when nothing is drawn behind it.
+///
+/// Named treatments rather than loose radii, because this is one decision made
+/// once for the whole app: text on a card's own panel needs nothing, and text
+/// laid bare over a photograph needs a specific, tested stack. A caller picks
+/// the intent; `ShareCardRenderer` owns what it costs.
+///
+/// The distinction that matters is **size**. A large number carries enough ink
+/// to survive a soft drop shadow; small tracked-out caps do not - against snow
+/// or a blown-out sky they lose their edges entirely, which is why the smallest
+/// labels also take a hairline dark outline. Growing a plate instead would
+/// throw away the plate-free default the composer is built around.
+enum ShareCardTextLegibility: String, Codable, Sendable {
+    /// Nothing. Text on a designed panel or a solid card background.
+    case none
+    /// A tight, dark contact shadow. Enough for a large number.
+    case shadow
+    /// The contact shadow plus a hairline dark outline, for small text that a
+    /// drop shadow alone cannot hold against a bright photograph.
+    case outline
+}
+
 /// How one run of text is drawn. Sizes are design units on the 390pt-wide card;
 /// the whole card is scaled once at render time, never per element.
 struct ShareCardTextStyle: Codable, Equatable, Sendable {
@@ -391,6 +413,9 @@ struct ShareCardTextStyle: Codable, Equatable, Sendable {
     var minimumScaleFactor: Double?
     var alignment: ShareCardTextAlignment?
     var monospacedDigit: Bool
+    /// What holds this run up when nothing is drawn behind it. Defaults to
+    /// `.none`, so a card on its own panel is unaffected.
+    var legibility: ShareCardTextLegibility
 
     init(
         role: ShareCardFontRole = .heavy,
@@ -400,7 +425,8 @@ struct ShareCardTextStyle: Codable, Equatable, Sendable {
         lineLimit: Int? = nil,
         minimumScaleFactor: Double? = nil,
         alignment: ShareCardTextAlignment? = nil,
-        monospacedDigit: Bool = false
+        monospacedDigit: Bool = false,
+        legibility: ShareCardTextLegibility = .none
     ) {
         self.role = role
         self.size = size
@@ -410,10 +436,11 @@ struct ShareCardTextStyle: Codable, Equatable, Sendable {
         self.minimumScaleFactor = minimumScaleFactor
         self.alignment = alignment
         self.monospacedDigit = monospacedDigit
+        self.legibility = legibility
     }
 
     private enum CodingKeys: String, CodingKey {
-        case role, size, tracking, tint, lineLimit, minimumScaleFactor, alignment, monospacedDigit
+        case role, size, tracking, tint, lineLimit, minimumScaleFactor, alignment, monospacedDigit, legibility
     }
 
     init(from decoder: any Decoder) throws {
@@ -426,7 +453,8 @@ struct ShareCardTextStyle: Codable, Equatable, Sendable {
             lineLimit: try container.decodeIfPresent(Int.self, forKey: .lineLimit),
             minimumScaleFactor: try container.decodeIfPresent(Double.self, forKey: .minimumScaleFactor),
             alignment: try container.decodeIfPresent(ShareCardTextAlignment.self, forKey: .alignment),
-            monospacedDigit: try container.value(.monospacedDigit, default: false)
+            monospacedDigit: try container.value(.monospacedDigit, default: false),
+            legibility: try container.value(.legibility, default: .none)
         )
     }
 }

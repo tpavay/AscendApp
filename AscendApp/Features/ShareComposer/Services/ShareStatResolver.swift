@@ -24,6 +24,20 @@ struct ShareStatResolver {
 
     var isClimb: Bool { climbName != nil }
 
+    /// How many intervals this session actually ran, read out of the workout's
+    /// own metadata rather than off the `Routine` record.
+    ///
+    /// A card that says 8 intervals has to mean the session ran 8. Resolving the
+    /// live routine would let one edit to "Pyramid 24" turn every card the
+    /// climber already shared into a claim about a workout that never happened -
+    /// the rule already settled for fabricated splits, the flattered last place
+    /// and borrowed floors. A session that recorded no count is not offered the
+    /// stat at all, which is also what keeps the routine cluster out of a Live
+    /// Climb's picker without branching on the session type.
+    private var routineIntervalCount: Int? {
+        LiveClimbWorkoutSummaryData.metadata(for: workout)?.routineIntervalCount
+    }
+
     /// The catalog filtered to stats that actually have a value for this workout.
     func availableKinds() -> [ShareStatStickerKind] {
         ShareStatStickerKind.allCases.filter { kind in
@@ -44,7 +58,13 @@ struct ShareStatResolver {
             return ResolvedShareStat(kind: kind, label: "WORKOUT", value: name)
 
         case .date:
-            return ResolvedShareStat(kind: kind, label: "DATE", value: Self.dateFormatter.string(from: workout.date))
+            return ResolvedShareStat(
+                kind: kind,
+                label: "DATE",
+                value: Self.dateFormatter.string(from: workout.date),
+                // The ticket spelling the Receipt cluster is dated with.
+                detail: Self.ticketDateFormatter.string(from: workout.date).uppercased()
+            )
 
         case .duration:
             return ResolvedShareStat(kind: kind, label: "DURATION", value: workout.durationFormatted)
@@ -61,13 +81,16 @@ struct ShareStatResolver {
             guard let spm = workout.stepsPerMinute, spm > 0 else { return nil }
             return ResolvedShareStat(kind: kind, label: "SPM", value: Self.decimal(spm, 1))
 
+        // Heart-rate copy is standardized here, once, so every sticker and every
+        // cluster reads the same: AVERAGE HR and MAX HR, no BPM suffix and no
+        // heart glyph. The numbers and their labels carry it.
         case .avgHeartRate:
             guard let hr = workout.avgHeartRate, hr > 0 else { return nil }
-            return ResolvedShareStat(kind: kind, label: "AVG BPM", value: "\(hr)")
+            return ResolvedShareStat(kind: kind, label: "AVERAGE HR", value: "\(hr)")
 
         case .maxHeartRate:
             guard let hr = workout.maxHeartRate, hr > 0 else { return nil }
-            return ResolvedShareStat(kind: kind, label: "MAX BPM", value: "\(hr)")
+            return ResolvedShareStat(kind: kind, label: "MAX HR", value: "\(hr)")
 
         case .verticalClimb:
             guard workout.steps > 0 else { return nil }
@@ -101,7 +124,14 @@ struct ShareStatResolver {
 
         case .climbRank:
             guard let climbRank, climbRank > 0 else { return nil }
-            return ResolvedShareStat(kind: kind, label: "RANK", value: "#\(climbRank)")
+            return ResolvedShareStat(
+                kind: kind,
+                label: "RANK",
+                value: "#\(climbRank)",
+                // Spelled out for the Rank cluster, where the finish position is
+                // the headline rather than a field in a table.
+                detail: Self.ordinal(climbRank)
+            )
 
         case .climbRankWithTotal:
             guard let climbRank, climbRank > 0,
@@ -111,6 +141,14 @@ struct ShareStatResolver {
                 label: "RANK / TOTAL",
                 value: "#\(climbRank) / \(Self.integer(climbRankTotal))",
                 detail: Self.integer(climbRankTotal)
+            )
+
+        case .routineIntervals:
+            guard let routineIntervalCount, routineIntervalCount > 0 else { return nil }
+            return ResolvedShareStat(
+                kind: kind,
+                label: "INTERVALS",
+                value: Self.integer(routineIntervalCount)
             )
 
         case .bestEffort, .totals:
@@ -271,6 +309,24 @@ struct ShareStatResolver {
         f.timeStyle = .none
         return f
     }()
+
+    /// Day, short month and year in the reader's own field order, so the ticket
+    /// reads as a date wherever it is shared rather than as an American one.
+    private static let ticketDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("dMMMyyyy")
+        return f
+    }()
+
+    private static let ordinalFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .ordinal
+        return f
+    }()
+
+    private static func ordinal(_ value: Int) -> String {
+        ordinalFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
 
     private static func integer(_ value: Int) -> String {
         value.formatted(.number.grouping(.automatic))

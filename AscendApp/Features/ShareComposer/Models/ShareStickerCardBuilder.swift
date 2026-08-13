@@ -50,11 +50,59 @@ enum ShareStickerCardBuilder {
         if let variant = instance.climbImageVariant {
             return artworkNode(variant: variant)
         }
+        if let preset = instance.preset {
+            return clusterNode(preset, textBackground: instance.textBackground)
+        }
         if instance.isStructured {
             return splitsNode(textBackground: instance.textBackground)
         }
         return statsNode(instance: instance, refs: resolvedRefs)
     }
+
+    // MARK: - Curated stat clusters
+
+    /// A preset arrives already arranged, so the builder's only job is the plate
+    /// the climber may have asked for. It starts plate-free - legible over a
+    /// photograph on its shadow alone - which is why `.none` is not a no-op here.
+    private static func clusterNode(
+        _ preset: ShareStatClusterPreset,
+        textBackground: ShareTextBackground
+    ) -> ShareCardNode {
+        var modifiers = preset.content.modifiers
+        switch textBackground {
+        case .none:
+            modifiers.shadow = clusterContactShadow
+        case .dark, .grey:
+            let tint = textBackground == .dark
+                ? ShareCardTint(.hex("000000"), opacity: 0.6)
+                : ShareCardTint(.hex("FFFFFF"), opacity: 0.18)
+            modifiers.padding = ShareCardEdgeInsets(
+                top: clusterPlateInset.vertical,
+                leading: clusterPlateInset.horizontal,
+                bottom: clusterPlateInset.vertical,
+                trailing: clusterPlateInset.horizontal
+            )
+            modifiers.background = .color(tint)
+            modifiers.backgroundShape = .roundedRectangle(cornerRadius: 23)
+            modifiers.shadow = nil
+        }
+        return ShareCardNode(preset.content.element, modifiers: modifiers)
+    }
+
+    /// Lifts the parts of a cluster that are not type - the rule, the split
+    /// bars - off the photograph. Each run of text carries its own treatment, so
+    /// this stays a tight contact shadow: widened toward the broad ambient half
+    /// of the review page's text shadow it stops reading as depth on a stack of
+    /// five split bars and starts reading as a dark slab behind them, which is
+    /// the plate the default exists to avoid.
+    static let clusterContactShadow = ShareCardShadow(
+        tint: ShareCardTint(.hex("000000"), opacity: 0.5),
+        radius: 3,
+        y: 1.5
+    )
+
+    /// The review page's own plate padding (14 × 16 mock points) in design units.
+    static let clusterPlateInset: (vertical: Double, horizontal: Double) = (23, 26)
 
     // MARK: - Stat stickers
 

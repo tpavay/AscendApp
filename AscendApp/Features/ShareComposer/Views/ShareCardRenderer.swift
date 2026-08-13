@@ -145,6 +145,7 @@ struct ShareCardRenderer: View {
             .lineLimit(style.lineLimit)
             .minimumScaleFactor(style.minimumScaleFactor ?? 1)
             .multilineTextAlignment(style.alignment?.textAlignment ?? .leading)
+            .shareCardTextLegibility(style.legibility)
     }
 
     // MARK: - Metric
@@ -227,6 +228,82 @@ struct ShareCardRenderer: View {
                     .stroke(rule.tint.color(in: context), style: rule.strokeStyle)
                 }
             }
+    }
+}
+
+// MARK: - Legibility
+
+extension View {
+    /// Applies a text legibility treatment. The one place that decides what each
+    /// named intent costs, so a cluster, a template and a sticker cannot drift
+    /// into three different answers to "how do I stay readable over a photo".
+    ///
+    /// The contact shadow is tight and dark rather than broad and soft: blur
+    /// spread across a 12pt tracked-out cap dilutes the very ink that separates
+    /// it from the highlight behind it.
+    ///
+    /// The outline is four hard offset shadow copies. `Text` has no stroke, so
+    /// the concern was that chained `.shadow`s nest rather than compose - five
+    /// offscreen rasterizations per run, on every frame of a drag.
+    ///
+    /// Measured, and it is not what a cluster costs. The Splits cluster - the
+    /// heaviest thing a climber can place - draws in ~2.6 ms against the 8.3 ms
+    /// 120 Hz budget at export scale (2.77×) in a 900×700 frame, and forcing
+    /// every run's legibility to `.none` only takes that to ~2.1 ms at the same
+    /// size. That half-millisecond delta is the whole treatment, outline and
+    /// contact shadows together, not the outline alone. It is also an upper bound
+    /// rather than the frame cost, because it is a full layout and rasterization
+    /// from scratch where a drag re-composites an existing layer tree. Relocating
+    /// the identical four-copy ring into a custom `TextRenderer` measured *more*
+    /// expensive, because a custom renderer opts every run out of SwiftUI's fast
+    /// text path.
+    ///
+    /// Dragging is settled and it was not the risk: with five clusters placed the
+    /// composer's per-frame work is ~0.002 ms, because `content(for:)` is
+    /// memoized and a drag mutates only the transform. What costs is *layout*,
+    /// paid once when a cluster is placed;
+    /// `addTimeLayoutScalesLinearlyAsHeaviestClustersPileUp` measures that
+    /// and finds the on-screen canvas (390×845) and the export canvas
+    /// (1080×2340) cost the same despite ~7.7× the pixels - so add-time is
+    /// layout and text shaping, not rasterization, and a smaller canvas will not
+    /// make it cheaper. Always quote a figure with the canvas size it came from.
+    ///
+    /// The measurement trap, because this number was wrong once: an earlier pass
+    /// rendered the preset tree against an empty `ShareCardRenderContext` and
+    /// reported 0.38 ms. With no resolved stats the split table and every
+    /// stat-backed run draw nothing, so it timed a nearly empty tree. That figure
+    /// is void. Measure through `presetPreview(for:)` with real resolved data.
+    ///
+    /// One thing was deliberately not measured: a genuinely single-pass stroked
+    /// glyph (`AttributedString` negative `strokeWidth` with a `strokeColor`).
+    /// The whole treatment is worth ~0.5 ms of an 8.3 ms frame and part of that
+    /// is contact shadows a stroke would not replace, so that is the ceiling on
+    /// what a perfect single-pass version could win, and no result could change
+    /// the decision - which is the reasoning to argue with, not a benchmark to
+    /// re-run. `ShareStatClusterPresetEvidenceTests` holds the numbers.
+    @ViewBuilder
+    func shareCardTextLegibility(_ legibility: ShareCardTextLegibility) -> some View {
+        switch legibility {
+        case .none:
+            self
+        case .shadow:
+            contactShadow()
+        case .outline:
+            hairlineOutline().contactShadow()
+        }
+    }
+
+    private func contactShadow() -> some View {
+        shadow(color: .black.opacity(0.85), radius: 2.5, x: 0, y: 1.6)
+    }
+
+    private func hairlineOutline() -> some View {
+        let inset: CGFloat = 0.8
+        let ink = Color.black.opacity(0.55)
+        return shadow(color: ink, radius: 0, x: inset, y: inset)
+            .shadow(color: ink, radius: 0, x: -inset, y: inset)
+            .shadow(color: ink, radius: 0, x: inset, y: -inset)
+            .shadow(color: ink, radius: 0, x: -inset, y: -inset)
     }
 }
 

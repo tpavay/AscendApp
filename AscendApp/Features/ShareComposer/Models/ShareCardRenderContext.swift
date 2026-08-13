@@ -108,8 +108,15 @@ extension ShareCardNode {
                 || context.text(for: text.fallback ?? [], transform: text.transform) != nil
         case .metric(let metric):
             return context.stat(for: metric.stat) != nil
-        case .splits:
-            return context.splits.map { !$0.rows.isEmpty || !$0.stepQuintileRows.isEmpty } ?? false
+        case .splits(let spec):
+            // The layout drawn decides which array has to be there: the two are
+            // derived differently, and a session too short for five step ranges
+            // still has a pace timeline.
+            guard let splits = context.splits else { return false }
+            switch spec.layout {
+            case .timeline: return !splits.rows.isEmpty
+            case .stepQuintiles: return !splits.stepQuintileRows.isEmpty
+            }
         case .rankTab, .standing:
             return context.standing != nil
         case .artwork, .progress, .shape, .rule, .wordmark, .spacer:

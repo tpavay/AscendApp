@@ -136,7 +136,11 @@ struct ShareCardTemplate: Codable, Equatable, Identifiable, Sendable {
 enum ShareCardFormat {
     /// Bumped whenever the renderer gains an element type or a knob that a
     /// template may depend on. Templates above this are skipped by this binary.
-    static let rendererVersion = 2
+    ///
+    /// 3 added `legibility` to text styles and the splits table - a template
+    /// that asks for the outline treatment would draw unreadable over a
+    /// photograph on a binary that ignores it.
+    static let rendererVersion = 3
 
     /// The card's design space. Every size in a template is in these units; the
     /// whole card is scaled once, never per element.
@@ -434,7 +438,7 @@ struct ShareCardText: Codable, Equatable, Sendable {
 enum ShareCardStatFacet: String, Codable, Sendable {
     /// The formatted value: `2,096`, `22:10`, `#60`.
     case value
-    /// The short uppercase label: `STEPS`, `AVG BPM`.
+    /// The short uppercase label: `STEPS`, `AVERAGE HR`.
     case label
     /// A secondary facet the stat carries: the splits subtitle, a rank's field size.
     case detail
@@ -506,7 +510,7 @@ struct ShareCardMetric: Codable, Equatable, Sendable {
     var stat: ShareStatRef?
     var labelPlacement: ShareCardLabelPlacement
     var labelPolicy: ShareCardLabelPolicy
-    /// Template-supplied label copy, replacing the stat's own (`AVG BPM` → `AVG HR`).
+    /// Template-supplied label copy, replacing the stat's own (`DURATION` → `TIME`).
     var labelOverride: String?
     var value: ShareCardTextStyle
     var label: ShareCardTextStyle
@@ -633,14 +637,19 @@ struct ShareCardSplitsTableSpec: Codable, Equatable, Sendable {
     /// Drives every font size in the table.
     var baseSize: Double
     var maxRows: Int?
-    /// The table's own `SPLITS` heading, subtitle, and rule. A card that writes
-    /// its own heading turns this off rather than drawing a second one.
+    /// The table's own heading. A card - or a stat cluster - that writes its own
+    /// turns this off rather than drawing a second one.
     var showsTitle: Bool
+    /// The supporting row under the heading: column names on the timeline
+    /// layout, the faster-than-average legend on the step ranges.
     var showsHeader: Bool
     var textTint: ShareCardTint
     var fastTint: ShareCardTint
     var slowTint: ShareCardTint
     var trackTint: ShareCardTint
+    /// What holds the table's small row text up. A card draws it on its own
+    /// panel and needs nothing; a stat cluster lays it bare over a photograph.
+    var legibility: ShareCardTextLegibility
 
     init(
         layout: ShareCardSplitsLayout = .timeline,
@@ -652,7 +661,8 @@ struct ShareCardSplitsTableSpec: Codable, Equatable, Sendable {
         textTint: ShareCardTint = ShareCardTint(.value),
         fastTint: ShareCardTint = ShareCardTint(.value),
         slowTint: ShareCardTint = ShareCardTint(.hex("A8A8A8")),
-        trackTint: ShareCardTint = ShareCardTint(.hex("DEDEDE"))
+        trackTint: ShareCardTint = ShareCardTint(.hex("DEDEDE")),
+        legibility: ShareCardTextLegibility = .none
     ) {
         self.layout = layout
         self.width = width
@@ -664,10 +674,12 @@ struct ShareCardSplitsTableSpec: Codable, Equatable, Sendable {
         self.fastTint = fastTint
         self.slowTint = slowTint
         self.trackTint = trackTint
+        self.legibility = legibility
     }
 
     private enum CodingKeys: String, CodingKey {
-        case layout, width, baseSize, maxRows, showsTitle, showsHeader, textTint, fastTint, slowTint, trackTint
+        case layout, width, baseSize, maxRows, showsTitle, showsHeader,
+             textTint, fastTint, slowTint, trackTint, legibility
     }
 
     init(from decoder: any Decoder) throws {
@@ -682,7 +694,8 @@ struct ShareCardSplitsTableSpec: Codable, Equatable, Sendable {
             textTint: try container.value(.textTint, default: ShareCardTint(.value)),
             fastTint: try container.value(.fastTint, default: ShareCardTint(.value)),
             slowTint: try container.value(.slowTint, default: ShareCardTint(.hex("A8A8A8"))),
-            trackTint: try container.value(.trackTint, default: ShareCardTint(.hex("DEDEDE")))
+            trackTint: try container.value(.trackTint, default: ShareCardTint(.hex("DEDEDE"))),
+            legibility: try container.value(.legibility, default: .none)
         )
     }
 }

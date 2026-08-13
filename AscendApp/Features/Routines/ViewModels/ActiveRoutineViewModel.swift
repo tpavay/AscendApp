@@ -486,6 +486,9 @@ final class ActiveRoutineViewModel {
             climbId: nil,
             routineId: routine.id.uuidString,
             routineTemplateId: routine.templateId,
+            // Frozen with the session: a card that says 8 intervals has to mean
+            // this session ran 8, not that the routine holds 8 today.
+            routineIntervalCount: routine.intervalCount,
             targetStepCount: targetStepGoal,
             targetDurationSeconds: totalDuration,
             stopReason: result.stopReason,
