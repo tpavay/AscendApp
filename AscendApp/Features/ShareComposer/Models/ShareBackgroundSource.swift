@@ -9,8 +9,9 @@ enum ShareBackgroundSource: Identifiable {
     /// A generated 9:19.5 recap card. Unlike arbitrary photos, this must not be
     /// aspect-fill cropped when it is used as the canvas background.
     case recap(UIImage)
-    /// A looping video chosen from the user's Camera Roll. (Export support is a
-    /// fast-follow; editing/preview works in V1.)
+    /// A looping video chosen from the user's Camera Roll. This is the one
+    /// source whose share is a movie rather than a still - see
+    /// `ShareComposerExporter.exportVideo`.
     case video(URL)
     /// A bundled / known preset background.
     case preset(ShareComposerPreset)
