@@ -46,14 +46,15 @@ final class ShareComposerWalkthroughCoordinator {
     /// How long the dot row is. Fixed for the whole walkthrough, on every path.
     ///
     /// This is deliberately not `shownMarks.count`, and the two must not be collapsed into one
-    /// value. The row's *length* never changes, so the climber never watches a dot appear or
-    /// disappear between one card and the next; only *which* dot is filled is derived from the
-    /// marks actually shown. A step this journey turns out to skip therefore reads as already
-    /// passed, which is what keeps the filled dot moving exactly one position per card.
+    /// value. The row's *length* never changes. The current dot comes from the marks actually
+    /// shown, while capacity left by an inapplicable mark is rendered as passed. That distinction
+    /// keeps the current dot moving exactly one position per displayed card without making the row
+    /// rewrite itself.
     private let progressRowLength: Int
     /// The marks this journey will actually show, which is where the filled dot's position comes
     /// from. Dropping one moves the remaining marks up a position; it never shortens the row.
     private var shownMarks: [ShareComposerCoachMark]
+    private var passedProgressStepIndices: Set<Int> = []
 
     init(
         entry: Entry,
@@ -88,6 +89,7 @@ final class ShareComposerWalkthroughCoordinator {
             message: mark.message(sourceOptions: sourceOptions, editRailOptions: editRailOptions),
             stepCount: progressRowLength,
             stepIndex: index,
+            passedStepIndices: passedProgressStepIndices,
             primaryActionTitle: mark == .filters ? "Got it" : "Next",
             showsSkip: true
         )
@@ -142,7 +144,7 @@ final class ShareComposerWalkthroughCoordinator {
         case .waitingForSourceOptions:
             // The picker is behind us, so its mark has missed its moment: present it now and it
             // would dim the composer while pointing at an anchor no longer on screen.
-            shownMarks.removeAll { $0 == .sources }
+            dropFromJourney(.sources)
             transition(to: .waitingForStatsSheet)
         case .presenting, .waitingForStatsSheet, .waitingForSticker, .finished:
             break
@@ -163,12 +165,13 @@ final class ShareComposerWalkthroughCoordinator {
     /// Whatever the climber added, the walkthrough carries on: the edit step describes the rail the
     /// selected sticker actually offers, and a sticker with no rail at all drops that step from the
     /// journey and hands over to the filter mark rather than waiting for a control that will never
-    /// appear. The row keeps its length; the dropped step reads as already passed.
+    /// appear. The current dot still follows displayed cards one position at a time, the row keeps
+    /// its fixed length, and the unused position is visibly passed.
     func stickerSelected(_ sticker: ShareStickerInstance?) {
         guard state == .waitingForSticker, let sticker else { return }
 
         guard let options = ShareComposerEditRailOptions(sticker: sticker) else {
-            shownMarks.removeAll { $0 == .editRail }
+            dropFromJourney(.editRail)
             transition(to: .presenting(.filters))
             return
         }
@@ -203,6 +206,12 @@ final class ShareComposerWalkthroughCoordinator {
             restingFocusTarget = Self.target(for: leaving)
         }
         state = newState
+    }
+
+    private func dropFromJourney(_ mark: ShareComposerCoachMark) {
+        guard shownMarks.contains(mark) else { return }
+        shownMarks.removeAll { $0 == mark }
+        passedProgressStepIndices.insert(shownMarks.count)
     }
 
     private func finish() {

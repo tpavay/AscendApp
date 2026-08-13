@@ -6,6 +6,7 @@ struct CoachMarkPresentation: Equatable {
     let message: String
     let stepCount: Int
     let stepIndex: Int
+    let passedStepIndices: Set<Int>
     let primaryActionTitle: String
     let showsSkip: Bool
     /// A target that already carries its own accent outline can opt out of a second ring.
@@ -17,6 +18,7 @@ struct CoachMarkPresentation: Equatable {
         message: String,
         stepCount: Int,
         stepIndex: Int,
+        passedStepIndices: Set<Int> = [],
         primaryActionTitle: String,
         showsSkip: Bool,
         drawsSpotlightRing: Bool = true
@@ -25,6 +27,7 @@ struct CoachMarkPresentation: Equatable {
         self.message = message
         self.stepCount = stepCount
         self.stepIndex = stepIndex
+        self.passedStepIndices = passedStepIndices
         self.primaryActionTitle = primaryActionTitle
         self.showsSkip = showsSkip
         self.drawsSpotlightRing = drawsSpotlightRing

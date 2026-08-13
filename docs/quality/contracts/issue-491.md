@@ -28,8 +28,8 @@ If the wait runs out, the mark names only the tabs already known to be there and
 - [ ] AC-3: The stats mark truthfully explains available session stats and ready-made groups, including how an item is added and then moved, resized, or deleted.
 - [ ] AC-4: The edit-rail mark explains the controls the selected sticker's own rail offers, naming arrangement and alignment only when that sticker shows them, and always naming font, color, and panel treatment.
 Whatever the climber adds, the walkthrough carries on: a sticker with no rail at all hands straight over to the filters mark rather than waiting for a control that will never appear.
-The dot row keeps one fixed length for the whole walkthrough on every path, and the filled dot moves exactly one position between every displayed card.
-A step this journey skips reads as already passed rather than deleting a dot or leaving an unfilled gap behind the current one.
+The dot row keeps one fixed length for the whole walkthrough on every path, and the current dot moves exactly one position between every displayed card.
+A step this journey skips is visibly marked as passed rather than deleting a dot or leaving an indistinguishable pending dot.
 - [ ] AC-5: The filters mark explains that filters affect the whole picture, that photo and preset backgrounds support drag and pinch, and that recap backgrounds remain fixed.
 - [ ] AC-6: Skip from any of the four steps records the whole walkthrough as seen and dismisses it.
 - [ ] AC-7: Completing the fourth step records the walkthrough as seen, and a second open presents no mark.
@@ -47,7 +47,7 @@ A step this journey skips reads as already passed rather than deleting a dot or 
 | Picker mark advanced | Dismiss the mark and wait for a background choice before presenting a composer mark. | Coordinator transition test. |
 | Composer reached from picker | Present the stats-sheet mark when the stats sheet is available. | Coordinator test and stats-sheet evidence image. |
 | Any sticker with an edit rail selected | Present the edit-rail mark describing that rail's own controls. | Parameterized coordinator test and edit-rail evidence image. |
-| Sticker with no edit rail selected | Drop the edit step from the journey and present the filters mark in its place, keeping the row at four dots and advancing the filled dot by one. | Coordinator dot-row test. |
+| Sticker with no edit rail selected | Drop the edit step from the displayed journey and present the filters mark in its place, keeping the row at four dots, advancing the current dot by one, and rendering the unused position as passed. | Coordinator dot-row test. |
 | Background chosen while the source tabs are still resolving | Drop the sources mark from the journey and carry on at the stats step, rather than presenting it over the composer. | Coordinator state-machine test. |
 | Edit-rail mark advanced | Present the filters mark. | Coordinator order test and filters evidence image. |
 | Direct composer entry | Start at stats with three coherent progress steps. | Coordinator direct-entry test; no production route constructs it, see Risk and rollout. |
