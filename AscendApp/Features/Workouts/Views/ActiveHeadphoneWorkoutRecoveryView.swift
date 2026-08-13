@@ -22,7 +22,10 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
         } else if let routine = resumedRoutine {
             ActiveRoutineView(routine: routine, recoveredDraft: draft)
         } else {
+            // Only this branch is the recovery screen: the other two hand off to a live
+            // session and a routine, and each of those reports itself.
             recoveryPrompt
+                .trackOnce(screen: .activeHeadphoneWorkoutRecovery)
         }
     }
 

@@ -51,6 +51,8 @@
 	</array>
 	<key>FacebookAppID</key>
 	<string>1546524626613679</string>
+	<key>FirebaseAutomaticScreenReportingEnabled</key>
+	<false/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSApplicationQueriesSchemes</key>

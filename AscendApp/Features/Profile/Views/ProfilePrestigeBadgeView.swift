@@ -1,21 +1,16 @@
 import SwiftUI
 
+/// Every badge in the shelf is free-standing cut-out art, so nothing here clips or frames it:
+/// a rounded-rectangle tile would slice the artwork and a stroke would draw an edge around
+/// transparency. The tint survives only as the glow the art sits on.
 struct ProfilePrestigeBadgeView: View {
     let token: ProfilePrestigeToken
     let imageSize: CGFloat
 
     var body: some View {
         VStack(spacing: 8) {
-            Group {
-                if token.usesFreeStandingArt {
-                    artwork
-                } else {
-                    artwork
-                        .clipShape(Self.tokenFrame)
-                        .overlay(Self.tokenFrame.stroke(token.tint.opacity(0.42), lineWidth: 1))
-                }
-            }
-            .shadow(color: token.tint.opacity(0.26), radius: 6, y: 2)
+            artwork
+                .shadow(color: token.tint.opacity(0.26), radius: 6, y: 2)
 
             Text(token.count.formatted(.number.grouping(.automatic)))
                 .font(.montserratBold(size: 20))
@@ -30,7 +25,7 @@ struct ProfilePrestigeBadgeView: View {
         }
         .frame(width: 88)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(token.label), \(token.count)")
+        .accessibilityLabel("\(token.accessibilityName), \(token.count)")
     }
 
     private var artwork: some View {
@@ -39,6 +34,4 @@ struct ProfilePrestigeBadgeView: View {
             .scaledToFit()
             .frame(width: imageSize, height: imageSize)
     }
-
-    private static let tokenFrame = RoundedRectangle(cornerRadius: 13, style: .continuous)
 }

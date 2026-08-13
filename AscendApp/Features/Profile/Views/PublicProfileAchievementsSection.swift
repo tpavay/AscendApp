@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct PublicProfileAchievementsSection: View {
-    let achievements: ProfileAchievementCounts
+    let achievements: ProfileAchievementLadder
     let isOtherLoading: Bool
 
     private var presentation: PublicProfileAchievementPresentation {

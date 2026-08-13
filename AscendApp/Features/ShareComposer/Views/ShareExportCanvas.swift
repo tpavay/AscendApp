@@ -43,16 +43,25 @@ struct ShareExportCanvas: View {
                 }
             }
 
-            // Always-on Ascend wordmark burned into every shared image.
-            VStack {
-                Spacer()
-                AscendWordmark(size: 13 * canvasScale, letterColor: .white.opacity(0.9))
-                    .shadow(color: .black.opacity(0.5), radius: 4 * canvasScale, x: 0, y: 1)
-                    .padding(.bottom, 28 * canvasScale)
+            // Every shared image carries the wordmark exactly once: a recap
+            // background already burns in the template's own fixed lockup, so
+            // the canvas adds its own only for the other background sources.
+            if viewModel.shouldRenderCanvasWordmark {
+                VStack {
+                    Spacer()
+                    AscendWordmark(size: 13 * canvasScale, letterColor: .white.opacity(0.9))
+                        .shadow(color: .black.opacity(0.5), radius: 4 * canvasScale, x: 0, y: 1)
+                        .padding(.bottom, 28 * canvasScale)
+                }
             }
         }
         .frame(width: size.width, height: size.height)
         .clipped()
+        // Everything here is card content, and the export renders at the default
+        // text size for everyone. The wordmark's face scales with the reader's
+        // setting, so without this one composition would produce a different
+        // image per author - the rule `ShareCardTemplateView` already keeps.
+        .dynamicTypeSize(.large)
     }
 
     @ViewBuilder

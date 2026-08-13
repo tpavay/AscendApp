@@ -41,6 +41,9 @@ struct AscendApp: App {
             PushNotificationService.shared.configure()
             TelemetryManager.shared.configure()
             TelemetryManager.shared.setAppMetadata()
+            // This must precede AuthenticationViewModel construction. Its Firebase listener owns
+            // the identify call that joins this anonymous installation event to the signed-in user.
+            AppInstallationTelemetryReporter.shared.recordFirstOpenIfNeeded()
             MonetizationManager.shared.configure()
             _authVM = State(initialValue: AuthenticationViewModel())
         } else {

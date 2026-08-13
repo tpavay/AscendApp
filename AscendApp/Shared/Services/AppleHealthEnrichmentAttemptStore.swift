@@ -15,8 +15,8 @@ struct AppleHealthEnrichmentAttempt: Codable, Equatable, Sendable {
 /// The persisted ledger deciding when enrichment may look at Apple Health again.
 ///
 /// Eligibility is a stored absolute date rather than a counter with a cooldown, because
-/// several surfaces can ask for the same climb in the same millisecond - the completion
-/// summary, the workout detail, the scheduler's own timer and an app foreground all reach
+/// several callers can ask for the same climb in the same millisecond - the save-time pass,
+/// the workout detail, the scheduler's own timer and an app foreground all reach
 /// the same entry point - and three callers sharing one counter would spend three attempts
 /// on one instant. An absolute date is unanimous no matter who reads it, and it survives
 /// relaunch, so a climber who force-quits does not get a fresh budget.

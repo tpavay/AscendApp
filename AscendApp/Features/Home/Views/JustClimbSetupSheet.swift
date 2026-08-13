@@ -45,6 +45,7 @@ struct JustClimbSetupSheet: View {
         .padding(.bottom, 18)
         .background(Color.black)
         .preferredColorScheme(.dark)
+        .trackOnce(screen: .justClimbSetup)
     }
 
     private var header: some View {

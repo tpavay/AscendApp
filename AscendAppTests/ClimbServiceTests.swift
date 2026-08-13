@@ -500,7 +500,7 @@ struct ClimbServiceTests {
             workouts: [],
             climbAttempts: attempts,
             bestEffortCacheEntries: [],
-            achievements: .zero,
+            achievements: .empty,
             standings: [],
             climbs: catalogue,
             fitnessLevel: .beginner

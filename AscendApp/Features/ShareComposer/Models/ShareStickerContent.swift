@@ -33,8 +33,10 @@ struct ShareStickerContentSignature: Hashable {
     let color: RGBAColor
     let textBackground: ShareTextBackground
     let climbImageVariant: ClimbImageVariant?
+    let presetID: String?
 
     init(_ instance: ShareStickerInstance) {
+        presetID = instance.presetID
         kind = instance.kind
         injectedStatKey = instance.injectedStatKey
         extraStats = instance.extraStats

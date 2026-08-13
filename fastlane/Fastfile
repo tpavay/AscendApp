@@ -100,6 +100,27 @@ def write_export_plist(signing_certificate:, team_id:, provisioning_profiles:)
   path
 end
 
+# xcodebuild -exportArchive names the IPA after the scheme, so a directory that
+# already holds an IPA cannot tell this run's artifact from a previous run's.
+# Export into a directory emptied first, and publish out of it through a helper
+# that refuses anything but a single candidate: the build-number and Mixpanel
+# checks downstream read the published name and have no way to notice they were
+# handed a stale build.
+def prepared_export_dir(output_dir)
+  export_dir = File.join(output_dir, "export")
+  FileUtils.rm_rf(export_dir)
+  FileUtils.mkdir_p(export_dir)
+  export_dir
+end
+
+def publish_exported_ipa(export_dir:, target_ipa:)
+  script_path = File.expand_path("../scripts/ci/publish-exported-ipa.mjs", __dir__)
+
+  UI.user_error!("IPA publisher not found at #{script_path}") unless File.exist?(script_path)
+
+  sh("node #{script_path.shellescape} #{export_dir.shellescape} #{target_ipa.shellescape}")
+end
+
 platform :ios do
   desc "Build a signed staging IPA"
   lane :build_staging do
@@ -111,6 +132,8 @@ platform :ios do
     staging_bundle_identifier = ENV.fetch("IOS_STAGING_BUNDLE_ID", "com.TylerPavay.AscendApp.staging")
     staging_widget_bundle_identifier = ENV.fetch("IOS_STAGING_WIDGET_BUNDLE_ID", "com.TylerPavay.AscendApp.staging.LiveClimbWidgets")
     staging_widget_profile_specifier = ENV.fetch("IOS_STAGING_WIDGET_PROVISIONING_PROFILE_SPECIFIER", "match AppStore com.TylerPavay.AscendApp.staging.LiveClimbWidgets")
+    staging_watch_bundle_identifier = ENV.fetch("IOS_STAGING_WATCH_BUNDLE_ID", "com.TylerPavay.AscendApp.staging.watch")
+    staging_watch_profile_specifier = ENV.fetch("IOS_STAGING_WATCH_PROVISIONING_PROFILE_SPECIFIER", "match AppStore com.TylerPavay.AscendApp.staging.watch")
 
     # BUILD_NUMBER is derived pre-archive from this app's uploaded builds in
     # App Store Connect, not from a workflow-local counter.
@@ -122,7 +145,7 @@ platform :ios do
       )
     end
 
-    match(**match_options_for([staging_bundle_identifier, staging_widget_bundle_identifier]))
+    match(**match_options_for([staging_bundle_identifier, staging_widget_bundle_identifier, staging_watch_bundle_identifier]))
 
     cert_name = match_cert_name(staging_bundle_identifier)
     export_signing_cert = cert_name || staging_signing_identity
@@ -132,7 +155,7 @@ platform :ios do
     # which would break SPM package targets that use automatic signing).
     update_code_signing_settings(
       path: "AscendApp.xcodeproj",
-      targets: ["AscendApp", "AscendLiveActivityWidgets"],
+      targets: ["AscendApp", "AscendLiveActivityWidgets", "AscendWatch"],
       build_configurations: ["Staging"],
       code_sign_identity: export_signing_cert
     )
@@ -167,23 +190,25 @@ platform :ios do
       team_id: staging_development_team,
       provisioning_profiles: {
         staging_bundle_identifier => staging_profile_specifier,
-        staging_widget_bundle_identifier => staging_widget_profile_specifier
+        staging_widget_bundle_identifier => staging_widget_profile_specifier,
+        staging_watch_bundle_identifier => staging_watch_profile_specifier
       }
     )
 
     output_dir = File.expand_path("build")
     FileUtils.mkdir_p(output_dir)
+    export_dir = prepared_export_dir(output_dir)
 
     export_cmd = "xcodebuild -exportArchive" \
       " -archivePath #{archive_path.shellescape}" \
       " -exportOptionsPlist #{export_plist.shellescape}" \
-      " -exportPath #{output_dir.shellescape}"
+      " -exportPath #{export_dir.shellescape}"
     sh(export_cmd)
 
-    # Rename exported IPA to expected name
-    exported_ipa = Dir.glob(File.join(output_dir, "*.ipa")).first
-    target_ipa = File.join(output_dir, "AscendApp-Staging.ipa")
-    FileUtils.mv(exported_ipa, target_ipa) if exported_ipa && exported_ipa != target_ipa
+    publish_exported_ipa(
+      export_dir: export_dir,
+      target_ipa: File.join(output_dir, "AscendApp-Staging.ipa")
+    )
   end
 
   desc "Build a signed production IPA"
@@ -196,6 +221,8 @@ platform :ios do
     production_bundle_identifier = ENV.fetch("IOS_PRODUCTION_BUNDLE_ID", "com.TylerPavay.AscendApp")
     production_widget_bundle_identifier = ENV.fetch("IOS_PRODUCTION_WIDGET_BUNDLE_ID", "com.TylerPavay.AscendApp.LiveClimbWidgets")
     production_widget_profile_specifier = ENV.fetch("IOS_PRODUCTION_WIDGET_PROVISIONING_PROFILE_SPECIFIER", "match AppStore com.TylerPavay.AscendApp.LiveClimbWidgets")
+    production_watch_bundle_identifier = ENV.fetch("IOS_PRODUCTION_WATCH_BUNDLE_ID", "com.TylerPavay.AscendApp.watch")
+    production_watch_profile_specifier = ENV.fetch("IOS_PRODUCTION_WATCH_PROVISIONING_PROFILE_SPECIFIER", "match AppStore com.TylerPavay.AscendApp.watch")
 
     # BUILD_NUMBER is derived pre-archive from this app's uploaded builds in
     # App Store Connect, not from a workflow-local counter.
@@ -207,7 +234,7 @@ platform :ios do
       )
     end
 
-    match(**match_options_for([production_bundle_identifier, production_widget_bundle_identifier]))
+    match(**match_options_for([production_bundle_identifier, production_widget_bundle_identifier, production_watch_bundle_identifier]))
 
     cert_name = match_cert_name(production_bundle_identifier)
     export_signing_cert = cert_name || production_signing_identity
@@ -216,7 +243,7 @@ platform :ios do
     # Set signing identity on app-owned targets only (not globally via xcargs).
     update_code_signing_settings(
       path: "AscendApp.xcodeproj",
-      targets: ["AscendApp", "AscendLiveActivityWidgets"],
+      targets: ["AscendApp", "AscendLiveActivityWidgets", "AscendWatch"],
       build_configurations: ["Release"],
       code_sign_identity: export_signing_cert
     )
@@ -242,23 +269,25 @@ platform :ios do
       team_id: production_development_team,
       provisioning_profiles: {
         production_bundle_identifier => production_profile_specifier,
-        production_widget_bundle_identifier => production_widget_profile_specifier
+        production_widget_bundle_identifier => production_widget_profile_specifier,
+        production_watch_bundle_identifier => production_watch_profile_specifier
       }
     )
 
     output_dir = File.expand_path("build")
     FileUtils.mkdir_p(output_dir)
+    export_dir = prepared_export_dir(output_dir)
 
     export_cmd = "xcodebuild -exportArchive" \
       " -archivePath #{archive_path.shellescape}" \
       " -exportOptionsPlist #{export_plist.shellescape}" \
-      " -exportPath #{output_dir.shellescape}"
+      " -exportPath #{export_dir.shellescape}"
     sh(export_cmd)
 
-    # Rename exported IPA to expected name
-    exported_ipa = Dir.glob(File.join(output_dir, "*.ipa")).first
-    target_ipa = File.join(output_dir, "AscendApp-Production.ipa")
-    FileUtils.mv(exported_ipa, target_ipa) if exported_ipa && exported_ipa != target_ipa
+    publish_exported_ipa(
+      export_dir: export_dir,
+      target_ipa: File.join(output_dir, "AscendApp-Production.ipa")
+    )
   end
 
   desc "Upload an IPA artifact to TestFlight"

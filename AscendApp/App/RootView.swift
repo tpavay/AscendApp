@@ -25,23 +25,19 @@ struct RootView: View {
     @State private var isGateDeletionDismissPending = false
     @State private var profileCompletionCheckTask: Task<Void, Never>?
     private let authenticatedBootstrapCoordinator = AuthenticatedBootstrapCoordinator.shared
+    private let appSessionTelemetryCoordinator = AppSessionTelemetryCoordinator.shared
 
     var body: some View {
         Group {
             switch rootRoute {
             case .updateRequired:
-                AppUpdateRequiredView(
-                    onOpenAppStore: openAscendInAppStore,
-                    onDeleteAccount: gateAccountDeletionAction
-                )
+                routeContent(for: rootRoute)
             case .signedOut:
-                LandingScreen()
+                routeContent(for: rootRoute)
             case .signingIn:
-                ProgressView("Signing In...")
-                    .themedBackground()
+                routeContent(for: rootRoute)
             case .restoringSession:
-                ProgressView("Restoring Session...")
-                    .themedBackground()
+                routeContent(for: rootRoute)
             case .resolving:
                 authenticatedContent(for: .resolving)
             case .onboarding:
@@ -63,6 +59,7 @@ struct RootView: View {
                 onOpenAppStore: openAscendInAppStore,
                 onLater: appVersionGateState.dismissRecommended
             )
+            .trackOnce(screen: .appUpdateNudge)
         }
         // Deliberately outside the route switch: an entitlement refresh mid-deletion flips the
         // route, and unmounting this sheet would cancel the deletion partway through its sweep
@@ -77,6 +74,7 @@ struct RootView: View {
             )
         }
         .task {
+            observeColdLaunchSession()
             AppDiagnosticsRecorder.shared.record(
                 "app_root_task_started",
                 details: ["route": rootRoute.diagnosticName]
@@ -92,7 +90,20 @@ struct RootView: View {
         .task {
             await RaceableClimbCountStore.shared.resolve()
         }
+        // The launch route and the authentication answer both land after the root task's first
+        // tick, and either can settle without moving the other - a lockout resolves above auth, and
+        // entitlement resolves long after it. So the cold-launch session watches both.
+        .onChange(of: rootRoute) { _, _ in
+            observeColdLaunchSession()
+        }
+        .onChange(of: coldLaunchAuthState) { _, _ in
+            observeColdLaunchSession()
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            appSessionTelemetryCoordinator.recordWillEnterForeground(
+                rootRoute: rootRoute,
+                authenticationState: authVM.authenticationState
+            )
             AppDiagnosticsRecorder.shared.record(
                 "app_will_enter_foreground",
                 details: ["route": rootRoute.diagnosticName]
@@ -102,6 +113,7 @@ struct RootView: View {
             scheduleAuthenticatedSessionWork()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            appSessionTelemetryCoordinator.recordDidEnterBackground()
             AppDiagnosticsRecorder.shared.record(
                 "app_did_enter_background",
                 details: ["route": rootRoute.diagnosticName]
@@ -227,6 +239,18 @@ struct RootView: View {
         return resolvedRoute
     }
 
+    private var coldLaunchAuthState: AppLifecycleAnalyticsEvent.AuthState {
+        AppLifecycleAnalyticsEvent.AuthState(authVM.authenticationState)
+    }
+
+    @MainActor
+    private func observeColdLaunchSession() {
+        appSessionTelemetryCoordinator.observeColdLaunch(
+            rootRoute: rootRoute,
+            authenticationState: authVM.authenticationState
+        )
+    }
+
     private var onboardingFlowCompletionCandidate: OnboardingFlowCompletionReason? {
         OnboardingFlowCompletionResolver.completionReason(
             rootRoute: rootRoute,
@@ -242,39 +266,95 @@ struct RootView: View {
                 conflict: accountDataConflict,
                 onSignOut: authVM.signOut
             )
+            .trackOnce(screen: .accountDataConflict)
         } else {
-            switch route {
-            case .updateRequired:
+            routeContent(for: route)
+        }
+    }
+
+    /// The one route-to-view mapping, shared by both callers so a route is spelled once.
+    ///
+    /// Exhaustive on purpose: a new `AppRootRoute` case has to be given a view here and a
+    /// screen name in `AppRootRoute.telemetryScreenName`, or the app does not compile.
+    /// The routing decision stays in `body` - `authenticatedContent` first has to answer the
+    /// account-data conflict, and sending the landing screen or the update lockout through
+    /// that check would let a stale conflict cover a refusal the climber cannot leave.
+    @ViewBuilder
+    private func routeContent(for route: AppRootRoute) -> some View {
+        switch route {
+        case .updateRequired:
+            routeScreen(route) {
                 AppUpdateRequiredView(
                     onOpenAppStore: openAscendInAppStore,
                     onDeleteAccount: gateAccountDeletionAction
                 )
-            case .signedOut:
+            }
+
+        case .signedOut:
+            routeScreen(route) {
                 LandingScreen()
-            case .signingIn:
+            }
+
+        case .signingIn:
+            routeScreen(route) {
                 ProgressView("Signing In...")
                     .themedBackground()
-            case .restoringSession:
+            }
+
+        case .restoringSession:
+            routeScreen(route) {
                 ProgressView("Restoring Session...")
                     .themedBackground()
-            case .resolving:
-                AppAccessResolvingView(onSignOut: authVM.signOut)
+            }
 
-            case .onboarding(let stage):
+        case .resolving:
+            routeScreen(route) {
+                AppAccessResolvingView(onSignOut: authVM.signOut)
+            }
+
+        case .onboarding(let stage):
+            routeScreen(route) {
                 PostAuthOnboardingFlowView(
                     stage: stage,
                     onBack: postAuthOnboardingCoordinator.moveBack,
                     onContinue: postAuthOnboardingCoordinator.completeCurrentStage
                 )
+            }
 
-            case .paywall:
+        case .paywall:
+            routeScreen(route) {
                 AppAccessPaywallPlaceholderView(
                     onDeleteAccount: { isShowingGateAccountDeletion = true }
                 )
+            }
 
-            case .mainApp:
+        case .mainApp:
+            routeScreen(route) {
                 MainTabView(tabRouter: tabRouter)
             }
+        }
+    }
+
+    /// Reports the route's screen from inside its own switch branch.
+    ///
+    /// Deliberately not one modifier above the switch: the once-per-appearance guard belongs
+    /// to a view instance, and a single instance spanning every route would report the first
+    /// route the app resolved and then stay silent for the rest of the session. Each branch
+    /// is its own identity, so a route change tears the guard down and the next route
+    /// reports itself.
+    ///
+    /// The stage of an `.onboarding` route is not an identity change, so a climber walking
+    /// the post-auth flow banks one `onboarding_flow` view, not one per step - the 21 steps
+    /// are the onboarding funnel's job.
+    @ViewBuilder
+    private func routeScreen(
+        _ route: AppRootRoute,
+        @ViewBuilder content: () -> some View
+    ) -> some View {
+        if let screen = route.telemetryScreenName {
+            content().trackOnce(screen: screen)
+        } else {
+            content()
         }
     }
 
@@ -562,25 +642,10 @@ struct AccountDataConflictView: View {
 }
 
 private extension AppRootRoute {
+    /// Deliberately the analytics mapping rather than a second one: a diagnostics breadcrumb and a
+    /// session event that name the same route differently split one stream into two.
     var diagnosticName: String {
-        switch self {
-        case .updateRequired:
-            return "update_required"
-        case .signedOut:
-            return "signed_out"
-        case .signingIn:
-            return "signing_in"
-        case .restoringSession:
-            return "restoring_session"
-        case .resolving:
-            return "resolving"
-        case .onboarding:
-            return "onboarding"
-        case .paywall:
-            return "paywall"
-        case .mainApp:
-            return "main_app"
-        }
+        AppLifecycleAnalyticsEvent.RootRoute(self).rawValue
     }
 }
 

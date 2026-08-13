@@ -3,6 +3,7 @@ name: ascend-analytics
 description: Use when working on Ascend analytics or telemetry - event definitions, the analytics facade, telemetry sinks (Firebase Analytics, Mixpanel, SuperWall, Crashlytics, Sentry), screen tracking, funnel/engagement/quality measurement, event parameter privacy, the server-exported subscription lifecycle events, or the debug telemetry console. Covers what is worth logging, which destination owns which job, and the low-cardinality parameter rule.
 paths:
   - AscendApp/Shared/Services/Telemetry/**
+  - AscendApp/App/Analytics/**
   - AscendApp/Features/*/Analytics/**
   - functions/src/revenueCat/analytics*.ts
 ---
@@ -69,15 +70,64 @@ Pick the right project first, then separate server from client events by `build_
 
 ## Implementation principles
 - One analytics facade. Feature code never imports a provider directly; it logs through the facade, which routes to the right destination. Sinks conform to `TelemetrySink` under `AscendApp/Shared/Services/Telemetry/`.
-- Event definitions are typed, discoverable, and feature-owned. Don't pass arbitrary string event names - events are values defined alongside the feature that emits them (see `AscendApp/Features/*/Analytics/`).
-- Log from logic layers (view models, coordinators, services), not from view bodies. SwiftUI screen tracking is the exception - it belongs on the view via a shared modifier.
+- Event definitions are typed, discoverable, and feature-owned. Don't pass arbitrary string event names - events are values defined alongside the feature that emits them (see `AscendApp/Features/*/Analytics/`). App-lifecycle events belong to no feature, so they live in `AscendApp/App/Analytics/` - see "App install and session boundaries" below.
+- Log from logic layers (view models, coordinators, services), not from view bodies. View-lifecycle telemetry is the exception - a screen view, or an event whose subject is *reaching a route* - and it goes through the one shared `.trackOnce` modifier (`AscendApp/Shared/Services/Telemetry/TrackOnceModifier.swift`), which takes either an event or a screen. Its guard is `@State`, so it belongs to the view instance: re-renders and state changes behind it re-emit nothing, while a route rebuilt for a later visit reports that visit. Don't hand-roll a second once-per-appearance guard.
 - Parameters stay low-cardinality and privacy-safe: never log raw user input, email, DOB, exact location, exact health samples, or any PII. Bucket continuous values into categories before logging.
 - Event contracts are verifiable. Tests should exercise event-emission paths without requiring a live analytics runtime.
 - Telemetry collection is force-disabled under XCTest (see `TelemetryManager.shouldEnableCollection`), so `TelemetryManager.shared` never emits in tests and assertions against it pass vacuously. To assert emission, build the manager with `makeTestTelemetry(sink:)` from `AscendAppTests/TelemetryTestSupport.swift` - it wires an `InMemoryTelemetrySink` with `collectionEnabledOverride: true` and calls `configure()`, which is what actually applies the override. Don't hand-roll that construction per test file. This is why emitters like `PostAuthOnboardingCoordinator` and `MonetizationManager` take an injected `TelemetryManager` instead of reaching for the singleton.
 
+## Screen views
+
+There is exactly one screen event, `screen_view`, carrying `screen_name` and `screen_class`.
+Never invent an event name per screen: that puts navigation into the event catalog, and every funnel becomes a rewrite when a surface is renamed.
+
+Both values come from `TelemetryScreenName` (`AscendApp/Shared/Services/Telemetry/TelemetryScreenName.swift`), a bounded catalog of literals.
+Nothing may derive either from a Swift type at runtime - `String(describing:)` turns a refactor into a new Mixpanel series and orphans every saved report built on the old one.
+A surface reports with `.trackOnce(screen: .someCase)`; the free-form `TelemetryScreen(name:screenClass:)` initializer belongs to the telemetry layer and its tests, and `TelemetryScreenCatalogTests` fails when a product source calls it.
+Firebase's automatic screen reporting is disabled in `AscendApp/Info.plist` (`FirebaseAutomaticScreenReportingEnabled` = `false`), so this catalog is the only producer of `screen_view` in Firebase as well as Mixpanel rather than competing with a per-`UIHostingController` stream under the same reserved name.
+
+What earns a case: a root route, a tab root, a surface the climber navigates to, a modal they read or complete a task in.
+What does not: a reusable leaf component, a picker or action menu that edits the surface behind it, a transient banner, DEBUG-only tooling.
+
+Two mappings make an uninstrumented route a compile error rather than a review miss - `AppRootRoute.telemetryScreenName` and `AppTab.telemetryScreenName`, both exhaustive.
+`AppRootRoute.mainApp` is the one `nil`: it is a container, and the selected tab reports instead.
+`RootView` attaches the route screen *inside each switch branch*, never once above the switch - one instance spanning every route would report whichever route resolved first and then stay silent for the session.
+
+The onboarding funnel is not measured here.
+Its 21 steps own `onboarding_screen_viewed`; this catalog reports only the two route boundaries containing them, `landing` and `onboarding_flow`.
+Entry-point detail likewise stays on the events that already carry it (`live_climb_detail_view` and friends) rather than being duplicated onto the screen.
+
+Contracts: `AscendAppTests/TelemetryScreenCatalogTests.swift` pins every name/class pair, refuses an orphan catalog entry, and refuses an ad-hoc screen; `AscendAppTests/RouteScreenViewEvidenceTests.swift` proves once-per-appearance, per-tab-switch, re-presented-sheet, and app-entry behavior against the shipped modifier.
+Host those windows on the test host's `UIWindowScene`.
+A scene-less `UIWindow` mounts a `TabView` that was there from the first render but silently never mounts one that *arrives* on a later state change - no tab bar controller, no tab root, no `body` call - so the first tab of a session reports nothing and the harness, not the app, is what is broken.
+
 ## Local inspection
 
 DEBUG builds expose a developer-visible analytics console so events and screen views can be inspected without leaving the simulator (`DebugTelemetryConsoleSink`, `TelemetryConsoleView`).
+
+## App install and session boundaries
+
+Acquisition and retention hang off two always-on lifecycle events, defined in `AscendApp/App/Analytics/AppLifecycleAnalyticsEvent.swift` and routed through `TelemetryManager` like every other event - never straight to a provider, and never as a super-property or a user property.
+
+- **`app_first_opened` is the install boundary, once per installation.**
+  It is emitted from `AscendApp.init` before onboarding and before `AuthenticationViewModel` exists, so it is anonymous at emission and joins to the Firebase UID through the later `identify`.
+  Its sentinel is persisted *before* the event reaches any sink, in an installation-scoped `UserDefaults` suite, so a crash, a relaunch, a sign-out, a sign-in, or account deletion's persistent-domain wipe can never mint a second first open.
+  It is consumed even when collection is disabled, so a later launch cannot masquerade as the first.
+  It carries `first_open_app_version` and `first_open_build_number` plus the envelope, nothing else.
+  An opt-in, `onboarding_flow_started`, or an SDK's own session event is not the install boundary; do not substitute one.
+- **`app_session_started` is the engagement boundary.**
+  One per cold launch, plus one per foreground that follows at least `AppSessionTelemetryCoordinator.inactivityThreshold` (30 minutes) in the background.
+  A briefer app switch stays inside the current session, and a foreground with no preceding background emits nothing.
+  It carries `session_id`, `session_type` (`cold_launch` / `foreground`), `root_route`, and `auth_state`, and every one of those but `session_id` is a bounded Swift enum.
+  `session_id` is the deliberate exception to the low-cardinality rule: it is a per-session join key, generated on the spot and tied to no user or device.
+- **The cold-launch session is reported when the launch settles, not when the root task first ticks.**
+  Routing and authentication both resolve after launch and either can move without the other, so `RootView` re-observes on every change.
+  The coordinator reports once both are resolved, once `coldLaunchResolutionTimeout` expires, or when a background flushes the still-pending launch - whichever lands first - marking `unresolved` only for the dimension genuinely still unknown.
+  `unresolved` is a countable outcome, never a stand-in for an unmapped route.
+- **`root_route` has one mapping.**
+  `RootView`'s diagnostics breadcrumb renders `AppLifecycleAnalyticsEvent.RootRoute` too; a second mapping would name the same launch two ways across two streams.
+
+Enforced by `AscendAppTests/AppInstallationTelemetryReporterTests.swift` and `AscendAppTests/AppSessionTelemetryCoordinatorTests.swift`.
 
 ## Onboarding funnel contract
 
@@ -135,7 +185,9 @@ The segment labels identify nested implementation sections and never replace the
 - **Grant provenance is part of the pass, not of the process.** `OnboardingAccessGrantProvenance` is persisted inside the same `PassState` it describes and is retired with it, because the app can die on the StoreKit sheet between the purchase and the route to Home. A request the process died holding is settled to "reported nothing" when the next process loads the pass - it can never report, and deferring forever would cost the completion entirely.
 - **Nested owners are segments.** The value carousel, auth surface, post-auth stages, and feature guide set `segment_id`; none may emit `onboarding_flow_started` or `onboarding_flow_completed`.
 - **Every RevenueCat purchase and restore emits exactly one terminal, and `completed` means verified.**
-  A purchase or restore reports `started` only when a RevenueCat call actually happens - a missing StoreKit product or an unconfigured build emits the failure terminal alone.
+  A purchase or restore reports `started` only when a RevenueCat call actually happens - a missing StoreKit product or an unconfigured build emits the failure terminal alone, and that lone terminal carries no `placement` and no `presentation_id` because no presentation ever reached it (`RevenueCatPurchaseAttribution`).
+  Every purchase terminal that follows a `started` repeats that start's `placement` and its optional `presentation_id`, so a terminal joins to the `paywall_*` events of its own presentation.
+  `placement` is the operator-authored Superwall campaign name carried through verbatim - a dashboard campaign Ascend never registers in `SuperwallPlacement` is still a real placement - and `unknown` means no placement reached the purchase at all (`RevenueCatPurchasePlacement`).
   `revenuecat_purchase_completed` requires `app_access` in the *refreshed RevenueCat entitlement state* - the device answer, whose refresh also triggers server reconciliation but which is not itself server-derived - never the pre-refresh purchase response.
   A refresh that established nothing is reported as a failure with the matching bounded `error_type` - unconfigured, unresolved identity (including an answer that landed after the identity moved on), RevenueCat unreachable, or the verdict budget expiring - and the stored entitlement is never read in its place. `MonetizationEntitlementRefresh` is what makes that distinction expressible.
   That budget is **one 10-second total** (`MonetizationVerdictBudget`) spanning identity serialization, the customer-info fetch and server reconciliation together, never one per segment; whichever segment exhausts it collapses the whole attempt to `entitlement_refresh_timeout`.

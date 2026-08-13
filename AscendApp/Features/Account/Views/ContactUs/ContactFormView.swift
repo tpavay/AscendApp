@@ -82,6 +82,7 @@ struct ContactFormView: View {
         .onAppear {
             isMessageFocused = true
         }
+        .trackOnce(screen: .contactForm)
     }
 
     // MARK: - Subviews

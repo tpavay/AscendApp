@@ -170,9 +170,22 @@ How this plan collides with existing CLAUDE.md / project skill rules and the cod
    Privacy manifest + App Store privacy labels + privacy policy must move in the same PR per the
    `ascend-privacy-manifest` skill. Heart-rate collection is already declared via HealthKit
    types; verify Bluetooth-sourced HR doesn't change the declared sources.
-4. **watchOS target = real maintenance surface.** Third target: match provisioning, CI lanes,
-   its own privacy manifest, App Store screenshots for Watch. This supports the note's lean —
-   ship Tier A straps + SPM zones first; add the Watch target when it earns its keep.
+4. **watchOS target = real maintenance surface.** The third target now exists: `AscendWatch`
+   landed in #470 as a static face with no HealthKit, no `HKWorkoutSession`, and no connectivity,
+   so Tier B is still unbuilt and this note's lean still holds: ship Tier A straps + SPM zones
+   first. Most of the maintenance surface is already paid for - the target still builds and signs
+   end to end, and `scripts/test/watch-target-configuration.test.mjs` holds its source-side
+   configuration contract - while anything Health-related on the watch remains outstanding.
+   The watch app ships in 1.1, not 1.0: **no 1.0 IPA embeds it, staging archives included**, so no
+   TestFlight tester on either environment installs a watch app until 1.1. `AscendWatch` is
+   retained as a build dependency of the phone app, so every scheme still compiles and signs it and
+   a watch-only change still fails the iOS jobs - the watch is exercised at build time, not on a
+   staging tester's wrist. Its App Store listing artwork is therefore the captain's 1.1 listing work
+   rather than a 1.0 blocker or an open question this plan carries.
+   `scripts/ci/assert-embedded-watch-platform.sh` is the artifact-level platform guard for an
+   embedded watch binary; with nothing embedded in 1.0 it runs nowhere and is parked for
+   reactivation when 1.1 restores embedding.
+   `ascend-deploy` owns the CI and signing side.
 5. **SPM zone bands must stay absolute.** Per Workout Measurement rules, no user-calibrated
    effort baselines (base level is deprecated). Apple's personalized HR zones are Apple's model —
    fine. Our SPM bands should be product-defined absolute bands (content-driven, tunable

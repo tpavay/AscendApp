@@ -50,6 +50,7 @@ struct HeartRateMonitorManageSheet: View {
         .onDisappear {
             monitor.stopPairingScan()
         }
+        .trackOnce(screen: .heartRateMonitorManage)
     }
 
     @ViewBuilder

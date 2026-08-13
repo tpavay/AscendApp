@@ -73,10 +73,11 @@ extension ShareStatStickerKind {
     /// view that the other renderer never sees.
     var isSelfDescribing: Bool {
         switch self {
-        case .date, .workoutName, .climbName, .climbRank, .climbRankWithTotal:
+        case .date, .workoutName, .climbName, .climbLocation, .climbRank, .climbRankWithTotal:
             return true
         case .duration, .steps, .calories, .pace, .avgHeartRate, .maxHeartRate,
-             .verticalClimb, .addedWeight, .splits, .bestEffort, .totals:
+             .verticalClimb, .addedWeight, .splits, .climbFloors, .routineIntervals,
+             .bestEffort, .totals:
             return false
         }
     }

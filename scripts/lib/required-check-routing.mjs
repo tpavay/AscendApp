@@ -12,6 +12,8 @@ export const CI_RELEVANT_PATHS = [
   "AscendApp/**",
   "AscendAppTests/**",
   "AscendLiveActivityWidgets/**",
+  "AscendWatch/**",
+  "AscendWatchShared/**",
   "AscendApp.xcodeproj/**",
   "functions/**",
   "firestore.rules",

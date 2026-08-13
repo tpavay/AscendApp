@@ -107,7 +107,7 @@ struct HomeView: View {
                         isRankLoading: homeDashboard.isRankLoading,
                         completedClimbCount: homeDashboard.completedClimbCount,
                         totalClimbCount: globeViewModel.climbCount,
-                        onRankTapped: { tabRouter.selectedTab = .leaderboard },
+                        onRankTapped: { tabRouter.select(.leaderboard, reason: .homeRankCard) },
                         onGlobeTapped: { presentClimbBrowse() }
                     )
 
@@ -249,7 +249,7 @@ struct HomeView: View {
         case .browseClimbs:
             presentClimbBrowse()
         case .routines:
-            tabRouter.selectedTab = .training
+            tabRouter.select(.training, reason: .appRouting)
         }
     }
 

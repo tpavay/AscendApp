@@ -316,8 +316,7 @@ private struct EvidencePromptSurfaceHarness: View {
                             openFirstAscent(id: "burj", name: "Burj Khalifa", location: "Dubai, UAE"),
                             openFirstAscent(id: "cn", name: "CN Tower", location: "Toronto, Canada")
                         ],
-                        achievements: .zero,
-                        achievementRecords: [],
+                        achievements: .empty,
                         mode: .own,
                         notificationState: notificationState
                     )

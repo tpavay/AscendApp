@@ -49,6 +49,7 @@ struct PostBlockReportSheet: View {
                     .appSheetButtonStyle()
             }
         }
+        .trackOnce(screen: .postBlockReport)
     }
 
     private func submit() {

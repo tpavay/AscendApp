@@ -56,7 +56,6 @@ struct OtherUserProfileView: View {
             climbAttempts: viewerClimbAttempts,
             bestEffortCacheEntries: viewerBestEffortCacheEntries,
             achievements: viewModel.achievements,
-            achievementRecords: viewModel.achievementRecords,
             standings: viewModel.standings,
             climbs: climbs,
             fitnessLevel: settingsManager.fitnessLevel
@@ -67,8 +66,7 @@ struct OtherUserProfileView: View {
         ProfileSnapshotBuilder.makeRemoteSnapshot(
             demographics: viewModel.otherUserDemographics(userId: userId),
             stats: .empty,
-            achievements: .zero,
-            achievementRecords: [],
+            achievements: .empty,
             standings: [],
             workoutSummaries: [],
             firstAscentsHeld: [],
@@ -180,6 +178,7 @@ struct OtherUserProfileView: View {
         .onReceive(NotificationCenter.default.publisher(for: .climbCatalogDidChange)) { _ in
             catalogRevision += 1
         }
+        .trackOnce(screen: .otherUserProfile)
     }
 
 }

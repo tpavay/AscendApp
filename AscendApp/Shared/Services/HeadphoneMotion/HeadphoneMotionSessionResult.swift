@@ -136,6 +136,9 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
     let climbId: String?
     let routineId: String?
     let routineTemplateId: String?
+    /// How many intervals the routine held when this session ran, frozen here so
+    /// a later edit to the routine cannot rewrite what the session did.
+    let routineIntervalCount: Int?
     let targetStepCount: Int?
     let climbTargetStepCount: Int?
     let targetDurationSeconds: TimeInterval?
@@ -155,6 +158,7 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
         climbId: String?,
         routineId: String? = nil,
         routineTemplateId: String? = nil,
+        routineIntervalCount: Int? = nil,
         targetStepCount: Int?,
         climbTargetStepCount: Int? = nil,
         targetDurationSeconds: TimeInterval? = nil,
@@ -172,6 +176,7 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
         self.climbId = climbId
         self.routineId = routineId
         self.routineTemplateId = routineTemplateId
+        self.routineIntervalCount = routineIntervalCount
         self.targetStepCount = targetStepCount
         self.climbTargetStepCount = climbTargetStepCount
         self.targetDurationSeconds = targetDurationSeconds

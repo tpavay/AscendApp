@@ -60,9 +60,11 @@ Two distinct surfaces - the global tab (community-wide aggregate stats) and per-
 ## Leaderboard UX Flow
 
 ### Global leaderboard tab - aggregate stats across the community
-- The tab root is a category hub previewing each canonical metric (climb, workouts, duration, pace per the Week Start + Leaderboard Windowing rules). A "see all" affordance opens a per-metric detail screen.
-- Per-metric detail screens lock the metric and filter by time frame (weekly, monthly, all-time).
-- Detail screens compose from focused, reusable subviews - time-frame picker, podium (top 3), pinned current-user row when not in podium, rank list. Don't reimplement these patterns per metric.
+- **The tab root is one board, not a category hub.**
+  `LeaderboardView` shows a single canonical metric (climb, workouts, duration, pace per the Week Start + Leaderboard Windowing rules) and switches between them through its title menu; there is no "see all" affordance and no per-metric detail route.
+  The locked-metric mode that once backed one lost its last caller and was deleted, so a metric-detail route is a product decision to rebuild rather than a parameter to pass.
+- The board filters by time frame (weekly, monthly, yearly, all-time) and by the demographic filters (age group, body weight, location).
+- The board composes from focused, reusable subviews - time-frame picker, podium (top 3), pinned current-user row when not in podium, rank list. Don't reimplement these patterns per metric.
 - The podium always renders three slots even when sparse; empty slots use a motivational empty-slot treatment.
 - The current user appears in exactly one place at a time. If they're in the podium, they're not duplicated in the rank list below.
 - **A rank is earned by climbing inside the window; it is never conferred by holding an account.** A climber with nothing logged this period is *unranked* - `LeaderboardCurrentUserReconciler` drops them from the ranked entries, and their pinned row renders with no rank number (`LeaderboardUserStanding.unranked`). Never synthesise one from list position: that is what put a "rank 2, 0 steps" row directly beneath a podium whose second plinth read `OPEN`. This is the live recurring board, not a completed climb, so the frozen-rank rule does not apply.
@@ -73,6 +75,7 @@ Two distinct surfaces - the global tab (community-wide aggregate stats) and per-
 - Top finishers (#1, #2, #3) get medal-color emphasis (see the medal tokens in the core guide's Design System). They're the *active* prize being chased.
 - The climb's First Ascent holder is surfaced as a quiet, persistent annotation - permanent prestige, but visually secondary to the active leaderboard chase. See the First Ascent principle in `ascend-live-climbs`.
 - Achievement terminology is locked to **Top 1**, **Top 3**, **Top 10**, and **Top 100**. Top 1 may be swapped to a product-approved label later, but it must be centralized as a single string constant.
+  That is the awarding taxonomy, not the badge set: which badges a profile shelf renders from it - and why the Top 3 band badge gave way to the exact `#2` and `#3` placements read off each record's rank - belongs to `ascend-profile`.
 - Achievement counts use cumulative inclusive counting: a Top 1 finish also counts toward Top 3, Top 10, and Top 100. Do not render these as mutually exclusive medal bands.
 - Achievement counts are also **time-frame agnostic**: a weekly, monthly, and yearly Top 10 finish all count toward the same Top 10 badge, because the badge shows one total per band with no period noun.
   The time frame is preserved on the individual achievement record (`weekly_top_1`, `monthly_top_1`, …), which is what the achievement history sheet reads.
@@ -80,6 +83,10 @@ Two distinct surfaces - the global tab (community-wide aggregate stats) and per-
   Changing what a badge counts is a product decision, not a bug fix.
 - Per-climb leaderboards rank *completed attempts on one climb*, not aggregate community totals. They don't share a layout with the global aggregate leaderboards.
 - The static per-climb leaderboard shows **every completed attempt**, not best-per-user. A user appears as many times as they've completed the climb; this surface is the historical record of completions. Contrast with the in-session live race, which ranks against best-per-user (see the replay leaderboard architecture in `ascend-live-climbs`).
+- **The board states a climber's own time and rank once - on their own row, wearing the YOU pill - and carries no separate personal rank summary above it.**
+  Climb Detail's Leaderboard tab lost that duplicated card on 2026-08-12; History is the home for a climber's own results, and the hero card's finisher strip still carries the standing.
+  The accepted cost is that a climber ranked past the 25-row page must scroll to find themselves; reintroducing a pinned current-user row is a product decision, not a fix.
+  The predicate that survived the card, `ClimbDetailViewModel.hasPersonalCompletionStanding`, is not leftover gating: rank and rows arrive from two separate fetches, and it is the only thing stopping a climber who has just finished from being told nobody has (`ClimbLeaderboardPageContent`).
 
 ### Tie handling (applies to global and per-climb)
 - Ties are ranked using **standard competition ranking** ("1, 2, 2, 4"). Tied users share the same rank; the next rank is skipped by the count of tied users. This matches the sports convention and honors the honest outcome.

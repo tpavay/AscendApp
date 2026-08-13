@@ -44,6 +44,7 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(records[1].parameters["outcome"] == TelemetryValue.string("success"))
         #expect(records[1].parameters["entitlement_id"] == TelemetryValue.string(Self.entitlementID))
         #expect(records[1].parameters["entitlement_active"] == TelemetryValue.bool(true))
+        Self.expectPurchaseContext(on: records[1])
         #expect(harness.published == [[Self.entitlementID]])
     }
 
@@ -111,6 +112,7 @@ struct PaywallPurchaseAnalyticsContractTests {
         Self.expectOnePurchaseTerminal(in: records)
         #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_abandoned")
         #expect(records[1].parameters["outcome"] == TelemetryValue.string("user_cancelled"))
+        Self.expectPurchaseContext(on: records[1])
         #expect(harness.refreshCount == 0)
     }
 
@@ -149,6 +151,7 @@ struct PaywallPurchaseAnalyticsContractTests {
         Self.expectOnePurchaseTerminal(in: records)
         #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_failed")
         #expect(records[1].parameters["outcome"] == TelemetryValue.string("pending"))
+        Self.expectPurchaseContext(on: records[1])
     }
 
     @Test
@@ -169,6 +172,7 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_failed")
         #expect(records[1].parameters["outcome"] == TelemetryValue.string("failed"))
         #expect(records[1].parameters["error_type"] == TelemetryValue.string("network"))
+        Self.expectPurchaseContext(on: records[1])
         Self.expectNoRawErrorText(in: records)
     }
 
@@ -229,6 +233,84 @@ struct PaywallPurchaseAnalyticsContractTests {
         Self.expectOnePurchaseTerminal(in: records)
         #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_failed")
         #expect(records[0].parameters["error_type"] == TelemetryValue.string("missing_store_product"))
+        #expect(records[0].parameters["placement"] == nil)
+        #expect(records[0].parameters["presentation_id"] == nil)
+    }
+
+    @Test
+    func purchaseWithoutPresentationIDCarriesOnlyItsPlacement() async {
+        let harness = Self.makePurchaseHarness(refreshedState: .inactive)
+        harness.contextStore.record(
+            placement: SuperwallPlacement.appAccessGate.rawValue,
+            presentationID: nil,
+            productID: Self.productID
+        )
+
+        _ = await harness.executor.executePurchase(productID: Self.productID) {
+            RevenueCatPurchaseExecutor.PurchaseResponse(userCancelled: true)
+        }
+
+        let records = harness.sink.records
+        #expect(records.map(\.name) == [
+            "revenuecat_purchase_started",
+            "revenuecat_purchase_cancelled"
+        ])
+        for record in records {
+            #expect(record.parameters["placement"] == .string("app_access_gate"))
+            #expect(record.parameters["presentation_id"] == nil)
+        }
+    }
+
+    /// A purchase terminal has to join to the `paywall_*` events of the same presentation, so the
+    /// operator-authored campaign name travels verbatim - including a dashboard placement Ascend
+    /// never registers in `SuperwallPlacement`. Only a purchase that reached RevenueCat with no
+    /// placement at all reports `unknown`.
+    @Test
+    func everyRealPlacementSurvivesAndOnlyAnAbsentOneReadsUnknown() async {
+        #expect(RevenueCatPurchasePlacement(SuperwallPlacement.onboardingPaywall.rawValue).analyticsValue == "onboarding_paywall")
+        #expect(RevenueCatPurchasePlacement(SuperwallPlacement.appLaunchHardGate.rawValue).analyticsValue == "app_launch_hard_gate")
+        #expect(RevenueCatPurchasePlacement(SuperwallPlacement.appAccessGate.rawValue).analyticsValue == "app_access_gate")
+        #expect(RevenueCatPurchasePlacement("winback_campaign_q3").analyticsValue == "winback_campaign_q3")
+        #expect(RevenueCatPurchasePlacement(nil).analyticsValue == "unknown")
+        #expect(RevenueCatPurchasePlacement("   ").analyticsValue == "unknown")
+
+        let harness = Self.makePurchaseHarness(refreshedState: .active([Self.entitlementID]))
+        Self.recordPaywallContext(in: harness.contextStore, placement: "app_launch")
+
+        _ = await harness.executor.executePurchase(productID: Self.productID) {
+            RevenueCatPurchaseExecutor.PurchaseResponse(userCancelled: false)
+        }
+
+        let records = harness.sink.records
+        #expect(records.map(\.name) == [
+            "revenuecat_purchase_started",
+            "revenuecat_purchase_completed"
+        ])
+        for record in records {
+            #expect(record.parameters["placement"] == .string("app_launch"))
+        }
+    }
+
+    /// A purchase that never went through a Superwall presentation still reports one terminal, and
+    /// both events agree that no placement reached it.
+    @Test
+    func aPurchaseWithNoRecordedPresentationReportsUnknownOnBothEvents() async {
+        let harness = Self.makePurchaseHarness(refreshedState: .active([Self.entitlementID]))
+
+        _ = await harness.executor.executePurchase(productID: Self.productID) {
+            RevenueCatPurchaseExecutor.PurchaseResponse(userCancelled: false)
+        }
+
+        let records = harness.sink.records
+        #expect(records.map(\.name) == [
+            "revenuecat_purchase_started",
+            "revenuecat_purchase_completed"
+        ])
+        Self.expectOnePurchaseTerminal(in: records)
+        for record in records {
+            #expect(record.parameters["placement"] == .string("unknown"))
+            #expect(record.parameters["presentation_id"] == nil)
+        }
     }
 
     /// Every message a climber can be shown names Ascend and an action, never RevenueCat,
@@ -645,16 +727,34 @@ private extension PaywallPurchaseAnalyticsContractTests {
         return (service, sink, restorer)
     }
 
-    static func recordPaywallContext(in contextStore: PaywallTransactionContextStore) {
+    static func recordPaywallContext(
+        in contextStore: PaywallTransactionContextStore,
+        placement: String = SuperwallPlacement.onboardingPaywall.rawValue,
+        presentationID: String? = "presentation-1"
+    ) {
         contextStore.record(
-            placement: "onboarding_paywall",
-            presentationID: "presentation-1",
+            placement: placement,
+            presentationID: presentationID,
             productID: productID
         )
     }
 
     static func expectOnePurchaseTerminal(in records: [EnvelopedTelemetryRecord]) {
         #expect(records.filter { purchaseTerminalNames.contains($0.name) }.count == 1)
+    }
+
+    static func expectPurchaseContext(
+        on record: EnvelopedTelemetryRecord,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        #expect(
+            record.parameters["placement"] == .string("onboarding_paywall"),
+            sourceLocation: sourceLocation
+        )
+        #expect(
+            record.parameters["presentation_id"] == .string("presentation-1"),
+            sourceLocation: sourceLocation
+        )
     }
 
     static func expectOneRestoreTerminal(in records: [EnvelopedTelemetryRecord]) {

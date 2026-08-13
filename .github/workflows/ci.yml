@@ -8,6 +8,8 @@ on:
       - "AscendApp/**"
       - "AscendAppTests/**"
       - "AscendLiveActivityWidgets/**"
+      - "AscendWatch/**"
+      - "AscendWatchShared/**"
       - "AscendApp.xcodeproj/**"
       - "functions/**"
       - "firestore.rules"
@@ -72,6 +74,11 @@ jobs:
               - "AscendApp/**"
               - "AscendAppTests/**"
               - "AscendLiveActivityWidgets/**"
+              # The retained watch target remains a build dependency for the
+              # 1.1 release, so a watch-only change is still an iOS change even
+              # though the 1.0 phone app does not embed its product.
+              - "AscendWatch/**"
+              - "AscendWatchShared/**"
               - "AscendApp.xcodeproj/**"
               # The Swift halves of the shared cross-language vectors assert
               # against these files directly, so a vector-only edit must run them.
@@ -99,6 +106,9 @@ jobs:
               # key, Info.plist, or placeholder-contract edit must run it.
               - "AscendApp.xcodeproj/**"
               - "AscendApp/Info.plist"
+              # The watch target-configuration suite reads the watch bundle's
+              # Info.plist directly, alongside the project file above.
+              - "AscendWatch/**"
               - "AscendApp/Features/Monetization/**"
               # The Firebase configuration suite validates all three directly.
               - "firebase.json"
@@ -125,6 +135,11 @@ jobs:
               # AGENTS.md is a symlink to CLAUDE.md, so it gates identically.
               - "CLAUDE.md"
               - "AGENTS.md"
+              # The exported-IPA suite asserts both signed lanes publish their
+              # artifact by exact name, so a Fastfile edit must run it: a lane
+              # that goes back to picking a wildcard match hands every
+              # downstream verification a stale build.
+              - "fastlane/**"
               - ".github/workflows/**"
             web:
               - "web/**"
@@ -167,6 +182,9 @@ jobs:
               # binary cannot be rolled back, so this stays the whole app tree and
               # is never narrowed to the folders models happen to live in today.
               - "AscendApp/**"
+              # AscendWatchShared/ compiles into the app target too, so an @Model
+              # declared there reaches the same store. The check walks both roots.
+              - "AscendWatchShared/**"
               - "SharedTestVectors/**"
               - ".github/workflows/**"
 
@@ -604,6 +622,10 @@ jobs:
           echo "Selected simulator ${simulator_id} on ${runtime}."
           echo "id=$simulator_id" >> "$GITHUB_OUTPUT"
 
+      - name: Provision watchOS runtime (best effort)
+        shell: bash
+        run: ./scripts/ci/ensure-watchos-runtime.sh
+
       - name: Verify Mixpanel build destinations
         run: node scripts/ci/assert-mixpanel-build-settings.mjs
 
@@ -685,6 +707,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-spm-
 
+      - name: Provision watchOS runtime (best effort)
+        shell: bash
+        run: ./scripts/ci/ensure-watchos-runtime.sh
+
       - name: Verify Mixpanel build destinations
         run: node scripts/ci/assert-mixpanel-build-settings.mjs
 
@@ -702,10 +728,35 @@ jobs:
             -project AscendApp.xcodeproj \
             -scheme "AscendApp" \
             -configuration Release \
-            -sdk iphoneos \
             -destination "generic/platform=iOS" \
             CODE_SIGNING_ALLOWED=NO \
             build 2>&1 | tee build-logs/xcodebuild-release.log
+
+      # `-showBuildSettings` re-evaluates the whole project graph, so the three
+      # checks below resolve what they read from the build product once, here.
+      - name: Resolve the Release build product paths
+        id: product
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          xcodebuild \
+            -project AscendApp.xcodeproj \
+            -scheme "AscendApp" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            -showBuildSettings -json |
+            jq -er '
+              (map(select(.target == "AscendApp")) | first
+                // error("no AscendApp target in -showBuildSettings output"))
+              | .buildSettings
+              | (.TARGET_BUILD_DIR // error("TARGET_BUILD_DIR is unset for the AscendApp target")) as $dir
+              | "app-bundle=" + $dir + "/"
+                  + (.WRAPPER_NAME // error("WRAPPER_NAME is unset for the AscendApp target")),
+                "info-plist=" + $dir + "/"
+                  + (.INFOPLIST_PATH // error("INFOPLIST_PATH is unset for the AscendApp target"))
+            ' | tee -a "$GITHUB_OUTPUT"
 
       # Its own step, not a tail on the build: the build step's status has to
       # stay the `xcodebuild` pipeline's status, and `Summarize failure` must
@@ -716,70 +767,61 @@ jobs:
       # processed bundle plist and requires the boolean - App Store Connect does
       # not reliably accept a string-typed `false`, which is why the type is
       # asserted alongside the value.
+      #
+      # The 1.0 product has one shipped application bundle. The retained watch
+      # target is built for 1.1 but is not embedded in this phone app.
       - name: Verify Release bundle export compliance
         shell: bash
+        env:
+          APP_BUNDLE: ${{ steps.product.outputs.app-bundle }}
         run: |
           set -euo pipefail
 
-          built_info_plist="$(
-            xcodebuild \
-              -project AscendApp.xcodeproj \
-              -scheme "AscendApp" \
-              -configuration Release \
-              -sdk iphoneos \
-              -destination "generic/platform=iOS" \
-              CODE_SIGNING_ALLOWED=NO \
-              -showBuildSettings -json |
-              jq -er '
-                (map(select(.target == "AscendApp")) | first
-                  // error("no AscendApp target in -showBuildSettings output"))
-                | .buildSettings
-                | (.TARGET_BUILD_DIR // error("TARGET_BUILD_DIR is unset for the AscendApp target"))
-                  + "/"
-                  + (.INFOPLIST_PATH // error("INFOPLIST_PATH is unset for the AscendApp target"))
-              '
-          )"
+          assert_export_compliance() {
+            local built_info_plist="$1"
+            local source_file="$2"
+            local encryption_value
 
-          if [ ! -f "$built_info_plist" ]; then
-            echo "::error file=AscendApp/Info.plist::Release build produced no processed Info.plist at ${built_info_plist}."
-            exit 1
-          fi
+            if [ ! -f "$built_info_plist" ]; then
+              echo "::error file=${source_file}::Release build produced no processed Info.plist at ${built_info_plist}."
+              exit 1
+            fi
 
-          if ! encryption_value="$(plutil -extract ITSAppUsesNonExemptEncryption raw -expect bool -o - "$built_info_plist" 2>&1)"; then
-            echo "::error file=AscendApp/Info.plist::Release bundle must declare ITSAppUsesNonExemptEncryption as boolean false, or uploads park in Missing Compliance. Reading ${built_info_plist} failed: ${encryption_value//$'\n'/ }"
-            exit 1
-          fi
+            if ! encryption_value="$(plutil -extract ITSAppUsesNonExemptEncryption raw -expect bool -o - "$built_info_plist" 2>&1)"; then
+              echo "::error file=${source_file}::Release bundle must declare ITSAppUsesNonExemptEncryption as boolean false, or uploads park in Missing Compliance. Reading ${built_info_plist} failed: ${encryption_value//$'\n'/ }"
+              exit 1
+            fi
 
-          if [ "$encryption_value" != "false" ]; then
-            echo "::error file=AscendApp/Info.plist::Release bundle declares ITSAppUsesNonExemptEncryption=${encryption_value}; it must be boolean false. Built plist: ${built_info_plist}"
-            exit 1
-          fi
+            if [ "$encryption_value" != "false" ]; then
+              echo "::error file=${source_file}::Release bundle declares ITSAppUsesNonExemptEncryption=${encryption_value}; it must be boolean false. Built plist: ${built_info_plist}"
+              exit 1
+            fi
+
+            echo "Verified ${built_info_plist} declares ITSAppUsesNonExemptEncryption=false."
+          }
+
+          assert_export_compliance "${APP_BUNDLE}/Info.plist" "AscendApp/Info.plist"
+
+      # An empty app icon set builds clean and is caught only by Apple's
+      # server-side upload validation, a full deploy cycle later. The script
+      # documents the rejection it prevents.
+      - name: Verify the phone bundle ships an app icon
+        shell: bash
+        env:
+          APP_BUNDLE: ${{ steps.product.outputs.app-bundle }}
+        run: |
+          set -euo pipefail
+
+          node scripts/ci/assert-app-icon-present.mjs "$APP_BUNDLE" phone
 
       - name: Verify Release Mixpanel destination in the processed bundle
         shell: bash
+        env:
+          BUILT_INFO_PLIST: ${{ steps.product.outputs.info-plist }}
         run: |
           set -euo pipefail
 
-          built_info_plist="$(
-            xcodebuild \
-              -project AscendApp.xcodeproj \
-              -scheme "AscendApp" \
-              -configuration Release \
-              -sdk iphoneos \
-              -destination "generic/platform=iOS" \
-              CODE_SIGNING_ALLOWED=NO \
-              -showBuildSettings -json |
-              jq -er '
-                (map(select(.target == "AscendApp")) | first
-                  // error("no AscendApp target in -showBuildSettings output"))
-                | .buildSettings
-                | (.TARGET_BUILD_DIR // error("TARGET_BUILD_DIR is unset for the AscendApp target"))
-                  + "/"
-                  + (.INFOPLIST_PATH // error("INFOPLIST_PATH is unset for the AscendApp target"))
-              '
-          )"
-
-          node scripts/ci/assert-mixpanel-bundle.mjs Release "$built_info_plist"
+          node scripts/ci/assert-mixpanel-bundle.mjs Release "$BUILT_INFO_PLIST"
 
       # A step killed by timeout-minutes reports `cancelled`, not `failure`, and
       # that is exactly the hung-runner case these logs exist to explain. An

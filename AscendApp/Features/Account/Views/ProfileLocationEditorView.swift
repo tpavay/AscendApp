@@ -137,6 +137,7 @@ struct ProfileLocationEditorView: View {
             guard let selectedLocation, newValue != selectedLocation.profileDisplayText else { return }
             self.selectedLocation = nil
         }
+        .trackOnce(screen: .profileLocationEditor)
     }
 
     private func locationRow(title: String, subtitle: String, icon: String) -> some View {

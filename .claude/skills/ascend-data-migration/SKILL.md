@@ -144,7 +144,9 @@ Firestore is an operation you perform and can perform again.
 Either one is excused only by a stage `AscendMigrationPlan.stages` actually runs **plus** a hand-written `customStageColumns` entry naming the column it covers, so a second unrelated column cannot ride in on the first one's stage.
 The recorded shape lives in `SharedTestVectors/swiftdata-schema-shape.json`.
 After a legitimate schema change, re-record it in the same PR with `node scripts/check-swiftdata-schema.mjs --update`; the update refuses to write while a rule is violated, and carries `customStageColumns` across untouched.
-`scripts/test/swiftdata-schema-shape.test.mjs` runs both checks against this repository and proves each rule fires, and CI runs it in the `SwiftData Schema Verify` job on every change under `AscendApp/`.
+`scripts/test/swiftdata-schema-shape.test.mjs` runs both checks against this repository and proves each rule fires, and CI runs it in the `SwiftData Schema Verify` job on every change under `AscendApp/` or `AscendWatchShared/`.
+Those are the two roots the check walks, because both compile into the app target: an `@Model` declared in the watch-shared folder reaches the same persistent store as one under `AscendApp/`.
+Add a third root the app target compiles and the check has to walk it too, or the gate reports on a subset of the schema while reading as though it covered all of it.
 
 Because the check cannot tell a shipped schema version from an unshipped one, several can pile up inside one unreleased cycle - and every surplus version is another stage chained inside `ModelContainer.init` at launch, forever.
 `references/preflight.md` has the collapse step to run before a release ships, and the rule that a version which has reached a user, TestFlight included, can never be collapsed.

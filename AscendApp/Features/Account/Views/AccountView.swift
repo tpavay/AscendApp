@@ -115,6 +115,7 @@ struct AccountView: View {
                 dismiss()
             }
         }
+        .trackOnce(screen: .settings)
     }
 
     // MARK: - Sections

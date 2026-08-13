@@ -39,11 +39,11 @@ final class RevenueCatPurchaseExecutor {
         operation: @MainActor () async throws -> PurchaseResponse
     ) async -> PurchaseResult {
         let context = transactionContextStore.takeContext(for: productID)
+            ?? RevenueCatPurchaseAnalyticsContext(placement: nil, presentationID: nil)
         telemetry.track(
             PaywallAnalyticsEvent.revenueCatPurchaseStarted(
                 productID: productID,
-                placement: context?.placement ?? "unknown",
-                presentationID: context?.presentationID
+                context: context
             )
         )
 
@@ -51,7 +51,12 @@ final class RevenueCatPurchaseExecutor {
             let response = try await operation()
 
             if response.userCancelled {
-                telemetry.track(PaywallAnalyticsEvent.revenueCatPurchaseCancelled(productID: productID))
+                telemetry.track(
+                    PaywallAnalyticsEvent.revenueCatPurchaseCancelled(
+                        productID: productID,
+                        context: context
+                    )
+                )
                 return .cancelled
             }
 
@@ -63,26 +68,38 @@ final class RevenueCatPurchaseExecutor {
             // stands in for a current answer.
             switch await refreshEntitlementState() {
             case .refreshed(let state):
-                return verdict(forRefreshedState: state, productID: productID)
+                return verdict(forRefreshedState: state, productID: productID, context: context)
             case .unavailable(let failure):
                 return failVerifiedPurchase(
                     productID: productID,
-                    errorType: RevenueCatAnalyticsErrorType(refreshFailure: failure)
+                    errorType: RevenueCatAnalyticsErrorType(refreshFailure: failure),
+                    context: context
                 )
             }
         } catch {
             switch Self.purchaseFailure(for: error) {
             case .cancelled:
-                telemetry.track(PaywallAnalyticsEvent.revenueCatPurchaseCancelled(productID: productID))
+                telemetry.track(
+                    PaywallAnalyticsEvent.revenueCatPurchaseCancelled(
+                        productID: productID,
+                        context: context
+                    )
+                )
                 return .cancelled
             case .pending:
-                telemetry.track(PaywallAnalyticsEvent.revenueCatPurchasePending(productID: productID))
+                telemetry.track(
+                    PaywallAnalyticsEvent.revenueCatPurchasePending(
+                        productID: productID,
+                        context: context
+                    )
+                )
                 return .pending
             case .failed(let errorType):
                 telemetry.track(
                     PaywallAnalyticsEvent.revenueCatPurchaseFailed(
                         productID: productID,
-                        errorType: errorType
+                        errorType: errorType,
+                        attribution: .purchaseStarted(context)
                     )
                 )
                 return .failed(error)
@@ -99,7 +116,8 @@ final class RevenueCatPurchaseExecutor {
         telemetry.track(
             PaywallAnalyticsEvent.revenueCatPurchaseFailed(
                 productID: productID,
-                errorType: errorType
+                errorType: errorType,
+                attribution: .unavailableBeforeRevenueCatCall
             )
         )
         return .failed(error)
@@ -107,7 +125,8 @@ final class RevenueCatPurchaseExecutor {
 
     private func verdict(
         forRefreshedState state: MonetizationEntitlementState,
-        productID: String
+        productID: String,
+        context: RevenueCatPurchaseAnalyticsContext
     ) -> PurchaseResult {
         switch state {
         case .active(let entitlementIDs) where entitlementIDs.contains(entitlementID):
@@ -115,34 +134,49 @@ final class RevenueCatPurchaseExecutor {
             telemetry.track(
                 PaywallAnalyticsEvent.revenueCatPurchaseCompleted(
                     productID: productID,
-                    entitlementID: entitlementID
+                    entitlementID: entitlementID,
+                    context: context
                 )
             )
             return .purchased
 
         case .active(let entitlementIDs):
             applySubscriptionStatus(entitlementIDs)
-            return failVerifiedPurchase(productID: productID, errorType: .noActiveEntitlement)
+            return failVerifiedPurchase(
+                productID: productID,
+                errorType: .noActiveEntitlement,
+                context: context
+            )
 
         case .inactive:
             applySubscriptionStatus([])
-            return failVerifiedPurchase(productID: productID, errorType: .noActiveEntitlement)
+            return failVerifiedPurchase(
+                productID: productID,
+                errorType: .noActiveEntitlement,
+                context: context
+            )
 
         case .unknown:
             // An unresolved answer is not evidence of a lapse, so the published status is left
             // alone - but it is not verified access either, so it cannot report `completed`.
-            return failVerifiedPurchase(productID: productID, errorType: .entitlementUnresolved)
+            return failVerifiedPurchase(
+                productID: productID,
+                errorType: .entitlementUnresolved,
+                context: context
+            )
         }
     }
 
     private func failVerifiedPurchase(
         productID: String,
-        errorType: RevenueCatAnalyticsErrorType
+        errorType: RevenueCatAnalyticsErrorType,
+        context: RevenueCatPurchaseAnalyticsContext
     ) -> PurchaseResult {
         telemetry.track(
             PaywallAnalyticsEvent.revenueCatPurchaseFailed(
                 productID: productID,
-                errorType: errorType
+                errorType: errorType,
+                attribution: .purchaseStarted(context)
             )
         )
         return .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed)

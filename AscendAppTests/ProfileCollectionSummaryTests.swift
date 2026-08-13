@@ -151,7 +151,7 @@ struct ProfileCollectionSummaryTests {
             workouts: [],
             climbAttempts: attempts,
             bestEffortCacheEntries: [],
-            achievements: .zero,
+            achievements: .empty,
             standings: [],
             climbs: climbs,
             fitnessLevel: .beginner

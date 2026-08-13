@@ -229,6 +229,7 @@ struct EditWorkoutView: View {
         .onChange(of: existingPhotos.map(\.id)) {
             ensureHighlightSelectionIsValid()
         }
+        .trackOnce(screen: .editWorkout)
     }
     
     private var permanentHeader: some View {

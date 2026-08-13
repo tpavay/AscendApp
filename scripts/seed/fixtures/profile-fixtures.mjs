@@ -623,7 +623,7 @@ function addAchievements(items, persona, type, count, now, Timestamp) {
         periodStartAt: Timestamp.fromDate(periodStartAt),
         periodEndAt: Timestamp.fromDate(periodEndAt),
         earnedAt: Timestamp.fromDate(daysFromNow(-7 * (index + 1), now)),
-        rank: rankForType(type),
+        rank: rankForType(type, index),
         source: PROFILE_SEED_SOURCE,
         seedPackId: PROFILE_SEED_PACK_ID,
       },
@@ -631,9 +631,9 @@ function addAchievements(items, persona, type, count, now, Timestamp) {
   }
 }
 
-function rankForType(type) {
+function rankForType(type, index) {
   if (type.endsWith("top_1")) return 1;
-  if (type.endsWith("top_3")) return 3;
+  if (type.endsWith("top_3")) return index % 2 === 0 ? 2 : 3;
   if (type.endsWith("top_10")) return 7;
   return 42;
 }

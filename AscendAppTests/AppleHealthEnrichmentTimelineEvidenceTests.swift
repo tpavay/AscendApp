@@ -59,8 +59,7 @@ struct AppleHealthEnrichmentTimelineEvidenceTests {
         func record(_ label: String) {
             let elapsed = stamp(clock.now.timeIntervalSince(start))
             let reads = "reads: \(reader.requestedWindows.count)"
-            let phase = describe(service.phase(for: workout), now: clock.now)
-            lines.append("\(elapsed) | \(reads) | \(label) | \(phase)")
+            lines.append("\(elapsed) | \(reads) | \(label) | \(describeAttachedSeries(workout))")
         }
 
         service.trackNewlyRecordedWorkout(workout, modelContext: modelContext)
@@ -94,7 +93,6 @@ struct AppleHealthEnrichmentTimelineEvidenceTests {
         #expect(workout.maxHeartRate == 179)
         #expect(workout.caloriesBurned == 231)
         #expect(workout.heartRateTimeSeries.count == 4)
-        #expect(service.phase(for: workout) == .notApplicable)
 
         // And it stops: nothing is left waking the app up for a climb that is now complete.
         #expect(service.hasScheduledWakeUp == false)
@@ -116,7 +114,7 @@ struct AppleHealthEnrichmentTimelineEvidenceTests {
         Climb recorded in Ascend at T+0 (20 min, headphone motion). Apple Health connected.
         Health holds nothing for this window until the companion app syncs at T+23:00.
 
-        elapsed   | reads    | event | what the climber's heart-rate slot says
+        elapsed   | reads    | event | what the climb holds, and so what Workout Detail renders
         ----------------------------------------------------------------------
         \(lines.joined(separator: "\n"))
         """
@@ -147,25 +145,14 @@ struct AppleHealthEnrichmentTimelineEvidenceTests {
         return String(format: "T+%02d:%02d", total / 60, total % 60)
     }
 
-    private func describe(_ phase: AppleHealthEnrichmentService.Phase, now: Date) -> String {
-        switch phase {
-        case .notApplicable:
-            return "heart rate attached - the chart replaces the card"
-        case .connectionOffered:
-            return "Connect Apple Health"
-        case .unavailable:
-            return "Apple Health unavailable"
-        case .accessRevoked:
-            return "Apple Health access is off"
-        case .checking:
-            return "Checking Apple Health"
-        case .checksPaused:
-            return "Checks are paused"
-        case .stoppedLooking:
-            return "Stopped looking - manual check still offered"
-        case .waiting:
-            return "Waiting on your wearable"
+    /// What the climb itself holds after each look, which is the only thing a climber sees:
+    /// Workout Detail renders the chart once a series is attached and nothing at all before it.
+    private func describeAttachedSeries(_ workout: Workout) -> String {
+        guard let avg = workout.avgHeartRate else {
+            return "nothing attached yet - Workout Detail shows no heart-rate section"
         }
+
+        return "attached: avg \(avg) bpm · \(workout.heartRateTimeSeries.count) samples - the chart renders"
     }
 }
 

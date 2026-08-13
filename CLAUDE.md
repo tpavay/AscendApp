@@ -61,6 +61,8 @@ AscendApp/
 └── Shared/             # Components · Extensions · Managers · Models · Repositories · Services · Views
 AscendAppTests/         # Swift Testing suite
 AscendLiveActivityWidgets/  # Live Activity / Dynamic Island extension
+AscendWatch/            # watchOS companion target retained for the 1.1 release
+AscendWatchShared/      # Compiled into BOTH binaries - platform-neutral value types only
 .claude/skills/         # Project skills (see Skill Router)
 AppStoreAssets/         # Shipped en-US iPhone screenshot set and its renderer
 data/ascend-support-page-and-product-page-package/  # Durable en-US App Store product copy
@@ -77,15 +79,22 @@ web/                    # Website source
 
 `AscendApp/App/Firebase/` needs the plist for the environment you're building - the Dev plist is committed, Staging and Production are gitignored and linked in locally; see the README there. CI decodes them from base64 secrets.
 
+Both app schemes build the retained watch target as a dependency, but the 1.0 phone app does not embed it.
+Whether a dependency-only build still demands an installed watchOS simulator runtime matching the watchOS **SDK** (not the deployment target, whatever the destination) is unverified now that nothing is embedded (#496), so `scripts/ci/ensure-watchos-runtime.sh` provisions one **best effort** - it warns and exits 0 on every failure, leaving `xcodebuild` the only authority on whether a build can proceed.
+It runs locally too; CI runs it before both iOS jobs and before each deploy pipeline's archive.
+`docs/heart-rate-zones-plan.md` owns the 1.0 and 1.1 packaging decision; `ascend-deploy` owns the CI side.
+
 ```bash
 # iOS tests (mirrors CI - .github/workflows/ci.yml)
 xcodebuild -project AscendApp.xcodeproj -scheme "AscendApp-Staging" \
   -configuration Staging -destination "platform=iOS Simulator,name=iPhone 16 Pro" \
   ENABLE_TESTABILITY=YES test
 
-# iOS Release compile check (unsigned, device SDK - catches Release-only errors)
+# iOS Release compile check (unsigned, device destination - catches Release-only
+# errors). Never add -sdk iphoneos: it can override the retained watch target's
+# SDK and still report success (`ascend-deploy`).
 xcodebuild -project AscendApp.xcodeproj -scheme "AscendApp" \
-  -configuration Release -sdk iphoneos -destination "generic/platform=iOS" \
+  -configuration Release -destination "generic/platform=iOS" \
   CODE_SIGNING_ALLOWED=NO build
 
 npm run test:firebase-rules            # Firestore/Storage rules (emulator)
@@ -170,8 +179,15 @@ Rules that fire from contexts that don't look like their own domain. Each names 
 - **A climb that is not in the cloud says so until it lands.** Gate that surface on `Workout.isSyncedToCloud`, never on retry machinery (`== .rejected`, a view-local in-flight flag) - both made the warning vanish the moment a climber tapped retry. The vocabulary is sync, not backup: `Syncing`, `Couldn't sync this climb` + `TRY AGAIN`, and transient `Synced`. Fires while touching any cloud-failure surface. -> `ascend-brand-voice`, `ascend-workout-model`
 - **Connectivity has one app-wide source of truth.** Never add feature-local offline detection or a second network-retry pattern. Fires when you're about to write the duplicate. -> `ascend-firebase-data`
 - **Whether to prompt for notifications is one shared answer, not a per-surface reading.** Profile Achievements and the climbs collection each resolved iOS authorization on their own, so a climber who had already opted in was still told to `Turn on notifications` (#397). Every surface that prompts, requests, or changes the climb-drop preference - Settings and onboarding included - goes through `ClimbDropNotificationState`, which publishes each transition to all mounted surfaces and re-reads authorization on foreground, so a grant lands without a relaunch. The stored preference is the climber's standing intent: an iOS denial suppresses delivery and reports itself, it never rewrites the answer, and the send audience filters on each device's reported authorization instead. Fires while adding a notifications CTA or a permission check in feature code. -> `AscendApp/Features/Climbs/Services/ClimbDropNotificationState.swift`
+- **A new route, tab, detail view or material sheet needs a `TelemetryScreenName` case and a `.trackOnce(screen:)`** - root routes and tabs fail to compile without one, but a view under `Features/*/Views/` fails silently and the screen is simply missing from the funnel. Fires while adding a screen, which does not look like analytics work. -> `AscendApp/Shared/Services/Telemetry/TelemetryScreenName.swift`
 - **Every `Workout` comes from an in-app sensor flow.** Ascend is a racing app, not a tracker: manual logging and Apple Health workout import were deleted on 2026-08-08 (#437) and may not return behind a flag, a debug toggle, or a "just in case" path. `WorkoutSource.manual` and `.appleHealth` survive only because older stored rows carry those raw values. Apple Health's one remaining job is enrichment - `heartRate` and `activeEnergyBurned` read over an Ascend-recorded climb's own time window, never a foreign `HKWorkout`. Fires when wiring any new workout origin, or when copy is about to promise logging or tracking. -> `ascend-workout-model`, `ascend-apple-health-enrichment`
-- **A climb missing its heart rate says which of the eight things is true, and enrichment keeps looking until one of them is.** Reading Apple Health once at save time races the wearable and loses, so the slot stayed blank and nothing explained why (#438). `AppleHealthEnrichmentService.Phase` is the one answer every surface renders - checking, waiting, stopped looking, checks paused, connect, revoked, unavailable, not applicable - and no view may resolve heart-rate availability a second way. The read is a `heartRate` / `activeEnergyBurned` query over the climb's own window, so Garmin, Whoop, Polar and Apple Watch all arrive through it: never branch on device, and never let copy name one wearable. Retries are a persisted absolute-date ledger on a bounded curve that stops, and a pass that cannot run (disconnected, killed) must not re-arm - re-arming off a pass that made no progress is a one-second spin wearing a schedule's clothes. Fires while adding any heart-rate surface or a second Health read. -> `AscendApp/Shared/Services/AppleHealthEnrichmentService.swift`, `AscendApp/Shared/Services/AppleHealthEnrichmentSchedule.swift`, `AscendApp/Shared/Services/AppleHealthEnrichmentAttemptStore.swift`
+- **Heart-rate enrichment keeps looking on its bounded schedule even when celebratory surfaces stay silent.**
+  Reading Apple Health once at save time races the wearable and loses (#438).
+  The completion summary and Workout Detail are strict show-or-hide: the chart when a stored series exists, nothing at all when it does not - no heading, no card, no empty state - and Settings -> Integrations is the only surface that offers the connection or explains revoked access.
+  Do not re-introduce a per-climb Health status enum for a view to render; the last one (`Phase`, `offersConnectionPrompt`, `fetchNow`) was deleted with its final consumer.
+  The read is a `heartRate` / `activeEnergyBurned` query over the climb's own window, so Garmin, Whoop, Polar and Apple Watch all arrive through it: never branch on device, and never let copy name one wearable.
+  Retries are a persisted absolute-date ledger on a bounded curve that stops, and a pass that cannot run (disconnected, killed) must not re-arm - re-arming off a pass that made no progress is a one-second spin wearing a schedule's clothes.
+  Fires while adding any heart-rate surface or a second Health read. -> `AscendApp/Shared/Services/AppleHealthEnrichmentService.swift`, `AscendApp/Shared/Services/AppleHealthEnrichmentSchedule.swift`, `AscendApp/Shared/Services/AppleHealthEnrichmentAttemptStore.swift`
 - **A climb's `totalSteps` is a height fact, not a race distance, so a distance correction never touches it.** It is `round(totalHeightMeters * 5.5)` on every climb in the catalogue - an antenna spire for a tower, elevation above sea level for a mountain. The verified count of the steps people actually climb goes in `realStairCount`, which `referenceStepCount` prefers and which `tier` must then be recomputed from; every populated number needs a citable primary source recorded in `docs/climb-real-stair-counts.md`, and no defensible figure means leaving it null rather than guessing. Changing it invalidates every recorded time on that climb. `calculatedFloors` renders beside it and follows the corrected number too - published storey count, else `round(referenceStepCount / 19.8)`, never height - because a corrected distance next to an uncorrected floor count contradicts itself on the one screen that exists to be honest. Fires while correcting catalogue data or writing copy about how tall a climb is - exactly where the field named "steps" looks like the right one. -> `live-climb-content`
 - **A chest strap always outranks an Apple Watch as the live heart-rate source.** Every live session type samples through the one shared recorder; never grow a second capture path. Fires while wiring any heart-rate source or new live session. -> `LiveHeartRateSourceKind.selectionPriority`, `LiveHeartRateRecorder`
 - **No third-party frameworks without asking first.** Avoid UIKit unless requested. Fires at `import` time.

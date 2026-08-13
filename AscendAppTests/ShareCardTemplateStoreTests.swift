@@ -11,11 +11,17 @@ struct ShareCardTemplateStoreTests {
 
         #expect(document.formatVersion == ShareCardTemplateStore.payloadVersion)
         #expect(document.templates.map(\.id) == [
-            "summitPoster", "splitsPoster", "raceBibResult", "glassHUD", "officialFinish", "bestEffortStamp"
+            "result", "poster", "sticker", "standing"
         ])
         for template in document.templates {
             #expect(!template.title.isEmpty, "\(template.id) has no picker title")
-            #expect(template.requires == [.climb], "\(template.id) changed its data requirements")
+            #expect(template.requires.contains(.climb), "\(template.id) changed its data requirements")
+            #expect(
+                template.requires.contains(.standing) == (template.id == "standing"),
+                "\(template.id) must ask for a standing only if it is built around one"
+            )
+            #expect(template.minRendererVersion == 2)
+            #expect(Self.rankTabCount(in: template.root) == 1, "\(template.id) must carry one rank tab")
         }
     }
 
@@ -130,8 +136,24 @@ struct ShareCardTemplateStoreTests {
     @Test
     func templatesAreFilteredByTheDataAtHand() throws {
         let store = ShareCardTemplateStore(bundle: .main)
-        #expect(store.templates(for: [.climb]).count == 6)
+        #expect(store.templates(for: [.climb, .standing]).count == 4)
         #expect(store.templates(for: []).isEmpty, "climb cards must not be offered without a climb")
+
+        // Without a resolved rank only the Standing card drops; the other three
+        // still read correctly with their rank tabs gone.
+        let withoutStanding = store.templates(for: [.climb])
+        #expect(withoutStanding.map(\.id) == ["result", "poster", "sticker"])
+    }
+
+    @Test
+    func standingIsNeverFilteredByPercentile() throws {
+        let templates = ShareCardTemplateStore(bundle: .main).templates(for: [.climb, .standing])
+        #expect(templates.contains { $0.id == "standing" })
+
+        for percentile in [0, 1, 99] {
+            let standing = try #require(ResolvedShareStanding(rank: 10, totalClimbers: 100, percentile: percentile))
+            #expect(standing.percentile == percentile)
+        }
     }
 
     /// A stat reference may be written as a bare kind, which is what keeps the
@@ -158,6 +180,17 @@ struct ShareCardTemplateStoreTests {
             return stack.children.flatMap { unsupportedTypes(in: $0) }
         default:
             return []
+        }
+    }
+
+    static func rankTabCount(in node: ShareCardNode) -> Int {
+        switch node.element {
+        case .rankTab:
+            return 1
+        case .stack(let stack):
+            return stack.children.reduce(0) { $0 + rankTabCount(in: $1) }
+        default:
+            return 0
         }
     }
 

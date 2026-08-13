@@ -225,8 +225,8 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
     ///
     /// A climb Ascend recorded itself, with no heart rate on it, run through the real enrichment
     /// coordinator with Health answering over that climb's own window - and the same climb after,
-    /// carrying the series. Before, the detail screen offers the recovery card; after, the card is
-    /// gone and the chart is there instead.
+    /// carrying the series. Before, the detail screen says nothing about heart rate; after, the
+    /// chart is there.
     @Test("Heart rate still attaches to a climb Ascend recorded")
     func heartRateStillAttachesToAnAscendRecordedClimb() async throws {
         try await HealthKitCoordinatorTestIsolation.shared.run {
@@ -270,28 +270,12 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
             )
             coordinator.configure(modelContext: modelContext)
 
-            let before = coordinator.phase(for: climb)
-            let beforeCard = try Self.render(
-                WorkoutHeartRateRecoveryCard(
-                    phase: before,
-                    message: nil,
-                    effectiveColorScheme: .dark,
-                    onPrimaryAction: {}
-                )
-                .padding(20),
-                width: 402
-            )
-
             await coordinator.refreshPendingEnrichment(modelContext: modelContext)
 
             #expect(climb.avgHeartRate == 148, "enrichment did not attach heart rate to an Ascend-recorded climb")
             #expect(climb.maxHeartRate == 174)
             #expect(climb.caloriesBurned == 232)
             #expect(climb.heartRateTimeSeries.count > 1)
-
-            let after = coordinator.phase(for: climb)
-            #expect(before == .waiting)
-            #expect(after == .notApplicable, "the recovery card must disappear once heart rate lands")
 
             let afterChart = try Self.render(
                 HeartRateChartView(
@@ -311,8 +295,7 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
 
             try Self.write(
                 try Self.renderProofSheet([
-                    ("Before · Ascend-recorded climb, Health has not answered yet (status: \(before))", beforeCard),
-                    ("After · one enrichment pass over the climb's own window (status: \(after))", afterChart),
+                    ("After · one enrichment pass over the climb's own window", afterChart),
                 ]),
                 named: "07-enrichment-still-attaches-heart-rate.png"
             )

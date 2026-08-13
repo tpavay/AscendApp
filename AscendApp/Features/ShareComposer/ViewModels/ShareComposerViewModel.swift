@@ -96,7 +96,17 @@ final class ShareComposerViewModel {
     @ObservationIgnored private var statCache: [ShareStatRef: ResolvedShareStat?] = [:]
     @ObservationIgnored private var splitsCache: ResolvedShareSplits??
     @ObservationIgnored private var availableStatsCache: [ResolvedShareStat]?
+    @ObservationIgnored private var availablePresetsCache: [ShareStatClusterPreset]?
     @ObservationIgnored private var stickerContentCache: [UUID: ShareStickerContent] = [:]
+    /// How many times a sticker's card tree has actually been built.
+    ///
+    /// The memoization is the whole reason a drag is not a layout, and it cannot
+    /// be proved from the outside: `ShareStickerContent` is a value type, so a
+    /// rebuilt tree compares equal to a cached one and a test watching the
+    /// return value sees nothing. This counts the miss path instead, so a test
+    /// can assert that dragging builds nothing. Incremented off the render path
+    /// and never observed by a view.
+    @ObservationIgnored private(set) var contentBuildCount = 0
 
     private var resolver: ShareStatResolver {
         if let cachedResolver { return cachedResolver }
@@ -105,6 +115,9 @@ final class ShareComposerViewModel {
             measurementSystem: measurementSystem,
             stepHeight: stepHeight,
             climbName: climbNameOverride ?? climbName,
+            climbLocation: climb?.displayLocation,
+            climbFloors: climb?.calculatedFloors,
+            climbReferenceStepCount: climb?.referenceStepCount,
             climbRank: climbRank,
             climbRankTotal: climbRankTotal,
             splitTargetSteps: climb?.referenceStepCount
@@ -120,10 +133,26 @@ final class ShareComposerViewModel {
         statCache.removeAll()
         splitsCache = nil
         availableStatsCache = nil
+        availablePresetsCache = nil
         stickerContentCache.removeAll()
     }
 
     var isClimb: Bool { climbName != nil }
+
+    /// A baked recap card is designed art, not repositionable photo content.
+    private var isRecapBackground: Bool {
+        if case .recap? = background { return true }
+        return false
+    }
+
+    /// Recap templates already burn in the fixed template wordmark. Other
+    /// backgrounds receive the canvas wordmark exactly once.
+    var shouldRenderCanvasWordmark: Bool { !isRecapBackground }
+
+    /// Pan/zoom is refused for a recap: the template's burned-in lockup is the
+    /// card's only brand mark, and zooming or dragging could push it off the
+    /// export, shrink it below legibility, or crop it away entirely.
+    var backgroundSupportsTransform: Bool { !isRecapBackground }
 
     /// This-climb / this-workout stats that have a value, resolved for display.
     /// Best Efforts and Totals are surfaced as their own sections, not here.
@@ -132,6 +161,35 @@ final class ShareComposerViewModel {
         let stats = resolver.availableKinds().compactMap { resolved(ShareStatRef(kind: $0)) }
         availableStatsCache = stats
         return stats
+    }
+
+    /// The curated stat clusters this session's data actually supports.
+    ///
+    /// Availability follows the data, never the session type: a cluster is
+    /// offered when every stat it is built around resolves, which is why the one
+    /// catalog serves a Live Climb, a routine and a Just Climb.
+    ///
+    /// A split table is asked about the rows it actually draws rather than the
+    /// stat behind them: `.splits` resolves off the pace timeline, and a session
+    /// too short to divide into five step ranges resolves it while the step-range
+    /// table has nothing to lay out - which offered the Splits cluster a heading,
+    /// a rule and a gap where its rows belong.
+    func availablePresets() -> [ShareStatClusterPreset] {
+        if let availablePresetsCache { return availablePresetsCache }
+        let presets = ShareStatClusterPresets.all.filter { preset in
+            preset.requires.allSatisfy { resolved($0) != nil }
+                && preset.splitLayouts.allSatisfy(drawsSplitRows)
+        }
+        availablePresetsCache = presets
+        return presets
+    }
+
+    private func drawsSplitRows(_ layout: ShareCardSplitsLayout) -> Bool {
+        guard let splits = splits() else { return false }
+        switch layout {
+        case .timeline: return !splits.rows.isEmpty
+        case .stepQuintiles: return !splits.stepQuintileRows.isEmpty
+        }
     }
 
     /// Resolve a single stat reference. Injected kinds (`.bestEffort`, `.totals`)
@@ -159,9 +217,16 @@ final class ShareComposerViewModel {
         return splits
     }
 
-    /// Structured split payload for the split sticker.
+    /// Structured split payload for a sticker that draws split rows - the split
+    /// sticker itself, or a cluster that names splits among its metrics.
+    ///
+    /// Resolving splits filters the whole heart-rate series once per split, so
+    /// this asks whether the sticker actually draws them rather than handing the
+    /// work to every sticker that might.
     func resolvedSplits(for instance: ShareStickerInstance) -> ResolvedShareSplits? {
-        guard instance.isStructured else { return nil }
+        guard instance.isStructured || instance.statRefs.contains(where: { $0.kind == .splits }) else {
+            return nil
+        }
         return splits()
     }
 
@@ -186,6 +251,24 @@ final class ShareComposerViewModel {
             return cached
         }
 
+        let content = buildContent(for: instance)
+        stickerContentCache[instance.id] = content
+        return content
+    }
+
+    /// The card tree for a cluster the climber has not placed yet, so the add
+    /// sheet's tile shows exactly what the canvas will draw. Deliberately
+    /// uncached: nothing on the canvas is keyed to it.
+    func presetPreview(for preset: ShareStatClusterPreset) -> ShareStickerContent {
+        buildContent(for: ShareStickerInstance(
+            kind: preset.stats.first?.kind ?? .duration,
+            font: preset.font,
+            presetID: preset.id
+        ))
+    }
+
+    private func buildContent(for instance: ShareStickerInstance) -> ShareStickerContent {
+        contentBuildCount += 1
         let refs = instance.statRefs
         let resolvedPairs = refs.compactMap { ref in resolved(ref).map { (ref, $0) } }
         let splits = resolvedSplits(for: instance)
@@ -196,13 +279,11 @@ final class ShareComposerViewModel {
             valueColor: instance.color,
             labelColor: instance.color.isWhite ? .lime : instance.color
         )
-        let content = ShareStickerContent(
+        return ShareStickerContent(
             node: ShareStickerCardBuilder.node(for: instance, resolvedRefs: resolvedPairs.map(\.0)),
             context: context,
             signature: ShareStickerContentSignature(instance)
         )
-        stickerContentCache[instance.id] = content
-        return content
     }
 
     // MARK: - Structure (composite stickers)
@@ -246,6 +327,9 @@ final class ShareComposerViewModel {
     func toggleStat(_ ref: ShareStatRef, for id: UUID) {
         guard let i = stickers.firstIndex(where: { $0.id == id }) else { return }
         var sticker = stickers[i]
+        // A cluster's metric set is the curated one; editing it would leave the
+        // arrangement drawing stats it was not designed around.
+        guard !sticker.isPreset else { return }
         guard sticker.kind.supportsComposite, ref.kind.supportsComposite else { return }
         if sticker.primaryStatRef == ref {
             guard !sticker.extraStats.isEmpty else { return } // never remove the last metric
@@ -285,6 +369,23 @@ final class ShareComposerViewModel {
             kind: kind,
             labelPlacement: labelPlacement,
             position: CGPoint(x: 0.5, y: 0.42 + offset)
+        )
+        stickers.append(instance)
+        selectedID = instance.id
+    }
+
+    /// Place a curated cluster. It starts plate-free and in the face it was
+    /// designed in; the edit rail can still change both.
+    func addPresetSticker(_ preset: ShareStatClusterPreset) {
+        let offset = CGFloat(stickers.count % 5) * 0.04
+        let instance = ShareStickerInstance(
+            // The cluster's own tree decides what is drawn; the primary kind is
+            // only what the font sheet previews.
+            kind: preset.stats.first?.kind ?? .duration,
+            position: CGPoint(x: 0.5, y: 0.42 + offset),
+            font: preset.font,
+            textBackground: .none,
+            presetID: preset.id
         )
         stickers.append(instance)
         selectedID = instance.id
@@ -372,15 +473,17 @@ final class ShareComposerViewModel {
     /// fit. In that state a drag repositions it; at the default fit a horizontal
     /// drag instead cycles the filter (and double-tap returns to this state).
     var backgroundIsManipulated: Bool {
-        abs(backgroundScale - 1) > 0.01 || backgroundOffset != .zero
+        backgroundSupportsTransform && (abs(backgroundScale - 1) > 0.01 || backgroundOffset != .zero)
     }
 
     func commitBackgroundZoom(_ factor: CGFloat) {
+        guard backgroundSupportsTransform else { return }
         // Free-form: allow shrinking below fit (zoom out) and growing up to 5×.
         backgroundScale = min(max(backgroundScale * factor, 0.3), 5)
     }
 
     func commitBackgroundPan(dxFraction: CGFloat, dyFraction: CGFloat) {
+        guard backgroundSupportsTransform else { return }
         backgroundOffset = CGSize(width: backgroundOffset.width + dxFraction,
                                   height: backgroundOffset.height + dyFraction)
     }

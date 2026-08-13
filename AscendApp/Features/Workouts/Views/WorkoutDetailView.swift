@@ -28,23 +28,10 @@ struct WorkoutDetailView: View {
     @State private var isDeleting = false
     @State private var isCancelling = false
     @State private var deleteTask: Task<Void, Never>? = nil
-    @State private var appleHealthFetchTask: Task<Void, Never>? = nil
     @State private var copyConfirmationTask: Task<Void, Never>? = nil
     @State private var showingLiveClimbSummaryPreview = false
     @State private var copyConfirmationText: String?
-    @State private var appleHealthHeartRateMessage: String?
     @State private var enrichmentService = AppleHealthEnrichmentService.shared
-
-    /// Bumped whenever Remote Config resolves or changes, so the heart-rate phase re-resolves.
-    ///
-    /// The phase depends on the enrichment kill switch, and `RemoteFeatureFlagStore` is a
-    /// lock-guarded class rather than `@Observable` - reading it registers no SwiftUI
-    /// dependency, so a flag change publishes no invalidation of its own. Every launch starts on
-    /// the shipped defaults and resolves a moment later, so without this a climber who opened a
-    /// climb inside that window would keep reading "Ascend keeps checking" after checks had
-    /// actually been switched off, and would stay on "Checks are paused" after they came back.
-    /// That is the stale form of exactly the overstatement this card exists to remove.
-    @State private var remoteFeatureFlagRevision = 0
 
     // Media layout state
     @State private var sheetPosition: SheetPosition = .middle
@@ -135,11 +122,10 @@ struct WorkoutDetailView: View {
                     leaderboardRank: nil,
                     leaderboardTotal: nil,
                     leaderboardRankBasis: .current,
-                    allowsRatingPrompt: false,
                     leaderboardContext: liveClimbSummaryLeaderboardContext,
                     rankingLabelOverride: liveClimbSummaryRankingLabelOverride,
                     ranksOnLeaderboard: liveClimbSummaryLeaderboardContext != nil,
-                    onDone: {
+                    onDone: { _ in
                         showingLiveClimbSummaryPreview = false
                     }
                 )
@@ -155,21 +141,12 @@ struct WorkoutDetailView: View {
             }
         }
         .task(id: workout.id) {
-            appleHealthHeartRateMessage = nil
             // Opening a climb is a climber asking about it, so it re-arms the shared schedule
             // rather than running its own retry loop - the screen is one more surface onto the
             // same series, not a second one racing it.
             enrichmentService.resumeTracking(modelContext: modelContext)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .remoteFeatureFlagsDidChange)) { _ in
-            remoteFeatureFlagRevision &+= 1
-        }
         .onDisappear {
-            // Everything this screen started goes away with it. `.task(id:)` cancels
-            // itself; this one is unstructured and would otherwise outlive the screen,
-            // still holding the workout and still writing to state nobody reads.
-            appleHealthFetchTask?.cancel()
-            appleHealthFetchTask = nil
             copyConfirmationTask?.cancel()
             copyConfirmationTask = nil
         }
@@ -215,6 +192,9 @@ struct WorkoutDetailView: View {
         .overlay(alignment: .top) {
             copyConfirmationOverlay
         }
+        // On `content` rather than on `body`, because `body` branches on
+        // `embedsInNavigationStack` and only this side is rendered either way.
+        .trackOnce(screen: .workoutDetail)
     }
 
     // MARK: - Media Layout
@@ -585,24 +565,11 @@ struct WorkoutDetailView: View {
         liveClimbSummaryMetadata?.trackingMode == .routine ? "ROUTINE RANK" : nil
     }
 
-    /// Decodes the stored series exactly once per render pass and hands it to every predicate that
-    /// needs it - the decode is a full JSON pass over the sample array.
+    /// A climb either has heart-rate data to show or this section does not exist. Enrichment still
+    /// runs in the background and adding samples invalidates the model, so the chart appears as
+    /// soon as data lands without narrating the wait.
     @ViewBuilder
     private func heartRateSectionIfNeeded(_ derived: WorkoutDetailDerivedContent) -> some View {
-        // Resolved once per pass: the phase reads a JSON-decoded ledger out of UserDefaults, and
-        // both predicates below need the same answer.
-        let phase = appleHealthHeartRatePhase
-
-        if shouldShowHeartRateSection(derived, phase: phase) {
-            heartRateSection(derived, phase: phase)
-        }
-    }
-
-    @ViewBuilder
-    private func heartRateSection(
-        _ derived: WorkoutDetailDerivedContent,
-        phase: AppleHealthEnrichmentService.Phase
-    ) -> some View {
         if derived.heartRateSeries.isEmpty == false {
             HeartRateChartView(
                 heartRateData: derived.heartRateSeries,
@@ -617,43 +584,13 @@ struct WorkoutDetailView: View {
                 effectiveColorScheme: effectiveColorScheme,
                 onRetry: retryRemoteHeartRateRestore
             )
-        } else if phase != .notApplicable {
-            WorkoutHeartRateRecoveryCard(
-                phase: phase,
-                message: appleHealthHeartRateMessage,
-                effectiveColorScheme: effectiveColorScheme,
-                onPrimaryAction: fetchAppleHealthHeartRate
-            )
         }
-    }
-
-    private func hasHeartRateData(heartRateSamples: [HeartRateDataPoint]) -> Bool {
-        !heartRateSamples.isEmpty ||
-            workout.avgHeartRate != nil ||
-            workout.maxHeartRate != nil
-    }
-
-    private func shouldShowHeartRateSection(
-        _ derived: WorkoutDetailDerivedContent,
-        phase: AppleHealthEnrichmentService.Phase
-    ) -> Bool {
-        hasHeartRateData(heartRateSamples: derived.heartRateSeries) ||
-            shouldShowRemoteHeartRateRestore(derived) ||
-            phase != .notApplicable
     }
 
     private func shouldShowRemoteHeartRateRestore(_ derived: WorkoutDetailDerivedContent) -> Bool {
         workout.lastRemoteHeartRateSeriesStoragePath != nil &&
             derived.heartRateSeries.isEmpty &&
             workout.heartRateRestoreStatus.treatsLocalAbsenceAsAuthoritative == false
-    }
-
-    private var appleHealthHeartRatePhase: AppleHealthEnrichmentService.Phase {
-        // Touching the revision is what ties this resolution to the kill switch, which is not
-        // `@Observable` and so publishes nothing SwiftUI can see. Written as an explicit read so
-        // the counter cannot look write-only to a later reader and be deleted as dead state.
-        _ = remoteFeatureFlagRevision
-        return enrichmentService.phase(for: workout)
     }
 
     // MARK: - Weights Section (unchanged)
@@ -891,48 +828,6 @@ struct WorkoutDetailView: View {
                 if copyConfirmationText == text {
                     copyConfirmationText = nil
                 }
-            }
-        }
-    }
-
-    private func fetchAppleHealthHeartRate() {
-        // Guards on the task, not on the phase. `.checking` only becomes true once the read is
-        // actually in flight, and on the connect path that is after two awaits - the
-        // authorization refresh and the system permission prompt. A second tap inside that
-        // window used to start a second `connectAndFetch` and overwrite this task handle,
-        // leaving the first one uncancellable by `onDisappear`.
-        guard appleHealthFetchTask == nil else { return }
-
-        appleHealthFetchTask = Task { @MainActor in
-            defer { appleHealthFetchTask = nil }
-            appleHealthHeartRateMessage = nil
-
-            let result: AppleHealthEnrichmentService.FetchResult
-            if enrichmentService.connectionState == .neverConnected {
-                result = await enrichmentService.connectAndFetch(workout, modelContext: modelContext)
-                guard enrichmentService.connectionState == .connected else {
-                    appleHealthHeartRateMessage = "Apple Health wasn't connected. Allow Ascend to read Heart Rate in the Health app, then check again."
-                    HapticsManager.shared.trigger(.warning)
-                    return
-                }
-            } else {
-                result = await enrichmentService.fetchNow(workout, modelContext: modelContext)
-            }
-
-            switch result {
-            case .added:
-                HapticsManager.shared.trigger(.success)
-            case .foundNothing:
-                appleHealthHeartRateMessage = "Nothing in Apple Health covers this climb yet. Sync your wearable, then check again."
-                HapticsManager.shared.trigger(.warning)
-            case .couldNotLook:
-                // Ascend never read Health here, so telling the climber to sync would send them
-                // after a problem they do not have.
-                appleHealthHeartRateMessage = "Ascend can't read Apple Health right now. Check back shortly."
-                HapticsManager.shared.trigger(.warning)
-            case .checkFailed:
-                appleHealthHeartRateMessage = AppleHealthEnrichmentService.checkFailedMessage
-                HapticsManager.shared.trigger(.warning)
             }
         }
     }

@@ -14,10 +14,31 @@ enum AppTab: Hashable {
     case profile
 }
 
+/// Why the app is showing the tab it is showing. A tab root that reports where a
+/// climber came from reads this instead of inferring it from the tab alone, which
+/// cannot tell a tab-bar tap apart from a card that routes to the same tab.
+enum TabSelectionReason: Sendable, CaseIterable {
+    case appLaunch
+    case tabBarTap
+    case homeRankCard
+    case appRouting
+}
+
 @MainActor
 @Observable
 final class TabRouter {
-    var selectedTab: AppTab = .home
+    private(set) var selectedTab: AppTab = .home
+
+    private(set) var selectionReason: TabSelectionReason = .appLaunch
+
+    /// Re-selecting the tab already showing is not an entry, so it leaves the
+    /// standing attribution alone: SwiftUI echoing a selection binding back must
+    /// not downgrade the entry that put the climber there.
+    func select(_ tab: AppTab, reason: TabSelectionReason) {
+        guard tab != selectedTab else { return }
+        selectionReason = reason
+        selectedTab = tab
+    }
 }
 
 struct TabItem: Identifiable, Hashable {

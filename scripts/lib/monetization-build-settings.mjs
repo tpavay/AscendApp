@@ -56,16 +56,27 @@ export function settingValue(buildSettings, name) {
   return match ? match[1].replace(/^"(.*)"$/, "$1") : null;
 }
 
+// Every XCBuildConfiguration block in the project, across every target. One
+// parser for the pbxproj format: a second copy becomes a second format the day
+// Xcode changes how it writes these blocks.
+export function buildConfigurations(project) {
+  return [...project.matchAll(CONFIGURATION_PATTERN)].map(([, name, buildSettings]) => ({
+    name,
+    bundleID: settingValue(buildSettings, "PRODUCT_BUNDLE_IDENTIFIER"),
+    buildSettings
+  }));
+}
+
 export function appBuildConfigurations(project) {
   const configurations = new Map();
 
-  for (const [, name, buildSettings] of project.matchAll(CONFIGURATION_PATTERN)) {
-    const bundleID = settingValue(buildSettings, "PRODUCT_BUNDLE_IDENTIFIER");
+  for (const configuration of buildConfigurations(project)) {
+    const {name, bundleID} = configuration;
     if (bundleID === null || !APP_BUNDLE_IDENTIFIERS.has(bundleID)) {
       continue;
     }
 
-    configurations.set(name, {name, bundleID, buildSettings});
+    configurations.set(name, configuration);
   }
 
   return configurations;

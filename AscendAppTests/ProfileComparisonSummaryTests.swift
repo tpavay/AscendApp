@@ -57,8 +57,7 @@ struct ProfileComparisonSummaryTests {
                 launchedCards: [],
                 comingSoonClimbs: []
             ),
-            achievements: .zero,
-            achievementRecords: [],
+            achievements: .empty,
             firstAscentsHeld: [],
             openFirstAscents: [],
             records: ProfileRecordSummary(personalRecords: [], featuredBestEffort: nil),

@@ -7,7 +7,6 @@ struct LiveClimbCompletionSummaryView: View {
     let leaderboardRank: Int?
     let leaderboardTotal: Int?
     let leaderboardRankBasis: LiveClimbSummaryRankHero.Basis
-    let allowsRatingPrompt: Bool
     let leaderboardContext: LiveReplayLeaderboardContext?
     let moment: LiveClimbSummaryRankHero.Moment
     let rankingLabelOverride: String?
@@ -17,42 +16,22 @@ struct LiveClimbCompletionSummaryView: View {
     let ranksOnLeaderboard: Bool
     let achievementTitleOverride: String?
     let achievementIconNameOverride: String?
-    let onDone: () -> Void
+    let onDone: (LiveClimbAnalyticsEvent.SummaryDismissSurface) -> Void
 
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
     @State private var showingShareSheet = false
-    @State private var showingRatingEnjoymentPrompt = false
     @State private var resultSyncStore = LiveClimbPublicResultSyncStore.shared
     @State private var frozenCompletionRank: LiveReplayCompletionRankSnapshot?
     @State private var computedCompletionRank: LiveReplayCompletionRank?
     @State private var rankResolution: LiveClimbSummaryRankHero.RankResolution = .notStarted
     @State private var didTrackSummaryViewed = false
-    @State private var enrichmentService = AppleHealthEnrichmentService.shared
-    @State private var isConnectingAppleHealth = false
-    @State private var didDismissHeartRateConnect = false
-    /// Replaces the connect card once the climber has connected but the samples have not landed
-    /// yet, so the normal outcome is stated instead of the card silently disappearing.
-    @State private var heartRateConnectConfirmation: String?
-    @State private var appleHealthConnectTask: Task<Void, Never>?
-
-    /// Bumped whenever Remote Config resolves or changes, so the connect offer re-resolves.
-    ///
-    /// `offersConnectionPrompt` reads the enrichment kill switch, and `RemoteFeatureFlagStore` is
-    /// a lock-guarded class rather than `@Observable`, so a flag change invalidates nothing on
-    /// its own. This summary is reachable straight from a cold launch through Workout Detail's
-    /// summary preview, which is the same window where the app is still on shipped defaults -
-    /// and a stale offer here costs more than a stale card, because accepting it spends a real
-    /// iOS permission prompt on a connection that cannot be used yet.
-    @State private var remoteFeatureFlagRevision = 0
-
     init(
         climb: Climb?,
         workout: Workout,
         leaderboardRank: Int?,
         leaderboardTotal: Int?,
         leaderboardRankBasis: LiveClimbSummaryRankHero.Basis,
-        allowsRatingPrompt: Bool,
         leaderboardContext: LiveReplayLeaderboardContext? = nil,
         moment: LiveClimbSummaryRankHero.Moment = .retrospective,
         rankingLabelOverride: String? = nil,
@@ -60,14 +39,13 @@ struct LiveClimbCompletionSummaryView: View {
         ranksOnLeaderboard: Bool = true,
         achievementTitleOverride: String? = nil,
         achievementIconNameOverride: String? = nil,
-        onDone: @escaping () -> Void
+        onDone: @escaping (LiveClimbAnalyticsEvent.SummaryDismissSurface) -> Void
     ) {
         self.climb = climb
         self.workout = workout
         self.leaderboardRank = leaderboardRank
         self.leaderboardTotal = leaderboardTotal
         self.leaderboardRankBasis = leaderboardRankBasis
-        self.allowsRatingPrompt = allowsRatingPrompt
         self.leaderboardContext = leaderboardContext
         self.moment = moment
         self.rankingLabelOverride = rankingLabelOverride
@@ -106,7 +84,6 @@ struct LiveClimbCompletionSummaryView: View {
                 VStack(spacing: 18) {
                     rankingSection(hero: hero)
                     primaryStatsGrid
-                    heartRateConnectCard
                     achievementCard
                     paceSplitsCard
                     paceTrendCard
@@ -137,30 +114,11 @@ struct LiveClimbCompletionSummaryView: View {
                 liveClimbRankTotal: hero?.total
             )
         }
-        .alert("Enjoying Ascend?", isPresented: $showingRatingEnjoymentPrompt) {
-            Button("Yes") {
-                handleRatingEnjoymentResponse(.yes)
-            }
-
-            Button("No", role: .cancel) {
-                handleRatingEnjoymentResponse(.no)
-            }
-        } message: {
-            Text("If Ascend made this climb better, leave a quick rating.")
-        }
         .task(id: workout.id) {
             await resolveCompletionRank()
             trackSummaryViewedIfNeeded()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .remoteFeatureFlagsDidChange)) { _ in
-            remoteFeatureFlagRevision &+= 1
-        }
-        .onDisappear {
-            // Unstructured, so it would otherwise outlive the summary still holding the
-            // workout and still writing to state nobody reads.
-            appleHealthConnectTask?.cancel()
-            appleHealthConnectTask = nil
-        }
+        .trackOnce(screen: .liveClimbSummary)
     }
 
     private var header: some View {
@@ -203,88 +161,6 @@ struct LiveClimbCompletionSummaryView: View {
         HStack(spacing: 10) {
             summaryStatCard(title: "TOTAL STEPS", value: workout.steps.formatted())
             summaryStatCard(title: "DURATION", value: workout.durationFormatted)
-        }
-    }
-
-    /// Offered only to a climber who could actually act on it: this climb has no heart rate
-    /// and Apple Health has never been connected. A climber who already connected sees
-    /// nothing here - their climb is already in the retry series, and the workout detail is
-    /// where its progress is reported.
-    @ViewBuilder
-    private var heartRateConnectCard: some View {
-        // Touching the revision ties this offer to the kill switch, which is not `@Observable`
-        // and so publishes nothing SwiftUI can see. See `remoteFeatureFlagRevision`.
-        let _ = remoteFeatureFlagRevision
-
-        if let heartRateConnectConfirmation {
-            HStack(spacing: 14) {
-                Image(systemName: "heart")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.red)
-                    .frame(width: 34, height: 34)
-                    .background(Circle().fill(.red.opacity(0.16)))
-
-                Text(heartRateConnectConfirmation)
-                    .font(.montserratMedium(size: 12))
-                    .foregroundStyle(.white.opacity(0.72))
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Spacer(minLength: 0)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity)
-            .background(summaryCardBackground)
-        } else if !didDismissHeartRateConnect, enrichmentService.offersConnectionPrompt(for: workout) {
-            LiveClimbHeartRateConnectCard(
-                isConnecting: isConnectingAppleHealth,
-                onConnect: connectAppleHealthForHeartRate,
-                onDismiss: { didDismissHeartRateConnect = true }
-            )
-            .background(summaryCardBackground)
-        }
-    }
-
-    private func connectAppleHealthForHeartRate() {
-        // Guards on the task, not on the in-flight flag. That flag is only set inside the task
-        // body, which does not run until the next main-actor hop, so two taps in one runloop turn
-        // both got past it - and the second assignment orphaned the first handle, leaving it
-        // beyond the reach of `onDisappear`.
-        guard appleHealthConnectTask == nil else { return }
-
-        appleHealthConnectTask = Task { @MainActor in
-            isConnectingAppleHealth = true
-            defer {
-                isConnectingAppleHealth = false
-                appleHealthConnectTask = nil
-            }
-
-            let result = await enrichmentService.connectAndFetch(
-                workout,
-                modelContext: modelContext
-            )
-
-            // The haptic reports whether the climber's action succeeded, not whether their
-            // wearable had already synced. Connecting is the whole ask; buzzing the failure
-            // pattern at someone who granted access and simply owns a device that publishes on
-            // its own schedule tells them they got something wrong when they did not.
-            let didConnect = enrichmentService.connectionState == .connected
-            HapticsManager.shared.trigger(didConnect ? .success : .warning)
-
-            guard didConnect else { return }
-
-            // Say what happens next rather than letting the card vanish. Heart rate arriving
-            // later is the normal outcome here, and a card that simply disappears reads as the
-            // request having been dropped.
-            switch result {
-            case .added:
-                break
-            case .checkFailed:
-                heartRateConnectConfirmation = "Connected. That first check didn't finish - Ascend keeps trying."
-            case .foundNothing, .couldNotLook:
-                heartRateConnectConfirmation = "Connected. Ascend adds your heart rate as soon as it lands."
-            }
-
-            didDismissHeartRateConnect = true
         }
     }
 
@@ -608,41 +484,7 @@ struct LiveClimbCompletionSummaryView: View {
     }
 
     private func handleDoneTapped(surface: LiveClimbAnalyticsEvent.SummaryDismissSurface) {
-        if case .doneButton = surface, shouldShowRatingEnjoymentPrompt {
-            showingRatingEnjoymentPrompt = true
-            return
-        }
-
         finishDoneTapped(surface: surface)
-    }
-
-    private func handleRatingEnjoymentResponse(_ response: AppStoreRatingManager.EnjoymentResponse) {
-        AppStoreRatingManager.shared.recordEnjoymentResponse(response)
-
-        if response == .yes {
-            AppStoreRatingManager.shared.requestReview()
-        }
-
-        finishDoneTapped(surface: .doneButton)
-    }
-
-    private var shouldShowRatingEnjoymentPrompt: Bool {
-        guard allowsRatingPrompt, climb != nil else { return false }
-
-        return AppStoreRatingManager.shared.shouldAskEnjoymentQuestionAfterFirstLiveClimb(
-            completedLiveClimbCount: completedLiveClimbCount
-        )
-    }
-
-    private var completedLiveClimbCount: Int {
-        let completedStatus = ClimbAttemptStatus.completed.rawValue
-        let descriptor = FetchDescriptor<ClimbAttempt>(
-            predicate: #Predicate<ClimbAttempt> { attempt in
-                attempt.statusRawValue == completedStatus
-            }
-        )
-
-        return (try? modelContext.fetchCount(descriptor)) ?? 0
     }
 
     private func finishDoneTapped(surface: LiveClimbAnalyticsEvent.SummaryDismissSurface) {
@@ -654,7 +496,7 @@ struct LiveClimbCompletionSummaryView: View {
                 )
             )
         }
-        onDone()
+        onDone(surface)
     }
 
     private func trackSummaryViewedIfNeeded() {
@@ -902,8 +744,7 @@ private func clockTime(_ seconds: Int) -> String {
         leaderboardRank: 12,
         leaderboardTotal: 2_460,
         leaderboardRankBasis: .liveSession,
-        allowsRatingPrompt: true,
-        onDone: {}
+        onDone: { _ in }
     )
     .modelContainer(for: [Workout.self, ClimbAttempt.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self], inMemory: true)
 }

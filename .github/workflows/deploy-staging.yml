@@ -7,6 +7,10 @@ on:
     paths:
       - "AscendApp/**"
       - "AscendLiveActivityWidgets/**"
+      # The retained watch target remains a build dependency for the 1.1
+      # release, so a watch-only change can still affect this archive.
+      - "AscendWatch/**"
+      - "AscendWatchShared/**"
       - "AscendApp.xcodeproj/**"
       - "fastlane/**"
       - "scripts/**"
@@ -242,6 +246,10 @@ jobs:
           echo "BUILD_NUMBER=${build_number}" >> "$GITHUB_ENV"
           echo "build_number=${build_number}" >> "$GITHUB_OUTPUT"
 
+      - name: Provision watchOS runtime (best effort)
+        shell: bash
+        run: ./scripts/ci/ensure-watchos-runtime.sh
+
       - name: Build staging IPA via Fastlane
         env:
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
@@ -254,6 +262,8 @@ jobs:
           IOS_STAGING_BUNDLE_ID: com.TylerPavay.AscendApp.staging
           IOS_STAGING_WIDGET_BUNDLE_ID: com.TylerPavay.AscendApp.staging.LiveClimbWidgets
           IOS_STAGING_WIDGET_PROVISIONING_PROFILE_SPECIFIER: match AppStore com.TylerPavay.AscendApp.staging.LiveClimbWidgets
+          IOS_STAGING_WATCH_BUNDLE_ID: com.TylerPavay.AscendApp.staging.watch
+          IOS_STAGING_WATCH_PROVISIONING_PROFILE_SPECIFIER: match AppStore com.TylerPavay.AscendApp.staging.watch
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
         run: bundle exec fastlane build_staging
@@ -273,6 +283,11 @@ jobs:
 
       - name: Verify staging Mixpanel destination in the IPA
         run: node scripts/ci/assert-mixpanel-bundle.mjs Staging fastlane/build/AscendApp-Staging.ipa
+
+      # The IPA is the artifact Apple's upload validation rejects, and it is the
+      # only place the staging phone icon set is resolved at all.
+      - name: Verify app icons in the IPA
+        run: node scripts/ci/assert-app-icon-present.mjs fastlane/build/AscendApp-Staging.ipa
 
       - name: Upload staging IPA artifact
         uses: actions/upload-artifact@v4

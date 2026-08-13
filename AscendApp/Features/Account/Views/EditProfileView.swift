@@ -74,6 +74,7 @@ struct EditProfileView: View {
                 dismiss()
             }
         }
+        .trackOnce(screen: .editProfile)
     }
 
     private var profilePictureSection: some View {

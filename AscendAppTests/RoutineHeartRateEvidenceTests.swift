@@ -9,9 +9,8 @@ import UIKit
 /// producing chest strap saves heart rate, and a routine without a strap saves
 /// clean. Both workouts are built by the real `ActiveRoutineViewModel` save
 /// path, persisted to SwiftData, re-fetched from the store, and then rendered
-/// through the exact surfaces `WorkoutDetailView` shows for each case
-/// (`HeartRateChartView` when data exists, `WorkoutHeartRateRecoveryCard` when
-/// it does not) so a reviewer can see what the climber sees.
+/// through the exact surface `WorkoutDetailView` shows when data exists.
+/// The no-strap workout deliberately contributes no heart-rate section.
 @MainActor
 struct RoutineHeartRateEvidenceTests {
     @Test("Routine heart-rate capture evidence", .bug(id: 241))
@@ -214,12 +213,7 @@ private struct RoutineHeartRateProof: View {
                 title: "No strap · \(bareWorkout.name)",
                 detail: "avgHeartRate \(describe(bareWorkout.avgHeartRate)) · maxHeartRate \(describe(bareWorkout.maxHeartRate)) · \(bareWorkout.heartRateTimeSeries.count) samples · saved cleanly"
             ) {
-                WorkoutHeartRateRecoveryCard(
-                    phase: .waiting,
-                    message: nil,
-                    effectiveColorScheme: .dark,
-                    onPrimaryAction: {}
-                )
+                EmptyView()
             }
         }
         .padding(24)

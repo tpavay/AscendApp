@@ -7,6 +7,10 @@ on:
     paths:
       - "AscendApp/**"
       - "AscendLiveActivityWidgets/**"
+      # The retained watch target remains a build dependency for the 1.1
+      # release, so a watch-only change can still affect this archive.
+      - "AscendWatch/**"
+      - "AscendWatchShared/**"
       - "AscendApp.xcodeproj/**"
       - "fastlane/**"
       - "scripts/**"
@@ -234,6 +238,10 @@ jobs:
           echo "BUILD_NUMBER=${build_number}" >> "$GITHUB_ENV"
           echo "build_number=${build_number}" >> "$GITHUB_OUTPUT"
 
+      - name: Provision watchOS runtime (best effort)
+        shell: bash
+        run: ./scripts/ci/ensure-watchos-runtime.sh
+
       - name: Build production IPA via Fastlane
         env:
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
@@ -246,6 +254,8 @@ jobs:
           IOS_PRODUCTION_BUNDLE_ID: com.TylerPavay.AscendApp
           IOS_PRODUCTION_WIDGET_BUNDLE_ID: com.TylerPavay.AscendApp.LiveClimbWidgets
           IOS_PRODUCTION_WIDGET_PROVISIONING_PROFILE_SPECIFIER: match AppStore com.TylerPavay.AscendApp.LiveClimbWidgets
+          IOS_PRODUCTION_WATCH_BUNDLE_ID: com.TylerPavay.AscendApp.watch
+          IOS_PRODUCTION_WATCH_PROVISIONING_PROFILE_SPECIFIER: match AppStore com.TylerPavay.AscendApp.watch
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
         run: bundle exec fastlane build_production
@@ -265,6 +275,12 @@ jobs:
 
       - name: Verify production Mixpanel destination in the IPA
         run: node scripts/ci/assert-mixpanel-bundle.mjs Release fastlane/build/AscendApp-Production.ipa
+
+      # The IPA is the artifact Apple's upload validation rejects, so the icon
+      # check runs against it as well as against the Release compile check's
+      # unsigned product.
+      - name: Verify app icons in the IPA
+        run: node scripts/ci/assert-app-icon-present.mjs fastlane/build/AscendApp-Production.ipa
 
       - name: Upload production IPA artifact
         uses: actions/upload-artifact@v4

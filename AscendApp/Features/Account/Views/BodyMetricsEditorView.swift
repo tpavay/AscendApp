@@ -60,6 +60,7 @@ struct BodyMetricsEditorView: View {
         } message: {
             Text(errorMessage ?? "Try again.")
         }
+        .trackOnce(screen: .bodyMetricsEditor)
     }
 
     private var metricsSection: some View {

@@ -125,6 +125,7 @@ struct ActiveRoutineView: View {
         } message: {
             Text("Would you like to log your progress before leaving this routine?")
         }
+        .trackOnce(screen: .activeRoutine)
     }
 
     private var activeWorkoutView: some View {
@@ -353,7 +354,6 @@ struct ActiveRoutineView: View {
             leaderboardRank: viewModel.completionLeaderboardRank,
             leaderboardTotal: viewModel.completionLeaderboardTotal,
             leaderboardRankBasis: .liveSession,
-            allowsRatingPrompt: false,
             leaderboardContext: viewModel.completionLeaderboardContext,
             moment: .freshCompletion,
             rankingLabelOverride: "ROUTINE RANK",
@@ -361,7 +361,7 @@ struct ActiveRoutineView: View {
             ranksOnLeaderboard: presentation.ranksOnLeaderboard,
             achievementTitleOverride: presentation.achievementTitleOverride,
             achievementIconNameOverride: presentation.achievementIconNameOverride,
-            onDone: {
+            onDone: { _ in
                 dismiss()
             }
         )

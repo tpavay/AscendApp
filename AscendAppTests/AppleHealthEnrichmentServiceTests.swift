@@ -36,7 +36,6 @@ struct AppleHealthEnrichmentServiceTests {
         #expect(metricsReader.requestedWindows.count == 1)
         #expect(workout.avgHeartRate == nil)
         #expect(workout.heartRateTimeSeries.isEmpty)
-        #expect(service.phase(for: workout) == .waiting)
 
         // The wearable syncs. Nothing about the climb changed - only what Health now holds.
         metricsReader.enqueue(
@@ -61,7 +60,6 @@ struct AppleHealthEnrichmentServiceTests {
         #expect(workout.maxHeartRate == 178)
         #expect(workout.caloriesBurned == 214)
         #expect(workout.heartRateTimeSeries.count == 2)
-        #expect(service.phase(for: workout) == .notApplicable)
     }
 
     @Test("A look before its backoff step has elapsed does not spend an attempt")
@@ -84,7 +82,7 @@ struct AppleHealthEnrichmentServiceTests {
         await service.drainInFlightWork()
         #expect(metricsReader.requestedWindows.count == 1)
 
-        // Three surfaces asking at once is the real shape of this: the summary, the workout
+        // Three callers asking at once is the real shape of this: a Home entry, the workout
         // detail and a foreground can all land in the same instant.
         service.resumeTracking(modelContext: modelContext)
         await service.drainInFlightWork()
@@ -155,7 +153,6 @@ struct AppleHealthEnrichmentServiceTests {
         await service.drainInFlightWork()
 
         #expect(workout.heartRateTimeSeries.count == 2)
-        #expect(service.phase(for: workout) == .notApplicable)
 
         // Nothing keeps looking for a climb that has been answered.
         clock.advance(by: 3_600)
@@ -191,7 +188,6 @@ struct AppleHealthEnrichmentServiceTests {
 
         #expect(workout.avgHeartRate == 142)
         #expect(workout.heartRateTimeSeries.isEmpty)
-        #expect(service.phase(for: workout) == .notApplicable)
     }
 
     // MARK: - Bounds
@@ -225,7 +221,7 @@ struct AppleHealthEnrichmentServiceTests {
         }
 
         #expect(metricsReader.requestedWindows.count == schedule.attemptBudget)
-        #expect(service.phase(for: workout) == .stoppedLooking)
+        #expect(service.hasScheduledWakeUp == false)
 
         // Well past the last backoff step, and it stays stopped.
         clock.advance(by: 12 * 60 * 60)
@@ -257,11 +253,8 @@ struct AppleHealthEnrichmentServiceTests {
         await service.drainInFlightWork()
 
         #expect(metricsReader.requestedWindows.isEmpty)
-        // Still honest about it, and still fetchable by hand - and a hand fetch that reads and
-        // comes back empty says so, distinctly from one that never got to read.
-        #expect(service.phase(for: stale) == .stoppedLooking)
-        #expect(await service.fetchNow(stale, modelContext: modelContext) == .foundNothing)
-        #expect(metricsReader.requestedWindows.count == 1)
+        // And nothing is left waking the app up to rediscover that the climb aged out.
+        #expect(service.hasScheduledWakeUp == false)
     }
 
     /// A pass that cannot read leaves every tracked climb still due, so re-arming off the back
@@ -384,6 +377,7 @@ struct AppleHealthEnrichmentServiceTests {
             attemptStore: attemptStore,
             sessionWorkGate: AuthenticatedBootstrapCoordinator(),
             featureFlags: flags,
+            recordLifecycleState: { _ in },
             now: { clock.now }
         )
 
@@ -396,118 +390,19 @@ struct AppleHealthEnrichmentServiceTests {
         // The ledger is untouched, so the series has lost nothing.
         #expect(attemptStore.attempt(for: workout.id) == nil)
 
-        // A hand-requested fetch says it never looked, so no surface can report a switched-off
+        // A hand-requested check refuses in its own words rather than reporting a switched-off
         // read as "your wearable published nothing".
-        #expect(await service.fetchNow(workout, modelContext: modelContext) == .couldNotLook)
-
-        // And it says so rather than claiming a check is coming that was never scheduled.
-        #expect(service.phase(for: workout) == .checksPaused)
+        await service.refreshPendingEnrichment(modelContext: modelContext, isUserInitiated: true)
+        let refusal = try #require(service.lastErrorMessage)
+        #expect(refusal.localizedStandardContains("checks resume"))
+        #expect(metricsReader.requestedWindows.isEmpty)
+        #expect(attemptStore.attempt(for: workout.id) == nil)
 
         _ = flags.apply(.shippedDefaults)
         service.resumeTracking(modelContext: modelContext)
         await service.drainInFlightWork()
 
         #expect(workout.avgHeartRate == 150)
-    }
-
-    /// A switched-off incident is exactly when a wrong status costs trust: `.waiting` would
-    /// promise a check that `armTimer` deliberately never scheduled, and the connect offer would
-    /// spend a permission prompt on a benefit the app has been told not to deliver.
-    @Test("A switched-off kill switch is stated, not dressed up as waiting")
-    func reportsPausedChecksRatherThanWaiting() async throws {
-        let clock = TestClock(start: Date(timeIntervalSince1970: 1_800_000_000))
-        let workout = makeLiveClimb(start: clock.now.addingTimeInterval(-1_200), duration: 1_200)
-
-        let flags = RemoteFeatureFlagStore(
-            snapshot: .resolving(
-                remoteValues: [RemoteFeatureFlag.appleHealthEnrichment.key: false]
-            )
-        )
-
-        let connected = AppleHealthEnrichmentService(
-            authorizationController: EnrichmentStubAuthorization(connectionState: .connected),
-            metricsReader: ScriptedMetricsReader(responses: []),
-            attemptStore: makeAttemptStore(),
-            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
-            featureFlags: flags,
-            now: { clock.now }
-        )
-
-        #expect(connected.phase(for: workout) == .checksPaused)
-
-        let neverConnected = AppleHealthEnrichmentService(
-            authorizationController: EnrichmentStubAuthorization(connectionState: .neverConnected),
-            metricsReader: ScriptedMetricsReader(responses: []),
-            attemptStore: makeAttemptStore(),
-            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
-            featureFlags: flags,
-            now: { clock.now }
-        )
-
-        #expect(neverConnected.offersConnectionPrompt(for: workout) == false)
-        #expect(neverConnected.phase(for: workout) == .checksPaused)
-
-        // A device that cannot reach Health at all is still told the truer thing.
-        let unavailable = AppleHealthEnrichmentService(
-            authorizationController: EnrichmentStubAuthorization(connectionState: .unavailable),
-            metricsReader: ScriptedMetricsReader(responses: []),
-            attemptStore: makeAttemptStore(),
-            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
-            featureFlags: flags,
-            now: { clock.now }
-        )
-
-        #expect(unavailable.phase(for: workout) == .unavailable)
-
-        // The offer returns with the flag, so nothing is permanently withheld.
-        _ = flags.apply(.shippedDefaults)
-        #expect(neverConnected.offersConnectionPrompt(for: workout))
-        #expect(neverConnected.phase(for: workout) == .connectionOffered)
-    }
-
-    /// A phase that is only honest until the flag moves is not the guarantee: the kill switch is
-    /// not `@Observable`, so a surface holding a resolved phase has to be told to resolve again.
-    ///
-    /// This pins the contract the views depend on, both halves of it - that flipping the flag
-    /// publishes `remoteFeatureFlagsDidChange`, and that re-resolving after it yields a genuinely
-    /// different phase. The `.onReceive` wiring in `WorkoutDetailView` and
-    /// `LiveClimbCompletionSummaryView` is the part no unit test can reach; everything it relies
-    /// on is asserted here.
-    @Test("A flag flip publishes a change and re-resolves to a different phase")
-    func phaseFollowsTheFlagWhileASurfaceIsOnScreen() async throws {
-        let clock = TestClock(start: Date(timeIntervalSince1970: 1_800_000_000))
-        let modelContext = try makeModelContext()
-
-        let workout = makeLiveClimb(start: clock.now.addingTimeInterval(-1_200), duration: 1_200)
-        modelContext.insert(workout)
-        try modelContext.save()
-
-        // A cold launch begins here: shipped defaults, enrichment on.
-        let flags = RemoteFeatureFlagStore(snapshot: .shippedDefaults)
-        let service = AppleHealthEnrichmentService(
-            authorizationController: EnrichmentStubAuthorization(connectionState: .connected),
-            metricsReader: ScriptedMetricsReader(responses: [WorkoutMetrics()]),
-            attemptStore: makeAttemptStore(),
-            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
-            featureFlags: flags,
-            now: { clock.now }
-        )
-
-        #expect(service.phase(for: workout) == .waiting)
-        #expect(service.offersConnectionPrompt(for: workout) == false)
-
-        // Remote Config resolves a moment later with enrichment switched off - the window a
-        // climber can already be looking at the card in.
-        let didChange = flags.apply(
-            .resolving(remoteValues: [RemoteFeatureFlag.appleHealthEnrichment.key: false])
-        )
-        #expect(didChange, "a real flag change must report itself, or no surface is told to re-resolve")
-
-        #expect(service.phase(for: workout) == .checksPaused)
-
-        // And back again, so a card cannot strand on "paused" once checks return.
-        _ = flags.apply(.shippedDefaults)
-        #expect(service.phase(for: workout) == .waiting)
     }
 
     /// The update lockout suppresses enrichment by never starting it, so this pins that not
@@ -633,8 +528,8 @@ struct AppleHealthEnrichmentServiceTests {
         #expect(service.lastErrorMessage == nil)
     }
 
-    /// A failed check must not read as an empty one: `foundNothing` sends the climber to their
-    /// own equipment for a failure that was ours.
+    /// A failed check must not read as an empty one: telling the climber Health had nothing
+    /// sends them to their own equipment for a failure that was ours.
     @Test("A failed Health query is reported as a failure, not as an empty answer")
     func reportsAFailedQueryDistinctlyFromAnEmptyOne() async throws {
         let clock = TestClock(start: Date(timeIntervalSince1970: 1_800_000_000))
@@ -654,7 +549,8 @@ struct AppleHealthEnrichmentServiceTests {
             now: { clock.now }
         )
 
-        #expect(await service.fetchNow(workout, modelContext: modelContext) == .checkFailed)
+        service.trackNewlyRecordedWorkout(workout, modelContext: modelContext)
+        await service.drainInFlightWork()
         #expect(workout.avgHeartRate == nil)
 
         // The climb keeps its place in the series rather than being retired on a failure.
@@ -750,10 +646,13 @@ struct AppleHealthEnrichmentServiceTests {
         #expect(lifecycle.states == [.connected, .revoked, .revoked])
     }
 
-    // MARK: - The connection offer
+    // MARK: - The Integrations connection path
 
-    @Test("A climber who never connected is offered the connection, not skipped")
-    func offersConnectionAfterAClimbWithNoHeartRate() async throws {
+    /// Settings -> Integrations is the only place Ascend offers the Apple Health connection, so
+    /// the whole path is walked here: nothing is read while disconnected, and the card's own
+    /// connect-then-refresh sequence is what puts heart rate on a climb already waiting for it.
+    @Test("Connecting from Integrations reads the climbs that were waiting")
+    func connectingFromIntegrationsEnrichesTheWaitingClimb() async throws {
         let clock = TestClock(start: Date(timeIntervalSince1970: 1_800_000_000))
         let modelContext = try makeModelContext()
 
@@ -761,54 +660,32 @@ struct AppleHealthEnrichmentServiceTests {
         modelContext.insert(workout)
         try modelContext.save()
 
-        let authorization = EnrichmentStubAuthorization(connectionState: .neverConnected)
         let metricsReader = ScriptedMetricsReader(
             responses: [
                 WorkoutMetrics(avgHeartRate: 151, maxHeartRate: 179, caloriesBurned: 220)
             ]
         )
         let service = AppleHealthEnrichmentService(
-            authorizationController: authorization,
+            authorizationController: EnrichmentStubAuthorization(connectionState: .neverConnected),
             metricsReader: metricsReader,
             attemptStore: makeAttemptStore(),
             sessionWorkGate: AuthenticatedBootstrapCoordinator(),
+            recordLifecycleState: { _ in },
             now: { clock.now }
         )
-
-        #expect(service.offersConnectionPrompt(for: workout))
-        #expect(service.phase(for: workout) == .connectionOffered)
 
         // No read happens while disconnected - there is nothing to read from.
         service.trackNewlyRecordedWorkout(workout, modelContext: modelContext)
         await service.drainInFlightWork()
         #expect(metricsReader.requestedWindows.isEmpty)
 
-        // The climber taps Connect. Granting reads immediately rather than waiting for a timer.
-        authorization.connectionState = .connected
-        let result = await service.connectAndFetch(workout, modelContext: modelContext)
+        // What the Integrations card does on a Connect tap, in that order.
+        #expect(await service.requestAppleHealthAuthorizationIfNeeded())
+        await service.refreshPendingEnrichment(modelContext: modelContext, isUserInitiated: true)
 
-        #expect(result == .added)
+        #expect(service.lastErrorMessage == nil)
+        #expect(metricsReader.requestedWindows.count == 1)
         #expect(workout.avgHeartRate == 151)
-        #expect(service.offersConnectionPrompt(for: workout) == false)
-    }
-
-    @Test("A climb that already has heart rate is never offered the connection")
-    func doesNotOfferConnectionForAClimbThatHasHeartRate() async throws {
-        let clock = TestClock(start: Date(timeIntervalSince1970: 1_800_000_000))
-        let workout = makeLiveClimb(start: clock.now.addingTimeInterval(-1_200), duration: 1_200)
-        workout.avgHeartRate = 144
-        workout.maxHeartRate = 170
-
-        let service = AppleHealthEnrichmentService(
-            authorizationController: EnrichmentStubAuthorization(connectionState: .neverConnected),
-            metricsReader: ScriptedMetricsReader(responses: []),
-            attemptStore: makeAttemptStore(),
-            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
-            now: { clock.now }
-        )
-
-        #expect(service.offersConnectionPrompt(for: workout) == false)
-        #expect(service.phase(for: workout) == .notApplicable)
     }
 
     /// A chest strap paired to Ascend during the session is first-party and denser than
@@ -839,7 +716,8 @@ struct AppleHealthEnrichmentServiceTests {
         )
 
         // Calories are still missing, so this climb is genuinely still enrichable.
-        _ = await service.fetchNow(workout, modelContext: modelContext)
+        service.trackNewlyRecordedWorkout(workout, modelContext: modelContext)
+        await service.drainInFlightWork()
 
         #expect(workout.avgHeartRate == 155)
         #expect(workout.maxHeartRate == 181)

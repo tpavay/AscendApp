@@ -21,6 +21,10 @@ A board nobody has entered yet renders the three pedestals with the crown seated
 - [ ] AC-1: The crown asset catalog contains only the prepared transparent `LeaderboardCrown.png` and the existing universal 1x, 2x, and 3x declarations.
 - [ ] AC-2: The crown renders with aspect fit and without a rounded tile clip or tile border at 16, 30, 46, and 54 points.
 - [ ] AC-3: First Ascent, Top 3, Top 10, and Top 100 tokens retain their existing framed presentation.
+      Superseded on 2026-08-11 by `podium-placement-badge-ladder.md`: First Ascent joined the free-standing
+      set when its art was re-cut, and the Top 3 band badge was retired. Top 10 and Top 100 followed later the
+      same day with their own cut-out art, so no token frames any more and the framed branch is gone. The shelf
+      art contract now lives in `ascend-profile`.
 - [ ] AC-4: A loaded public profile renders only the other climber's nonzero leaderboard achievement bands and exact cumulative counts.
 - [ ] AC-5: A loaded public profile with no achievements renders no achievement section.
 - [ ] AC-6: A public profile whose remote snapshot is still loading renders no achievement section at all; the bands appear only once the counts resolve.
@@ -54,6 +58,7 @@ A board nobody has entered yet renders the three pedestals with the crown seated
 - Capture the public profile in present, absent, and loading states on an iPhone 16 Pro device-type simulator - the last two show no achievement section.
 - Verify VoiceOver announces each achievement label and count on a loaded public profile, and announces nothing for it while the snapshot loads.
 - Verify the public badges carry no button trait and the non-crown tokens retain their frames.
+  The frame half of that check is superseded with AC-3 above: no token frames any more.
 
 ## Risk and rollout
 

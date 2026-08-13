@@ -1,6 +1,6 @@
 ---
 name: ascend-apple-health-enrichment
-description: Use when working on Ascend's Apple Health integration - connecting Health, the enrichment service and its bounded retry ledger, the heart-rate phases every surface renders, or the requested HealthKit read set - and when writing any screen `.task` or service `configure` that touches the workout store, which fires from Home and other feature code far outside the Integrations folder. Covers why Ascend reads Health over a climb's own time window and never touches a foreign workout record, why a pass that cannot run must not re-arm, and the bounded-query rules that keep the entry path off the main thread's critical section.
+description: Use when working on Ascend's Apple Health integration - connecting Health, the enrichment service and its bounded retry ledger, what any heart-rate surface may say, or the requested HealthKit read set - and when writing any screen `.task` or service `configure` that touches the workout store, which fires from Home and other feature code far outside the Integrations folder. Covers why Ascend reads Health over a climb's own time window and never touches a foreign workout record, why a pass that cannot run must not re-arm, and the bounded-query rules that keep the entry path off the main thread's critical section.
 ---
 
 # Apple Health enrichment
@@ -39,41 +39,43 @@ There is no second coordinator and no second status enum; do not add one.
 - Health writes a climb's samples *after* the climb ends, so one attempt at save time answers for nobody.
   `AppleHealthEnrichmentSchedule` is the bounded curve - nine attempts reaching roughly ten hours past the climb, dense early and sparse late - plus a 72-hour eligibility window for a climb the curve never covered (one hydrated onto a fresh device, one whose ledger entry was lost).
 - `AppleHealthEnrichmentAttemptStore` is the ledger, and eligibility is a **persisted absolute date**, never a counter with a cooldown.
-  Several surfaces ask about the same climb in the same instant - the completion summary, the workout detail, an app foreground and the timer itself - and a counter would let three of them spend three attempts on one millisecond.
+  Several callers ask about the same climb in the same instant - the save-time pass, the workout detail, an app foreground and the timer itself - and a counter would let three of them spend three attempts on one millisecond.
   An absolute date is unanimous whoever reads it, and it survives relaunch, so a force-quit does not hand out a fresh budget.
   The service reads its curve back off the ledger (`attemptStore.schedule`) rather than holding a second copy.
 - One timer serves every tracked climb: it sleeps until the earliest due attempt across all of them, runs one pass, and re-arms.
   Wake-ups are a function of the schedule, not of how many times the climber climbed today.
 - **A pass that could not run must not re-arm.** Every reason a pass cannot accomplish anything - a suspended account session, a missing Health connection, the kill switch - is read through `canRunEnrichment` and checked *before* a pass, because a blocked pass leaves every tracked climb still due, so arming off the back of one schedules the next wake-up a second out and keeps doing it.
   That is a spin wearing a schedule's clothes.
-  Blocked work is deferred to the next lifecycle event instead: `resumeTracking` runs on authenticated bootstrap and on foreground, and connecting Health fetches directly.
+  Blocked work is deferred to the next lifecycle event instead: `resumeTracking` runs on authenticated bootstrap and on foreground, and the Integrations card's connect tap refreshes straight after granting.
 - A read is exclusive per climb.
-  A caller arriving while a read for that climb is in flight joins it and is answered by its outcome, rather than starting a second read that spends a second attempt and clears the `checking` state out from under the first.
+  A caller arriving while a read for that climb is in flight joins it and is answered by its outcome, rather than starting a second read that spends a second attempt on the same answer.
 - A climb that carries a **live-captured** heart-rate series (a strap paired to Ascend during the session) keeps it.
   That data is first-party and denser than anything a wrist writes afterwards; enrichment still fills calories.
 
-## The phases every surface renders
+## What the climber is told, and where
 
-`AppleHealthEnrichmentService.Phase` is the one answer, and **no case renders blank** - a silent absence was the original bug (#438).
-`notApplicable`, `connectionOffered`, `unavailable`, `accessRevoked`, `checking`, `waiting`, `stoppedLooking`, `checksPaused`.
-No view may resolve heart-rate availability a second way, and no phase may carry a countdown: `Task.sleep` does not advance while the app is suspended, so a rendered number would be wrong in exactly the case a climber checks it.
+Enrichment narrates nothing on the surfaces that celebrate a climb.
+The Live Climb completion summary and Workout Detail render the chart when a stored series exists and nothing at all about heart rate when it does not - no heading, no card, no empty state - while the schedule keeps looking underneath.
+Workout Detail may still show its remote-series restore state, because that means data exists and is arriving, not that the climb has no heart rate.
+Regression coverage: `AscendAppTests/WorkoutDetailHeartRateVisibilityTests.swift`, `AscendAppTests/LiveClimbCompletionSummaryHealthPromptEvidenceTests.swift`.
 
-`FetchResult` keeps the honest answers apart for a hand-requested check: `foundNothing` means Ascend read Health and nothing covered this climb, `couldNotLook` means it never read, and `checkFailed` means it started and could not finish.
-Reporting any of those as another is the dishonest blank this service exists to remove - `checkFailed` in particular must never read as `foundNothing`, which sends the climber to their own equipment for a failure that was Ascend's.
+**Settings -> Integrations is the only Apple Health surface.**
+It is the only place that offers the connection, the only place that explains revoked or unavailable permissions, and the only place a check can be asked for by hand.
+Do not grow a second one, and do not re-introduce a per-climb status enum for a view to render - the previous narration API (`Phase`, `phase(for:)`, `offersConnectionPrompt`, `FetchResult`, `fetchNow`, `connectAndFetch`) was deleted once every surface that consumed it was.
+The card reads `appleHealthConnectionState` and drives `requestAppleHealthAuthorizationIfNeeded` then `refreshPendingEnrichment(isUserInitiated:)`.
+
 Failure copy names nothing the climber owns and never carries an `error.localizedDescription`; the underlying error goes to `AppDiagnosticsRecorder` instead.
-That distinction starts at the read: `HealthKitMetricsReading.fetchMetrics` throws when a query fails and returns an empty `WorkoutMetrics` only when the query succeeded with nothing in it, because an empty answer is a real answer that ends the retry series and a failed query is not.
+A failed query and an empty one are kept apart starting at the read: `HealthKitMetricsReading.fetchMetrics` throws when a query fails and returns an empty `WorkoutMetrics` only when the query succeeded with nothing in it, because an empty answer is a real answer that ends the retry series and a failed query is not.
+Reporting the second as the first sends the climber to their own equipment for a failure that was Ascend's.
 
 Only a climber-initiated action writes `lastErrorMessage` - connecting, or a check that passes `isUserInitiated`.
 The automatic series stays silent whatever happens to it: Home refreshes enrichment from its `.task`, its tab handler and every foreground, so a message written there would be waiting on a screen the climber opens later with nothing to attach it to.
 The same reasoning bounds the `apple_health_integration_changed` lifecycle event, which costs a callable and a Firestore transaction: a completed pass reports the connection state only when it actually changed, and only the climber-initiated authorization path reports unconditionally.
 
-Resolve the phase once per pass, outside the view body.
-`RemoteFeatureFlagStore` is lock-guarded rather than `@Observable`, so reading the kill switch registers no SwiftUI dependency - surfaces that render a phase re-resolve on `.remoteFeatureFlagsDidChange` (`WorkoutDetailView`, `LiveClimbCompletionSummaryView`), which is the shape `MediaUploadBanner` already proved.
-
 ## The kill switch
 
 `apple_health_enrichment_enabled` (`RemoteFeatureFlag.appleHealthEnrichment`) gates enrichment where the work can be *deferred*, so a blocked pass leaves the attempt ledger untouched and the climb resumes its own series when the flag comes back.
-While it is off, the connect offer is withheld too: asking for Health access would spend a real iOS permission prompt - the one thing a climber can only be asked once - on a benefit the app has been told not to deliver.
+While it is off, a hand-requested check refuses in its own words rather than reporting a switched-off read as a wearable that published nothing (`checkRefusalMessage`).
 See `docs/remote-config-kill-switches.md`.
 
 ## Entry-path cost (the ASCEND-IOS-1K rule)
@@ -104,4 +106,4 @@ See `docs/remote-config-kill-switches.md`.
 - Enrichment writes columns; it never changes the store's shape. A new stored property is a schema migration - see `ascend-data-migration`.
 - Load the `healthkit` skill for Apple Health API work.
 - The canonical workout contract, plausibility gate and source-vs-participation split live in `ascend-workout-model`.
-- The climb surfaces that render these phases - completion summary, workout detail - belong to `ascend-live-climbs`.
+- What the climb surfaces - completion summary, workout detail - do with heart rate belongs to `ascend-live-climbs`.

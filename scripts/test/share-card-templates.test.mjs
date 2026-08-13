@@ -18,7 +18,7 @@ test("the bundled share card templates are valid", () => {
   assert.deepEqual(validateBundledPayload(), []);
 });
 
-test("bundled templates render the Ascend brand with the wordmark element", () => {
+test("bundled templates never substitute plain text for the fixed wordmark", () => {
   const payload = JSON.parse(readFileSync(new URL(PATHS.payload, REPOSITORY_ROOT)));
   const brandedTextNodes = [];
 
@@ -42,6 +42,11 @@ test("bundled templates render the Ascend brand with the wordmark element", () =
 
   payload.templates.forEach((template) => visit(template.root, template.id));
   assert.deepEqual(brandedTextNodes, []);
+});
+
+test("bundled card copy never says global", () => {
+  const payload = readFileSync(new URL(PATHS.payload, REPOSITORY_ROOT), "utf8");
+  assert.equal(payload.toLowerCase().includes("global"), false);
 });
 
 test("the vocabulary is read out of the Swift sources", () => {
@@ -120,6 +125,37 @@ test("a template naming an unknown color fails validation", () => {
   assert.equal(problems.length, 2, problems.join("; "));
   assert.match(problems[0], /unknown color "lable"/);
   assert.match(problems[1], /unknown color "#F4F1E"/);
+});
+
+// The wordmark tint sits beside `root`, and the splits tints sit on a spec the
+// walk does not treat as a node, so both need naming explicitly or a typo ships
+// the card's only brand mark - and its bars - as opaque black.
+test("a typo in the wordmark or splits tints fails validation", () => {
+  const vocabulary = readVocabulary();
+  const problems = validate(vocabulary, {
+    formatVersion: 1,
+    templates: [
+      {
+        id: "tints",
+        title: "Tints",
+        minRendererVersion: 1,
+        wordmarkTint: "vlaue",
+        root: {
+          type: "splits",
+          layout: "stepQuintiles",
+          textTint: "#0D0D1",
+          fastTint: "value",
+          slowTint: "lable",
+          trackTint: "#DEDEDE",
+        },
+      },
+    ],
+  });
+
+  assert.equal(problems.length, 3, problems.join("; "));
+  assert.match(problems[0], /wordmarkTint: unknown color "vlaue"/);
+  assert.match(problems[1], /textTint: unknown color "#0D0D1"/);
+  assert.match(problems[2], /slowTint: unknown color "lable"/);
 });
 
 test("the context color slots and hex literals pass validation", () => {

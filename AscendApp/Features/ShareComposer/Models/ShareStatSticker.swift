@@ -23,8 +23,12 @@ enum ShareStatStickerKind: String, CaseIterable, Identifiable, Codable, Sendable
     case splits
     // Climb-specific
     case climbName
+    case climbLocation
+    case climbFloors
     case climbRank       // "#1 rank"
     case climbRankWithTotal // "#1 / 2,460 rank"
+    // Routine-specific
+    case routineIntervals
     // Derived achievement (resolved from the Best Effort cache, not the workout)
     case bestEffort
     // Aggregate (resolved from this-week totals across workouts, not one workout)
@@ -36,7 +40,7 @@ enum ShareStatStickerKind: String, CaseIterable, Identifiable, Codable, Sendable
     /// Live Climb completion.
     var isClimbOnly: Bool {
         switch self {
-        case .climbName, .climbRank, .climbRankWithTotal:
+        case .climbName, .climbLocation, .climbFloors, .climbRank, .climbRankWithTotal:
             return true
         default:
             return false
@@ -190,20 +194,38 @@ struct ShareStickerInstance: Identifiable, Equatable {
     var extraStats: [ShareStatRef]
     /// Arrangement used when the sticker shows more than one metric.
     var layout: ShareStatLayout
+    /// When set, this sticker is one of the curated stat clusters: a
+    /// pre-formatted group that moves, scales and deletes as one unit. The
+    /// cluster owns its own arrangement and metric set, so `extraStats` and
+    /// `layout` do not apply to it.
+    var presetID: String?
 
     /// Image stickers (climb artwork) don't take text styling.
     var isImage: Bool { climbImageVariant != nil }
 
+    /// The curated cluster this sticker draws, when it is one.
+    var preset: ShareStatClusterPreset? {
+        guard !isImage, let presetID else { return nil }
+        return ShareStatClusterPresets.preset(id: presetID)
+    }
+    /// True when this sticker draws a curated cluster rather than a metric the
+    /// climber assembled themselves.
+    var isPreset: Bool { preset != nil }
+
     /// The primary metric as a reference.
     var primaryStatRef: ShareStatRef { ShareStatRef(kind: kind, injectedStatKey: injectedStatKey) }
-    /// All metrics in display order (primary first, then extras).
-    var statRefs: [ShareStatRef] { [primaryStatRef] + extraStats }
+    /// All metrics in display order (primary first, then extras). A preset's
+    /// metrics are the cluster's, so the catalog stays the one place they live.
+    var statRefs: [ShareStatRef] {
+        if let preset { return preset.stats }
+        return [primaryStatRef] + extraStats
+    }
     /// True when the sticker renders more than one metric.
     var isComposite: Bool { !extraStats.isEmpty }
     /// True when this is a text sticker that includes the climb name (renameable).
     var containsClimbName: Bool { !isImage && statRefs.contains { $0.kind == .climbName } }
     /// True when this sticker uses a structured renderer, such as split rows.
-    var isStructured: Bool { !isImage && kind.isStructured && extraStats.isEmpty }
+    var isStructured: Bool { !isImage && !isPreset && kind.isStructured && extraStats.isEmpty }
 
     init(
         id: UUID = UUID(),
@@ -218,7 +240,8 @@ struct ShareStickerInstance: Identifiable, Equatable {
         climbImageVariant: ClimbImageVariant? = nil,
         injectedStatKey: String? = nil,
         extraStats: [ShareStatRef] = [],
-        layout: ShareStatLayout = .row
+        layout: ShareStatLayout = .row,
+        presetID: String? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -233,6 +256,7 @@ struct ShareStickerInstance: Identifiable, Equatable {
         self.injectedStatKey = injectedStatKey
         self.extraStats = extraStats
         self.layout = layout
+        self.presetID = presetID
     }
 }
 
@@ -271,7 +295,28 @@ struct ResolvedShareSplits: Equatable {
     let value: String
     let subtitle: String
     let rows: [ResolvedShareSplitRow]
+    /// Exactly five step-range rows used by the finalized Result card.
+    let stepQuintileRows: [ResolvedShareSplitRow]
+    let averageStepsPerMinuteText: String
     let hasHeartRate: Bool
+
+    init(
+        label: String,
+        value: String,
+        subtitle: String,
+        rows: [ResolvedShareSplitRow],
+        stepQuintileRows: [ResolvedShareSplitRow] = [],
+        averageStepsPerMinuteText: String = "",
+        hasHeartRate: Bool
+    ) {
+        self.label = label
+        self.value = value
+        self.subtitle = subtitle
+        self.rows = rows
+        self.stepQuintileRows = stepQuintileRows
+        self.averageStepsPerMinuteText = averageStepsPerMinuteText
+        self.hasHeartRate = hasHeartRate
+    }
 }
 
 struct ResolvedShareSplitRow: Identifiable, Equatable {
@@ -281,8 +326,34 @@ struct ResolvedShareSplitRow: Identifiable, Equatable {
     let stepsText: String
     let spmText: String
     let heartRateText: String?
+    /// Duration of this row when it represents a fixed step range.
+    let elapsedText: String?
+    /// Whether this block beat the climb's own average pace.
+    let isFasterThanAverage: Bool?
     /// 0...1 bar fill, already normalized for display.
     let progress: Double
+
+    init(
+        index: Int,
+        segmentText: String,
+        rangeText: String,
+        stepsText: String,
+        spmText: String,
+        heartRateText: String?,
+        elapsedText: String? = nil,
+        isFasterThanAverage: Bool? = nil,
+        progress: Double
+    ) {
+        self.index = index
+        self.segmentText = segmentText
+        self.rangeText = rangeText
+        self.stepsText = stepsText
+        self.spmText = spmText
+        self.heartRateText = heartRateText
+        self.elapsedText = elapsedText
+        self.isFasterThanAverage = isFasterThanAverage
+        self.progress = progress
+    }
 
     var id: Int { index }
 }

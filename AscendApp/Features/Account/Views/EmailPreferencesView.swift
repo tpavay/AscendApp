@@ -34,6 +34,7 @@ struct EmailPreferencesView: View {
                 await viewModel.load()
             }
         }
+        .trackOnce(screen: .emailPreferences)
     }
 }
 

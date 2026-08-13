@@ -27,60 +27,12 @@ import SwiftData
 /// One timer serves every tracked climb: it sleeps until the earliest due attempt across all of
 /// them, runs one pass, and re-arms. Nothing is tracked, no timer exists. Eligibility lives in
 /// `AppleHealthEnrichmentAttemptStore` as an absolute date, so the budget survives relaunch and
-/// cannot be spent three times in one millisecond by three surfaces asking at once, and the
+/// cannot be spent three times in one millisecond by three callers asking at once, and the
 /// series ends on its own after `AppleHealthEnrichmentSchedule`'s budget.
 @MainActor
 @Observable
 final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     static let shared = AppleHealthEnrichmentService()
-
-    /// What Ascend can honestly tell a climber about their heart rate for one climb.
-    ///
-    /// Every case is something the UI says out loud. There is no case that renders as a blank
-    /// - a silent absence was the original bug.
-    enum Phase: Equatable {
-        /// Not a climb Ascend recorded, or its heart rate is already attached.
-        case notApplicable
-        /// Health has never been connected. The climber is offered the connection here.
-        case connectionOffered
-        /// This device cannot read Apple Health at all.
-        case unavailable
-        /// Access was granted once and has since been turned off in the Health app.
-        case accessRevoked
-        /// A read is in flight right now.
-        case checking
-        /// Connected, nothing published yet, and another automatic attempt is coming.
-        ///
-        /// Deliberately carries no date. A rendered countdown would be a promise the schedule
-        /// cannot keep: `Task.sleep` does not advance while the app is suspended, so the number
-        /// would be wrong in exactly the case a climber checks it - after backgrounding.
-        case waiting
-        /// The automatic series is spent. Manual fetch is still offered.
-        case stoppedLooking
-        /// Enrichment is switched off at the backend. Nothing is being read, and nothing was
-        /// spent - distinct from `stoppedLooking`, which says Ascend looked and found nothing.
-        case checksPaused
-    }
-
-    /// What a hand-requested read actually did, so the surface asking can say something true.
-    ///
-    /// "Ascend looked and Health had nothing" and "Ascend never got to look" are different
-    /// facts, and reporting the second as the first is the dishonest blank this service exists
-    /// to remove.
-    enum FetchResult: Equatable {
-        /// Heart rate landed on the climb from this read.
-        case added
-        /// Ascend read Apple Health and nothing covered this climb.
-        case foundNothing
-        /// Ascend never read: the connection is missing, or enrichment is switched off.
-        case couldNotLook
-        /// Ascend started the check and could not finish it.
-        ///
-        /// Kept apart from `foundNothing` because the two send the climber to different places:
-        /// one is their wearable's schedule and the other is Ascend's own failure, and reporting
-        /// the second as the first blames them for it.
-        case checkFailed
-    }
 
     /// What one read of Apple Health actually did, before it is phrased for anyone.
     private enum ReadOutcome: Equatable {
@@ -105,15 +57,11 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     private var timerTask: Task<Void, Never>?
     private var passTask: Task<Bool, Never>?
 
-    /// Climbs with a read in flight, so the UI can say "checking" rather than guess.
-    private(set) var checkingWorkoutIDs: Set<UUID> = []
-
-    /// The read each of those climbs is waiting on, so a second caller joins it.
+    /// The read each tracked climb is waiting on, so a second caller joins it.
     ///
-    /// A scheduled pass suspends at the HealthKit read, which frees the main actor for a
-    /// climber's "Check now" on the same climb. Two reads would spend two of the nine attempts
-    /// on one answer, and whichever finished first would drop the climb out of `.checking`
-    /// while the other was still running.
+    /// A scheduled pass suspends at the HealthKit read, which frees the main actor for the
+    /// Integrations card's `Check now` on the same climb. Two reads would spend two of the nine
+    /// attempts on one answer.
     private var readTasks: [UUID: Task<ReadOutcome, Never>] = [:]
 
     /// The connection state the backend was last told about, so it is only told again when it
@@ -182,9 +130,10 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
 
     /// Connects Apple Health without a climb in hand.
     ///
-    /// The Integrations card connects as a standing setup step rather than for one climb, so it
-    /// cannot go through `connectAndFetch`. Refusals are reported through `lastErrorMessage`
-    /// rather than swallowed, because this is a button a climber pressed.
+    /// Settings -> Integrations is the only surface that offers the connection, and it connects
+    /// as a standing setup step rather than for one climb - which is why nothing here takes a
+    /// `Workout`. Refusals are reported through `lastErrorMessage` rather than swallowed,
+    /// because this is a button a climber pressed.
     @discardableResult
     func requestAppleHealthAuthorizationIfNeeded() async -> Bool {
         // Every exit reports the state it resolved to, including the refusals: the backend's
@@ -320,63 +269,14 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     /// app up to find that out again.
     var hasScheduledWakeUp: Bool { timerTask != nil }
 
-    // MARK: - Phase
-
     /// Whether the backend still permits enrichment, read the cheap way.
     ///
-    /// A plain in-memory flag lookup rather than `RemoteFeatureGate.allows`, because this is
-    /// reachable from a view body: the gate records a diagnostic every time it blocks, so
-    /// routing rendering through it would emit one per render for a whole incident. The gate
-    /// stays on the work path, where a blocked pass is worth recording exactly once.
+    /// A plain in-memory flag lookup rather than `RemoteFeatureGate.allows`, because this
+    /// answers the Integrations card's refusal copy rather than gating work: the gate records a
+    /// diagnostic every time it blocks, and one per card render would fill an incident with
+    /// noise. The gate stays on the work path, where a blocked pass is worth recording once.
     private var isEnrichmentSwitchedOn: Bool {
         featureFlags.isEnabled(.appleHealthEnrichment)
-    }
-
-    /// What to tell the climber about this climb's heart rate right now.
-    func phase(for workout: Workout) -> Phase {
-        guard workout.isInAppSensorWorkout, needsHeartRate(workout) else { return .notApplicable }
-
-        if checkingWorkoutIDs.contains(workout.id) { return .checking }
-
-        // Said ahead of connection state, because with checks switched off neither connecting
-        // nor re-granting access would produce a read - only a device that cannot reach Health
-        // at all outranks it.
-        if authorizationController.connectionState != .unavailable, !isEnrichmentSwitchedOn {
-            return .checksPaused
-        }
-
-        switch authorizationController.connectionState {
-        case .unavailable:
-            return .unavailable
-        case .neverConnected:
-            return .connectionOffered
-        case .revoked:
-            return .accessRevoked
-        case .connected:
-            break
-        }
-
-        guard attemptStore.nextEligibleDate(for: workout, at: now()) != nil else {
-            return .stoppedLooking
-        }
-
-        return .waiting
-    }
-
-    /// Whether this climb is one a Health connection would still pay off for.
-    ///
-    /// What the post-climb connect prompt asks. It is deliberately not conditioned on the
-    /// retry ledger: a climber who has never connected has never had an attempt run, and the
-    /// offer is the point.
-    ///
-    /// It is conditioned on the kill switch, though. Asking for Health access while enrichment
-    /// is switched off spends a permission prompt - the one thing a climber can only be asked
-    /// once - on a benefit the app has been told not to deliver.
-    func offersConnectionPrompt(for workout: Workout) -> Bool {
-        guard workout.isInAppSensorWorkout, needsHeartRate(workout) else { return false }
-        guard isEnrichmentSwitchedOn else { return false }
-        guard authorizationController.connectionState == .neverConnected else { return false }
-        return schedule.isWithinEligibilityWindow(workout, at: now())
     }
 
     // MARK: - Entry points
@@ -425,55 +325,6 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
         return runPass(modelContext: modelContext)
     }
 
-    /// The climber asked for this one by hand.
-    ///
-    /// Ignores the retry ledger - a manual fetch is a person telling Ascend to look now, and
-    /// refusing them because a timer has not elapsed would be the app arguing with its user.
-    /// It still spends a ledger attempt so a series of manual fetches cannot outrun the budget
-    /// and then leave the automatic curve claiming attempts it no longer has - unless a read for
-    /// this climb is already in flight, in which case it joins that one and spends nothing.
-    @discardableResult
-    func fetchNow(_ workout: Workout, modelContext: ModelContext) async -> FetchResult {
-        self.modelContext = modelContext
-
-        guard workout.isInAppSensorWorkout, needsEnrichment(workout) else { return .couldNotLook }
-        guard canRunEnrichment else { return .couldNotLook }
-
-        let outcome = await enrich(workout, modelContext: modelContext)
-        if outcome != .addedHeartRate {
-            track(workout)
-        }
-        armTimer()
-
-        switch outcome {
-        case .addedHeartRate:
-            return .added
-        case .nothingToAdd:
-            return .foundNothing
-        case .failed:
-            return .checkFailed
-        }
-    }
-
-    /// Requests Health access and, if granted, looks immediately.
-    ///
-    /// The contextual prompt's action: a climber who connects right after a climb should see
-    /// their heart rate arrive from that tap, not from a timer minutes later.
-    @discardableResult
-    func connectAndFetch(_ workout: Workout, modelContext: ModelContext) async -> FetchResult {
-        self.modelContext = modelContext
-
-        await authorizationController.refreshAuthorizationRequestStatus()
-
-        if authorizationController.connectionState == .neverConnected {
-            guard await authorizationController.requestAuthorization() else { return .couldNotLook }
-        }
-
-        guard authorizationController.connectionState == .connected else { return .couldNotLook }
-
-        return await fetchNow(workout, modelContext: modelContext)
-    }
-
     // MARK: - AuthenticatedSessionWorker
 
     /// Stops every read and forgets what it was watching.
@@ -489,7 +340,6 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
             task.cancel()
         }
         trackedWorkoutIDs = []
-        checkingWorkoutIDs = []
         lastReportedConnectionState = nil
 
         // The store handed over by `configure` is deliberately kept. Nothing can run on it while
@@ -506,8 +356,9 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     /// drain until it timed out. `cancelInFlightWork` runs first under this protocol and stops
     /// the timer, so nothing it would have started can still run.
     ///
-    /// A hand-requested read belongs to no pass, so the reads are awaited on their own after
-    /// the pass rather than assumed to have ended with it.
+    /// The reads are awaited on their own after the pass rather than assumed to have ended with
+    /// it: a read outlives the pass that started it if that pass is cancelled mid-flight, and a
+    /// drain that returned while one was still writing would hand the store back mid-write.
     func drainInFlightWork() async {
         _ = await passTask?.value
 
@@ -561,7 +412,7 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     /// for should be a function of the schedule, not of how many times they climbed today.
     ///
     /// A pass already in flight is left to finish rather than cancelled and restarted. Several
-    /// surfaces call this in quick succession - a foreground, a summary and a workout detail can
+    /// callers reach it in quick succession - a foreground, a Home entry and a workout detail can
     /// all land together - and restarting would throw away a read that had already completed,
     /// having already spent the attempt that paid for it. The in-flight pass re-arms from the
     /// current tracking set when it ends, so nothing added meanwhile is missed.
@@ -670,9 +521,8 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
     ///
     /// A caller arriving while a read is already in flight joins that read instead of starting
     /// a second one, and is answered by its outcome. Joining rather than refusing is what keeps
-    /// the answer honest: the climber who tapped "Check now" while a scheduled pass was mid-read
+    /// the answer honest: the climber who tapped `Check now` while a scheduled pass was mid-read
     /// is told what that read found, not that Ascend could not look.
-    @discardableResult
     private func enrich(_ workout: Workout, modelContext: ModelContext) async -> ReadOutcome {
         let workoutID = workout.id
 
@@ -680,15 +530,11 @@ final class AppleHealthEnrichmentService: AuthenticatedSessionWorker {
             return await inFlight.value
         }
 
-        checkingWorkoutIDs.insert(workoutID)
         attemptStore.recordAttempt(for: workout, at: now())
 
         let read = Task { @MainActor [weak self] in
             guard let self else { return ReadOutcome.nothingToAdd }
-            defer {
-                self.readTasks[workoutID] = nil
-                self.checkingWorkoutIDs.remove(workoutID)
-            }
+            defer { self.readTasks[workoutID] = nil }
 
             return await self.performRead(of: workout, modelContext: modelContext)
         }
