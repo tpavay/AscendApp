@@ -334,9 +334,10 @@ struct ShareStatClusterPresetEvidenceTests {
     /// `content(for:)` is memoized on the content-bearing parts of a sticker and
     /// a drag mutates only the transform. The original worry — that fifty
     /// nested-shadow runs would stutter a drag — is disproved. That property is
-    /// protected structurally below, by the same identity check
-    /// `ShareComposerGestureCostEvidenceTests` uses, rather than by timing a
-    /// dictionary lookup.
+    /// protected below by counting builds rather than by timing a dictionary
+    /// lookup or comparing values: `ShareStickerContent` is a value type, so a
+    /// rebuilt tree compares equal to a cached one and equality alone cannot see
+    /// the cache being lost. `contentBuildCount` can.
     ///
     /// **The cost lives in layout, so add-time is what is measured here**: the
     /// one-off hitch when a climber drops the third or fifth cluster on and it
@@ -363,9 +364,11 @@ struct ShareStatClusterPresetEvidenceTests {
     ///
     /// The figures this currently produces are over a 120 Hz frame from three
     /// clusters up. That is recorded, not fixed here: it is a one-off placement
-    /// hitch, not a drag, and it is tracked as its own follow-up.
+    /// hitch, not a drag, and it is tracked as issue #489. The assertions below
+    /// are about *scaling* and about the drag path, deliberately — this test does
+    /// not claim add-time fits in a frame, because it does not.
     @Test
-    func addTimeLayoutStaysInsideAFrameWhenHeaviestClustersPileUp() throws {
+    func addTimeLayoutScalesLinearlyAsHeaviestClustersPileUp() throws {
         let counts = [0, 1, 3, 5]
         let onScreenSize = ShareCardFormat.designSize
         var onScreen: [Int: Double] = [:]
@@ -414,8 +417,9 @@ struct ShareStatClusterPresetEvidenceTests {
           the whole canvas from scratch, background included, where the live app re-lays
           out a subtree over an already-realized background.
 
-          Dragging is not measured here and does not need to be: the composer's per-frame
-          work is a memoized lookup, protected by the identity assertion in this test.
+          Dragging is not timed here and does not need to be: the composer's per-frame work
+          is a memoized lookup, and this test asserts that 120 frames of pan, pinch and
+          rotate across five clusters build zero card trees.
 
           120 Hz frame budget: 8.3 ms · 60 Hz frame budget: 16.7 ms
         """
@@ -426,18 +430,32 @@ struct ShareStatClusterPresetEvidenceTests {
         let splits = try #require(dragViewModel.availablePresets().first { $0.id == "splits" })
         for _ in 0..<5 { dragViewModel.addPresetSticker(splits) }
         let beforeDrag = dragViewModel.stickers.map { dragViewModel.content(for: $0) }
-        for index in dragViewModel.stickers.indices {
-            dragViewModel.stickers[index].position = CGPoint(x: 0.4, y: 0.6)
-            dragViewModel.stickers[index].scale = 1.7
-            dragViewModel.stickers[index].rotationRadians = 0.2
+        let buildsAfterPlacing = dragViewModel.contentBuildCount
+
+        for frame in 0..<120 {
+            for index in dragViewModel.stickers.indices {
+                dragViewModel.stickers[index].position = CGPoint(x: 0.4, y: 0.2 + Double(frame) / 1_000)
+                dragViewModel.stickers[index].scale = 1 + Double(frame) / 100
+                dragViewModel.stickers[index].rotationRadians = Double(frame) / 500
+            }
+            for sticker in dragViewModel.stickers { _ = dragViewModel.content(for: sticker) }
         }
-        let afterDrag = dragViewModel.stickers.map { dragViewModel.content(for: $0) }
+
         #expect(
-            beforeDrag == afterDrag,
+            buildsAfterPlacing > 0,
+            "the build counter never moved while placing five clusters, so it cannot prove anything below"
+        )
+        #expect(
+            dragViewModel.contentBuildCount == buildsAfterPlacing,
             """
-            pan, pinch and rotate must not rebuild any cluster's card — that memoization \
-            is the whole reason a drag is not a layout.
+            120 frames of pan, pinch and rotate across five clusters built \
+            \(dragViewModel.contentBuildCount - buildsAfterPlacing) card trees; it must build none. \
+            That memoization is the whole reason a drag is not a layout.
             """
+        )
+        #expect(
+            beforeDrag == dragViewModel.stickers.map { dragViewModel.content(for: $0) },
+            "a transform-only mutation must not change what a cluster draws"
         )
 
         let marginalOne = (onScreen[1] ?? 0) - (onScreen[0] ?? 0)
@@ -590,12 +608,6 @@ struct ShareStatClusterPresetEvidenceTests {
         String(format: "%.2f", seconds * 1_000)
     }
 
-    private static func duration(of work: () -> Void) -> Double {
-        let started = ContinuousClock.now
-        work()
-        let elapsed = (ContinuousClock.now - started).components
-        return Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
-    }
 
     /// A caption drawn on white at export scale, so the measurement is of the
     /// pixels a climber would actually be shown.

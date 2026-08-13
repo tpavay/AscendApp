@@ -98,6 +98,15 @@ final class ShareComposerViewModel {
     @ObservationIgnored private var availableStatsCache: [ResolvedShareStat]?
     @ObservationIgnored private var availablePresetsCache: [ShareStatClusterPreset]?
     @ObservationIgnored private var stickerContentCache: [UUID: ShareStickerContent] = [:]
+    /// How many times a sticker's card tree has actually been built.
+    ///
+    /// The memoization is the whole reason a drag is not a layout, and it cannot
+    /// be proved from the outside: `ShareStickerContent` is a value type, so a
+    /// rebuilt tree compares equal to a cached one and a test watching the
+    /// return value sees nothing. This counts the miss path instead, so a test
+    /// can assert that dragging builds nothing. Incremented off the render path
+    /// and never observed by a view.
+    @ObservationIgnored private(set) var contentBuildCount = 0
 
     private var resolver: ShareStatResolver {
         if let cachedResolver { return cachedResolver }
@@ -259,6 +268,7 @@ final class ShareComposerViewModel {
     }
 
     private func buildContent(for instance: ShareStickerInstance) -> ShareStickerContent {
+        contentBuildCount += 1
         let refs = instance.statRefs
         let resolvedPairs = refs.compactMap { ref in resolved(ref).map { (ref, $0) } }
         let splits = resolvedSplits(for: instance)

@@ -262,7 +262,7 @@ extension View {
     /// composer's per-frame work is ~0.002 ms, because `content(for:)` is
     /// memoized and a drag mutates only the transform. What costs is *layout*,
     /// paid once when a cluster is placed;
-    /// `addTimeLayoutStaysInsideAFrameWhenHeaviestClustersPileUp` measures that
+    /// `addTimeLayoutScalesLinearlyAsHeaviestClustersPileUp` measures that
     /// and finds the on-screen canvas (390×845) and the export canvas
     /// (1080×2340) cost the same despite ~7.7× the pixels - so add-time is
     /// layout and text shaping, not rasterization, and a smaller canvas will not
