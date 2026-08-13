@@ -113,23 +113,55 @@ struct ShareComposerWalkthroughTests {
         #expect(fixture.store.hasSeenWalkthrough)
     }
 
-    /// The dropped edit step leaves no gap in the dot row: the journey is three marks long and the
-    /// filter mark is its third, not a fourth with an unfilled dot behind it.
+    /// The row is four dots on the first card and four on the last, and the filled dot moves by
+    /// exactly one position between them. The skipped edit step reads as already passed rather
+    /// than deleting a dot from the row or leaving a gap in it.
     @Test(.bug(id: 491))
-    func aStickerWithNoEditRailHandsStraightOverToTheFilterMarkWithoutSkippingADot() {
+    func aStickerWithNoEditRailKeepsTheRowAtFourDotsAdvancingOneAtATime() {
         let fixture = DefaultsFixture()
         defer { fixture.cleanUp() }
         let coordinator = pickerCoordinator(fixture)
-        drive(coordinator, to: .stats)
+        var displayed: [DisplayedCard] = []
+
+        displayed.append(contentsOf: card(of: coordinator))
         coordinator.advance()
-
+        coordinator.backgroundSelected(.photoOrPreset)
+        coordinator.statsSheetPresented()
+        displayed.append(contentsOf: card(of: coordinator))
+        coordinator.advance()
         coordinator.stickerSelected(ShareStickerInstance(kind: .climbName, climbImageVariant: .thumb))
+        displayed.append(contentsOf: card(of: coordinator))
 
-        verify(coordinator, mark: .filters, target: .filters, step: 2, count: 3)
+        #expect(displayed.map(\.mark) == [.sources, .stats, .filters])
+        #expect(displayed.map(\.stepCount) == [4, 4, 4])
+        #expect(displayed.map(\.stepIndex) == [0, 1, 2])
+        #expect(zip(displayed, displayed.dropFirst()).allSatisfy { $1.stepIndex - $0.stepIndex == 1 })
 
         coordinator.advance()
         #expect(coordinator.state == .finished)
         #expect(fixture.store.hasSeenWalkthrough)
+    }
+
+    /// The hold has an exit for every way out of the picker. A background chosen while the source
+    /// tabs are still resolving drops that mark from the journey rather than dimming the composer
+    /// to point at an anchor the picker no longer publishes.
+    @Test(.bug(id: 491))
+    func aBackgroundChosenDuringTheSourceHoldNeverPresentsTheSourcesMark() {
+        let fixture = DefaultsFixture()
+        defer { fixture.cleanUp() }
+        let coordinator = ShareComposerWalkthroughCoordinator(entry: .picker, store: fixture.store)
+        #expect(coordinator.state == .waitingForSourceOptions)
+
+        #expect(coordinator.backgroundSelected(.photoOrPreset))
+        #expect(coordinator.state == .waitingForStatsSheet)
+
+        coordinator.sourceOptionsResolved(.climb)
+        coordinator.sourceOptionsResolutionTimedOut()
+        #expect(coordinator.mark == nil)
+        #expect(coordinator.presentation == nil)
+
+        coordinator.statsSheetPresented()
+        verify(coordinator, mark: .stats, target: .stats, step: 0, count: 4)
     }
 
     @Test(.bug(id: 491))
@@ -366,6 +398,20 @@ struct ShareComposerWalkthroughTests {
         #expect(rect == CGRect(x: 8, y: 345, width: 374, height: 150))
     }
 
+    /// What the climber is looking at right now, or nothing when no card is on screen.
+    private func card(of coordinator: ShareComposerWalkthroughCoordinator) -> [DisplayedCard] {
+        guard let mark = coordinator.mark, let presentation = coordinator.presentation else {
+            return []
+        }
+        return [
+            DisplayedCard(
+                mark: mark,
+                stepIndex: presentation.stepIndex,
+                stepCount: presentation.stepCount
+            )
+        ]
+    }
+
     /// A picker coordinator whose source tabs have already resolved, which is where every journey
     /// through the marks starts.
     private func pickerCoordinator(
@@ -405,6 +451,14 @@ struct ShareComposerWalkthroughTests {
         #expect(coordinator.presentation?.stepCount == count)
         #expect(coordinator.presentation?.showsSkip == true)
     }
+}
+
+/// One coach-mark card as the climber sees it, so a journey can be read back as the sequence of
+/// cards it actually displayed.
+private struct DisplayedCard: Equatable {
+    let mark: ShareComposerCoachMark
+    let stepIndex: Int
+    let stepCount: Int
 }
 
 /// The three shapes the edit rail draws differently: a plain metric offers every control, while a

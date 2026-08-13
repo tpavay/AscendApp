@@ -43,9 +43,17 @@ final class ShareComposerWalkthroughCoordinator {
     /// the moment the sources mark presents.
     private var sourceOptions: ShareComposerSourceOptions
     private var editRailOptions: ShareComposerEditRailOptions = .full
-    /// The marks this journey will actually show. The dot row counts these, so a step the climber
-    /// never reaches is never a gap in the row.
-    private var journeyMarks: [ShareComposerCoachMark]
+    /// How long the dot row is. Fixed for the whole walkthrough, on every path.
+    ///
+    /// This is deliberately not `shownMarks.count`, and the two must not be collapsed into one
+    /// value. The row's *length* never changes, so the climber never watches a dot appear or
+    /// disappear between one card and the next; only *which* dot is filled is derived from the
+    /// marks actually shown. A step this journey turns out to skip therefore reads as already
+    /// passed, which is what keeps the filled dot moving exactly one position per card.
+    private let progressRowLength: Int
+    /// The marks this journey will actually show, which is where the filled dot's position comes
+    /// from. Dropping one moves the remaining marks up a position; it never shortens the row.
+    private var shownMarks: [ShareComposerCoachMark]
 
     init(
         entry: Entry,
@@ -55,9 +63,11 @@ final class ShareComposerWalkthroughCoordinator {
         self.entry = entry
         self.sourceOptions = sourceOptions
         self.store = store
-        journeyMarks = entry == .picker
+        let marks: [ShareComposerCoachMark] = entry == .picker
             ? ShareComposerCoachMark.allCases
             : [.stats, .editRail, .filters]
+        shownMarks = marks
+        progressRowLength = marks.count
 
         if store.hasSeenWalkthrough {
             state = .finished
@@ -72,11 +82,11 @@ final class ShareComposerWalkthroughCoordinator {
     }
 
     var presentation: CoachMarkPresentation? {
-        guard let mark, let index = journeyMarks.firstIndex(of: mark) else { return nil }
+        guard let mark, let index = shownMarks.firstIndex(of: mark) else { return nil }
         return CoachMarkPresentation(
             title: mark.title(sourceOptions: sourceOptions),
             message: mark.message(sourceOptions: sourceOptions, editRailOptions: editRailOptions),
-            stepCount: journeyMarks.count,
+            stepCount: progressRowLength,
             stepIndex: index,
             primaryActionTitle: mark == .filters ? "Got it" : "Next",
             showsSkip: true
@@ -126,8 +136,16 @@ final class ShareComposerWalkthroughCoordinator {
 
     @discardableResult
     func backgroundSelected(_ selection: BackgroundSelection) -> Bool {
-        if state == .waitingForBackground {
+        switch state {
+        case .waitingForBackground:
             transition(to: .waitingForStatsSheet)
+        case .waitingForSourceOptions:
+            // The picker is behind us, so its mark has missed its moment: present it now and it
+            // would dim the composer while pointing at an anchor no longer on screen.
+            shownMarks.removeAll { $0 == .sources }
+            transition(to: .waitingForStatsSheet)
+        case .presenting, .waitingForStatsSheet, .waitingForSticker, .finished:
+            break
         }
         return selection.automaticallyPresentsStatsSheet
     }
@@ -145,12 +163,12 @@ final class ShareComposerWalkthroughCoordinator {
     /// Whatever the climber added, the walkthrough carries on: the edit step describes the rail the
     /// selected sticker actually offers, and a sticker with no rail at all drops that step from the
     /// journey and hands over to the filter mark rather than waiting for a control that will never
-    /// appear.
+    /// appear. The row keeps its length; the dropped step reads as already passed.
     func stickerSelected(_ sticker: ShareStickerInstance?) {
         guard state == .waitingForSticker, let sticker else { return }
 
         guard let options = ShareComposerEditRailOptions(sticker: sticker) else {
-            journeyMarks.removeAll { $0 == .editRail }
+            shownMarks.removeAll { $0 == .editRail }
             transition(to: .presenting(.filters))
             return
         }
