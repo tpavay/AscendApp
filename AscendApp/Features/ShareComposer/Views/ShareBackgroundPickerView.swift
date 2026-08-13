@@ -10,8 +10,10 @@ struct ShareBackgroundPickerView: View {
     let onPick: (ShareBackgroundSource) -> Void
     var onPickRecap: ((ShareCardTemplate) -> Void)?
     let onClose: () -> Void
+    let walkthrough: ShareComposerWalkthroughCoordinator
 
     @State private var selectedTab: Tab = .cameraRoll
+    @AccessibilityFocusState private var sourceTabsAreFocused: Bool
 
     private let accent = Color(red: 0.706, green: 0.8, blue: 0)
 
@@ -31,6 +33,7 @@ struct ShareBackgroundPickerView: View {
             VStack(spacing: 0) {
                 header
                 tabPill
+                    .accessibilityFocused($sourceTabsAreFocused)
                     .padding(.top, 18)
                     .padding(.bottom, 8)
 
@@ -45,6 +48,10 @@ struct ShareBackgroundPickerView: View {
 
                 Spacer(minLength: 0)
             }
+        }
+        .onChange(of: walkthrough.state) { oldState, newState in
+            guard oldState == .presenting(.sources), newState != oldState else { return }
+            sourceTabsAreFocused = true
         }
     }
 
@@ -80,14 +87,17 @@ struct ShareBackgroundPickerView: View {
     private var tabPill: some View {
         HStack(spacing: 0) {
             tabButton("Camera Roll", tab: .cameraRoll)
-            tabButton("Presets", tab: .presets)
-            if recap != nil {
+            if !presets.isEmpty {
+                tabButton("Presets", tab: .presets)
+            }
+            if onPickRecap != nil {
                 tabButton("Recaps", tab: .recaps)
             }
         }
         .padding(4)
         .background(.white.opacity(0.06), in: Capsule(style: .continuous))
         .overlay(Capsule(style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
+        .shareComposerCoachMarkTarget(.sources)
         .padding(.horizontal, 24)
     }
 
@@ -101,7 +111,7 @@ struct ShareBackgroundPickerView: View {
                 .font(.montserratSemiBold(size: 14))
                 .foregroundStyle(selectedTab == tab ? .white : .white.opacity(0.5))
                 .frame(maxWidth: .infinity)
-                .frame(height: 40)
+                .frame(height: 44)
                 .background {
                     if selectedTab == tab {
                         Capsule(style: .continuous).fill(.white.opacity(0.12))
