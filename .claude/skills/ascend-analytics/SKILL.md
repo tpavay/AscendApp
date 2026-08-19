@@ -29,7 +29,7 @@ Multiple analytics destinations are sanctioned - each is best at a different job
   Cloud Functions also export subscription lifecycle events straight to Mixpanel, routed per environment - see "Mixpanel environment separation and event envelope" and "Server-owned subscription lifecycle events" below.
 - **SuperWall** - onboarding-flow step-level conversion + paywall presentation analytics (its specialty).
 - **Crashlytics** - crashes, fatal errors, stability metrics.
-- **Sentry** - error/crash diagnostics mirror alongside Crashlytics (non-fatal errors, app hangs, symbolicated traces). **Production only**: dev and staging do not initialise the SDK, because their volume set the noise floor for the one environment anyone is paged about. A production error carries a masked screenshot, a view hierarchy, and a masked on-error session replay, and a `beforeSend` flood guard bounds what one runaway session can send without ever being able to drop a crash or an app hang - `docs/sentry-setup.md`. When reading, triaging, or updating Sentry issues/events, use the `sentry` skill.
+- **Sentry** - error/crash diagnostics mirror alongside Crashlytics (non-fatal errors, app hangs, symbolicated traces). **Production only**: dev and staging do not initialise the SDK, because their volume set the noise floor for the one environment anyone is paged about. A production error carries a masked screenshot and a view hierarchy - session replay is deliberately not shipped - and a `beforeSend` flood guard bounds what one runaway session can send without ever being able to drop a crash or an app hang - `docs/sentry-setup.md`. When reading, triaging, or updating Sentry issues/events, use the `sentry` skill.
 
 When evaluating new providers, justify them by what they uniquely measure that the existing set doesn't.
 
@@ -41,7 +41,8 @@ Debug reports to Development `4032860`, Staging reports to Staging `4051102`, an
 Archive workflows also inspect the processed app bundle with `scripts/ci/assert-mixpanel-bundle.mjs` before upload.
 `scripts/test/mixpanel-build-configuration.test.mjs` pins the same contract offline against `project.pbxproj` and `Info.plist`, holds the Mixpanel SDK import inside the three adapter files, and keeps session replay disabled.
 Mixpanel replay stays off because Ascend handles health data: turning it on means masking date of birth, weight, exact location, and heart-rate values before capture.
-Sentry replay is a separate decision and *is* on, in production only and on the error path only, with that masking proven rather than assumed - see `docs/sentry-setup.md`.
+Sentry replay was considered separately and is also off: its integration renders the whole screen on the main thread once a second for the entire session, which lands on the Fatal App Hangs production most needs to see - `docs/sentry-setup.md`.
+The masking work stands regardless, because the crash screenshot needs every bit of it.
 
 Every event and screen carries `app_environment`, `build_config`, `app_version`, and `build_number` directly in its payload through `TelemetryEnvelope`.
 The `TelemetrySink` boundary accepts only enveloped records, so a feature call site cannot omit those fields or spoof them with event parameters.

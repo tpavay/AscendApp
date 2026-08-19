@@ -24,6 +24,10 @@ struct SentryEventFloodGuardTests {
         SentryFloodGuardEvent(groupKey: key, isProtected: true)
     }
 
+    private static func nonError(_ key: String = "replay_video") -> SentryFloodGuardEvent {
+        SentryFloodGuardEvent(groupKey: key, isProtected: false, isErrorEvent: false)
+    }
+
     // MARK: - The drop path
 
     @Test
@@ -95,6 +99,21 @@ struct SentryEventFloodGuardTests {
         #expect(guardUnderTest.droppedEventCount == 0)
     }
 
+    @Test
+    func aPayloadThatIsNotAnErrorIsNeitherBoundedNorCharged() {
+        let clock = TestClock()
+        let guardUnderTest = SentryEventFloodGuard(limits: Self.limits, now: clock.now)
+
+        // `beforeSend` sees transactions and replay segments too. They arrive on
+        // the SDK's own schedule, so throttling them would only throttle a
+        // mechanism that is not flooding.
+        #expect((0..<100).allSatisfy { _ in guardUnderTest.allows(Self.nonError()) })
+        #expect(guardUnderTest.droppedEventCount == 0)
+
+        // And they leave the error budget exactly where they found it.
+        #expect((0..<Self.limits.perKeyCap).allSatisfy { _ in guardUnderTest.allows(Self.noise()) })
+    }
+
     // MARK: - Classification
 
     @Test(arguments: [
@@ -132,6 +151,15 @@ struct SentryEventFloodGuardTests {
         #expect(SentryFloodGuardEvent(event: event).isProtected)
     }
 
+    @Test(arguments: ["replay_video", "transaction"])
+    func everyPayloadTheSDKStampsATypeOnIsClassifiedAsNotAnError(type: String) {
+        // Only error events leave `type` nil; the SDK sets it on everything else.
+        let event = Event(level: .info)
+        event.type = type
+
+        #expect(!SentryFloodGuardEvent(event: event).isErrorEvent)
+    }
+
     @Test
     func anOrdinaryHandledErrorIsNotProtected() {
         let event = Event(level: .error)
@@ -143,6 +171,7 @@ struct SentryEventFloodGuardTests {
 
         let candidate = SentryFloodGuardEvent(event: event)
         #expect(!candidate.isProtected)
+        #expect(candidate.isErrorEvent)
         #expect(candidate.groupKey == "com.google.fcm|generic")
     }
 

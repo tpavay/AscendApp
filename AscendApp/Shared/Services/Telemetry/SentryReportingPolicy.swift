@@ -11,7 +11,8 @@ import Foundation
 /// caused them, so neither starts the SDK.
 ///
 /// Because this is the only gate, everything `SentryOptionsFactory` configures -
-/// session replay included - is production-only by construction.
+/// the masked crash screenshot and view hierarchy included - is production-only
+/// by construction.
 struct SentryReportingPolicy: Equatable {
     static let productionEnvironment = "production"
 

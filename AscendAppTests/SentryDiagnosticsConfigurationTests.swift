@@ -77,27 +77,17 @@ struct SentryDiagnosticsConfigurationTests {
 
     // MARK: - Session replay
 
+    /// Replay is deliberately not shipped, and both rates are asserted because
+    /// either one above zero installs `SentrySessionReplayIntegration`, which
+    /// renders and redacts the whole screen on the main thread once a second for
+    /// the entire foreground session - on the same main thread whose stalls are
+    /// production's most important signal.
     @Test
-    func replayRecordsOnErrorAndNeverBySession() throws {
+    func sessionReplayIsOffOnBothAxes() throws {
         let replay = try #require(Self.options(environment: "production")).sessionReplay
 
-        #expect(replay.onErrorSampleRate == 1)
-        #expect(replay.sessionSampleRate == 0, "session sampling is where replay cost runs away")
-    }
-
-    @Test
-    func replayMasksEveryClassOfSensitiveContent() throws {
-        let replay = try #require(Self.options(environment: "production")).sessionReplay
-
-        #expect(replay.maskAllText)
-        #expect(replay.maskAllImages)
-        #expect(
-            replay.maskedViewClasses.contains { $0 == SentryMaskedRegionView.self },
-            """
-            Swift Charts marks and AVPlayerLayer video are neither text nor images to the SDK, \
-            so the app's own mask marker has to be registered - see SentryReplayMaskingEvidenceTests.
-            """
-        )
+        #expect(replay.sessionSampleRate == 0)
+        #expect(replay.onErrorSampleRate == 0)
     }
 
     // MARK: - Crash context
@@ -111,12 +101,18 @@ struct SentryDiagnosticsConfigurationTests {
     }
 
     @Test
-    func theCrashScreenshotIsMaskedOnTheSameTermsAsReplay() throws {
+    func theCrashScreenshotPaintsOutEveryClassOfSensitiveContent() throws {
         let screenshot = try #require(Self.options(environment: "production")).screenshot
 
         #expect(screenshot.maskAllText)
         #expect(screenshot.maskAllImages)
-        #expect(screenshot.maskedViewClasses.contains { $0 == SentryMaskedRegionView.self })
+        #expect(
+            screenshot.maskedViewClasses.contains { $0 == SentryMaskedRegionView.self },
+            """
+            Swift Charts marks and AVPlayerLayer video are neither text nor images to the SDK, \
+            so the app's own mask marker has to be registered - see SentryMaskingEvidenceTests.
+            """
+        )
     }
 
     // MARK: - What stays off

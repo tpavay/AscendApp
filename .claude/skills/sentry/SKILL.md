@@ -144,7 +144,7 @@ curl -s -X POST -H "Authorization: Bearer $SENTRY_TOKEN" -H "Content-Type: appli
 ## Triage Conventions
 
 - Everything arriving now is production. Historic `environment:staging` (TestFlight + CI) and `environment:dev` (simulator/local) issues predate the production-only gate and stopped growing when it shipped; date-bound any query that mixes them in, and never read a flat 30-day count as current volume.
-- A production error carries a masked screenshot, a view hierarchy, and a masked session replay of the seconds before it. Everything legible is painted out - open them for layout, navigation state, and which surface failed, never expecting to read a value off one.
+- A production error carries a masked screenshot and a view hierarchy; there is no session replay, deliberately (`docs/sentry-setup.md`). Everything legible is painted out - open them for layout, navigation state, and which surface failed, never expecting to read a value off one.
 - `ascend_flood_guard_dropped` on an event means that session had already hit a client-side ceiling and dropped that many events before this one. Treat it as evidence of a loop, and remember the counts below it are floors rather than totals. Crashes and app hangs are never dropped, so their counts are always exact.
 - Issues titled `AscendAppTests.*` are unit-test errors leaking into Sentry from a test host with telemetry enabled — telemetry noise to suppress at the source, never real app bugs. Safe to archive after the leak is fixed.
 - `App Hang` issues are Sentry ANR detection. Unsymbolicated frames (`?` frames) mean dSYMs were missing for that build; check whether the release predates CI dSYM upload before investigating.

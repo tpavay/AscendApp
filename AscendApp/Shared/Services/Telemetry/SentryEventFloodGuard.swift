@@ -62,10 +62,12 @@ final class SentryEventFloodGuard: @unchecked Sendable {
 
     /// Answers whether this event may be sent, spending its budget if so.
     func allows(_ event: SentryFloodGuardEvent) -> Bool {
-        // Answered before any counter is read, and without spending any budget:
-        // this is the branch that makes the guard incapable of dropping a crash
-        // or a fatal app hang.
-        guard !event.isProtected else { return true }
+        // Both answered before any counter is read, and without spending any
+        // budget. The protected branch is what makes the guard incapable of
+        // dropping a crash or a fatal app hang; the non-error branch keeps the
+        // guard aimed at the only thing it bounds, since transactions and replay
+        // segments are metered by the SDK's own sample rates.
+        guard event.isErrorEvent, !event.isProtected else { return true }
 
         lock.lock()
         defer { lock.unlock() }

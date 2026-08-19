@@ -9,8 +9,8 @@ import UIKit
 ///
 /// Ascend carries health data - heart rate, calories, session measurements -
 /// alongside account identity and the climber's own photos and video, and
-/// enabling screenshot attachment and session replay puts a rendering of their
-/// screen on the wire. The SDK's masking defaults are a claim, not evidence, so
+/// attaching a screenshot to a crash puts a rendering of their screen on the
+/// wire. The SDK's masking defaults are a claim, not evidence, so
 /// this suite runs Ascend's real surfaces through the SDK's own masking
 /// pipeline - `SentryViewPhotographer` over the very options
 /// `SentryOptionsFactory` hands the SDK - and asserts the property that matters.
@@ -33,13 +33,13 @@ import UIKit
 ///
 /// What masking does **not** hide, and no configuration can: the size and
 /// position of the masked rectangle. A masked region is the covered view's own
-/// frame, so a replay still shows that a label is wide, not what it says.
+/// frame, so a screenshot still shows that a label is wide, not what it says.
 ///
 /// The masked renders are written out for the record; set `ASCEND_EVIDENCE_DIR`
 /// to collect them somewhere durable.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
-struct SentryReplayMaskingEvidenceTests {
+struct SentryMaskingEvidenceTests {
     private static let screenSize = CGSize(width: 393, height: 500)
     private static let chartStart = Date(timeIntervalSince1970: 1_750_300_000)
     private static let chartDuration: TimeInterval = 1_800
@@ -139,8 +139,8 @@ struct SentryReplayMaskingEvidenceTests {
             """
             \(name): \(maskedDifference.pixelsBeyondTolerance) pixels of the masked render depend on \
             how the sensitive content was arranged (worst channel off by \
-            \(maskedDifference.maximumChannelDelta)), so this surface can reach a Sentry replay frame \
-            or crash screenshot legibly. Masked renders were written to \(evidenceDirectory.path()).
+            \(maskedDifference.maximumChannelDelta)), so this surface can reach a Sentry crash \
+            screenshot legibly. Masked renders were written to \(evidenceDirectory.path()).
             """
         )
     }
@@ -172,8 +172,7 @@ struct SentryReplayMaskingEvidenceTests {
     // MARK: - Rendering
 
     /// Hosts `view` in the shared window scene and reads it back, optionally
-    /// through the exact masking pipeline the SDK uses for screenshots and
-    /// replay frames.
+    /// through the exact masking pipeline the SDK uses for crash screenshots.
     private static func render(
         _ view: some View,
         masked: Bool,
