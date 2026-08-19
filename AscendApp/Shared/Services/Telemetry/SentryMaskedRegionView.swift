@@ -1,7 +1,6 @@
 import UIKit
 
-/// An invisible view whose frame Sentry paints over in every screenshot and
-/// replay frame.
+/// An invisible view whose frame Sentry paints over in every crash screenshot.
 ///
 /// Sentry redacts by view class, and its text and image classes miss anything an
 /// app draws itself. Ascend's heart-rate and trend charts are exactly that: Swift

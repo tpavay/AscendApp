@@ -43,22 +43,25 @@ See `.claude/skills/ascend-analytics/SKILL.md` for the Mixpanel side.
 `SentryOptionsFactory` is the one place these are decided.
 
 - **A screenshot and a view hierarchy** (`attachScreenshot`, `attachViewHierarchy`). The SDK skips both for app hangs, because the main thread it would have to render on is the blocked one - so enabling them cannot cost an App Hang report.
-- **A session replay of the seconds before the error** (`sessionReplay.onErrorSampleRate = 1`). `sessionSampleRate` stays at `0` deliberately: session recording is where replay cost runs away, and production sees roughly 23 errors a month.
+- **No session replay.** `sessionReplay.sessionSampleRate` and `sessionReplay.onErrorSampleRate` are both written out as `0`, and both have to stay there.
+  Either one above zero installs `SentrySessionReplayIntegration`, which is not the bounded pre-error buffer it sounds like: it runs a `CADisplayLink` that renders and redacts the whole screen on the main thread once a second for the entire foreground session, and once an error triggers a capture the SDK keeps uploading a five-second segment for up to an hour.
+  That is a main-thread cost landing on Fatal App Hangs - the most important real signal production has - and an unbounded cost multiplier, for a project that sees roughly 23 errors a month.
+  Do not re-add it without answering both.
 - **Nothing else new.** `tracesSampleRate` is `0`, `sendDefaultPii` is `false`, and auto performance, user-interaction and file-I/O tracing all stay off.
 
 ## Masking
 
-Ascend carries health data and account identity, so masking is a gate on shipping replay, not a follow-up.
+Ascend carries health data and account identity, so masking is a gate on shipping the crash screenshot, not a follow-up.
 
-- `maskAllText` and `maskAllImages` are set **explicitly** on both the replay and screenshot options, so a future SDK default flip cannot quietly start shipping a climber's heart rate, name, or account identifier.
+- `maskAllText` and `maskAllImages` are set **explicitly** on the screenshot options, so a future SDK default flip cannot quietly start shipping a climber's heart rate, name, or account identifier.
 - The SDK's own masking covers UIKit and SwiftUI text, images and SF Symbols, `WKWebView`, `PDFView`, and `AVPlayerView`. It does **not** cover anything an app draws itself.
 - Ascend does draw its own: Swift Charts renders marks *and axis labels* through drawing layers the SDK does not recognise, and `AVPlayerLayer`-backed video is neither text nor a `UIImageView`. Before this was fixed, a masked screenshot of Workout Detail still showed the whole heart-rate trace with real BPM values on the axis.
-- `View.sentryMasked()` overlays `SentryMaskedRegionView`, which is registered in `maskedViewClasses` for both replay and screenshots. Apply it to any surface that renders health data, identity, or user media in a way the SDK cannot see.
+- `View.sentryMasked()` overlays `SentryMaskedRegionView`, which is registered in the screenshot options' `maskedViewClasses`. Apply it to any surface that renders health data, identity, or user media in a way the SDK cannot see.
 - The view hierarchy attachment carries no rendered content - class name, frame, alpha, visibility, view-controller class, and `accessibilityIdentifier`, which Ascend only ever sets to static literals.
 
-What masking does **not** hide, and no configuration can: a masked region is the covered view's own frame, so a replay still shows that a label is wide, not what it says.
+What masking does **not** hide, and no configuration can: a masked region is the covered view's own frame, so a screenshot still shows that a label is wide, not what it says.
 
-`AscendAppTests/SentryReplayMaskingEvidenceTests.swift` is the evidence. It renders each surface twice with sensitive content that is a permutation of itself - a reversed name, the same digits reordered, a mirrored photograph, a heart-rate trace played backwards - and asserts the two masked renders are the same image. The masked fill is the *average colour* of what it covered rather than a fixed black, so a permutation is exactly the comparison that isolates content from layout.
+`AscendAppTests/SentryMaskingEvidenceTests.swift` is the evidence. It renders each surface twice with sensitive content that is a permutation of itself - a reversed name, the same digits reordered, a mirrored photograph, a heart-rate trace played backwards - and asserts the two masked renders are the same image. The masked fill is the *average colour* of what it covered rather than a fixed black, so a permutation is exactly the comparison that isolates content from layout.
 
 ## Flood guard
 
@@ -66,7 +69,11 @@ Nothing used to limit what one session could send. A `Swift.CancellationError` l
 
 `SentryEventFloodGuard` runs in `beforeSend`: a fixed window per group key (5 per 60s) plus a whole-session ceiling (200). Both are ceilings, never samplers, so the same session always makes the same decision. When it drops something, the next event that gets through carries `ascend_flood_guard_dropped`, so a fired guard is visible rather than silent.
 
-**It cannot drop a crash or an app hang.** Protected events - anything at `fatal`, anything carrying the `AppHang` mechanism or an `App Hang` exception type, and any unhandled exception - are answered before a counter is read, and spend no allowance. `beforeSend` runs for crash events too, so this branch is the only thing standing between a noise guard and a real fatal report; `SentryEventFloodGuardTests` covers both the drop path and the protected path.
+**It cannot drop a crash or an app hang.** Protected events - anything at `fatal`, anything carrying the `AppHang` mechanism or an `App Hang` exception type, and any unhandled exception - are answered before a counter is read, and spend no allowance.
+`beforeSend` runs for crash events too, so that branch is the only thing standing between a noise guard and a real fatal report; `SentryEventFloodGuardTests` covers both the drop path and the protected path.
+
+**It only bounds error events.** `beforeSend` sees everything the SDK sends, and a transaction or a replay segment arrives on the SDK's own schedule under its own sample rate, so charging one to an error budget would throttle a mechanism that is not flooding and exhaust the session ceiling ahead of the errors the guard exists to protect.
+Those payloads are exempted before a counter is read, on the same terms as protected events. The SDK leaves `type` nil on error events and stamps it on every other payload, which is the signal `SentryFloodGuardEvent` reads.
 
 ## MCP Workflow
 

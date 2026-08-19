@@ -15,7 +15,11 @@ extension SentryFloodGuardEvent {
     private static let appHangExceptionMarker = "App Hang"
 
     init(event: Event) {
-        self.init(groupKey: Self.groupKey(for: event), isProtected: Self.isProtected(event))
+        self.init(
+            groupKey: Self.groupKey(for: event),
+            isProtected: Self.isProtected(event),
+            isErrorEvent: event.type == nil
+        )
     }
 
     /// Whether the flood guard must not be allowed to touch this event.
@@ -40,6 +44,10 @@ extension SentryFloodGuardEvent {
     }
 
     /// The budget an event spends from, closest-to-Sentry's-own-grouping first.
+    ///
+    /// Only reached for error events: the SDK leaves `type` nil on those and
+    /// stamps it on everything else (`transaction`, `replay_video`), which is
+    /// what `isErrorEvent` reads.
     ///
     /// Every branch resolves to a bounded string in practice - an exception type
     /// is an error domain, a mechanism a fixed vocabulary - and

@@ -4,7 +4,7 @@ import Foundation
 /// Builds the one `Options` object Ascend starts Sentry with.
 ///
 /// Separate from `SentryDiagnosticsReporter` so every decision in it - which
-/// environments report, what replay records, what masking is applied - can be
+/// environments report, what a crash carries, what masking is applied - can be
 /// asserted without starting an SDK client.
 enum SentryOptionsFactory {
     /// `nil` when this environment must not initialise Sentry at all.
@@ -30,7 +30,7 @@ enum SentryOptionsFactory {
         options.enableFileIOTracing = false
 
         applyCrashContext(to: options)
-        options.sessionReplay = makeSessionReplayOptions()
+        disableSessionReplay(on: options)
         applyFloodGuard(to: options, floodGuard: floodGuard)
 
         return options
@@ -39,12 +39,12 @@ enum SentryOptionsFactory {
     /// A stack trace alone rarely says what the climber was looking at, so a
     /// crash carries a picture and the view tree with it.
     ///
-    /// The screenshot is masked on exactly the same terms as replay - the SDK
-    /// routes it through `SentryViewPhotographer` with `options.screenshot` as
-    /// its redaction options, so covered content is painted out before the PNG
-    /// exists. The view hierarchy carries no rendered content at all: class
-    /// name, frame, alpha, visibility, view-controller class, and
-    /// `accessibilityIdentifier`, which Ascend only ever sets to static literals.
+    /// The screenshot is masked before it exists - the SDK routes it through
+    /// `SentryViewPhotographer` with `options.screenshot` as its redaction
+    /// options, so covered content is painted out before the PNG does. The view
+    /// hierarchy carries no rendered content at all: class name, frame, alpha,
+    /// visibility, view-controller class, and `accessibilityIdentifier`, which
+    /// Ascend only ever sets to static literals.
     ///
     /// Neither attachment is taken for app hangs: the SDK skips both when the
     /// main thread is blocked, so enabling them cannot cost an App Hang report.
@@ -57,7 +57,7 @@ enum SentryOptionsFactory {
 
     /// The redaction applied to crash screenshots.
     ///
-    /// Exposed so `SentryReplayMaskingEvidenceTests` can prove the shipped
+    /// Exposed so `SentryMaskingEvidenceTests` can prove the shipped
     /// configuration rather than a hand-rolled copy of it.
     static func makeScreenshotOptions() -> SentryViewScreenshotOptions {
         let screenshot = SentryViewScreenshotOptions()
@@ -67,24 +67,19 @@ enum SentryOptionsFactory {
         return screenshot
     }
 
-    /// Replay on the error path only. It reaches only production because
-    /// `makeOptions` has already refused every other environment.
+    /// Session replay is deliberately not shipped, and both rates are written
+    /// out rather than left to the SDK's defaults so the decision is legible and
+    /// testable.
     ///
-    /// `sessionSampleRate` stays at zero deliberately - session recording is
-    /// where replay cost runs away, and what is wanted is a replay of the
-    /// twenty-odd errors production sees in a month, not of every session.
-    ///
-    /// Masking is set explicitly rather than left to the SDK's defaults so that
-    /// a future default flip cannot quietly start shipping a climber's heart
-    /// rate, name, or account identifier to us.
-    static func makeSessionReplayOptions() -> SentryReplayOptions {
-        let replay = SentryReplayOptions()
-        replay.sessionSampleRate = 0
-        replay.onErrorSampleRate = 1
-        replay.maskAllText = true
-        replay.maskAllImages = true
-        replay.maskedViewClasses = maskedViewClasses
-        return replay
+    /// With both at zero `SentrySessionReplayIntegration` refuses to install at
+    /// all, so nothing buffers, no `CADisplayLink` renders the screen once a
+    /// second on the main thread, and no `replay_video` event is ever produced.
+    /// The two reasons it stays off: per-session capture is where replay cost
+    /// runs away, and the per-second main-thread render would land on Fatal App
+    /// Hangs, which are the most important real signal production has.
+    private static func disableSessionReplay(on options: Options) {
+        options.sessionReplay.sessionSampleRate = 0
+        options.sessionReplay.onErrorSampleRate = 0
     }
 
     /// What the SDK's own text and image classes cannot see.
@@ -94,6 +89,9 @@ enum SentryOptionsFactory {
     /// labels are not text or images as far as the SDK is concerned, and the
     /// `AVPlayerLayer`-backed video views. Matching walks the superclass chain,
     /// so registering the marker covers every use of it.
+    ///
+    /// A crash screenshot is the only surface that needs it today; it needed it
+    /// before replay was considered and still needs it now replay is not shipped.
     private static var maskedViewClasses: [AnyClass] {
         [SentryMaskedRegionView.self]
     }

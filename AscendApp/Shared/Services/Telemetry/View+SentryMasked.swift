@@ -1,14 +1,13 @@
 import SwiftUI
 
 extension View {
-    /// Paints this subtree out of every Sentry screenshot and session replay
-    /// frame.
+    /// Paints this subtree out of every Sentry crash screenshot.
     ///
     /// Reach for it whenever a surface renders health data, identity, or user
     /// media in a way the SDK's own text and image masking cannot see -
     /// Swift Charts marks and axis labels, `Canvas` and `Shape` drawing that
     /// encodes a measurement, and `AVPlayerLayer`-backed video. Plain `Text` and
-    /// `Image` need nothing: `SentryReplayMaskingEvidenceTests` proves the SDK
+    /// `Image` need nothing: `SentryMaskingEvidenceTests` proves the SDK
     /// already covers those.
     func sentryMasked() -> some View {
         overlay {
