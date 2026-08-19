@@ -147,6 +147,7 @@ struct ProfileWeeklyStepsChart: View {
             }
         }
         .frame(height: 150)
+        .sentryMasked()
     }
 
     private var emptyState: some View {

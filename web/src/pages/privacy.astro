@@ -96,7 +96,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
   <div class="privacy-page">
     <main>
       <h1>Privacy Policy</h1>
-      <p class="last-updated">Last updated: August 8, 2026</p>
+      <p class="last-updated">Last updated: August 19, 2026</p>
 
       <h2>Introduction</h2>
       <p>Ascend ("we", "our", or "us") is a stair stepper racing app. You race real landmark climbs on a stair stepper, and Ascend records those climbs and the leaderboards, achievements, and progress that come out of them. This Privacy Policy explains what information we collect, how we use it, how we share it, and the choices you have.</p>
@@ -116,6 +116,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         <li><strong>Product usage analytics:</strong> Screen views, onboarding funnel events, feature interactions, paywall events, and other first-party product analytics collected through Firebase Analytics and Mixpanel in non-debug builds.</li>
         <li><strong>Notification data:</strong> Notification preferences, iOS notification permission state, and APNs/FCM push registration tokens used to send opted-in app notifications such as climb-drop alerts.</li>
         <li><strong>Diagnostics:</strong> Crash reports, performance data, non-fatal error logs, app version, operating system version, device model, and related debugging context collected through Firebase Crashlytics, Sentry, and app telemetry.</li>
+        <li><strong>Error screen captures:</strong> When the App Store version of Ascend hits a crash or an error, it attaches a masked picture of the screen you were on, a structural outline of that screen, and a masked recording of the seconds leading up to it, so the failure can be diagnosed. These are masked before they leave your device: all text, all images, your photos and videos, and the charts that show your health data are painted over as solid blocks, so no heart-rate value, name, email address, or account identifier appears in them. Ascend does not capture your screen at any other time, and TestFlight and development builds send no diagnostics at all.</li>
         <li><strong>City search and map context:</strong> Searches and selected city-level location information used to help you pick profile and leaderboard context. If you choose current location during onboarding, Ascend uses it once to find your city, then saves only city, region, and country. Ascend does not collect continuous background location or gym-level location for leaderboards.</li>
       </ul>
 
@@ -163,7 +164,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         <li><strong>RevenueCat:</strong> Subscription status, entitlements, purchase history, and restore-purchase support.</li>
         <li><strong>Superwall:</strong> Paywall presentation, paywall analytics, campaign logic, and subscription conversion measurement.</li>
         <li><strong>Mixpanel:</strong> First-party product analytics and onboarding funnel measurement.</li>
-        <li><strong>Sentry:</strong> Crash reporting, non-fatal error diagnostics, performance diagnostics, breadcrumbs, and release health investigation.</li>
+        <li><strong>Sentry:</strong> Crash reporting, non-fatal error diagnostics, performance diagnostics, breadcrumbs, masked error screen captures, and release health investigation. Sentry receives nothing from TestFlight or development builds.</li>
         <li><strong>Resend:</strong> Email delivery. Resend receives the recipient email address and the contents of the message we send. When you send feedback or a support message, your email address is also used as the reply-to address on the notification sent to us.</li>
         <li><strong>Beehiiv:</strong> Newsletter subscription management. Beehiiv holds the email addresses submitted through the Ascend website before waitlist signup was retired, along with the signup source and campaign information for those submissions.</li>
       </ul>

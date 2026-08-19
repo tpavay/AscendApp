@@ -68,7 +68,20 @@ struct ShareBackgroundView: View {
 }
 
 /// Minimal muted looping video player for background preview during editing.
-private struct LoopingVideoView: UIViewRepresentable {
+///
+/// Masked for Sentry for the same reason as `VideoPlayerView`: an
+/// `AVPlayerLayer` is neither text nor a `UIImageView`, so the SDK's own
+/// masking does not cover the climber's chosen footage.
+private struct LoopingVideoView: View {
+    let url: URL
+
+    var body: some View {
+        LoopingPlayerRepresentable(url: url)
+            .sentryMasked()
+    }
+}
+
+private struct LoopingPlayerRepresentable: UIViewRepresentable {
     let url: URL
 
     func makeUIView(context: Context) -> PlayerContainerView {

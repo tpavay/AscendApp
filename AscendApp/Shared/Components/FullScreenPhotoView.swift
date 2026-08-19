@@ -237,7 +237,18 @@ struct FullScreenPhotoView: View {
     }
 }
 
-private struct FullScreenVideoPlayer: UIViewControllerRepresentable {
+/// Masked for Sentry: `AVPlayerViewController` renders the climber's own footage
+/// through a player layer, which the SDK's text and image masking does not cover.
+private struct FullScreenVideoPlayer: View {
+    let player: AVPlayer
+
+    var body: some View {
+        PlayerControllerRepresentable(player: player)
+            .sentryMasked()
+    }
+}
+
+private struct PlayerControllerRepresentable: UIViewControllerRepresentable {
     let player: AVPlayer
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
