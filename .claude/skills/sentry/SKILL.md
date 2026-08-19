@@ -17,7 +17,7 @@ This is harness-neutral. If the current AI tool does not support skills, paste o
 - API base: `https://sentry.io/api/0`
 - Web UI: `https://ascend-uk.sentry.io`
 - Issue short IDs look like `ASCEND-IOS-B`; numeric issue IDs look like `7582495782`. Both appear in alert emails.
-- Sentry environments match the app's build configs: `dev`, `staging`, `production` (set in `AscendApp/Shared/Services/Telemetry/SentryDiagnosticsReporter.swift`).
+- **Only `production` reports.** Dev and staging no longer initialise the SDK at all (`SentryReportingPolicy`; `docs/sentry-setup.md`), so `environment:dev` and `environment:staging` hold history, not live traffic. `SentryOptionsFactory` owns every option the app starts with.
 - Useful custom tags set by the app: `ascend_error_code`, `ascend_error_context`, `build_config`, `app_environment`, `has_app_access`, `holds_sandbox_entitlement`, `storekit_receipt_name`, `last_diagnostic_event`, `release` (format `com.TylerPavay.AscendApp.staging@1.0+<build>`).
   The two StoreKit tags are set only once RevenueCat has answered, and only for reports that exist - a monetization symptom that raises an alert instead of an error carries them on the analytics events instead (`ascend-analytics`).
 
@@ -144,7 +144,9 @@ curl -s -X POST -H "Authorization: Bearer $SENTRY_TOKEN" -H "Content-Type: appli
 
 ## Triage Conventions
 
-- Staging (`environment:staging`) is TestFlight + CI traffic; dev (`environment:dev`) is simulator/local. Neither represents production users — weigh severity accordingly, but treat escalating staging issues as launch blockers to fix before production.
+- Everything arriving now is production. Historic `environment:staging` (TestFlight + CI) and `environment:dev` (simulator/local) issues predate the production-only gate and stopped growing when it shipped; date-bound any query that mixes them in, and never read a flat 30-day count as current volume.
+- A production error carries a masked screenshot, a view hierarchy, and a masked session replay of the seconds before it. Everything legible is painted out - open them for layout, navigation state, and which surface failed, never expecting to read a value off one.
+- `ascend_flood_guard_dropped` on an event means that session had already hit a client-side ceiling and dropped that many events before this one. Treat it as evidence of a loop, and remember the counts below it are floors rather than totals. Crashes and app hangs are never dropped, so their counts are always exact.
 - Issues titled `AscendAppTests.*` are unit-test errors leaking into Sentry from a test host with telemetry enabled — telemetry noise to suppress at the source, never real app bugs. Safe to archive after the leak is fixed.
 - `App Hang` issues are Sentry ANR detection. Unsymbolicated frames (`?` frames) mean dSYMs were missing for that build; check whether the release predates CI dSYM upload before investigating.
 - When reporting findings, cite issue short IDs and web links (`https://ascend-uk.sentry.io/issues/{issue_id}/`) so the user can click through.

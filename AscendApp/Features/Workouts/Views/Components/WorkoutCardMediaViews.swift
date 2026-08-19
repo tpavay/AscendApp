@@ -220,8 +220,21 @@ struct AutoPlayVideoView: View {
 
 // MARK: - VideoPlayerView
 
-/// Simple AVPlayer wrapper view
-struct VideoPlayerView: UIViewRepresentable {
+/// Simple AVPlayer wrapper view.
+///
+/// The frames are the climber's own footage and reach Sentry unmasked without
+/// `sentryMasked()`: `maskAllImages` covers `UIImageView`, not an
+/// `AVPlayerLayer` drawing straight into its host view.
+struct VideoPlayerView: View {
+    let player: AVPlayer
+
+    var body: some View {
+        PlayerRepresentable(player: player)
+            .sentryMasked()
+    }
+}
+
+private struct PlayerRepresentable: UIViewRepresentable {
     let player: AVPlayer
 
     func makeUIView(context: Context) -> UIView {

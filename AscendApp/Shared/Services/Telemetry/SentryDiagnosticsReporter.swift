@@ -4,19 +4,28 @@ import Foundation
 final class SentryDiagnosticsReporter: CrashlyticsReporting, @unchecked Sendable {
     private let configuration: SentryConfiguration
     private let buildMetadata: TelemetryBuildMetadata
+    private let floodGuard: SentryEventFloodGuard
     private let lock = NSLock()
     private var didStart = false
 
     init(
         configuration: SentryConfiguration = .live,
-        buildMetadata: TelemetryBuildMetadata = .current
+        buildMetadata: TelemetryBuildMetadata = .current,
+        floodGuard: SentryEventFloodGuard = SentryEventFloodGuard()
     ) {
         self.configuration = configuration
         self.buildMetadata = buildMetadata
+        self.floodGuard = floodGuard
     }
 
     func setCollectionEnabled(_ enabled: Bool) {
-        guard enabled, configuration.canConfigure, let dsn = configuration.dsn else {
+        guard enabled,
+              let options = SentryOptionsFactory.makeOptions(
+                  configuration: configuration,
+                  buildMetadata: buildMetadata,
+                  floodGuard: floodGuard
+              )
+        else {
             closeIfNeeded()
             return
         }
@@ -25,23 +34,6 @@ final class SentryDiagnosticsReporter: CrashlyticsReporting, @unchecked Sendable
         defer { lock.unlock() }
 
         guard !didStart else { return }
-
-        let options = Options()
-        options.dsn = dsn
-        options.environment = buildMetadata.appEnvironment
-        options.releaseName = buildMetadata.releaseName
-        options.dist = buildMetadata.buildNumber
-        options.sendDefaultPii = false
-        options.attachScreenshot = false
-        options.attachViewHierarchy = false
-        options.tracesSampleRate = 0
-        options.enableAutoPerformanceTracing = false
-        options.enableUserInteractionTracing = false
-        options.enableFileIOTracing = false
-
-        #if DEBUG
-        options.debug = true
-        #endif
 
         SentrySDK.start(options: options)
         SentrySDK.configureScope { scope in

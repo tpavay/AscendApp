@@ -282,7 +282,18 @@
             </array>
         </dict>
 
-        <!-- Crash Data - Firebase Crashlytics and Sentry diagnostics -->
+        <!--
+          Crash Data - Firebase Crashlytics and Sentry diagnostics.
+
+          A production Sentry error also carries a masked screenshot, a view
+          hierarchy, and a masked on-error session replay. No additional data
+          type is declared for them because they carry none: all text, images,
+          user media, and the app-drawn charts are painted out before capture,
+          and the view hierarchy holds only class names, frames, and static
+          accessibility identifiers. SentryReplayMaskingEvidenceTests is the
+          proof; docs/sentry-setup.md and the privacy policy's "Error screen
+          captures" bullet are the matching disclosures.
+        -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeCrashData</string>

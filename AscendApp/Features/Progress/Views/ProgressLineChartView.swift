@@ -163,6 +163,7 @@ struct ProgressLineChartView: View {
                 }
             }
         }
+        .sentryMasked()
     }
 
     private func chartPointSymbol(isSelected: Bool) -> some View {
