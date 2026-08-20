@@ -123,18 +123,6 @@ enum LiveClimbSessionMode: Equatable {
         }
     }
 
-    /// Which replay board this mode races on. Separate from `replayContext`
-    /// because a surface that only needs the board's shape should not have to
-    /// supply a step target to ask for it.
-    var replayContextType: LiveReplayLeaderboardContextType {
-        switch self {
-        case .liveClimb:
-            return .liveClimb
-        case .justClimb:
-            return .justClimb
-        }
-    }
-
     func replayContext(progressScaleSteps: Int) -> LiveReplayLeaderboardContext {
         let targetSteps = max(targetStepCount ?? progressScaleSteps, 1)
 
@@ -398,17 +386,24 @@ final class LiveClimbSessionViewModel {
         leaderboardSummary.completedCount
     }
 
-    /// Who this session's board counts, so the panel names its own population.
-    /// A landmark climb races a field of climbers; an open Just Climb has no
-    /// target to collapse on, so it races every completed attempt.
-    var leaderboardFieldPopulation: LiveReplayFieldPopulation {
-        mode.replayContextType.fieldPopulation
-    }
+    /// The field this session's board ranks, for the panel's field-size line, or
+    /// nil when nothing on hand measures it.
+    ///
+    /// Only the server's own finisher count qualifies. The fetched window's total
+    /// is a display floor that already counts this climber a second time, and
+    /// `leaderboardRows` synthesizes a lone current-user row before the first
+    /// fetch - either would have the panel assert a field it does not have. An
+    /// open Just Climb races completions, a population no count here measures, so
+    /// it names none.
+    var leaderboardField: LiveReplayFieldSize? {
+        let contextType = replayContext.type
+        guard contextType.collapsesRepeatFinishers,
+              leaderboardSummary.totalClimbers > 0 else { return nil }
 
-    /// The whole field this session races, for the panel's field-size line. The
-    /// fetched window is a slice of it, so the rows on screen never bound it.
-    var leaderboardFieldSize: Int {
-        max(leaderboardTotalClimbers, leaderboardRows.count)
+        return LiveReplayFieldSize(
+            population: contextType.fieldPopulation,
+            count: leaderboardSummary.totalClimbers
+        )
     }
 
     var leaderboardUpdatedElapsedSeconds: Int? {

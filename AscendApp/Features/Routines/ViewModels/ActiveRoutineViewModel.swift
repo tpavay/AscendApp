@@ -172,17 +172,6 @@ final class ActiveRoutineViewModel {
         earnsRoutineStanding ? replayContext : nil
     }
 
-    /// Who this routine's board counts, so the panel names its own population.
-    var leaderboardFieldPopulation: LiveReplayFieldPopulation {
-        replayContext.type.fieldPopulation
-    }
-
-    /// The whole field this session races, for the panel's field-size line. The
-    /// fetched window is a slice of it, so the rows on screen never bound it.
-    var leaderboardFieldSize: Int {
-        max(leaderboardWindow?.totalClimbers ?? 0, leaderboardRows.count)
-    }
-
     var completionLeaderboardRank: Int? {
         guard earnsRoutineStanding else { return nil }
         return leaderboardWindow?.currentUserRank ?? leaderboardRows.first(where: \.isCurrentUser)?.rank

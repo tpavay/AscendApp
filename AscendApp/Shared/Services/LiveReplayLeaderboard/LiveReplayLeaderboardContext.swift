@@ -66,6 +66,21 @@ enum LiveReplayFieldPopulation: Sendable {
     }
 }
 
+/// A field size and the population it counts, kept together.
+///
+/// A bare total is what let two correct boards read as a contradiction, so the
+/// count is never carried without the noun that characterises it. A surface with
+/// no field it can substantiate holds no value at all rather than a number it
+/// would have to guess a population for.
+struct LiveReplayFieldSize: Equatable, Sendable {
+    let population: LiveReplayFieldPopulation
+    let count: Int
+
+    var label: String {
+        population.fieldSizeLabel(count: count)
+    }
+}
+
 /// How a replay context decides who is winning.
 ///
 /// A climb fixes the step target and lets the clock vary, so the fastest run wins.

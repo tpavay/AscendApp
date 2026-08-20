@@ -10,10 +10,10 @@ struct LiveReplayLeaderboardPanel: View {
     let progress: Double
     let currentUserPhotoURL: URL?
     let fetchFailed: Bool
-    /// Who this board's rows count, so the field-size line names its own population.
-    let fieldPopulation: LiveReplayFieldPopulation
-    /// The whole field, not the fetched window - the rows above are a slice of it.
-    let fieldSize: Int
+    /// The whole field this board ranks, named and counted, or nil when the board
+    /// holds nothing that measures it. The rows above are a slice of the field, so
+    /// they never stand in for it.
+    var field: LiveReplayFieldSize?
     let tint: Color
     let effectiveColorScheme: ColorScheme
     var showsFilter: Bool = true
@@ -96,24 +96,16 @@ struct LiveReplayLeaderboardPanel: View {
     /// A live race collapses a rival's repeat runs to their best while the static
     /// per-climb board keeps every completion, so the two boards show different
     /// totals for one climb on purpose. Stating the population here is what keeps
-    /// that from reading as a defect.
+    /// that from reading as a defect - and a board with no field it can
+    /// substantiate states nothing, because the rows on screen are a window, not a
+    /// count.
     @ViewBuilder
     private var fieldSizeLine: some View {
-        if fieldSize > 0 {
-            Text(fieldPopulation.fieldSizeLabel(count: fieldSize))
-                .font(.montserratBold(size: 10))
-                .tracking(1.1)
-                .foregroundStyle(secondaryColor)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 8)
-                .padding(.bottom, 2)
-                .overlay(alignment: .top) {
-                    Rectangle()
-                        .fill(.white.opacity(0.08))
-                        .frame(height: 1)
-                }
+        if let field, field.count > 0 {
+            LiveReplayFieldSizeLine(
+                field: field,
+                effectiveColorScheme: effectiveColorScheme
+            )
         }
     }
 

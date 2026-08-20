@@ -912,23 +912,13 @@ struct ClimbDetailView: View {
     private var completionFieldSizeLine: some View {
         if leaderboardPageContent == .rows,
            viewModel.completionLeaderboardCompletedCount > 0 {
-            Text(
-                LiveReplayFieldPopulation.completions.fieldSizeLabel(
+            LiveReplayFieldSizeLine(
+                field: LiveReplayFieldSize(
+                    population: .completions,
                     count: viewModel.completionLeaderboardCompletedCount
-                )
+                ),
+                effectiveColorScheme: effectiveColorScheme
             )
-            .font(.montserratBold(size: 10))
-            .tracking(1.1)
-            .foregroundStyle(leaderboardSecondaryTextColor)
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
-            .frame(maxWidth: .infinity)
-            .padding(.top, 8)
-            .overlay(alignment: .top) {
-                Rectangle()
-                    .fill(.white.opacity(0.08))
-                    .frame(height: 1)
-            }
         }
     }
 

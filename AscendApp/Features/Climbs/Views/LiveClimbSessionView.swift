@@ -344,8 +344,7 @@ struct LiveClimbSessionView: View {
             progress: viewModel.leaderboardCurrentProgressFraction,
             currentUserPhotoURL: currentUserPhotoURL,
             fetchFailed: viewModel.leaderboardFetchFailed,
-            fieldPopulation: viewModel.leaderboardFieldPopulation,
-            fieldSize: viewModel.leaderboardFieldSize,
+            field: viewModel.leaderboardField,
             tint: .accent,
             effectiveColorScheme: .dark,
             showsFilter: false
