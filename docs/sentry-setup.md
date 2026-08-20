@@ -43,10 +43,13 @@ See `.claude/skills/ascend-analytics/SKILL.md` for the Mixpanel side.
 `SentryOptionsFactory` is the one place these are decided.
 
 - **A screenshot and a view hierarchy** (`attachScreenshot`, `attachViewHierarchy`). The SDK skips both for app hangs, because the main thread it would have to render on is the blocked one - so enabling them cannot cost an App Hang report.
-- **No session replay.** `sessionReplay.sessionSampleRate` and `sessionReplay.onErrorSampleRate` are both written out as `0`, and both have to stay there.
-  Either one above zero installs `SentrySessionReplayIntegration`, which is not the bounded pre-error buffer it sounds like: it runs a `CADisplayLink` that renders and redacts the whole screen on the main thread once a second for the entire foreground session, and once an error triggers a capture the SDK keeps uploading a five-second segment for up to an hour.
-  That is a main-thread cost landing on Fatal App Hangs - the most important real signal production has - and an unbounded cost multiplier, for a project that sees roughly 23 errors a month.
-  Do not re-add it without answering both.
+- **No session replay. This is a decision, not an oversight - do not re-add it.** `sessionReplay.sessionSampleRate` and `sessionReplay.onErrorSampleRate` are both written out as `0`, and `SentryDiagnosticsConfigurationTests.sessionReplayIsOffOnBothAxes` holds them there.
+  Replay was evaluated on this branch, wired up, and then removed on purpose, because `onErrorSampleRate` does not buy what its name suggests:
+  - **On-error mode records the whole session *after* the first error, not the seconds before it.** `SentrySessionReplay.captureReplay(replayType:)` calls `startFullReplay()`, which flips the session to full recording for the rest of its life; the SDK then uploads a five-second segment continuously for up to `maximumDuration` - one hour, and `@_spi(Private)`, so not something the app can bound.
+  - **Buffer mode runs in *every* session, error or not.** Any `onErrorSampleRate` above zero installs `SentrySessionReplayIntegration` (`SentrySessionReplayIntegration.swift:61`), which drives a `CADisplayLink` that renders and redacts a full screen on the main thread once a second for the entire foreground session, just in case an error later arrives.
+
+  Fatal App Hangs are the top real production signal - roughly 51 events in 14 days, against 23 errors a month - so a per-second main-thread render and hierarchy walk is a cost paid squarely on the metric this project exists to protect, and the unbounded post-error upload is the cost axis the work set out to bound.
+  Neither is fixable from the app's side. Re-adding replay means answering both, not just setting a rate.
 - **Nothing else new.** `tracesSampleRate` is `0`, `sendDefaultPii` is `false`, and auto performance, user-interaction and file-I/O tracing all stay off.
 
 ## Masking

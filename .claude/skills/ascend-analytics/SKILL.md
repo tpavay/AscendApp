@@ -41,7 +41,8 @@ Debug reports to Development `4032860`, Staging reports to Staging `4051102`, an
 Archive workflows also inspect the processed app bundle with `scripts/ci/assert-mixpanel-bundle.mjs` before upload.
 `scripts/test/mixpanel-build-configuration.test.mjs` pins the same contract offline against `project.pbxproj` and `Info.plist`, holds the Mixpanel SDK import inside the three adapter files, and keeps session replay disabled.
 Mixpanel replay stays off because Ascend handles health data: turning it on means masking date of birth, weight, exact location, and heart-rate values before capture.
-Sentry replay was considered separately and is also off: its integration renders the whole screen on the main thread once a second for the entire session, which lands on the Fatal App Hangs production most needs to see - `docs/sentry-setup.md`.
+Sentry replay was evaluated separately, built, and then deliberately dropped - it is off, and re-adding it needs a new decision rather than a rate change.
+Its on-error mode records the whole session *after* the first error rather than the seconds before it, and any non-zero rate installs the integration in buffer mode, which renders and masks a full screen on the main thread once a second in every session - paid straight out of the Fatal App Hangs production most needs to see (`docs/sentry-setup.md`).
 The masking work stands regardless, because the crash screenshot needs every bit of it.
 
 Every event and screen carries `app_environment`, `build_config`, `app_version`, and `build_number` directly in its payload through `TelemetryEnvelope`.

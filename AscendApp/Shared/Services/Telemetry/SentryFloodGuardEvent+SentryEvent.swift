@@ -14,12 +14,30 @@ extension SentryFloodGuardEvent {
     /// protected instead of silently demoting it to droppable noise.
     private static let appHangExceptionMarker = "App Hang"
 
+    /// The wire name for an error event.
+    ///
+    /// sentry-cocoa 9.18 leaves `type` nil on errors and stamps it only on the
+    /// payloads that are not errors, but Sentry's other SDKs already send the
+    /// explicit `error` type, so both spellings are read as an error here.
+    private static let errorEventType = "error"
+
     init(event: Event) {
         self.init(
             groupKey: Self.groupKey(for: event),
             isProtected: Self.isProtected(event),
-            isErrorEvent: event.type == nil
+            isErrorEvent: Self.isErrorEvent(event)
         )
+    }
+
+    /// Whether the flood guard is the right thing to meter this payload at all.
+    ///
+    /// Read as an allow-list of the non-error types rather than off the absence
+    /// of a type: an SDK that started spelling errors explicitly would otherwise
+    /// classify every event as non-error, and the guard would quietly stop
+    /// bounding anything while every test still passed.
+    private static func isErrorEvent(_ event: Event) -> Bool {
+        guard let type = event.type else { return true }
+        return type == errorEventType
     }
 
     /// Whether the flood guard must not be allowed to touch this event.
@@ -45,9 +63,7 @@ extension SentryFloodGuardEvent {
 
     /// The budget an event spends from, closest-to-Sentry's-own-grouping first.
     ///
-    /// Only reached for error events: the SDK leaves `type` nil on those and
-    /// stamps it on everything else (`transaction`, `replay_video`), which is
-    /// what `isErrorEvent` reads.
+    /// Only reached for error events, which are the ones `isErrorEvent` admits.
     ///
     /// Every branch resolves to a bounded string in practice - an exception type
     /// is an error domain, a mechanism a fixed vocabulary - and
