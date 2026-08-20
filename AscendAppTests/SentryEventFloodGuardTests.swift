@@ -16,16 +16,16 @@ struct SentryEventFloodGuardTests {
         trackedKeyCap: 4
     )
 
-    private static func noise(_ key: String = "com.google.fcm|none") -> SentryFloodGuardEvent {
-        SentryFloodGuardEvent(groupKey: key, isProtected: false)
+    private static func noise(_ key: String = "com.google.fcm|none") -> SentryEventClassification {
+        SentryEventClassification(groupKey: key, isSevere: false)
     }
 
-    private static func protected(_ key: String = "SIGSEGV|mach") -> SentryFloodGuardEvent {
-        SentryFloodGuardEvent(groupKey: key, isProtected: true)
+    private static func protected(_ key: String = "SIGSEGV|mach") -> SentryEventClassification {
+        SentryEventClassification(groupKey: key, isSevere: true)
     }
 
-    private static func nonError(_ key: String = "replay_video") -> SentryFloodGuardEvent {
-        SentryFloodGuardEvent(groupKey: key, isProtected: false, isErrorEvent: false)
+    private static func nonError(_ key: String = "replay_video") -> SentryEventClassification {
+        SentryEventClassification(groupKey: key, isSevere: false, isErrorEvent: false)
     }
 
     // MARK: - The drop path
@@ -129,14 +129,14 @@ struct SentryEventFloodGuardTests {
         exception.mechanism = Mechanism(type: "AppHang")
         event.exceptions = [exception]
 
-        #expect(SentryFloodGuardEvent(event: event).isProtected)
+        #expect(SentryEventClassification(event: event).isSevere)
     }
 
     @Test
     func aFatalEventIsProtectedWhateverItsShape() {
         // Crash reports, watchdog terminations and fatal app hangs all arrive at
         // fatal, and a crash report carries no exception the guard could inspect.
-        #expect(SentryFloodGuardEvent(event: Event(level: .fatal)).isProtected)
+        #expect(SentryEventClassification(event: Event(level: .fatal)).isSevere)
     }
 
     @Test
@@ -148,7 +148,7 @@ struct SentryEventFloodGuardTests {
         exception.mechanism = mechanism
         event.exceptions = [exception]
 
-        #expect(SentryFloodGuardEvent(event: event).isProtected)
+        #expect(SentryEventClassification(event: event).isSevere)
     }
 
     @Test(arguments: ["replay_video", "transaction", "feedback", "profile"])
@@ -156,7 +156,7 @@ struct SentryEventFloodGuardTests {
         let event = Event(level: .info)
         event.type = type
 
-        #expect(!SentryFloodGuardEvent(event: event).isErrorEvent)
+        #expect(!SentryEventClassification(event: event).isErrorEvent)
     }
 
     /// sentry-cocoa 9.18 leaves `type` nil on errors, but Sentry's other SDKs
@@ -168,7 +168,7 @@ struct SentryEventFloodGuardTests {
         let event = Event(level: .error)
         event.type = type
 
-        #expect(SentryFloodGuardEvent(event: event).isErrorEvent)
+        #expect(SentryEventClassification(event: event).isErrorEvent)
     }
 
     @Test
@@ -180,7 +180,7 @@ struct SentryEventFloodGuardTests {
             let event = Event(level: .error)
             event.type = "error"
             event.fingerprint = ["com.google.fcm", "505"]
-            return guardUnderTest.allows(SentryFloodGuardEvent(event: event))
+            return guardUnderTest.allows(SentryEventClassification(event: event))
         }
 
         #expect(verdicts.filter { $0 }.count == Self.limits.perKeyCap)
@@ -195,8 +195,8 @@ struct SentryEventFloodGuardTests {
         exception.mechanism = mechanism
         event.exceptions = [exception]
 
-        let candidate = SentryFloodGuardEvent(event: event)
-        #expect(!candidate.isProtected)
+        let candidate = SentryEventClassification(event: event)
+        #expect(!candidate.isSevere)
         #expect(candidate.isErrorEvent)
         #expect(candidate.groupKey == "com.google.fcm|generic")
     }
@@ -206,7 +206,7 @@ struct SentryEventFloodGuardTests {
         let event = Event(level: .error)
         event.fingerprint = ["ascend", "workout-sync"]
 
-        #expect(SentryFloodGuardEvent(event: event).groupKey == "ascend|workout-sync")
+        #expect(SentryEventClassification(event: event).groupKey == "ascend|workout-sync")
     }
 }
 

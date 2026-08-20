@@ -1,3 +1,5 @@
+import AVFoundation
+import AVKit
 import Foundation
 import SwiftUI
 import Testing
@@ -18,8 +20,9 @@ import UIKit
 /// The trick each case uses is to render the same surface twice with sensitive
 /// content that is a **permutation** of itself: a reversed name, the same digits
 /// in a different order, a mirrored photograph, a heart-rate trace played
-/// backwards. Monospaced type and identical image dimensions keep the layout
-/// pixel-for-pixel identical, and a permutation has the same average colour -
+/// backwards, a fixture movie against its own mirror. Monospaced type and
+/// identical image dimensions keep the layout pixel-for-pixel identical, and a
+/// permutation has the same average colour -
 /// which matters because the SDK fills a masked region with the average of what
 /// it covered rather than a fixed black
 /// (`SentryDefaultMaskRenderer.applyMasking`).
@@ -81,6 +84,121 @@ struct SentryMaskingEvidenceTests {
         )
     }
 
+    // MARK: - Climb footage
+
+    // A view that hosts its own `AVPlayerLayer` is the one category the SDK
+    // covers with nothing of its own.
+    //
+    // `maskAllImages` covers `UIImageView`; an `AVPlayerLayer` draws straight
+    // into its host view and is neither text nor an image as far as the SDK is
+    // concerned. Without `sentryMasked()` a climber's own footage reaches a
+    // crash screenshot at full fidelity, and the privacy policy promises the
+    // opposite - so these three cases are that promise's evidence, one per
+    // surface that plays video.
+    //
+    // Every frame of the fixture movie is the same picture, which is what makes
+    // the comparison sound: two of the three surfaces start playing on their
+    // own, so the two renders cannot be pinned to the same playback position,
+    // and a movie that looks the same at every instant removes the question.
+    // The permutation is the mirror of that picture.
+    //
+    // **These three do not have equal force, and the difference matters.** Emptying
+    // `maskedViewClasses` fails the workout card and the share composer with a
+    // worst channel of 255 - their footage really is on the wire without
+    // Ascend's marker. The full-screen player still passes, because
+    // `SentryUIRedactBuilder` redacts `AVPlayerView` by default and
+    // `AVPlayerViewController` renders through one. So that case is evidence
+    // the footage is masked, not evidence that Ascend's mask is what masks it.
+    // Do not read a green full-screen case as cover for deleting the marker
+    // there - it would leave the surface resting entirely on a default list the
+    // SDK is free to change.
+
+    @Test
+    func workoutCardFootageRendersIdenticallyWhateverItShows() async throws {
+        let footage = try await Self.footage()
+        defer { footage.discard() }
+
+        try await Self.expectSensitiveContentMasked(
+            VideoPlayerView(player: AVPlayer(url: footage.original)).frame(height: 320),
+            VideoPlayerView(player: AVPlayer(url: footage.mirrored)).frame(height: 320),
+            named: "workout-card-footage",
+            settledWhen: Self.playerIsShowingItsFootage
+        )
+    }
+
+    @Test
+    func theShareComposerBackgroundRendersIdenticallyWhateverItShows() async throws {
+        let footage = try await Self.footage()
+        defer { footage.discard() }
+
+        try await Self.expectSensitiveContentMasked(
+            ShareBackgroundView(source: .video(footage.original)),
+            ShareBackgroundView(source: .video(footage.mirrored)),
+            named: "share-composer-background",
+            settledWhen: Self.playerIsShowingItsFootage
+        )
+    }
+
+    /// The full-screen player is `AVPlayerViewController`, whose transport
+    /// controls sit above the footage. They carry no climber content and render
+    /// identically in both variants, so they cost the comparison nothing.
+    @Test
+    func theFullScreenPlayerRendersIdenticallyWhateverItShows() async throws {
+        let footage = try await Self.footage()
+        defer { footage.discard() }
+
+        try await Self.expectSensitiveContentMasked(
+            FullScreenPhotoView(photo: Self.video(footage.original), onDismiss: {}),
+            FullScreenPhotoView(photo: Self.video(footage.mirrored), onDismiss: {}),
+            named: "full-screen-player",
+            settledWhen: Self.playerIsShowingItsFootage
+        )
+    }
+
+    // MARK: - The other charts
+
+    // Swift Charts draws its marks into a `CALayer` the SDK reads as neither
+    // text nor an image, so every chart that plots the climber's own numbers
+    // needs the marker - and every one of them needs the evidence, because a
+    // mask that was never applied looks exactly like a mask that works until
+    // something renders through it.
+
+    @Test
+    func theProgressChartRendersIdenticallyWhateverItPlots() async throws {
+        let values = (0..<12).map { Double(2_000 + $0 * 130) }
+
+        try await Self.expectSensitiveContentMasked(
+            Self.progressChart(values: values),
+            Self.progressChart(values: values.reversed()),
+            named: "progress-line-chart"
+        )
+    }
+
+    @Test
+    func theWeeklyStepsChartRendersIdenticallyWhateverItPlots() async throws {
+        // The most recent week is held fixed in both variants: it is the one the
+        // chart reads out in its header, and a different number there would move
+        // the text's masked rectangle rather than what is inside it.
+        let steps = (1...8).map { 2_400 + $0 * 310 }
+
+        try await Self.expectSensitiveContentMasked(
+            Self.weeklyStepsChart(earlierWeeks: steps),
+            Self.weeklyStepsChart(earlierWeeks: steps.reversed()),
+            named: "weekly-steps-chart"
+        )
+    }
+
+    @Test
+    func theTrendChartRendersIdenticallyWhateverItPlots() async throws {
+        let values = (0..<24).map { Double(90 + ($0 * 7) % 40) }
+
+        try await Self.expectSensitiveContentMasked(
+            Self.trendChart(values: values),
+            Self.trendChart(values: values.reversed()),
+            named: "trend-chart"
+        )
+    }
+
     // MARK: - Identity
 
     @Test
@@ -117,15 +235,16 @@ struct SentryMaskingEvidenceTests {
     private static func expectSensitiveContentMasked(
         _ first: some View,
         _ second: some View,
-        named name: String
+        named name: String,
+        settledWhen isSettled: @escaping @MainActor (UIView) -> Bool = { _ in true }
     ) async throws {
         let rawDifference = try await difference(
-            render(first, masked: false, savedAs: "\(name)-unmasked-a"),
-            render(second, masked: false, savedAs: "\(name)-unmasked-b")
+            render(first, masked: false, savedAs: "\(name)-unmasked-a", settledWhen: isSettled),
+            render(second, masked: false, savedAs: "\(name)-unmasked-b", settledWhen: isSettled)
         )
         let maskedDifference = try await difference(
-            render(first, masked: true, savedAs: "\(name)-masked-a"),
-            render(second, masked: true, savedAs: "\(name)-masked-b")
+            render(first, masked: true, savedAs: "\(name)-masked-a", settledWhen: isSettled),
+            render(second, masked: true, savedAs: "\(name)-masked-b", settledWhen: isSettled)
         )
 
         // Control: the two renders really do differ before masking, so an
@@ -180,7 +299,8 @@ struct SentryMaskingEvidenceTests {
     private static func render(
         _ view: some View,
         masked: Bool,
-        savedAs name: String? = nil
+        savedAs name: String? = nil,
+        settledWhen isSettled: @MainActor (UIView) -> Bool = { _ in true }
     ) async throws -> Bitmap {
         let controller = UIHostingController(
             rootView: view
@@ -211,6 +331,7 @@ struct SentryMaskingEvidenceTests {
         // layers before the hierarchy is walked for redaction regions.
         try await Task.sleep(for: .milliseconds(150))
         controller.view.layoutIfNeeded()
+        try await settle(controller.view, isSettled)
 
         let image: UIImage
         if masked {
@@ -232,6 +353,44 @@ struct SentryMaskingEvidenceTests {
         }
 
         return try Bitmap(image)
+    }
+
+    /// Spins the run loop until the surface says it is ready to be photographed,
+    /// and fails rather than photographing something that never arrived.
+    ///
+    /// A video surface needs this: `AVPlayerLayer` shows nothing until its item
+    /// has decoded a frame, and a render taken before that would compare two
+    /// empty rectangles and call the result masking.
+    private static func settle(
+        _ view: UIView,
+        _ isSettled: @MainActor (UIView) -> Bool
+    ) async throws {
+        for _ in 0..<100 {
+            view.layoutIfNeeded()
+            if isSettled(view) { return }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+
+        try #require(isSettled(view), "the surface never became ready to photograph")
+    }
+
+    /// Ready when the mask marker is in the tree with a real frame and a player
+    /// layer under it has a decoded frame to show.
+    ///
+    /// The marker half is load-bearing on its own: without it a surface that
+    /// silently stopped applying `sentryMasked()` would still render two
+    /// identical *player-less* rectangles and pass.
+    ///
+    /// One ready layer rather than all of them, because `AVPlayerViewController`
+    /// builds a second `AVPlayerLayer` it never displays; that spare stays
+    /// not-ready forever and would hold the wait open until it timed out.
+    @MainActor
+    private static func playerIsShowingItsFootage(_ view: UIView) -> Bool {
+        guard let marker = view.firstDescendant(of: SentryMaskedRegionView.self),
+              !marker.bounds.isEmpty
+        else { return false }
+
+        return view.layer.playerLayers.contains(where: \.isReadyForDisplay)
     }
 
     /// Renders a view the same way `SentryDefaultViewRenderer` does, which is the
@@ -360,6 +519,175 @@ struct SentryMaskingEvidenceTests {
         }
     }
 
+    private static func progressChart(values: [Double]) -> some View {
+        let points = values.enumerated().map { index, value in
+            ProgressLineChartPoint(
+                id: "point-\(index)",
+                date: chartStart.addingTimeInterval(TimeInterval(index) * 86_400 * 7),
+                value: value,
+                valueText: "\(Int(value))",
+                dateText: "week \(index)"
+            )
+        }
+
+        return ProgressLineChartView(
+            title: "Steps",
+            points: points,
+            colorScheme: .dark,
+            height: 260
+        ) { value in
+            "\(Int(value))"
+        }
+    }
+
+    /// Dated back from today, because the chart plots a rolling twelve-week
+    /// window and draws a maskless empty state for anything older.
+    private static func weeklyStepsChart(earlierWeeks: [Int]) -> some View {
+        let now = Date()
+        // Index 0 is this week and is identical in both variants; the
+        // permutation lands on the weeks behind it.
+        let steps = [3_100] + earlierWeeks
+
+        let workouts = steps.enumerated().map { index, weekSteps in
+            ProfileWorkoutSummary(
+                id: "workout-\(index)",
+                name: "Empire State Building",
+                startedAt: now.addingTimeInterval(TimeInterval(index) * -86_400 * 7),
+                durationSeconds: 1_800,
+                steps: weekSteps,
+                source: .headphoneMotion,
+                climbId: nil,
+                climbTier: nil,
+                climbCompletionStatus: nil,
+                climbCompletionDurationSeconds: nil
+            )
+        }
+
+        return ProfileWeeklyStepsChart(workouts: workouts).padding(16)
+    }
+
+    private static func trendChart(values: [Double]) -> some View {
+        AscendTrendChart(values: values, average: 110)
+            .frame(height: 160)
+            .padding(16)
+    }
+
+    private static func video(_ url: URL) -> Photo {
+        Photo(url: url, type: .video, duration: 1)
+    }
+
+    /// A pair of one-second movies that are mirror images of each other.
+    private struct Footage {
+        let original: URL
+        let mirrored: URL
+
+        func discard() {
+            for url in [original, mirrored] {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+    }
+
+    private static func footage() async throws -> Footage {
+        let frame = videoFrame()
+
+        return Footage(
+            original: try await movie(showing: frame),
+            mirrored: try await movie(showing: frame.mirrored())
+        )
+    }
+
+    /// The picture every frame of the fixture movie shows.
+    ///
+    /// Flat 32-point blocks on a 32-point grid, so the horizontal mirror maps
+    /// whole macroblocks onto whole macroblocks and survives H.264 as a genuine
+    /// permutation - the two movies decode to the same set of pixels, which is
+    /// what lets the averaged mask fill match.
+    private static func videoFrame() -> UIImage {
+        UIGraphicsImageRenderer(size: videoSize).image { context in
+            let columns = Int(videoSize.width) / videoBlock
+            let rows = Int(videoSize.height) / videoBlock
+
+            for row in 0..<rows {
+                for column in 0..<columns {
+                    let shade = CGFloat((row * 29 + column * 61) % 256) / 255
+                    UIColor(red: shade, green: 1 - shade, blue: (1 - shade) / 2, alpha: 1).setFill()
+                    context.fill(
+                        CGRect(
+                            x: column * videoBlock,
+                            y: row * videoBlock,
+                            width: videoBlock,
+                            height: videoBlock
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private static let videoSize = CGSize(width: 320, height: 576)
+    private static let videoBlock = 32
+
+    /// Writes a real one-second movie whose every frame is `frame`.
+    ///
+    /// A constant movie is what makes the two renders comparable at all: two of
+    /// the three player surfaces start playing by themselves, so nothing pins
+    /// them to the same timestamp. Every frame is a keyframe at a bitrate high
+    /// enough that the flat blocks come back out as they went in.
+    private static func movie(showing frame: UIImage) async throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "ascend-masking-evidence-\(UUID().uuidString).mov")
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: Int(videoSize.width),
+            AVVideoHeightKey: Int(videoSize.height),
+            AVVideoCompressionPropertiesKey: [
+                AVVideoAverageBitRateKey: 16_000_000,
+                AVVideoMaxKeyFrameIntervalKey: 1
+            ]
+        ])
+        input.expectsMediaDataInRealTime = false
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: input,
+            sourcePixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32ARGB]
+        )
+        writer.add(input)
+        try #require(writer.startWriting(), "could not start writing the fixture movie")
+        writer.startSession(atSourceTime: .zero)
+
+        let cgFrame = try #require(frame.cgImage, "the fixture frame has no bitmap")
+
+        for index in 0..<12 {
+            let pool = try #require(adaptor.pixelBufferPool, "the writer produced no pixel buffer pool")
+            var buffer: CVPixelBuffer?
+            CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
+            let pixelBuffer = try #require(buffer)
+            CVPixelBufferLockBaseAddress(pixelBuffer, [])
+            if let context = CGContext(
+                data: CVPixelBufferGetBaseAddress(pixelBuffer),
+                width: Int(videoSize.width),
+                height: Int(videoSize.height),
+                bitsPerComponent: 8,
+                bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer),
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
+            ) {
+                context.draw(cgFrame, in: CGRect(origin: .zero, size: videoSize))
+            }
+            CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
+
+            while !input.isReadyForMoreMediaData {
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            adaptor.append(pixelBuffer, withPresentationTime: CMTime(value: CMTimeValue(index), timescale: 12))
+        }
+
+        input.markAsFinished()
+        await writer.finishWriting()
+        return url
+    }
+
     /// Monospaced so a reordering of the same characters renders to exactly the
     /// same width, leaving the masked rectangle in exactly the same place.
     private static func monospaced(_ value: String, size: CGFloat) -> some View {
@@ -378,5 +706,27 @@ private extension UIImage {
             context.cgContext.scaleBy(x: -1, y: 1)
             draw(at: .zero)
         }
+    }
+}
+
+private extension UIView {
+    /// The first view of `type` in this subtree, self included.
+    func firstDescendant<T: UIView>(of type: T.Type) -> T? {
+        if let match = self as? T { return match }
+        for subview in subviews {
+            if let match = subview.firstDescendant(of: type) { return match }
+        }
+        return nil
+    }
+}
+
+private extension CALayer {
+    /// Every `AVPlayerLayer` in this layer tree, self included.
+    var playerLayers: [AVPlayerLayer] {
+        var found = (self as? AVPlayerLayer).map { [$0] } ?? []
+        for sublayer in sublayers ?? [] {
+            found.append(contentsOf: sublayer.playerLayers)
+        }
+        return found
     }
 }

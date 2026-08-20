@@ -48,11 +48,22 @@ enum SentryOptionsFactory {
     ///
     /// Neither attachment is taken for app hangs: the SDK skips both when the
     /// main thread is blocked, so enabling them cannot cost an App Hang report.
+    ///
+    /// Both callbacks are `SentryCrashContextPolicy`, which keeps the
+    /// main-thread render off ordinary non-fatal errors. They are set together
+    /// because the two attachments cost the same thing in the same place -
+    /// gating one and not the other would leave half the hazard standing.
     private static func applyCrashContext(to options: Options) {
         options.attachScreenshot = true
         options.attachViewHierarchy = true
         options.reportAccessibilityIdentifier = true
         options.screenshot = makeScreenshotOptions()
+        options.beforeCaptureScreenshot = attachesScreenCapture
+        options.beforeCaptureViewHierarchy = attachesScreenCapture
+    }
+
+    private static func attachesScreenCapture(_ event: Event) -> Bool {
+        SentryCrashContextPolicy.attachesScreenCapture(for: SentryEventClassification(event: event))
     }
 
     /// The redaction applied to crash screenshots.
@@ -100,7 +111,7 @@ enum SentryOptionsFactory {
     /// still get through so a fired guard is never silent.
     private static func applyFloodGuard(to options: Options, floodGuard: SentryEventFloodGuard) {
         options.beforeSend = { event in
-            guard floodGuard.allows(SentryFloodGuardEvent(event: event)) else { return nil }
+            guard floodGuard.allows(SentryEventClassification(event: event)) else { return nil }
 
             let dropped = floodGuard.droppedEventCount
             if dropped > 0 {

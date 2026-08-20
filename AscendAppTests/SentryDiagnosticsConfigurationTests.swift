@@ -115,6 +115,42 @@ struct SentryDiagnosticsConfigurationTests {
         )
     }
 
+    /// The picture is not free: producing it renders the live UI synchronously
+    /// on the main thread, and Ascend's 22 `recordError` call sites would each
+    /// pay for one. Only a severe event does.
+    @Test
+    func anOrdinaryNonFatalErrorNeverPaysForAMainThreadRender() throws {
+        let options = try #require(Self.options(environment: "production"))
+        let beforeCaptureScreenshot = try #require(options.beforeCaptureScreenshot)
+        let beforeCaptureViewHierarchy = try #require(options.beforeCaptureViewHierarchy)
+
+        // The shape `SentryDiagnosticsReporter.record(error:...)` puts on the
+        // wire: handled, error level, an ordinary domain.
+        let recordedError = Self.noiseEvent()
+
+        #expect(!beforeCaptureScreenshot(recordedError))
+        #expect(!beforeCaptureViewHierarchy(recordedError))
+    }
+
+    /// The other half of the same rule, and the half that must never regress:
+    /// the events worth diagnosing still carry their context.
+    ///
+    /// A crash's own screenshot never reaches this callback at all - the crash
+    /// handler writes it, and `SentryScreenshotIntegration` returns early for
+    /// any event flagged fatal - so this asserts the callback's answer for the
+    /// severe events that *do* reach it, which is the only place it could say no.
+    @Test
+    func aSevereEventStillCarriesItsPictureAndViewTree() throws {
+        let options = try #require(Self.options(environment: "production"))
+        let beforeCaptureScreenshot = try #require(options.beforeCaptureScreenshot)
+        let beforeCaptureViewHierarchy = try #require(options.beforeCaptureViewHierarchy)
+
+        for event in [Event(level: .fatal), Self.appHangEvent(), Self.unhandledEvent()] {
+            #expect(beforeCaptureScreenshot(event))
+            #expect(beforeCaptureViewHierarchy(event))
+        }
+    }
+
     // MARK: - What stays off
 
     @Test
@@ -192,6 +228,16 @@ struct SentryDiagnosticsConfigurationTests {
         let exception = Exception(value: "Code: 505", type: type)
         let mechanism = Mechanism(type: "generic")
         mechanism.handled = true
+        exception.mechanism = mechanism
+        event.exceptions = [exception]
+        return event
+    }
+
+    private static func unhandledEvent() -> Event {
+        let event = Event(level: .error)
+        let exception = Exception(value: "unrecognized selector", type: "NSInvalidArgumentException")
+        let mechanism = Mechanism(type: "generic")
+        mechanism.handled = false
         exception.mechanism = mechanism
         event.exceptions = [exception]
         return event

@@ -1,7 +1,7 @@
 import Foundation
 @preconcurrency import Sentry
 
-extension SentryFloodGuardEvent {
+extension SentryEventClassification {
     /// The exception mechanism the SDK stamps on every app hang, fatal or not.
     ///
     /// Verified against sentry-cocoa 9.18.0 `SentryHangTrackingIntegration`.
@@ -24,7 +24,7 @@ extension SentryFloodGuardEvent {
     init(event: Event) {
         self.init(
             groupKey: Self.groupKey(for: event),
-            isProtected: Self.isProtected(event),
+            isSevere: Self.isSevere(event),
             isErrorEvent: Self.isErrorEvent(event)
         )
     }
@@ -40,12 +40,13 @@ extension SentryFloodGuardEvent {
         return type == errorEventType
     }
 
-    /// Whether the flood guard must not be allowed to touch this event.
+    /// Whether this event is severe enough that the flood guard must not touch
+    /// it and a screen capture is worth taking for it.
     ///
     /// Three independent signals, any one of which is enough. `beforeSend` runs
     /// for crash events too, so this is the only thing standing between a noise
     /// guard and a real fatal report.
-    private static func isProtected(_ event: Event) -> Bool {
+    private static func isSevere(_ event: Event) -> Bool {
         // Crash reports, watchdog terminations and fatal app hangs all arrive at
         // fatal (`SentryCrashReportConverter`, `SentryHangTrackingIntegration`).
         if event.level == .fatal { return true }
