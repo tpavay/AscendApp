@@ -9,11 +9,12 @@ import Testing
 /// that first authorization on Ascend - TestFlight, the rejected submission, the
 /// same reviewer Apple ID - so the reviewer's credential carries NOTHING.
 ///
-/// Requesting `.fullName`, persisting it, and skipping the step when a name
-/// exists are the minimum that passes on a clean device. They do nothing here.
-/// Two teams shipped exactly that and were rejected a second time
-/// (Apple Developer Forums thread 712464). What has to be true is that a climber
-/// nobody supplied a name for still reaches the app.
+/// Requesting `.fullName`, persisting it, and prefilling a name step from it are
+/// the minimum that passes on a clean device. They do nothing here. Two teams
+/// shipped exactly that and were rejected a second time (Apple Developer Forums
+/// thread 712464). What has to be true is that a climber nobody supplied a name
+/// for reaches the app without being asked for one - which is why there is no
+/// name step left to reach.
 struct SignInNamelessClimberPathTests {
     /// The reviewer's credential: a returning authorization, everything nil.
     private var reviewerCredential: SignInSuppliedIdentity {
@@ -26,19 +27,79 @@ struct SignInNamelessClimberPathTests {
     }
 
     @Test
-    func theReviewersCredentialCarriesNothingToPrefillOrAdopt() {
+    func theReviewersCredentialResolvesToThePlaceholderRatherThanAQuestion() {
         #expect(!reviewerCredential.carriesSomething)
         #expect(reviewerCredential.adoptableName == nil)
         #expect(
             SuppliedNameAdoption.decide(supplied: reviewerCredential, storedName: .absent)
-                == .askTheClimber
+                == .writePlaceholder
         )
+    }
+
+    /// No capture at all - a climber signing in on a device that never saw
+    /// Apple's one-and-only credential - resolves the same way. There is no
+    /// branch here that ends in a screen.
+    @Test
+    func noCaptureAtAllStillResolvesToAName() {
+        #expect(
+            SuppliedNameAdoption.decide(supplied: nil, storedName: .absent)
+                == .writePlaceholder
+        )
+    }
+
+    /// The rejection in one assertion: every reachable combination of what a
+    /// provider supplied and what the profile holds terminates in a name or in a
+    /// deliberate retry. None of them terminates in a question.
+    @Test
+    func everyResolutionTerminatesWithoutAskingTheClimber() {
+        let supplied: [SignInSuppliedIdentity?] = [
+            nil,
+            reviewerCredential,
+            SignInSuppliedIdentity(
+                providerUserID: "p",
+                firstName: "Maya",
+                lastName: nil,
+                email: nil
+            ),
+            SignInSuppliedIdentity(
+                providerUserID: "p",
+                firstName: "Maya",
+                lastName: "Chen",
+                email: nil
+            )
+        ]
+
+        for identity in supplied {
+            for storedName in [StoredProfileName.absent, .present, .unreadable] {
+                let decision = SuppliedNameAdoption.decide(
+                    supplied: identity,
+                    storedName: storedName
+                )
+
+                switch decision {
+                case .write, .writePlaceholder, .discard, .retryLater:
+                    // `.retryLater` is the only one that does not end in a name,
+                    // and it is reached solely when the profile could not be READ
+                    // - it retries on the next launch rather than asking.
+                    break
+                }
+            }
+        }
+
+        // A profile that could not be read is the only deferral, and it never
+        // depends on what the provider supplied.
+        for identity in supplied {
+            #expect(
+                SuppliedNameAdoption.decide(supplied: identity, storedName: .unreadable)
+                    == .retryLater
+            )
+        }
     }
 
     /// Resolution step 3. The placeholder has to be a name the client policy AND
     /// the Cloud Functions screen both accept, or the write is denied and the
-    /// climber is stuck on the screen anyway - the rejection all over again with
-    /// an extra step.
+    /// climber ends up nameless - which is now the only failure mode left, since
+    /// there is no screen to fall back to.
     @Test
     func thePlaceholderIsPublishable() {
         #expect(SignInNamePlaceholder.firstName == "CHANGE")
@@ -71,33 +132,30 @@ struct SignInNamelessClimberPathTests {
         #expect(SignInNamePlaceholder.boardName == SignInNamePlaceholder.boardName.uppercased())
     }
 
-    /// Ascend's board name needs both halves, so a climber nobody supplied a name
-    /// for cannot compose one. That must not read as a failure they have to
-    /// resolve before they can continue - which is exactly why the step carries a
-    /// skip rather than relying on CONTINUE ever becoming live.
+    /// Half a name is not a board name and there is no longer anywhere to ask for
+    /// the other half, so it resolves to the placeholder like any other
+    /// unpublishable answer. Deliberate: "Maya ME" would read as a real surname,
+    /// where "CHANGE ME" reads as the instruction it is.
     @Test
-    func aNamelessClimberCannotComposeABoardNameAndMustNotHaveTo() {
-        var input = PostAuthNameInput()
-        #expect(!input.canContinue)
-
-        input.firstName = "Maya"
-        #expect(!input.canContinue, "half a name still composes nothing")
+    func halfANameResolvesToThePlaceholderRatherThanHalfAPlaceholder() {
+        let halfShared = SignInSuppliedIdentity(
+            providerUserID: "000789.apple",
+            firstName: "Maya",
+            lastName: nil,
+            email: nil
+        )
 
         #expect(
-            DisplayNamePolicy.composesAllowedBoardName(
-                firstName: SignInNamePlaceholder.firstName,
-                lastName: SignInNamePlaceholder.lastName
-            ),
-            "the way past cannot itself be blocked by the policy"
+            SuppliedNameAdoption.decide(supplied: halfShared, storedName: .absent)
+                == .writePlaceholder
         )
     }
 
-    /// Once the placeholder is on the profile, the ordinary skip path advances
-    /// the stage with nothing typed, and the stage is marked done so it never
-    /// returns.
+    /// Onboarding opens on the first survey question, not on a name. The stage
+    /// the rejection was about is gone from the flow entirely.
     @MainActor
     @Test
-    func skippingAdvancesPastTheNameStageForGood() {
+    func onboardingOpensWithoutEverAskingForAName() {
         let suiteName = "SignInNamelessClimberPathTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
@@ -105,16 +163,8 @@ struct SignInNamelessClimberPathTests {
         let store = PostAuthOnboardingStore(userDefaults: defaults)
         let coordinator = PostAuthOnboardingCoordinator(store: store)
         coordinator.resolve(userId: "reviewer")
-        #expect(coordinator.phase == .onboarding(.displayName))
-
-        coordinator.completeCurrentStage()
 
         #expect(coordinator.phase == .onboarding(.stairStepperBaseline))
-        #expect(store.snapshot(for: "reviewer").completedStages.contains(.displayName))
-
-        // A relaunch resumes past it rather than re-asking.
-        let relaunched = PostAuthOnboardingCoordinator(store: store)
-        relaunched.resolve(userId: "reviewer")
-        #expect(relaunched.phase == .onboarding(.stairStepperBaseline))
+        #expect(!PostAuthOnboardingStage.allCases.contains { $0.rawValue == "displayName" })
     }
 }

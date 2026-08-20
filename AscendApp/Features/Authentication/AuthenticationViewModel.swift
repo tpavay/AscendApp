@@ -456,35 +456,38 @@ extension AuthenticationViewModel {
         suppliedIdentity = signInIdentityStore.identity(forProviderUserID: providerUserID)
     }
 
-    /// Writes the name the provider supplied onto a profile that has none.
+    /// Gives the account a name without ever asking for one.
     ///
     /// Returns `true` when it wrote the profile itself, so the caller does not
     /// write an empty one over the top.
     ///
-    /// Nothing here re-asks and nothing here overwrites: a profile that already
-    /// carries a name keeps it - that is resolution step 1, and it is what a
-    /// climber who deleted and reinstalled lands on - and a profile that could
-    /// not be read at all is left alone until the next sign-in can read it.
+    /// Resolution always terminates: a profile that already carries a name keeps
+    /// it (step 1, and what a climber who deleted and reinstalled lands on), else
+    /// whatever the provider supplied at this sign-in (step 2), else
+    /// `SignInNamePlaceholder` (step 3). Only a profile that could not be *read*
+    /// is left alone, and only until the next launch can read it. There is no
+    /// fourth outcome and no screen behind this - the name step was removed.
+    ///
+    /// A failed write is not a dead end either. Nothing caches a name that never
+    /// landed, so the next launch takes this same path again and retries; until
+    /// it lands the climber renders under a system handle rather than being
+    /// blocked.
     @discardableResult
     func adoptSuppliedName(for user: User) async -> Bool {
-        guard let supplied = suppliedIdentity else { return false }
-
         // Resolution step 1, answered without a round trip. A name Ascend
         // already holds locally is a profile that already carries one, so the
         // read could only ever conclude `.discard` - and this runs on the sign-in
         // path, ahead of the authenticated UI, where every launch would pay for
         // it. The capture has done its job either way, so it stops taking up
         // room on disk here rather than outliving the install.
+        //
+        // Deliberately no `adoptableName` guard below it: half a name is not
+        // publishable, but it still has to reach `.writePlaceholder`. There is no
+        // name step left for it to fall through to.
         if carriesKnownDisplayName {
             forgetSuppliedIdentity()
             return false
         }
-
-        // Only a name that could actually be written justifies the read that
-        // follows: every climber with an email address carries *something*, and
-        // half a name can only ever conclude "ask the climber". It stays put -
-        // it is what seeds the missing half into the name step.
-        guard supplied.adoptableName != nil else { return false }
 
         let storedName: StoredProfileName
         do {
@@ -496,52 +499,64 @@ extension AuthenticationViewModel {
             storedName = .unreadable
         }
 
-        switch SuppliedNameAdoption.decide(supplied: supplied, storedName: storedName) {
+        switch SuppliedNameAdoption.decide(supplied: suppliedIdentity, storedName: storedName) {
         case .write(let firstName, let lastName):
-            // Scoped, because this runs behind a sign-in nobody is watching: an
-            // app-wide errorMessage left here would surface under whatever screen
-            // the climber lands on next.
-            let failure = await scopedProfileUpdate(
-                fallback: "Failed to save the name your sign-in supplied"
-            ) {
-                await self.updateProfileName(firstName: firstName, lastName: lastName)
-            }
-
-            guard failure == nil else {
-                // Apple will never hand this back again, so the capture stays put
-                // and the next sign-in retries the write.
-                debugLog("Deferred provider-supplied name: \(failure ?? "")")
+            guard await writeResolvedName(firstName: firstName, lastName: lastName) else {
                 return false
             }
+            forgetSuppliedIdentity()
+            return true
 
+        case .writePlaceholder:
+            // The one name nobody supplied. It is written rather than asked for,
+            // because the screen that used to ask is what App Review rejected.
+            guard await writeResolvedName(
+                firstName: SignInNamePlaceholder.firstName,
+                lastName: SignInNamePlaceholder.lastName
+            ) else {
+                return false
+            }
+            // A capture that could not compose a publishable name has done all it
+            // will ever do; keeping it would leave the climber's Apple email on
+            // disk indefinitely and keep it outranking the account's own values.
+            forgetSuppliedIdentity()
             return true
 
         case .discard:
             forgetSuppliedIdentity()
             return false
 
-        case .retryLater, .askTheClimber:
+        case .retryLater:
             return false
         }
     }
 
-    /// Gives the climber a board identity without asking them for one.
+    /// Writes a resolved name and reports a failure where production can see it.
     ///
-    /// Reaching the app may never be conditional on typing a name. Sign in with
-    /// Apple hands back a name on the FIRST authorization for an Apple ID and app
-    /// pair and never again, so an App Review device that has already authorized
-    /// Ascend - or any climber who declined to share one - arrives with nothing,
-    /// and a screen they cannot pass is the rejection all over again.
-    ///
-    /// This is resolution step 3, and it runs only after step 1 (a profile that
-    /// already carries a name) and step 2 (whatever the provider supplied at this
-    /// sign-in) have both come up empty.
-    @discardableResult
-    func adoptPlaceholderDisplayName() async -> Bool {
-        await updateProfileName(
-            firstName: SignInNamePlaceholder.firstName,
-            lastName: SignInNamePlaceholder.lastName
+    /// Scoped, because this runs behind a sign-in nobody is watching: an app-wide
+    /// `errorMessage` left here would surface under whatever screen the climber
+    /// lands on next. And reported through telemetry rather than `debugLog`,
+    /// which compiles to nothing outside DEBUG - a climber silently left with no
+    /// name is exactly the outcome this whole path exists to prevent, so it may
+    /// not be invisible in the builds that matter.
+    private func writeResolvedName(firstName: String, lastName: String) async -> Bool {
+        let failure = await scopedProfileUpdate(
+            fallback: "Failed to save the name your sign-in supplied"
+        ) {
+            await self.updateProfileName(firstName: firstName, lastName: lastName)
+        }
+
+        guard let failure else { return true }
+
+        // Nothing caches a name that never landed, so the next launch retries.
+        // Apple will never hand its copy back again, so any capture stays put.
+        debugLog("Deferred resolved name: \(failure)")
+        TelemetryManager.shared.recordError(
+            AuthenticationError.signInFailed(failure),
+            context: .firestore,
+            code: "resolved_name_write_failed"
         )
+        return false
     }
 
     /// Drops the in-memory copy, and the persisted one if this identity came from
@@ -563,6 +578,11 @@ extension AuthenticationViewModel {
     /// Whether Ascend already holds a display name for this account without
     /// asking Firestore - the cached one this session opened with, or one just
     /// written.
+    ///
+    /// Seeded from `UserDataRepository.getCachedDisplayName()` before any await
+    /// on the sign-in path, and cleared on sign-out through `clearUserCache()`,
+    /// so it cannot carry one account's name into the next climber's session and
+    /// suppress their resolution.
     private var carriesKnownDisplayName: Bool {
         !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }

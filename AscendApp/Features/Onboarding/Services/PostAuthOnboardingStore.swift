@@ -93,10 +93,9 @@ struct PostAuthOnboardingStore {
             return nil
         }
 
-        let hasCompletedDisplayName = legacy.completedStages.contains(PostAuthOnboardingStage.displayName.rawValue)
         return PostAuthOnboardingSnapshot(
             currentStage: .first,
-            completedStages: hasCompletedDisplayName ? [.displayName] : [],
+            completedStages: [],
             isComplete: false,
             startedAt: legacy.startedAt,
             completedAt: nil

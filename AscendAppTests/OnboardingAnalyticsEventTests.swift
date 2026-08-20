@@ -267,7 +267,7 @@ struct OnboardingAnalyticsEventTests {
         expectStringParameter(record, "segment_id", "post_auth_onboarding")
         expectStringParameter(record, "step_id", "paywall")
         expectStringParameter(record, "screen_id", "paywall")
-        expectIntParameter(record, "step_index", 20)
+        expectIntParameter(record, "step_index", 19)
     }
 
     @Test
@@ -289,7 +289,7 @@ struct OnboardingAnalyticsEventTests {
         expectStringParameter(record, "segment_id", "pre_auth_welcome")
         expectStringParameter(record, "step_id", "welcome")
         expectIntParameter(record, "step_index", 0)
-        expectIntParameter(record, "step_count", 21)
+        expectIntParameter(record, "step_count", 20)
         expectBoolParameter(record, "resume", false)
     }
 
@@ -350,7 +350,6 @@ struct OnboardingScreenViewCoverageTests {
             "watch_yourself_get_better",
             "reason_to_come_back",
             "auth",
-            "displayName",
             "stair_stepper_baseline",
             "exercise_level",
             "goal",
@@ -368,15 +367,15 @@ struct OnboardingScreenViewCoverageTests {
             "first_climb",
             "paywall"
         ])
-        #expect(Set(screenIDs).count == 21)
+        #expect(Set(screenIDs).count == 20)
         #expect(screenIDs.contains("features") == false)
         #expect(records.allSatisfy { $0.parameters["viewed"] == .bool(true) })
         #expect(records.allSatisfy { $0.parameters["step_id"] == $0.parameters["screen_id"] })
         #expect(records.allSatisfy { $0.parameters["flow_id"] == .string("onboarding") })
         #expect(records.allSatisfy { $0.parameters["flow_version"] == .string("v1") })
         #expect(records.allSatisfy { $0.parameters["segment_id"] != nil })
-        #expect(records.map { $0.parameters["step_index"] } == (0..<21).map(TelemetryValue.int))
-        #expect(records.allSatisfy { $0.parameters["step_count"] == .int(21) })
+        #expect(records.map { $0.parameters["step_index"] } == (0..<20).map(TelemetryValue.int))
+        #expect(records.allSatisfy { $0.parameters["step_count"] == .int(20) })
         #expect(records.allSatisfy { $0.parameters["app_environment"] != nil })
     }
 
@@ -444,7 +443,7 @@ struct OnboardingValueCarouselAnalyticsContextTests {
         #expect(context.segmentID == "pre_auth_value_onboarding")
         #expect(context.stepID == pages[0].id)
         #expect(context.stepIndex == 1)
-        #expect(context.stepCount == 21)
+        #expect(context.stepCount == 20)
     }
 
     @Test

@@ -15,7 +15,7 @@ Event parameters are not scanned, which is why they are inventoried here.
 | Coarse Location | `profile_country` (ISO country code) |
 | Fitness | `stair_stepper_exp`, `exercise_level`, `motivation`, `planned_frequency`, `goal_lose_weight`, `goal_build_endurance`, `goal_track_progress`, `goal_exciting_workouts`, `goal_healthier_life`, `goal_answer_count` |
 | Other Data Types | `profile_gender`, `profile_age_group` (band, never the birth date), `notifications_choice`, `first_climb_id`, `first_climb_tier`, `first_climb_steps` |
-| Product Interaction | `display_name_set`, `profile_location_set`, `onboarding_complete`, `name_inputted`, `division_inputted`, `age_inputted`, `body_metrics_inputted`, `location_inputted`, `notifications_inputted`, `first_climb_selected` |
+| Product Interaction | `profile_location_set`, `onboarding_complete`, `division_inputted`, `age_inputted`, `body_metrics_inputted`, `location_inputted`, `notifications_inputted`, `first_climb_selected` |
 
 ## Event parameters
 

@@ -73,7 +73,7 @@ struct SignInSuppliedIdentityTests {
         #expect(supplied.adoptableName == nil)
         #expect(
             SuppliedNameAdoption.decide(supplied: supplied, storedName: .absent)
-                == .askTheClimber
+                == .writePlaceholder
         )
     }
 
@@ -128,27 +128,27 @@ struct SignInSuppliedIdentityTests {
         )
     }
 
-    /// An existing account created before this fix must not be re-prompted or
-    /// rewritten. It has no capture at all, so nothing here reaches it.
+    /// An existing account created before this fix must not be rewritten. Its
+    /// stored name wins, capture or no capture.
     @Test
-    func anAccountFromBeforeThisFixIsLeftCompletelyAlone() {
+    func anAccountFromBeforeThisFixKeepsItsName() {
         #expect(
             SuppliedNameAdoption.decide(supplied: nil, storedName: .present)
-                == .askTheClimber
+                == .discard
         )
         #expect(
             SuppliedNameAdoption.decide(supplied: nil, storedName: .absent)
-                == .askTheClimber
+                == .writePlaceholder
         )
     }
 
     // MARK: - Declined to share a name
 
-    /// Apple's requirement is that the app not demand what the framework already
-    /// gave it - not that a name can never be asked for. A climber who shared
-    /// nothing is still asked, because nothing was supplied to reuse.
+    /// A climber who declined to share a name is not asked for one either -
+    /// there is nowhere left to ask. Their profile gets the placeholder, and the
+    /// email they did share is still recorded.
     @Test
-    func aClimberWhoDeclinedToShareANameIsStillAsked() {
+    func aClimberWhoDeclinedToShareANameGetsThePlaceholder() {
         let declined = SignInSuppliedIdentity(
             providerUserID: "000789.apple",
             firstName: nil,
@@ -159,15 +159,16 @@ struct SignInSuppliedIdentityTests {
         #expect(declined.adoptableName == nil)
         #expect(
             SuppliedNameAdoption.decide(supplied: declined, storedName: .absent)
-                == .askTheClimber
+                == .writePlaceholder
         )
     }
 
-    /// Ascend's board name needs both halves. A climber who cleared one of them
-    /// in Apple's sheet is asked for the half they withheld, and the retained
-    /// half is what seeds the field they are not asked to retype.
+    /// Ascend's board name needs both halves, so a climber who cleared one of
+    /// them in Apple's sheet has supplied nothing publishable. The retained half
+    /// is still kept on the capture - it is the only copy that will ever exist -
+    /// but the profile gets the placeholder rather than a question.
     @Test
-    func onlyTheWithheldHalfIsEverAskedForAgain() {
+    func halfANameIsNotAPublishableName() {
         let halfShared = SignInSuppliedIdentity(
             providerUserID: "000789.apple",
             firstName: "Maya",
@@ -180,7 +181,7 @@ struct SignInSuppliedIdentityTests {
         #expect(halfShared.adoptableName == nil)
         #expect(
             SuppliedNameAdoption.decide(supplied: halfShared, storedName: .absent)
-                == .askTheClimber
+                == .writePlaceholder
         )
     }
 
@@ -307,7 +308,7 @@ struct SignInSuppliedIdentityTests {
         #expect(google.adoptableName == nil)
         #expect(
             SuppliedNameAdoption.decide(supplied: google, storedName: .absent)
-                == .askTheClimber
+                == .writePlaceholder
         )
     }
 
@@ -348,7 +349,7 @@ struct SignInSuppliedIdentityTests {
         )
         #expect(
             SuppliedNameAdoption.decide(supplied: nil, storedName: .present)
-                == .askTheClimber,
+                == .discard,
             "no capture at all leaves the stored profile completely untouched"
         )
 

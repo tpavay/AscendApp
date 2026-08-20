@@ -8,11 +8,6 @@ struct PostAuthOnboardingFlowView: View {
     var body: some View {
         Group {
             switch stage {
-            case .displayName:
-                PostAuthDisplayNameScreen(
-                    stage: stage,
-                    onContinue: onContinue
-                )
             case .stairStepperBaseline, .exerciseLevel, .goal, .motivation, .plan:
                 PostAuthSurveyQuestionStageScreen(
                     stage: stage,
@@ -175,261 +170,6 @@ private struct PostAuthFeatureGuideStageScreen: View {
         ) {
             onContinue()
         }
-    }
-}
-
-private struct PostAuthDisplayNameScreen: View {
-    @Environment(AuthenticationViewModel.self) private var authVM
-    @FocusState private var focusedField: ProfileNameField?
-
-    let stage: PostAuthOnboardingStage
-    let onContinue: () -> Void
-
-    @State private var nameInput = PostAuthNameInput()
-    @State private var isSaving = false
-    @State private var validationMessage: String?
-
-    var body: some View {
-        PostAuthProfileQuestionShell(
-            stage: stage,
-            headline: "What's your\nname?",
-            primaryTitle: isSaving ? "SAVING..." : "CONTINUE",
-            isContinueEnabled: isContinueEnabled,
-            skip: skipControl,
-            onBack: handleBack,
-            onContinue: saveName
-        ) { metrics in
-            VStack(alignment: .leading, spacing: metrics.height(12)) {
-                nameField(
-                    field: .firstName,
-                    text: $nameInput.firstName,
-                    submitLabel: .next,
-                    metrics: metrics
-                )
-
-                nameField(
-                    field: .lastName,
-                    text: $nameInput.lastName,
-                    submitLabel: .continue,
-                    metrics: metrics
-                )
-
-                Text(leaderboardNameExplanation)
-                    .font(.montserratMedium(size: metrics.font(11)))
-                    .foregroundStyle(.white.opacity(0.46))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(width: metrics.width(334), alignment: .leading)
-
-                if let displayMessage {
-                    Text(displayMessage)
-                        .font(.montserratMedium(size: metrics.font(11)))
-                        .foregroundStyle(.red.opacity(0.9))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .frame(width: metrics.width(334), alignment: .topLeading)
-            .offset(x: metrics.x(28), y: metrics.y(294))
-            .onChange(of: nameInput.firstName) { _, newValue in
-                validationMessage = nil
-                normalizeNamePart(newValue, field: .firstName)
-            }
-            .onChange(of: nameInput.lastName) { _, newValue in
-                validationMessage = nil
-                normalizeNamePart(newValue, field: .lastName)
-            }
-        }
-        .keyboardDoneToolbar {
-            focusedField = nil
-        }
-        .task {
-            seedFromProviderSuppliedName()
-        }
-    }
-
-    /// A climber who reaches this step after their provider shared only half a
-    /// name is asked for the missing half, never for the half they already gave.
-    /// When the provider supplied both, this step does not run at all - the name
-    /// is already on the profile before onboarding resolves this stage.
-    private func seedFromProviderSuppliedName() {
-        guard nameInput.firstName.isEmpty,
-              nameInput.lastName.isEmpty,
-              let supplied = authVM.suppliedIdentity else { return }
-
-        nameInput.firstName = supplied.firstName ?? ""
-        nameInput.lastName = supplied.lastName ?? ""
-
-        // Land the cursor on the one field still owed, and only then - opening a
-        // keyboard over two already-filled fields would read as a demand.
-        if nameInput.firstName.isEmpty, !nameInput.lastName.isEmpty {
-            focusedField = .firstName
-        } else if nameInput.lastName.isEmpty, !nameInput.firstName.isEmpty {
-            focusedField = .lastName
-        }
-    }
-
-    private func nameField(
-        field: ProfileNameField,
-        text: Binding<String>,
-        submitLabel: SubmitLabel,
-        metrics: PostAuthProfileMetrics
-    ) -> some View {
-        TextField(
-            "",
-            text: text,
-            prompt: Text(field.rawValue)
-                .foregroundStyle(.white.opacity(0.48))
-        )
-        .font(.montserratMedium(size: metrics.font(12)))
-        .foregroundStyle(.white)
-        .tint(OnboardingValuePalette.lime)
-        .textContentType(field == .firstName ? .givenName : .familyName)
-        .textInputAutocapitalization(.words)
-        .autocorrectionDisabled()
-        .submitLabel(submitLabel)
-        .focused($focusedField, equals: field)
-        .padding(.horizontal, metrics.width(14))
-        .frame(width: metrics.width(334), height: metrics.height(52), alignment: .leading)
-        .background(PostAuthProfilePalette.fieldBackground)
-        .clipShape(RoundedRectangle(cornerRadius: metrics.radius(6), style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: metrics.radius(6), style: .continuous)
-                .stroke(fieldBorderColor, lineWidth: 1)
-        }
-        .onSubmit {
-            if field == .firstName {
-                focusedField = .lastName
-            } else {
-                saveName()
-            }
-        }
-        .accessibilityLabel(field.rawValue)
-    }
-
-    private var isContinueEnabled: Bool {
-        nameInput.canContinue && !isSaving
-    }
-
-    /// Offered exactly while the climber has no name to submit - which includes
-    /// half a name, where CONTINUE is still dimmed and this is still the only way
-    /// past. Once they have typed one, skipping could only throw it away, so the
-    /// control goes: the shell positions it absolutely, so nothing reflows.
-    private var skipControl: PostAuthSkipControl? {
-        guard isSkipOffered else { return nil }
-        return PostAuthSkipControl(title: "Skip", action: skipName)
-    }
-
-    private var isSkipOffered: Bool {
-        !nameInput.canContinue && !isSaving
-    }
-
-    private var fieldBorderColor: Color {
-        displayMessage == nil ? .white.opacity(0.18) : .red.opacity(0.72)
-    }
-
-    private var displayMessage: String? {
-        validationMessage ?? authVM.errorMessage
-    }
-
-    private func normalizeNamePart(_ value: String, field: ProfileNameField) {
-        let normalized = PostAuthNameInput.singleLinePart(value)
-        if normalized != value {
-            switch field {
-            case .firstName:
-                nameInput.firstName = normalized
-            case .lastName:
-                nameInput.lastName = normalized
-            }
-        }
-    }
-
-    private func saveName() {
-        guard isContinueEnabled else {
-            validationMessage = nameInput.validationMessage
-            return
-        }
-
-        Task { @MainActor in
-            isSaving = true
-            let didSave = await authVM.updateProfileName(
-                firstName: nameInput.normalizedFirstName,
-                lastName: nameInput.normalizedLastName
-            )
-            isSaving = false
-
-            if didSave {
-                TelemetryManager.shared.setUserProperty("name_inputted", value: "true")
-                OnboardingAnalyticsUserProperties.setDisplayNameProvided()
-                trackPostAuthInput(
-                    stage: stage,
-                    properties: ["display_name_provided": .bool(true)]
-                )
-                onContinue()
-            }
-        }
-    }
-
-    /// Apple's HIG asks that an optional request say so. Naming the alternative
-    /// says it better than the word "optional" does - and naming it exactly,
-    /// because `SignInNamePlaceholder.boardName` is literally what lands on the
-    /// board when the climber skips.
-    private var leaderboardNameExplanation: String {
-        let base = "This is the name climbers see on leaderboards."
-        guard isSkipOffered else { return base }
-        return """
-        \(base) Skip and you race as \
-        \(SignInNamePlaceholder.boardName) until you set one in Settings.
-        """
-    }
-
-    /// Reaching the app is never conditional on typing a name.
-    ///
-    /// Apple returns a name on the FIRST authorization for an Apple ID and app
-    /// pair and never again, so an App Review device that has already authorized
-    /// Ascend arrives with nothing to prefill - and a screen with no way past is
-    /// the rejection all over again, whatever the fields were seeded from. Skip
-    /// writes `SignInNamePlaceholder`, so the climber always leaves this screen
-    /// with a name.
-    private func skipName() {
-        guard !isSaving else { return }
-
-        Task { @MainActor in
-            isSaving = true
-            // Scoped, and the result is deliberately not a gate. The write goes
-            // through a Firestore transaction that refuses offline, and a climber
-            // who lost the connection between sign-in and this tap would
-            // otherwise be handed an error on a screen with no way past - the
-            // dead end this control exists to remove. Nothing downstream needs
-            // the name: an unnamed climber renders as a system handle until one
-            // lands.
-            let failure = await authVM.scopedProfileUpdate(
-                fallback: "Failed to save the placeholder name"
-            ) {
-                await authVM.adoptPlaceholderDisplayName()
-            }
-            isSaving = false
-            validationMessage = nil
-
-            if let failure {
-                debugLog("Deferred placeholder name: \(failure)")
-            }
-
-            // Deliberately not `setDisplayNameProvided`: the climber supplied
-            // nothing, and a funnel that cannot tell a typed name from the
-            // placeholder cannot measure what skipping costs.
-            TelemetryManager.shared.setUserProperty("name_inputted", value: "false")
-            trackPostAuthInput(
-                stage: stage,
-                properties: ["display_name_provided": .bool(false)]
-            )
-            onContinue()
-        }
-    }
-
-    private func handleBack() {
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.backTapped(context: stage.analyticsContext, inputType: "button")
-        )
-        authVM.signOut()
     }
 }
 
@@ -1700,13 +1440,6 @@ private struct PostAuthFirstClimbCard: View {
     }
 }
 
-/// The optional-answer control a post-auth stage offers beside its primary
-/// button.
-private struct PostAuthSkipControl {
-    let title: String
-    let action: () -> Void
-}
-
 private struct PostAuthProfileQuestionShell<Content: View>: View {
     let stage: PostAuthOnboardingStage
     var eyebrow = "COMPLETE YOUR PROFILE"
@@ -1714,11 +1447,6 @@ private struct PostAuthProfileQuestionShell<Content: View>: View {
     var subtitle: String?
     let primaryTitle: String
     let isContinueEnabled: Bool
-    /// A stage whose answer is genuinely optional carries a real control that
-    /// says so, in the same shape the notifications stage uses. A dimmed primary
-    /// button is not one: it reads as a requirement, which is what App Store
-    /// guideline 5.1.1(x) refuses.
-    var skip: PostAuthSkipControl?
     let onBack: () -> Void
     let onContinue: () -> Void
     @ViewBuilder let content: (PostAuthProfileMetrics) -> Content
@@ -1787,27 +1515,6 @@ private struct PostAuthProfileQuestionShell<Content: View>: View {
                 .disabled(!isContinueEnabled)
                 .frame(width: metrics.width(334), height: metrics.height(56))
                 .position(x: metrics.x(195), y: metrics.y(740))
-
-                if let skip {
-                    Button(action: skip.action) {
-                        Text(skip.title)
-                            .font(.montserratBold(size: metrics.font(12)))
-                            .foregroundStyle(.white.opacity(0.56))
-                            // The design coordinates scale with the screen; 44pt
-                            // does not. The one control that guarantees a way off
-                            // this screen keeps a real target on every phone, and
-                            // takes the whole row rather than the width of the
-                            // word.
-                            .frame(
-                                maxWidth: .infinity,
-                                minHeight: max(44, metrics.height(44))
-                            )
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .frame(width: metrics.width(334))
-                    .position(x: metrics.x(195), y: metrics.y(794))
-                }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
@@ -2233,7 +1940,7 @@ private struct PostAuthGenderOption: Identifiable {
 
 #Preview("Post-Auth Onboarding") {
     PostAuthOnboardingFlowView(
-        stage: .displayName,
+        stage: .stairStepperBaseline,
         onBack: {},
         onContinue: {}
     )

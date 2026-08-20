@@ -133,7 +133,7 @@ struct RouteScreenViewEvidenceTests {
             .signingIn,
             .restoringSession,
             .resolving,
-            .onboarding(.displayName),
+            .onboarding(.stairStepperBaseline),
             .paywall,
             .mainApp
         ]

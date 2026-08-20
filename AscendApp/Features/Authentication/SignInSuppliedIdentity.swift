@@ -56,7 +56,9 @@ struct SignInSuppliedIdentity: Codable, Equatable, Sendable {
     /// The first whitespace-separated word is the given name and the remainder is
     /// the family name, so a multi-word family name survives intact. A one-word
     /// name yields half an identity, which the adoption rule treats exactly like
-    /// half a name from Apple: the climber is asked for the half that is missing.
+    /// half a name from Apple: not publishable, so the placeholder is written
+    /// instead. Ascend never asks for the missing half - there is no screen left
+    /// to ask on.
     init(
         providerUserID: String,
         fullName: String?,
@@ -137,8 +139,9 @@ struct SignInSuppliedIdentity: Codable, Equatable, Sendable {
 /// Deliberately an instruction rather than a plausible name. A climber who never
 /// typed one opens their profile, reads "CHANGE ME", and knows exactly what to
 /// do - which a generated handle like `Climber 2A4F` does not tell them. It is
-/// also never a wall: nothing about reaching the app is conditional on replacing
-/// it.
+/// also never a wall: it is written without asking, and nothing about reaching
+/// the app is conditional on replacing it. Settings -> Edit Profile -> First
+/// name changes it, three taps from the Profile tab.
 ///
 /// Both halves are stored, because Ascend's board name is composed from a first
 /// and a last name and a profile carrying only one of them is not editable
@@ -167,44 +170,51 @@ enum StoredProfileName: Equatable, Sendable {
 
 /// Decides what to do with a name a provider supplied.
 ///
-/// One rule for every provider. Apple and Google both hand back a name, so
-/// "ask only when nothing supplied one" is the whole policy and there is no
-/// place for the two to drift apart.
+/// One rule for every provider, and it always terminates in a name: the profile
+/// Ascend already holds, else whatever this sign-in supplied, else
+/// `SignInNamePlaceholder`. Apple and Google both hand back a name, so a
+/// per-provider branch would only be two things to drift apart.
+///
+/// Nothing here asks the climber anything. The name step was removed from
+/// onboarding with this rule, because a rule that always produces a name leaves
+/// the question with nothing to ask.
 ///
 /// Pure, so every branch is decided once and tested once rather than being
 /// re-derived inside an auth callback nobody can run in a test.
 enum SuppliedNameAdoption {
     enum Decision: Equatable {
-        /// The provider gave a usable name and the account has none. Write it,
-        /// and the name step never runs.
+        /// Resolution step 2. The provider gave a usable name and the account has
+        /// none, so it is written without ever being put to the climber.
         case write(firstName: String, lastName: String)
-        /// The account already carries a name - resolution step 1. The
-        /// provider's copy has done its job, or was never needed, and is
-        /// dropped.
+        /// Resolution step 1. The account already carries a name, so it wins over
+        /// everything below it: the provider's copy has done its job, or was
+        /// never needed, and is dropped.
         case discard
-        /// The profile could not be read, so overwriting it would be a guess.
-        /// The capture stays put and the next sign-in tries again.
+        /// The profile could not be read, so writing over it would be a guess.
+        /// Any capture stays put and the next sign-in tries again.
         case retryLater
-        /// Nothing to write: no capture at all, or a climber who shared less
-        /// than a full name. The name step runs, seeded with whatever the
-        /// provider did give, and offers `SignInNamePlaceholder` rather than
-        /// demanding an answer.
-        case askTheClimber
+        /// Resolution step 3. Nothing supplied a name Ascend can publish - no
+        /// capture at all, or less than a full name - so the profile gets
+        /// `SignInNamePlaceholder`.
+        ///
+        /// This is terminal on purpose. There is no name step left to fall back
+        /// on, and there must not be: a screen that asks for what Authentication
+        /// Services already supplies is the Guideline 4 rejection, and a screen
+        /// the climber cannot pass is the same rejection with extra steps.
+        case writePlaceholder
     }
 
     static func decide(
         supplied: SignInSuppliedIdentity?,
         storedName: StoredProfileName
     ) -> Decision {
-        guard let supplied else { return .askTheClimber }
-
         switch storedName {
         case .present:
             return .discard
         case .unreadable:
             return .retryLater
         case .absent:
-            guard let adoptable = supplied.adoptableName else { return .askTheClimber }
+            guard let adoptable = supplied?.adoptableName else { return .writePlaceholder }
             return .write(firstName: adoptable.firstName, lastName: adoptable.lastName)
         }
     }

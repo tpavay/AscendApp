@@ -81,7 +81,6 @@ struct RootView: View {
             )
             enrichmentService.configure(modelContext: modelContext)
             postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
-            advancePostAuthOnboardingPastDisplayNameIfAvailable()
             scheduleAuthenticatedSessionWork()
         }
         // Its own task so the catalogue fetch runs alongside session work rather
@@ -141,7 +140,6 @@ struct RootView: View {
                 ]
             )
             postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
-            advancePostAuthOnboardingPastDisplayNameIfAvailable()
             completePostAuthOnboardingIfRemoteProfileExists()
             scheduleAuthenticatedSessionWork()
         }
@@ -163,16 +161,13 @@ struct RootView: View {
             scheduleAuthenticatedSessionWork()
         }
         .onChange(of: authVM.hasRemoteDisplayName) { _, _ in
-            advancePostAuthOnboardingPastDisplayNameIfAvailable()
             completePostAuthOnboardingIfRemoteProfileExists()
         }
         .onChange(of: authVM.isProfileLoaded) { _, _ in
-            advancePostAuthOnboardingPastDisplayNameIfAvailable()
             completePostAuthOnboardingIfRemoteProfileExists()
         }
         .onReceive(NotificationCenter.default.publisher(for: .postAuthOnboardingStateDidChange)) { _ in
             postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid, force: true)
-            advancePostAuthOnboardingPastDisplayNameIfAvailable()
         }
         .onChange(of: onboardingFlowCompletionCandidate, initial: true) { _, reason in
             guard let reason else { return }
@@ -230,7 +225,14 @@ struct RootView: View {
             allowsUnentitledAppAccess: monetizationManager.allowsUnentitledAppAccessForRouting
         )
 
-        if case .onboarding(.displayName) = resolvedRoute,
+        // At the very start of onboarding we do not yet know whether this account
+        // already finished it on another device, and `completePostAuthOnboardingIfRemoteProfileExists`
+        // cannot answer that until the profile has loaded. Holding here is what
+        // stops the first question flashing at a climber who has already answered
+        // it. Deliberately keyed to `.first` rather than to a named stage: the
+        // stage that opens onboarding has changed once already.
+        if case .onboarding(let stage) = resolvedRoute,
+           stage == .first,
            authVM.user != nil,
            !authVM.isProfileLoaded {
             return .resolving
@@ -518,20 +520,6 @@ struct RootView: View {
 
     private func isCurrentAuthenticatedSession(_ expectedUserId: String) -> Bool {
         Task.isCancelled == false && authVM.user?.uid == expectedUserId
-    }
-
-    @MainActor
-    private func advancePostAuthOnboardingPastDisplayNameIfAvailable() {
-        guard authVM.user != nil,
-              authVM.isProfileLoaded,
-              hasUsableDisplayNameForPostAuthOnboarding else { return }
-
-        postAuthOnboardingCoordinator.completeDisplayNameIfNeeded()
-    }
-
-    private var hasUsableDisplayNameForPostAuthOnboarding: Bool {
-        authVM.hasRemoteDisplayName ||
-        !authVM.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     @MainActor

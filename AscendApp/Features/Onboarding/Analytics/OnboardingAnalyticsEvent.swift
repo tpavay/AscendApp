@@ -8,7 +8,6 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
         "watch_yourself_get_better",
         "reason_to_come_back",
         "auth",
-        "displayName",
         "stair_stepper_baseline",
         "exercise_level",
         "goal",
