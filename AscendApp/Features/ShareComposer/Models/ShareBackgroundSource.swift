@@ -48,6 +48,20 @@ enum ShareComposerPreset: Identifiable, Equatable {
         }
     }
 
+    /// What VoiceOver reads for the tile that offers this preset.
+    ///
+    /// The tile draws artwork and nothing else, so it has no text of its own to
+    /// borrow. It read out the climb's name only while `ClimbArtworkView` was
+    /// still showing its placeholder, and that text is gone the moment the image
+    /// arrives - leaving an unlabelled button on the surface a climber picks a
+    /// background from.
+    var accessibilityLabel: String {
+        switch self {
+        case .climbImage(let climb, _):
+            return climb.name
+        }
+    }
+
     var displayName: String {
         switch self {
         case .climbImage(_, let variant):

@@ -209,7 +209,7 @@ Every claim in the description, and where the app makes it true. Checked against
 | Races real towers by their actual step count | `web/public/climbs/catalog-v1.json` - 58 `available` climbs. Empire State Building, Taipei 101, Eiffel Tower and Burj Khalifa are all `available` and all carry a `realStairCount` sourced in `docs/climb-real-stair-counts.md`. |
 | Steps come from AirPods / Beats motion | `HeadphoneMotionReadinessService` gates every start on `CMHeadphoneMotionManager.isDeviceMotionAvailable`; the supported models are listed in `CompatibleHeadphonesHelpSheet`. |
 | A field of other climbers, live | `LiveReplayLeaderboardPanel` renders the `everyone` field during the session; `functions/src/liveReplayLeaderboard.ts` derives it as each climber's best attempt. |
-| Per-tower rankings on finish time, cadence, steps | `ClimbDetailView`'s Leaderboard tab; the global board's metrics are `LeaderboardMetric` - steps, workouts, duration, steps/min. |
+| Per-tower rankings on finish time, cadence, steps | `ClimbDetailView`'s All Times page; the global board's metrics are `LeaderboardMetric` - steps, workouts, duration, steps/min. |
 | First Ascent is permanent | `ProfileAchievementLadder`, `TodayClimbStakeLine`, `Climb`. Locked copy lives in `ascend-brand-voice`. |
 | Best Efforts record book | `BestEffortMetric` - most steps, longest climb, highest average SPM, most steps in a time window, fastest step target. |
 | Guided routines with chest-strap heart rate | `AscendApp/Features/Routines/`; `HeartRateMonitorIntegrationCard` names the Bluetooth chest strap, and `LiveHeartRateSourceKind` ranks it above the watch. |

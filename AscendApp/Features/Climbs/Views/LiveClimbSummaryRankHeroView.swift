@@ -3,15 +3,20 @@ import SwiftUI
 /// The rank-first hero at the top of the completion summary.
 ///
 /// One rule governs every word below the ordinal: the screen may only state a
-/// placement it can substantiate. A field line ("FASTEST OF 1,284") asserts an
-/// ordering over a named population, so it is drawn only where the hero holds
-/// both a field size and a standing whose population it can characterise.
+/// placement it can substantiate. A field line ("FASTEST OF 1,284 CLIMBERS")
+/// asserts an ordering over a named population, so it is drawn only where the
+/// hero holds both a field size and a standing whose population it can
+/// characterise - and it names that population, because the static per-climb
+/// board deliberately counts a different one and the two must not read as a
+/// contradiction.
 /// Everywhere else - a live session's own race window, a standing with no
 /// denominator - the hero's own detail line stands instead, which describes the
 /// standing without claiming a field.
 struct LiveClimbSummaryRankHeroView: View {
     let hero: LiveClimbSummaryRankHero
     let rankingMetric: LiveReplayRankingMetric
+    /// Who the field this rank was measured against counts.
+    let fieldPopulation: LiveReplayFieldPopulation
     let onRetrySync: () -> Void
 
     var body: some View {
@@ -93,7 +98,7 @@ struct LiveClimbSummaryRankHeroView: View {
             "MOST STEPS"
         }
 
-        return "\(basis) OF \(total.formatted())"
+        return "\(basis) OF \(fieldPopulation.fieldSizeLabel(count: total))"
     }
 
     private var accessibilityLabel: String {

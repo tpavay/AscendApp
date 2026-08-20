@@ -220,6 +220,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             of: LiveClimbSummaryRankHeroView(
                 hero: hero,
                 rankingMetric: .fastestCompletion,
+                fieldPopulation: .climbers,
                 onRetrySync: {}
             )
             .padding(24)
@@ -255,6 +256,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             of: LiveClimbSummaryRankHeroView(
                 hero: hero,
                 rankingMetric: .mostSteps,
+                fieldPopulation: .climbers,
                 onRetrySync: {}
             )
             .padding(24)

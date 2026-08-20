@@ -10,6 +10,10 @@ struct LiveReplayLeaderboardPanel: View {
     let progress: Double
     let currentUserPhotoURL: URL?
     let fetchFailed: Bool
+    /// The whole field this board ranks, named and counted, or nil when the board
+    /// holds nothing that measures it. The rows above are a slice of the field, so
+    /// they never stand in for it.
+    var field: LiveReplayFieldSize?
     let tint: Color
     let effectiveColorScheme: ColorScheme
     var showsFilter: Bool = true
@@ -77,11 +81,31 @@ struct LiveReplayLeaderboardPanel: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 8)
             }
+
+            fieldSizeLine
         }
         .onChange(of: rows.map(\.id)) { _, _ in
             if selectedFilter == .currentUser, visibleRows.isEmpty {
                 selectedFilter = .everyone
             }
+        }
+    }
+
+    /// The field this board ranks, named and counted, pinned beneath the rows.
+    ///
+    /// A live race collapses a rival's repeat runs to their best while the static
+    /// per-climb board keeps every completion, so the two boards show different
+    /// totals for one climb on purpose. Stating the population here is what keeps
+    /// that from reading as a defect - and a board with no field it can
+    /// substantiate states nothing, because the rows on screen are a window, not a
+    /// count.
+    @ViewBuilder
+    private var fieldSizeLine: some View {
+        if let field, field.count > 0 {
+            LiveReplayFieldSizeLine(
+                field: field,
+                effectiveColorScheme: effectiveColorScheme
+            )
         }
     }
 

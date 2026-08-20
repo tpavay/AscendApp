@@ -302,6 +302,14 @@ struct ShareStatClusterPresetEvidenceTests {
     /// contention swamps the difference. So the bar below asks only that the
     /// custom renderer is not the materially cheaper spelling; a bar set at the
     /// desk's margin fails on CI for a reason that has nothing to do with the ring.
+    ///
+    /// Both ratios are measured in **interleaved pairs** - see
+    /// `pairedRenderDurations`. Timing each side as its own nine-render block and
+    /// dividing the medians looks like it controls for the machine and does not:
+    /// a burst of contention that spans one block and not the other lands whole
+    /// in the ratio, which is how this once reported the shipped ring at 12.17 ms
+    /// against the relocated one at 6.78 ms and failed a run that had nothing to
+    /// say about the ring.
     @Test
     func theOutlineIsNotWhatMakesAClusterExpensiveToDraw() throws {
         let viewModel = try Self.liveClimbViewModel()
@@ -309,27 +317,32 @@ struct ShareStatClusterPresetEvidenceTests {
         let drawn = viewModel.presetPreview(for: heaviest)
 
         let treatedRuns = Self.treatedRunCount(of: drawn.node)
-        let treated = Self.medianRenderDuration { Self.clusterFrame(drawn) }
-        let untreated = Self.medianRenderDuration {
-            Self.clusterFrame(drawn, node: Self.untreated(drawn.node))
-        }
-
-        let shipped = Self.medianRenderDuration { Self.captionStack(runs: treatedRuns, inCustomRenderer: false) }
-        let relocated = Self.medianRenderDuration { Self.captionStack(runs: treatedRuns, inCustomRenderer: true) }
+        let treatment = Self.pairedRenderDurations(
+            { Self.clusterFrame(drawn) },
+            { Self.clusterFrame(drawn, node: Self.untreated(drawn.node)) }
+        )
+        let ring = Self.pairedRenderDurations(
+            { Self.captionStack(runs: treatedRuns, inCustomRenderer: true) },
+            { Self.captionStack(runs: treatedRuns, inCustomRenderer: false) }
+        )
 
         let report = """
-        Share cluster outline cost - one ImageRenderer pass, median of 9
+        Share cluster outline cost - one ImageRenderer pass, 9 interleaved pairs
         Measured at export scale (2.77×) in a 900×700 frame; every figure below is that size.
+        Each comparison alternates its two sides render by render, so the ratio is the median
+        of nine per-pair ratios rather than a ratio between two separately-timed blocks - a
+        contention burst inflates whichever block it lands on, and divides out of a pair.
 
           Splits cluster (the heaviest, with its real resolved data), \(treatedRuns) treated runs
-            treated    \(Self.milliseconds(treated)) ms
-            untreated  \(Self.milliseconds(untreated)) ms  (every run's legibility forced to .none,
+            treated    \(Self.milliseconds(treatment.first)) ms
+            untreated  \(Self.milliseconds(treatment.second)) ms  (every run's legibility forced to .none,
                        so the delta is the whole treatment: outline and contact shadows)
-            ratio      \(String(format: "%.2f", treated / untreated))×
+            ratio      \(String(format: "%.2f", treatment.ratio))×  (treated ÷ untreated, paired)
 
           The same four-copy ring, \(treatedRuns) runs at the clusters' caption size
-            shipped: four .shadow layers per run       \(Self.milliseconds(shipped)) ms
-            relocated into a custom TextRenderer       \(Self.milliseconds(relocated)) ms
+            shipped: four .shadow layers per run       \(Self.milliseconds(ring.second)) ms
+            relocated into a custom TextRenderer       \(Self.milliseconds(ring.first)) ms
+            ratio      \(String(format: "%.2f", ring.ratio))×  (relocated ÷ shipped, paired)
 
           120 Hz frame budget: 8.3 ms · 60 Hz frame budget: 16.7 ms
           An ImageRenderer pass is full layout plus rasterization from scratch, so it
@@ -350,16 +363,16 @@ struct ShareStatClusterPresetEvidenceTests {
             """
         )
         #expect(
-            treated < untreated * 2,
+            treatment.ratio < 2,
             """
             the legibility treatment is not supposed to be what a cluster costs to draw. \
-            Both sides are measured on the same machine in the same run, so this ratio does \
+            Both sides are measured render by render against each other, so this ratio does \
             not move with the runner.
             \(report)
             """
         )
         #expect(
-            relocated > shipped * 0.75,
+            ring.ratio > 0.75,
             """
             relocating the identical ring into a custom TextRenderer is supposed to buy \
             nothing worth having. Which spelling wins, and by how much, moves with the \
@@ -395,6 +408,11 @@ struct ShareStatClusterPresetEvidenceTests {
     ///   the number that answers the add-time question.
     /// - **export, 1080×2340** - what `ShareComposerExporter` renders at.
     ///
+    /// The marginal cost of the placed clusters - the figure the scaling bar at
+    /// the bottom rests on - comes from `pairedRenderDurations`, which alternates
+    /// each loaded canvas with the background-only one render by render. See that
+    /// helper for why subtracting a separately-timed baseline is not good enough.
+    ///
     /// The two come back within a few percent of each other, which is itself the
     /// result: at ~7.7× the pixels the export canvas costs the same, so this work
     /// is **layout and text shaping, not rasterization**. Do not expect a smaller
@@ -418,8 +436,10 @@ struct ShareStatClusterPresetEvidenceTests {
     func addTimeLayoutScalesLinearlyAsHeaviestClustersPileUp() throws {
         let counts = [0, 1, 3, 5]
         let onScreenSize = ShareCardFormat.designSize
+        var loaded: [Int: ShareComposerViewModel] = [:]
         var onScreen: [Int: Double] = [:]
         var export: [Int: Double] = [:]
+        var marginals: [Int: Double] = [:]
 
         for count in counts {
             let viewModel = try Self.liveClimbViewModel()
@@ -430,17 +450,29 @@ struct ShareStatClusterPresetEvidenceTests {
                 placed.position = CGPoint(x: 0.5, y: 0.2 + Double(index) * 0.15)
                 viewModel.update(placed)
             }
+            loaded[count] = viewModel
+        }
 
-            onScreen[count] = Self.medianRenderDuration {
-                ShareExportCanvas(viewModel: viewModel, size: onScreenSize)
-            }
+        // Every canvas is timed alternating against the background-only one, so the
+        // marginal cost below is a median of per-pair differences rather than a gap
+        // between two blocks the runner loaded differently. Count zero pairs the
+        // baseline with itself, which is why its marginal reads as ~0.
+        let background = try #require(loaded[0])
+        for count in counts {
+            let viewModel = try #require(loaded[count])
+            let paired = Self.pairedRenderDurations(
+                { ShareExportCanvas(viewModel: viewModel, size: onScreenSize) },
+                { ShareExportCanvas(viewModel: background, size: onScreenSize) }
+            )
+            onScreen[count] = paired.first
+            marginals[count] = paired.excess
             export[count] = Self.medianRenderDuration {
                 ShareExportCanvas(viewModel: viewModel, size: Self.exportSize)
             }
         }
 
         let rows = counts.map { count in
-            let marginal = (onScreen[count] ?? 0) - (onScreen[0] ?? 0)
+            let marginal = marginals[count] ?? 0
             return """
               \(count) Splits cluster\(count == 1 ? "" : "s")
                 add-time layout, on-screen 390×845      \(Self.milliseconds(onScreen[count] ?? 0)) ms \
@@ -452,6 +484,9 @@ struct ShareStatClusterPresetEvidenceTests {
 
         let report = """
         Add-time layout with several of the heaviest cluster - median of 9 ImageRenderer passes
+        Each on-screen canvas is timed alternating with the background-only one, so "clusters
+        alone" is the median of nine per-pair differences rather than a gap between two blocks
+        the runner may have loaded differently.
 
         \(rows)
 
@@ -505,8 +540,8 @@ struct ShareStatClusterPresetEvidenceTests {
             "a transform-only mutation must not change what a cluster draws"
         )
 
-        let marginalOne = (onScreen[1] ?? 0) - (onScreen[0] ?? 0)
-        let marginalFive = (onScreen[5] ?? 0) - (onScreen[0] ?? 0)
+        let marginalOne = marginals[1] ?? 0
+        let marginalFive = marginals[5] ?? 0
         #expect(
             marginalOne > 0,
             """
@@ -519,11 +554,11 @@ struct ShareStatClusterPresetEvidenceTests {
             marginalFive < marginalOne * 10,
             """
             five clusters must not cost dramatically more than five of the first - measured \
-            on the marginal cost, since the shared background would otherwise mask it. The \
-            slack is deliberately wide: each marginal is a difference of two medians, so \
-            noise in the shared baseline leverages the ratio, which comes back ~4.6 on an \
-            unloaded desk and ~6.0 on a loaded CI runner. It is still far below anything \
-            super-linear - quadratic growth over five clusters would be 25×.
+            on the marginal cost, since the shared background would otherwise mask it. Each \
+            marginal is the median of nine per-pair differences against the background-only \
+            canvas rather than a gap between two separately-timed blocks, so the ratio comes \
+            back ~4.6 whatever the runner is doing. The slack stays wide anyway: it is still \
+            far below anything super-linear - quadratic growth over five clusters would be 25×.
             \(report)
             """
         )
@@ -642,17 +677,70 @@ struct ShareStatClusterPresetEvidenceTests {
     private static func medianRenderDuration<Content: View>(
         of content: @escaping () -> Content
     ) -> Double {
-        var samples: [Double] = []
-        for _ in 0..<9 {
-            let renderer = ImageRenderer(content: content())
-            renderer.scale = 1
-            renderer.isOpaque = true
-            let start = ContinuousClock.now
-            _ = renderer.uiImage
-            let elapsed = start.duration(to: .now).components
-            samples.append(Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18)
+        median((0..<9).map { _ in renderDuration(of: content) })
+    }
+
+    /// Two spellings of the same drawing, timed against each other in one
+    /// interleaved run: a sample of each, nine times over, alternating which of
+    /// the pair goes first so neither systematically pays for the other's
+    /// warm-up. The comparable answers are the two the caller asks for -
+    /// `ratio`, the median of the nine per-pair ratios, and `excess`, the median
+    /// of the nine per-pair differences.
+    ///
+    /// A ratio or a difference taken between two separately-measured medians is
+    /// not protected from the runner, however many samples each median holds:
+    /// each block runs nine renders end to end, so a contention burst spanning
+    /// one block and not the other moves the answer by whatever that burst cost.
+    /// That is how this failed on CI - the shipped ring came back at 12.17 ms
+    /// against the relocated one at 6.78 ms, on a machine where the two are
+    /// level, and the test read a contention burst as a result about the ring.
+    /// Inside a pair the two renders are microseconds apart, so a burst lands on
+    /// both and cancels; the median across pairs discards the few it straddled.
+    ///
+    /// A difference leverages that error harder than a ratio does, which is why
+    /// the marginal cost of a placed cluster is taken from here too: subtracting
+    /// a separately-timed background baseline left the marginal carrying the
+    /// full noise of both blocks, and five clusters came back at 10.7× one of
+    /// them on a loaded runner against 4.6× on a quiet desk.
+    private static func pairedRenderDurations<First: View, Second: View>(
+        _ first: @escaping () -> First,
+        _ second: @escaping () -> Second
+    ) -> (first: Double, second: Double, ratio: Double, excess: Double) {
+        var firstSamples: [Double] = []
+        var secondSamples: [Double] = []
+        for index in 0..<9 {
+            let firstSample: Double
+            let secondSample: Double
+            if index.isMultiple(of: 2) {
+                firstSample = renderDuration(of: first)
+                secondSample = renderDuration(of: second)
+            } else {
+                secondSample = renderDuration(of: second)
+                firstSample = renderDuration(of: first)
+            }
+            firstSamples.append(firstSample)
+            secondSamples.append(secondSample)
         }
-        return samples.sorted()[samples.count / 2]
+        return (
+            first: median(firstSamples),
+            second: median(secondSamples),
+            ratio: median(zip(firstSamples, secondSamples).map { $0 / $1 }),
+            excess: median(zip(firstSamples, secondSamples).map { $0 - $1 })
+        )
+    }
+
+    private static func renderDuration<Content: View>(of content: @escaping () -> Content) -> Double {
+        let renderer = ImageRenderer(content: content())
+        renderer.scale = 1
+        renderer.isOpaque = true
+        let start = ContinuousClock.now
+        _ = renderer.uiImage
+        let elapsed = start.duration(to: .now).components
+        return Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+    }
+
+    private static func median(_ samples: [Double]) -> Double {
+        samples.sorted()[samples.count / 2]
     }
 
     private static func milliseconds(_ seconds: Double) -> String {
