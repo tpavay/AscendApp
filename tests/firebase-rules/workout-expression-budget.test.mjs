@@ -8,6 +8,14 @@
 // a failure here means the rule can no longer evaluate something the client will send - not that
 // the rule correctly refused it. Before adding any check to the workout rule, re-run this. Do not
 // assume there is room.
+//
+// HOW MUCH ROOM IS LEFT. Measured 2026-08-19, after `isPhysicallyPossibleClimb` was added and
+// `isValidWorkoutSource` dropped two dead values: padding `isValidWorkoutDocument` with 20 extra
+// scalar comparisons still passes all three cases here, 30 does not. So the envelope fits with
+// roughly two dozen expressions to spare and no more - a per-field validator of the kind the
+// philosophy block in `firestore.rules` describes will not fit, and neither will a second
+// per-element list check. Re-measure the same way (inject N distinct `data.steps != <n>` clauses
+// and bisect) rather than trusting this number after the rule changes again.
 import { readFileSync } from 'node:fs';
 import { after, before, beforeEach, test } from 'node:test';
 
