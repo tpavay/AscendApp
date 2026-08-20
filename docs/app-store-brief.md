@@ -102,9 +102,9 @@ Visual rules the chosen template must satisfy:
 - Must collect required demographics post-auth (birthday, bounded to ages 13–120, and gender).
   It must **not** ask for a name: sign-in resolves one and writes it without asking, which is
   what `Name - Resolved, Never Asked` in `docs/onboarding-design-guide.md` covers.
-- Notifications opt-in is anchored to a concrete value prop ("never miss a climb drop / get
-  24-hour advance notice on new First Ascent opportunities") — never generic "enable
-  notifications" housekeeping.
+- Notifications opt-in is anchored to a concrete value prop ("never miss a climb drop / be
+  alerted the moment a new First Ascent opens") — never generic "enable notifications"
+  housekeeping, and never a head start before the open, which nothing can deliver.
 
 ## What the onboarding must accomplish
 

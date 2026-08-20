@@ -40,7 +40,11 @@ This sequence will evolve as we learn from SuperWall and RevenueCat funnel analy
 
 ## Notifications opt-in
 - Notifications opt-in should be anchored to a concrete value prop: never miss a climb drop. Do not ask for notification permission as generic setup housekeeping.
-- Notifications opt-in is the gateway to First Ascent opportunity. Climbers with notifications enabled receive 24-hour advance notice of new climb drops, giving them a fair shot to claim the FA at unlock.
+- Notifications opt-in is the gateway to First Ascent opportunity.
+  Climbers with notifications enabled are alerted **when a climb opens**, not before it: `announceClimbDrops` (`functions/src/climbDropNotifications.ts`) watches the hosted catalogue and sends the moment a landmark reaches `available`.
+  Every shipped string says the same thing - "Get an Ascend alert when new climbs open", "A new landmark opens in the catalog" - and the promise is fairness at the open, not a head start before it.
+  Advance notice is not available to promise: the catalogue is a static file with no unlock timestamp, so counting back from an open would take both a catalogue schema change and a client that withholds a published climb.
+  `scripts/test/climb-drop-promise-contract.test.mjs` fails any surface or document that reintroduces it.
 
 ## Content discipline
 - Survey and paywall content is product-defined. Engineers should not ship onboarding screens, copy, or content beyond what product has provided mocks for.

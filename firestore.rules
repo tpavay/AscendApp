@@ -1620,6 +1620,21 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // The climb-drop sweep's baseline and its per-drop send ledger. Both are
+    // server-derived evidence of what has already been announced, so a client
+    // that could write either could re-announce a drop or suppress one.
+    match /climb_drop_notification_state/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /climb_drop_dispatches/{dispatchId} {
+      allow read, write: if false;
+
+      match /receipts/{tokenHash} {
+        allow read, write: if false;
+      }
+    }
+
     match /_public_identity_propagation_jobs/{userId} {
       allow read, write: if false;
 

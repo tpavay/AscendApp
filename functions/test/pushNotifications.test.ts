@@ -176,25 +176,31 @@ test("a denied device leaves the climb-drop audience without losing intent", () 
   const registrations = [
     {
       data: {
+        active: true,
         authorizationStatus: "authorized",
         climbDropPushEnabled: true,
         fcmToken: "token-allowed",
+        platform: "ios",
       },
       tokenHash: "hash-allowed",
     },
     {
       data: {
+        active: true,
         authorizationStatus: "denied",
         climbDropPushEnabled: true,
         fcmToken: "token-denied",
+        platform: "ios",
       },
       tokenHash: "hash-denied",
     },
     {
       data: {
+        active: true,
         authorizationStatus: "not_determined",
         climbDropPushEnabled: true,
         fcmToken: "token-unasked",
+        platform: "ios",
       },
       tokenHash: "hash-unasked",
     },
@@ -213,9 +219,11 @@ test("a denied device leaves the climb-drop audience without losing intent", () 
 test("a device rejoins the audience when authorization returns", () => {
   const registration = {
     data: {
+      active: true,
       authorizationStatus: "denied",
       climbDropPushEnabled: true,
       fcmToken: "token-1",
+      platform: "ios",
     },
     tokenHash: "hash-1",
   };
@@ -237,17 +245,21 @@ test("quiet authorizations still count as deliverable", () => {
   const devices = pushNotificationTestHooks.selectDeliverableClimbDropDevices([
     {
       data: {
+        active: true,
         authorizationStatus: "provisional",
         climbDropPushEnabled: true,
         fcmToken: "token-provisional",
+        platform: "ios",
       },
       tokenHash: "hash-provisional",
     },
     {
       data: {
+        active: true,
         authorizationStatus: "ephemeral",
         climbDropPushEnabled: true,
         fcmToken: "token-ephemeral",
+        platform: "ios",
       },
       tokenHash: "hash-ephemeral",
     },
