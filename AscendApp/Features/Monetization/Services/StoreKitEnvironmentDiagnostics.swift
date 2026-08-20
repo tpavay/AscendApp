@@ -20,15 +20,20 @@ final class StoreKitEnvironmentDiagnostics: @unchecked Sendable {
 
     private let sandboxEntitlement = OSAllocatedUnfairLock<Bool?>(initialState: nil)
     private let receiptName: @Sendable () -> String
+    private let telemetry: TelemetryManager
 
     init(
-        receiptName: @escaping @Sendable () -> String = { StoreKitReceiptEnvironment.receiptName }
+        receiptName: @escaping @Sendable () -> String = { StoreKitReceiptEnvironment.receiptName },
+        telemetry: TelemetryManager = .shared
     ) {
         self.receiptName = receiptName
+        self.telemetry = telemetry
     }
 
     func record(holdsSandboxEntitlement: Bool) {
         sandboxEntitlement.withLock { $0 = holdsSandboxEntitlement }
+        telemetry.set(.holdsSandboxEntitlement, value: holdsSandboxEntitlement)
+        telemetry.set(.storeKitReceiptName, value: receiptName())
     }
 
     var parameters: [String: TelemetryValue] {

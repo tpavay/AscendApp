@@ -111,7 +111,7 @@ struct AppReviewSandboxEntitlementTests {
     /// two submissions went by with the answer unobservable.
     @Test(arguments: [true, false])
     func everyPaywallAndPurchaseEventCarriesTheEnvironmentPair(isSandbox: Bool) {
-        let diagnostics = StoreKitEnvironmentDiagnostics(receiptName: { "sandboxReceipt" })
+        let diagnostics = Self.diagnostics(receiptName: "sandboxReceipt").diagnostics
         diagnostics.record(holdsSandboxEntitlement: isSandbox)
 
         for event in Self.reviewedEvents {
@@ -128,11 +128,38 @@ struct AppReviewSandboxEntitlementTests {
     @Test
     func theSandboxFlagIsAbsentUntilRevenueCatAnswers() {
         let parameters = PaywallAnalyticsEvent.revenueCatRestoreStarted
-            .record(diagnostics: StoreKitEnvironmentDiagnostics(receiptName: { "none" }))
+            .record(diagnostics: Self.diagnostics(receiptName: "none").diagnostics)
             .parameters
 
         #expect(parameters["holds_sandbox_entitlement"] == nil)
         #expect(parameters["storekit_receipt_name"] == .string("none"))
+    }
+
+    /// The injected overload is the only one the assertions above can reach, so this pins the
+    /// property `TelemetryManager.track(_ event:)` actually calls to the shared diagnostics.
+    /// Without it, dropping the merge from `record` ships events with neither field and the suite
+    /// stays green. Only the receipt name is asserted: the sandbox flag is deliberately absent
+    /// until RevenueCat answers, and the shared instance's answer depends on what else has run.
+    @Test
+    func theShippedEventPathCarriesTheEnvironmentPair() {
+        let parameters = PaywallAnalyticsEvent.revenueCatRestoreStarted.record.parameters
+
+        #expect(
+            parameters["storekit_receipt_name"] == .string(StoreKitReceiptEnvironment.receiptName)
+        )
+    }
+
+    /// The Crashlytics custom keys are kept alongside the event parameters, for the crash and
+    /// Sentry reports that do exist, and the type named for the pair is what sets them - so a
+    /// reading that never reaches an entry point still lands on both surfaces.
+    @Test(arguments: [true, false])
+    func recordingThePairAlsoSetsTheCrashlyticsKeys(isSandbox: Bool) {
+        let harness = Self.diagnostics(receiptName: "sandboxReceipt")
+
+        harness.diagnostics.record(holdsSandboxEntitlement: isSandbox)
+
+        #expect(harness.reporter.boolValue(forKey: "holds_sandbox_entitlement") == isSandbox)
+        #expect(harness.reporter.stringValue(forKey: "storekit_receipt_name") == "sandboxReceipt")
     }
 
     @Test(arguments: [true, false])
@@ -193,6 +220,22 @@ struct AppReviewSandboxEntitlementTests {
 }
 
 private extension AppReviewSandboxEntitlementTests {
+    /// Diagnostics wired to a telemetry manager of this suite's own, so recording the pair never
+    /// reaches the shared singleton.
+    static func diagnostics(
+        receiptName: String
+    ) -> (diagnostics: StoreKitEnvironmentDiagnostics, reporter: CustomKeyRecordingReporter) {
+        let reporter = CustomKeyRecordingReporter()
+
+        return (
+            StoreKitEnvironmentDiagnostics(
+                receiptName: { receiptName },
+                telemetry: makeTestTelemetry(reporter: reporter)
+            ),
+            reporter
+        )
+    }
+
     /// One event from each surface the reviewer touched: the purchase terminal that reported
     /// success, the one that raised the alert, and the restore terminal that said no purchases
     /// were found.
@@ -323,4 +366,43 @@ private final class StubRestorer: PurchaseRestoring {
     func restorePurchases() async throws -> MonetizationEntitlementState {
         state
     }
+}
+
+/// Captures the Crashlytics custom keys a caller set, which no shared test reporter records.
+private final class CustomKeyRecordingReporter: CrashlyticsReporting, @unchecked Sendable {
+    private let lock = NSLock()
+    private var boolValues: [String: Bool] = [:]
+    private var stringValues: [String: String] = [:]
+
+    func boolValue(forKey key: String) -> Bool? {
+        lock.lock()
+        defer { lock.unlock() }
+        return boolValues[key]
+    }
+
+    func stringValue(forKey key: String) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return stringValues[key]
+    }
+
+    func setCollectionEnabled(_ enabled: Bool) {}
+    func setUserID(_ userID: String?) {}
+
+    func setCustomValue(_ value: Bool, forKey key: String) {
+        lock.lock()
+        boolValues[key] = value
+        lock.unlock()
+    }
+
+    func setCustomValue(_ value: Int, forKey key: String) {}
+
+    func setCustomValue(_ value: String, forKey key: String) {
+        lock.lock()
+        stringValues[key] = value
+        lock.unlock()
+    }
+
+    func log(_ message: String) {}
+    func record(error: Error, context: String, code: String, additionalInfo: [String: String]?) {}
 }

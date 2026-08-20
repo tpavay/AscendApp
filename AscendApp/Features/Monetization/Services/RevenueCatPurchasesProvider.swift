@@ -69,14 +69,8 @@ final class RevenueCatPurchasesProvider: RevenueCatEntitlementProviding {
     private nonisolated static func entitlementState(
         from customerInfo: CustomerInfo
     ) -> MonetizationEntitlementState {
-        let holdsSandboxEntitlement = customerInfo.entitlements.holdsSandboxEntitlement
         StoreKitEnvironmentDiagnostics.shared.record(
-            holdsSandboxEntitlement: holdsSandboxEntitlement
-        )
-        TelemetryManager.shared.set(.holdsSandboxEntitlement, value: holdsSandboxEntitlement)
-        TelemetryManager.shared.set(
-            .storeKitReceiptName,
-            value: StoreKitReceiptEnvironment.receiptName
+            holdsSandboxEntitlement: customerInfo.entitlements.holdsSandboxEntitlement
         )
 
         return customerInfo.entitlements.appAccessEntitlementState

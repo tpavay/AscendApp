@@ -82,10 +82,14 @@ enum PaywallAnalyticsEvent: TelemetryEvent {
         record(diagnostics: StoreKitEnvironmentDiagnostics.shared)
     }
 
-    /// Every paywall, purchase, and restore event carries the StoreKit environment pair, because
-    /// the filter that discarded a paying App Reviewer's entitlement compared exactly those two
-    /// values and Ascend reported neither (#506). Attached here rather than at each of the twenty
-    /// call sites, so a new event cannot ship without them.
+    /// Every event this enum builds carries the StoreKit environment pair, because the filter that
+    /// discarded a paying App Reviewer's entitlement compared exactly those two values and Ascend
+    /// reported neither (#506). That is every `revenuecat_purchase_*` and `revenuecat_restore_*`
+    /// event, plus the `paywall_*` events cased here.
+    ///
+    /// `paywall_error`, `paywall_skipped` and `paywall_reached` are not cases of this enum - they
+    /// are raw `TelemetryRecord`s built in `SuperwallPaywallPresenter` and `MonetizationManager` -
+    /// so they carry neither field. Tracked in #508.
     func record(diagnostics: StoreKitEnvironmentDiagnostics) -> TelemetryRecord {
         let record = baseRecord
 
