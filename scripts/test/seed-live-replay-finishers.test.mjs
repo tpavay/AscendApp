@@ -76,3 +76,27 @@ test("the seed writes a finisher for every board it seeds entries onto", () => {
   // stranded climber ahead of the next one.
   assert.match(source, /clearOpenFirstAscentFinishers\(/);
 });
+
+test("the seed's best-metric fields are the ones the Cloud Function counts", () => {
+  // The numerator behind a frozen rank is an inequality on exactly these
+  // fields. A server-side rename would leave every seeded finisher invisible to
+  // it and quietly return dev and staging boards to the "1st of 84" state.
+  const source = readFileSync(
+    `${repositoryRoot}functions/src/liveReplayLeaderboard.ts`,
+    "utf8"
+  );
+
+  for (const [constant, seedValue] of [
+    ["DURATION_BEST_METRIC", DURATION_BEST_METRIC],
+    ["STEPS_BEST_METRIC", STEPS_BEST_METRIC],
+  ]) {
+    const serverValue = source.match(
+      new RegExp(`const ${constant} = "([^"]+)"`)
+    )?.[1];
+    assert.ok(
+      serverValue,
+      `could not locate ${constant} in the Cloud Function`
+    );
+    assert.equal(serverValue, seedValue);
+  }
+});

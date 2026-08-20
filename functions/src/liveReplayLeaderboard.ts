@@ -1209,12 +1209,27 @@ async function publishReplayEntries(
       const completedCount = isNewFinisher ?
         Math.max(previousCompletedCount + 1, globalCompletionOrder) :
         Math.max(previousCompletedCount, globalCompletionOrder);
-      const standing = frozenCompletionStanding({
-        payload,
-        reading: completionField,
-        completedCount,
-        existingFinisherData,
-      });
+      // Resolved only where a write consumes it. `completionSnapshots` is
+      // write-once, so a republish of an already-frozen attempt discards the
+      // standing entirely - and resolving one anyway let a discarded number
+      // abort a trigger that had already committed another context's publish,
+      // reporting "couldn't sync" for a climb that did sync.
+      //
+      // This narrows WHEN the guard runs and nothing else. Where a standing is
+      // resolved, an impossible rank/population pairing still throws: the
+      // deleted Math.min clamp is not back under another name, there is no
+      // fallback number, and nothing swallows the error.
+      const freezesCompletionSnapshot = !completionSnapshot.exists;
+      const publishesLiveClimbStatus =
+        payload.contextType === LIVE_CLIMB_CONTEXT_TYPE;
+      const standing = freezesCompletionSnapshot || publishesLiveClimbStatus ?
+        frozenCompletionStanding({
+          payload,
+          reading: completionField,
+          completedCount,
+          existingFinisherData,
+        }) :
+        null;
       const summaryWrite = replaySummaryWrite({
         payload,
         completedCount,
@@ -1248,7 +1263,7 @@ async function publishReplayEntries(
         {merge: true}
       );
 
-      if (!completionSnapshot.exists) {
+      if (standing !== null && freezesCompletionSnapshot) {
         transaction.set(
           completionSnapshotRef,
           completionRankSnapshotWrite({
@@ -1262,7 +1277,7 @@ async function publishReplayEntries(
         );
       }
 
-      if (payload.contextType === LIVE_CLIMB_CONTEXT_TYPE) {
+      if (standing !== null && publishesLiveClimbStatus) {
         transaction.set(
           publishStatusRef,
           liveClimbPublishStatusPublishedWrite({

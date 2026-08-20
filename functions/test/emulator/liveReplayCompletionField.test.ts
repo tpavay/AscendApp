@@ -22,9 +22,15 @@ import assert from "node:assert/strict";
 import * as admin from "firebase-admin";
 import {
   liveReplayLeaderboardTestHooks,
+  onWorkoutReplaySplitsWritten,
 } from "../../src/liveReplayLeaderboard.js";
 
+type ReplayTriggerEvent =
+  Parameters<typeof onWorkoutReplaySplitsWritten.run>[0];
+
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
+const LIVE_CLIMB_COMMUNITY_STATS_COLLECTION = "live_climb_community_stats";
+const PUBLISH_STATUSES_COLLECTION = "liveClimbPublishStatuses";
 const CLIMBER = "climber-1";
 const RIVAL = "rival-1";
 const WORKOUT = "B91A3AB1-FBD5-4AC1-A18D-58A95BCF0C96";
@@ -292,6 +298,131 @@ test("a finisher with no stored best is a board this cannot rank against",
     );
   });
 
+test("a republished attempt is already one of the attempts counted",
+  async () => {
+    const payload = justClimbPayload();
+    await seedRivalAttempts(payload.contextKey, {collapses: false});
+
+    // The retry-after-partial-failure case: the row committed and the trigger
+    // died afterwards, so the attempt publishing now is already standing in the
+    // collection the denominator counts. Counting it in again would freeze a
+    // permanent population one larger than the field it was measured against.
+    await seedEntry(payload.contextKey, {
+      workoutId: WORKOUT,
+      userId: CLIMBER,
+      isBestForUser: null,
+    });
+
+    const reading = await liveReplayLeaderboardTestHooks.readCompletionField(
+      payload,
+      WORKOUT
+    );
+
+    assert.deepEqual(reading, {betterRowCount: 5, attemptCount: 6});
+    assert.deepEqual(
+      liveReplayLeaderboardTestHooks.frozenCompletionStanding({
+        payload,
+        reading,
+        completedCount: 1,
+        existingFinisherData: undefined,
+      }),
+      {rank: 6, population: 6}
+    );
+  });
+
+test("a standing nothing can write cannot fail a climb that did publish",
+  async () => {
+    const liveClimb = liveClimbPayload();
+    const justClimb = justClimbPayload();
+
+    // Two rivals already home, so the climb's own standing is a pairing its
+    // board agrees with and that publish commits.
+    await seedSummary(liveClimb.contextKey, 2);
+    await seedFinisher(liveClimb.contextKey, {
+      userId: RIVAL,
+      bestCompletionDurationSeconds: ATTEMPT_DURATION_SECONDS - 60,
+    });
+    await seedFinisher(liveClimb.contextKey, {
+      userId: "rival-2",
+      bestCompletionDurationSeconds: ATTEMPT_DURATION_SECONDS - 30,
+    });
+
+    // The open race froze this attempt's standing already, and
+    // completionSnapshots is write-once, so no second standing can land there.
+    // Its rows carry the pairing the two unsynchronised aggregations behind
+    // that read can produce between them: every attempt counted back, this
+    // one's own committed row included, stands strictly ahead of the attempt
+    // republishing now.
+    await seedCompletionSnapshot(justClimb.contextKey);
+    await seedEntry(justClimb.contextKey, {
+      workoutId: WORKOUT,
+      userId: CLIMBER,
+      completionDurationSeconds: ATTEMPT_DURATION_SECONDS - 20,
+      isBestForUser: null,
+    });
+    await seedRivalAttempts(justClimb.contextKey, {collapses: false});
+
+    await runReplayTrigger();
+
+    // The climb publishes before the open race, so a standing raised and then
+    // discarded there used to abort the trigger after this document had
+    // already committed - telling the climber a synced climb had not synced.
+    const status = await db
+      .collection("users")
+      .doc(CLIMBER)
+      .collection(PUBLISH_STATUSES_COLLECTION)
+      .doc(WORKOUT)
+      .get();
+    assert.equal(status.data()?.state, "published");
+  });
+
+/**
+ * Runs the replay trigger over the fixture workout as its first write.
+ */
+async function runReplayTrigger(): Promise<void> {
+  const workoutRef = db
+    .collection("users")
+    .doc(CLIMBER)
+    .collection("workouts")
+    .doc(WORKOUT);
+  const before = await workoutRef.get();
+  await workoutRef.set(makeWorkoutDocument());
+  const after = await workoutRef.get();
+
+  await onWorkoutReplaySplitsWritten.run({
+    data: {before, after},
+    params: {userId: CLIMBER, workoutId: WORKOUT},
+  } as unknown as ReplayTriggerEvent);
+}
+
+/**
+ * Seeds a replay summary carrying a completion count.
+ * @param {string} contextKey Replay context key.
+ * @param {number} completedCount Distinct finishers standing on the board.
+ */
+async function seedSummary(
+  contextKey: string,
+  completedCount: number
+): Promise<void> {
+  await db
+    .collection(LIVE_REPLAY_COLLECTION)
+    .doc(contextKey)
+    .set({completedCount}, {merge: true});
+}
+
+/**
+ * Seeds the write-once completion snapshot the fixture attempt already froze.
+ * @param {string} contextKey Replay context key.
+ */
+async function seedCompletionSnapshot(contextKey: string): Promise<void> {
+  await db
+    .collection(LIVE_REPLAY_COLLECTION)
+    .doc(contextKey)
+    .collection("completionSnapshots")
+    .doc(WORKOUT)
+    .set({completedCount: 6, rank: 6, userId: CLIMBER, workoutId: WORKOUT});
+}
+
 /**
  * Seeds one rival holding five attempts faster than the fixture attempt.
  * @param {string} contextKey Replay context key.
@@ -504,4 +635,8 @@ function makeWorkoutDocument(
  */
 async function clearFirestore(): Promise<void> {
   await db.recursiveDelete(db.collection(LIVE_REPLAY_COLLECTION));
+  await db.recursiveDelete(db.collection("users"));
+  await db.recursiveDelete(
+    db.collection(LIVE_CLIMB_COMMUNITY_STATS_COLLECTION)
+  );
 }

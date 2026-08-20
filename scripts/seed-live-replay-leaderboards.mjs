@@ -880,9 +880,78 @@ async function clearSeedEntriesFromPlan(db, writer, seedPlan) {
   return deleted;
 }
 
+/**
+ * Resolves the completion count each seeded summary may claim.
+ *
+ * The permanent rank a finished climb keeps counts the finisher documents on
+ * its board and measures that rank against the summary's `completedCount`, and
+ * it refuses a rank standing outside its own population rather than clamping
+ * it. So a summary claiming fewer completions than the board has finishers is
+ * not a cosmetic drift: the next climber to finish in the bottom places wedges
+ * their publish, and every retry recomputes the same impossible pair.
+ *
+ * The clear only takes out this pack's own finishers - `seed-demo-user` writes
+ * one under a real uid, and an earlier pack's survive under a different
+ * `seedPackId` - so the count comes from every finisher that will stand on the
+ * board once this pack lands, whatever wrote it.
+ * @param {object} db Firestore instance.
+ * @param {object} seedPlan Built seed plan.
+ * @return {Promise<object>} Per-climb counts and the Just Climb count.
+ */
+async function resolveSeededCompletedCounts(db, seedPlan) {
+  const climbCounts = new Map();
+
+  for (const plan of seedPlan.climbPlans) {
+    const completedCount = await boardFinisherPopulation(
+      finishersCollection(db, plan.climb.id),
+      plan.attempts.map((attempt) => attempt.userId),
+      plan.completedCount
+    );
+
+    // A summary carrying completions with no holder is the dead First Ascent
+    // state, so a stranded finisher fails the run before anything is written.
+    assertFirstAscentInvariant({
+      climbId: plan.climb.id,
+      completedCount,
+      hasFirstAscent: plan.firstAscentAttempt !== null,
+    });
+    climbCounts.set(plan.climb.id, completedCount);
+  }
+
+  return {
+    climbCounts,
+    justClimbCount: await boardFinisherPopulation(
+      justClimbFinishersCollection(db),
+      seedPlan.justClimbPlan.attempts.map((attempt) => attempt.userId),
+      seedPlan.justClimbPlan.attempts.length
+    ),
+  };
+}
+
+/**
+ * Counts every climber that will hold a finisher document on one board.
+ * @param {object} finishersRef `finishers` collection reference.
+ * @param {string[]} seededUserIds Climbers this pack is about to write.
+ * @param {number} plannedCount Completions the plan intended to seed.
+ * @return {Promise<number>} Finishers standing on the board after the write.
+ */
+async function boardFinisherPopulation(finishersRef, seededUserIds, plannedCount) {
+  const surviving = await finishersRef.listDocuments();
+  const userIds = new Set(surviving.map((document) => document.id));
+  for (const userId of seededUserIds) {
+    userIds.add(userId);
+  }
+
+  return Math.max(plannedCount, userIds.size);
+}
+
 async function writeSeedPlan(db, seedPlan, args) {
   const writer = bulkWriter(db);
   const now = FieldValue.serverTimestamp();
+  const {climbCounts, justClimbCount} = await resolveSeededCompletedCounts(
+    db,
+    seedPlan
+  );
   let writes = 0;
 
   for (const plan of seedPlan.climbPlans) {
@@ -891,7 +960,7 @@ async function writeSeedPlan(db, seedPlan, args) {
     const summary = {
       activityTier: plan.config.activityTier,
       bucketIntervalSeconds: BUCKET_INTERVAL_SECONDS,
-      completedCount: plan.completedCount,
+      completedCount: climbCounts.get(plan.climb.id),
       contextId: plan.climb.id,
       contextType: LIVE_CLIMB_CONTEXT_TYPE,
       replayEntryCount: plan.attempts.length,
@@ -968,7 +1037,7 @@ async function writeSeedPlan(db, seedPlan, args) {
 
   writer.set(justClimbLeaderboardRef(db), {
     bucketIntervalSeconds: BUCKET_INTERVAL_SECONDS,
-    completedCount: seedPlan.justClimbPlan.attempts.length,
+    completedCount: justClimbCount,
     contextId: JUST_CLIMB_GLOBAL_CONTEXT_ID,
     contextType: JUST_CLIMB_CONTEXT_TYPE,
     replayEntryCount: seedPlan.justClimbPlan.attempts.length,
