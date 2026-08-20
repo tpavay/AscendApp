@@ -77,12 +77,16 @@ const TRANSACTION_MAX_ATTEMPTS = 5;
  * only Ascend-controlled live sensor sessions count - is a product change that
  * belongs in its own slice, and lands as an edit to this one constant plus its
  * test.
+ *
+ * `garmin` and `fitbit` are absent because `isValidWorkoutSource` in
+ * `firestore.rules` refuses them, so no document reaching this function can
+ * carry either. They named integrations that were never built - no build ever
+ * set them. Keeping them listed here stated a second, looser policy that
+ * nothing could exercise; one policy, stated once, is the point.
  */
 export const COMPETITION_ELIGIBLE_SOURCES = new Set([
   "manual",
   "apple_health",
-  "garmin",
-  "fitbit",
   "hevy",
   "headphone_motion",
 ]);

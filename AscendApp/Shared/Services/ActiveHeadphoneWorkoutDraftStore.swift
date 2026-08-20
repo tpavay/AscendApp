@@ -3,6 +3,35 @@ import SwiftData
 import UIKit
 
 struct ActiveHeadphoneWorkoutDraftStore {
+    /// How much wall-clock time after the last checkpoint a recovery sync may still credit as
+    /// climbing.
+    ///
+    /// `applyRecoveryStepSync` credits wall clock on purpose: the draft checkpoints every two
+    /// seconds (`LiveClimbSessionViewModel.draftCheckpointInterval`), so it holds no tracked
+    /// duration at all for the stretch after the app died, and a climber who kept stepping through
+    /// a short dropout would otherwise be under-counted. That intent is sound; the missing part was
+    /// a limit. Uncapped, a draft resolved days after it started claimed days of duration - honest
+    /// input, an impossible climb, and one `isPhysicallyPossibleClimb` in `firestore.rules` now
+    /// refuses above five days with a bare `PERMISSION_DENIED` the client cannot explain.
+    ///
+    /// One hour is the balance between the two ways this can go wrong. It still stops the runaway
+    /// this clamp exists to stop - days of phantom duration walking into the five-day ceiling - and
+    /// because checkpoints land every two seconds the measured gap is very close to how long the
+    /// app was actually dead rather than an artifact of coarse sampling.
+    ///
+    /// It is an hour rather than minutes because clamping is not free. The clamp bounds the
+    /// duration but never the step count the climber types off the machine, so a session that
+    /// dies early and whose climber keeps stepping gets its full steps credited against a short
+    /// duration. That is the common crash-early-and-keep-climbing shape, and an hour keeps it
+    /// inside the limit, where wall clock is credited and the device's own 220 steps/min gate in
+    /// `WorkoutRemoteSyncMapper.snapshot` is never tripped for it.
+    ///
+    /// An hour narrows that window; it does not close it. A climber who keeps climbing for more
+    /// than an hour after a crash still has their typed steps credited against a clamped duration,
+    /// and `WorkoutSyncCoordinator` still treats the resulting `implausibleWorkoutTotals` as
+    /// terminal. That is a known and accepted bound of this change, not a solved problem.
+    static let maximumCreditableTrackingGap: TimeInterval = 60 * 60
+
     private let userDefaults: UserDefaults
     private let activeDraftIDKey = "activeHeadphoneWorkoutDraft.id.v1"
 
@@ -117,11 +146,18 @@ struct ActiveHeadphoneWorkoutDraftStore {
         syncedAt: Date = Date()
     ) throws {
         let normalizedSteps = max(correctedSteps, 0)
+        let trackingGapSeconds = max(syncedAt.timeIntervalSince(draft.lastCheckpointAt), 0)
+        // Wall clock is only evidence of climbing while the climber was plausibly still on the
+        // machine. Past `maximumCreditableTrackingGap` the session is credited to its last
+        // checkpoint - the last moment Ascend has any evidence for - rather than to now. The
+        // integrity record below still carries the full gap: how long tracking was unavailable is a
+        // fact, and clamping it there would falsify the record instead of bounding a claim.
+        let gapIsCreditable = trackingGapSeconds <= Self.maximumCreditableTrackingGap
+        let creditedThrough = gapIsCreditable ? syncedAt : draft.lastCheckpointAt
         let elapsedSeconds = max(
             draft.durationSeconds,
-            syncedAt.timeIntervalSince(draft.startedAt)
+            creditedThrough.timeIntervalSince(draft.startedAt)
         )
-        let trackingGapSeconds = max(syncedAt.timeIntervalSince(draft.lastCheckpointAt), 0)
         let previousIntegrity = draft.trackingIntegrity
         let interruptionCount = trackingGapSeconds > 0
             ? previousIntegrity.interruptionCount + 1
@@ -157,7 +193,7 @@ struct ActiveHeadphoneWorkoutDraftStore {
             trackingIntegrity: updatedIntegrity,
             stepCorrections: corrections,
             status: draft.status,
-            checkpointedAt: syncedAt
+            checkpointedAt: creditedThrough
         )
         try modelContext.save()
         setActiveDraftID(draft.id)
@@ -169,7 +205,8 @@ struct ActiveHeadphoneWorkoutDraftStore {
                 "detected_steps": String(correction.detectedSteps),
                 "corrected_steps": String(correction.correctedSteps),
                 "delta_steps": String(correction.deltaSteps),
-                "tracking_gap_seconds": String(Int(trackingGapSeconds.rounded(.down)))
+                "tracking_gap_seconds": String(Int(trackingGapSeconds.rounded(.down))),
+                "tracking_gap_credited": String(gapIsCreditable)
             ]) { current, _ in current }
         )
     }
