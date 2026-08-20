@@ -236,7 +236,8 @@ Value screens:
 - CTA advances pages; only the final value page goes to the next flow.
 
 Survey/question screens:
-- Top row: back button, progress bar, optional skip only if the step is truly skippable.
+- Top row: leading control, progress bar, optional skip only if the step is truly skippable.
+  The leading control is a back button on every screen that has something behind it, and the sign-out control on the opening post-auth screen, which does not.
 - Brand mark can appear on section starts, not every question if it creates vertical crowding.
 - Question starts around 185-225 y on 844-height screens.
 - Answers start 28-40 below headline.
@@ -286,7 +287,8 @@ Do not use generic fitness illustrations. The user should see landmarks, rank ro
 
 ## Recommended Flow
 
-This is the V1 flow to ship. It lands at 21 screens before the paywall if auth and demographics are counted as onboarding.
+This is the V1 flow to ship, counting auth and demographics as onboarding.
+The enforced count of shipped screens and their ordered IDs is the funnel contract in the `ascend-analytics` skill, not a number restated here.
 
 ### 1. Welcome
 
@@ -1023,7 +1025,7 @@ Use the existing top progress pattern:
 - Fill: lime
 - Height: 4
 - Animation: 0.22 ease in/out
-- Back button left, progress centered between back and right padding
+- Leading control left, progress centered between it and the right padding
 
 ### CTA
 

@@ -23,8 +23,8 @@ The planned onboarding sequence, in order:
 This sequence will evolve as we learn from SuperWall and RevenueCat funnel analytics. Treat it as the current plan, not a permanent contract.
 
 ## Required profile capture
-- Post-auth onboarding must collect separate required first-name and last-name fields before the user reaches the main app, plus declared demographics when that stage is enabled.
-  The public board name is composed from both fields, never split or inferred from a single name input.
+- Post-auth onboarding collects declared demographics when that stage is enabled. It never asks for a name.
+  The name is resolved without asking - see the `Name - Resolved, Never Asked` section of `docs/onboarding-design-guide.md`, which owns that contract.
   `ascend-profile` owns the full demographics contract - the stored birthday, the derived age and its bounds, and the gender raw values.
 
 ## Routing & resolver
@@ -53,7 +53,7 @@ This sequence will evolve as we learn from SuperWall and RevenueCat funnel analy
 - Bodyweight is a single profile-level value editable in settings. It's the app-wide source for body-mass usage; don't introduce parallel bodyweight inputs in feature-specific flows.
 
 ## Related
-- Adding, removing, reordering, or renaming an onboarding screen changes the 21-screen funnel contract - the ordered screen IDs, their events, and their sub-properties are owned by `ascend-analytics`. Load it before touching a screen.
+- Adding, removing, reordering, or renaming an onboarding screen changes the 20-screen funnel contract - the ordered screen IDs, their events, and their sub-properties are owned by `ascend-analytics`. Load it before touching a screen.
 - Welcome/auth screen chrome (`OnboardingScaffold`, `OnboardingWelcomeBackground`, `AuthStaircaseBackground`, the Ascend wordmark) lives in `ascend-design-system`.
 - Copy and empty-state voice: `ascend-brand-voice` and the `product-design-playbook` skill.
 

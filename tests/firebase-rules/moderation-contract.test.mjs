@@ -362,6 +362,43 @@ test('display-name screening is enforced on every client-writable publication', 
   ));
 });
 
+// `SignInNamePlaceholder` is what a climber nobody supplied a name for ends up
+// carrying, and it is written without asking - there is no name step left to
+// fall back on. If the server refuses it, the reviewer reaches the app nameless
+// and every later publish fails, so the rules have to accept it by name.
+test('the resolved sign-in placeholder name is publishable', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const db = context.firestore();
+  const batch = writeBatch(db);
+
+  batch.set(
+    doc(db, `users/${userId}`),
+    makeUserDocument({
+      firstName: 'CHANGE',
+      lastName: 'ME',
+      displayName: 'CHANGE ME',
+    })
+  );
+  batch.set(
+    doc(db, `users/${userId}/public_profile/current`),
+    makePublicProfileDocument({
+      displayName: 'CHANGE ME',
+      identityChangedAt: serverTimestamp(),
+    })
+  );
+
+  await assertSucceeds(batch.commit());
+
+  let stored;
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    const snapshot = await getDoc(
+      doc(adminContext.firestore(), `users/${userId}/public_profile/current`)
+    );
+    stored = snapshot.data();
+  });
+  assert.equal(stored.displayName, 'CHANGE ME');
+});
+
 test('account and public identity can commit atomically', async () => {
   const context = testEnv.authenticatedContext(userId);
   const db = context.firestore();

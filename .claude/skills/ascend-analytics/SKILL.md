@@ -94,7 +94,7 @@ Two mappings make an uninstrumented route a compile error rather than a review m
 `RootView` attaches the route screen *inside each switch branch*, never once above the switch - one instance spanning every route would report whichever route resolved first and then stay silent for the session.
 
 The onboarding funnel is not measured here.
-Its 21 steps own `onboarding_screen_viewed`; this catalog reports only the two route boundaries containing them, `landing` and `onboarding_flow`.
+Its 20 steps own `onboarding_screen_viewed`; this catalog reports only the two route boundaries containing them, `landing` and `onboarding_flow`.
 Entry-point detail likewise stays on the events that already carry it (`live_climb_detail_view` and friends) rather than being duplicated onto the screen.
 
 Contracts: `AscendAppTests/TelemetryScreenCatalogTests.swift` pins every name/class pair, refuses an orphan catalog entry, and refuses an ad-hoc screen; `AscendAppTests/RouteScreenViewEvidenceTests.swift` proves once-per-appearance, per-tab-switch, re-presented-sheet, and app-entry behavior against the shipped modifier.
