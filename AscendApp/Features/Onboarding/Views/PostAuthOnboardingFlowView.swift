@@ -195,7 +195,7 @@ private struct PostAuthDisplayNameScreen: View {
             headline: "What's your\nname?",
             primaryTitle: isSaving ? "SAVING..." : "CONTINUE",
             isContinueEnabled: isContinueEnabled,
-            skip: isSaving ? nil : PostAuthSkipControl(title: "Skip", action: skipName),
+            skip: skipControl,
             onBack: handleBack,
             onContinue: saveName
         ) { metrics in
@@ -309,6 +309,19 @@ private struct PostAuthDisplayNameScreen: View {
         nameInput.canContinue && !isSaving
     }
 
+    /// Offered exactly while the climber has no name to submit - which includes
+    /// half a name, where CONTINUE is still dimmed and this is still the only way
+    /// past. Once they have typed one, skipping could only throw it away, so the
+    /// control goes: the shell positions it absolutely, so nothing reflows.
+    private var skipControl: PostAuthSkipControl? {
+        guard isSkipOffered else { return nil }
+        return PostAuthSkipControl(title: "Skip", action: skipName)
+    }
+
+    private var isSkipOffered: Bool {
+        !nameInput.canContinue && !isSaving
+    }
+
     private var fieldBorderColor: Color {
         displayMessage == nil ? .white.opacity(0.18) : .red.opacity(0.72)
     }
@@ -360,8 +373,10 @@ private struct PostAuthDisplayNameScreen: View {
     /// because `SignInNamePlaceholder.boardName` is literally what lands on the
     /// board when the climber skips.
     private var leaderboardNameExplanation: String {
-        """
-        This is the name climbers see on leaderboards. Skip and you race as \
+        let base = "This is the name climbers see on leaderboards."
+        guard isSkipOffered else { return base }
+        return """
+        \(base) Skip and you race as \
         \(SignInNamePlaceholder.boardName) until you set one in Settings.
         """
     }
@@ -379,12 +394,23 @@ private struct PostAuthDisplayNameScreen: View {
 
         Task { @MainActor in
             isSaving = true
-            let didSeed = await authVM.adoptPlaceholderDisplayName()
+            // Scoped, and the result is deliberately not a gate. The write goes
+            // through a Firestore transaction that refuses offline, and a climber
+            // who lost the connection between sign-in and this tap would
+            // otherwise be handed an error on a screen with no way past - the
+            // dead end this control exists to remove. Nothing downstream needs
+            // the name: an unnamed climber renders as a system handle until one
+            // lands.
+            let failure = await authVM.scopedProfileUpdate(
+                fallback: "Failed to save the placeholder name"
+            ) {
+                await authVM.adoptPlaceholderDisplayName()
+            }
             isSaving = false
+            validationMessage = nil
 
-            guard didSeed else {
-                validationMessage = authVM.errorMessage
-                return
+            if let failure {
+                debugLog("Deferred placeholder name: \(failure)")
             }
 
             // Deliberately not `setDisplayNameProvided`: the climber supplied
@@ -1767,7 +1793,16 @@ private struct PostAuthProfileQuestionShell<Content: View>: View {
                         Text(skip.title)
                             .font(.montserratBold(size: metrics.font(12)))
                             .foregroundStyle(.white.opacity(0.56))
-                            .frame(height: metrics.height(24))
+                            // The design coordinates scale with the screen; 44pt
+                            // does not. The one control that guarantees a way off
+                            // this screen keeps a real target on every phone, and
+                            // takes the whole row rather than the width of the
+                            // word.
+                            .frame(
+                                maxWidth: .infinity,
+                                minHeight: max(44, metrics.height(44))
+                            )
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .frame(width: metrics.width(334))

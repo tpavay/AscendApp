@@ -467,14 +467,24 @@ extension AuthenticationViewModel {
     /// not be read at all is left alone until the next sign-in can read it.
     @discardableResult
     func adoptSuppliedName(for user: User) async -> Bool {
-        // Only a name that could actually be written justifies reading the
-        // profile here. This runs on the sign-in path, ahead of the authenticated
-        // UI, and every climber with an email address carries *something* - so
-        // without this the launch would pay for a document read that can only
-        // ever conclude "ask the climber".
-        guard let supplied = suppliedIdentity, supplied.adoptableName != nil else {
+        guard let supplied = suppliedIdentity else { return false }
+
+        // Resolution step 1, answered without a round trip. A name Ascend
+        // already holds locally is a profile that already carries one, so the
+        // read could only ever conclude `.discard` - and this runs on the sign-in
+        // path, ahead of the authenticated UI, where every launch would pay for
+        // it. The capture has done its job either way, so it stops taking up
+        // room on disk here rather than outliving the install.
+        if carriesKnownDisplayName {
+            forgetSuppliedIdentity()
             return false
         }
+
+        // Only a name that could actually be written justifies the read that
+        // follows: every climber with an email address carries *something*, and
+        // half a name can only ever conclude "ask the climber". It stays put -
+        // it is what seeds the missing half into the name step.
+        guard supplied.adoptableName != nil else { return false }
 
         let storedName: StoredProfileName
         do {
@@ -504,11 +514,10 @@ extension AuthenticationViewModel {
                 return false
             }
 
-            forgetSuppliedIdentity(supplied)
             return true
 
         case .discard:
-            forgetSuppliedIdentity(supplied)
+            forgetSuppliedIdentity()
             return false
 
         case .retryLater, .askTheClimber:
@@ -537,12 +546,25 @@ extension AuthenticationViewModel {
 
     /// Drops the in-memory copy, and the persisted one if this identity came from
     /// there. An identity derived from the Firebase account is keyed by the
-    /// Firebase `uid`, which is never a key in the store, so this is a no-op for
-    /// it - the account keeps supplying it on every sign-in and there is nothing
-    /// to expire.
-    private func forgetSuppliedIdentity(_ supplied: SignInSuppliedIdentity) {
+    /// Firebase `uid`, which is never a key in the store, so the disk half is a
+    /// no-op for it - the account keeps supplying it on every sign-in and there
+    /// is nothing to expire.
+    ///
+    /// Called from every point a name reaches the profile, whoever supplied it.
+    /// A capture that can no longer do anything - the climber typed their own
+    /// name, or shared only half of one and then skipped - is a climber's email
+    /// address sitting in `UserDefaults` for the life of the install otherwise.
+    private func forgetSuppliedIdentity() {
+        guard let supplied = suppliedIdentity else { return }
         signInIdentityStore.forget(providerUserID: supplied.providerUserID)
         suppliedIdentity = nil
+    }
+
+    /// Whether Ascend already holds a display name for this account without
+    /// asking Firestore - the cached one this session opened with, or one just
+    /// written.
+    private var carriesKnownDisplayName: Bool {
+        !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// The address to record on the profile.
@@ -724,6 +746,7 @@ extension AuthenticationViewModel {
                 lastName: normalizedLastName
             )
             hasRemoteDisplayName = true
+            forgetSuppliedIdentity()
             return true
         } catch {
             displayName = previousDisplayName
@@ -773,6 +796,7 @@ extension AuthenticationViewModel {
                 gender: gender
             )
             hasRemoteDisplayName = true
+            forgetSuppliedIdentity()
 
             return true
         } catch {

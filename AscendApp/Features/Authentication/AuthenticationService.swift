@@ -522,9 +522,17 @@ extension AuthenticationService {
 private extension UIViewController {
     /// The controller actually on screen, walking past anything already presented
     /// modally over this one.
+    ///
+    /// A controller caught mid-transition is not a controller anything can be
+    /// presented from: UIKit drops the presentation and Google's sheet never
+    /// appears. So the walk stops before one that is being dismissed - it is on
+    /// its way out - and before one that is being presented - it is not settled
+    /// in the hierarchy yet.
     var topmostPresentedViewController: UIViewController {
         var topmost = self
-        while let presented = topmost.presentedViewController, !presented.isBeingDismissed {
+        while let presented = topmost.presentedViewController,
+              !presented.isBeingDismissed,
+              !presented.isBeingPresented {
             topmost = presented
         }
         return topmost
