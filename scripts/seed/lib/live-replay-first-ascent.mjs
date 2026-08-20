@@ -164,6 +164,28 @@ export async function clearOpenFirstAscentEntries(splitBucketsRef, writer) {
 }
 
 /**
+ * Deletes every finisher under a climb seeded with an open First Ascent.
+ *
+ * Same reasoning as the entries: a real climber's finisher document is keyed by
+ * their uid and is unknown to the seed, and the fixture promises the climb has
+ * no completions at all. The frozen rank stamped on a finished climb counts
+ * finisher documents, so a stranded one seats the next claimant behind a
+ * climber the reset summary says does not exist.
+ * @param {object} finishersRef `finishers` collection reference.
+ * @param {object} writer BulkWriter that performs the deletes.
+ * @return {Promise<number>} Count of finisher documents deleted.
+ */
+export async function clearOpenFirstAscentFinishers(finishersRef, writer) {
+  const finishers = await finishersRef.get();
+
+  for (const finisher of finishers.docs) {
+    writer.delete(finisher.ref);
+  }
+
+  return finishers.docs.length;
+}
+
+/**
  * Reports whether a climb's First Ascent slot is still open.
  *
  * Derived from the counts and the holder, never from `activityTier`: those are

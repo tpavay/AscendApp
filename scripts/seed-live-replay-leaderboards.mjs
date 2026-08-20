@@ -7,6 +7,7 @@
  * Firebase Admin SDK. The script writes the read-only public replay indexes:
  *
  * live_replay_leaderboards/{contextKey}/splitBuckets/{bucketIndex}/entries/{entryId}
+ * live_replay_leaderboards/{contextKey}/finishers/{userId}
  *
  * The seed pack writes per-climb Live Climb contexts and the open-ended global
  * Just Climb context used by live tracked sessions without a climb target.
@@ -38,11 +39,15 @@ import {
   PUBLIC_IDENTITY_STATE_PUBLISHED,
   assertFirstAscentInvariant,
   clearOpenFirstAscentEntries,
+  clearOpenFirstAscentFinishers,
   clearedFirstAscentFields,
   firstAscentClaimedAt,
   firstAscentSeedFields,
   isOpenFirstAscentSummary,
 } from "./seed/lib/live-replay-first-ascent.mjs";
+import {
+  syntheticFinisherWrite,
+} from "./seed/lib/live-replay-finisher.mjs";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
@@ -559,6 +564,10 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
       {length: Math.max(config.replayEntries, completedCount)},
       (_, index) => seedAttemptId(args.seedPackId, climb.id, index)
     );
+    const clearUserIds = Array.from(
+      {length: Math.max(config.replayEntries, completedCount)},
+      (_, index) => seedUserId(args.seedPackId, climb.id, index)
+    );
 
     // Attempts carry a completion duration but no wall-clock completion time, so
     // none of them is the earliest. The holder is an arbitrary but deterministic
@@ -578,6 +587,7 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
       attempts,
       completedCount,
       clearAttemptIds,
+      clearUserIds,
       maxBucketIndex,
       firstAscentAttempt,
       entryDocumentCount: attempts.length * (maxBucketIndex + 1),
@@ -592,10 +602,14 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
   const justClimbClearAttemptIds = climbPlans.flatMap(
     (plan) => plan.clearAttemptIds
   );
+  const justClimbClearUserIds = climbPlans.flatMap(
+    (plan) => plan.clearUserIds
+  );
   const justClimbMaxBucketIndex = MAX_BUCKET_INDEX;
   const justClimbPlan = {
     attempts: justClimbAttempts,
     clearAttemptIds: justClimbClearAttemptIds,
+    clearUserIds: justClimbClearUserIds,
     maxBucketIndex: justClimbMaxBucketIndex,
     entryDocumentCount: justClimbAttempts.length * (justClimbMaxBucketIndex + 1),
   };
@@ -640,7 +654,7 @@ function generateAttempts(climb, config, completedCount, paceSamples, seedPackId
 
     attempts.push({
       id: seedAttemptId(seedPackId, climb.id, index),
-      userId: `seeded:${seedPackId}:${sanitizeContextId(climb.id)}:${index}`,
+      userId: seedUserId(seedPackId, climb.id, index),
       displayName,
       avatarToken: avatarToken(displayName),
       photoURL,
@@ -803,6 +817,15 @@ async function clearStaleSeedContexts(db, writer, seedPackId, activeContextKeys)
       }
     }
 
+    const finishers = await document.ref
+      .collection("finishers")
+      .where("seedPackId", "==", seedPackId)
+      .get();
+    for (const finisher of finishers.docs) {
+      writer.delete(finisher.ref);
+      deleted += 1;
+    }
+
     writer.delete(document.ref);
     deleted += 1;
   }
@@ -822,6 +845,10 @@ async function clearSeedEntriesFromPlan(db, writer, seedPlan) {
         splitBucketsCollection(db, plan.climb.id),
         writer
       );
+      deleted += await clearOpenFirstAscentFinishers(
+        finishersCollection(db, plan.climb.id),
+        writer
+      );
       continue;
     }
 
@@ -830,6 +857,11 @@ async function clearSeedEntriesFromPlan(db, writer, seedPlan) {
         writer.delete(entriesCollection(db, plan.climb.id, bucketIndex).doc(attemptId));
         deleted += 1;
       }
+    }
+
+    for (const userId of plan.clearUserIds) {
+      writer.delete(finishersCollection(db, plan.climb.id).doc(userId));
+      deleted += 1;
     }
   }
 
@@ -840,12 +872,86 @@ async function clearSeedEntriesFromPlan(db, writer, seedPlan) {
     }
   }
 
+  for (const userId of seedPlan.justClimbPlan.clearUserIds) {
+    writer.delete(justClimbFinishersCollection(db).doc(userId));
+    deleted += 1;
+  }
+
   return deleted;
+}
+
+/**
+ * Resolves the completion count each seeded summary may claim.
+ *
+ * The permanent rank a finished climb keeps counts the finisher documents on
+ * its board and measures that rank against the summary's `completedCount`, and
+ * it refuses a rank standing outside its own population rather than clamping
+ * it. So a summary claiming fewer completions than the board has finishers is
+ * not a cosmetic drift: the next climber to finish in the bottom places wedges
+ * their publish, and every retry recomputes the same impossible pair.
+ *
+ * The clear only takes out this pack's own finishers - `seed-demo-user` writes
+ * one under a real uid, and an earlier pack's survive under a different
+ * `seedPackId` - so the count comes from every finisher that will stand on the
+ * board once this pack lands, whatever wrote it.
+ * @param {object} db Firestore instance.
+ * @param {object} seedPlan Built seed plan.
+ * @return {Promise<object>} Per-climb counts and the Just Climb count.
+ */
+async function resolveSeededCompletedCounts(db, seedPlan) {
+  const climbCounts = new Map();
+
+  for (const plan of seedPlan.climbPlans) {
+    const completedCount = await boardFinisherPopulation(
+      finishersCollection(db, plan.climb.id),
+      plan.attempts.map((attempt) => attempt.userId),
+      plan.completedCount
+    );
+
+    // A summary carrying completions with no holder is the dead First Ascent
+    // state, so a stranded finisher fails the run before anything is written.
+    assertFirstAscentInvariant({
+      climbId: plan.climb.id,
+      completedCount,
+      hasFirstAscent: plan.firstAscentAttempt !== null,
+    });
+    climbCounts.set(plan.climb.id, completedCount);
+  }
+
+  return {
+    climbCounts,
+    justClimbCount: await boardFinisherPopulation(
+      justClimbFinishersCollection(db),
+      seedPlan.justClimbPlan.attempts.map((attempt) => attempt.userId),
+      seedPlan.justClimbPlan.attempts.length
+    ),
+  };
+}
+
+/**
+ * Counts every climber that will hold a finisher document on one board.
+ * @param {object} finishersRef `finishers` collection reference.
+ * @param {string[]} seededUserIds Climbers this pack is about to write.
+ * @param {number} plannedCount Completions the plan intended to seed.
+ * @return {Promise<number>} Finishers standing on the board after the write.
+ */
+async function boardFinisherPopulation(finishersRef, seededUserIds, plannedCount) {
+  const surviving = await finishersRef.listDocuments();
+  const userIds = new Set(surviving.map((document) => document.id));
+  for (const userId of seededUserIds) {
+    userIds.add(userId);
+  }
+
+  return Math.max(plannedCount, userIds.size);
 }
 
 async function writeSeedPlan(db, seedPlan, args) {
   const writer = bulkWriter(db);
   const now = FieldValue.serverTimestamp();
+  const {climbCounts, justClimbCount} = await resolveSeededCompletedCounts(
+    db,
+    seedPlan
+  );
   let writes = 0;
 
   for (const plan of seedPlan.climbPlans) {
@@ -854,7 +960,7 @@ async function writeSeedPlan(db, seedPlan, args) {
     const summary = {
       activityTier: plan.config.activityTier,
       bucketIntervalSeconds: BUCKET_INTERVAL_SECONDS,
-      completedCount: plan.completedCount,
+      completedCount: climbCounts.get(plan.climb.id),
       contextId: plan.climb.id,
       contextType: LIVE_CLIMB_CONTEXT_TYPE,
       replayEntryCount: plan.attempts.length,
@@ -878,6 +984,25 @@ async function writeSeedPlan(db, seedPlan, args) {
 
     writer.set(summaryRef, summary, {merge: true});
     writes += 1;
+
+    // A publish writes a finisher document in the same transaction as the row,
+    // and the rank frozen on a finished climb counts those documents. A seeded
+    // board carrying entries but no finishers reads as an empty field, so it
+    // would freeze a mid-field climber at "1st of 84".
+    for (const [index, attempt] of plan.attempts.entries()) {
+      writer.set(
+        finishersCollection(db, plan.climb.id).doc(attempt.userId),
+        syntheticFinisherWrite(attempt, {
+          contextType: LIVE_CLIMB_CONTEXT_TYPE,
+          globalCompletionOrder: index + 1,
+          identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
+          schemaVersion: 1,
+          seedPackId: args.seedPackId,
+          updatedAt: now,
+        })
+      );
+      writes += 1;
+    }
 
     for (let bucketIndex = 0; bucketIndex <= plan.maxBucketIndex; bucketIndex += 1) {
       for (const attempt of plan.attempts) {
@@ -912,7 +1037,7 @@ async function writeSeedPlan(db, seedPlan, args) {
 
   writer.set(justClimbLeaderboardRef(db), {
     bucketIntervalSeconds: BUCKET_INTERVAL_SECONDS,
-    completedCount: seedPlan.justClimbPlan.attempts.length,
+    completedCount: justClimbCount,
     contextId: JUST_CLIMB_GLOBAL_CONTEXT_ID,
     contextType: JUST_CLIMB_CONTEXT_TYPE,
     replayEntryCount: seedPlan.justClimbPlan.attempts.length,
@@ -925,6 +1050,24 @@ async function writeSeedPlan(db, seedPlan, args) {
     updatedAt: now,
   }, {merge: true});
   writes += 1;
+
+  // The open race ranks attempts, not climbers, so its finishers are not in the
+  // frozen rank's numerator. They still stand for the same climbers the summary
+  // counts, and a real publish writes one, so the fixture writes one too.
+  for (const [index, attempt] of seedPlan.justClimbPlan.attempts.entries()) {
+    writer.set(
+      justClimbFinishersCollection(db).doc(attempt.userId),
+      syntheticFinisherWrite(attempt, {
+        contextType: JUST_CLIMB_CONTEXT_TYPE,
+        globalCompletionOrder: index + 1,
+        identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
+        schemaVersion: 1,
+        seedPackId: args.seedPackId,
+        updatedAt: now,
+      })
+    );
+    writes += 1;
+  }
 
   for (
     let bucketIndex = 0;
@@ -1076,6 +1219,14 @@ function justClimbEntriesCollection(db, bucketIndex) {
   );
 }
 
+function finishersCollection(db, climbId) {
+  return leaderboardRef(db, climbId).collection("finishers");
+}
+
+function justClimbFinishersCollection(db) {
+  return justClimbLeaderboardRef(db).collection("finishers");
+}
+
 function entriesCollectionForContext(db, contextType, contextId, bucketIndex) {
   return contextLeaderboardRef(db, contextType, contextId)
     .collection("splitBuckets")
@@ -1130,6 +1281,10 @@ function syntheticProfileKey(displayName, photoURL) {
   }
 
   return `name:${displayName.trim().toLowerCase()}`;
+}
+
+function seedUserId(seedPackId, climbId, index) {
+  return `seeded:${seedPackId}:${sanitizeContextId(climbId)}:${index}`;
 }
 
 function seedAttemptId(seedPackId, climbId, index) {
