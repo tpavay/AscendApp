@@ -87,6 +87,7 @@ struct LiveClimbSessionFieldSizeTests {
 
         viewModel.start(modelContext: context)
         await viewModel.refreshReplayLeaderboardIfNeeded(force: true)
+        await viewModel.leaderboardSummaryFetchTask?.value
 
         let field = viewModel.leaderboardField
         #expect(field?.count == 27)
@@ -105,17 +106,21 @@ struct LiveClimbSessionFieldSizeTests {
             summary: Self.summary(totalClimbers: 27),
             summaryFetchFailureCount: 1
         )
-        let viewModel = makeLandmarkSession(leaderboardService: leaderboardService)
+        let clock = TestClock()
+        let startedAt = clock.now
+        let viewModel = makeLandmarkSession(leaderboardService: leaderboardService, clock: clock)
         let container = try Self.makeContainer()
         let context = container.mainContext
-        let startedAt = Date(timeIntervalSince1970: 1_777_777_700)
 
         viewModel.start(modelContext: context)
-        await viewModel.refreshReplayLeaderboardIfNeeded(force: true, now: startedAt)
+        await viewModel.refreshReplayLeaderboardIfNeeded(force: true)
+        await viewModel.leaderboardSummaryFetchTask?.value
 
         #expect(viewModel.leaderboardField == nil)
 
-        await viewModel.refreshReplayLeaderboardIfNeeded(now: startedAt.addingTimeInterval(1))
+        clock.now = startedAt.addingTimeInterval(1)
+        await viewModel.refreshReplayLeaderboardIfNeeded()
+        await viewModel.leaderboardSummaryFetchTask?.value
 
         #expect(
             leaderboardService.summaryFetchCount == 1,
@@ -123,11 +128,15 @@ struct LiveClimbSessionFieldSizeTests {
         )
         #expect(viewModel.leaderboardField == nil)
 
-        await viewModel.refreshReplayLeaderboardIfNeeded(now: startedAt.addingTimeInterval(6))
+        clock.now = startedAt.addingTimeInterval(6)
+        await viewModel.refreshReplayLeaderboardIfNeeded()
+        await viewModel.leaderboardSummaryFetchTask?.value
 
         #expect(viewModel.leaderboardField?.count == 27)
 
-        await viewModel.refreshReplayLeaderboardIfNeeded(now: startedAt.addingTimeInterval(20))
+        clock.now = startedAt.addingTimeInterval(20)
+        await viewModel.refreshReplayLeaderboardIfNeeded()
+        await viewModel.leaderboardSummaryFetchTask?.value
 
         #expect(
             leaderboardService.summaryFetchCount == 2,
@@ -152,11 +161,40 @@ struct LiveClimbSessionFieldSizeTests {
 
         viewModel.start(modelContext: context)
         await viewModel.refreshReplayLeaderboardIfNeeded(force: true)
+        await viewModel.leaderboardSummaryFetchTask?.value
 
         #expect(viewModel.leaderboardField == nil)
         #expect(viewModel.leaderboardFetchFailed == false)
         #expect(viewModel.leaderboardRows.count > 1)
 
+        await viewModel.discard(modelContext: context)
+    }
+
+    /// The count runs in its own lane, so a read that hangs rather than fails cannot
+    /// hold the race rows behind it - the failure this rule exists for is a stalled
+    /// board, not a refused one.
+    @Test
+    func aStalledSummaryNeverHoldsUpTheRaceRows() async throws {
+        let leaderboardService = StubLiveReplayLeaderboardService(
+            summary: Self.summary(totalClimbers: 27),
+            summaryFetchDelaySeconds: 60,
+            window: Self.window
+        )
+        let viewModel = makeLandmarkSession(leaderboardService: leaderboardService)
+        let container = try Self.makeContainer()
+        let context = container.mainContext
+
+        viewModel.start(modelContext: context)
+        await viewModel.refreshReplayLeaderboardIfNeeded(force: true)
+
+        #expect(
+            viewModel.leaderboardWindow != nil,
+            "The rows refresh on their own cadence while the count is still in flight"
+        )
+        #expect(viewModel.leaderboardFetchFailed == false)
+        #expect(viewModel.leaderboardField == nil)
+
+        viewModel.leaderboardSummaryFetchTask?.cancel()
         await viewModel.discard(modelContext: context)
     }
 
@@ -179,6 +217,7 @@ struct LiveClimbSessionFieldSizeTests {
 
         viewModel.start(modelContext: context)
         await viewModel.refreshReplayLeaderboardIfNeeded(force: true)
+        await viewModel.leaderboardSummaryFetchTask?.value
 
         #expect(viewModel.replayContext.type.fieldPopulation == .completions)
         #expect(viewModel.leaderboardField == nil)
@@ -187,7 +226,8 @@ struct LiveClimbSessionFieldSizeTests {
     }
 
     private func makeLandmarkSession(
-        leaderboardService: StubLiveReplayLeaderboardService
+        leaderboardService: StubLiveReplayLeaderboardService,
+        clock: TestClock = TestClock()
     ) -> LiveClimbSessionViewModel {
         LiveClimbSessionViewModel(
             climb: Self.climb,
@@ -195,7 +235,8 @@ struct LiveClimbSessionFieldSizeTests {
             climbService: ClimbService(
                 catalogRepository: StubClimbCatalogRepository(climbs: [Self.climb])
             ),
-            leaderboardService: leaderboardService
+            leaderboardService: leaderboardService,
+            now: { clock.now }
         )
     }
 
@@ -263,4 +304,10 @@ struct LiveClimbSessionFieldSizeTests {
         imageSetVersion: 1,
         releaseState: .available
     )
+}
+
+/// A clock the session reads instead of the wall, so the retry's pacing is asserted
+/// rather than waited out.
+private final class TestClock: @unchecked Sendable {
+    var now = Date(timeIntervalSince1970: 1_777_777_700)
 }

@@ -171,6 +171,7 @@ final class LiveClimbSessionViewModel {
     private let backgroundSessionService: LiveClimbBackgroundSessionService
     private let draftStore: ActiveHeadphoneWorkoutDraftStore
     private let heartRateRecorder: LiveHeartRateRecorder
+    private let now: () -> Date
     /// Read once per session. `leaderboardRows` is rebuilt on every step and
     /// elapsed tick, so the climber's name cannot be resolved from the cache
     /// inside it.
@@ -197,9 +198,16 @@ final class LiveClimbSessionViewModel {
     private var hasFetchedLeaderboardSummary = false
     /// When the unanswered summary may be asked for again. An absolute date rather
     /// than a counter, so a flaky connection is paced by the clock instead of by how
-    /// often the session happens to tick.
+    /// often the session happens to tick, and stamped when an attempt resolves rather
+    /// than when it started - a read that hangs longer than the interval would
+    /// otherwise leave the next tick already eligible.
     private var nextLeaderboardSummaryAttemptAt: Date?
     private let leaderboardSummaryRetryInterval: TimeInterval = 5
+    /// The count's own lane. It is not awaited by the refresh that starts it and it
+    /// holds no part of the window path's in-flight slot, so a summary read that
+    /// stalls cannot delay, skip or starve a single refresh of the race rows. Doubles
+    /// as the single-in-flight guard: a non-nil task is an attempt already running.
+    @ObservationIgnored private(set) var leaderboardSummaryFetchTask: Task<Void, Never>?
     private var lastExhaustedLeaderboardWindowRefreshAt: Date?
     private var lastPeriodicLeaderboardWindowRefreshAt: Date?
     private var promptedStepSyncInterruptionCounts: Set<Int> = []
@@ -227,7 +235,8 @@ final class LiveClimbSessionViewModel {
         heartRateRecorder: LiveHeartRateRecorder = LiveHeartRateRecorder(),
         heartRateMonitor: HeartRateMonitorService = .shared,
         liveActivitySessionID: String = UUID().uuidString,
-        recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil
+        recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil,
+        now: @escaping () -> Date = Date.init
     ) {
         self.mode = .liveClimb(climb)
         self.analyticsEntryPoint = analyticsEntryPoint
@@ -242,6 +251,7 @@ final class LiveClimbSessionViewModel {
         self.heartRateRecorder = heartRateRecorder
         self.heartRateMonitor = heartRateMonitor
         self.activeDraft = recoveredDraft
+        self.now = now
         heartRateRecorder.restore(samples: recoveredDraft?.heartRateSamples ?? [])
         self.stepTimelineRecorder = LiveClimbStepTimelineRecorder(intervalSeconds: 10)
         self.motionSession.setStepSampleHandler { [weak self] sample in
@@ -262,7 +272,8 @@ final class LiveClimbSessionViewModel {
         heartRateRecorder: LiveHeartRateRecorder = LiveHeartRateRecorder(),
         heartRateMonitor: HeartRateMonitorService = .shared,
         liveActivitySessionID: String = UUID().uuidString,
-        recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil
+        recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil,
+        now: @escaping () -> Date = Date.init
     ) {
         self.mode = .justClimb(justClimbGoal)
         self.analyticsEntryPoint = analyticsEntryPoint
@@ -277,6 +288,7 @@ final class LiveClimbSessionViewModel {
         self.heartRateRecorder = heartRateRecorder
         self.heartRateMonitor = heartRateMonitor
         self.activeDraft = recoveredDraft
+        self.now = now
         heartRateRecorder.restore(samples: recoveredDraft?.heartRateSamples ?? [])
         self.stepTimelineRecorder = LiveClimbStepTimelineRecorder(intervalSeconds: 10)
         self.motionSession.setStepSampleHandler { [weak self] sample in
@@ -847,22 +859,23 @@ final class LiveClimbSessionViewModel {
         }
     }
 
-    func refreshReplayLeaderboardIfNeeded(force: Bool = false, now: Date = Date()) async {
-        guard phase == .recording,
-              !isLeaderboardRefreshInFlight else {
-            return
-        }
+    func refreshReplayLeaderboardIfNeeded(force: Bool = false) async {
+        guard phase == .recording else { return }
+
+        let requestedAt = now()
+
+        startLeaderboardSummaryFetchIfNeeded(force: force, now: requestedAt)
+
+        guard !isLeaderboardRefreshInFlight else { return }
 
         let forceFreshWindow = force ||
-            shouldForceFreshLeaderboardWindowRefresh(now: now) ||
-            shouldForcePeriodicLeaderboardWindowRefresh(now: now)
+            shouldForceFreshLeaderboardWindowRefresh(now: requestedAt) ||
+            shouldForcePeriodicLeaderboardWindowRefresh(now: requestedAt)
 
         isLeaderboardRefreshInFlight = true
         defer { isLeaderboardRefreshInFlight = false }
 
         recordLiveSplitSample()
-
-        await refreshLeaderboardSummaryIfNeeded(force: force, now: now)
 
         do {
 #if DEBUG
@@ -1012,16 +1025,28 @@ final class LiveClimbSessionViewModel {
         lastDraftCheckpointAt = nil
     }
 
-    /// Reads the count the field-size line states, and nothing else.
+    /// Starts the read behind the field-size count, and never waits on it.
     ///
-    /// Its own do/catch on purpose: the race rows are what a climber is here for and
-    /// the count is garnish, so a summary the server refuses leaves the line absent
-    /// and never touches `leaderboardWindow` or `leaderboardFetchFailed`. A blip on
+    /// The race rows are what a climber is here for and the count is garnish, so the
+    /// count runs in its own task, off the window path's in-flight slot, with its own
+    /// error handling: no latency and no failure of this read can reach
+    /// `leaderboardWindow`, `leaderboardRows` or `leaderboardFetchFailed`. A blip on
     /// the session's one forced fetch used to silence the line for the whole race, so
     /// an unanswered count keeps asking - paced by the clock, and only until the
     /// server answers once.
-    private func refreshLeaderboardSummaryIfNeeded(force: Bool, now: Date) async {
-        guard force || shouldRetryLeaderboardSummary(now: now) else { return }
+    private func startLeaderboardSummaryFetchIfNeeded(force: Bool, now: Date) {
+        guard leaderboardSummaryFetchTask == nil,
+              force || shouldRetryLeaderboardSummary(now: now) else {
+            return
+        }
+
+        leaderboardSummaryFetchTask = Task { [weak self] in
+            await self?.fetchLeaderboardSummary()
+        }
+    }
+
+    private func fetchLeaderboardSummary() async {
+        defer { leaderboardSummaryFetchTask = nil }
 
         do {
             leaderboardSummary = try await leaderboardService.fetchSummary(context: replayContext)
@@ -1034,7 +1059,7 @@ final class LiveClimbSessionViewModel {
                 "\(error.localizedDescription)"
             )
 #endif
-            nextLeaderboardSummaryAttemptAt = now.addingTimeInterval(leaderboardSummaryRetryInterval)
+            nextLeaderboardSummaryAttemptAt = now().addingTimeInterval(leaderboardSummaryRetryInterval)
         }
     }
 

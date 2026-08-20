@@ -11,6 +11,9 @@ import Foundation
 final class StubLiveReplayLeaderboardService: LiveReplayLeaderboardServicing, @unchecked Sendable {
     var summary: LiveReplayLeaderboardSummary
     var summaryFetchFailureCount: Int
+    /// How long `fetchSummary` stalls before answering, standing in for a read that
+    /// hangs rather than fails.
+    var summaryFetchDelaySeconds: Double?
     /// What `refreshIfNeeded` hands back, so a test can prove the race rows land even
     /// when the count beside them does not.
     var window: LiveReplayLeaderboardWindow?
@@ -19,10 +22,12 @@ final class StubLiveReplayLeaderboardService: LiveReplayLeaderboardServicing, @u
     init(
         summary: LiveReplayLeaderboardSummary = .empty,
         summaryFetchFailureCount: Int = 0,
+        summaryFetchDelaySeconds: Double? = nil,
         window: LiveReplayLeaderboardWindow? = nil
     ) {
         self.summary = summary
         self.summaryFetchFailureCount = summaryFetchFailureCount
+        self.summaryFetchDelaySeconds = summaryFetchDelaySeconds
         self.window = window
     }
 
@@ -30,6 +35,10 @@ final class StubLiveReplayLeaderboardService: LiveReplayLeaderboardServicing, @u
         context: LiveReplayLeaderboardContext
     ) async throws -> LiveReplayLeaderboardSummary {
         summaryFetchCount += 1
+
+        if let summaryFetchDelaySeconds {
+            try? await Task.sleep(for: .seconds(summaryFetchDelaySeconds))
+        }
 
         if summaryFetchCount <= summaryFetchFailureCount {
             throw CancellationError()
