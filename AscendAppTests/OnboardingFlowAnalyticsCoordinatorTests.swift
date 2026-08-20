@@ -25,7 +25,7 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
         #expect(completed.count == 1)
         #expect(completed.first?.parameters["completion_reason"] == .string("purchase"))
         #expect(completed.first?.parameters["step_id"] == .string("paywall"))
-        #expect(completed.first?.parameters["step_index"] == .int(20))
+        #expect(completed.first?.parameters["step_index"] == .int(19))
     }
 
     @Test
@@ -62,7 +62,7 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
         let fixture = makeFixture()
         defer { fixture.cleanUp() }
 
-        let resumedContext = PostAuthOnboardingStage.displayName.analyticsContext
+        let resumedContext = PostAuthOnboardingStage.stairStepperBaseline.analyticsContext
         fixture.coordinator.recordFlowStartedIfNeeded(context: resumedContext)
         fixture.telemetry.track(
             OnboardingAnalyticsEvent.screenViewed(
@@ -74,7 +74,7 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
 
         let started = fixture.records(named: "onboarding_flow_started")
         #expect(started.count == 1)
-        #expect(started.first?.parameters["step_id"] == .string("displayName"))
+        #expect(started.first?.parameters["step_id"] == .string("stair_stepper_baseline"))
         #expect(started.first?.parameters["resume"] == .bool(true))
         #expect(
             fixture.records(named: "onboarding_screen_viewed").first?.parameters["resume"]
@@ -247,7 +247,7 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
 
         fixture.coordinator.resetPass()
         fixture.coordinator.recordFlowStartedIfNeeded(
-            context: PostAuthOnboardingStage.displayName.analyticsContext
+            context: PostAuthOnboardingStage.stairStepperBaseline.analyticsContext
         )
         fixture.coordinator.recordFlowCompletedIfNeeded(reason: .existingEntitlement)
 

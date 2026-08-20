@@ -32,30 +32,6 @@ struct OnboardingAnalyticsEventTests {
     }
 
     @Test
-    func profileTextScreenCompletedDoesNotRecordRawTextAnswer() {
-        let context = OnboardingAnalyticsContext(
-            segmentID: "post_auth_onboarding",
-            stepID: "displayName"
-        )
-
-        let record = OnboardingAnalyticsEvent.screenCompleted(
-            context: context,
-            inputType: "text",
-            properties: ["display_name_provided": .bool(true)]
-        ).record
-
-        #expect(record.name == "onboarding_screen_completed")
-        expectStringParameter(record, "input_type", "text")
-        expectBoolParameter(record, "completed", true)
-        expectBoolParameter(record, "display_name_provided", true)
-        expectMissingParameter(record, "question_id")
-        expectMissingParameter(record, "answer_id")
-        expectMissingParameter(record, "has_answer")
-        expectMissingParameter(record, "selection_type")
-        expectMissingParameter(record, "answer_index")
-    }
-
-    @Test
     func surveyQuestionAnsweredUsesStableEventNameAndAnswerProperties() {
         let context = OnboardingAnalyticsContext(
             segmentID: "post_auth_onboarding",
@@ -267,7 +243,7 @@ struct OnboardingAnalyticsEventTests {
         expectStringParameter(record, "segment_id", "post_auth_onboarding")
         expectStringParameter(record, "step_id", "paywall")
         expectStringParameter(record, "screen_id", "paywall")
-        expectIntParameter(record, "step_index", 20)
+        expectIntParameter(record, "step_index", 19)
     }
 
     @Test
@@ -289,8 +265,30 @@ struct OnboardingAnalyticsEventTests {
         expectStringParameter(record, "segment_id", "pre_auth_welcome")
         expectStringParameter(record, "step_id", "welcome")
         expectIntParameter(record, "step_index", 0)
-        expectIntParameter(record, "step_count", 21)
+        expectIntParameter(record, "step_count", 20)
         expectBoolParameter(record, "resume", false)
+    }
+
+    /// The opening post-auth screen's leading control signs out, so it must not
+    /// report as backwards navigation through a flow with no earlier step.
+    @Test
+    func signOutFromTheOpeningScreenReportsItsOwnEventsRatherThanABackTap() {
+        let context = PostAuthOnboardingStage.first.analyticsContext
+
+        let tapped = OnboardingAnalyticsEvent.signOutTapped(
+            context: context,
+            inputType: "button"
+        ).record
+
+        #expect(tapped.name == "onboarding_sign_out_tapped")
+        expectStringParameter(tapped, "from_step", "stair_stepper_baseline")
+        expectStringParameter(tapped, "input_type", "button")
+        expectIntParameter(tapped, "step_count", 20)
+
+        let confirmed = OnboardingAnalyticsEvent.signOutConfirmed(context: context).record
+
+        #expect(confirmed.name == "onboarding_sign_out_confirmed")
+        expectStringParameter(confirmed, "from_step", "stair_stepper_baseline")
     }
 
     @Test
@@ -350,7 +348,6 @@ struct OnboardingScreenViewCoverageTests {
             "watch_yourself_get_better",
             "reason_to_come_back",
             "auth",
-            "displayName",
             "stair_stepper_baseline",
             "exercise_level",
             "goal",
@@ -368,15 +365,15 @@ struct OnboardingScreenViewCoverageTests {
             "first_climb",
             "paywall"
         ])
-        #expect(Set(screenIDs).count == 21)
+        #expect(Set(screenIDs).count == 20)
         #expect(screenIDs.contains("features") == false)
         #expect(records.allSatisfy { $0.parameters["viewed"] == .bool(true) })
         #expect(records.allSatisfy { $0.parameters["step_id"] == $0.parameters["screen_id"] })
         #expect(records.allSatisfy { $0.parameters["flow_id"] == .string("onboarding") })
         #expect(records.allSatisfy { $0.parameters["flow_version"] == .string("v1") })
         #expect(records.allSatisfy { $0.parameters["segment_id"] != nil })
-        #expect(records.map { $0.parameters["step_index"] } == (0..<21).map(TelemetryValue.int))
-        #expect(records.allSatisfy { $0.parameters["step_count"] == .int(21) })
+        #expect(records.map { $0.parameters["step_index"] } == (0..<20).map(TelemetryValue.int))
+        #expect(records.allSatisfy { $0.parameters["step_count"] == .int(20) })
         #expect(records.allSatisfy { $0.parameters["app_environment"] != nil })
     }
 
@@ -444,7 +441,7 @@ struct OnboardingValueCarouselAnalyticsContextTests {
         #expect(context.segmentID == "pre_auth_value_onboarding")
         #expect(context.stepID == pages[0].id)
         #expect(context.stepIndex == 1)
-        #expect(context.stepCount == 21)
+        #expect(context.stepCount == 20)
     }
 
     @Test

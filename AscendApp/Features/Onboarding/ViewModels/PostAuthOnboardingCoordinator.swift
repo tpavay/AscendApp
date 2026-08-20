@@ -67,21 +67,6 @@ final class PostAuthOnboardingCoordinator {
         }
     }
 
-    func completeDisplayNameIfNeeded() {
-        guard let userId = currentUserId,
-              case .onboarding(.displayName) = phase,
-              let nextStage = PostAuthOnboardingStage.displayName.next else { return }
-
-        var snapshot = store.snapshot(for: userId)
-        guard !snapshot.isComplete else { return }
-
-        snapshot.completedStages.insert(.displayName)
-        snapshot.currentStage = nextStage
-        store.save(snapshot, for: userId)
-        phase = .onboarding(nextStage)
-        recordLifecycleSnapshot(snapshot)
-    }
-
     func moveBack() {
         guard let userId = currentUserId,
               case .onboarding(let stage) = phase,
@@ -166,7 +151,6 @@ final class PostAuthOnboardingCoordinator {
 
         if !PostAuthOnboardingStage.allCases.contains(normalizedSnapshot.currentStage) ||
             normalizedSnapshot.completedStages.contains(normalizedSnapshot.currentStage) ||
-            !normalizedSnapshot.completedStages.contains(.displayName) ||
             hasIncompleteEarlierStage {
             normalizedSnapshot.currentStage = firstIncompleteStage(in: normalizedSnapshot)
         }
@@ -180,12 +164,5 @@ final class PostAuthOnboardingCoordinator {
 }
 
 private extension PostAuthOnboardingStage {
-    var lifecycleKey: String {
-        switch self {
-        case .displayName:
-            return "display_name"
-        default:
-            return rawValue
-        }
-    }
+    var lifecycleKey: String { rawValue }
 }

@@ -1,6 +1,6 @@
 # Ascend — App Brief (handoff-ready)
 
-Last updated: August 8, 2026
+Last updated: August 20, 2026
 
 A self-contained description of Ascend so a teammate or AI agent can read it cold —
 for App Store listing work and for evaluating onboarding screen templates.
@@ -99,8 +99,9 @@ Visual rules the chosen template must satisfy:
 - Full-bleed **dark** background, **thin top progress indicator**, **one large product
   hero**, short copy at the bottom, **exactly one CTA per screen**.
 - **No skip affordances. No card chrome or boxed surfaces.**
-- Must collect required profile fields post-auth (separate required first and last name +
-  demographics: birthday, bounded to ages 13–120, and gender).
+- Must collect required demographics post-auth (birthday, bounded to ages 13–120, and gender).
+  It must **not** ask for a name: sign-in resolves one and writes it without asking, which is
+  what `Name - Resolved, Never Asked` in `docs/onboarding-design-guide.md` covers.
 - Notifications opt-in is anchored to a concrete value prop ("never miss a climb drop / get
   24-hour advance notice on new First Ascent opportunities") — never generic "enable
   notifications" housekeeping.

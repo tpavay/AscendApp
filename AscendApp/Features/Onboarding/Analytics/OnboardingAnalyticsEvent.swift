@@ -8,7 +8,6 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
         "watch_yourself_get_better",
         "reason_to_come_back",
         "auth",
-        "displayName",
         "stair_stepper_baseline",
         "exercise_level",
         "goal",
@@ -99,6 +98,8 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
         properties: [String: TelemetryValue]
     )
     case backTapped(context: OnboardingAnalyticsContext, inputType: String)
+    case signOutTapped(context: OnboardingAnalyticsContext, inputType: String)
+    case signOutConfirmed(context: OnboardingAnalyticsContext)
     case notificationPermissionSelected(context: OnboardingAnalyticsContext, status: String)
     case firstClimbSelected(context: OnboardingAnalyticsContext, climbID: String, climbName: String)
     case authStarted(provider: String)
@@ -181,6 +182,24 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                     "from_step": .string(context.stepID),
                     "input_type": .string(inputType)
                 ]
+            )
+        case .signOutTapped(let context, let inputType):
+            // The opening screen's leading control is a sign-out, not a back tap, so it
+            // reports as one: counting it as navigation would read as a climber moving
+            // backwards through a flow that has nothing behind it.
+            return makeRecord(
+                name: "onboarding_sign_out_tapped",
+                context: context,
+                parameters: [
+                    "from_step": .string(context.stepID),
+                    "input_type": .string(inputType)
+                ]
+            )
+        case .signOutConfirmed(let context):
+            return makeRecord(
+                name: "onboarding_sign_out_confirmed",
+                context: context,
+                parameters: ["from_step": .string(context.stepID)]
             )
         case .notificationPermissionSelected(let context, let status):
             return makeRecord(

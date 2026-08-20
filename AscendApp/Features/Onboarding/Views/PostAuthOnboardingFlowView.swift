@@ -1,69 +1,68 @@
 import SwiftUI
 
 struct PostAuthOnboardingFlowView: View {
+    @Environment(AuthenticationViewModel.self) private var authVM
+
     let stage: PostAuthOnboardingStage
     let onBack: () -> Void
     let onContinue: () -> Void
 
+    @State private var isConfirmingSignOut = false
+
     var body: some View {
         Group {
             switch stage {
-            case .displayName:
-                PostAuthDisplayNameScreen(
-                    stage: stage,
-                    onContinue: onContinue
-                )
             case .stairStepperBaseline, .exerciseLevel, .goal, .motivation, .plan:
                 PostAuthSurveyQuestionStageScreen(
                     stage: stage,
-                    onBack: onBack,
+                    onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
             case .features:
                 PostAuthFeatureGuideStageScreen(
-                    onBack: onBack,
+                    onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
             case .gender:
                 PostAuthGenderScreen(
                     stage: stage,
-                    onBack: onBack,
+                    onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
             case .age:
                 PostAuthBirthdayScreen(
                     stage: stage,
-                    onBack: onBack,
+                    onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
             case .weight:
                 PostAuthWeightScreen(
                     stage: stage,
-                    onBack: onBack,
+                    onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
             case .location:
                 PostAuthLocationScreen(
                     stage: stage,
-                    onBack: onBack,
+                    onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
             case .notifications:
                 PostAuthNotificationScreen(
                     stage: stage,
-                    onBack: onBack,
+                    onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
             case .planLoading:
                 PostAuthPlanLoadingScreen(
                     stage: stage,
-                    onBack: onBack,
+                    onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
             case .firstClimb:
                 PostAuthFirstClimbRevealScreen(
                     stage: stage,
-                    onBack: onBack,
+                    onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
             }
@@ -72,6 +71,37 @@ struct PostAuthOnboardingFlowView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .trackOnboardingScreenView(stage.visibleScreenAnalyticsContext)
+        // Set once, alongside the action it is wired to, so the control can never
+        // draw a back chevron on the screen where tapping it signs out.
+        .environment(\.onboardingLeadingControl, stage.leadingControl)
+        .alert("Sign Out", isPresented: $isConfirmingSignOut) {
+            Button("Cancel", role: .cancel) { }
+            Button("Sign Out", role: .destructive) {
+                TelemetryManager.shared.track(
+                    OnboardingAnalyticsEvent.signOutConfirmed(context: stage.analyticsContext)
+                )
+                authVM.signOut()
+            }
+        } message: {
+            Text("Sign out to sign back in with a different account.")
+        }
+    }
+
+    /// The opening screen has nothing behind it, so its control signs out rather
+    /// than reporting a back tap that navigates nowhere.
+    private func handleLeadingControl() {
+        switch stage.leadingControl {
+        case .back:
+            onBack()
+        case .signOut:
+            TelemetryManager.shared.track(
+                OnboardingAnalyticsEvent.signOutTapped(
+                    context: stage.analyticsContext,
+                    inputType: "button"
+                )
+            )
+            isConfirmingSignOut = true
+        }
     }
 }
 
@@ -175,165 +205,6 @@ private struct PostAuthFeatureGuideStageScreen: View {
         ) {
             onContinue()
         }
-    }
-}
-
-private struct PostAuthDisplayNameScreen: View {
-    @Environment(AuthenticationViewModel.self) private var authVM
-    @FocusState private var focusedField: ProfileNameField?
-
-    let stage: PostAuthOnboardingStage
-    let onContinue: () -> Void
-
-    @State private var nameInput = PostAuthNameInput()
-    @State private var isSaving = false
-    @State private var validationMessage: String?
-
-    var body: some View {
-        PostAuthProfileQuestionShell(
-            stage: stage,
-            headline: "What's your\nname?",
-            primaryTitle: isSaving ? "SAVING..." : "CONTINUE",
-            isContinueEnabled: isContinueEnabled,
-            onBack: handleBack,
-            onContinue: saveName
-        ) { metrics in
-            VStack(alignment: .leading, spacing: metrics.height(12)) {
-                nameField(
-                    field: .firstName,
-                    text: $nameInput.firstName,
-                    submitLabel: .next,
-                    metrics: metrics
-                )
-
-                nameField(
-                    field: .lastName,
-                    text: $nameInput.lastName,
-                    submitLabel: .continue,
-                    metrics: metrics
-                )
-
-                Text("This is the name climbers see on leaderboards.")
-                    .font(.montserratMedium(size: metrics.font(11)))
-                    .foregroundStyle(.white.opacity(0.46))
-                    .frame(width: metrics.width(334), alignment: .leading)
-
-                if let displayMessage {
-                    Text(displayMessage)
-                        .font(.montserratMedium(size: metrics.font(11)))
-                        .foregroundStyle(.red.opacity(0.9))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .frame(width: metrics.width(334), alignment: .topLeading)
-            .offset(x: metrics.x(28), y: metrics.y(294))
-            .onChange(of: nameInput.firstName) { _, newValue in
-                validationMessage = nil
-                normalizeNamePart(newValue, field: .firstName)
-            }
-            .onChange(of: nameInput.lastName) { _, newValue in
-                validationMessage = nil
-                normalizeNamePart(newValue, field: .lastName)
-            }
-        }
-        .keyboardDoneToolbar {
-            focusedField = nil
-        }
-    }
-
-    private func nameField(
-        field: ProfileNameField,
-        text: Binding<String>,
-        submitLabel: SubmitLabel,
-        metrics: PostAuthProfileMetrics
-    ) -> some View {
-        TextField(
-            "",
-            text: text,
-            prompt: Text(field.rawValue)
-                .foregroundStyle(.white.opacity(0.48))
-        )
-        .font(.montserratMedium(size: metrics.font(12)))
-        .foregroundStyle(.white)
-        .tint(OnboardingValuePalette.lime)
-        .textContentType(field == .firstName ? .givenName : .familyName)
-        .textInputAutocapitalization(.words)
-        .autocorrectionDisabled()
-        .submitLabel(submitLabel)
-        .focused($focusedField, equals: field)
-        .padding(.horizontal, metrics.width(14))
-        .frame(width: metrics.width(334), height: metrics.height(52), alignment: .leading)
-        .background(PostAuthProfilePalette.fieldBackground)
-        .clipShape(RoundedRectangle(cornerRadius: metrics.radius(6), style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: metrics.radius(6), style: .continuous)
-                .stroke(fieldBorderColor, lineWidth: 1)
-        }
-        .onSubmit {
-            if field == .firstName {
-                focusedField = .lastName
-            } else {
-                saveName()
-            }
-        }
-        .accessibilityLabel(field.rawValue)
-    }
-
-    private var isContinueEnabled: Bool {
-        nameInput.canContinue && !isSaving
-    }
-
-    private var fieldBorderColor: Color {
-        displayMessage == nil ? .white.opacity(0.18) : .red.opacity(0.72)
-    }
-
-    private var displayMessage: String? {
-        validationMessage ?? authVM.errorMessage
-    }
-
-    private func normalizeNamePart(_ value: String, field: ProfileNameField) {
-        let normalized = PostAuthNameInput.singleLinePart(value)
-        if normalized != value {
-            switch field {
-            case .firstName:
-                nameInput.firstName = normalized
-            case .lastName:
-                nameInput.lastName = normalized
-            }
-        }
-    }
-
-    private func saveName() {
-        guard isContinueEnabled else {
-            validationMessage = nameInput.validationMessage
-            return
-        }
-
-        Task { @MainActor in
-            isSaving = true
-            let didSave = await authVM.updateProfileName(
-                firstName: nameInput.normalizedFirstName,
-                lastName: nameInput.normalizedLastName
-            )
-            isSaving = false
-
-            if didSave {
-                TelemetryManager.shared.setUserProperty("name_inputted", value: "true")
-                OnboardingAnalyticsUserProperties.setDisplayNameProvided()
-                trackPostAuthInput(
-                    stage: stage,
-                    properties: ["display_name_provided": .bool(true)]
-                )
-                onContinue()
-            }
-        }
-    }
-
-    private func handleBack() {
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.backTapped(context: stage.analyticsContext, inputType: "button")
-        )
-        authVM.signOut()
     }
 }
 
@@ -2104,7 +1975,7 @@ private struct PostAuthGenderOption: Identifiable {
 
 #Preview("Post-Auth Onboarding") {
     PostAuthOnboardingFlowView(
-        stage: .displayName,
+        stage: .stairStepperBaseline,
         onBack: {},
         onContinue: {}
     )
