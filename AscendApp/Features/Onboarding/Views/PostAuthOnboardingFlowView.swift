@@ -239,6 +239,30 @@ private struct PostAuthDisplayNameScreen: View {
         .keyboardDoneToolbar {
             focusedField = nil
         }
+        .task {
+            seedFromProviderSuppliedName()
+        }
+    }
+
+    /// A climber who reaches this step after Sign in with Apple shared only half
+    /// a name is asked for the missing half, never for the half they already gave.
+    /// When Apple supplied both, this step does not run at all - the name is
+    /// already on the profile.
+    private func seedFromProviderSuppliedName() {
+        guard nameInput.firstName.isEmpty,
+              nameInput.lastName.isEmpty,
+              let supplied = authVM.appleSuppliedIdentity else { return }
+
+        nameInput.firstName = supplied.firstName ?? ""
+        nameInput.lastName = supplied.lastName ?? ""
+
+        // Land the cursor on the one field still owed, and only then - opening a
+        // keyboard over two already-filled fields would read as a demand.
+        if nameInput.firstName.isEmpty, !nameInput.lastName.isEmpty {
+            focusedField = .firstName
+        } else if nameInput.lastName.isEmpty, !nameInput.firstName.isEmpty {
+            focusedField = .lastName
+        }
     }
 
     private func nameField(
