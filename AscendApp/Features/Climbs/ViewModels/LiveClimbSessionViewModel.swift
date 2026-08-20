@@ -123,6 +123,18 @@ enum LiveClimbSessionMode: Equatable {
         }
     }
 
+    /// Which replay board this mode races on. Separate from `replayContext`
+    /// because a surface that only needs the board's shape should not have to
+    /// supply a step target to ask for it.
+    var replayContextType: LiveReplayLeaderboardContextType {
+        switch self {
+        case .liveClimb:
+            return .liveClimb
+        case .justClimb:
+            return .justClimb
+        }
+    }
+
     func replayContext(progressScaleSteps: Int) -> LiveReplayLeaderboardContext {
         let targetSteps = max(targetStepCount ?? progressScaleSteps, 1)
 
@@ -384,6 +396,19 @@ final class LiveClimbSessionViewModel {
 
     var leaderboardCompletedCount: Int {
         leaderboardSummary.completedCount
+    }
+
+    /// Who this session's board counts, so the panel names its own population.
+    /// A landmark climb races a field of climbers; an open Just Climb has no
+    /// target to collapse on, so it races every completed attempt.
+    var leaderboardFieldPopulation: LiveReplayFieldPopulation {
+        mode.replayContextType.fieldPopulation
+    }
+
+    /// The whole field this session races, for the panel's field-size line. The
+    /// fetched window is a slice of it, so the rows on screen never bound it.
+    var leaderboardFieldSize: Int {
+        max(leaderboardTotalClimbers, leaderboardRows.count)
     }
 
     var leaderboardUpdatedElapsedSeconds: Int? {

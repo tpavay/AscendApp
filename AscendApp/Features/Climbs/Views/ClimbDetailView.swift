@@ -27,7 +27,7 @@ private enum ClimbDetailCoachStep: Int, CaseIterable {
         case .start:
             return "Put on your AirPods or other compatible headphones. Ascend counts your steps from headphone motion. When you are on the stair stepper, tap the climb button to start the live attempt."
         case .leaderboard:
-            return "The leaderboard shows completed times for this landmark. Finish the climb to put your name on it."
+            return "All Times lists every completion of this landmark, fastest first. Finish the climb to put your name on it."
         case .browse:
             return "Use the globe button anytime to browse every landmark and choose another climb."
         }
@@ -136,10 +136,14 @@ struct ClimbDetailView: View {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
 
+    /// The third tab is "ALL TIMES", not "LEADERBOARD": the live race a climber
+    /// just ran collapses each rival to their best run, while this board keeps
+    /// every completion. Two boards under one word made those totals read as a
+    /// contradiction instead of two deliberate answers.
     private static let detailPageTitles = [
         "OVERVIEW",
         "HISTORY",
-        "LEADERBOARD"
+        "ALL TIMES"
     ]
 
     var body: some View {
@@ -890,10 +894,42 @@ struct ClimbDetailView: View {
                     .font(.montserratSemiBold(size: 12))
                     .foregroundStyle(Color.red.opacity(0.82))
             }
+
+            completionFieldSizeLine
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    /// The field this board ranks, named and counted, beneath its rows.
+    ///
+    /// Always completions: this board reads the replay entries unfiltered, so a
+    /// climber appears once per finish. The live race panel pins the same line
+    /// over its own collapsed field, which is why the two totals differ on one
+    /// climb and why each has to say which it is counting.
+    @ViewBuilder
+    private var completionFieldSizeLine: some View {
+        if leaderboardPageContent == .rows,
+           viewModel.completionLeaderboardCompletedCount > 0 {
+            Text(
+                LiveReplayFieldPopulation.completions.fieldSizeLabel(
+                    count: viewModel.completionLeaderboardCompletedCount
+                )
+            )
+            .font(.montserratBold(size: 10))
+            .tracking(1.1)
+            .foregroundStyle(leaderboardSecondaryTextColor)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 8)
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(.white.opacity(0.08))
+                    .frame(height: 1)
+            }
+        }
     }
 
     @ViewBuilder

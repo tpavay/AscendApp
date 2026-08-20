@@ -757,23 +757,9 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     ) -> Query {
         let entries = entriesCollection(context: context, bucketIndex: bucketIndex)
 
-        guard collapsesRepeatFinishers(context) else { return entries }
+        guard context.type.collapsesRepeatFinishers else { return entries }
 
         return entries.whereField("isBestForUser", isEqualTo: true)
-    }
-
-    /// Whether a context collapses a climber's repeat completions into one row.
-    ///
-    /// Per-climb and per-routine-template contexts do: a climb board reaches the
-    /// same step target every time, so the fastest attempt is genuinely that
-    /// climber's best; a routine board fixes the clock, so the highest-steps
-    /// attempt is theirs. An open Just Climb session has no target, so its
-    /// shortest attempt is the one the climber quit earliest rather than their
-    /// best.
-    private func collapsesRepeatFinishers(
-        _ context: LiveReplayLeaderboardContext
-    ) -> Bool {
-        context.type == .liveClimb || context.type == .routineTemplate
     }
 
     private func finisherDocument(

@@ -253,6 +253,8 @@ struct ActiveRoutineView: View {
             progress: viewModel.leaderboardCurrentProgressFraction,
             currentUserPhotoURL: currentUserPhotoURL,
             fetchFailed: viewModel.leaderboardFetchFailed,
+            fieldPopulation: viewModel.leaderboardFieldPopulation,
+            fieldSize: viewModel.leaderboardFieldSize,
             tint: currentIntervalColor,
             effectiveColorScheme: .dark
         )
