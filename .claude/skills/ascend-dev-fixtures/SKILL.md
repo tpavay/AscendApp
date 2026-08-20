@@ -86,6 +86,8 @@ paths:
   `scripts/seed/lib/live-replay-first-ascent.mjs` owns this contract and fails the seed plan when it is violated; keep its field list in sync with `firstAscentWrite` in `functions/src/liveReplayLeaderboard.ts`.
 - A seeded replay board must carry finisher documents beside its entry rows (`scripts/seed/lib/live-replay-finisher.mjs`), clearing a pack has to take them back out, and the seeded `completedCount` is derived from the finishers left standing afterwards.
   `ascend-live-climbs` owns why: the permanent rank a finished climb freezes counts finishers, so a board of entries with no finishers reads as an empty field.
+- `scripts/backfill-live-replay-completion-snapshots.mjs` is deliberately excluded from the finisher-based frozen rank and still clamps its rank with `Math.min`.
+  It ranks entry rows against a distinct-climber count, so unlike the publish path `ascend-live-climbs` describes, its two halves genuinely need the clamp; do not "fix" the contradiction away.
 - Seeded replay curves should be calibrated from historical workout pace distributions when available.
 
 ## Script Dependency Policy

@@ -357,6 +357,12 @@ function buildCompletionSnapshots(entries) {
       contextId: entry.contextId,
       contextType: entry.contextType,
       finalSteps: entry.finalSteps,
+      // Still clamped on purpose: this backfill ranks entry rows against a
+      // distinct-climber count, so its two halves count different populations
+      // and only the clamp keeps the pair possible. The live publish path in
+      // functions/src/liveReplayLeaderboard.ts counts one population on both
+      // halves by construction and therefore dropped its clamp and throws
+      // instead; the divergence is deliberate, not an oversight.
       rank: Math.min(rawRank, completedCount),
       rankedAt: entry.rankedAt,
       rankingMetric: "completionDurationSeconds",
