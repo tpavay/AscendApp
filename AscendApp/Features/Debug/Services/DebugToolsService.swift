@@ -33,11 +33,13 @@ final class DebugToolsService {
         try workoutSeeder.clearSeededWorkouts(modelContext: modelContext)
     }
 
-    func sendSentryTestDiagnostic() {
+    func sendCrashlyticsTestDiagnostic() {
         TelemetryManager.shared.debugEnableCollectionForSession()
         TelemetryManager.shared.recordError(
-            DebugDiagnosticsError.sentryTestEvent,
+            DebugDiagnosticsError.crashlyticsTestEvent,
             context: .network,
+            // Wire identifier, not copy: renaming it would split this diagnostic
+            // from every event already grouped under it in Crashlytics.
             code: "debug_sentry_test_event",
             additionalInfo: [
                 "source": "debug_tools",
@@ -52,10 +54,10 @@ final class DebugToolsService {
 }
 
 private enum DebugDiagnosticsError: LocalizedError {
-    case sentryTestEvent
+    case crashlyticsTestEvent
 
     var errorDescription: String? {
-        "Debug Sentry test diagnostic"
+        "Debug Crashlytics test diagnostic"
     }
 }
 #endif
