@@ -432,6 +432,20 @@ struct ShareStatClusterPresetEvidenceTests {
     /// hitch, not a drag, and it is tracked as issue #489. The assertions below
     /// are about *scaling* and about the drag path, deliberately - this test does
     /// not claim add-time fits in a frame, because it does not.
+    ///
+    /// **The scaling bar is a slope, not a ratio against the single-cluster
+    /// marginal.** One cluster is the smallest thing this file measures - a few
+    /// milliseconds over a background that is itself a couple of milliseconds -
+    /// and every other figure here is four to twelve times larger. Resting the
+    /// bar on that one number handed the bar's position to the noisiest
+    /// measurement in the file. Five-against-one came back 4.5× and 4.6× on a
+    /// busy desk, 6.1× on a quiet one and 11.3× on a loaded CI runner, and a bar
+    /// at 10× duly failed a run that had nothing to say about the composer.
+    /// Across those same four runs the slope between the two counts that *are*
+    /// measured well - what the fourth and fifth clusters cost per cluster
+    /// against what the first three did - stayed inside 1.05×-1.61×, so that is
+    /// what the bar rests on. Do not reintroduce a denominator taken from
+    /// `marginals[1]`.
     @Test
     func addTimeLayoutScalesLinearlyAsHeaviestClustersPileUp() throws {
         let counts = [0, 1, 3, 5]
@@ -540,25 +554,27 @@ struct ShareStatClusterPresetEvidenceTests {
             "a transform-only mutation must not change what a cluster draws"
         )
 
-        let marginalOne = marginals[1] ?? 0
+        // The scaling bar rests on the slope between the two well-measured counts,
+        // never on the single-cluster marginal - see the doc comment above.
+        let marginalThree = marginals[3] ?? 0
         let marginalFive = marginals[5] ?? 0
         #expect(
-            marginalOne > 0,
+            marginalThree > 0,
             """
-            the measurement cannot see a single cluster above the background baseline, so \
+            the measurement cannot see three clusters above the background baseline, so \
             the scaling bar below means nothing.
             \(report)
             """
         )
+        let earlyPerCluster = marginalThree / 3
+        let latePerCluster = (marginalFive - marginalThree) / 2
         #expect(
-            marginalFive < marginalOne * 10,
+            latePerCluster < earlyPerCluster * 2.5,
             """
-            five clusters must not cost dramatically more than five of the first - measured \
-            on the marginal cost, since the shared background would otherwise mask it. Each \
-            marginal is the median of nine per-pair differences against the background-only \
-            canvas rather than a gap between two separately-timed blocks, so the ratio comes \
-            back ~4.6 whatever the runner is doing. The slack stays wide anyway: it is still \
-            far below anything super-linear - quadratic growth over five clusters would be 25×.
+            the fourth and fifth clusters cost \(String(format: "%.2f", latePerCluster / earlyPerCluster))× \
+            per cluster what the first three did; piling clusters on is not allowed to cost \
+            dramatically more per cluster than starting the pile. Quadratic growth would put \
+            that at 2.67× - (25-9)/2 against 9/3 - so the bar is set just under it.
             \(report)
             """
         )

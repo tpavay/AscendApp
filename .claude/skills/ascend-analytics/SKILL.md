@@ -195,6 +195,9 @@ The segment labels identify nested implementation sections and never replace the
   Only `revenuecat_restore_completed` may be accompanied by `paywall_restore_completed`.
   `AppAccessRestoreService` owns this for all three restore surfaces (paywall, account settings, app-access gate); `RevenueCatPurchaseExecutor` owns it for purchase.
   Enforced by `AscendAppTests/PaywallPurchaseAnalyticsContractTests.swift`.
+- **Every event `PaywallAnalyticsEvent` builds also carries the StoreKit environment pair**, `holds_sandbox_entitlement` and `storekit_receipt_name`, merged in one place by `PaywallAnalyticsEvent.record(diagnostics:)` from `StoreKitEnvironmentDiagnostics` - never added per call site, so a new case cannot ship without them.
+  They exist because that pair is exactly what the discarded `activeInCurrentEnvironment` filter compared and neither half was observable when it refused a paying App Reviewer (#506); read the doc comments on `AscendApp/Features/Monetization/Services/StoreKitEnvironmentDiagnostics.swift` for why the sandbox flag is absent rather than `false` before RevenueCat has answered.
+  `paywall_error`, `paywall_skipped`, and `paywall_reached` are raw `TelemetryRecord`s built elsewhere and do not carry the pair (#508).
 
 ## Reference
 - `docs/sentry-setup.md` - Sentry role and app configuration.
