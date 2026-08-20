@@ -7,23 +7,23 @@ import Vision
 /// What the App Review reviewer will actually see on the screen that got 1.0
 /// rejected under Guideline 4.
 ///
-/// `AppleSignInSuppliedIdentityTests` holds the decision table. This holds the
-/// pixels: when Apple shared only half a name the step opens with that half
+/// `SignInSuppliedIdentityTests` holds the decision table. This holds the pixels:
+/// when the provider shared only half a name the step opens with that half
 /// already filled in, so the climber is asked for the half they withheld and
-/// nothing else. When Apple shared a full name this step does not run at all -
-/// the name is on the profile before onboarding resolves - and when there is no
-/// Apple capture at all the step is unchanged for Google and email climbers.
+/// nothing else. When the provider shared a full name this step does not run at
+/// all - the name is on the profile before onboarding resolves the stage - and
+/// when nothing was supplied the step still carries a real way past.
 @Suite(.serialized, .hostsAWindow)
 @MainActor
-struct AppleSignInNameStepEvidenceTests {
+struct SignInNameStepEvidenceTests {
     private static let canvas = CGSize(width: 402, height: 874)
-    private static let appleUserID = "000789.apple"
+    private static let providerUserID = "000789.apple"
 
     @Test("The half Apple supplied arrives already filled in")
     func theStepOpensSeededWithWhateverAppleSupplied() async throws {
         let seeded = try await renderNameStep(
-            supplied: AppleSignInSuppliedIdentity(
-                appleUserID: Self.appleUserID,
+            supplied: SignInSuppliedIdentity(
+                providerUserID: Self.providerUserID,
                 firstName: "Maya",
                 lastName: nil,
                 email: "8xk2p9qz7t@privaterelay.appleid.com"
@@ -45,7 +45,7 @@ struct AppleSignInNameStepEvidenceTests {
         #expect(seededFields.first == "Maya")
         #expect(seededFields.last == "")
 
-        // Google and email climbers are untouched: both fields still start empty.
+        // Nothing supplied means nothing seeded: both fields still start empty.
         #expect(unseeded.fieldValues == ["", ""])
         let unseededText = try await recognizedText(in: unseeded.image)
         #expect(unseededText.contains("first name"))
@@ -54,20 +54,47 @@ struct AppleSignInNameStepEvidenceTests {
         try writeEvidence(
             image: filmstrip(
                 panels: [
-                    ("No Apple capture - both fields empty", unseeded.image),
-                    ("Apple shared a first name - only the last name is asked", seeded.image)
+                    ("Nothing supplied - both fields empty, SKIP still offered", unseeded.image),
+                    ("Only a first name supplied - only the last name is asked", seeded.image)
                 ]
             ),
-            named: "apple-sign-in-name-step-seeding.png"
+            named: "sign-in-name-step-seeding.png"
         )
     }
 
-    /// The rejection case itself. Apple supplied both halves, so nothing about
-    /// the name is ever put to the climber.
-    @Test("A full name from Apple is never put back to the climber")
-    func afullNameFromAppleSkipsTheStepEntirely() async throws {
-        let supplied = AppleSignInSuppliedIdentity(
-            appleUserID: Self.appleUserID,
+    /// The App Review case. Apple's device has already spent its one first
+    /// authorization on Ascend, so the credential carries nothing and there is
+    /// nothing to prefill. The step must still have a way forward, and it must
+    /// name what skipping costs, or the reviewer sees the screen that got 1.0
+    /// rejected.
+    @Test("A climber Apple told us nothing about still has a way forward")
+    func theNilCredentialStepOffersARealSkip() async throws {
+        let reviewer = try await renderNameStep(supplied: nil)
+
+        #expect(reviewer.fieldValues == ["", ""], "Apple supplied nothing to prefill")
+
+        let text = try await recognizedText(in: reviewer.image)
+        #expect(
+            text.contains("skip"),
+            "The step must carry a real skip control, not just a dimmed CONTINUE"
+        )
+        #expect(
+            text.contains("change me"),
+            "The climber is told exactly what they race under if they skip"
+        )
+
+        try writeEvidence(
+            image: reviewer.image,
+            named: "sign-in-name-step-nothing-supplied.png"
+        )
+    }
+
+    /// The rejection case itself. The provider supplied both halves, so nothing
+    /// about the name is ever put to the climber.
+    @Test("A full name from the provider is never put back to the climber")
+    func afullNameFromTheProviderSkipsTheStepEntirely() async throws {
+        let supplied = SignInSuppliedIdentity(
+            providerUserID: Self.providerUserID,
             firstName: "Maya",
             lastName: "Chen",
             email: "8xk2p9qz7t@privaterelay.appleid.com"
@@ -75,7 +102,7 @@ struct AppleSignInNameStepEvidenceTests {
 
         // The write is what satisfies the step...
         #expect(
-            AppleSuppliedNameAdoption.decide(supplied: supplied, storedName: .absent)
+            SuppliedNameAdoption.decide(supplied: supplied, storedName: .absent)
                 == .write(firstName: "Maya", lastName: "Chen")
         )
 
@@ -96,19 +123,19 @@ struct AppleSignInNameStepEvidenceTests {
     // MARK: - Rendering
 
     private func renderNameStep(
-        supplied: AppleSignInSuppliedIdentity?
+        supplied: SignInSuppliedIdentity?
     ) async throws -> (image: UIImage, fieldValues: [String]) {
-        let identityStore = AppleSignInIdentityStore(userDefaults: makeDefaults())
+        let identityStore = SignInIdentityStore(userDefaults: makeDefaults())
         if let supplied {
             identityStore.record(supplied)
         }
 
         let authVM = AuthenticationViewModel(
-            appleIdentityStore: identityStore,
+            signInIdentityStore: identityStore,
             observesFirebaseAuth: false
         )
-        authVM.loadAppleSuppliedIdentity(forAppleUserID: supplied?.appleUserID)
-        #expect((authVM.appleSuppliedIdentity != nil) == (supplied != nil))
+        authVM.loadSuppliedIdentity(forProviderUserID: supplied?.providerUserID)
+        #expect((authVM.suppliedIdentity != nil) == (supplied != nil))
 
         let controller = UIHostingController(
             rootView: PostAuthOnboardingFlowView(
@@ -222,11 +249,11 @@ struct AppleSignInNameStepEvidenceTests {
         let outputURL = URL(filePath: directory).appending(path: name)
         try png.write(to: outputURL)
         #expect(png.count > 5_000)
-        print("Rendered Sign in with Apple name-step evidence: \(outputURL.path())")
+        print("Rendered sign-in name-step evidence: \(outputURL.path())")
     }
 
     private func makeDefaults() -> UserDefaults {
-        let suiteName = "AppleSignInNameStepEvidenceTests.\(UUID().uuidString)"
+        let suiteName = "SignInNameStepEvidenceTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
         return defaults

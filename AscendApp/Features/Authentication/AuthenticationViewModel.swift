@@ -47,14 +47,14 @@ class AuthenticationViewModel {
     private(set) var lastUsedProvider: AuthProviderKind?
     private(set) var hasRemoteDisplayName: Bool = false
 
-    /// What Sign in with Apple supplied that the climber's profile does not carry
-    /// yet. Present only while something is still owed: it is dropped the moment
-    /// the name reaches the profile, or the moment the profile turns out to have
-    /// a name already.
+    /// What the sign-in provider supplied that the climber's profile does not
+    /// carry yet - Apple or Google alike. Present only while something is still
+    /// owed: it is dropped the moment the name reaches the profile, or the moment
+    /// the profile turns out to have a name already.
     ///
     /// The name step reads this to open prefilled, so a climber who shared only
-    /// half a name with Apple is asked for the missing half rather than for both.
-    private(set) var appleSuppliedIdentity: AppleSignInSuppliedIdentity?
+    /// half a name is asked for the missing half rather than for both.
+    private(set) var suppliedIdentity: SignInSuppliedIdentity?
 
     /// Indicates whether the profile data has been loaded from Firestore/cache after auth restore.
     /// Used to avoid showing authenticated UI before profile state is known.
@@ -63,16 +63,16 @@ class AuthenticationViewModel {
     private var authenticationService: AuthenticationService
     private let accountSessionStore = AccountSessionStore.shared
     private let monetizationIdentityManager: any MonetizationIdentityManaging
-    private let appleIdentityStore: AppleSignInIdentityStore
+    private let signInIdentityStore: SignInIdentityStore
 
     init(
         monetizationIdentityManager: any MonetizationIdentityManaging = MonetizationManager.shared,
-        appleIdentityStore: AppleSignInIdentityStore = .shared,
+        signInIdentityStore: SignInIdentityStore = .shared,
         observesFirebaseAuth: Bool = true
     ) {
         self.monetizationIdentityManager = monetizationIdentityManager
-        self.appleIdentityStore = appleIdentityStore
-        self.authenticationService = AuthenticationService(appleIdentityStore: appleIdentityStore)
+        self.signInIdentityStore = signInIdentityStore
+        self.authenticationService = AuthenticationService(signInIdentityStore: signInIdentityStore)
         lastUsedProvider = accountSessionStore.lastUsedProvider
 
         // Load cached display name immediately for UI responsiveness
@@ -119,7 +119,7 @@ class AuthenticationViewModel {
                     // Read synchronously, before any await: the name step is
                     // seeded from this, and a seed that arrives after the screen
                     // is on-screen is a screen that asked for it anyway.
-                    self.loadAppleSuppliedIdentity(for: user)
+                    self.resolveSuppliedIdentity(for: user)
 
                     // If we have a cached name, we can show authenticated immediately
                     // Otherwise, show restoring session while we fetch from Firestore
@@ -142,14 +142,14 @@ class AuthenticationViewModel {
 
                     // Handle Firestore operations in background
                     Task {
-                        // The name Apple supplied is written before anything reads
-                        // the profile back, so the name step is already satisfied
-                        // by the time onboarding resolves it.
-                        let didAdoptAppleName = await self.adoptAppleSuppliedIdentity(for: user)
+                        // The name the provider supplied is written before anything
+                        // reads the profile back, so the name step is already
+                        // satisfied by the time onboarding resolves it.
+                        let didAdoptSuppliedName = await self.adoptSuppliedName(for: user)
 
                         // Avoid writing a provider-derived or empty display name during new sign-up.
                         // The post-auth name step creates the profile document with the user's chosen name.
-                        if !didAdoptAppleName, shouldSaveInitialUserRecord {
+                        if !didAdoptSuppliedName, shouldSaveInitialUserRecord {
                             try? await self.saveUserToFirestore(user: user)
                         }
 
@@ -212,7 +212,7 @@ class AuthenticationViewModel {
                     // In-memory only. What Apple supplied stays on disk, because
                     // signing out and back in is precisely the case where Apple
                     // hands back nothing at all.
-                    self.appleSuppliedIdentity = nil
+                    self.suppliedIdentity = nil
                     self.isProfileLoaded = false
                     self.authenticationState = .unauthenticated
                     UserDataRepository.shared.clearUserCache()
@@ -423,32 +423,58 @@ extension AuthenticationViewModel {
         }
     }
 
-    // MARK: - Sign in with Apple supplied identity
+    // MARK: - Provider-supplied identity
 
-    /// Loads whatever Apple supplied for the Apple ID linked to `user`.
+    /// Resolves the name this sign-in supplied, from whichever provider it was.
     ///
-    /// The join is Firebase's `apple.com` provider `uid`, which is the same
-    /// identifier Apple put on the credential, so a capture written on one launch
-    /// still finds its account on the next one.
-    func loadAppleSuppliedIdentity(for user: User) {
-        loadAppleSuppliedIdentity(forAppleUserID: user.appleProviderUserID)
+    /// One path, not a per-provider branch. Apple's copy comes off the persisted
+    /// capture, because Apple populates the credential on the first authorization
+    /// for an Apple ID and app pair and never again. Google's - and any name
+    /// Firebase already holds, including the one Apple's credential just set -
+    /// comes off the account itself, because Google supplies it on every sign-in.
+    /// The Apple capture is preferred only because it is the copy that is still
+    /// owed; both end up in the same value and under the same rule.
+    func resolveSuppliedIdentity(for user: User) {
+        if let captured = signInIdentityStore.identity(
+            forProviderUserID: user.appleProviderUserID
+        ) {
+            suppliedIdentity = captured
+            return
+        }
+
+        let fromAccount = SignInSuppliedIdentity(
+            providerUserID: user.uid,
+            fullName: user.displayName,
+            email: user.email
+        )
+        suppliedIdentity = fromAccount.carriesSomething ? fromAccount : nil
     }
 
-    func loadAppleSuppliedIdentity(forAppleUserID appleUserID: String?) {
-        appleSuppliedIdentity = appleIdentityStore.identity(forAppleUserID: appleUserID)
+    /// The seam the name step's rendering tests drive, because `resolveSuppliedIdentity`
+    /// needs a Firebase `User` no test can construct.
+    func loadSuppliedIdentity(forProviderUserID providerUserID: String?) {
+        suppliedIdentity = signInIdentityStore.identity(forProviderUserID: providerUserID)
     }
 
-    /// Writes the name Apple supplied onto a profile that has none.
+    /// Writes the name the provider supplied onto a profile that has none.
     ///
     /// Returns `true` when it wrote the profile itself, so the caller does not
     /// write an empty one over the top.
     ///
     /// Nothing here re-asks and nothing here overwrites: a profile that already
-    /// carries a name keeps it, and a profile that could not be read at all is
-    /// left alone until the next sign-in can read it.
+    /// carries a name keeps it - that is resolution step 1, and it is what a
+    /// climber who deleted and reinstalled lands on - and a profile that could
+    /// not be read at all is left alone until the next sign-in can read it.
     @discardableResult
-    func adoptAppleSuppliedIdentity(for user: User) async -> Bool {
-        guard let supplied = appleSuppliedIdentity else { return false }
+    func adoptSuppliedName(for user: User) async -> Bool {
+        // Only a name that could actually be written justifies reading the
+        // profile here. This runs on the sign-in path, ahead of the authenticated
+        // UI, and every climber with an email address carries *something* - so
+        // without this the launch would pay for a document read that can only
+        // ever conclude "ask the climber".
+        guard let supplied = suppliedIdentity, supplied.adoptableName != nil else {
+            return false
+        }
 
         let storedName: StoredProfileName
         do {
@@ -460,13 +486,13 @@ extension AuthenticationViewModel {
             storedName = .unreadable
         }
 
-        switch AppleSuppliedNameAdoption.decide(supplied: supplied, storedName: storedName) {
+        switch SuppliedNameAdoption.decide(supplied: supplied, storedName: storedName) {
         case .write(let firstName, let lastName):
             // Scoped, because this runs behind a sign-in nobody is watching: an
             // app-wide errorMessage left here would surface under whatever screen
             // the climber lands on next.
             let failure = await scopedProfileUpdate(
-                fallback: "Failed to save the name from Sign in with Apple"
+                fallback: "Failed to save the name your sign-in supplied"
             ) {
                 await self.updateProfileName(firstName: firstName, lastName: lastName)
             }
@@ -474,15 +500,15 @@ extension AuthenticationViewModel {
             guard failure == nil else {
                 // Apple will never hand this back again, so the capture stays put
                 // and the next sign-in retries the write.
-                debugLog("Deferred Apple-supplied name: \(failure ?? "")")
+                debugLog("Deferred provider-supplied name: \(failure ?? "")")
                 return false
             }
 
-            forgetAppleSuppliedIdentity(supplied)
+            forgetSuppliedIdentity(supplied)
             return true
 
         case .discard:
-            forgetAppleSuppliedIdentity(supplied)
+            forgetSuppliedIdentity(supplied)
             return false
 
         case .retryLater, .askTheClimber:
@@ -490,9 +516,33 @@ extension AuthenticationViewModel {
         }
     }
 
-    private func forgetAppleSuppliedIdentity(_ supplied: AppleSignInSuppliedIdentity) {
-        appleIdentityStore.forget(appleUserID: supplied.appleUserID)
-        appleSuppliedIdentity = nil
+    /// Gives the climber a board identity without asking them for one.
+    ///
+    /// Reaching the app may never be conditional on typing a name. Sign in with
+    /// Apple hands back a name on the FIRST authorization for an Apple ID and app
+    /// pair and never again, so an App Review device that has already authorized
+    /// Ascend - or any climber who declined to share one - arrives with nothing,
+    /// and a screen they cannot pass is the rejection all over again.
+    ///
+    /// This is resolution step 3, and it runs only after step 1 (a profile that
+    /// already carries a name) and step 2 (whatever the provider supplied at this
+    /// sign-in) have both come up empty.
+    @discardableResult
+    func adoptPlaceholderDisplayName() async -> Bool {
+        await updateProfileName(
+            firstName: SignInNamePlaceholder.firstName,
+            lastName: SignInNamePlaceholder.lastName
+        )
+    }
+
+    /// Drops the in-memory copy, and the persisted one if this identity came from
+    /// there. An identity derived from the Firebase account is keyed by the
+    /// Firebase `uid`, which is never a key in the store, so this is a no-op for
+    /// it - the account keeps supplying it on every sign-in and there is nothing
+    /// to expire.
+    private func forgetSuppliedIdentity(_ supplied: SignInSuppliedIdentity) {
+        signInIdentityStore.forget(providerUserID: supplied.providerUserID)
+        suppliedIdentity = nil
     }
 
     /// The address to record on the profile.
@@ -505,7 +555,7 @@ extension AuthenticationViewModel {
         if let firebaseEmail, !firebaseEmail.isEmpty {
             return firebaseEmail
         }
-        return appleSuppliedIdentity?.email
+        return suppliedIdentity?.email
     }
 
     private func getAuthenticationState() -> AuthenticationState {

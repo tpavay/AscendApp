@@ -195,6 +195,7 @@ private struct PostAuthDisplayNameScreen: View {
             headline: "What's your\nname?",
             primaryTitle: isSaving ? "SAVING..." : "CONTINUE",
             isContinueEnabled: isContinueEnabled,
+            skip: isSaving ? nil : PostAuthSkipControl(title: "Skip", action: skipName),
             onBack: handleBack,
             onContinue: saveName
         ) { metrics in
@@ -213,9 +214,10 @@ private struct PostAuthDisplayNameScreen: View {
                     metrics: metrics
                 )
 
-                Text("This is the name climbers see on leaderboards.")
+                Text(leaderboardNameExplanation)
                     .font(.montserratMedium(size: metrics.font(11)))
                     .foregroundStyle(.white.opacity(0.46))
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(width: metrics.width(334), alignment: .leading)
 
                 if let displayMessage {
@@ -244,14 +246,14 @@ private struct PostAuthDisplayNameScreen: View {
         }
     }
 
-    /// A climber who reaches this step after Sign in with Apple shared only half
-    /// a name is asked for the missing half, never for the half they already gave.
-    /// When Apple supplied both, this step does not run at all - the name is
-    /// already on the profile.
+    /// A climber who reaches this step after their provider shared only half a
+    /// name is asked for the missing half, never for the half they already gave.
+    /// When the provider supplied both, this step does not run at all - the name
+    /// is already on the profile before onboarding resolves this stage.
     private func seedFromProviderSuppliedName() {
         guard nameInput.firstName.isEmpty,
               nameInput.lastName.isEmpty,
-              let supplied = authVM.appleSuppliedIdentity else { return }
+              let supplied = authVM.suppliedIdentity else { return }
 
         nameInput.firstName = supplied.firstName ?? ""
         nameInput.lastName = supplied.lastName ?? ""
@@ -350,6 +352,50 @@ private struct PostAuthDisplayNameScreen: View {
                 )
                 onContinue()
             }
+        }
+    }
+
+    /// Apple's HIG asks that an optional request say so. Naming the alternative
+    /// says it better than the word "optional" does - and naming it exactly,
+    /// because `SignInNamePlaceholder.boardName` is literally what lands on the
+    /// board when the climber skips.
+    private var leaderboardNameExplanation: String {
+        """
+        This is the name climbers see on leaderboards. Skip and you race as \
+        \(SignInNamePlaceholder.boardName) until you set one in Settings.
+        """
+    }
+
+    /// Reaching the app is never conditional on typing a name.
+    ///
+    /// Apple returns a name on the FIRST authorization for an Apple ID and app
+    /// pair and never again, so an App Review device that has already authorized
+    /// Ascend arrives with nothing to prefill - and a screen with no way past is
+    /// the rejection all over again, whatever the fields were seeded from. Skip
+    /// writes `SignInNamePlaceholder`, so the climber always leaves this screen
+    /// with a name.
+    private func skipName() {
+        guard !isSaving else { return }
+
+        Task { @MainActor in
+            isSaving = true
+            let didSeed = await authVM.adoptPlaceholderDisplayName()
+            isSaving = false
+
+            guard didSeed else {
+                validationMessage = authVM.errorMessage
+                return
+            }
+
+            // Deliberately not `setDisplayNameProvided`: the climber supplied
+            // nothing, and a funnel that cannot tell a typed name from the
+            // placeholder cannot measure what skipping costs.
+            TelemetryManager.shared.setUserProperty("name_inputted", value: "false")
+            trackPostAuthInput(
+                stage: stage,
+                properties: ["display_name_provided": .bool(false)]
+            )
+            onContinue()
         }
     }
 
@@ -1628,6 +1674,13 @@ private struct PostAuthFirstClimbCard: View {
     }
 }
 
+/// The optional-answer control a post-auth stage offers beside its primary
+/// button.
+private struct PostAuthSkipControl {
+    let title: String
+    let action: () -> Void
+}
+
 private struct PostAuthProfileQuestionShell<Content: View>: View {
     let stage: PostAuthOnboardingStage
     var eyebrow = "COMPLETE YOUR PROFILE"
@@ -1635,6 +1688,11 @@ private struct PostAuthProfileQuestionShell<Content: View>: View {
     var subtitle: String?
     let primaryTitle: String
     let isContinueEnabled: Bool
+    /// A stage whose answer is genuinely optional carries a real control that
+    /// says so, in the same shape the notifications stage uses. A dimmed primary
+    /// button is not one: it reads as a requirement, which is what App Store
+    /// guideline 5.1.1(x) refuses.
+    var skip: PostAuthSkipControl?
     let onBack: () -> Void
     let onContinue: () -> Void
     @ViewBuilder let content: (PostAuthProfileMetrics) -> Content
@@ -1703,6 +1761,18 @@ private struct PostAuthProfileQuestionShell<Content: View>: View {
                 .disabled(!isContinueEnabled)
                 .frame(width: metrics.width(334), height: metrics.height(56))
                 .position(x: metrics.x(195), y: metrics.y(740))
+
+                if let skip {
+                    Button(action: skip.action) {
+                        Text(skip.title)
+                            .font(.montserratBold(size: metrics.font(12)))
+                            .foregroundStyle(.white.opacity(0.56))
+                            .frame(height: metrics.height(24))
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: metrics.width(334))
+                    .position(x: metrics.x(195), y: metrics.y(794))
+                }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }

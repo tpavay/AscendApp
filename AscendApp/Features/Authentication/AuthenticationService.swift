@@ -88,10 +88,10 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
     private var currentNonce: String?
     private var signInContinuation: CheckedContinuation<User, Error>?
     private var appleReauthContinuation: CheckedContinuation<AppleAuthorization, Error>?
-    private let appleIdentityStore: AppleSignInIdentityStore
+    private let signInIdentityStore: SignInIdentityStore
 
-    init(appleIdentityStore: AppleSignInIdentityStore = .shared) {
-        self.appleIdentityStore = appleIdentityStore
+    init(signInIdentityStore: SignInIdentityStore = .shared) {
+        self.signInIdentityStore = signInIdentityStore
         super.init()
     }
 
@@ -270,8 +270,8 @@ extension AuthenticationService {
         // reauthentication alike - means no path exists that sees them and
         // drops them.
         if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
-            appleIdentityStore.record(
-                AppleSignInSuppliedIdentity(credential: appleIDCredential)
+            signInIdentityStore.record(
+                SignInSuppliedIdentity(credential: appleIDCredential)
             )
         }
 
@@ -309,9 +309,16 @@ extension AuthenticationService {
             return
         }
 
-        let credential = OAuthProvider.credential(providerID: AuthProviderID.apple,
-                                                  idToken: idTokenString,
-                                                  rawNonce: nonce)
+        // `fullName` is handed to Firebase as well, not just to Ascend's own
+        // capture: this is the overload that lets Firebase Auth set the account's
+        // `displayName` from the credential, and Apple populates `fullName` on
+        // the first authorization only. Passing nil later is harmless - Firebase
+        // does not clear a display name it already has.
+        let credential = OAuthProvider.appleCredential(
+            withIDToken: idTokenString,
+            rawNonce: nonce,
+            fullName: appleIDCredential.fullName
+        )
 
         Task {
             do {

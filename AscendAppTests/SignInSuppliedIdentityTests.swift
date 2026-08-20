@@ -8,10 +8,13 @@ import Testing
 /// `ASAuthorizationAppleIDCredential.fullName` was always nil and the name step
 /// ran unconditionally.
 ///
-/// These hold the four shapes Apple actually returns: a first authorization with
-/// a name, a first authorization with Hide My Email, a returning sign-in where
-/// both come back nil, and a climber who declined to share a name.
-struct AppleSignInSuppliedIdentityTests {
+/// These hold the shapes Apple actually returns - a first authorization with a
+/// name, a first authorization with Hide My Email, a returning sign-in where both
+/// come back nil, and a climber who declined to share a name - and the shape
+/// Google returns, because the rule is one rule. Google supplies a display name
+/// too, so asking a Google climber to retype it is exactly as redundant, and a
+/// second per-provider branch is a second thing to drift.
+struct SignInSuppliedIdentityTests {
     /// The whole defect in one assertion: the request has to ask for the name,
     /// or every branch below is unreachable in production.
     @MainActor
@@ -25,8 +28,8 @@ struct AppleSignInSuppliedIdentityTests {
 
     @Test
     func firstAuthorizationWithANameIsWrittenAndTheNameStepNeverRuns() {
-        let supplied = AppleSignInSuppliedIdentity(
-            appleUserID: "000123.apple",
+        let supplied = SignInSuppliedIdentity(
+            providerUserID: "000123.apple",
             firstName: "Maya",
             lastName: "Chen",
             email: "maya@example.com"
@@ -35,7 +38,7 @@ struct AppleSignInSuppliedIdentityTests {
         #expect(supplied.adoptableName?.firstName == "Maya")
         #expect(supplied.adoptableName?.lastName == "Chen")
         #expect(
-            AppleSuppliedNameAdoption.decide(supplied: supplied, storedName: .absent)
+            SuppliedNameAdoption.decide(supplied: supplied, storedName: .absent)
                 == .write(firstName: "Maya", lastName: "Chen")
         )
     }
@@ -46,8 +49,8 @@ struct AppleSignInSuppliedIdentityTests {
     /// point of publication.
     @Test
     func suppliedNamePartsAreTrimmedAndFlattenedToASingleLine() {
-        let supplied = AppleSignInSuppliedIdentity(
-            appleUserID: "000123.apple",
+        let supplied = SignInSuppliedIdentity(
+            providerUserID: "000123.apple",
             firstName: "  Maya\n",
             lastName: "\rChen  ",
             email: "  maya@example.com "
@@ -60,8 +63,8 @@ struct AppleSignInSuppliedIdentityTests {
 
     @Test
     func aNameTooLongToPublishIsNotWrittenBehindTheClimbersBack() {
-        let supplied = AppleSignInSuppliedIdentity(
-            appleUserID: "000123.apple",
+        let supplied = SignInSuppliedIdentity(
+            providerUserID: "000123.apple",
             firstName: String(repeating: "A", count: DisplayNamePolicy.maximumLength),
             lastName: "Chen",
             email: nil
@@ -69,7 +72,7 @@ struct AppleSignInSuppliedIdentityTests {
 
         #expect(supplied.adoptableName == nil)
         #expect(
-            AppleSuppliedNameAdoption.decide(supplied: supplied, storedName: .absent)
+            SuppliedNameAdoption.decide(supplied: supplied, storedName: .absent)
                 == .askTheClimber
         )
     }
@@ -78,8 +81,8 @@ struct AppleSignInSuppliedIdentityTests {
 
     @Test
     func hideMyEmailRelayAddressIsAcceptedLikeAnyOtherAddress() {
-        let supplied = AppleSignInSuppliedIdentity(
-            appleUserID: "000456.apple",
+        let supplied = SignInSuppliedIdentity(
+            providerUserID: "000456.apple",
             firstName: "Maya",
             lastName: "Chen",
             email: "8xk2p9qz7t@privaterelay.appleid.com"
@@ -88,7 +91,7 @@ struct AppleSignInSuppliedIdentityTests {
         #expect(supplied.email == "8xk2p9qz7t@privaterelay.appleid.com")
         #expect(supplied.carriesSomething)
         #expect(
-            AppleSuppliedNameAdoption.decide(supplied: supplied, storedName: .absent)
+            SuppliedNameAdoption.decide(supplied: supplied, storedName: .absent)
                 == .write(firstName: "Maya", lastName: "Chen")
         )
     }
@@ -97,8 +100,8 @@ struct AppleSignInSuppliedIdentityTests {
 
     @Test
     func returningSignInCarriesNothingAndAsksForNothing() {
-        let returning = AppleSignInSuppliedIdentity(
-            appleUserID: "000123.apple",
+        let returning = SignInSuppliedIdentity(
+            providerUserID: "000123.apple",
             firstName: nil,
             lastName: nil,
             email: nil
@@ -112,15 +115,15 @@ struct AppleSignInSuppliedIdentityTests {
     /// overwritten - the capture is simply dropped.
     @Test
     func aProfileThatAlreadyCarriesANameKeepsIt() {
-        let supplied = AppleSignInSuppliedIdentity(
-            appleUserID: "000123.apple",
+        let supplied = SignInSuppliedIdentity(
+            providerUserID: "000123.apple",
             firstName: "Maya",
             lastName: "Chen",
             email: nil
         )
 
         #expect(
-            AppleSuppliedNameAdoption.decide(supplied: supplied, storedName: .present)
+            SuppliedNameAdoption.decide(supplied: supplied, storedName: .present)
                 == .discard
         )
     }
@@ -130,11 +133,11 @@ struct AppleSignInSuppliedIdentityTests {
     @Test
     func anAccountFromBeforeThisFixIsLeftCompletelyAlone() {
         #expect(
-            AppleSuppliedNameAdoption.decide(supplied: nil, storedName: .present)
+            SuppliedNameAdoption.decide(supplied: nil, storedName: .present)
                 == .askTheClimber
         )
         #expect(
-            AppleSuppliedNameAdoption.decide(supplied: nil, storedName: .absent)
+            SuppliedNameAdoption.decide(supplied: nil, storedName: .absent)
                 == .askTheClimber
         )
     }
@@ -146,8 +149,8 @@ struct AppleSignInSuppliedIdentityTests {
     /// nothing is still asked, because nothing was supplied to reuse.
     @Test
     func aClimberWhoDeclinedToShareANameIsStillAsked() {
-        let declined = AppleSignInSuppliedIdentity(
-            appleUserID: "000789.apple",
+        let declined = SignInSuppliedIdentity(
+            providerUserID: "000789.apple",
             firstName: nil,
             lastName: nil,
             email: "maya@example.com"
@@ -155,7 +158,7 @@ struct AppleSignInSuppliedIdentityTests {
 
         #expect(declined.adoptableName == nil)
         #expect(
-            AppleSuppliedNameAdoption.decide(supplied: declined, storedName: .absent)
+            SuppliedNameAdoption.decide(supplied: declined, storedName: .absent)
                 == .askTheClimber
         )
     }
@@ -165,8 +168,8 @@ struct AppleSignInSuppliedIdentityTests {
     /// half is what seeds the field they are not asked to retype.
     @Test
     func onlyTheWithheldHalfIsEverAskedForAgain() {
-        let halfShared = AppleSignInSuppliedIdentity(
-            appleUserID: "000789.apple",
+        let halfShared = SignInSuppliedIdentity(
+            providerUserID: "000789.apple",
             firstName: "Maya",
             lastName: nil,
             email: nil
@@ -176,7 +179,7 @@ struct AppleSignInSuppliedIdentityTests {
         #expect(halfShared.lastName == nil)
         #expect(halfShared.adoptableName == nil)
         #expect(
-            AppleSuppliedNameAdoption.decide(supplied: halfShared, storedName: .absent)
+            SuppliedNameAdoption.decide(supplied: halfShared, storedName: .absent)
                 == .askTheClimber
         )
     }
@@ -187,15 +190,15 @@ struct AppleSignInSuppliedIdentityTests {
     /// guessing would overwrite one. The capture survives for the next sign-in.
     @Test
     func anUnreadableProfileDefersRatherThanGuesses() {
-        let supplied = AppleSignInSuppliedIdentity(
-            appleUserID: "000123.apple",
+        let supplied = SignInSuppliedIdentity(
+            providerUserID: "000123.apple",
             firstName: "Maya",
             lastName: "Chen",
             email: nil
         )
 
         #expect(
-            AppleSuppliedNameAdoption.decide(supplied: supplied, storedName: .unreadable)
+            SuppliedNameAdoption.decide(supplied: supplied, storedName: .unreadable)
                 == .retryLater
         )
     }
@@ -204,15 +207,15 @@ struct AppleSignInSuppliedIdentityTests {
     /// that over the stored capture would erase the only copy in existence.
     @Test
     func aLaterNilAuthorizationCannotEraseWhatTheFirstOneGave() {
-        let first = AppleSignInSuppliedIdentity(
-            appleUserID: "000123.apple",
+        let first = SignInSuppliedIdentity(
+            providerUserID: "000123.apple",
             firstName: "Maya",
             lastName: "Chen",
             email: "maya@example.com",
             capturedAt: Date(timeIntervalSince1970: 1_000)
         )
-        let returning = AppleSignInSuppliedIdentity(
-            appleUserID: "000123.apple",
+        let returning = SignInSuppliedIdentity(
+            providerUserID: "000123.apple",
             firstName: nil,
             lastName: nil,
             email: nil,
@@ -228,14 +231,14 @@ struct AppleSignInSuppliedIdentityTests {
 
     @Test
     func aCaptureForADifferentAppleIDIsNeverMergedIn() {
-        let other = AppleSignInSuppliedIdentity(
-            appleUserID: "000999.apple",
+        let other = SignInSuppliedIdentity(
+            providerUserID: "000999.apple",
             firstName: "Someone",
             lastName: "Else",
             email: "someone@example.com"
         )
-        let fresh = AppleSignInSuppliedIdentity(
-            appleUserID: "000123.apple",
+        let fresh = SignInSuppliedIdentity(
+            providerUserID: "000123.apple",
             firstName: nil,
             lastName: nil,
             email: nil
@@ -246,5 +249,111 @@ struct AppleSignInSuppliedIdentityTests {
         #expect(merged.firstName == nil)
         #expect(merged.lastName == nil)
         #expect(merged.email == nil)
+    }
+
+    // MARK: - Google, through the same rule
+
+    /// Google hands Firebase one string. It splits into the two halves Ascend's
+    /// board name needs and reaches the identical decision Apple's credential
+    /// does - there is no `if provider == .apple` anywhere on this path.
+    @Test
+    func aGoogleDisplayNameIsAdoptedByTheSameRuleAsApples() {
+        let google = SignInSuppliedIdentity(
+            providerUserID: "google-uid",
+            fullName: "Maya Chen",
+            email: "maya@gmail.com"
+        )
+
+        #expect(google.firstName == "Maya")
+        #expect(google.lastName == "Chen")
+        #expect(google.email == "maya@gmail.com")
+        #expect(
+            SuppliedNameAdoption.decide(supplied: google, storedName: .absent)
+                == .write(firstName: "Maya", lastName: "Chen")
+        )
+    }
+
+    /// A family name of more than one word survives whole. Splitting on the LAST
+    /// space instead would file "Maya Van Der Berg" under the surname "Berg".
+    @Test
+    func aMultiWordFamilyNameSurvivesTheSplit() {
+        let google = SignInSuppliedIdentity(
+            providerUserID: "google-uid",
+            fullName: "  Maya   Van Der Berg ",
+            email: nil
+        )
+
+        #expect(google.firstName == "Maya")
+        #expect(google.lastName == "Van Der Berg")
+        #expect(
+            SuppliedNameAdoption.decide(supplied: google, storedName: .absent)
+                == .write(firstName: "Maya", lastName: "Van Der Berg")
+        )
+    }
+
+    /// One word is half a name, and half a name is treated the same whoever
+    /// supplied it: the climber is asked for the half that is missing, with the
+    /// half they gave already in the field.
+    @Test
+    func aOneWordProviderNameIsTreatedAsHalfANameNotAWholeOne() {
+        let google = SignInSuppliedIdentity(
+            providerUserID: "google-uid",
+            fullName: "Maya",
+            email: nil
+        )
+
+        #expect(google.firstName == "Maya")
+        #expect(google.lastName == nil)
+        #expect(google.adoptableName == nil)
+        #expect(
+            SuppliedNameAdoption.decide(supplied: google, storedName: .absent)
+                == .askTheClimber
+        )
+    }
+
+    /// A provider that supplied nothing at all is not a value worth holding, so
+    /// the account-derived read yields nothing rather than an empty identity that
+    /// would look like a capture.
+    @Test
+    func anAccountWithNoNameAndNoEmailCarriesNothing() {
+        let empty = SignInSuppliedIdentity(
+            providerUserID: "google-uid",
+            fullName: nil,
+            email: nil
+        )
+
+        #expect(!empty.carriesSomething)
+        #expect(empty.adoptableName == nil)
+    }
+
+    // MARK: - Resolution step 1: the profile Ascend already has
+
+    /// Delete-and-reinstall. Apple has already spent its one first authorization
+    /// on this Apple ID, so the credential is empty - but Ascend still knows the
+    /// climber, and the name it already holds wins over everything below it. The
+    /// placeholder is never reached, so it is never applied.
+    @Test
+    func aReinstallingClimberKeepsTheNameAscendAlreadyHas() {
+        let nothingFromApple = SignInSuppliedIdentity(
+            providerUserID: "000123.apple",
+            firstName: nil,
+            lastName: nil,
+            email: nil
+        )
+
+        #expect(
+            SuppliedNameAdoption.decide(supplied: nothingFromApple, storedName: .present)
+                == .discard,
+            "an existing profile name is resolution step 1 and outranks both steps below it"
+        )
+        #expect(
+            SuppliedNameAdoption.decide(supplied: nil, storedName: .present)
+                == .askTheClimber,
+            "no capture at all leaves the stored profile completely untouched"
+        )
+
+        // And with a name on the profile the stage is completed without ever
+        // rendering, so the placeholder has nothing to overwrite.
+        #expect(SignInNamePlaceholder.boardName == "CHANGE ME")
     }
 }
