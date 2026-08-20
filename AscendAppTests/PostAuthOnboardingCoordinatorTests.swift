@@ -331,6 +331,34 @@ struct PostAuthOnboardingCoordinatorTests {
         #expect(sink.records.filter { $0.name == "onboarding_back_tapped" }.isEmpty)
     }
 
+    /// The opening stage has nothing behind it, so `moveBack` is a no-op there. The
+    /// control that used to be a dead chevron signs out instead - post-auth
+    /// onboarding's only route back to the sign-in screen.
+    @Test
+    func onlyTheOpeningStageCarriesTheSignOutControl() {
+        #expect(PostAuthOnboardingStage.first.leadingControl == .signOut)
+
+        for stage in PostAuthOnboardingStage.allCases.dropFirst() {
+            #expect(stage.leadingControl == .back)
+        }
+    }
+
+    @MainActor
+    @Test
+    func movingBackOffTheOpeningStageReportsNothingAndGoesNowhere() {
+        let defaults = makeDefaults()
+        let store = PostAuthOnboardingStore(userDefaults: defaults)
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let userId = "user-back-first"
+
+        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTestTelemetry(sink: sink))
+        coordinator.resolve(userId: userId)
+        coordinator.moveBack()
+
+        #expect(coordinator.phase == .onboarding(.first))
+        #expect(sink.records.filter { $0.name == "onboarding_back_tapped" }.isEmpty)
+    }
+
     private func makeDefaults() -> UserDefaults {
         let suiteName = "PostAuthOnboardingCoordinatorTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

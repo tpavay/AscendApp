@@ -1,9 +1,13 @@
 import SwiftUI
 
 struct PostAuthOnboardingFlowView: View {
+    @Environment(AuthenticationViewModel.self) private var authVM
+
     let stage: PostAuthOnboardingStage
     let onBack: () -> Void
     let onContinue: () -> Void
+
+    @State private var isConfirmingSignOut = false
 
     var body: some View {
         Group {
@@ -11,54 +15,54 @@ struct PostAuthOnboardingFlowView: View {
             case .stairStepperBaseline, .exerciseLevel, .goal, .motivation, .plan:
                 PostAuthSurveyQuestionStageScreen(
                     stage: stage,
-                    onBack: onBack,
+                    onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
             case .features:
                 PostAuthFeatureGuideStageScreen(
-                    onBack: onBack,
+                    onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
             case .gender:
                 PostAuthGenderScreen(
                     stage: stage,
-                    onBack: onBack,
+                    onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
             case .age:
                 PostAuthBirthdayScreen(
                     stage: stage,
-                    onBack: onBack,
+                    onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
             case .weight:
                 PostAuthWeightScreen(
                     stage: stage,
-                    onBack: onBack,
+                    onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
             case .location:
                 PostAuthLocationScreen(
                     stage: stage,
-                    onBack: onBack,
+                    onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
             case .notifications:
                 PostAuthNotificationScreen(
                     stage: stage,
-                    onBack: onBack,
+                    onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
             case .planLoading:
                 PostAuthPlanLoadingScreen(
                     stage: stage,
-                    onBack: onBack,
+                    onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
             case .firstClimb:
                 PostAuthFirstClimbRevealScreen(
                     stage: stage,
-                    onBack: onBack,
+                    onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
             }
@@ -67,6 +71,37 @@ struct PostAuthOnboardingFlowView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .trackOnboardingScreenView(stage.visibleScreenAnalyticsContext)
+        // Set once, alongside the action it is wired to, so the control can never
+        // draw a back chevron on the screen where tapping it signs out.
+        .environment(\.onboardingLeadingControl, stage.leadingControl)
+        .alert("Sign Out", isPresented: $isConfirmingSignOut) {
+            Button("Cancel", role: .cancel) { }
+            Button("Sign Out", role: .destructive) {
+                TelemetryManager.shared.track(
+                    OnboardingAnalyticsEvent.signOutConfirmed(context: stage.analyticsContext)
+                )
+                authVM.signOut()
+            }
+        } message: {
+            Text("You'll land back on the sign-in screen. Nothing you answered here carries over.")
+        }
+    }
+
+    /// The opening screen has nothing behind it, so its control signs out rather
+    /// than reporting a back tap that navigates nowhere.
+    private func handleLeadingControl() {
+        switch stage.leadingControl {
+        case .back:
+            onBack()
+        case .signOut:
+            TelemetryManager.shared.track(
+                OnboardingAnalyticsEvent.signOutTapped(
+                    context: stage.analyticsContext,
+                    inputType: "button"
+                )
+            )
+            isConfirmingSignOut = true
+        }
     }
 }
 

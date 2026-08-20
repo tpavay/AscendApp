@@ -83,6 +83,13 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
         self == .features ? nil : analyticsContext
     }
 
+    /// The opening stage has nothing behind it, so its leading control signs out
+    /// instead of navigating - post-auth onboarding's only route back to the
+    /// sign-in screen for a climber who signed into the wrong account.
+    var leadingControl: OnboardingLeadingControl {
+        self == Self.first ? .signOut : .back
+    }
+
     var analyticsInputType: String {
         switch self {
         case .stairStepperBaseline, .exerciseLevel, .motivation, .plan:

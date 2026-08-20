@@ -52,8 +52,10 @@ class AuthenticationViewModel {
     /// owed: it is dropped the moment the name reaches the profile, or the moment
     /// the profile turns out to have a name already.
     ///
-    /// The name step reads this to open prefilled, so a climber who shared only
-    /// half a name is asked for the missing half rather than for both.
+    /// Nothing renders it: there is no name screen left to prefill. It exists so
+    /// `adoptSuppliedName` can resolve a name without asking, and a half name -
+    /// one part only - resolves to the placeholder rather than to something the
+    /// climber never wrote, because there is nowhere left to ask for the rest.
     private(set) var suppliedIdentity: SignInSuppliedIdentity?
 
     /// Indicates whether the profile data has been loaded from Firestore/cache after auth restore.
@@ -116,9 +118,9 @@ class AuthenticationViewModel {
                     self.displayName = cachedDisplayName
                     let shouldSaveInitialUserRecord = !isInteractiveSignIn || !cachedDisplayName.isEmpty
 
-                    // Read synchronously, before any await: the name step is
-                    // seeded from this, and a seed that arrives after the screen
-                    // is on-screen is a screen that asked for it anyway.
+                    // Read synchronously, before any await: the resolution below
+                    // runs on this same sign-in and the whole point is that the
+                    // climber never waits on it, let alone gets asked.
                     self.resolveSuppliedIdentity(for: user)
 
                     // If we have a cached name, we can show authenticated immediately
@@ -143,12 +145,13 @@ class AuthenticationViewModel {
                     // Handle Firestore operations in background
                     Task {
                         // The name the provider supplied is written before anything
-                        // reads the profile back, so the name step is already
-                        // satisfied by the time onboarding resolves it.
+                        // reads the profile back, so the account already carries one
+                        // by the time onboarding resolves - with no screen asking.
                         let didAdoptSuppliedName = await self.adoptSuppliedName(for: user)
 
-                        // Avoid writing a provider-derived or empty display name during new sign-up.
-                        // The post-auth name step creates the profile document with the user's chosen name.
+                        // Avoid writing an empty display name over the resolved one:
+                        // `adoptSuppliedName` has already created the profile document
+                        // whenever it reports that it wrote one.
                         if !didAdoptSuppliedName, shouldSaveInitialUserRecord {
                             try? await self.saveUserToFirestore(user: user)
                         }
@@ -450,12 +453,6 @@ extension AuthenticationViewModel {
         suppliedIdentity = fromAccount.carriesSomething ? fromAccount : nil
     }
 
-    /// The seam the name step's rendering tests drive, because `resolveSuppliedIdentity`
-    /// needs a Firebase `User` no test can construct.
-    func loadSuppliedIdentity(forProviderUserID providerUserID: String?) {
-        suppliedIdentity = signInIdentityStore.identity(forProviderUserID: providerUserID)
-    }
-
     /// Gives the account a name without ever asking for one.
     ///
     /// Returns `true` when it wrote the profile itself, so the caller does not
@@ -565,10 +562,10 @@ extension AuthenticationViewModel {
     /// no-op for it - the account keeps supplying it on every sign-in and there
     /// is nothing to expire.
     ///
-    /// Called from every point a name reaches the profile, whoever supplied it.
-    /// A capture that can no longer do anything - the climber typed their own
-    /// name, or shared only half of one and then skipped - is a climber's email
-    /// address sitting in `UserDefaults` for the life of the install otherwise.
+    /// Called from every point resolution terminates, whoever supplied the name -
+    /// including the half-name pass that resolved to the placeholder. A capture
+    /// that can no longer do anything is a climber's email address sitting in
+    /// `UserDefaults` for the life of the install otherwise.
     private func forgetSuppliedIdentity() {
         guard let supplied = suppliedIdentity else { return }
         signInIdentityStore.forget(providerUserID: supplied.providerUserID)

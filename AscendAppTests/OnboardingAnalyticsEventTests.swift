@@ -32,30 +32,6 @@ struct OnboardingAnalyticsEventTests {
     }
 
     @Test
-    func profileTextScreenCompletedDoesNotRecordRawTextAnswer() {
-        let context = OnboardingAnalyticsContext(
-            segmentID: "post_auth_onboarding",
-            stepID: "displayName"
-        )
-
-        let record = OnboardingAnalyticsEvent.screenCompleted(
-            context: context,
-            inputType: "text",
-            properties: ["display_name_provided": .bool(true)]
-        ).record
-
-        #expect(record.name == "onboarding_screen_completed")
-        expectStringParameter(record, "input_type", "text")
-        expectBoolParameter(record, "completed", true)
-        expectBoolParameter(record, "display_name_provided", true)
-        expectMissingParameter(record, "question_id")
-        expectMissingParameter(record, "answer_id")
-        expectMissingParameter(record, "has_answer")
-        expectMissingParameter(record, "selection_type")
-        expectMissingParameter(record, "answer_index")
-    }
-
-    @Test
     func surveyQuestionAnsweredUsesStableEventNameAndAnswerProperties() {
         let context = OnboardingAnalyticsContext(
             segmentID: "post_auth_onboarding",
@@ -291,6 +267,28 @@ struct OnboardingAnalyticsEventTests {
         expectIntParameter(record, "step_index", 0)
         expectIntParameter(record, "step_count", 20)
         expectBoolParameter(record, "resume", false)
+    }
+
+    /// The opening post-auth screen's leading control signs out, so it must not
+    /// report as backwards navigation through a flow with no earlier step.
+    @Test
+    func signOutFromTheOpeningScreenReportsItsOwnEventsRatherThanABackTap() {
+        let context = PostAuthOnboardingStage.first.analyticsContext
+
+        let tapped = OnboardingAnalyticsEvent.signOutTapped(
+            context: context,
+            inputType: "button"
+        ).record
+
+        #expect(tapped.name == "onboarding_sign_out_tapped")
+        expectStringParameter(tapped, "from_step", "stair_stepper_baseline")
+        expectStringParameter(tapped, "input_type", "button")
+        expectIntParameter(tapped, "step_count", 20)
+
+        let confirmed = OnboardingAnalyticsEvent.signOutConfirmed(context: context).record
+
+        #expect(confirmed.name == "onboarding_sign_out_confirmed")
+        expectStringParameter(confirmed, "from_step", "stair_stepper_baseline")
     }
 
     @Test
