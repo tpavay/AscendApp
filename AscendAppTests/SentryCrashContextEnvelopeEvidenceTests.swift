@@ -23,13 +23,28 @@ import UIKit
 ///   as "screen captures were quietly turned off". The tree is the attachment
 ///   that answers only to the policy, so it carries that claim on every host.
 /// - The picture needs one thing more than the policy's yes: a window the SDK
-///   is willing to photograph. `hostIsPhotographable(_:)` asks that question the
-///   way the SDK asks it, and the picture is then asserted present or absent
-///   accordingly - never skipped.
+///   found to photograph. That is a property of the machine running the test,
+///   not of Ascend's capture policy - a simulator booted headless under CI does
+///   not reliably keep the host foreground-active, and `SentryApplication`
+///   takes a scene-delegate window only from a `.foregroundActive` scene. So
+///   the picture is asserted present or absent accordingly - never skipped.
+///
+/// **The window count is read out of the SDK's own view tree, not out of a
+/// second reading of `UIApplication`.** Both attachments are built from one
+/// `getWindows()` call: `SentryScreenshotSource.appScreenshots()` returns
+/// nothing for an empty list, while `SentryViewHierarchyProviderHelper`
+/// serialises that same empty list into valid JSON and attaches it anyway. The
+/// tree therefore reports what the SDK actually had in hand, and keying the
+/// picture on it means this suite cannot disagree with the SDK by
+/// re-implementing a query the SDK is free to change. `hostDescription` still
+/// reads the host directly, but only to say so in the record.
 ///
 /// The severe event's own `screenshot.png` is written out where the host
 /// produced one, so what a triager would open in Sentry can be looked at
 /// directly: a climber's heart-rate trace and account identity, painted out.
+/// Either way the run log carries one line naming the host, the windows the SDK
+/// found, and the attachments that left - so which half of the rule a given run
+/// proved is in the record rather than inferred from a green tick.
 ///
 /// Artifacts land in `ASCEND_EVIDENCE_DIR` when it is set, and in the test
 /// host's temporary directory otherwise.
@@ -66,11 +81,6 @@ struct SentryCrashContextEnvelopeEvidenceTests {
         }
         let handledEnvelope = try await Self.envelope(for: handled, in: cache)
 
-        // Read in the same main-actor turn as the capture, with no suspension
-        // between the two: the SDK asks this question on the main thread from
-        // inside `capture`, and scene activation changes are delivered there
-        // too, so the answer cannot move underneath it.
-        let isPhotographable = Self.hostIsPhotographable(window)
         let severe = SentrySDK.capture(event: Self.unhandledEvent())
         let severeEnvelope = try await Self.envelope(for: severe, in: cache)
 
@@ -85,12 +95,29 @@ struct SentryCrashContextEnvelopeEvidenceTests {
         // The view tree answers to the capture policy alone - the SDK writes one
         // whether or not it was handed a window - so it carries the "a severe
         // event still gets its context" half of the rule on every host.
-        #expect(
-            severeEnvelope.attachmentNames.contains("view-hierarchy.json"),
+        let tree = try #require(
+            severeEnvelope.attachments.first { $0.filename == "view-hierarchy.json" }?.payload,
             "a severe event shipped no view hierarchy: \(severeEnvelope.attachmentNames)"
         )
+        let hierarchy = String(decoding: tree, as: UTF8.self)
 
-        guard isPhotographable else {
+        // What the SDK actually had to capture, in its own words.
+        let windowsTheSDKFound = try #require(
+            Self.windowCount(in: tree),
+            "the view hierarchy names no window list, so what the SDK captured cannot be read"
+        )
+
+        // One line per run, whichever half it proves, so the record never has to
+        // be reconstructed from a stack trace the way this branch's was.
+        print(
+            """
+            sentry crash context: host \(Self.hostDescription); SDK found \(windowsTheSDKFound) window(s); \
+            ordinary [\(handledEnvelope.attachmentNames.joined(separator: ", "))]; \
+            severe [\(severeEnvelope.attachmentNames.joined(separator: ", "))]
+            """
+        )
+
+        guard windowsTheSDKFound > 0 else {
             // Nothing to photograph is not the policy declining: the picture is
             // the one attachment `SentryScreenshotSource` drops when the window
             // list is empty, while the tree above still ships. Assert that
@@ -98,7 +125,7 @@ struct SentryCrashContextEnvelopeEvidenceTests {
             #expect(
                 !severeEnvelope.attachmentNames.contains("screenshot.png"),
                 """
-                the SDK photographed a host it has no window for (\(Self.hostDescription)): \
+                the SDK shipped a picture of a window list it reported as empty (\(Self.hostDescription)): \
                 \(severeEnvelope.attachmentNames)
                 """
             )
@@ -106,10 +133,13 @@ struct SentryCrashContextEnvelopeEvidenceTests {
             return
         }
 
+        // The SDK had the climber's window in hand, so every claim below is the
+        // unconditional one: a severe event's picture, of that window, of the
+        // masked screen.
         #expect(
             severeEnvelope.attachmentNames.contains("screenshot.png"),
             """
-            a severe event shipped no screenshot from a host the SDK can photograph \
+            a severe event shipped no screenshot though the SDK captured \(windowsTheSDKFound) window(s) \
             (\(Self.hostDescription)): \(severeEnvelope.attachmentNames)
             """
         )
@@ -123,11 +153,6 @@ struct SentryCrashContextEnvelopeEvidenceTests {
         )
         #expect(screenshot.size == window.bounds.size, "the screenshot is not of the window that was up")
 
-        let hierarchy = try #require(
-            severeEnvelope.attachments.first { $0.filename == "view-hierarchy.json" }
-                .map { String(decoding: $0.payload, as: UTF8.self) },
-            "the view hierarchy attachment is not readable"
-        )
         #expect(
             hierarchy.contains("SentryMaskedRegionView"),
             "the captured tree carries no mask marker, so the screenshot is not of the masked climber screen"
@@ -149,37 +174,26 @@ struct SentryCrashContextEnvelopeEvidenceTests {
             .first
     }
 
-    /// Whether the SDK would find `window` to photograph, asked the way
-    /// `SentryApplication.getWindows()` asks it.
+    /// How many windows the SDK had in hand when it built these attachments,
+    /// read off the tree it wrote rather than asked of `UIApplication` a second
+    /// time.
     ///
-    /// It takes a scene-delegate window only from a window scene that is
-    /// `.foregroundActive`, then falls back to `UIApplicationDelegate.window` -
-    /// which `AscendAppDelegate` does not implement. A host that is not
-    /// foreground-active therefore hands the SDK an empty window list, and the
-    /// two attachments part ways: `SentryScreenshotSource.appScreenshots()`
-    /// returns nothing for an empty list, while the view hierarchy serialises
-    /// that same empty list into valid JSON and attaches anyway. A simulator
-    /// under CI does not reliably keep the host foreground-active, and that is a
-    /// property of the machine running the test rather than of Ascend's capture
-    /// policy - so it is read here rather than assumed.
-    ///
-    /// Zero-size windows are excluded for the same reason: `appScreenshots()`
-    /// skips them to avoid a zero-size image context.
-    private static func hostIsPhotographable(_ window: UIWindow) -> Bool {
-        guard window.bounds.width > 0, window.bounds.height > 0 else { return false }
+    /// `SentryViewHierarchyProviderHelper` serialises the list `getWindows()`
+    /// returned under a top-level `windows` key, and does so even when that list
+    /// is empty - which is exactly the case that separates the two attachments.
+    /// `nil` means the tree is not the shape this suite knows how to read, which
+    /// is a failure rather than an empty host.
+    private static func windowCount(in tree: Data) -> Int? {
+        guard let root = try? JSONSerialization.jsonObject(with: tree) as? [String: Any],
+              let windows = root["windows"] as? [Any]
+        else { return nil }
 
-        return UIApplication.shared.connectedScenes.contains { scene in
-            guard scene.activationState == .foregroundActive,
-                  let delegate = scene.delegate as? UIWindowSceneDelegate
-            else { return false }
-
-            return (delegate.window ?? nil) === window
-        }
+        return windows.count
     }
 
-    /// The host state both screenshot expectations name, so a future failure
-    /// says which side of the precondition it landed on instead of only that an
-    /// attachment was missing.
+    /// The host state the record and both screenshot expectations name, so a
+    /// future failure says which side of the precondition it landed on instead
+    /// of only that an attachment was missing.
     private static var hostDescription: String {
         let scenes = UIApplication.shared.connectedScenes.map { scene in
             "\(type(of: scene)) \(name(of: scene.activationState))"
