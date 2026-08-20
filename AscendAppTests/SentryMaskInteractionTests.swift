@@ -42,21 +42,28 @@ import UIKit
 ///    too, so their sweep genuinely distinguishes "reached the video" from
 ///    "swallowed by the mask".
 ///
-/// **What this suite cannot do, established by experiment rather than assumed.**
-/// It does not drive a SwiftUI `DragGesture` and watch a chart select a point.
-/// SwiftUI gestures on a hosting view are not backed by discoverable
-/// `UIGestureRecognizer`s; they run through an internal pipeline keyed to real
-/// UIKit event identity. Synthetic `UITouch`/`UIEvent` objects were pushed at it
-/// four ways - `UIWindow.sendEvent`, `UIApplication.sendEvent`, the responder's
-/// own `touchesBegan`, and every recognizer on the chain - and none fired the
-/// handler *even with no mask present*, so the failure is the harness rather
-/// than the mask. `UIView.hitTest` is likewise blind here: it returns the
-/// hosting view for interactive and non-interactive SwiftUI content alike, so it
-/// cannot see inside SwiftUI's own hit-test walk. Closing that gap needs a UI
-/// test target, which is out of scope for this branch. What stands in its place
-/// is that the overlay is content-independent: the same modifier, the same
-/// marker and the same host chain sit over the charts and over the players, and
-/// on the players the content underneath is UIKit and demonstrably reached.
+/// **Coverage is not uniform across the seven surfaces. Read this before
+/// treating a green suite as proof that a chart still scrubs.**
+///
+/// *Covered end to end* - `VideoPlayerView`, `LoopingVideoView`,
+/// `FullScreenVideoPlayer`. Real UIKit content sits under the mask, so a probe
+/// resolving to that content is a touch arriving where it was aimed.
+///
+/// *Covered structurally only* - `HeartRateChartView`, `ProgressLineChartView`,
+/// `ProfileWeeklyStepsChart`, `AscendTrendChart`. What the sweep proves on these
+/// is that the marker and its SwiftUI platform host refuse `hitTest` across
+/// their own frames - the risk the mask itself introduces. What it does **not**
+/// prove is that the chart still scrubs: Swift Charts draws no `UIView` under
+/// the mask, so a SwiftUI-level swallow inside SwiftUI's own hit-test walk would
+/// resolve to the same hosting view as a healthy chart and pass unnoticed.
+///
+/// There is no behavioural assertion because the harness cannot express one.
+/// SwiftUI gestures on a hosting view are keyed to real UIKit event identity;
+/// synthetic `UITouch`/`UIEvent` delivery was tried four ways -
+/// `UIWindow.sendEvent`, `UIApplication.sendEvent`, the responder's own
+/// `touchesBegan`, and every recognizer on the chain - and the handler never
+/// fired *even with no mask present*. Closing it needs a UI test target, which
+/// has been declined for this branch. Do not re-attempt synthetic delivery.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct SentryMaskInteractionTests {
@@ -244,22 +251,40 @@ struct SentryMaskInteractionTests {
         }
     }
 
-    /// The views a touch must never land on: the marker, plus the ancestors
+    /// The views a touch must never land on: the marker, plus the platform views
     /// SwiftUI created solely to host it.
     ///
-    /// An ancestor is the mask's own only while the marker is its single child.
-    /// The first ancestor holding anything else is the overlay container, which
-    /// holds the real content too and is a legitimate target.
+    /// An ancestor qualifies only if it is both the marker's single-child parent
+    /// *and* a SwiftUI platform view host. Single-child alone is not enough:
+    /// Swift Charts drawing straight into `CALayer`s with no `UIView` subviews
+    /// would leave the mask host as the overlay container's only child, and the
+    /// walk would climb into a content-bearing ancestor whose `hitTest`
+    /// legitimately returns itself - failing this suite over something that is
+    /// not the mask. Narrowing on a rename costs coverage the window sweep still
+    /// carries; over-extending costs a false failure.
     private static func maskOnlyChain(from marker: UIView, stoppingAt root: UIView) -> [UIView] {
         var chain = [marker]
         var node = marker
 
-        while let parent = node.superview, parent !== root, parent.subviews.count == 1 {
+        while chain.count <= maximumMaskHostDepth,
+              let parent = node.superview,
+              parent !== root,
+              parent.subviews.count == 1,
+              isPlatformViewHost(parent) {
             chain.append(parent)
             node = parent
         }
 
         return chain
+    }
+
+    /// SwiftUI wraps a `UIViewRepresentable` in one
+    /// `UIKitPlatformViewHost<PlatformViewRepresentableAdaptor<...>>`; the cap is
+    /// slack for a release that nests another.
+    private static let maximumMaskHostDepth = 3
+
+    private static func isPlatformViewHost(_ view: UIView) -> Bool {
+        "\(type(of: view))".contains("PlatformViewHost")
     }
 
     /// A grid across `bounds`, in its own coordinate space.
