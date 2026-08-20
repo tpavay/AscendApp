@@ -66,6 +66,11 @@ What masking does **not** hide, and no configuration can: a masked region is the
 
 `AscendAppTests/SentryMaskingEvidenceTests.swift` is the evidence. It renders each surface twice with sensitive content that is a permutation of itself - a reversed name, the same digits reordered, a mirrored photograph, a heart-rate trace played backwards - and asserts the two masked renders are the same image. The masked fill is the *average colour* of what it covered rather than a fixed black, so a permutation is exactly the comparison that isolates content from layout.
 
+The masked surfaces are interactive - chart scrubbing, video transport controls, the share composer's pan and pinch - so the marker covers a region without owning it: `SentryMaskedRegionView` reports a real frame and refuses every touch that lands on it.
+`AscendAppTests/SentryMaskInteractionTests.swift` holds that, asserting the refusal and the non-empty frame together so a mask cannot pass the touch test by shrinking.
+Read its suite comment before treating a green run as proof a chart still scrubs: the three video surfaces are covered end to end, the four charts structurally only.
+Add every new masked surface to both suites.
+
 ## Flood guard
 
 Nothing used to limit what one session could send. A `Swift.CancellationError` loop put 497 events into the project in ten minutes and stopped only because its cause stopped.
@@ -76,7 +81,7 @@ Nothing used to limit what one session could send. A `Swift.CancellationError` l
 `beforeSend` runs for crash events too, so that branch is the only thing standing between a noise guard and a real fatal report; `SentryEventFloodGuardTests` covers both the drop path and the protected path.
 
 **It only bounds error events.** `beforeSend` sees everything the SDK sends, and a transaction or a replay segment arrives on the SDK's own schedule under its own sample rate, so charging one to an error budget would throttle a mechanism that is not flooding and exhaust the session ceiling ahead of the errors the guard exists to protect.
-Those payloads are exempted before a counter is read, on the same terms as protected events. The SDK leaves `type` nil on error events and stamps it on every other payload, which is the signal `SentryFloodGuardEvent` reads.
+Those payloads are exempted before a counter is read, on the same terms as protected events. `SentryFloodGuardEvent` reads `event.type` as an allow-list of the non-error types rather than off the absence of a type - sentry-cocoa leaves it nil on errors, other Sentry SDKs spell `error` out, and both count as an error - so an SDK that started stamping errors explicitly cannot quietly turn the guard into a no-op.
 
 ## MCP Workflow
 

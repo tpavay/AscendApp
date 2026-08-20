@@ -35,8 +35,9 @@ import UIKit
 /// position of the masked rectangle. A masked region is the covered view's own
 /// frame, so a screenshot still shows that a label is wide, not what it says.
 ///
-/// The masked renders are written out for the record; set `ASCEND_EVIDENCE_DIR`
-/// to collect them somewhere durable.
+/// Both renders of every case are written out for the record - the unmasked
+/// control beside the masked result, so the pair reads as before-and-after; set
+/// `ASCEND_EVIDENCE_DIR` to collect them somewhere durable.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct SentryMaskingEvidenceTests {
@@ -118,10 +119,13 @@ struct SentryMaskingEvidenceTests {
         _ second: some View,
         named name: String
     ) async throws {
-        let rawDifference = try await difference(render(first, masked: false), render(second, masked: false))
+        let rawDifference = try await difference(
+            render(first, masked: false, savedAs: "\(name)-unmasked-a"),
+            render(second, masked: false, savedAs: "\(name)-unmasked-b")
+        )
         let maskedDifference = try await difference(
-            render(first, masked: true, savedAs: "\(name)-a"),
-            render(second, masked: true, savedAs: "\(name)-b")
+            render(first, masked: true, savedAs: "\(name)-masked-a"),
+            render(second, masked: true, savedAs: "\(name)-masked-b")
         )
 
         // Control: the two renders really do differ before masking, so an

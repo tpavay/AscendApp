@@ -18,7 +18,7 @@ This is harness-neutral. If the current AI tool does not support skills, paste o
 - Web UI: `https://ascend-uk.sentry.io`
 - Issue short IDs look like `ASCEND-IOS-B`; numeric issue IDs look like `7582495782`. Both appear in alert emails.
 - **Only `production` reports.** Dev and staging no longer initialise the SDK at all (`SentryReportingPolicy`; `docs/sentry-setup.md`), so `environment:dev` and `environment:staging` hold history, not live traffic. `SentryOptionsFactory` owns every option the app starts with.
-- Useful custom tags set by the app: `ascend_error_code`, `ascend_error_context`, `build_config`, `app_environment`, `has_app_access`, `last_diagnostic_event`, `release` (format `com.TylerPavay.AscendApp.staging@1.0+<build>`).
+- Useful custom tags set by the app: `ascend_error_code`, `ascend_error_context`, `build_config`, `app_environment`, `has_app_access`, `last_diagnostic_event`, `release` (format `com.TylerPavay.AscendApp@1.0+<build>`; the `.staging` and `.dev` bundle IDs only appear on issues that predate the production-only gate).
 
 ## Authentication
 
