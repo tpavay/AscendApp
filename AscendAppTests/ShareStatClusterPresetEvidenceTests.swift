@@ -302,6 +302,14 @@ struct ShareStatClusterPresetEvidenceTests {
     /// contention swamps the difference. So the bar below asks only that the
     /// custom renderer is not the materially cheaper spelling; a bar set at the
     /// desk's margin fails on CI for a reason that has nothing to do with the ring.
+    ///
+    /// Both ratios are measured in **interleaved pairs** - see
+    /// `pairedRenderDurations`. Timing each side as its own nine-render block and
+    /// dividing the medians looks like it controls for the machine and does not:
+    /// a burst of contention that spans one block and not the other lands whole
+    /// in the ratio, which is how this once reported the shipped ring at 12.17 ms
+    /// against the relocated one at 6.78 ms and failed a run that had nothing to
+    /// say about the ring.
     @Test
     func theOutlineIsNotWhatMakesAClusterExpensiveToDraw() throws {
         let viewModel = try Self.liveClimbViewModel()
@@ -309,27 +317,32 @@ struct ShareStatClusterPresetEvidenceTests {
         let drawn = viewModel.presetPreview(for: heaviest)
 
         let treatedRuns = Self.treatedRunCount(of: drawn.node)
-        let treated = Self.medianRenderDuration { Self.clusterFrame(drawn) }
-        let untreated = Self.medianRenderDuration {
-            Self.clusterFrame(drawn, node: Self.untreated(drawn.node))
-        }
-
-        let shipped = Self.medianRenderDuration { Self.captionStack(runs: treatedRuns, inCustomRenderer: false) }
-        let relocated = Self.medianRenderDuration { Self.captionStack(runs: treatedRuns, inCustomRenderer: true) }
+        let treatment = Self.pairedRenderDurations(
+            { Self.clusterFrame(drawn) },
+            { Self.clusterFrame(drawn, node: Self.untreated(drawn.node)) }
+        )
+        let ring = Self.pairedRenderDurations(
+            { Self.captionStack(runs: treatedRuns, inCustomRenderer: true) },
+            { Self.captionStack(runs: treatedRuns, inCustomRenderer: false) }
+        )
 
         let report = """
-        Share cluster outline cost - one ImageRenderer pass, median of 9
+        Share cluster outline cost - one ImageRenderer pass, 9 interleaved pairs
         Measured at export scale (2.77×) in a 900×700 frame; every figure below is that size.
+        Each comparison alternates its two sides render by render, so the ratio is the median
+        of nine per-pair ratios rather than a ratio between two separately-timed blocks - a
+        contention burst inflates whichever block it lands on, and divides out of a pair.
 
           Splits cluster (the heaviest, with its real resolved data), \(treatedRuns) treated runs
-            treated    \(Self.milliseconds(treated)) ms
-            untreated  \(Self.milliseconds(untreated)) ms  (every run's legibility forced to .none,
+            treated    \(Self.milliseconds(treatment.first)) ms
+            untreated  \(Self.milliseconds(treatment.second)) ms  (every run's legibility forced to .none,
                        so the delta is the whole treatment: outline and contact shadows)
-            ratio      \(String(format: "%.2f", treated / untreated))×
+            ratio      \(String(format: "%.2f", treatment.ratio))×  (treated ÷ untreated, paired)
 
           The same four-copy ring, \(treatedRuns) runs at the clusters' caption size
-            shipped: four .shadow layers per run       \(Self.milliseconds(shipped)) ms
-            relocated into a custom TextRenderer       \(Self.milliseconds(relocated)) ms
+            shipped: four .shadow layers per run       \(Self.milliseconds(ring.second)) ms
+            relocated into a custom TextRenderer       \(Self.milliseconds(ring.first)) ms
+            ratio      \(String(format: "%.2f", ring.ratio))×  (relocated ÷ shipped, paired)
 
           120 Hz frame budget: 8.3 ms · 60 Hz frame budget: 16.7 ms
           An ImageRenderer pass is full layout plus rasterization from scratch, so it
@@ -350,16 +363,16 @@ struct ShareStatClusterPresetEvidenceTests {
             """
         )
         #expect(
-            treated < untreated * 2,
+            treatment.ratio < 2,
             """
             the legibility treatment is not supposed to be what a cluster costs to draw. \
-            Both sides are measured on the same machine in the same run, so this ratio does \
+            Both sides are measured render by render against each other, so this ratio does \
             not move with the runner.
             \(report)
             """
         )
         #expect(
-            relocated > shipped * 0.75,
+            ring.ratio > 0.75,
             """
             relocating the identical ring into a custom TextRenderer is supposed to buy \
             nothing worth having. Which spelling wins, and by how much, moves with the \
@@ -642,17 +655,62 @@ struct ShareStatClusterPresetEvidenceTests {
     private static func medianRenderDuration<Content: View>(
         of content: @escaping () -> Content
     ) -> Double {
-        var samples: [Double] = []
-        for _ in 0..<9 {
-            let renderer = ImageRenderer(content: content())
-            renderer.scale = 1
-            renderer.isOpaque = true
-            let start = ContinuousClock.now
-            _ = renderer.uiImage
-            let elapsed = start.duration(to: .now).components
-            samples.append(Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18)
+        median((0..<9).map { _ in renderDuration(of: content) })
+    }
+
+    /// Two spellings of the same drawing, timed against each other in one
+    /// interleaved run: a sample of each, nine times over, alternating which of
+    /// the pair goes first so neither systematically pays for the other's
+    /// warm-up. The comparable answer is `ratio`, the median of the nine
+    /// per-pair ratios.
+    ///
+    /// A ratio taken between two separately-measured medians is not protected
+    /// from the runner, however many samples each median holds: each block runs
+    /// nine renders end to end, so a contention burst spanning one block and not
+    /// the other moves the ratio by whatever that burst cost. That is how this
+    /// failed on CI - the shipped ring came back at 12.17 ms against the
+    /// relocated one at 6.78 ms, on a machine where the two are level, and the
+    /// test read a contention burst as a result about the ring. Inside a pair
+    /// the two renders are microseconds apart, so a burst lands on both and
+    /// divides out; the median across pairs discards the few it straddled.
+    private static func pairedRenderDurations<First: View, Second: View>(
+        _ first: @escaping () -> First,
+        _ second: @escaping () -> Second
+    ) -> (first: Double, second: Double, ratio: Double) {
+        var firstSamples: [Double] = []
+        var secondSamples: [Double] = []
+        for index in 0..<9 {
+            let firstSample: Double
+            let secondSample: Double
+            if index.isMultiple(of: 2) {
+                firstSample = renderDuration(of: first)
+                secondSample = renderDuration(of: second)
+            } else {
+                secondSample = renderDuration(of: second)
+                firstSample = renderDuration(of: first)
+            }
+            firstSamples.append(firstSample)
+            secondSamples.append(secondSample)
         }
-        return samples.sorted()[samples.count / 2]
+        return (
+            first: median(firstSamples),
+            second: median(secondSamples),
+            ratio: median(zip(firstSamples, secondSamples).map { $0 / $1 })
+        )
+    }
+
+    private static func renderDuration<Content: View>(of content: @escaping () -> Content) -> Double {
+        let renderer = ImageRenderer(content: content())
+        renderer.scale = 1
+        renderer.isOpaque = true
+        let start = ContinuousClock.now
+        _ = renderer.uiImage
+        let elapsed = start.duration(to: .now).components
+        return Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+    }
+
+    private static func median(_ samples: [Double]) -> Double {
+        samples.sorted()[samples.count / 2]
     }
 
     private static func milliseconds(_ seconds: Double) -> String {
