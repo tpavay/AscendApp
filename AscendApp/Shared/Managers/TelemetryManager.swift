@@ -193,6 +193,10 @@ final class TelemetryManager: @unchecked Sendable {
 
     enum Key: String {
         case hasAppAccess = "has_app_access"
+        /// The two halves the discarded `activeInCurrentEnvironment` filter compared (#506).
+        /// Diagnostic only - nothing decides access from either.
+        case holdsSandboxEntitlement = "holds_sandbox_entitlement"
+        case storeKitReceiptName = "storekit_receipt_name"
         case appEnvironment = "app_environment"
         case buildConfig = "build_config"
         case appVersion = "app_version"

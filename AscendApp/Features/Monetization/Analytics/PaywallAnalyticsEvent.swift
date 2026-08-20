@@ -79,6 +79,26 @@ enum PaywallAnalyticsEvent: TelemetryEvent {
     )
 
     var record: TelemetryRecord {
+        record(diagnostics: StoreKitEnvironmentDiagnostics.shared)
+    }
+
+    /// Every paywall, purchase, and restore event carries the StoreKit environment pair, because
+    /// the filter that discarded a paying App Reviewer's entitlement compared exactly those two
+    /// values and Ascend reported neither (#506). Attached here rather than at each of the twenty
+    /// call sites, so a new event cannot ship without them.
+    func record(diagnostics: StoreKitEnvironmentDiagnostics) -> TelemetryRecord {
+        let record = baseRecord
+
+        return TelemetryRecord(
+            name: record.name,
+            // An event's own parameter wins: the diagnostics describe the environment, never the
+            // transaction.
+            parameters: record.parameters.merging(diagnostics.parameters) { own, _ in own },
+            destinations: record.destinations
+        )
+    }
+
+    private var baseRecord: TelemetryRecord {
         switch self {
         case .shown(let context):
             return TelemetryRecord(
