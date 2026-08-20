@@ -22,12 +22,16 @@ struct LiveReplayFieldSizeLine: View {
             .padding(.bottom, 2)
             .overlay(alignment: .top) {
                 Rectangle()
-                    .fill(.white.opacity(0.08))
+                    .fill(hairlineColor)
                     .frame(height: 1)
             }
     }
 
     private var secondaryColor: Color {
         effectiveColorScheme == .dark ? .white.opacity(0.52) : .black.opacity(0.48)
+    }
+
+    private var hairlineColor: Color {
+        effectiveColorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.08)
     }
 }

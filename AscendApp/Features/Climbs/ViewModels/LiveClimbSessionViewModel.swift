@@ -191,6 +191,10 @@ final class LiveClimbSessionViewModel {
     private var hasSavedSession = false
     private var stepTimelineRecorder: LiveClimbStepTimelineRecorder
     private var isLeaderboardRefreshInFlight = false
+    /// Whether the server has answered with a summary at all, which is not the same
+    /// question as whether its count is zero: a climb nobody has finished answers
+    /// zero forever, and re-asking it every tick would be a per-second read.
+    private var hasFetchedLeaderboardSummary = false
     private var lastExhaustedLeaderboardWindowRefreshAt: Date?
     private var lastPeriodicLeaderboardWindowRefreshAt: Date?
     private var promptedStepSyncInterruptionCounts: Set<Int> = []
@@ -858,8 +862,12 @@ final class LiveClimbSessionViewModel {
 #if DEBUG
             let refreshStartedAt = Date()
 #endif
-            if force {
+            // The field-size line states the summary's count or nothing at all, so a
+            // blip on the session's one forced fetch would silence it for the whole
+            // race. Keep asking until the server has answered once.
+            if force || !hasFetchedLeaderboardSummary {
                 leaderboardSummary = try await leaderboardService.fetchSummary(context: replayContext)
+                hasFetchedLeaderboardSummary = true
             }
 
             if let window = try await leaderboardService.refreshIfNeeded(

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import AscendApp
 
@@ -62,37 +63,123 @@ struct LiveReplayFieldSizeTests {
 /// synthesizes a lone current-user row before the first fetch and whenever one fails, so a
 /// board that had reached nobody still claimed a field of one.
 @MainActor
+@Suite(.serialized)
 struct LiveClimbSessionFieldSizeTests {
     @Test
     func aLandmarkBoardStatesNoFieldBeforeTheServerCountArrives() {
-        let viewModel = LiveClimbSessionViewModel(
-            climb: Self.climb,
-            motionSession: FakeHeadphoneMotionSession(),
-            climbService: ClimbService(
-                catalogRepository: StubFieldSizeClimbCatalogRepository(climbs: [Self.climb])
-            ),
-            leaderboardService: StubFieldSizeLeaderboardService()
+        let viewModel = makeLandmarkSession(
+            leaderboardService: StubLiveReplayLeaderboardService()
         )
 
         #expect(viewModel.leaderboardRows.count == 1)
         #expect(viewModel.leaderboardField == nil)
     }
 
+    /// The screen the captain approved: the server's own finisher count, under the noun
+    /// that says which population it counts.
+    @Test
+    func aLandmarkBoardStatesTheServerFinisherCount() async throws {
+        let viewModel = makeLandmarkSession(
+            leaderboardService: StubLiveReplayLeaderboardService(summary: Self.summary(totalClimbers: 27))
+        )
+        let container = try Self.makeContainer()
+        let context = container.mainContext
+
+        viewModel.start(modelContext: context)
+        await viewModel.refreshReplayLeaderboardIfNeeded(force: true)
+
+        let field = viewModel.leaderboardField
+        #expect(field?.count == 27)
+        #expect(field?.population == .climbers)
+        #expect(field?.label == "27 CLIMBERS")
+
+        await viewModel.discard(modelContext: context)
+    }
+
+    /// A blip on the session's one forced fetch used to silence the line for the whole
+    /// race. The count is unknown until the server answers, then it is stated.
+    @Test
+    func aFailedOpeningFetchRecoversOnALaterTick() async throws {
+        let leaderboardService = StubLiveReplayLeaderboardService(
+            summary: Self.summary(totalClimbers: 27),
+            summaryFetchFailureCount: 1
+        )
+        let viewModel = makeLandmarkSession(leaderboardService: leaderboardService)
+        let container = try Self.makeContainer()
+        let context = container.mainContext
+
+        viewModel.start(modelContext: context)
+        await viewModel.refreshReplayLeaderboardIfNeeded(force: true)
+
+        #expect(viewModel.leaderboardField == nil)
+
+        await viewModel.refreshReplayLeaderboardIfNeeded()
+
+        #expect(viewModel.leaderboardField?.count == 27)
+
+        await viewModel.refreshReplayLeaderboardIfNeeded()
+
+        #expect(
+            leaderboardService.summaryFetchCount == 2,
+            "Once the server has answered, the summary is not re-read every tick"
+        )
+
+        await viewModel.discard(modelContext: context)
+    }
+
     /// An open Just Climb races every completed attempt, and the only total on hand counts
     /// distinct finishers. Naming that "completions" would be false, so it names nothing.
     @Test
-    func anOpenJustClimbBoardStatesNoField() {
+    func anOpenJustClimbBoardStatesNoField() async throws {
         let viewModel = LiveClimbSessionViewModel(
             justClimbGoal: JustClimbGoal(),
             motionSession: FakeHeadphoneMotionSession(),
             climbService: ClimbService(
-                catalogRepository: StubFieldSizeClimbCatalogRepository(climbs: [])
+                catalogRepository: StubClimbCatalogRepository(climbs: [])
             ),
-            leaderboardService: StubFieldSizeLeaderboardService()
+            leaderboardService: StubLiveReplayLeaderboardService(
+                summary: Self.summary(totalClimbers: 1_284)
+            )
         )
+        let container = try Self.makeContainer()
+        let context = container.mainContext
+
+        viewModel.start(modelContext: context)
+        await viewModel.refreshReplayLeaderboardIfNeeded(force: true)
 
         #expect(viewModel.replayContext.type.fieldPopulation == .completions)
         #expect(viewModel.leaderboardField == nil)
+
+        await viewModel.discard(modelContext: context)
+    }
+
+    private func makeLandmarkSession(
+        leaderboardService: StubLiveReplayLeaderboardService
+    ) -> LiveClimbSessionViewModel {
+        LiveClimbSessionViewModel(
+            climb: Self.climb,
+            motionSession: FakeHeadphoneMotionSession(),
+            climbService: ClimbService(
+                catalogRepository: StubClimbCatalogRepository(climbs: [Self.climb])
+            ),
+            leaderboardService: leaderboardService
+        )
+    }
+
+    private static func summary(totalClimbers: Int) -> LiveReplayLeaderboardSummary {
+        LiveReplayLeaderboardSummary(
+            totalClimbers: totalClimbers,
+            completedCount: totalClimbers,
+            personalBestDurationSeconds: nil,
+            updatedAt: Date(timeIntervalSince1970: 1_777_777_700)
+        )
+    }
+
+    private static func makeContainer() throws -> ModelContainer {
+        try ModelContainer(
+            for: AscendLocalStore.schema,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
     }
 
     private static let climb = Climb(
@@ -118,81 +205,4 @@ struct LiveClimbSessionFieldSizeTests {
         imageSetVersion: 1,
         releaseState: .available
     )
-}
-
-private struct StubFieldSizeClimbCatalogRepository: ClimbCatalogRepository {
-    let climbs: [Climb]
-
-    func loadInitialCatalog() throws -> ClimbCatalogSnapshot {
-        ClimbCatalogSnapshot(
-            climbs: climbs,
-            source: .bootstrap,
-            catalogVersion: 0,
-            featuredClimbId: climbs.first?.id,
-            updatedAt: nil
-        )
-    }
-
-    func refreshCatalog() async throws -> ClimbCatalogSnapshot {
-        try loadInitialCatalog()
-    }
-}
-
-/// Keeps these off the network: the rule under test is what the panel states before any
-/// board has answered.
-private struct StubFieldSizeLeaderboardService: LiveReplayLeaderboardServicing {
-    func fetchSummary(
-        context: LiveReplayLeaderboardContext
-    ) async throws -> LiveReplayLeaderboardSummary {
-        .empty
-    }
-
-    func fetchCompletionRank(
-        context: LiveReplayLeaderboardContext,
-        completionDurationSeconds: TimeInterval,
-        finalSteps: Int
-    ) async throws -> LiveReplayCompletionRank {
-        throw CancellationError()
-    }
-
-    func fetchCompletionRankSnapshot(
-        context: LiveReplayLeaderboardContext,
-        workoutId: String
-    ) async throws -> LiveReplayCompletionRankSnapshot? {
-        nil
-    }
-
-    func fetchPublishStatus(workoutId: String) async throws -> LiveReplayPublishStatus? {
-        nil
-    }
-
-    func fetchCurrentUserBestCompletion(
-        context: LiveReplayLeaderboardContext
-    ) async throws -> LiveReplayCurrentUserCompletion? {
-        nil
-    }
-
-    func fetchCurrentUserFinisherStatus(
-        context: LiveReplayLeaderboardContext
-    ) async throws -> LiveReplayFinisherStatus? {
-        nil
-    }
-
-    func fetchCompletionLeaderboard(
-        context: LiveReplayLeaderboardContext,
-        limit: Int,
-        cursor: LiveReplayCompletionLeaderboardCursor?,
-        forceRefresh: Bool
-    ) async throws -> LiveReplayCompletionLeaderboard {
-        throw CancellationError()
-    }
-
-    func refreshIfNeeded(
-        context: LiveReplayLeaderboardContext,
-        elapsedSeconds: Int,
-        currentSteps: Int,
-        force: Bool
-    ) async throws -> LiveReplayLeaderboardWindow? {
-        nil
-    }
 }
