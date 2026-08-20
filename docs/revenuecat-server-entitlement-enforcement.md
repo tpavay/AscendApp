@@ -46,6 +46,7 @@ A test event with no real Firebase UID is expected to complete with zero affecte
 Staging sandbox purchases and the App Review promotional entitlement must be reconciled before their accounts can pass backend rules.
 8. If the App Review account uses a RevenueCat promotional entitlement, inspect its subscriber response and add its exact `product_identifier` to production `allowedProductIds`.
 Do not allow every promotional identifier as a class.
+9. Leave RevenueCat's [Sandbox Testing Access](https://www.revenuecat.com/docs/projects/sandbox-access) set to "Anybody" - setting it to Nobody or an allowlist reproduces the identical Guideline 2.1(b) rejection, because App Review purchases are non-production purchases.
 
 RevenueCat supports multiple webhook integrations in one project, which is required because production and staging share a project but write to different Firebase projects.
 The code rejects an unexpected non-null `app_id` and ignores products outside the configured environment, so a dashboard filter mistake does not silently cross the environments.
