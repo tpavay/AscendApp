@@ -765,7 +765,7 @@ Primary path:
 App surfaces:
 - `LiveClimbCompletionSummaryView`
 - `LiveClimbPublicResultSyncStore`
-- `ClimbDetailView` leaderboard tab
+- `ClimbDetailView` All Times page
 - `LiveReplayLeaderboardService`
 - `onWorkoutReplaySplitsWritten`
 
