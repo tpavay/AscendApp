@@ -83,7 +83,7 @@ struct PostAuthOnboardingFlowView: View {
                 authVM.signOut()
             }
         } message: {
-            Text("You'll land back on the sign-in screen. Nothing you answered here carries over.")
+            Text("Sign out to sign back in with a different account.")
         }
     }
 

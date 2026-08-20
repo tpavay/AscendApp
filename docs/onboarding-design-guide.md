@@ -569,8 +569,10 @@ Behavior:
 - A profile that could not be read defers to the next launch rather than guessing.
 - The placeholder is deliberately an instruction rather than a plausible generated handle like `Climber 2A4F`, and it is written without asking.
 - The name is changed only in Settings -> Edit Profile -> First name / Last name.
-- Do not split, infer, or backfill either field from a legacy display name.
-- Existing legacy display names remain untouched until the climber supplies both fields in Edit Profile.
+- A single supplied name string is split at the first whitespace: the first word becomes the first name and the remainder becomes the last name, so a multi-word family name survives intact.
+  That split is how the display name Google and Firebase hand back on every sign-in is consumed.
+- A profile that already resolves to a name is never overwritten, legacy `displayName`-only records included.
+  Resolution writes only when the profile carries no name at all.
 
 The opening post-auth screen carries the sign-out control, because it is the only route from onboarding back to the sign-in screen for a climber who signed into the wrong account.
 
