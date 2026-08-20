@@ -84,6 +84,8 @@ paths:
 - Seeded replay summaries must stay on a First Ascent state the app can actually reach: completions imply a holder, and an open slot implies zero completions.
   Seeding completions without `firstAscent*` fields permanently kills the slot, because the server only claims it when there are no completions and no holder.
   `scripts/seed/lib/live-replay-first-ascent.mjs` owns this contract and fails the seed plan when it is violated; keep its field list in sync with `firstAscentWrite` in `functions/src/liveReplayLeaderboard.ts`.
+- A seeded replay board must carry finisher documents beside its entry rows (`scripts/seed/lib/live-replay-finisher.mjs`), clearing a pack has to take them back out, and the seeded `completedCount` is derived from the finishers left standing afterwards.
+  `ascend-live-climbs` owns why: the permanent rank a finished climb freezes counts finishers, so a board of entries with no finishers reads as an empty field.
 - Seeded replay curves should be calibrated from historical workout pace distributions when available.
 
 ## Script Dependency Policy

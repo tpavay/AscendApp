@@ -265,8 +265,8 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         let snapshot = try await rowSnapshot
         let currentUserId = Auth.auth().currentUser?.uid
 
-        // Rank on the raw metric value, matching the server's strict better-than count in
-        // functions/src/liveReplayLeaderboard.ts (completionRankForPayload) — and so
+        // Rank on the raw metric value, matching the server's strict better-than
+        // narrowing in functions/src/liveReplayLeaderboard.ts (leadingRows) - and so
         // matching the pinned row, which derives its rank from countRowsBetterThan.
         let rankable = snapshot.documents.compactMap { document -> RankableCompletion? in
             guard doubleValue(
@@ -505,7 +505,10 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     /// Strictly better, never "better or equal", is what makes the rank competition
     /// style: everyone tied on the metric counts the same rivals ahead of them and so
     /// shares one rank. That matters most on a routine board, where steps are coarse
-    /// integers and ties are common. It mirrors the server's `completionRankForPayload`.
+    /// integers and ties are common. It mirrors the server's `leadingRows` narrowing,
+    /// applied here to entry rows because this is a current board rank over every
+    /// published attempt; the server's frozen stamp applies the same inequality to
+    /// finisher documents wherever the board collapses repeat finishers.
     private func countRowsBetterThan(
         context: LiveReplayLeaderboardContext,
         rankingValue: Double
