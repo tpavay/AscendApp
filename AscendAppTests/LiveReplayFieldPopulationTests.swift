@@ -97,7 +97,8 @@ struct LiveClimbSessionFieldSizeTests {
     }
 
     /// A blip on the session's one forced fetch used to silence the line for the whole
-    /// race. The count is unknown until the server answers, then it is stated.
+    /// race. The count is unknown until the server answers, then it is stated - and the
+    /// asking is paced by the clock, not by how often the session ticks.
     @Test
     func aFailedOpeningFetchRecoversOnALaterTick() async throws {
         let leaderboardService = StubLiveReplayLeaderboardService(
@@ -107,22 +108,54 @@ struct LiveClimbSessionFieldSizeTests {
         let viewModel = makeLandmarkSession(leaderboardService: leaderboardService)
         let container = try Self.makeContainer()
         let context = container.mainContext
+        let startedAt = Date(timeIntervalSince1970: 1_777_777_700)
+
+        viewModel.start(modelContext: context)
+        await viewModel.refreshReplayLeaderboardIfNeeded(force: true, now: startedAt)
+
+        #expect(viewModel.leaderboardField == nil)
+
+        await viewModel.refreshReplayLeaderboardIfNeeded(now: startedAt.addingTimeInterval(1))
+
+        #expect(
+            leaderboardService.summaryFetchCount == 1,
+            "A tick a second after the refusal is inside the retry interval"
+        )
+        #expect(viewModel.leaderboardField == nil)
+
+        await viewModel.refreshReplayLeaderboardIfNeeded(now: startedAt.addingTimeInterval(6))
+
+        #expect(viewModel.leaderboardField?.count == 27)
+
+        await viewModel.refreshReplayLeaderboardIfNeeded(now: startedAt.addingTimeInterval(20))
+
+        #expect(
+            leaderboardService.summaryFetchCount == 2,
+            "Once the server has answered, the summary is never read again"
+        )
+
+        await viewModel.discard(modelContext: context)
+    }
+
+    /// The rows are what a climber is racing; the count beneath them is garnish. A
+    /// summary the server refuses must cost the line and nothing else.
+    @Test
+    func aRefusedSummaryLeavesTheRaceRowsStanding() async throws {
+        let leaderboardService = StubLiveReplayLeaderboardService(
+            summary: Self.summary(totalClimbers: 27),
+            summaryFetchFailureCount: 99,
+            window: Self.window
+        )
+        let viewModel = makeLandmarkSession(leaderboardService: leaderboardService)
+        let container = try Self.makeContainer()
+        let context = container.mainContext
 
         viewModel.start(modelContext: context)
         await viewModel.refreshReplayLeaderboardIfNeeded(force: true)
 
         #expect(viewModel.leaderboardField == nil)
-
-        await viewModel.refreshReplayLeaderboardIfNeeded()
-
-        #expect(viewModel.leaderboardField?.count == 27)
-
-        await viewModel.refreshReplayLeaderboardIfNeeded()
-
-        #expect(
-            leaderboardService.summaryFetchCount == 2,
-            "Once the server has answered, the summary is not re-read every tick"
-        )
+        #expect(viewModel.leaderboardFetchFailed == false)
+        #expect(viewModel.leaderboardRows.count > 1)
 
         await viewModel.discard(modelContext: context)
     }
@@ -165,6 +198,31 @@ struct LiveClimbSessionFieldSizeTests {
             leaderboardService: leaderboardService
         )
     }
+
+    private static let window = LiveReplayLeaderboardWindow(
+        context: .liveClimb(climbId: climb.id, targetSteps: climb.referenceStepCount),
+        bucketIndex: 0,
+        currentSteps: 0,
+        fetchedAt: Date(timeIntervalSince1970: 1_777_777_700),
+        rows: [
+            LiveReplayLeaderboardRow(
+                id: "rival-1",
+                rank: 1,
+                displayName: "Rival",
+                avatarToken: "rival",
+                photoURL: nil,
+                stepsAtBucket: 400,
+                finalSteps: 2_579,
+                deltaFromUser: 400,
+                isCurrentUser: false,
+                isPersonalBest: false,
+                completionDurationSeconds: 900,
+                userId: "rival-1"
+            )
+        ],
+        currentUserRank: 2,
+        totalClimbers: 27
+    )
 
     private static func summary(totalClimbers: Int) -> LiveReplayLeaderboardSummary {
         LiveReplayLeaderboardSummary(

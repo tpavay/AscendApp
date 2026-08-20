@@ -11,14 +11,19 @@ import Foundation
 final class StubLiveReplayLeaderboardService: LiveReplayLeaderboardServicing, @unchecked Sendable {
     var summary: LiveReplayLeaderboardSummary
     var summaryFetchFailureCount: Int
+    /// What `refreshIfNeeded` hands back, so a test can prove the race rows land even
+    /// when the count beside them does not.
+    var window: LiveReplayLeaderboardWindow?
     private(set) var summaryFetchCount = 0
 
     init(
         summary: LiveReplayLeaderboardSummary = .empty,
-        summaryFetchFailureCount: Int = 0
+        summaryFetchFailureCount: Int = 0,
+        window: LiveReplayLeaderboardWindow? = nil
     ) {
         self.summary = summary
         self.summaryFetchFailureCount = summaryFetchFailureCount
+        self.window = window
     }
 
     func fetchSummary(
@@ -79,6 +84,6 @@ final class StubLiveReplayLeaderboardService: LiveReplayLeaderboardServicing, @u
         currentSteps: Int,
         force: Bool
     ) async throws -> LiveReplayLeaderboardWindow? {
-        nil
+        window
     }
 }

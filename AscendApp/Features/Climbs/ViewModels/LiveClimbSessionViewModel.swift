@@ -195,6 +195,11 @@ final class LiveClimbSessionViewModel {
     /// question as whether its count is zero: a climb nobody has finished answers
     /// zero forever, and re-asking it every tick would be a per-second read.
     private var hasFetchedLeaderboardSummary = false
+    /// When the unanswered summary may be asked for again. An absolute date rather
+    /// than a counter, so a flaky connection is paced by the clock instead of by how
+    /// often the session happens to tick.
+    private var nextLeaderboardSummaryAttemptAt: Date?
+    private let leaderboardSummaryRetryInterval: TimeInterval = 5
     private var lastExhaustedLeaderboardWindowRefreshAt: Date?
     private var lastPeriodicLeaderboardWindowRefreshAt: Date?
     private var promptedStepSyncInterruptionCounts: Set<Int> = []
@@ -842,13 +847,12 @@ final class LiveClimbSessionViewModel {
         }
     }
 
-    func refreshReplayLeaderboardIfNeeded(force: Bool = false) async {
+    func refreshReplayLeaderboardIfNeeded(force: Bool = false, now: Date = Date()) async {
         guard phase == .recording,
               !isLeaderboardRefreshInFlight else {
             return
         }
 
-        let now = Date()
         let forceFreshWindow = force ||
             shouldForceFreshLeaderboardWindowRefresh(now: now) ||
             shouldForcePeriodicLeaderboardWindowRefresh(now: now)
@@ -858,18 +862,12 @@ final class LiveClimbSessionViewModel {
 
         recordLiveSplitSample()
 
+        await refreshLeaderboardSummaryIfNeeded(force: force, now: now)
+
         do {
 #if DEBUG
             let refreshStartedAt = Date()
 #endif
-            // The field-size line states the summary's count or nothing at all, so a
-            // blip on the session's one forced fetch would silence it for the whole
-            // race. Keep asking until the server has answered once.
-            if force || !hasFetchedLeaderboardSummary {
-                leaderboardSummary = try await leaderboardService.fetchSummary(context: replayContext)
-                hasFetchedLeaderboardSummary = true
-            }
-
             if let window = try await leaderboardService.refreshIfNeeded(
                 context: replayContext,
                 elapsedSeconds: Int(displayedDuration.rounded(.down)),
@@ -1012,6 +1010,39 @@ final class LiveClimbSessionViewModel {
         }
         self.activeDraft = nil
         lastDraftCheckpointAt = nil
+    }
+
+    /// Reads the count the field-size line states, and nothing else.
+    ///
+    /// Its own do/catch on purpose: the race rows are what a climber is here for and
+    /// the count is garnish, so a summary the server refuses leaves the line absent
+    /// and never touches `leaderboardWindow` or `leaderboardFetchFailed`. A blip on
+    /// the session's one forced fetch used to silence the line for the whole race, so
+    /// an unanswered count keeps asking - paced by the clock, and only until the
+    /// server answers once.
+    private func refreshLeaderboardSummaryIfNeeded(force: Bool, now: Date) async {
+        guard force || shouldRetryLeaderboardSummary(now: now) else { return }
+
+        do {
+            leaderboardSummary = try await leaderboardService.fetchSummary(context: replayContext)
+            hasFetchedLeaderboardSummary = true
+            nextLeaderboardSummaryAttemptAt = nil
+        } catch {
+#if DEBUG
+            debugLog(
+                "Live replay leaderboard summary unavailable for \(replayContext.contextKey): " +
+                "\(error.localizedDescription)"
+            )
+#endif
+            nextLeaderboardSummaryAttemptAt = now.addingTimeInterval(leaderboardSummaryRetryInterval)
+        }
+    }
+
+    private func shouldRetryLeaderboardSummary(now: Date) -> Bool {
+        guard !hasFetchedLeaderboardSummary else { return false }
+        guard let nextLeaderboardSummaryAttemptAt else { return true }
+
+        return now >= nextLeaderboardSummaryAttemptAt
     }
 
     private func shouldForceFreshLeaderboardWindowRefresh(now: Date) -> Bool {
