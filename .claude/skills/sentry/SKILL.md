@@ -65,10 +65,10 @@ curl -s -H "Authorization: Bearer $SENTRY_TOKEN" \
 
 Common query variations (URL-encode the `query` value):
 
-- Filter environment: append `&environment=staging` (or `dev` / `production`).
+- Filter environment: append `&environment=production`. `staging` and `dev` return history only (see above).
 - Sort by event count: `&sort=freq`. New issues first: `&sort=new`.
 - By custom tag: `query=is:unresolved ascend_error_code:lifecycle_event_record_failed`
-- By release: `query=release:com.TylerPavay.AscendApp.staging@1.0+120`
+- By release: `query=release:com.TylerPavay.AscendApp@1.0+120`
 - Escalating only: `query=is:unresolved is:escalating`
 
 Look up an issue by short ID (from an alert email):
