@@ -593,6 +593,13 @@ service cloud.firestore {
     //
     // What actually stops fabrication is `isPhysicallyPossibleClimb`, not this list. Read that
     // block before deciding this one is the trust boundary.
+    //
+    // SHARED - two callers, and a change here moves both. `isValidWorkoutDocument` gates the
+    // canonical workout, and `isValidProfileWorkoutSummary` gates the public profile's latest-climb
+    // mirror. Narrowing this list narrows what a profile can publish as well, so a value removed
+    // here must also be one no stored workout can carry, or a climber's mirror stops updating with
+    // no error the app can name. `WorkoutRemoteSyncMapper.supportedSourceRawValues` is the device's
+    // copy and has to move in the same change.
     function isValidWorkoutSource(source) {
       return source in [
         "manual",

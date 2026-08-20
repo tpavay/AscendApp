@@ -3,6 +3,26 @@ import SwiftData
 import UIKit
 
 struct ActiveHeadphoneWorkoutDraftStore {
+    /// How much wall-clock time after the last checkpoint a recovery sync may still credit as
+    /// climbing.
+    ///
+    /// `applyRecoveryStepSync` credits wall clock on purpose: the draft checkpoints every two
+    /// seconds (`LiveClimbSessionViewModel.draftCheckpointInterval`), so it holds no tracked
+    /// duration at all for the stretch after the app died, and a climber who kept stepping through
+    /// a short dropout would otherwise be under-counted. That intent is sound; the missing part was
+    /// a limit. Uncapped, a draft resolved days after it started claimed days of duration - honest
+    /// input, an impossible climb, and one `isPhysicallyPossibleClimb` in `firestore.rules` now
+    /// refuses above five days with a bare `PERMISSION_DENIED` the client cannot explain.
+    ///
+    /// Ten minutes is where "still on the machine" stops being the likelier reading. Because
+    /// checkpoints land every two seconds, this gap is very close to how long the app was actually
+    /// dead rather than an artifact of coarse sampling: a climber who notices a dead app and
+    /// relaunches is back inside a minute, and ten minutes still absorbs a locked phone, a cold
+    /// launch, reading the prompt, and typing the machine's step count. It stays far below the
+    /// point where someone has left the gym and is starting a new session, which bounds the worst
+    /// over-credit a gap inside the limit can produce at ten minutes of standing still.
+    static let maximumCreditableTrackingGap: TimeInterval = 10 * 60
+
     private let userDefaults: UserDefaults
     private let activeDraftIDKey = "activeHeadphoneWorkoutDraft.id.v1"
 
@@ -117,11 +137,19 @@ struct ActiveHeadphoneWorkoutDraftStore {
         syncedAt: Date = Date()
     ) throws {
         let normalizedSteps = max(correctedSteps, 0)
+        let trackingGapSeconds = max(syncedAt.timeIntervalSince(draft.lastCheckpointAt), 0)
+        // Wall clock is only evidence of climbing while the climber was plausibly still on the
+        // machine. Past `maximumCreditableTrackingGap` the session is credited to its last
+        // checkpoint - the last moment Ascend has any evidence for - rather than to now. The
+        // integrity record below still carries the full gap: how long tracking was unavailable is a
+        // fact, and clamping it there would falsify the record instead of bounding a claim.
+        let creditedThrough = trackingGapSeconds <= Self.maximumCreditableTrackingGap
+            ? syncedAt
+            : draft.lastCheckpointAt
         let elapsedSeconds = max(
             draft.durationSeconds,
-            syncedAt.timeIntervalSince(draft.startedAt)
+            creditedThrough.timeIntervalSince(draft.startedAt)
         )
-        let trackingGapSeconds = max(syncedAt.timeIntervalSince(draft.lastCheckpointAt), 0)
         let previousIntegrity = draft.trackingIntegrity
         let interruptionCount = trackingGapSeconds > 0
             ? previousIntegrity.interruptionCount + 1
@@ -169,7 +197,8 @@ struct ActiveHeadphoneWorkoutDraftStore {
                 "detected_steps": String(correction.detectedSteps),
                 "corrected_steps": String(correction.correctedSteps),
                 "delta_steps": String(correction.deltaSteps),
-                "tracking_gap_seconds": String(Int(trackingGapSeconds.rounded(.down)))
+                "tracking_gap_seconds": String(Int(trackingGapSeconds.rounded(.down))),
+                "tracking_gap_credited": String(creditedThrough == syncedAt)
             ]) { current, _ in current }
         )
     }
