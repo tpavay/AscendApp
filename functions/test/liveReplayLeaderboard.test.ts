@@ -1549,16 +1549,21 @@ function makePublicUser(): PublicUserSnapshot {
  * distinct finishers - and a `Math.min` clamp rewrote the rank downward until
  * the pair looked plausible. These tests hold both halves to one population and
  * refuse the clamp: an impossible pairing throws rather than being rewritten.
+ *
+ * The fixture attempt runs the climb in 738 seconds and the routine in 1,840
+ * steps, so a finisher document below or above those leads it.
  */
 test("counts a repeat rival once on a board that races climbers", () => {
   const payload = liveClimbPayload();
 
-  // One rival holding five faster attempts is one climber ahead, because the
-  // board carries one row per climber. The pre-fix code counted five.
+  // One rival holding five faster attempts is one finisher document ahead,
+  // because the board carries one row per climber. The pre-fix code counted
+  // five entry rows.
   const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
     payload,
-    reading: {betterRowCount: 1, ownRowsAhead: 0, attemptCount: null},
+    reading: {betterRowCount: 1, attemptCount: null},
     completedCount: 2,
+    existingFinisherData: undefined,
   });
 
   assert.deepEqual(standing, {rank: 2, population: 2});
@@ -1572,8 +1577,9 @@ test("counts every repeat attempt on a board that races attempts", () => {
   // denominator has to count attempts for the pair to mean anything.
   const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
     payload,
-    reading: {betterRowCount: 5, ownRowsAhead: 0, attemptCount: 6},
+    reading: {betterRowCount: 5, attemptCount: 6},
     completedCount: 1,
+    existingFinisherData: undefined,
   });
 
   assert.deepEqual(standing, {rank: 6, population: 6});
@@ -1582,13 +1588,15 @@ test("counts every repeat attempt on a board that races attempts", () => {
 test("never seats a climber behind their own earlier best", () => {
   const payload = liveClimbPayload();
 
-  // A slower repeat by the only finisher on the board. Their own standing row
-  // leads this attempt, but it is the same climber the denominator counts once,
-  // so it comes back out of the numerator instead of forcing "2nd of 1".
+  // A slower repeat by the only finisher on the board. Their own finisher
+  // document leads this attempt, but it is the same climber the denominator
+  // counts once, so it comes back out of the numerator instead of forcing
+  // "2nd of 1".
   const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
     payload,
-    reading: {betterRowCount: 1, ownRowsAhead: 1, attemptCount: null},
+    reading: {betterRowCount: 1, attemptCount: null},
     completedCount: 1,
+    existingFinisherData: {bestCompletionDurationSeconds: 638},
   });
 
   assert.deepEqual(standing, {rank: 1, population: 1});
@@ -1598,27 +1606,60 @@ test("beating your own earlier attempt leaves the climber count alone", () => {
   const payload = liveClimbPayload();
 
   // Improving on a board that collapses repeats adds no climber: the finisher
-  // count that reaches the stamp is the same one the board already had.
+  // count that reaches the stamp is the same one the board already had, and a
+  // slower stored best never led this attempt to begin with.
   const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
     payload,
-    reading: {betterRowCount: 3, ownRowsAhead: 0, attemptCount: null},
+    reading: {betterRowCount: 3, attemptCount: null},
     completedCount: 4,
+    existingFinisherData: {bestCompletionDurationSeconds: 838},
   });
 
   assert.deepEqual(standing, {rank: 4, population: 4});
 });
 
+test("counts a routine finisher on the steps its intervals rank", () => {
+  const payload = routinePayload();
+
+  // A routine fixes the clock, so its finishers store best steps. A stored
+  // 1,900 leads the fixture's 1,840 and is the same climber counted once.
+  const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
+    payload,
+    reading: {betterRowCount: 2, attemptCount: null},
+    completedCount: 2,
+    existingFinisherData: {bestFinalSteps: 1900},
+  });
+
+  assert.deepEqual(standing, {rank: 2, population: 2});
+});
+
+test("a repeat attempt is not its own opponent where attempts race", () => {
+  const payload = justClimbPayload();
+
+  // An open Just Climb keeps no finisher best to lead with, so a stored one
+  // never comes out of a numerator that counted attempts, not climbers.
+  const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
+    payload,
+    reading: {betterRowCount: 2, attemptCount: 4},
+    completedCount: 1,
+    existingFinisherData: {bestCompletionDurationSeconds: 638},
+  });
+
+  assert.deepEqual(standing, {rank: 3, population: 4});
+});
+
 test("refuses to freeze a rank its population cannot hold", () => {
   const payload = liveClimbPayload();
 
-  // Exactly the pairing the clamp used to swallow: five better entries against
+  // Exactly the pairing the clamp used to swallow: five better rows against
   // three climbers. It is not "3rd of 3" - it is two halves counting different
   // things, and freezing any number from it is worse than failing the publish.
   assert.throws(
     () => liveReplayLeaderboardTestHooks.frozenCompletionStanding({
       payload,
-      reading: {betterRowCount: 5, ownRowsAhead: 0, attemptCount: null},
+      reading: {betterRowCount: 5, attemptCount: null},
       completedCount: 3,
+      existingFinisherData: undefined,
     }),
     /rank 6 of 3/
   );
@@ -1627,11 +1668,14 @@ test("refuses to freeze a rank its population cannot hold", () => {
 test("refuses to freeze a rank ahead of the field", () => {
   const payload = liveClimbPayload();
 
+  // The count and this climber's own document disagree about whether they
+  // already lead. Nothing may guess which one was right.
   assert.throws(
     () => liveReplayLeaderboardTestHooks.frozenCompletionStanding({
       payload,
-      reading: {betterRowCount: 0, ownRowsAhead: 1, attemptCount: null},
+      reading: {betterRowCount: 0, attemptCount: null},
       completedCount: 1,
+      existingFinisherData: {bestCompletionDurationSeconds: 638},
     }),
     /rank 0 of 1/
   );
@@ -1643,11 +1687,22 @@ test("refuses to freeze an attempt rank with no attempt count", () => {
   assert.throws(
     () => liveReplayLeaderboardTestHooks.frozenCompletionStanding({
       payload,
-      reading: {betterRowCount: 0, ownRowsAhead: 0, attemptCount: null},
+      reading: {betterRowCount: 0, attemptCount: null},
       completedCount: 9,
+      existingFinisherData: undefined,
     }),
     /rank 1 of 0/
   );
+});
+
+test("names the finisher field each board's numerator counts", () => {
+  const {finisherBestMetric} = liveReplayLeaderboardTestHooks;
+
+  // The numerator is an inequality over this field, and a finisher document
+  // missing it is invisible to that query. Every new finisher document carries
+  // the one its board ranks on - see the finisher status write tests.
+  assert.equal(finisherBestMetric("live_climb"), "bestCompletionDurationSeconds");
+  assert.equal(finisherBestMetric("routine_template"), "bestFinalSteps");
 });
 
 test("ranks a routine on steps and a climb on the clock", () => {
@@ -1669,6 +1724,22 @@ test("ranks a routine on steps and a climb on the clock", () => {
 function liveClimbPayload() {
   const payload = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(
     makeWorkoutDocument(),
+    {requireEligibleParticipation: true}
+  );
+  assert.ok(payload);
+
+  return payload;
+}
+
+/**
+ * Builds a parsed routine-template replay payload.
+ * @return {ReturnType<
+ *   typeof liveReplayLeaderboardTestHooks.parseRoutineReplayPayload>
+ * } Parsed payload.
+ */
+function routinePayload() {
+  const payload = liveReplayLeaderboardTestHooks.parseRoutineReplayPayload(
+    makeRoutineWorkoutDocument(),
     {requireEligibleParticipation: true}
   );
   assert.ok(payload);

@@ -148,7 +148,9 @@ test("seed script publishes the same First Ascent fields as the Cloud Function",
 test("every seeded projection identity declares its lifecycle state", () => {
   const expectedPublishedWrites = new Map([
     ["scripts/seed-demo-user.mjs", 3],
-    ["scripts/seed-live-replay-leaderboards.mjs", 2],
+    // Entry rows, plus the finisher document written beside them on each of
+    // the two contexts the seed publishes into.
+    ["scripts/seed-live-replay-leaderboards.mjs", 4],
   ]);
 
   for (const [script, expectedCount] of expectedPublishedWrites) {

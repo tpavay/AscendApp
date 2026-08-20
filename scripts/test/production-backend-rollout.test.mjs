@@ -81,37 +81,63 @@ test("declares both filtered Live Replay window indexes", () => {
   );
 });
 
-test("declares an index for every frozen completion rank population", () => {
+test("keeps every frozen completion rank query on an automatic index", () => {
   const config = JSON.parse(
     readFileSync(join(repositoryRoot, "firestore.indexes.json"), "utf8")
   );
 
   // A frozen rank is permanent, so the query behind it cannot be one a missing
-  // index turns into a PERMISSION-shaped failure at publish time. A board that
-  // races climbers counts only rows carrying the best-per-user flag, on
-  // whichever metric that board ranks.
-  assert.ok(hasIndex(config.indexes, "entries", [
-    {fieldPath: "isBestForUser", order: "ASCENDING"},
-    {fieldPath: "completionDurationSeconds", order: "ASCENDING"},
-  ]));
-  assert.ok(hasIndex(config.indexes, "entries", [
-    {fieldPath: "isBestForUser", order: "ASCENDING"},
-    {fieldPath: "finalSteps", order: "ASCENDING"},
-  ]));
+  // index turns into a failure at publish time. Both numerators are a single
+  // inequality on one field, which Firestore indexes automatically - unless a
+  // field override replaces that field's default indexes, which would strip
+  // the automatic one and leave nothing declared in its place.
+  for (const fieldPath of [
+    "bestCompletionDurationSeconds",
+    "bestFinalSteps",
+  ]) {
+    assert.ok(
+      !(config.fieldOverrides ?? []).some((override) =>
+        override.collectionGroup === "finishers" &&
+        override.fieldPath === fieldPath
+      ),
+      `finishers.${fieldPath} must keep its automatic single-field index`
+    );
+  }
 
   const leaderboard = readFileSync(
     join(repositoryRoot, "functions/src/liveReplayLeaderboard.ts"),
     "utf8"
   );
+  const standing = frozenCompletionStandingSource(leaderboard);
 
-  assert.match(
-    leaderboard,
-    /entries\.where\("isBestForUser", "==", true\)/
-  );
+  // The numerator counts finisher documents, which are one per climber in the
+  // same transaction that writes the row. Counting entries flagged
+  // `isBestForUser` was only one row per climber eventually, and a rival caught
+  // mid-improvement counted twice.
+  assert.match(leaderboard, /finishersCollectionReference\(payload\)/);
   // Nothing may clamp the pair back into agreement: the halves have to count
   // one population by construction, and an impossible pairing has to throw.
-  assert.doesNotMatch(leaderboard, /Math\.min\(completionRank/);
+  assert.doesNotMatch(standing, /Math\.(min|max)/);
+  assert.match(standing, /throw new Error\(/);
 });
+
+/**
+ * Extracts the frozen-standing resolver's body from the leaderboard source.
+ *
+ * Named so the clamp guard can never go vacuous the way a regex over a deleted
+ * local did: a missing function fails the test instead of matching nothing.
+ * @param {string} source Leaderboard function source.
+ * @returns {string} The resolver's source text.
+ */
+function frozenCompletionStandingSource(source) {
+  const start = source.indexOf("function frozenCompletionStanding(");
+  assert.notEqual(start, -1, "frozenCompletionStanding must exist");
+
+  const end = source.indexOf("\n}\n", start);
+  assert.notEqual(end, -1, "frozenCompletionStanding must be closed");
+
+  return source.slice(start, end);
+}
 
 test("declares every server collection-group field index", () => {
   const config = JSON.parse(

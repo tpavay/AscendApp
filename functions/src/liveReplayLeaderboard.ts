@@ -50,6 +50,14 @@ const DURATION_RANKING_METRIC = "completionDurationSeconds";
 const STEPS_RANKING_METRIC = "finalSteps";
 
 /**
+ * The finisher field holding one climber's standing best on each metric. The
+ * finishers subcollection is one document per climber, so counting these
+ * counts climbers - the population a collapsing board's denominator counts.
+ */
+const DURATION_BEST_METRIC = "bestCompletionDurationSeconds";
+const STEPS_BEST_METRIC = "bestFinalSteps";
+
+/**
  * Tie policies, one per ranking metric, stored on every rank snapshot so a
  * reader never has to infer how equal values were resolved.
  */
@@ -158,17 +166,10 @@ interface BestForUserFlagUpdate {
 interface CompletionFieldReading {
   /**
    * Rows standing strictly ahead of this attempt. A collapsing context counts
-   * only rows carrying `isBestForUser`, so one row is one climber; every other
+   * finisher documents, which are one per climber by construction; every other
    * context counts every published attempt as its own rival.
    */
   betterRowCount: number;
-  /**
-   * How many of those leading rows are this climber's own. A board that shows
-   * one row per climber must not seat a climber ahead of themselves, so their
-   * own leading rows come back out of the numerator. Always zero where every
-   * attempt races as its own opponent.
-   */
-  ownRowsAhead: number;
   /**
    * Published attempts in the context, this one included - the denominator for
    * a board that races attempts. Null where the board races climbers instead,
@@ -881,22 +882,14 @@ function seedBestForUser(
     return null;
   }
 
-  if (ranksOnSteps(payload.contextType)) {
-    const existingBestSteps = nonNegativeIntegerValue(
-      finisherData?.bestFinalSteps
-    );
+  const storedBest = finisherStoredBest(payload, finisherData);
 
-    return existingBestSteps === null ||
-      payload.finalSteps > existingBestSteps ||
-      stringValue(finisherData?.bestWorkoutId) === entryId;
-  }
-
-  const existingBestDuration = nonNegativeNumberValue(
-    finisherData?.bestCompletionDurationSeconds
-  );
-
-  return existingBestDuration === null ||
-    payload.finalDurationSeconds < existingBestDuration ||
+  return storedBest === null ||
+    beatsOnMetric(
+      payload.contextType,
+      attemptRankingValue(payload),
+      storedBest
+    ) ||
     stringValue(finisherData?.bestWorkoutId) === entryId;
 }
 
@@ -1025,28 +1018,6 @@ function userAttemptEntry(
 }
 
 /**
- * Reads every attempt one climber has published into a replay context.
- *
- * Bounded by that climber's own repeats on a single board, so it stays a cheap
- * read where a whole-context scan would not be.
- * @param {LiveReplayIndexPayload} payload Replay payload.
- * @param {string} userId Owner user ID.
- * @return {Promise<UserAttemptEntry[]>} That climber's published attempts.
- */
-async function publishedAttemptsForUser(
-  payload: LiveReplayIndexPayload,
-  userId: string
-): Promise<UserAttemptEntry[]> {
-  const snapshot = await entriesCollectionReference(payload, 0)
-    .where("userId", "==", userId)
-    .get();
-
-  return snapshot.docs
-    .map((doc) => userAttemptEntry(doc.data(), doc.id, payload.contextType))
-    .filter((attempt): attempt is UserAttemptEntry => attempt !== null);
-}
-
-/**
  * Re-derives which of a user's attempts is their best in one replay context.
  *
  * A per-climb race ranks one row per opponent, so at most one of a user's
@@ -1064,7 +1035,12 @@ async function reconcileUserBestEntries(
     return;
   }
 
-  const attempts = await publishedAttemptsForUser(payload, userId);
+  const snapshot = await entriesCollectionReference(payload, 0)
+    .where("userId", "==", userId)
+    .get();
+  const attempts = snapshot.docs
+    .map((doc) => userAttemptEntry(doc.data(), doc.id, payload.contextType))
+    .filter((attempt): attempt is UserAttemptEntry => attempt !== null);
   const winner = bestAttempt(attempts, payload.contextType);
 
   if (winner !== null) {
@@ -1153,40 +1129,19 @@ async function repairFinisherBestAttempt(
   }
 
   const data = snapshot.data();
-  const storedWorkoutId = stringValue(data?.bestWorkoutId);
-
-  if (ranksOnSteps(payload.contextType)) {
-    const storedSteps = nonNegativeIntegerValue(data?.bestFinalSteps);
-
-    if (
-      storedWorkoutId === winner.workoutId &&
-      storedSteps === winner.rankingValue
-    ) {
-      return;
-    }
-
-    await finisherRef.update({
-      bestFinalSteps: winner.rankingValue,
-      bestWorkoutId: winner.workoutId,
-    });
-    return;
-  }
-
-  const storedDuration = nonNegativeNumberValue(
-    data?.bestCompletionDurationSeconds
-  );
 
   if (
-    storedWorkoutId === winner.workoutId &&
-    storedDuration === winner.rankingValue
+    stringValue(data?.bestWorkoutId) === winner.workoutId &&
+    finisherStoredBest(payload, data) === winner.rankingValue
   ) {
     return;
   }
 
-  await finisherRef.update({
-    bestCompletionDurationSeconds: winner.rankingValue,
-    bestWorkoutId: winner.workoutId,
-  });
+  await finisherRef.update(finisherBestWrite(
+    payload.contextType,
+    winner.rankingValue,
+    winner.workoutId
+  ));
 }
 
 /**
@@ -1220,7 +1175,7 @@ async function publishReplayEntries(
   const finisherRef = finisherReference(payload, userId);
   const completionSnapshotRef = completionSnapshotReference(payload, entryId);
   const publishStatusRef = liveClimbPublishStatusReference(userId, entryId);
-  const completionField = await readCompletionField(payload, userId, entryId);
+  const completionField = await readCompletionField(payload, entryId);
 
   await runIdentityProtectedTransaction(
     firestoreIdentityTransactionPort(db),
@@ -1258,6 +1213,7 @@ async function publishReplayEntries(
         payload,
         reading: completionField,
         completedCount,
+        existingFinisherData,
       });
       const summaryWrite = replaySummaryWrite({
         payload,
@@ -1456,67 +1412,86 @@ function tiePolicy(contextType: string): string {
  *
  * The stamp counts whatever the board it sits beside counts, so this read is
  * shaped by `collapsesRepeatFinishers` and nothing else. A collapsing context
- * races one row per climber, so it counts only rows carrying `isBestForUser`
- * and hands back this climber's own leading rows for removal. Every other
- * context races each attempt as its own opponent, so it counts attempts on
- * both sides - including the one publishing now, which the write that follows
- * has not committed yet.
+ * races one row per climber, and the finishers subcollection already holds
+ * exactly one document per climber - the same population `completedCount`
+ * counts, written in the same transaction as the row it stands for - so the
+ * numerator counts finishers whose stored best leads this attempt. Counting
+ * entries flagged `isBestForUser` instead only ever agreed eventually: a rival
+ * caught between an improved row committing and the old one being cleared
+ * counted as two climbers and inflated a permanent rank by one.
+ *
+ * Every other context races each attempt as its own opponent, so it counts
+ * attempts on both sides - including the one publishing now, which the write
+ * that follows has not committed yet.
  *
  * Ranks stay competition-style either way: only strictly better rows count, so
  * everything tied on the metric shares a rank. Steps are coarse integers, so
  * routine ties are common and that strict comparison is what keeps a recompute
  * from reshuffling tied climbers.
  * @param {LiveReplayIndexPayload} payload Replay payload.
- * @param {string} userId Owner user ID.
  * @param {string} entryId Public row document ID.
  * @return {Promise<CompletionFieldReading>} Counts for the frozen standing.
  */
 async function readCompletionField(
   payload: LiveReplayIndexPayload,
-  userId: string,
   entryId: string
 ): Promise<CompletionFieldReading> {
-  const entries = entriesCollectionReference(payload, 0);
-  const collapses = collapsesRepeatFinishers(payload);
-  const standingRows = collapses ?
-    entries.where("isBestForUser", "==", true) :
-    entries;
-  const leadingRows = ranksOnSteps(payload.contextType) ?
-    standingRows.where(STEPS_RANKING_METRIC, ">", payload.finalSteps) :
-    standingRows.where(
-      DURATION_RANKING_METRIC,
-      "<",
-      payload.finalDurationSeconds
-    );
-  const betterRowCount = (await leadingRows.count().get()).data().count;
+  const rankingValue = attemptRankingValue(payload);
 
-  if (!collapses) {
-    const [published, ownRow] = await Promise.all([
-      entries.count().get(),
-      entryReference(payload, 0, entryId).get(),
-    ]);
+  if (collapsesRepeatFinishers(payload)) {
+    const leadingFinishers = leadingRows(
+      finishersCollectionReference(payload),
+      payload.contextType,
+      finisherBestMetric(payload.contextType),
+      rankingValue
+    );
 
     return {
-      betterRowCount,
-      ownRowsAhead: 0,
-      // A first publish is not in the count yet; a republish already is.
-      attemptCount: published.data().count + (ownRow.exists ? 0 : 1),
+      betterRowCount: (await leadingFinishers.count().get()).data().count,
+      attemptCount: null,
     };
   }
 
-  const ownAttempts = await publishedAttemptsForUser(payload, userId);
-  const rankingValue = attemptRankingValue(payload);
+  const entries = entriesCollectionReference(payload, 0);
+  const [better, published, ownRow] = await Promise.all([
+    leadingRows(
+      entries,
+      payload.contextType,
+      rankingMetric(payload.contextType),
+      rankingValue
+    ).count().get(),
+    entries.count().get(),
+    entryReference(payload, 0, entryId).get(),
+  ]);
 
   return {
-    betterRowCount,
-    // Filtered exactly as the aggregation above filtered, so the subtraction
-    // can only ever remove rows that count really did include.
-    ownRowsAhead: ownAttempts.filter(
-      (attempt) => attempt.isBestForUser &&
-        beatsOnMetric(payload.contextType, attempt.rankingValue, rankingValue)
-    ).length,
-    attemptCount: null,
+    betterRowCount: better.data().count,
+    // A first publish is not in the count yet; a republish already is.
+    attemptCount: published.data().count + (ownRow.exists ? 0 : 1),
   };
+}
+
+/**
+ * Narrows a query to the rows standing strictly ahead of one ranking value.
+ *
+ * The query counterpart of `beatsOnMetric`: both express "ahead" once, so a
+ * count and an in-memory comparison can never disagree about which direction
+ * a context's metric wins in.
+ * @param {FirebaseFirestore.Query} rows Rows to narrow.
+ * @param {string} contextType Replay context type.
+ * @param {string} metric Field holding the ranking value on those rows.
+ * @param {number} value Ranking value to stand ahead of.
+ * @return {FirebaseFirestore.Query} Rows strictly ahead of value.
+ */
+function leadingRows(
+  rows: FirebaseFirestore.Query,
+  contextType: string,
+  metric: string,
+  value: number
+): FirebaseFirestore.Query {
+  return ranksOnSteps(contextType) ?
+    rows.where(metric, ">", value) :
+    rows.where(metric, "<", value);
 }
 
 /**
@@ -1528,10 +1503,18 @@ async function readCompletionField(
  * different things, and rewriting it downward would only hide that with a
  * number that was never true either. It throws instead, so the publish retries
  * rather than freezing a lie into a value that never moves again.
+ *
+ * A climber already holding a better standing best is one of the finishers the
+ * numerator counted, and a board showing one row per climber must never seat
+ * someone behind themselves, so their own leading row comes back out. Their
+ * stored best arrives from the transaction that is about to overwrite it, so
+ * removing it costs no read of its own.
  * @param {object} input Standing inputs.
  * @param {LiveReplayIndexPayload} input.payload Replay payload.
  * @param {CompletionFieldReading} input.reading Field counts.
  * @param {number} input.completedCount Distinct finishers, this one included.
+ * @param {Record<string, unknown> | undefined} input.existingFinisherData This
+ *   climber's finisher document as it stands before this publish.
  * @return {FrozenCompletionStanding} Rank and the population it was measured
  *   against.
  */
@@ -1539,8 +1522,10 @@ function frozenCompletionStanding(input: {
   payload: LiveReplayIndexPayload;
   reading: CompletionFieldReading;
   completedCount: number;
+  existingFinisherData: Record<string, unknown> | undefined;
 }): FrozenCompletionStanding {
-  const rank = input.reading.betterRowCount - input.reading.ownRowsAhead + 1;
+  const rank = input.reading.betterRowCount -
+    ownLeadingFinisherCount(input.payload, input.existingFinisherData) + 1;
   const population = collapsesRepeatFinishers(input.payload) ?
     input.completedCount :
     input.reading.attemptCount ?? 0;
@@ -1554,6 +1539,77 @@ function frozenCompletionStanding(input: {
   }
 
   return {rank, population};
+}
+
+/**
+ * Whether this climber's own finisher row is one of the leading rows counted.
+ *
+ * Only a collapsing board counts finisher rows at all, and only a stored best
+ * that beats the attempt publishing now stands ahead of it. Read exactly as
+ * the count filtered, so the subtraction can only ever remove a row that count
+ * really did include.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {Record<string, unknown> | undefined} finisherData Finisher document.
+ * @return {number} 1 when this climber already leads this attempt, else 0.
+ */
+function ownLeadingFinisherCount(
+  payload: LiveReplayIndexPayload,
+  finisherData: Record<string, unknown> | undefined
+): number {
+  if (!collapsesRepeatFinishers(payload)) {
+    return 0;
+  }
+
+  const storedBest = finisherStoredBest(payload, finisherData);
+  const leads = storedBest !== null && beatsOnMetric(
+    payload.contextType,
+    storedBest,
+    attemptRankingValue(payload)
+  );
+
+  return leads ? 1 : 0;
+}
+
+/**
+ * The finisher field carrying a climber's standing best in a context.
+ * @param {string} contextType Replay context type.
+ * @return {string} Finisher best field name.
+ */
+function finisherBestMetric(contextType: string): string {
+  return ranksOnSteps(contextType) ? STEPS_BEST_METRIC : DURATION_BEST_METRIC;
+}
+
+/**
+ * One climber's stored best in a context, in that context's own metric.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {Record<string, unknown> | undefined} finisherData Finisher document.
+ * @return {number | null} Stored best, or null when none is recorded.
+ */
+function finisherStoredBest(
+  payload: LiveReplayIndexPayload,
+  finisherData: Record<string, unknown> | undefined
+): number | null {
+  return ranksOnSteps(payload.contextType) ?
+    nonNegativeIntegerValue(finisherData?.[STEPS_BEST_METRIC]) :
+    nonNegativeNumberValue(finisherData?.[DURATION_BEST_METRIC]);
+}
+
+/**
+ * The finisher fields recording one attempt as a climber's standing best.
+ * @param {string} contextType Replay context type.
+ * @param {number} rankingValue Attempt ranking value.
+ * @param {string} workoutId Attempt workout ID.
+ * @return {Record<string, unknown>} Finisher best fields.
+ */
+function finisherBestWrite(
+  contextType: string,
+  rankingValue: number,
+  workoutId: string
+): Record<string, unknown> {
+  return {
+    [finisherBestMetric(contextType)]: rankingValue,
+    bestWorkoutId: workoutId,
+  };
 }
 
 /**
@@ -1893,39 +1949,18 @@ function finisherStatusWrite(
 function finisherBestFields(
   input: FinisherStatusWriteInput
 ): Record<string, unknown> {
-  if (ranksOnSteps(input.payload.contextType)) {
-    const existingBestSteps = nonNegativeIntegerValue(
-      input.existingData?.bestFinalSteps
-    );
-
-    if (
-      existingBestSteps !== null &&
-      input.payload.finalSteps <= existingBestSteps
-    ) {
-      return {};
-    }
-
-    return {
-      bestFinalSteps: input.payload.finalSteps,
-      bestWorkoutId: input.entryId,
-    };
-  }
-
-  const existingBestDuration = nonNegativeNumberValue(
-    input.existingData?.bestCompletionDurationSeconds
-  );
+  const contextType = input.payload.contextType;
+  const rankingValue = attemptRankingValue(input.payload);
+  const storedBest = finisherStoredBest(input.payload, input.existingData);
 
   if (
-    existingBestDuration !== null &&
-    input.payload.finalDurationSeconds >= existingBestDuration
+    storedBest !== null &&
+    !beatsOnMetric(contextType, rankingValue, storedBest)
   ) {
     return {};
   }
 
-  return {
-    bestCompletionDurationSeconds: input.payload.finalDurationSeconds,
-    bestWorkoutId: input.entryId,
-  };
+  return finisherBestWrite(contextType, rankingValue, input.entryId);
 }
 
 /**
@@ -2101,6 +2136,21 @@ function entriesCollectionReference(
 }
 
 /**
+ * Finisher status collection reference for a replay payload. One document per
+ * climber who has completed the context.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @return {FirebaseFirestore.CollectionReference} Finishers collection.
+ */
+function finishersCollectionReference(
+  payload: LiveReplayIndexPayload
+): FirebaseFirestore.CollectionReference {
+  return admin.firestore()
+    .collection(LIVE_REPLAY_COLLECTION)
+    .doc(payload.contextKey)
+    .collection("finishers");
+}
+
+/**
  * Per-user finisher status document reference for a replay payload.
  * @param {LiveReplayIndexPayload} payload Replay payload.
  * @param {string} userId Owner user ID.
@@ -2110,11 +2160,7 @@ function finisherReference(
   payload: LiveReplayIndexPayload,
   userId: string
 ): FirebaseFirestore.DocumentReference {
-  return admin.firestore()
-    .collection(LIVE_REPLAY_COLLECTION)
-    .doc(payload.contextKey)
-    .collection("finishers")
-    .doc(userId);
+  return finishersCollectionReference(payload).doc(userId);
 }
 
 /**
@@ -2392,6 +2438,7 @@ export const liveReplayLeaderboardTestHooks = {
   bestForUserFlagUpdates,
   collapsesRepeatFinishers,
   completionRankSnapshotWrite,
+  finisherBestMetric,
   finisherStatusWrite,
   firstAscentWrite,
   frozenCompletionStanding,
