@@ -665,10 +665,14 @@ service cloud.firestore {
     //
     // What stays is authorization and the trust boundary: ownership, canonical identity, the
     // strict top-level key contract, bounded list sizes, the Storage path binding that stops one
-    // climber pointing at another's heart-rate sidecar, `startedAt`'s type, and every participation
-    // field a Cloud Function reads without re-deriving. What went is owner-private hygiene - scalar
-    // ranges, string lengths, media and weight-entry internals, and the timestamp ordering nothing
-    // reads.
+    // climber pointing at another's heart-rate sidecar, `startedAt`'s type, every participation
+    // field a Cloud Function reads without re-deriving, and the physical envelope on `steps`,
+    // `durationSeconds` and `startedAt`. What went is owner-private hygiene - scalar ranges,
+    // string lengths, media and weight-entry internals, and the timestamp ordering nothing reads.
+    //
+    // The envelope is the one place a scalar RANGE survives that test, and it is not an exception
+    // to it: `isPhysicallyPossibleClimb` below states why those three numbers are a trust boundary
+    // even though their types are not. Read that block before reading this one as a ban on ranges.
     //
     // Measure before adding anything here. Do not assume there is room.
     function isValidWorkoutId(workoutId) {
