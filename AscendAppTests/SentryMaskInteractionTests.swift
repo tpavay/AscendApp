@@ -209,6 +209,22 @@ struct SentryMaskInteractionTests {
                     "\(name) rendered a zero-sized mask, which covers nothing"
                 )
 
+                // Fail loudly rather than quietly proving nothing. `sentryMasked()`
+                // always inserts the marker through a `UIViewRepresentable`, so
+                // SwiftUI always wraps it in at least one platform host; if
+                // `isPlatformViewHost` ever stops recognising that host, this
+                // chain collapses to the marker alone and every assertion below
+                // becomes unfalsifiable - the marker's own `hitTest` returns nil
+                // unconditionally, so neither loop can ever fail.
+                try #require(
+                    swallowers.count > 1,
+                    """
+                    \(name): no SwiftUI platform host was recognised above the mask marker, so the sweep \
+                    below would pass without testing the host at all. SwiftUI has most likely renamed \
+                    UIKitPlatformViewHost - update isPlatformViewHost to match, do not delete this check.
+                    """
+                )
+
                 // The structural half, asked of each mask-only view directly
                 // rather than inferred from what won at the window: no view that
                 // exists solely to carry the marker may claim any point in its
@@ -260,8 +276,14 @@ struct SentryMaskInteractionTests {
     /// would leave the mask host as the overlay container's only child, and the
     /// walk would climb into a content-bearing ancestor whose `hitTest`
     /// legitimately returns itself - failing this suite over something that is
-    /// not the mask. Narrowing on a rename costs coverage the window sweep still
-    /// carries; over-extending costs a false failure.
+    /// not the mask.
+    ///
+    /// Both failure directions are loud, and deliberately so. Over-extending
+    /// fails a surface test; under-extending - a SwiftUI rename that leaves this
+    /// returning `[marker]` - is caught by the `swallowers.count > 1` check at
+    /// the call site, because nothing else would catch it. The window sweep is
+    /// not a fallback: it reads this same array, so a collapsed chain would take
+    /// both assertions down together.
     private static func maskOnlyChain(from marker: UIView, stoppingAt root: UIView) -> [UIView] {
         var chain = [marker]
         var node = marker
