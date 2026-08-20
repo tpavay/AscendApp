@@ -151,11 +151,51 @@ interface BestForUserFlagUpdate {
   isBestForUser: boolean;
 }
 
+/**
+ * What the field looked like when an attempt froze its standing, counted in
+ * whichever population the board beside that standing counts.
+ */
+interface CompletionFieldReading {
+  /**
+   * Rows standing strictly ahead of this attempt. A collapsing context counts
+   * only rows carrying `isBestForUser`, so one row is one climber; every other
+   * context counts every published attempt as its own rival.
+   */
+  betterRowCount: number;
+  /**
+   * How many of those leading rows are this climber's own. A board that shows
+   * one row per climber must not seat a climber ahead of themselves, so their
+   * own leading rows come back out of the numerator. Always zero where every
+   * attempt races as its own opponent.
+   */
+  ownRowsAhead: number;
+  /**
+   * Published attempts in the context, this one included - the denominator for
+   * a board that races attempts. Null where the board races climbers instead,
+   * which counts distinct finishers rather than attempts.
+   */
+  attemptCount: number | null;
+}
+
+/**
+ * The permanent pair stamped on a finished attempt: a position and the
+ * population it was measured against.
+ */
+interface FrozenCompletionStanding {
+  rank: number;
+  population: number;
+}
+
 interface CompletionRankSnapshotWriteInput {
   payload: LiveReplayIndexPayload;
   userId: string;
   entryId: string;
   rank: number;
+  /**
+   * The population `rank` was measured against - distinct climbers where the
+   * board collapses repeat finishers, published attempts where it does not.
+   * Never a count of something the rank did not count.
+   */
   completedCount: number;
   rankedAt: unknown;
 }
@@ -170,6 +210,7 @@ interface LiveClimbPublishStatusWriteInput {
 interface LiveClimbPublishStatusPublishedInput
   extends LiveClimbPublishStatusWriteInput {
   rankAtCompletion: number;
+  /** The population `rankAtCompletion` was measured against. */
   completedCountAtCompletion: number;
   finisherOrder: number;
 }
@@ -871,14 +912,11 @@ function bestAttempt(
   attempts: UserAttemptEntry[],
   contextType: string
 ): UserAttemptEntry | null {
-  const ranksHighestFirst = ranksOnSteps(contextType);
   let best: UserAttemptEntry | null = null;
 
   for (const attempt of attempts) {
     const isBetter = best === null ||
-      (ranksHighestFirst ?
-        attempt.rankingValue > best.rankingValue :
-        attempt.rankingValue < best.rankingValue);
+      beatsOnMetric(contextType, attempt.rankingValue, best.rankingValue);
     const breaksTie = best !== null &&
       attempt.rankingValue === best.rankingValue &&
       attempt.workoutId < best.workoutId;
@@ -987,6 +1025,28 @@ function userAttemptEntry(
 }
 
 /**
+ * Reads every attempt one climber has published into a replay context.
+ *
+ * Bounded by that climber's own repeats on a single board, so it stays a cheap
+ * read where a whole-context scan would not be.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {string} userId Owner user ID.
+ * @return {Promise<UserAttemptEntry[]>} That climber's published attempts.
+ */
+async function publishedAttemptsForUser(
+  payload: LiveReplayIndexPayload,
+  userId: string
+): Promise<UserAttemptEntry[]> {
+  const snapshot = await entriesCollectionReference(payload, 0)
+    .where("userId", "==", userId)
+    .get();
+
+  return snapshot.docs
+    .map((doc) => userAttemptEntry(doc.data(), doc.id, payload.contextType))
+    .filter((attempt): attempt is UserAttemptEntry => attempt !== null);
+}
+
+/**
  * Re-derives which of a user's attempts is their best in one replay context.
  *
  * A per-climb race ranks one row per opponent, so at most one of a user's
@@ -1004,12 +1064,7 @@ async function reconcileUserBestEntries(
     return;
   }
 
-  const snapshot = await entriesCollectionReference(payload, 0)
-    .where("userId", "==", userId)
-    .get();
-  const attempts = snapshot.docs
-    .map((doc) => userAttemptEntry(doc.data(), doc.id, payload.contextType))
-    .filter((attempt): attempt is UserAttemptEntry => attempt !== null);
+  const attempts = await publishedAttemptsForUser(payload, userId);
   const winner = bestAttempt(attempts, payload.contextType);
 
   if (winner !== null) {
@@ -1165,7 +1220,7 @@ async function publishReplayEntries(
   const finisherRef = finisherReference(payload, userId);
   const completionSnapshotRef = completionSnapshotReference(payload, entryId);
   const publishStatusRef = liveClimbPublishStatusReference(userId, entryId);
-  const completionRank = await completionRankForPayload(payload);
+  const completionField = await readCompletionField(payload, userId, entryId);
 
   await runIdentityProtectedTransaction(
     firestoreIdentityTransactionPort(db),
@@ -1199,6 +1254,11 @@ async function publishReplayEntries(
       const completedCount = isNewFinisher ?
         Math.max(previousCompletedCount + 1, globalCompletionOrder) :
         Math.max(previousCompletedCount, globalCompletionOrder);
+      const standing = frozenCompletionStanding({
+        payload,
+        reading: completionField,
+        completedCount,
+      });
       const summaryWrite = replaySummaryWrite({
         payload,
         completedCount,
@@ -1239,8 +1299,8 @@ async function publishReplayEntries(
             payload,
             userId,
             entryId,
-            rank: Math.min(completionRank, completedCount),
-            completedCount,
+            rank: standing.rank,
+            completedCount: standing.population,
             rankedAt: now,
           })
         );
@@ -1254,8 +1314,8 @@ async function publishReplayEntries(
             userId,
             entryId,
             updatedAt: now,
-            rankAtCompletion: Math.min(completionRank, completedCount),
-            completedCountAtCompletion: completedCount,
+            rankAtCompletion: standing.rank,
+            completedCountAtCompletion: standing.population,
             finisherOrder: globalCompletionOrder,
           }),
           {merge: true}
@@ -1342,6 +1402,36 @@ function ranksOnSteps(contextType: string): boolean {
 }
 
 /**
+ * Whether one ranking value stands strictly ahead of another.
+ *
+ * Every comparison against a context's metric goes through here so the rank
+ * snapshot, the best-per-user collapse and the aggregation queries can never
+ * drift into disagreeing about which direction wins.
+ * @param {string} contextType Replay context type.
+ * @param {number} value Candidate ranking value.
+ * @param {number} other Ranking value to beat.
+ * @return {boolean} True when value is strictly better than other.
+ */
+function beatsOnMetric(
+  contextType: string,
+  value: number,
+  other: number
+): boolean {
+  return ranksOnSteps(contextType) ? value > other : value < other;
+}
+
+/**
+ * The value an attempt ranks on, in its context's own metric.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @return {number} Ranking value for this attempt.
+ */
+function attemptRankingValue(payload: LiveReplayIndexPayload): number {
+  return ranksOnSteps(payload.contextType) ?
+    payload.finalSteps :
+    payload.finalDurationSeconds;
+}
+
+/**
  * The entry field a context ranks on.
  * @param {string} contextType Replay context type.
  * @return {string} Ranking metric field name.
@@ -1362,24 +1452,108 @@ function tiePolicy(contextType: string): string {
 }
 
 /**
- * Calculates the performance rank for this completed attempt at publish time.
+ * Reads the field a completed attempt is about to freeze its standing against.
  *
- * Rank is competition-style: attempts that tie on the context's metric share
- * the same rank, because both sides count only attempts strictly better than
- * this one. Steps are coarse integers, so routine ties are common and this
- * strict comparison is what keeps a recompute from reshuffling tied climbers.
+ * The stamp counts whatever the board it sits beside counts, so this read is
+ * shaped by `collapsesRepeatFinishers` and nothing else. A collapsing context
+ * races one row per climber, so it counts only rows carrying `isBestForUser`
+ * and hands back this climber's own leading rows for removal. Every other
+ * context races each attempt as its own opponent, so it counts attempts on
+ * both sides - including the one publishing now, which the write that follows
+ * has not committed yet.
+ *
+ * Ranks stay competition-style either way: only strictly better rows count, so
+ * everything tied on the metric shares a rank. Steps are coarse integers, so
+ * routine ties are common and that strict comparison is what keeps a recompute
+ * from reshuffling tied climbers.
  * @param {LiveReplayIndexPayload} payload Replay payload.
- * @return {Promise<number>} Rank among strictly better attempts plus one.
+ * @param {string} userId Owner user ID.
+ * @param {string} entryId Public row document ID.
+ * @return {Promise<CompletionFieldReading>} Counts for the frozen standing.
  */
-async function completionRankForPayload(
-  payload: LiveReplayIndexPayload
-): Promise<number> {
+async function readCompletionField(
+  payload: LiveReplayIndexPayload,
+  userId: string,
+  entryId: string
+): Promise<CompletionFieldReading> {
   const entries = entriesCollectionReference(payload, 0);
-  const betterAttempts = ranksOnSteps(payload.contextType) ?
-    entries.where(STEPS_RANKING_METRIC, ">", payload.finalSteps) :
-    entries.where(DURATION_RANKING_METRIC, "<", payload.finalDurationSeconds);
-  const snapshot = await betterAttempts.count().get();
-  return snapshot.data().count + 1;
+  const collapses = collapsesRepeatFinishers(payload);
+  const standingRows = collapses ?
+    entries.where("isBestForUser", "==", true) :
+    entries;
+  const leadingRows = ranksOnSteps(payload.contextType) ?
+    standingRows.where(STEPS_RANKING_METRIC, ">", payload.finalSteps) :
+    standingRows.where(
+      DURATION_RANKING_METRIC,
+      "<",
+      payload.finalDurationSeconds
+    );
+  const betterRowCount = (await leadingRows.count().get()).data().count;
+
+  if (!collapses) {
+    const [published, ownRow] = await Promise.all([
+      entries.count().get(),
+      entryReference(payload, 0, entryId).get(),
+    ]);
+
+    return {
+      betterRowCount,
+      ownRowsAhead: 0,
+      // A first publish is not in the count yet; a republish already is.
+      attemptCount: published.data().count + (ownRow.exists ? 0 : 1),
+    };
+  }
+
+  const ownAttempts = await publishedAttemptsForUser(payload, userId);
+  const rankingValue = attemptRankingValue(payload);
+
+  return {
+    betterRowCount,
+    // Filtered exactly as the aggregation above filtered, so the subtraction
+    // can only ever remove rows that count really did include.
+    ownRowsAhead: ownAttempts.filter(
+      (attempt) => attempt.isBestForUser &&
+        beatsOnMetric(payload.contextType, attempt.rankingValue, rankingValue)
+    ).length,
+    attemptCount: null,
+  };
+}
+
+/**
+ * Resolves the permanent standing a finished attempt freezes.
+ *
+ * Both halves count one population: climbers where the board collapses repeat
+ * finishers, attempts where it races every one of them. Nothing clamps the
+ * result - a rank outside its own denominator means the two halves counted
+ * different things, and rewriting it downward would only hide that with a
+ * number that was never true either. It throws instead, so the publish retries
+ * rather than freezing a lie into a value that never moves again.
+ * @param {object} input Standing inputs.
+ * @param {LiveReplayIndexPayload} input.payload Replay payload.
+ * @param {CompletionFieldReading} input.reading Field counts.
+ * @param {number} input.completedCount Distinct finishers, this one included.
+ * @return {FrozenCompletionStanding} Rank and the population it was measured
+ *   against.
+ */
+function frozenCompletionStanding(input: {
+  payload: LiveReplayIndexPayload;
+  reading: CompletionFieldReading;
+  completedCount: number;
+}): FrozenCompletionStanding {
+  const rank = input.reading.betterRowCount - input.reading.ownRowsAhead + 1;
+  const population = collapsesRepeatFinishers(input.payload) ?
+    input.completedCount :
+    input.reading.attemptCount ?? 0;
+
+  if (rank < 1 || rank > population) {
+    throw new Error(
+      `Refusing to freeze rank ${rank} of ${population} for ` +
+      `${input.payload.contextKey}: the rank and its population disagree ` +
+      "about what they are counting."
+    );
+  }
+
+  return {rank, population};
 }
 
 /**
@@ -2213,12 +2387,14 @@ function integerArrayValue(value: unknown): number[] | null {
 
 export const liveReplayLeaderboardTestHooks = {
   attemptSplitBucketCount,
+  beatsOnMetric,
   bestAttemptWorkoutId,
   bestForUserFlagUpdates,
   collapsesRepeatFinishers,
   completionRankSnapshotWrite,
   finisherStatusWrite,
   firstAscentWrite,
+  frozenCompletionStanding,
   leaderboardHasFirstAscent,
   liveClimbPublishStatusFailedWrite,
   liveClimbPublishStatusPublishedWrite,
@@ -2230,6 +2406,7 @@ export const liveReplayLeaderboardTestHooks = {
   currentPublicUserSnapshotFromData,
   publicUserSnapshotFromData,
   rankingMetric,
+  readCompletionField,
   replayEntryWrite,
   replayPayloadsForWorkout,
   replaySummaryWrite,

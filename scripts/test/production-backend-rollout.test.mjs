@@ -81,6 +81,38 @@ test("declares both filtered Live Replay window indexes", () => {
   );
 });
 
+test("declares an index for every frozen completion rank population", () => {
+  const config = JSON.parse(
+    readFileSync(join(repositoryRoot, "firestore.indexes.json"), "utf8")
+  );
+
+  // A frozen rank is permanent, so the query behind it cannot be one a missing
+  // index turns into a PERMISSION-shaped failure at publish time. A board that
+  // races climbers counts only rows carrying the best-per-user flag, on
+  // whichever metric that board ranks.
+  assert.ok(hasIndex(config.indexes, "entries", [
+    {fieldPath: "isBestForUser", order: "ASCENDING"},
+    {fieldPath: "completionDurationSeconds", order: "ASCENDING"},
+  ]));
+  assert.ok(hasIndex(config.indexes, "entries", [
+    {fieldPath: "isBestForUser", order: "ASCENDING"},
+    {fieldPath: "finalSteps", order: "ASCENDING"},
+  ]));
+
+  const leaderboard = readFileSync(
+    join(repositoryRoot, "functions/src/liveReplayLeaderboard.ts"),
+    "utf8"
+  );
+
+  assert.match(
+    leaderboard,
+    /entries\.where\("isBestForUser", "==", true\)/
+  );
+  // Nothing may clamp the pair back into agreement: the halves have to count
+  // one population by construction, and an impossible pairing has to throw.
+  assert.doesNotMatch(leaderboard, /Math\.min\(completionRank/);
+});
+
 test("declares every server collection-group field index", () => {
   const config = JSON.parse(
     readFileSync(join(repositoryRoot, "firestore.indexes.json"), "utf8")
