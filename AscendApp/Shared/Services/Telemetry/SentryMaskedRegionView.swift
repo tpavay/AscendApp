@@ -17,6 +17,13 @@ import UIKit
 /// The view is transparent but not zero-opacity: the redaction walk skips any
 /// layer whose `opacity` is 0, so an `alpha` of 0 would silently un-mask the very
 /// surface this exists to cover.
+///
+/// It covers a region without owning it: the frame is real, so redaction has
+/// something to paint, but the view refuses every touch that lands on it. The
+/// two properties pull in opposite directions, which is why `hitTest` says so
+/// outright rather than leaving it to `isUserInteractionEnabled` alone - the
+/// surfaces underneath are scrubbable charts and video controls, and a swallowed
+/// touch is silent.
 final class SentryMaskedRegionView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -28,5 +35,9 @@ final class SentryMaskedRegionView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        nil
     }
 }
