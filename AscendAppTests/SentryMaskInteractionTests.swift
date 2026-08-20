@@ -21,15 +21,65 @@ import UIKit
 /// content is a touch that reaches the content, and a target inside the mask's
 /// own view chain is a touch that never will be.
 ///
-/// Two levels. The modifier is proved against a real `UIButton`, where the
-/// correct answer is exactly one view and masked and unmasked must agree on it.
-/// Then every shipped surface carrying `sentryMasked()` is hosted for real and
-/// swept point by point, so a future surface that masks differently is caught
-/// here rather than in the field.
+/// Three levels, weakest last:
+///
+/// 1. **The marker answers for itself.** `SentryMaskedRegionView` refuses every
+///    point in its own bounds while still reporting a real, non-empty frame -
+///    both asserted together, because passing the touch test by shrinking the
+///    mask would be a privacy regression wearing an interaction fix's clothes.
+/// 2. **The overlay is inert all the way up.** Every platform view SwiftUI
+///    builds to host the marker is asked, directly, to hit-test each point in
+///    its own frame, and must refuse all of them. That is the exact risk this
+///    suite exists for, and it is worth asking rather than assuming: SwiftUI
+///    leaves `isUserInteractionEnabled` **true** on
+///    `UIKitPlatformViewHost<PlatformViewRepresentableAdaptor<...>>`, so the
+///    pass-through is its `hitTest` honouring `allowsHitTesting(false)` and not
+///    the flag. Asking the host itself is stronger than reading the window's
+///    answer, which only shows that something else happened to win.
+/// 3. **A real control under the mask is still the target.** A `UIButton`
+///    beneath `sentryMasked()` wins every probe point, identically masked and
+///    unmasked. On the three player surfaces the content underneath is UIKit
+///    too, so their sweep genuinely distinguishes "reached the video" from
+///    "swallowed by the mask".
+///
+/// **What this suite cannot do, established by experiment rather than assumed.**
+/// It does not drive a SwiftUI `DragGesture` and watch a chart select a point.
+/// SwiftUI gestures on a hosting view are not backed by discoverable
+/// `UIGestureRecognizer`s; they run through an internal pipeline keyed to real
+/// UIKit event identity. Synthetic `UITouch`/`UIEvent` objects were pushed at it
+/// four ways - `UIWindow.sendEvent`, `UIApplication.sendEvent`, the responder's
+/// own `touchesBegan`, and every recognizer on the chain - and none fired the
+/// handler *even with no mask present*, so the failure is the harness rather
+/// than the mask. `UIView.hitTest` is likewise blind here: it returns the
+/// hosting view for interactive and non-interactive SwiftUI content alike, so it
+/// cannot see inside SwiftUI's own hit-test walk. Closing that gap needs a UI
+/// test target, which is out of scope for this branch. What stands in its place
+/// is that the overlay is content-independent: the same modifier, the same
+/// marker and the same host chain sit over the charts and over the players, and
+/// on the players the content underneath is UIKit and demonstrably reached.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct SentryMaskInteractionTests {
     private static let surfaceSize = CGSize(width: 393, height: 640)
+
+    // MARK: - The marker itself
+
+    /// The mask must be simultaneously untouchable and geometrically real. If a
+    /// future edit ever wins the interaction half by shrinking or emptying the
+    /// frame, redaction has nothing to paint and the leak this whole mechanism
+    /// exists to close reopens silently.
+    @Test
+    func theMarkerRefusesEveryTouchWithoutGivingUpItsFrame() {
+        let marker = SentryMaskedRegionView(frame: CGRect(x: 0, y: 0, width: 300, height: 200))
+
+        #expect(!marker.isUserInteractionEnabled)
+        #expect(!marker.bounds.isEmpty, "a mask with no frame covers nothing")
+
+        for point in Self.gridPoints(in: marker.bounds) {
+            #expect(marker.point(inside: point, with: nil), "the mask no longer covers \(point)")
+            #expect(marker.hitTest(point, with: nil) == nil, "the mask claimed a touch at \(point)")
+        }
+    }
 
     // MARK: - The modifier itself
 
@@ -111,6 +161,10 @@ struct SentryMaskInteractionTests {
         )
     }
 
+    /// The one surface whose interaction is not ours to observe even in
+    /// principle: the transport controls belong to `AVPlayerViewController`, so
+    /// the reachable assertion is that touches land inside its own view tree
+    /// rather than on the mask.
     @Test
     func fullScreenVideoTransportControlsStayReachable() async throws {
         let url = try await Self.videoFile()
@@ -147,6 +201,25 @@ struct SentryMaskInteractionTests {
                     !marker.bounds.isEmpty,
                     "\(name) rendered a zero-sized mask, which covers nothing"
                 )
+
+                // The structural half, asked of each mask-only view directly
+                // rather than inferred from what won at the window: no view that
+                // exists solely to carry the marker may claim any point in its
+                // own frame. SwiftUI leaves `isUserInteractionEnabled` true on
+                // the platform host it wraps a representable in, so the host's
+                // refusal is a hit-test answer and has to be read as one.
+                for swallower in swallowers {
+                    for point in gridPoints(in: swallower.bounds) {
+                        #expect(
+                            swallower.hitTest(point, with: nil) == nil,
+                            """
+                            \(name): \(type(of: swallower)) carries the Sentry mask and claimed a touch at \
+                            \(point) in its own frame, so UIKit can route to it instead of to the surface \
+                            underneath.
+                            """
+                        )
+                    }
+                }
 
                 for point in probePoints(in: marker, within: window) {
                     let hit = window.hitTest(point, with: nil)
@@ -189,6 +262,18 @@ struct SentryMaskInteractionTests {
         return chain
     }
 
+    /// A grid across `bounds`, in its own coordinate space.
+    private static func gridPoints(in bounds: CGRect, steps: Int = 5) -> [CGPoint] {
+        (0..<steps).flatMap { row in
+            (0..<steps).map { column in
+                CGPoint(
+                    x: bounds.minX + bounds.width * (Double(column) + 0.5) / Double(steps),
+                    y: bounds.minY + bounds.height * (Double(row) + 0.5) / Double(steps)
+                )
+            }
+        }
+    }
+
     /// A grid across the masked region, in window coordinates. A mask that
     /// swallows only its edges - a host inset by a point or two - still costs a
     /// touch, so the sweep covers the frame rather than sampling its centre.
@@ -196,16 +281,9 @@ struct SentryMaskInteractionTests {
         let bounds = view.bounds
         guard !bounds.isEmpty else { return [] }
 
-        return (0..<steps).flatMap { row in
-            (0..<steps).map { column in
-                let local = CGPoint(
-                    x: bounds.minX + bounds.width * (Double(column) + 0.5) / Double(steps),
-                    y: bounds.minY + bounds.height * (Double(row) + 0.5) / Double(steps)
-                )
-                return view.convert(local, to: window)
-            }
-        }
-        .filter { window.bounds.contains($0) }
+        return gridPoints(in: bounds, steps: steps)
+            .map { view.convert($0, to: window) }
+            .filter { window.bounds.contains($0) }
     }
 
     // MARK: - Hosting
