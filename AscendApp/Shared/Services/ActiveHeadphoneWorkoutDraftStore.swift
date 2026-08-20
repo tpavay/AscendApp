@@ -14,14 +14,23 @@ struct ActiveHeadphoneWorkoutDraftStore {
     /// input, an impossible climb, and one `isPhysicallyPossibleClimb` in `firestore.rules` now
     /// refuses above five days with a bare `PERMISSION_DENIED` the client cannot explain.
     ///
-    /// Ten minutes is where "still on the machine" stops being the likelier reading. Because
-    /// checkpoints land every two seconds, this gap is very close to how long the app was actually
-    /// dead rather than an artifact of coarse sampling: a climber who notices a dead app and
-    /// relaunches is back inside a minute, and ten minutes still absorbs a locked phone, a cold
-    /// launch, reading the prompt, and typing the machine's step count. It stays far below the
-    /// point where someone has left the gym and is starting a new session, which bounds the worst
-    /// over-credit a gap inside the limit can produce at ten minutes of standing still.
-    static let maximumCreditableTrackingGap: TimeInterval = 10 * 60
+    /// One hour is the balance between the two ways this can go wrong. It still stops the runaway
+    /// this clamp exists to stop - days of phantom duration walking into the five-day ceiling - and
+    /// because checkpoints land every two seconds the measured gap is very close to how long the
+    /// app was actually dead rather than an artifact of coarse sampling.
+    ///
+    /// It is an hour rather than minutes because clamping is not free. The clamp bounds the
+    /// duration but never the step count the climber types off the machine, so a session that
+    /// dies early and whose climber keeps stepping gets its full steps credited against a short
+    /// duration. That is the common crash-early-and-keep-climbing shape, and an hour keeps it
+    /// inside the limit, where wall clock is credited and the device's own 220 steps/min gate in
+    /// `WorkoutRemoteSyncMapper.snapshot` is never tripped for it.
+    ///
+    /// An hour narrows that window; it does not close it. A climber who keeps climbing for more
+    /// than an hour after a crash still has their typed steps credited against a clamped duration,
+    /// and `WorkoutSyncCoordinator` still treats the resulting `implausibleWorkoutTotals` as
+    /// terminal. That is a known and accepted bound of this change, not a solved problem.
+    static let maximumCreditableTrackingGap: TimeInterval = 60 * 60
 
     private let userDefaults: UserDefaults
     private let activeDraftIDKey = "activeHeadphoneWorkoutDraft.id.v1"
@@ -143,9 +152,8 @@ struct ActiveHeadphoneWorkoutDraftStore {
         // checkpoint - the last moment Ascend has any evidence for - rather than to now. The
         // integrity record below still carries the full gap: how long tracking was unavailable is a
         // fact, and clamping it there would falsify the record instead of bounding a claim.
-        let creditedThrough = trackingGapSeconds <= Self.maximumCreditableTrackingGap
-            ? syncedAt
-            : draft.lastCheckpointAt
+        let gapIsCreditable = trackingGapSeconds <= Self.maximumCreditableTrackingGap
+        let creditedThrough = gapIsCreditable ? syncedAt : draft.lastCheckpointAt
         let elapsedSeconds = max(
             draft.durationSeconds,
             creditedThrough.timeIntervalSince(draft.startedAt)
@@ -185,7 +193,7 @@ struct ActiveHeadphoneWorkoutDraftStore {
             trackingIntegrity: updatedIntegrity,
             stepCorrections: corrections,
             status: draft.status,
-            checkpointedAt: syncedAt
+            checkpointedAt: creditedThrough
         )
         try modelContext.save()
         setActiveDraftID(draft.id)
@@ -198,7 +206,7 @@ struct ActiveHeadphoneWorkoutDraftStore {
                 "corrected_steps": String(correction.correctedSteps),
                 "delta_steps": String(correction.deltaSteps),
                 "tracking_gap_seconds": String(Int(trackingGapSeconds.rounded(.down))),
-                "tracking_gap_credited": String(creditedThrough == syncedAt)
+                "tracking_gap_credited": String(gapIsCreditable)
             ]) { current, _ in current }
         )
     }

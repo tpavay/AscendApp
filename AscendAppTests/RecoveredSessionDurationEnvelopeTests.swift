@@ -140,6 +140,87 @@ struct RecoveredSessionDurationEnvelopeTests {
         #expect(document.startedAt < Date().addingTimeInterval(24 * 60 * 60))
     }
 
+    /// The shape the clamp is most likely to meet: the app dies five minutes in, the climber keeps
+    /// stepping for another twenty-five, then types the machine's full count. The clamp bounds
+    /// duration and never the typed steps, so crediting this one to its last checkpoint would hand
+    /// the mapper 2,000 steps over 300 seconds - 400 steps/min, past the device's own 220 gate, and
+    /// `WorkoutSyncCoordinator` treats that refusal as permanent. Inside the limit it is simply the
+    /// half-hour climb it was.
+    @Test("A climber who keeps stepping for twenty-five minutes after a crash still syncs")
+    func gapWithinTheLimitKeepsCadencePlausible() throws {
+        let modelContext = try makeModelContext()
+        let trackedSeconds: TimeInterval = 300
+        let gapSeconds: TimeInterval = 25 * 60
+        let machineSteps = 2_000
+        let draft = makeDraft(
+            trackedSeconds: trackedSeconds,
+            trackedSteps: 320,
+            in: modelContext
+        )
+
+        #expect(gapSeconds <= ActiveHeadphoneWorkoutDraftStore.maximumCreditableTrackingGap)
+
+        try makeStore().applyRecoveryStepSync(
+            correctedSteps: machineSteps,
+            to: draft,
+            in: modelContext,
+            syncedAt: Self.startedAt.addingTimeInterval(trackedSeconds + gapSeconds)
+        )
+
+        #expect(draft.durationSeconds == trackedSeconds + gapSeconds)
+
+        let workout = ActiveHeadphoneWorkoutDraftSaver.makeRecoveredWorkout(
+            from: draft,
+            deviceModel: "iPhone"
+        )
+        workout.markPendingRemoteUpsert(ownerUserId: "climber-1")
+
+        let stepsPerMinute = Double(machineSteps) / (draft.durationSeconds / 60)
+        #expect(stepsPerMinute < WorkoutPlausibilityPolicy.maximumAverageStepsPerMinute)
+        #expect(WorkoutPlausibilityPolicy.hasPlausibleTotals(workout))
+
+        let document = try WorkoutRemoteSyncMapper.snapshot(from: workout).document
+
+        #expect(document.durationSeconds == trackedSeconds + gapSeconds)
+        #expect(document.steps == machineSteps)
+        #expect(document.steps <= Int(document.durationSeconds) * Self.ruleMaximumStepsPerSecond)
+    }
+
+    /// Saving can fail after the sync - `ActiveHeadphoneWorkoutDraftSaver.save` throws from several
+    /// places - and the climber is then free to retype the count and tap Save again. The second
+    /// sync must measure its gap from the checkpoint the draft has evidence for, not from the
+    /// moment of the first sync, or the clamped span is credited after all.
+    @Test("Syncing a clamped recovery twice does not re-credit the gap")
+    func repeatedRecoverySyncIsIdempotent() throws {
+        let modelContext = try makeModelContext()
+        let trackedSeconds: TimeInterval = 1_800
+        let gapSeconds: TimeInterval = 8 * 24 * 60 * 60
+        let draft = makeDraft(
+            trackedSeconds: trackedSeconds,
+            trackedSteps: 3_000,
+            in: modelContext
+        )
+        let store = makeStore()
+        let syncedAt = Self.startedAt.addingTimeInterval(trackedSeconds + gapSeconds)
+
+        try store.applyRecoveryStepSync(
+            correctedSteps: 3_400,
+            to: draft,
+            in: modelContext,
+            syncedAt: syncedAt
+        )
+        try store.applyRecoveryStepSync(
+            correctedSteps: 3_500,
+            to: draft,
+            in: modelContext,
+            syncedAt: syncedAt.addingTimeInterval(60)
+        )
+
+        #expect(draft.durationSeconds == trackedSeconds)
+        #expect(draft.steps == 3_500)
+        #expect(draft.durationSeconds <= Self.ruleMaximumDurationSeconds)
+    }
+
     // MARK: - Helpers
 
     private func makeModelContext() throws -> ModelContext {
