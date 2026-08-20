@@ -381,43 +381,20 @@ struct SentryMaskInteractionTests {
         awaitingMask: Bool = false,
         _ body: (UIWindow, UIView) throws -> Void
     ) async throws {
-        let controller = UIHostingController(
-            rootView: view
-                .frame(width: surfaceSize.width, height: surfaceSize.height)
-                .transaction { $0.disablesAnimations = true }
-        )
-        controller.view.frame = CGRect(origin: .zero, size: surfaceSize)
-
-        let scene = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first
-        let window = scene.map { UIWindow(windowScene: $0) }
-            ?? UIWindow(frame: CGRect(origin: .zero, size: surfaceSize))
-        window.frame = CGRect(origin: .zero, size: surfaceSize)
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        defer {
-            window.isHidden = true
-            window.rootViewController = nil
-            window.windowScene = nil
-        }
-
-        controller.view.setNeedsLayout()
-        controller.view.layoutIfNeeded()
-        try await Task.sleep(for: .milliseconds(150))
-
-        if awaitingMask {
-            for _ in 0..<40 where controller.view.descendants(of: SentryMaskedRegionView.self).isEmpty {
-                try await Task.sleep(for: .milliseconds(100))
-                controller.view.layoutIfNeeded()
+        try await SentryMaskTestHost.hosting(view, size: surfaceSize) { window, root in
+            if awaitingMask {
+                for _ in 0..<40 where root.descendants(of: SentryMaskedRegionView.self).isEmpty {
+                    try await Task.sleep(for: .milliseconds(100))
+                    root.layoutIfNeeded()
+                }
             }
+
+            root.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(50))
+            root.layoutIfNeeded()
+
+            try body(window, root)
         }
-
-        controller.view.layoutIfNeeded()
-        try await Task.sleep(for: .milliseconds(50))
-        controller.view.layoutIfNeeded()
-
-        try body(window, controller.view)
     }
 
     // MARK: - Surfaces
@@ -503,53 +480,16 @@ struct SentryMaskInteractionTests {
     /// A real one-second movie on disk. `FullScreenPhotoView` asks
     /// `RemoteMediaLoader` whether the asset is playable before it builds the
     /// player, so a stub URL never reaches the masked player at all.
+    ///
+    /// Nothing here reads the picture, so the frame is flat and the encoder is
+    /// left on its defaults - unlike the masking suite, whose comparison lives
+    /// or dies on what survives compression.
     private static func videoFile(size: CGSize = CGSize(width: 320, height: 568)) async throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appending(path: "ascend-mask-interaction-\(UUID().uuidString).mov")
-        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
-        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: Int(size.width),
-            AVVideoHeightKey: Int(size.height)
-        ])
-        input.expectsMediaDataInRealTime = false
-        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
-            assetWriterInput: input,
-            sourcePixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32ARGB]
+        try await SentryMaskTestMovie.write(
+            showing: SentryMaskTestMovie.flatFrame(size: size),
+            size: size,
+            namePrefix: "ascend-mask-interaction"
         )
-        writer.add(input)
-        try #require(writer.startWriting(), "could not start writing the fixture movie")
-        writer.startSession(atSourceTime: .zero)
-
-        for index in 0..<12 {
-            let pool = try #require(adaptor.pixelBufferPool, "the writer produced no pixel buffer pool")
-            var buffer: CVPixelBuffer?
-            CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
-            let pixelBuffer = try #require(buffer)
-            CVPixelBufferLockBaseAddress(pixelBuffer, [])
-            if let context = CGContext(
-                data: CVPixelBufferGetBaseAddress(pixelBuffer),
-                width: Int(size.width),
-                height: Int(size.height),
-                bitsPerComponent: 8,
-                bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer),
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
-            ) {
-                context.setFillColor(UIColor.darkGray.cgColor)
-                context.fill(CGRect(origin: .zero, size: size))
-            }
-            CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
-
-            while !input.isReadyForMoreMediaData {
-                try await Task.sleep(for: .milliseconds(5))
-            }
-            adaptor.append(pixelBuffer, withPresentationTime: CMTime(value: CMTimeValue(index), timescale: 12))
-        }
-
-        input.markAsFinished()
-        await writer.finishWriting()
-        return url
     }
 }
 
@@ -564,15 +504,4 @@ private struct ProbeButtonRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: SentryProbeButton, context: Context) {}
-}
-
-private extension UIView {
-    /// Every view of `type` in this subtree, self included.
-    func descendants<T: UIView>(of type: T.Type) -> [T] {
-        var found = (self as? T).map { [$0] } ?? []
-        for subview in subviews {
-            found.append(contentsOf: subview.descendants(of: type))
-        }
-        return found
-    }
 }

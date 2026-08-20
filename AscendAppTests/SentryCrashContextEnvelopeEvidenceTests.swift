@@ -30,14 +30,25 @@ import UIKit
 ///   the picture is asserted present or absent accordingly - never skipped.
 ///
 /// **The window count is read out of the SDK's own view tree, not out of a
-/// second reading of `UIApplication`.** Both attachments are built from one
-/// `getWindows()` call: `SentryScreenshotSource.appScreenshots()` returns
-/// nothing for an empty list, while `SentryViewHierarchyProviderHelper`
-/// serialises that same empty list into valid JSON and attaches it anyway. The
-/// tree therefore reports what the SDK actually had in hand, and keying the
-/// picture on it means this suite cannot disagree with the SDK by
-/// re-implementing a query the SDK is free to change. `hostDescription` still
-/// reads the host directly, but only to say so in the record.
+/// second reading of `UIApplication`.** Each attachment makes its own read that
+/// resolves to the same `SentryApplication.getWindows()` -
+/// `SentryScreenshotSource.appScreenshots()` through
+/// `SentryDependencyContainerSwiftHelper.windows()`, and
+/// `SentryViewHierarchyProvider.appViewHierarchy()` through its own
+/// `applicationProvider()?.getWindows()`. They part ways on an empty list: the
+/// screenshot pass returns nothing, while the tree serialises that same empty
+/// list into valid JSON and attaches it anyway. The tree therefore reports what
+/// the SDK had in hand when it wrote the tree, and keying the picture on it
+/// means this suite cannot disagree with the SDK by re-implementing a query the
+/// SDK is free to change. `hostDescription` still reads the host directly, but
+/// only to say so in the record.
+///
+/// The known limit that follows from two reads rather than one: a host whose
+/// scene changes activation state *between* them can hand the screenshot pass
+/// an empty list and the tree a window, and this suite then fails on the
+/// severe-side screenshot expectation. That is a host-state failure wearing a
+/// policy regression's clothes, and the printed per-run line is what tells the
+/// two apart - read it before concluding the policy changed.
 ///
 /// The severe event's own `screenshot.png` is written out where the host
 /// produced one, so what a triager would open in Sentry can be looked at
@@ -49,7 +60,7 @@ import UIKit
 /// Artifacts land in `ASCEND_EVIDENCE_DIR` when it is set, and in the test
 /// host's temporary directory otherwise.
 @MainActor
-@Suite(.serialized, .hostsAWindow)
+@Suite(.serialized, .hostsAWindow, .ownsTheSentrySDK)
 struct SentryCrashContextEnvelopeEvidenceTests {
     /// A DSN whose host refuses the connection immediately, so nothing this
     /// suite captures can reach a Sentry project and every envelope stays where

@@ -66,17 +66,34 @@ extension SentryEventClassification {
     ///
     /// Only reached for error events, which are the ones `isErrorEvent` admits.
     ///
-    /// Every branch resolves to a bounded string in practice - an exception type
-    /// is an error domain, a mechanism a fixed vocabulary - and
+    /// The exception branch reads the **last** entry, because that is the error
+    /// that was reported: `SentryClient.buildErrorEvent` flattens the
+    /// `NSUnderlyingErrorKey` chain and appends it in reverse, so `first` is the
+    /// innermost cause and `last` is the root. Keying on the innermost one would
+    /// make every distinct error that happens to wrap the same cause share a
+    /// single allowance.
+    ///
+    /// The domain alone is likewise too coarse. `exceptionForError` sets `type`
+    /// to `error.domain` and carries the code separately in
+    /// `mechanism.meta.error`, which is what Sentry's own grouping keys on - so
+    /// the code joins the key whenever the SDK recorded one, and
+    /// `FIRFirestoreErrorDomain` code 7 keeps its own budget while code 14
+    /// floods.
+    ///
+    /// Every branch resolves to a bounded string in practice - an error domain,
+    /// a mechanism from a fixed vocabulary, an integer code - and
     /// `SentryEventFloodGuard` bounds the tracked key count regardless.
     private static func groupKey(for event: Event) -> String {
         if let fingerprint = event.fingerprint, !fingerprint.isEmpty {
             return fingerprint.joined(separator: "|")
         }
 
-        if let exception = event.exceptions?.first {
+        if let exception = event.exceptions?.last {
             let mechanism = exception.mechanism?.type ?? "none"
-            return "\(exception.type ?? "exception")|\(mechanism)"
+            let underlying = exception.mechanism?.meta?.error
+            let domain = underlying?.domain ?? exception.type ?? "exception"
+            let code = underlying.map { "|\($0.code)" } ?? ""
+            return "\(domain)|\(mechanism)\(code)"
         }
 
         if let error = event.error as NSError? {

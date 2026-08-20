@@ -302,57 +302,30 @@ struct SentryMaskingEvidenceTests {
         savedAs name: String? = nil,
         settledWhen isSettled: @MainActor (UIView) -> Bool = { _ in true }
     ) async throws -> Bitmap {
-        let controller = UIHostingController(
-            rootView: view
-                .frame(width: screenSize.width, height: screenSize.height)
-                .transaction { $0.disablesAnimations = true }
-        )
-        controller.overrideUserInterfaceStyle = .dark
-        controller.view.frame = CGRect(origin: .zero, size: screenSize)
+        try await SentryMaskTestHost.hosting(view, size: screenSize, interfaceStyle: .dark) { _, root in
+            try await settle(root, isSettled)
 
-        let scene = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first
-        let window = scene.map { UIWindow(windowScene: $0) }
-            ?? UIWindow(frame: CGRect(origin: .zero, size: screenSize))
-        window.frame = CGRect(origin: .zero, size: screenSize)
-        window.overrideUserInterfaceStyle = .dark
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        defer {
-            window.isHidden = true
-            window.rootViewController = nil
-            window.windowScene = nil
+            let image: UIImage
+            if masked {
+                // The very options the app hands the SDK, and the same renderer
+                // selection the SDK makes from them.
+                let options = SentryOptionsFactory.makeScreenshotOptions()
+                let photographer = SentryViewPhotographer(
+                    renderer: HierarchyRenderer(),
+                    redactOptions: options,
+                    enableMaskRendererV2: options.enableViewRendererV2
+                )
+                image = photographer.image(view: root)
+            } else {
+                image = HierarchyRenderer().render(view: root)
+            }
+
+            if let name {
+                try save(image, named: name)
+            }
+
+            return try Bitmap(image)
         }
-
-        controller.view.setNeedsLayout()
-        controller.view.layoutIfNeeded()
-        // A turn of the run loop so SwiftUI has committed its hosting views and
-        // layers before the hierarchy is walked for redaction regions.
-        try await Task.sleep(for: .milliseconds(150))
-        controller.view.layoutIfNeeded()
-        try await settle(controller.view, isSettled)
-
-        let image: UIImage
-        if masked {
-            // The very options the app hands the SDK, and the same renderer
-            // selection the SDK makes from them.
-            let options = SentryOptionsFactory.makeScreenshotOptions()
-            let photographer = SentryViewPhotographer(
-                renderer: HierarchyRenderer(),
-                redactOptions: options,
-                enableMaskRendererV2: options.enableViewRendererV2
-            )
-            image = photographer.image(view: controller.view)
-        } else {
-            image = HierarchyRenderer().render(view: controller.view)
-        }
-
-        if let name {
-            try save(image, named: name)
-        }
-
-        return try Bitmap(image)
     }
 
     /// Spins the run loop until the surface says it is ready to be photographed,
@@ -633,59 +606,19 @@ struct SentryMaskingEvidenceTests {
     /// A constant movie is what makes the two renders comparable at all: two of
     /// the three player surfaces start playing by themselves, so nothing pins
     /// them to the same timestamp. Every frame is a keyframe at a bitrate high
-    /// enough that the flat blocks come back out as they went in.
+    /// enough that the flat blocks come back out as they went in - without that
+    /// the mirror stops being a pixel permutation and the averaged mask fills
+    /// stop matching.
     private static func movie(showing frame: UIImage) async throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appending(path: "ascend-masking-evidence-\(UUID().uuidString).mov")
-        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
-        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: Int(videoSize.width),
-            AVVideoHeightKey: Int(videoSize.height),
-            AVVideoCompressionPropertiesKey: [
+        try await SentryMaskTestMovie.write(
+            showing: frame,
+            size: videoSize,
+            compressionProperties: [
                 AVVideoAverageBitRateKey: 16_000_000,
                 AVVideoMaxKeyFrameIntervalKey: 1
-            ]
-        ])
-        input.expectsMediaDataInRealTime = false
-        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
-            assetWriterInput: input,
-            sourcePixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32ARGB]
+            ],
+            namePrefix: "ascend-masking-evidence"
         )
-        writer.add(input)
-        try #require(writer.startWriting(), "could not start writing the fixture movie")
-        writer.startSession(atSourceTime: .zero)
-
-        let cgFrame = try #require(frame.cgImage, "the fixture frame has no bitmap")
-
-        for index in 0..<12 {
-            let pool = try #require(adaptor.pixelBufferPool, "the writer produced no pixel buffer pool")
-            var buffer: CVPixelBuffer?
-            CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
-            let pixelBuffer = try #require(buffer)
-            CVPixelBufferLockBaseAddress(pixelBuffer, [])
-            if let context = CGContext(
-                data: CVPixelBufferGetBaseAddress(pixelBuffer),
-                width: Int(videoSize.width),
-                height: Int(videoSize.height),
-                bitsPerComponent: 8,
-                bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer),
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
-            ) {
-                context.draw(cgFrame, in: CGRect(origin: .zero, size: videoSize))
-            }
-            CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
-
-            while !input.isReadyForMoreMediaData {
-                try await Task.sleep(for: .milliseconds(5))
-            }
-            adaptor.append(pixelBuffer, withPresentationTime: CMTime(value: CMTimeValue(index), timescale: 12))
-        }
-
-        input.markAsFinished()
-        await writer.finishWriting()
-        return url
     }
 
     /// Monospaced so a reordering of the same characters renders to exactly the
@@ -706,17 +639,6 @@ private extension UIImage {
             context.cgContext.scaleBy(x: -1, y: 1)
             draw(at: .zero)
         }
-    }
-}
-
-private extension UIView {
-    /// The first view of `type` in this subtree, self included.
-    func firstDescendant<T: UIView>(of type: T.Type) -> T? {
-        if let match = self as? T { return match }
-        for subview in subviews {
-            if let match = subview.firstDescendant(of: type) { return match }
-        }
-        return nil
     }
 }
 

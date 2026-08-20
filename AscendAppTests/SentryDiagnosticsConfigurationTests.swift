@@ -9,7 +9,7 @@ import Testing
 /// them: over 30 days staging sent 791 and dev 533, against production's 23. Only
 /// production reports now, and the dev case is proved against the live SDK
 /// rather than by reading the source.
-@Suite(.serialized)
+@Suite(.serialized, .ownsTheSentrySDK)
 struct SentryDiagnosticsConfigurationTests {
     private static let dsn = "https://examplePublicKey@o0.ingest.sentry.io/0"
 
