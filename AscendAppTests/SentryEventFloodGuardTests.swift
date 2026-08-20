@@ -151,13 +151,39 @@ struct SentryEventFloodGuardTests {
         #expect(SentryFloodGuardEvent(event: event).isProtected)
     }
 
-    @Test(arguments: ["replay_video", "transaction"])
-    func everyPayloadTheSDKStampsATypeOnIsClassifiedAsNotAnError(type: String) {
-        // Only error events leave `type` nil; the SDK sets it on everything else.
+    @Test(arguments: ["replay_video", "transaction", "feedback", "profile"])
+    func aPayloadCarryingANonErrorTypeIsNotMeteredAsOne(type: String) {
         let event = Event(level: .info)
         event.type = type
 
         #expect(!SentryFloodGuardEvent(event: event).isErrorEvent)
+    }
+
+    /// sentry-cocoa 9.18 leaves `type` nil on errors, but Sentry's other SDKs
+    /// spell it out. If this SDK ever followed, reading "not an error" off the
+    /// mere presence of a type would exempt every event and leave the guard
+    /// bounding nothing at all, with no other test noticing.
+    @Test(arguments: [nil, "error"])
+    func anErrorIsMeteredUnderEitherSpellingOfItsType(type: String?) {
+        let event = Event(level: .error)
+        event.type = type
+
+        #expect(SentryFloodGuardEvent(event: event).isErrorEvent)
+    }
+
+    @Test
+    func theGuardStillBoundsAFloodOfExplicitlyTypedErrors() {
+        let clock = TestClock()
+        let guardUnderTest = SentryEventFloodGuard(limits: Self.limits, now: clock.now)
+
+        let verdicts = (0..<10).map { _ in
+            let event = Event(level: .error)
+            event.type = "error"
+            event.fingerprint = ["com.google.fcm", "505"]
+            return guardUnderTest.allows(SentryFloodGuardEvent(event: event))
+        }
+
+        #expect(verdicts.filter { $0 }.count == Self.limits.perKeyCap)
     }
 
     @Test
