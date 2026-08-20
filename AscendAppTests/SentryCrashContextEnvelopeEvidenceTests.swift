@@ -19,12 +19,17 @@ import UIKit
 /// - An ordinary handled error - the shape all 22 `recordError` call sites
 ///   produce - must carry no attachment at all, because producing one renders
 ///   the live UI synchronously on the main thread.
-/// - A severe event must still carry both, so the gate cannot be read as
-///   "screen captures were quietly turned off".
+/// - A severe event must still carry the view tree, so the gate cannot be read
+///   as "screen captures were quietly turned off". The tree is the attachment
+///   that answers only to the policy, so it carries that claim on every host.
+/// - The picture needs one thing more than the policy's yes: a window the SDK
+///   is willing to photograph. `hostIsPhotographable(_:)` asks that question the
+///   way the SDK asks it, and the picture is then asserted present or absent
+///   accordingly - never skipped.
 ///
-/// The severe event's own `screenshot.png` is written out, so what a triager
-/// would open in Sentry can be looked at directly: a climber's heart-rate trace
-/// and account identity, painted out.
+/// The severe event's own `screenshot.png` is written out where the host
+/// produced one, so what a triager would open in Sentry can be looked at
+/// directly: a climber's heart-rate trace and account identity, painted out.
 ///
 /// Artifacts land in `ASCEND_EVIDENCE_DIR` when it is set, and in the test
 /// host's temporary directory otherwise.
@@ -61,6 +66,11 @@ struct SentryCrashContextEnvelopeEvidenceTests {
         }
         let handledEnvelope = try await Self.envelope(for: handled, in: cache)
 
+        // Read in the same main-actor turn as the capture, with no suspension
+        // between the two: the SDK asks this question on the main thread from
+        // inside `capture`, and scene activation changes are delivered there
+        // too, so the answer cannot move underneath it.
+        let isPhotographable = Self.hostIsPhotographable(window)
         let severe = SentrySDK.capture(event: Self.unhandledEvent())
         let severeEnvelope = try await Self.envelope(for: severe, in: cache)
 
@@ -72,13 +82,36 @@ struct SentryCrashContextEnvelopeEvidenceTests {
             """
         )
 
-        #expect(
-            severeEnvelope.attachmentNames.contains("screenshot.png"),
-            "a severe event shipped no screenshot: \(severeEnvelope.attachmentNames)"
-        )
+        // The view tree answers to the capture policy alone - the SDK writes one
+        // whether or not it was handed a window - so it carries the "a severe
+        // event still gets its context" half of the rule on every host.
         #expect(
             severeEnvelope.attachmentNames.contains("view-hierarchy.json"),
             "a severe event shipped no view hierarchy: \(severeEnvelope.attachmentNames)"
+        )
+
+        guard isPhotographable else {
+            // Nothing to photograph is not the policy declining: the picture is
+            // the one attachment `SentryScreenshotSource` drops when the window
+            // list is empty, while the tree above still ships. Assert that
+            // shape rather than skipping, so this branch cannot become a hole.
+            #expect(
+                !severeEnvelope.attachmentNames.contains("screenshot.png"),
+                """
+                the SDK photographed a host it has no window for (\(Self.hostDescription)): \
+                \(severeEnvelope.attachmentNames)
+                """
+            )
+            try Self.writeArtifacts(handled: handledEnvelope, severe: severeEnvelope, photographedHost: false)
+            return
+        }
+
+        #expect(
+            severeEnvelope.attachmentNames.contains("screenshot.png"),
+            """
+            a severe event shipped no screenshot from a host the SDK can photograph \
+            (\(Self.hostDescription)): \(severeEnvelope.attachmentNames)
+            """
         )
 
         // The attachments are of the screen that was up, not of an empty window
@@ -100,7 +133,7 @@ struct SentryCrashContextEnvelopeEvidenceTests {
             "the captured tree carries no mask marker, so the screenshot is not of the masked climber screen"
         )
 
-        try Self.writeArtifacts(handled: handledEnvelope, severe: severeEnvelope)
+        try Self.writeArtifacts(handled: handledEnvelope, severe: severeEnvelope, photographedHost: true)
     }
 
     // MARK: - The climber's screen
@@ -114,6 +147,55 @@ struct SentryCrashContextEnvelopeEvidenceTests {
             .compactMap { $0 as? UIWindowScene }
             .compactMap { ($0.delegate as? UIWindowSceneDelegate)?.window ?? nil }
             .first
+    }
+
+    /// Whether the SDK would find `window` to photograph, asked the way
+    /// `SentryApplication.getWindows()` asks it.
+    ///
+    /// It takes a scene-delegate window only from a window scene that is
+    /// `.foregroundActive`, then falls back to `UIApplicationDelegate.window` -
+    /// which `AscendAppDelegate` does not implement. A host that is not
+    /// foreground-active therefore hands the SDK an empty window list, and the
+    /// two attachments part ways: `SentryScreenshotSource.appScreenshots()`
+    /// returns nothing for an empty list, while the view hierarchy serialises
+    /// that same empty list into valid JSON and attaches anyway. A simulator
+    /// under CI does not reliably keep the host foreground-active, and that is a
+    /// property of the machine running the test rather than of Ascend's capture
+    /// policy - so it is read here rather than assumed.
+    ///
+    /// Zero-size windows are excluded for the same reason: `appScreenshots()`
+    /// skips them to avoid a zero-size image context.
+    private static func hostIsPhotographable(_ window: UIWindow) -> Bool {
+        guard window.bounds.width > 0, window.bounds.height > 0 else { return false }
+
+        return UIApplication.shared.connectedScenes.contains { scene in
+            guard scene.activationState == .foregroundActive,
+                  let delegate = scene.delegate as? UIWindowSceneDelegate
+            else { return false }
+
+            return (delegate.window ?? nil) === window
+        }
+    }
+
+    /// The host state both screenshot expectations name, so a future failure
+    /// says which side of the precondition it landed on instead of only that an
+    /// attachment was missing.
+    private static var hostDescription: String {
+        let scenes = UIApplication.shared.connectedScenes.map { scene in
+            "\(type(of: scene)) \(name(of: scene.activationState))"
+        }
+        let bounds = appWindow().map { "\($0.bounds.size)" } ?? "no scene-delegate window"
+        return "window \(bounds); scenes [\(scenes.joined(separator: ", "))]"
+    }
+
+    private static func name(of state: UIScene.ActivationState) -> String {
+        switch state {
+        case .foregroundActive: "foregroundActive"
+        case .foregroundInactive: "foregroundInactive"
+        case .background: "background"
+        case .unattached: "unattached"
+        @unknown default: "activation=\(state.rawValue)"
+        }
     }
 
     /// Real Ascend surfaces, so the screenshot the SDK takes is the one a crash
@@ -309,9 +391,28 @@ struct SentryCrashContextEnvelopeEvidenceTests {
         return directory
     }
 
-    private static func writeArtifacts(handled: StoredEnvelope, severe: StoredEnvelope) throws {
+    private static func writeArtifacts(
+        handled: StoredEnvelope,
+        severe: StoredEnvelope,
+        photographedHost: Bool
+    ) throws {
         let directory = evidenceDirectory
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let picture = photographedHost
+            ? """
+              The severe event's screenshot.png and view-hierarchy.json are written beside this
+              file. The picture is the SDK's own capture of the climber screen that was up - a
+              heart-rate chart above an account name and email - masked by
+              SentryOptionsFactory.makeScreenshotOptions, so the trace and every label are painted
+              over before the PNG exists.
+              """
+            : """
+              This host handed the SDK no window to photograph (\(hostDescription)), so the severe
+              event carries its view hierarchy and no picture - the SDK drops the screenshot for an
+              empty window list. The masked pixels themselves are proven by
+              SentryMaskingEvidenceTests, which renders through the same shipped screenshot options.
+              """
 
         let transcript = """
         Sentry crash context: what each event actually put on the wire
@@ -330,11 +431,7 @@ struct SentryCrashContextEnvelopeEvidenceTests {
           envelope items: \(severe.itemSummary)
           attachments: \(severe.attachmentNames.joined(separator: ", "))
 
-        The severe event's screenshot.png and view-hierarchy.json are written beside this
-        file. The picture is the SDK's own capture of the climber screen that was up - a
-        heart-rate chart above an account name and email - masked by
-        SentryOptionsFactory.makeScreenshotOptions, so the trace and every label are painted
-        over before the PNG exists.
+        \(picture)
 
         """
 
