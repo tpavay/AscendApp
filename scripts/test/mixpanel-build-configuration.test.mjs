@@ -189,9 +189,25 @@ test("Mixpanel SDK imports stay inside the telemetry adapter", async () => {
 
   const project = await readFile(projectPath, "utf8");
   const appSource = sources.map(([, source]) => source).join("\n");
+
+  // Mixpanel's replay symbols are distinctive, so these can be banned app-wide.
   assert.doesNotMatch(
     `${project}\n${appSource}`,
-    /MixpanelSessionReplay|SessionReplay\.initialize|sessionReplay/i,
+    /MixpanelSessionReplay|SessionReplay\.initialize/i,
+    "Mixpanel session replay must stay disabled"
+  );
+
+  // The bare term is scoped to the adapter files. `import Mixpanel` is asserted
+  // above to appear nowhere else, so a Mixpanel replay call could only live
+  // here - and Sentry legitimately writes `options.sessionReplay` elsewhere, to
+  // pin both of its sample rates to zero (docs/sentry-setup.md).
+  const adapterSource = sources
+    .filter(([path]) => adapterPaths.includes(path))
+    .map(([, source]) => source)
+    .join("\n");
+  assert.doesNotMatch(
+    adapterSource,
+    /sessionReplay/i,
     "Mixpanel session replay must stay disabled"
   );
 });

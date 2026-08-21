@@ -98,6 +98,7 @@ struct AscendTrendChart: View {
                 }
             }
         }
+        .sentryMasked()
     }
 
     private var points: [IndexedValue] {

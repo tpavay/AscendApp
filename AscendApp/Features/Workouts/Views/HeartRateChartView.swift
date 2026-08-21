@@ -359,6 +359,7 @@ struct HeartRateChartView: View {
             
             if dataSet.canPlotLine {
                 chartView
+                    .sentryMasked()
             } else {
                 unavailableChartView
             }
