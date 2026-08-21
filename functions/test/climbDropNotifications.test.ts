@@ -13,8 +13,11 @@ import {
   availableClimbIds,
   buildClimbDropDispatchId,
   buildClimbDropMessage,
+  climbDropNotificationTestHooks,
   detectNewlyAvailableClimbs,
   mergeAnnouncedClimbIds,
+  normalizeCatalogClimbs,
+  planDispatchAdvance,
   referenceStepCount,
   runClimbDropSweep,
 } from "../src/climbDropNotifications.js";
@@ -133,6 +136,8 @@ function makeHarness(setup: {
   let catalog = setup.catalog;
   let catalogVersion = setup.catalogVersion;
   let createdAtCounter = 0;
+  let dispatchWriteFailures = 0;
+  let unclaimableTokenHashes = new Set<string>();
   let senderBehaviour: (
     tokens: ClimbDropDevice[]
   ) => ClimbDropSendOutcome[] = (tokens) =>
@@ -165,12 +170,24 @@ function makeHarness(setup: {
     deliveredTokenHashes(): string[] {
       return sendCalls.flatMap((call) => call.tokenHashes);
     },
+    dispatchCursors(): (string | null)[] {
+      return [...dispatchDocuments.values()].map((one) => one.deviceCursor);
+    },
+    dispatchIds(): string[] {
+      return [...dispatchDocuments.keys()];
+    },
     dispatchStates(): string[] {
       return [...dispatchDocuments.values()].map((one) => one.state);
+    },
+    failNextDispatchWrites(count: number) {
+      dispatchWriteFailures = count;
     },
     publish(nextCatalog: CatalogClimb[], nextVersion: number) {
       catalog = nextCatalog;
       catalogVersion = nextVersion;
+    },
+    setUnclaimableTokenHashes(tokenHashes: string[]) {
+      unclaimableTokenHashes = new Set(tokenHashes);
     },
     setSenderBehaviour(
       behaviour: (tokens: ClimbDropDevice[]) => ClimbDropSendOutcome[]
@@ -209,15 +226,44 @@ function makeHarness(setup: {
     },
   };
 
+  /**
+   * Records the baseline the way the state document does.
+   * @param {string[]} announcedClimbIds Monotonic baseline.
+   * @param {number | null} version Catalogue version just read.
+   * @return {void}
+   */
+  function writeCatalogCheck(
+    announcedClimbIds: string[],
+    version: number | null
+  ) {
+    state = {
+      announcedClimbIds,
+      lastCatalogVersion: version,
+      sendingEnabled: state?.sendingEnabled !== false,
+    };
+  }
+
   const store = {
+    // Mirrors the Firestore store: the same guard runs inside its
+    // transaction, so a completed drop stays completed and the cursor only
+    // ever moves forward.
     async advanceDispatch(
       dispatchId: string,
       cursor: string | null
     ) {
       const dispatch = dispatchDocuments.get(dispatchId);
-      if (dispatch) {
-        dispatch.deviceCursor = cursor;
-        dispatch.state = "sending";
+      if (!dispatch) {
+        return;
+      }
+      const advance = planDispatchAdvance(
+        {deviceCursor: dispatch.deviceCursor, state: dispatch.state},
+        cursor
+      );
+      if (advance.state) {
+        dispatch.state = advance.state;
+      }
+      if (advance.deviceCursor !== undefined) {
+        dispatch.deviceCursor = advance.deviceCursor;
       }
     },
 
@@ -225,14 +271,21 @@ function makeHarness(setup: {
       const claimed = receipts.get(dispatchId) ?? new Map<string, string>();
       receipts.set(dispatchId, claimed);
       const winners: ClimbDropDevice[] = [];
+      let unclaimedCount = 0;
       for (const candidate of candidates) {
         if (claimed.has(candidate.tokenHash)) {
+          continue;
+        }
+        // A transient Firestore refusal on this one create. The receipt never
+        // lands, so the device stays unclaimed and unsent.
+        if (unclaimableTokenHashes.has(candidate.tokenHash)) {
+          unclaimedCount += 1;
           continue;
         }
         claimed.set(candidate.tokenHash, "claimed");
         winners.push(candidate);
       }
-      return winners;
+      return {claimed: winners, unclaimedCount};
     },
 
     async completeDispatch(dispatchId: string) {
@@ -242,15 +295,25 @@ function makeHarness(setup: {
       }
     },
 
-    async createDispatchIfAbsent(dispatch: {
-      body: string;
-      catalogVersion: number | null;
-      climbIds: string[];
-      id: string;
-      primaryClimbId: string;
-      title: string;
-    }) {
+    // Both writes or neither, the way the Firestore batch commits them.
+    async createDispatchWithBaseline(
+      dispatch: {
+        body: string;
+        catalogVersion: number | null;
+        climbIds: string[];
+        id: string;
+        primaryClimbId: string;
+        title: string;
+      },
+      announcedClimbIds: string[],
+      version: number | null
+    ) {
+      if (dispatchWriteFailures > 0) {
+        dispatchWriteFailures -= 1;
+        throw new Error("the dispatch write was refused");
+      }
       if (dispatchDocuments.has(dispatch.id)) {
+        writeCatalogCheck(announcedClimbIds, version);
         return false;
       }
       createdAtCounter += 1;
@@ -260,6 +323,7 @@ function makeHarness(setup: {
         deviceCursor: null,
         state: "pending",
       });
+      writeCatalogCheck(announcedClimbIds, version);
       return true;
     },
 
@@ -315,11 +379,7 @@ function makeHarness(setup: {
       announcedClimbIds: string[],
       version: number | null
     ) {
-      state = {
-        announcedClimbIds,
-        lastCatalogVersion: version,
-        sendingEnabled: state?.sendingEnabled !== false,
-      };
+      writeCatalogCheck(announcedClimbIds, version);
     },
 
     async recordSendOutcomes(
@@ -737,4 +797,153 @@ test("alert copy stays inside the push field limits", () => {
 
 test("an empty drop is a programming error, not a silent no-op", () => {
   assert.throws(() => buildClimbDropMessage([]), /at least one climb/);
+});
+
+test("a dispatch and its baseline move together or not at all", async () => {
+  const harness = makeHarness({
+    catalog: [EMPIRE],
+    catalogVersion: 10,
+    registrations: devices(2),
+    state: {announcedClimbIds: [], lastCatalogVersion: 9},
+  });
+
+  // The write that creates the dispatch and advances the baseline fails. A
+  // baseline that could land alone would record Empire State as announced with
+  // nothing to announce it; a dispatch that could land alone would let the next
+  // detection fold Empire State into a differently-hashed union whose receipts
+  // are a fresh ledger - a second push for a climb already sent.
+  harness.failNextDispatchWrites(1);
+  await assert.rejects(harness.sweep(), /dispatch write was refused/);
+  assert.deepEqual(harness.dispatchIds(), []);
+  assert.deepEqual(harness.state?.announcedClimbIds, []);
+  assert.equal(harness.state?.lastCatalogVersion, 9);
+
+  // A second climb opens before the retry, so detection now returns the union.
+  harness.publish([EMPIRE, WILLIS], 11);
+  await harness.sweep();
+  await harness.sweep();
+
+  assert.equal(harness.dispatchIds().length, 1);
+  const delivered = harness.deliveredTokenHashes();
+  assert.equal(delivered.length, 2);
+  assert.equal(new Set(delivered).size, 2);
+});
+
+test("a device whose claim never landed keeps its place in the drop",
+  async () => {
+    const harness = makeHarness({
+      catalog: [EMPIRE],
+      catalogVersion: 10,
+      registrations: devices(4),
+      state: {announcedClimbIds: [], lastCatalogVersion: 9},
+    });
+    const options = {devicePageSize: 2};
+    harness.setUnclaimableTokenHashes(["d00002"]);
+
+    const first = await harness.sweep(options);
+
+    // One transient refusal must not abandon the receipts that already landed,
+    // and must not carry the cursor past the device it refused.
+    assert.equal(first.unclaimedCount, 1);
+    assert.deepEqual(harness.dispatchStates(), ["sending"]);
+    assert.deepEqual(harness.dispatchCursors(), ["d00001"]);
+    assert.deepEqual(harness.deliveredTokenHashes().sort(),
+      ["d00000", "d00001", "d00003"]);
+
+    harness.setUnclaimableTokenHashes([]);
+    await harness.sweep(options);
+
+    assert.deepEqual(harness.dispatchStates(), ["sent"]);
+    const delivered = harness.deliveredTokenHashes();
+    assert.deepEqual(delivered.sort(),
+      ["d00000", "d00001", "d00002", "d00003"]);
+    assert.equal(new Set(delivered).size, 4);
+  });
+
+test("a completed drop stays completed", () => {
+  assert.deepEqual(
+    planDispatchAdvance({deviceCursor: "d00099", state: "sent"}, "d00050"),
+    {},
+    "a lagging writer must not flip a finished dispatch back to sending"
+  );
+  assert.deepEqual(
+    planDispatchAdvance({deviceCursor: null, state: "pending"}, "d00099"),
+    {deviceCursor: "d00099", state: "sending"}
+  );
+});
+
+test("the device cursor only ever moves forward", () => {
+  assert.deepEqual(
+    planDispatchAdvance({deviceCursor: "d00099", state: "sending"}, "d00050"),
+    {state: "sending"},
+    "an older cursor would re-walk pages the drop has already finished"
+  );
+  assert.deepEqual(
+    planDispatchAdvance({deviceCursor: "d00099", state: "sending"}, null),
+    {state: "sending"}
+  );
+  assert.deepEqual(
+    planDispatchAdvance({deviceCursor: "d00099", state: "sending"}, "d00100"),
+    {deviceCursor: "d00100", state: "sending"}
+  );
+});
+
+test("one malformed catalogue row costs that climb, not the sweep", () => {
+  const climbs = normalizeCatalogClimbs([
+    EMPIRE,
+    {id: "no-name", releaseState: "available"},
+    {name: "No ID", releaseState: "available"},
+    "not-an-object",
+    null,
+    {...WILLIS, realStairCount: "2109", totalSteps: Number.NaN},
+  ]);
+
+  assert.deepEqual(climbs.map((climb) => climb.id),
+    ["empire-state-building", "willis-tower"]);
+  assert.equal(climbs[1].realStairCount, null);
+  assert.equal(climbs[1].totalSteps, null);
+  assert.deepEqual(availableClimbIds(climbs),
+    ["empire-state-building", "willis-tower"]);
+});
+
+test("a climb with no name falls back to its ID rather than throwing", () => {
+  const message = buildClimbDropMessage([
+    {id: "unnamed-tower", name: undefined as unknown as string,
+      realStairCount: 900, releaseState: "available"},
+  ]);
+
+  assert.equal(message.title, "New climb: unnamed-tower");
+});
+
+test("only Firestore's ALREADY_EXISTS refusal is a claimed device", () => {
+  const {isAlreadyExistsError} = climbDropNotificationTestHooks;
+
+  assert.equal(isAlreadyExistsError({code: 6}), true);
+  assert.equal(isAlreadyExistsError({code: "already-exists"}), true);
+  assert.equal(isAlreadyExistsError({code: 8}), false);
+  assert.equal(isAlreadyExistsError({code: "resource-exhausted"}), false);
+  assert.equal(isAlreadyExistsError(new Error("deadline exceeded")), false);
+  assert.equal(isAlreadyExistsError(null), false);
+  assert.equal(isAlreadyExistsError("already exists"), false);
+});
+
+test("a receipt records what actually happened to the device", () => {
+  const {receiptStateFor} = climbDropNotificationTestHooks;
+
+  assert.equal(receiptStateFor({errorCode: null, invalidToken: false,
+    ok: true, tokenHash: "d"}), "delivered");
+  assert.equal(receiptStateFor({errorCode: "messaging/internal-error",
+    invalidToken: false, ok: false, tokenHash: "d"}), "failed");
+  assert.equal(receiptStateFor({
+    errorCode: "messaging/registration-token-not-registered",
+    invalidToken: true, ok: false, tokenHash: "d"}), "invalid_token");
+});
+
+test("truncation leaves the field limit intact and marks the cut", () => {
+  const {truncate} = climbDropNotificationTestHooks;
+
+  assert.equal(truncate("Willis Tower", 80), "Willis Tower");
+  assert.equal(truncate("abcdef", 6), "abcdef");
+  assert.equal(truncate("abcdefg", 6), "abcde…");
+  assert.equal(truncate("abcde fg", 7), "abcde…");
 });

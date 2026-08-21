@@ -39,6 +39,14 @@ So the sweep polls, every five minutes, the same files the app reads:
 `climb_drop_notification_state/current` holds the baseline as `announcedClimbIds`, and it only ever **grows**.
 A climb pulled back to `hidden` and later reopened therefore does not announce twice.
 
+A catalogue row without an `id` or a `name` is skipped at fetch time.
+One malformed entry costs that climb its announcement and nothing else - detection, and every other climb in the same publish, still runs - and because a skipped climb never enters the baseline, a corrected publish announces it then.
+
+**The dispatch and the baseline are one write.**
+Creating `climb_drop_dispatches/{dispatchId}` and advancing `announcedClimbIds` commit in a single Firestore batch, so neither can outlive the other.
+Two writes break in both orders: a baseline that lands first records a climb as announced with nothing to announce it and never re-detects it, and a dispatch that lands first lets the next detection fold that climb into a differently-hashed union whose receipts are a fresh ledger - a second push for a climb already sent.
+A climb belongs to exactly one dispatch, for good, and that is what the whole no-duplicate guarantee rests on.
+
 ### Bootstrapping a new environment
 
 The first sweep in a project finds no state document, records every currently-available climb as already announced, and sends nothing.
@@ -63,7 +71,14 @@ Sending walks `notification_devices` in ordered pages of 500 - FCM's multicast c
 The claim happens **before** the send on purpose.
 A crash in between costs that page its alert; the other order would cost a duplicate push, and "never twice" is the harder half of the promise to recover from.
 
+Claims run at bounded concurrency and no single one can abandon its page.
+A create that fails for any reason other than "already exists" leaves that device unclaimed and counted (`unclaimedCount`), the page still sends to everyone it did claim, and the cursor stays where the page *started*.
+The next run re-walks that page: the devices already claimed refuse a second claim, and the ones that missed their attempt get one.
+Firing 500 unthrottled creates and rejecting the page on the first failure would do the opposite - abandon receipts that already landed, leaving those devices claimed for good and never sent to.
+
 A run processes at most 20 pages per dispatch and 3 dispatches, and the function is given the 540s timeout that budget needs - the default 60s could not execute the work the code declares.
+Because a run can outlive its own five-minute interval, the function is pinned to `maxInstances: 1` and `concurrency: 1`: two concurrent sweeps would read the same `deviceCursor` and the slower one's write would drag the drop back to a page already sent.
+Belt and braces, a page boundary can only ever move the cursor **forward**, and `state: "sent"` is terminal - `planDispatchAdvance` refuses to move a finished dispatch back into the unfinished set.
 Anything left over resumes from `deviceCursor`, which is persisted at every page boundary rather than once at the end of a run.
 Correctness never rested on that: the receipts make any resume free of duplicates.
 What it buys is that a run the platform kills mid-drop resumes at the page it finished, instead of re-scanning and re-claiming every device already alerted on every subsequent run.
@@ -107,6 +122,7 @@ This is the choke point that *defers*, not the raw FCM call - the same invariant
 **Deploy order.** Indexes before functions: `listUnfinishedDispatches` queries `state` + `createdAt` and fails without the composite index in `firestore.indexes.json`.
 
 **Watching it.** Every run logs `announceClimbDrops sweep completed` with its counters, or `announceClimbDrops sweep left drops unsent` at error level when a dispatch failed.
+A non-zero `unclaimedCount` means Firestore refused some receipt creates; those devices are re-walked on the next run, so it is a signal to watch rather than a loss - unless it stays non-zero across runs.
 
 ## What it costs
 
