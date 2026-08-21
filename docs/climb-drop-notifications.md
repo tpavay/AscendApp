@@ -71,10 +71,16 @@ Sending walks `notification_devices` in ordered pages of 500 - FCM's multicast c
 The claim happens **before** the send on purpose.
 A crash in between costs that page its alert; the other order would cost a duplicate push, and "never twice" is the harder half of the promise to recover from.
 
-Claims run at bounded concurrency and no single one can abandon its page.
-A create that fails for any reason other than "already exists" leaves that device unclaimed and counted (`unclaimedCount`), the page still sends to everyone it did claim, and the cursor stays where the page *started*.
-The next run re-walks that page: the devices already claimed refuse a second claim, and the ones that missed their attempt get one.
-Firing 500 unthrottled creates and rejecting the page on the first failure would do the opposite - abandon receipts that already landed, leaving those devices claimed for good and never sent to.
+Claims run at bounded concurrency, and each device's create gets **three** attempts with a short backoff.
+Firing 500 unthrottled creates and rejecting the page on the first failure would abandon receipts that already landed, leaving those devices claimed for good and never sent to.
+
+A device still unclaimed after its three attempts is **left behind**: it is counted in `unclaimedCount`, the page sends to everyone it did claim, and the cursor advances as normal.
+That device misses this drop, and no later run picks it up - the same trade the claim-before-send ordering already accepts.
+Holding the cursor for it instead would wedge the drop on one document: the same page re-walked every run, the dispatch never completing, and one of the three per-run slots held for good.
+A drop that cannot finish is the broken promise; one missed device is not.
+
+Dead-token pruning (`deactivatePushTokensByHash`, shared with the operational callable) is bounded the same way, and it tolerates a per-hash failure rather than throwing.
+Pruning is housekeeping that runs *after* the send: a dead token surviving until the next drop costs far less than a stalled dispatch.
 
 A run processes at most 20 pages per dispatch and 3 dispatches, and the function is given the 540s timeout that budget needs - the default 60s could not execute the work the code declares.
 Because a run can outlive its own five-minute interval, the function is pinned to `maxInstances: 1` and `concurrency: 1`: two concurrent sweeps would read the same `deviceCursor` and the slower one's write would drag the drop back to a page already sent.
@@ -121,8 +127,9 @@ This is the choke point that *defers*, not the raw FCM call - the same invariant
 
 **Deploy order.** Indexes before functions: `listUnfinishedDispatches` queries `state` + `createdAt` and fails without the composite index in `firestore.indexes.json`.
 
-**Watching it.** Every run logs `announceClimbDrops sweep completed` with its counters, or `announceClimbDrops sweep left drops unsent` at error level when a dispatch failed.
-A non-zero `unclaimedCount` means Firestore refused some receipt creates; those devices are re-walked on the next run, so it is a signal to watch rather than a loss - unless it stays non-zero across runs.
+**Watching it.** Every run logs `announceClimbDrops sweep completed` with its counters, or an error-level line when something went wrong: `announceClimbDrops sweep left drops unsent` when a dispatch threw, and `announceClimbDrops sweep left devices unclaimed` when a run's `unclaimedCount` is non-zero.
+The per-run summary is the signal to act on - each of those devices missed the drop for good.
+The dispatch document's `unclaimedCount` is a `FieldValue.increment`, so it is a lifetime total for that drop, not a per-run reading; use it to size the loss, not to detect a new one.
 
 ## What it costs
 

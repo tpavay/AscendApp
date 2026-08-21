@@ -13,6 +13,7 @@ import {
   availableClimbIds,
   buildClimbDropDispatchId,
   buildClimbDropMessage,
+  claimReceipt,
   climbDropNotificationTestHooks,
   detectNewlyAvailableClimbs,
   mergeAnnouncedClimbIds,
@@ -829,35 +830,71 @@ test("a dispatch and its baseline move together or not at all", async () => {
   assert.equal(new Set(delivered).size, 2);
 });
 
-test("a device whose claim never landed keeps its place in the drop",
+test("a device that cannot be claimed is left behind, not blocking the page",
   async () => {
     const harness = makeHarness({
       catalog: [EMPIRE],
       catalogVersion: 10,
-      registrations: devices(4),
+      registrations: devices(6),
       state: {announcedClimbIds: [], lastCatalogVersion: 9},
     });
     const options = {devicePageSize: 2};
+    // A fault that reproduces on the same device every attempt, every run.
     harness.setUnclaimableTokenHashes(["d00002"]);
 
     const first = await harness.sweep(options);
 
-    // One transient refusal must not abandon the receipts that already landed,
-    // and must not carry the cursor past the device it refused.
+    // The rest of the run's page budget is still spent, the drop finishes, and
+    // the one device it could not claim is the only cost.
     assert.equal(first.unclaimedCount, 1);
-    assert.deepEqual(harness.dispatchStates(), ["sending"]);
-    assert.deepEqual(harness.dispatchCursors(), ["d00001"]);
-    assert.deepEqual(harness.deliveredTokenHashes().sort(),
-      ["d00000", "d00001", "d00003"]);
-
-    harness.setUnclaimableTokenHashes([]);
-    await harness.sweep(options);
-
+    assert.equal(first.dispatchesCompleted.length, 1);
     assert.deepEqual(harness.dispatchStates(), ["sent"]);
-    const delivered = harness.deliveredTokenHashes();
-    assert.deepEqual(delivered.sort(),
-      ["d00000", "d00001", "d00002", "d00003"]);
-    assert.equal(new Set(delivered).size, 4);
+    assert.deepEqual(harness.deliveredTokenHashes().sort(),
+      ["d00000", "d00001", "d00003", "d00004", "d00005"]);
+
+    // A wedged dispatch would hold its slot and re-walk the same page for
+    // good, so nothing may remain unfinished for the next run to pick up.
+    const second = await harness.sweep(options);
+    assert.equal(second.claimedCount, 0);
+    assert.equal(second.unclaimedCount, 0);
+    assert.deepEqual(harness.dispatchStates(), ["sent"]);
+  });
+
+test("a claim is retried a bounded number of times, then given up on",
+  async () => {
+    const waits: number[] = [];
+    const wait = async (milliseconds: number) => {
+      waits.push(milliseconds);
+    };
+
+    let transientAttempts = 0;
+    const transient = await claimReceipt(async () => {
+      transientAttempts += 1;
+      if (transientAttempts < 3) {
+        throw Object.assign(new Error("resource exhausted"), {code: 8});
+      }
+    }, {wait});
+
+    assert.equal(transient, true, "a transient refusal must be retried");
+    assert.equal(transientAttempts, 3);
+    assert.deepEqual(waits, [50, 100], "the backoff must grow, not spin");
+
+    let persistentAttempts = 0;
+    await assert.rejects(claimReceipt(async () => {
+      persistentAttempts += 1;
+      throw Object.assign(new Error("resource exhausted"), {code: 8});
+    }, {wait}), /resource exhausted/);
+    assert.equal(persistentAttempts, 3,
+      "a device that keeps failing must not be retried without bound");
+
+    let existingAttempts = 0;
+    const existing = await claimReceipt(async () => {
+      existingAttempts += 1;
+      throw Object.assign(new Error("already exists"), {code: 6});
+    }, {wait});
+
+    assert.equal(existing, false, "an existing receipt is not a failure");
+    assert.equal(existingAttempts, 1, "a claimed device must not be retried");
   });
 
 test("a completed drop stays completed", () => {

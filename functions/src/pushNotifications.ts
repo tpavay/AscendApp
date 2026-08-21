@@ -1,6 +1,7 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import {createHash} from "crypto";
+import {delay, runWithBoundedConcurrency} from "./concurrency";
 
 type PlainObject = Record<string, unknown>;
 
@@ -21,6 +22,8 @@ const deliverableAuthorizationStatuses = new Set([
 
 const validPlatforms = new Set(["ios"]);
 const validAudienceTypes = new Set(["all_opted_in", "user"]);
+/** Token deactivations in flight at once. Each one costs three RPCs. */
+const tokenDeactivationConcurrency = 25;
 /**
  * The FCM error codes that mean a token is dead rather than the send failed.
  *
@@ -596,17 +599,33 @@ export async function deactivatePushTokensByHash(tokenHashes: string[]) {
 
   const now = admin.firestore.Timestamp.now();
   const firestore = admin.firestore();
-  await Promise.all(tokenHashes.map(async (tokenHash) => {
-    const snapshot = await firestore
-      .collection("notification_devices")
-      .doc(tokenHash)
-      .get();
-    const uid = snapshot.data()?.uid;
-    if (typeof uid !== "string" || uid.length === 0) {
-      return;
+  // Three RPCs per hash, so the fan-out is bounded for the same reason the
+  // climb-drop claim is. Pruning is housekeeping that runs after the send has
+  // already gone out: one hash it cannot reach must not fail the caller, since
+  // a dead token surviving until the next drop is a far smaller cost than a
+  // stalled dispatch or a callable that reports a completed send as failed.
+  const failures = await runWithBoundedConcurrency(
+    tokenHashes,
+    tokenDeactivationConcurrency,
+    async (tokenHash) => {
+      const snapshot = await firestore
+        .collection("notification_devices")
+        .doc(tokenHash)
+        .get();
+      const uid = snapshot.data()?.uid;
+      if (typeof uid !== "string" || uid.length === 0) {
+        return;
+      }
+      await deactivateToken(firestore, uid, tokenHash, now);
     }
-    await deactivateToken(firestore, uid, tokenHash, now);
-  }));
+  );
+
+  if (failures.length > 0) {
+    console.error("invalid push tokens were not pruned", {
+      attemptedCount: tokenHashes.length,
+      failedCount: failures.length,
+    });
+  }
 }
 
 const grpcAbortedCode = 10;
@@ -663,15 +682,6 @@ function isTransactionContentionError(error: unknown): boolean {
     return false;
   }
   return (error as {code?: unknown}).code === grpcAbortedCode;
-}
-
-/**
- * Waits for a duration.
- * @param {number} milliseconds Delay duration.
- * @return {Promise<void>} Resolves after the delay.
- */
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 /**

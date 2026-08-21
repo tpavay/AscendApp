@@ -1,6 +1,7 @@
 import * as admin from "firebase-admin";
 import {onSchedule} from "firebase-functions/v2/scheduler";
 import {createHash} from "crypto";
+import {delay, runWithBoundedConcurrency} from "./concurrency";
 import {
   deactivatePushTokensByHash,
   fcmInvalidTokenCodes,
@@ -35,6 +36,16 @@ const MAX_DEVICE_PAGES_PER_RUN = 20;
 const MAX_DISPATCHES_PER_RUN = 3;
 /** Receipt creates in flight at once, so a page cannot flood Firestore. */
 const CLAIM_CONCURRENCY = 25;
+/**
+ * Attempts one device's receipt create gets before the drop moves on.
+ *
+ * Bounded on purpose. A device whose create keeps failing is left behind,
+ * costing that one device its alert - the same trade the claim-before-send
+ * ordering already accepts. Waiting for it instead would stall the whole
+ * drop on one document, and a drop that never finishes is the broken promise.
+ */
+const CLAIM_ATTEMPT_LIMIT = 3;
+const CLAIM_RETRY_BASE_DELAY_MS = 50;
 /** Firestore rejects an ALREADY_EXISTS create with this gRPC code. */
 const ALREADY_EXISTS_CODE = 6;
 
@@ -460,7 +471,6 @@ async function deliverDispatch(
     // its counters are Firestore increments: carrying a running total across
     // pages would add every earlier page again on every write.
     const counters = emptyCounters();
-    const pageStartCursor = cursor;
     const devicePage = await deps.store.loadDevicePage(cursor, pageSize);
     cursor = devicePage.lastTokenHash ?? cursor;
 
@@ -505,20 +515,12 @@ async function deliverDispatch(
     total.sentCount += counters.sentCount;
     total.unclaimedCount += counters.unclaimedCount;
 
-    // A device whose claim never landed has neither a receipt nor an alert, so
-    // moving the cursor past its page would cost it the drop for good. The
-    // cursor stays where the page started and the next run re-walks it: the
-    // devices already claimed refuse a second claim, and the ones that did not
-    // get their attempt.
-    if (counters.unclaimedCount > 0) {
-      await deps.store.advanceDispatch(
-        dispatch.id,
-        pageStartCursor,
-        counters
-      );
-      break;
-    }
-
+    // A device the store could not claim within its bounded attempts is left
+    // behind, and the page still advances. Holding the cursor for it would
+    // wedge the whole drop on one document: the same page would be re-walked
+    // every run, the dispatch would never complete, and it would hold one of
+    // the per-run slots for good. One device's missed alert is the smaller
+    // loss, and `unclaimedCount` is what says it happened.
     if (devicePage.exhausted) {
       completed = true;
       await deps.store.completeDispatch(dispatch.id, counters);
@@ -849,55 +851,41 @@ export function makeFirestoreClimbDropStore(
         .collection(RECEIPTS_COLLECTION);
       const now = admin.firestore.Timestamp.now();
       const claimed: ClimbDropDevice[] = [];
-      let unclaimedCount = 0;
-      let next = 0;
 
-      // Bounded concurrency, and no worker rejects. A page of 500 unthrottled
-      // creates invites the very RESOURCE_EXHAUSTED it then cannot survive,
-      // and a rejection here would abandon the receipts that already landed:
-      // those devices would be claimed for good and never sent to.
-      const workers = Array.from(
-        {length: Math.min(CLAIM_CONCURRENCY, devices.length)},
-        async () => {
-          while (next < devices.length) {
-            const device = devices[next];
-            next += 1;
-            try {
-              // A receipt names the device, never the climber. Storing the uid
-              // here would put user-keyed data outside the users/{uid} subtree,
-              // which account deletion would then owe its own sweep - and the
-              // ledger does not need it: the send question is "has this token
-              // already been alerted for this drop".
-              await receipts.doc(device.tokenHash).create({
-                claimedAt: now,
-                dispatchId,
-                errorCode: null,
-                schemaVersion: 1,
-                state: "claimed",
-              });
-              claimed.push(device);
-            } catch (error) {
-              // An existing receipt is the whole no-duplicate guarantee: this
-              // device has already been sent to for this drop, by an earlier
-              // run or by a concurrent one. Anything else leaves the device
-              // unclaimed, and the page it belongs to is re-walked.
-              if (isAlreadyExistsError(error)) {
-                continue;
-              }
-              unclaimedCount += 1;
-              console.error("climb drop receipt claim failed", {
-                dispatchId,
-                message: error instanceof Error ?
-                  error.message :
-                  "unknown_error",
-              });
-            }
+      // A receipt names the device, never the climber. Storing the uid here
+      // would put user-keyed data outside the users/{uid} subtree, which
+      // account deletion would then owe its own sweep - and the ledger does
+      // not need it: the send question is "has this token already been
+      // alerted for this drop".
+      const failures = await runWithBoundedConcurrency(
+        devices,
+        CLAIM_CONCURRENCY,
+        async (device) => {
+          const won = await claimReceipt(() => receipts
+            .doc(device.tokenHash)
+            .create({
+              claimedAt: now,
+              dispatchId,
+              errorCode: null,
+              schemaVersion: 1,
+              state: "claimed",
+            }));
+          if (won) {
+            claimed.push(device);
           }
         }
       );
-      await Promise.all(workers);
 
-      return {claimed, unclaimedCount};
+      for (const failure of failures) {
+        console.error("climb drop receipt claim failed", {
+          dispatchId,
+          message: failure.error instanceof Error ?
+            failure.error.message :
+            "unknown_error",
+        });
+      }
+
+      return {claimed, unclaimedCount: failures.length};
     },
 
     async completeDispatch(dispatchId, counters) {
@@ -1085,6 +1073,46 @@ export function makeFirestoreClimbDropStore(
 }
 
 /**
+ * Claims one device's receipt, retrying a bounded number of times.
+ *
+ * An existing receipt is the whole no-duplicate guarantee: that device has
+ * already been sent to for this drop, by an earlier run or a concurrent one,
+ * and reporting it unclaimed is not a failure. Any other refusal is retried,
+ * and then given up on - the attempts are bounded so one document cannot hold
+ * the drop open, and the caller counts the device as left behind.
+ * @param {Function} create Writes the receipt, refusing an existing one.
+ * @param {object} options Attempt bound and the wait between attempts.
+ * @return {Promise<boolean>} True when this call won the claim.
+ */
+export async function claimReceipt(
+  create: () => Promise<unknown>,
+  options: {
+    attemptLimit?: number;
+    wait?: (milliseconds: number) => Promise<void>;
+  } = {}
+): Promise<boolean> {
+  const attemptLimit = options.attemptLimit ?? CLAIM_ATTEMPT_LIMIT;
+  const wait = options.wait ?? delay;
+
+  for (let attempt = 1; attempt <= attemptLimit; attempt++) {
+    try {
+      await create();
+      return true;
+    } catch (error) {
+      if (isAlreadyExistsError(error)) {
+        return false;
+      }
+      if (attempt >= attemptLimit) {
+        throw error;
+      }
+      await wait(CLAIM_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
+    }
+  }
+
+  throw new Error("The receipt claim retry loop exited early.");
+}
+
+/**
  * The receipt state one send outcome records.
  * @param {ClimbDropSendOutcome} outcome One device's send outcome.
  * @return {string} Receipt state.
@@ -1212,6 +1240,13 @@ export const announceClimbDrops = onSchedule(
 
     if (summary.dispatchErrors.length > 0) {
       console.error("announceClimbDrops sweep left drops unsent", summary);
+      return;
+    }
+
+    // A degraded run must not read like a clean one: these devices were left
+    // behind by this drop and no later run picks them up.
+    if (summary.unclaimedCount > 0) {
+      console.error("announceClimbDrops sweep left devices unclaimed", summary);
       return;
     }
 
