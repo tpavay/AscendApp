@@ -318,6 +318,77 @@ struct CompletedClimbRankSummaryEvidenceTests {
         try writeEvidence(image: image, named: "open-session-current-rank.png")
     }
 
+    // MARK: - The population a frozen standing was measured against
+
+    /// The two standings a server can freeze for one attempt on a board of three
+    /// climbers where a single rival holds five faster attempts.
+    ///
+    /// A rank counted off entry rows read that rival as five opponents and placed
+    /// the climber 6th, while the field size beside it counted three climbers; a
+    /// clamp then rewrote 6th down to 3. The climber who finished 2nd read last
+    /// place, permanently, because the snapshot behind this surface is write-once.
+    /// Counting one population on both halves renders the position the field
+    /// actually placed.
+    @Test
+    func aFrozenStandingReadsAsThePositionTheFieldPlaced() async throws {
+        let clamped = try await frozenStanding(
+            rank: 3,
+            completedCount: 3,
+            named: "frozen-standing-clamped-3rd-of-3.png"
+        )
+
+        #expect(clamped.contains("3rd"))
+        #expect(clamped.contains("fastest of 3"))
+
+        let counted = try await frozenStanding(
+            rank: 2,
+            completedCount: 3,
+            named: "frozen-standing-counted-2nd-of-3.png"
+        )
+
+        #expect(counted.contains("2nd"))
+        #expect(counted.contains("fastest of 3"))
+    }
+
+    /// Freezes one server-published standing on this device and renders the saved
+    /// summary that reads it back, returning the copy read off the pixels.
+    private func frozenStanding(
+        rank: Int,
+        completedCount: Int,
+        named name: String
+    ) async throws -> String {
+        let store = FrozenCompletionRankStore()
+        defer { store.removeAll() }
+        store.removeAll()
+
+        let workout = Self.legacyBurjWorkout()
+        let context = try #require(
+            Self.summaryContext(for: workout),
+            "A Live Climb saved before trackingMode existed must still rank on its climb board"
+        )
+
+        store.freeze(
+            LiveReplayCompletionRankSnapshot(
+                workoutId: workout.id.uuidString,
+                rank: rank,
+                completedCount: completedCount,
+                completionDurationSeconds: workout.duration,
+                rankedAt: Date(timeIntervalSince1970: 1_777_777_600),
+                rankingMetric: "completionDurationSeconds",
+                tiePolicy: "competition_rank_equal_durations_share_rank"
+            ),
+            contextKey: context.contextKey
+        )
+
+        let image = try await hostAndCapture(
+            try summary(workout: workout, climb: Self.burjKhalifa, context: context),
+            settleSeconds: 0.5
+        )
+        try writeEvidence(image: image, named: name)
+
+        return try await recognizedText(in: image)
+    }
+
     // MARK: - Building the surface
 
     private func summary(

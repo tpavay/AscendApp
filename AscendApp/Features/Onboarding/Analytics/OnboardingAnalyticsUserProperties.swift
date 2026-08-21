@@ -1,10 +1,6 @@
 import Foundation
 
 enum OnboardingAnalyticsUserProperties {
-    static func setDisplayNameProvided() {
-        set("display_name_set", "true")
-    }
-
     static func setSurveyAnswer(questionID: String, selectedOptionIDs: Set<String>) {
         let sortedOptionIDs = selectedOptionIDs.sorted()
         guard !sortedOptionIDs.isEmpty else { return }

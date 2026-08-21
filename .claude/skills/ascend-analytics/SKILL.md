@@ -29,7 +29,7 @@ Multiple analytics destinations are sanctioned - each is best at a different job
   Cloud Functions also export subscription lifecycle events straight to Mixpanel, routed per environment - see "Mixpanel environment separation and event envelope" and "Server-owned subscription lifecycle events" below.
 - **SuperWall** - onboarding-flow step-level conversion + paywall presentation analytics (its specialty).
 - **Crashlytics** - crashes, fatal errors, stability metrics.
-- **Sentry** - error/crash diagnostics mirror alongside Crashlytics (non-fatal errors, app hangs, symbolicated traces). When reading, triaging, or updating Sentry issues/events, use the `sentry` skill.
+- **Sentry** - error/crash diagnostics mirror alongside Crashlytics (non-fatal errors, app hangs, symbolicated traces). **Production only**: dev and staging do not initialise the SDK, because their volume set the noise floor for the one environment anyone is paged about. A production *crash* carries a masked screenshot and a view hierarchy, and an ordinary non-fatal error deliberately carries neither, because producing them renders the UI on the main thread - session replay is deliberately not shipped - and a `beforeSend` flood guard bounds what one runaway session can send without ever being able to drop a crash or an app hang - `docs/sentry-setup.md`. When reading, triaging, or updating Sentry issues/events, use the `sentry` skill.
 
 When evaluating new providers, justify them by what they uniquely measure that the existing set doesn't.
 
@@ -40,7 +40,10 @@ Debug reports to Development `4032860`, Staging reports to Staging `4051102`, an
 `scripts/ci/assert-mixpanel-build-settings.mjs` resolves all three configurations and rejects empty, incorrect, or duplicate destinations without printing token values.
 Archive workflows also inspect the processed app bundle with `scripts/ci/assert-mixpanel-bundle.mjs` before upload.
 `scripts/test/mixpanel-build-configuration.test.mjs` pins the same contract offline against `project.pbxproj` and `Info.plist`, holds the Mixpanel SDK import inside the three adapter files, and keeps session replay disabled.
-Replay stays off because Ascend handles health data: turning it on means masking date of birth, weight, exact location, and heart-rate values before capture.
+Mixpanel replay stays off because Ascend handles health data: turning it on means masking date of birth, weight, exact location, and heart-rate values before capture.
+Sentry replay was evaluated separately, built, and then deliberately dropped - it is off, and re-adding it needs a new decision rather than a rate change.
+Its on-error mode records the whole session *after* the first error rather than the seconds before it, and any non-zero rate installs the integration in buffer mode, which renders and masks a full screen on the main thread once a second in every session - paid straight out of the Fatal App Hangs production most needs to see (`docs/sentry-setup.md`).
+The masking work stands regardless, because the crash screenshot needs every bit of it.
 
 Every event and screen carries `app_environment`, `build_config`, `app_version`, and `build_number` directly in its payload through `TelemetryEnvelope`.
 The `TelemetrySink` boundary accepts only enveloped records, so a feature call site cannot omit those fields or spoof them with event parameters.
@@ -94,7 +97,7 @@ Two mappings make an uninstrumented route a compile error rather than a review m
 `RootView` attaches the route screen *inside each switch branch*, never once above the switch - one instance spanning every route would report whichever route resolved first and then stay silent for the session.
 
 The onboarding funnel is not measured here.
-Its 21 steps own `onboarding_screen_viewed`; this catalog reports only the two route boundaries containing them, `landing` and `onboarding_flow`.
+Its 20 steps own `onboarding_screen_viewed`; this catalog reports only the two route boundaries containing them, `landing` and `onboarding_flow`.
 Entry-point detail likewise stays on the events that already carry it (`live_climb_detail_view` and friends) rather than being duplicated onto the screen.
 
 Contracts: `AscendAppTests/TelemetryScreenCatalogTests.swift` pins every name/class pair, refuses an orphan catalog entry, and refuses an ad-hoc screen; `AscendAppTests/RouteScreenViewEvidenceTests.swift` proves once-per-appearance, per-tab-switch, re-presented-sheet, and app-entry behavior against the shipped modifier.
@@ -131,18 +134,18 @@ Enforced by `AscendAppTests/AppInstallationTelemetryReporterTests.swift` and `As
 
 ## Onboarding funnel contract
 
-Onboarding is the one funnel measured screen-by-screen, so it has a fixed contract: **21 visible screens, each emitting exactly one `onboarding_screen_viewed`**, plus a decision event on every interactive screen.
+Onboarding is the one funnel measured screen-by-screen, so it has a fixed contract: **20 visible screens, each emitting exactly one `onboarding_screen_viewed`**, plus a decision event on every interactive screen.
 Read this before adding, removing, reordering, or renaming an onboarding screen - changing the flow means changing this table and the tests that enforce it.
 
 Enforcement lives in `AscendAppTests/OnboardingAnalyticsEventTests.swift` (ordered screen coverage, dedupe, per-screen properties), `AscendAppTests/OnboardingAnalyticsFunnelTranscriptTests.swift` (renders the whole funnel as a transcript from real emissions, and asserts the clean-pass event counts plus the resumed and back-navigation paths), and `AscendAppTests/OnboardingFlowAnalyticsCoordinatorTests.swift` (the one lifecycle pair: pass persistence, account ownership, and completion attribution).
 Those tests are the executable source of truth; this table is the readable one.
 
-### The 21 screens, in order
+### The 20 screens, in order
 
 `screen_id` equals `step_id` on every event.
-Every event also carries `flow_id=onboarding`, `flow_version=v1`, `segment_id`, `step_index`, `step_count=21`, and the four `TelemetryEnvelope` fields every event carries.
+Every event also carries `flow_id=onboarding`, `flow_version=v1`, `segment_id`, `step_index`, `step_count=20`, and the four `TelemetryEnvelope` fields every event carries.
 The segment labels identify nested implementation sections and never replace the user-level flow ID.
-`step_index` is zero-based against that ordered list, so the paywall reports `step_index` 20 with `step_count` 21.
+`step_index` is zero-based against that ordered list, so the paywall reports `step_index` 19 with `step_count` 20.
 `onboarding_flow_started` and `onboarding_screen_viewed` also carry `resume`, and `onboarding_flow_completed` carries `completion_reason`.
 
 | # | screen_id | segment_id | Events beyond the view | Interactive sub-properties |
@@ -151,27 +154,28 @@ The segment labels identify nested implementation sections and never replace the
 | 2 | `watch_yourself_get_better` | `pre_auth_value_onboarding` | `onboarding_screen_completed`, `onboarding_back_tapped` | `action_id` (`continue` / `swipe_forward`), `input_type` (`button` / `gesture`) |
 | 3 | `reason_to_come_back` | `pre_auth_value_onboarding` | same as above | same as above |
 | 4 | `auth` | `pre_auth_auth` | `onboarding_auth_started`, `onboarding_auth_completed`, `onboarding_auth_failed` | `provider` (`apple` / `google`), `reason` on failure |
-| 5 | `displayName` | `post_auth_onboarding` | `onboarding_screen_completed` | `display_name_provided` |
-| 6 | `stair_stepper_baseline` | `post_auth_onboarding` | `onboarding_question_answered`, `onboarding_screen_completed` | `question_id`, `answer_id`, `answer_index`, `selection_type=single_select`, `answer_count` |
-| 7 | `exercise_level` | `post_auth_onboarding` | same as above | same as above |
-| 8 | `goal` | `post_auth_onboarding` | same as above | same, `selection_type=multi_select` |
-| 9 | `motivation` | `post_auth_onboarding` | same as above | same as above (single select) |
-| 10 | `plan` | `post_auth_onboarding` | same as above | same as above (single select) |
-| 11 | `summit_landmarks` | `post_auth_features` | `onboarding_screen_completed` | `action_id=continue` |
-| 12 | `real_time` | `post_auth_features` | `onboarding_screen_completed` | `action_id=continue` |
-| 13 | `daily_climbs` | `post_auth_features` | `onboarding_screen_completed` | `action_id=continue` |
-| 14 | `gender` | `post_auth_onboarding` | `onboarding_screen_completed` | `profile_gender` (`ProfileGender` raw value) |
-| 15 | `age` | `post_auth_onboarding` | `onboarding_screen_completed` | `profile_age_group` (bucket, never the birth date) |
-| 16 | `weight` | `post_auth_onboarding` | `onboarding_screen_completed` | `measurement_system`, `profile_height_group`, `profile_weight_group` (buckets) |
-| 17 | `location` | `post_auth_onboarding` | `onboarding_screen_completed` | `profile_country`, `selection_method` (`current_location` / `search` / `unknown`) |
-| 18 | `notifications` | `post_auth_onboarding` | `onboarding_question_answered`, `onboarding_screen_completed` | `question_id=notifications`, `status`/`answer_id` (`allow` / `decline` / `skip`) |
-| 19 | `loading` | `post_auth_onboarding` | `onboarding_screen_completed` | none - the only non-interactive screen |
-| 20 | `first_climb` | `post_auth_onboarding` | `onboarding_question_answered` (`question_id=first_climb`), `onboarding_screen_completed` | `climb_id`, `climb_name` |
-| 21 | `paywall` | `post_auth_onboarding` | `onboarding_paywall_reached`, `revenuecat_purchase_started`, one of `revenuecat_purchase_completed` / `_cancelled` / `_pending` / `_failed`, `revenuecat_restore_started`, one of `revenuecat_restore_completed` / `_not_found` / `_failed` | `placement`, `presentation_id`, `source`, `product_id`, `outcome`, `entitlement_id`, `entitlement_active`, `error_type` |
+| 5 | `stair_stepper_baseline` | `post_auth_onboarding` | `onboarding_question_answered`, `onboarding_screen_completed`, `onboarding_sign_out_tapped`, `onboarding_sign_out_confirmed` | `question_id`, `answer_id`, `answer_index`, `selection_type=single_select`, `answer_count` |
+| 6 | `exercise_level` | `post_auth_onboarding` | same as above | same as above |
+| 7 | `goal` | `post_auth_onboarding` | same as above | same, `selection_type=multi_select` |
+| 8 | `motivation` | `post_auth_onboarding` | same as above | same as above (single select) |
+| 9 | `plan` | `post_auth_onboarding` | same as above | same as above (single select) |
+| 10 | `summit_landmarks` | `post_auth_features` | `onboarding_screen_completed` | `action_id=continue` |
+| 11 | `real_time` | `post_auth_features` | `onboarding_screen_completed` | `action_id=continue` |
+| 12 | `daily_climbs` | `post_auth_features` | `onboarding_screen_completed` | `action_id=continue` |
+| 13 | `gender` | `post_auth_onboarding` | `onboarding_screen_completed` | `profile_gender` (`ProfileGender` raw value) |
+| 14 | `age` | `post_auth_onboarding` | `onboarding_screen_completed` | `profile_age_group` (bucket, never the birth date) |
+| 15 | `weight` | `post_auth_onboarding` | `onboarding_screen_completed` | `measurement_system`, `profile_height_group`, `profile_weight_group` (buckets) |
+| 16 | `location` | `post_auth_onboarding` | `onboarding_screen_completed` | `profile_country`, `selection_method` (`current_location` / `search` / `unknown`) |
+| 17 | `notifications` | `post_auth_onboarding` | `onboarding_question_answered`, `onboarding_screen_completed` | `question_id=notifications`, `status`/`answer_id` (`allow` / `decline` / `skip`) |
+| 18 | `loading` | `post_auth_onboarding` | `onboarding_screen_completed` | none - the only non-interactive screen |
+| 19 | `first_climb` | `post_auth_onboarding` | `onboarding_question_answered` (`question_id=first_climb`), `onboarding_screen_completed` | `climb_id`, `climb_name` |
+| 20 | `paywall` | `post_auth_onboarding` | `onboarding_paywall_reached`, `revenuecat_purchase_started`, one of `revenuecat_purchase_completed` / `_cancelled` / `_pending` / `_failed`, `revenuecat_restore_started`, one of `revenuecat_restore_completed` / `_not_found` / `_failed` | `placement`, `presentation_id`, `source`, `product_id`, `outcome`, `entitlement_id`, `entitlement_active`, `error_type` |
 
 ### Invariants that are easy to break
 
-- **`displayName` and `weight` keep their historical screen IDs.** `displayName` is camelCase where every sibling is snake_case, and the `weight` screen captures both height and weight. Renaming either breaks funnel continuity in Mixpanel; they stay as-is.
+- **The `weight` screen keeps its historical screen ID.** It captures both height and weight; renaming it breaks funnel continuity in Mixpanel, so it stays as-is.
+- **There is no name screen, and `display_name_provided` is retired.** The `displayName` step and its camelCase step ID were removed on 2026-08-20 after App Review rejected 1.0 under Guideline 4 for asking a Sign in with Apple climber to type a name the framework already supplies. The name is resolved without asking now, so no event reports it. `orderedStepIDs` is the one list not derived from `PostAuthOnboardingStage.allCases`, so it was edited by hand to drop the step - leaving it in would have opened a permanent gap in `step_index` and kept `step_count` counting a screen nobody sees.
+- **The opening screen's leading control signs out, and reports as a sign-out.** `stair_stepper_baseline` has nothing behind it, so its chrome control is post-auth onboarding's only route back to the sign-in screen. It emits `onboarding_sign_out_tapped` and, past the confirmation, `onboarding_sign_out_confirmed` - never `onboarding_back_tapped`, which would read as a climber navigating backwards through a flow with no earlier step.
 - **The `features` stage is a container, not a screen.** It emits no view of its own - its three guide screens (`summit_landmarks`, `real_time`, `daily_climbs`) each report theirs, so counting the container would inflate the funnel with a screen nobody sees. `PostAuthOnboardingStage.visibleScreenAnalyticsContext` returns `nil` for it and only for it.
 - **Views dedupe by `step_id`.** `OnboardingScreenViewRecorder` emits once per distinct step for the lifetime of the flow, so back-navigation and re-renders re-emit nothing. The dedupe is in-memory, so a relaunch mid-flow re-emits the current step.
 - **Conditional screens report only when actually shown.** Never pre-emit a view for a screen the user may skip.
@@ -195,6 +199,9 @@ The segment labels identify nested implementation sections and never replace the
   Only `revenuecat_restore_completed` may be accompanied by `paywall_restore_completed`.
   `AppAccessRestoreService` owns this for all three restore surfaces (paywall, account settings, app-access gate); `RevenueCatPurchaseExecutor` owns it for purchase.
   Enforced by `AscendAppTests/PaywallPurchaseAnalyticsContractTests.swift`.
+- **Every event `PaywallAnalyticsEvent` builds also carries the StoreKit environment pair**, `holds_sandbox_entitlement` and `storekit_receipt_name`, merged in one place by `PaywallAnalyticsEvent.record(diagnostics:)` from `StoreKitEnvironmentDiagnostics` - never added per call site, so a new case cannot ship without them.
+  They exist because that pair is exactly what the discarded `activeInCurrentEnvironment` filter compared and neither half was observable when it refused a paying App Reviewer (#506); read the doc comments on `AscendApp/Features/Monetization/Services/StoreKitEnvironmentDiagnostics.swift` for why the sandbox flag is absent rather than `false` before RevenueCat has answered.
+  `paywall_error`, `paywall_skipped`, and `paywall_reached` are raw `TelemetryRecord`s built elsewhere and do not carry the pair (#508).
 
 ## Reference
 - `docs/sentry-setup.md` - Sentry role and app configuration.

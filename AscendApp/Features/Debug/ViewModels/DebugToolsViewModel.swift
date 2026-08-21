@@ -31,7 +31,7 @@ class DebugToolsViewModel {
         static let presentAppAccessPaywall = "Present App Access Paywall"
         static let refreshEntitlements = "Refresh Entitlements"
         static let restorePurchases = "Restore Purchases"
-        static let sendSentryTestDiagnostic = "Send Sentry Test Event"
+        static let sendCrashlyticsTestDiagnostic = "Send Crashlytics Test Event"
     }
 
     var selectedWorkoutPreset: WorkoutSeedPreset = .appStoreScreenshots
@@ -64,8 +64,8 @@ class DebugToolsViewModel {
             subtitle: "Verify crash and non-fatal error reporting",
             actions: [
                 DebugAction(
-                    title: ActionTitle.sendSentryTestDiagnostic,
-                    description: "Enables telemetry for this Debug session and sends a harmless non-fatal diagnostic event through Crashlytics and Sentry.",
+                    title: ActionTitle.sendCrashlyticsTestDiagnostic,
+                    description: "Enables telemetry for this Debug session and sends a harmless non-fatal diagnostic event to Crashlytics. Look for it there: Sentry reports from production builds only, so a Debug build never starts it.",
                     icon: "waveform.path.ecg.rectangle.fill",
                     iconColor: .red
                 )
@@ -261,9 +261,9 @@ class DebugToolsViewModel {
                 try await MonetizationManager.shared.restorePurchases()
                 successMessage = "Restored purchases from RevenueCat."
 
-            case ActionTitle.sendSentryTestDiagnostic:
-                service.sendSentryTestDiagnostic()
-                successMessage = "Sent a non-fatal Sentry test diagnostic."
+            case ActionTitle.sendCrashlyticsTestDiagnostic:
+                service.sendCrashlyticsTestDiagnostic()
+                successMessage = "Sent a non-fatal test diagnostic to Crashlytics."
 
             case ActionTitle.seedWorkouts:
                 let count = try await service.seedWorkoutData(

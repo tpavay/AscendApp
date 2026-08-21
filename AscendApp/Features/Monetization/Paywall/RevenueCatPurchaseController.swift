@@ -125,7 +125,7 @@ final class RevenueCatPurchaseController: PurchaseController {
     }
 
     private func applySubscriptionStatus(from customerInfo: RevenueCat.CustomerInfo) {
-        let entitlementIDs = Set(customerInfo.entitlements.activeInCurrentEnvironment.keys)
+        let entitlementIDs = customerInfo.entitlements.appAccessEntitlementIDs
 
         applySuperwallStatus(Self.subscriptionStatus(for: entitlementIDs))
     }

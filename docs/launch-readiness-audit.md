@@ -49,7 +49,7 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
    `web/public/superwall/onboarding-paywall.html` reads the same manifest and caches the derived count against its `catalogVersion`, so only a republished catalogue costs a download.
    Either side falls back to count-free copy when it cannot resolve a number, so an offline start or a failed fetch never ships a stale one.
    Both advertise implemented global leaderboard competition, make no personalized-plan claim, and make no climb-earned trial promise.
-9. **No paywall-priming stage** in `PostAuthOnboardingStage` (stages: displayName, gender, age, weight, location, notifications, planLoading, firstClimb). Flow hits the hard gate cold after onboarding. Conversion polish, not a blocker.
+9. **No paywall-priming stage** in `PostAuthOnboardingStage`. Flow hits the hard gate cold after onboarding. Conversion polish, not a blocker.
 10. ~~**No fallback UI** on `AppAccessPaywallPlaceholderView` if Superwall config fails — users would see "unavailable" with no purchase path.~~ **Fixed.** Dismissal without purchase, `onSkip`, configuration failure, and `onError` all route back to the visible placeholder with retry/restore actions via `AppAccessPaywallPresentationState`; locked in by `AscendAppTests/AppAccessPaywallPresentationStateTests.swift` and `MonetizationManagerPaywallTests.swift`.
 
 ## 🟢 Pre-flight checklist (mechanical)

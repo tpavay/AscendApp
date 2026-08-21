@@ -16,6 +16,69 @@ enum LiveReplayLeaderboardContextType: String, Codable, Sendable {
             return .mostSteps
         }
     }
+
+    /// Whether this context collapses a climber's repeat completions into one row.
+    ///
+    /// Per-climb and per-routine-template contexts do: a climb board reaches the
+    /// same step target every time, so the fastest attempt is genuinely that
+    /// climber's best; a routine board fixes the clock, so the highest-steps
+    /// attempt is theirs. An open Just Climb session has no target, so its
+    /// shortest attempt is the one the climber quit earliest rather than their
+    /// best. Mirrors the server allowlist in `functions/src/liveReplayLeaderboard.ts`.
+    var collapsesRepeatFinishers: Bool {
+        switch self {
+        case .liveClimb, .routineTemplate:
+            return true
+        case .justClimb, .routine:
+            return false
+        }
+    }
+
+    /// What one row of this context's field stands for, so a surface can name the
+    /// population it counts rather than guess a noun that happens to fit a climb.
+    var fieldPopulation: LiveReplayFieldPopulation {
+        collapsesRepeatFinishers ? .climbers : .completions
+    }
+}
+
+/// Who a field of rows counts.
+///
+/// Two Ascend surfaces deliberately count different populations of the same climb:
+/// a live race collapses a rival's repeat runs to their best, while the static
+/// board keeps every completion. Both are correct and they disagree by design, so
+/// every surface that shows a field size states which one it is counting.
+enum LiveReplayFieldPopulation: Sendable {
+    /// One row per climber, on their best completion.
+    case climbers
+    /// One row per completed attempt.
+    case completions
+
+    /// The field-size line a board pins beneath its rows, e.g. `27 CLIMBERS`.
+    func fieldSizeLabel(count: Int) -> String {
+        let noun = switch self {
+        case .climbers:
+            count == 1 ? "CLIMBER" : "CLIMBERS"
+        case .completions:
+            count == 1 ? "COMPLETION" : "COMPLETIONS"
+        }
+
+        return "\(count.formatted()) \(noun)"
+    }
+}
+
+/// A field size and the population it counts, kept together.
+///
+/// A bare total is what let two correct boards read as a contradiction, so the
+/// count is never carried without the noun that characterises it. A surface with
+/// no field it can substantiate holds no value at all rather than a number it
+/// would have to guess a population for.
+struct LiveReplayFieldSize: Equatable, Sendable {
+    let population: LiveReplayFieldPopulation
+    let count: Int
+
+    var label: String {
+        population.fieldSizeLabel(count: count)
+    }
 }
 
 /// How a replay context decides who is winning.

@@ -78,9 +78,22 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
         let authorizationCode: String?
     }
 
+    /// Both the name and the email are requested, because Authentication Services
+    /// is the only place either one is ever offered: Apple populates them on the
+    /// first authorization for an Apple ID and app pair and never again. Asking
+    /// the climber afterwards for something this request could have supplied is
+    /// what App Review refuses under Guideline 4.
+    static let appleRequestedScopes: [ASAuthorization.Scope] = [.fullName, .email]
+
     private var currentNonce: String?
     private var signInContinuation: CheckedContinuation<User, Error>?
     private var appleReauthContinuation: CheckedContinuation<AppleAuthorization, Error>?
+    private let signInIdentityStore: SignInIdentityStore
+
+    init(signInIdentityStore: SignInIdentityStore = .shared) {
+        self.signInIdentityStore = signInIdentityStore
+        super.init()
+    }
 
     func signInWithGoogle() async throws -> User {
         // Get Firebase client ID
@@ -92,12 +105,7 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
         let config = GIDConfiguration(clientID: clientID)
         GIDSignIn.sharedInstance.configuration = config
 
-        // Get root view controller
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let window = windowScene.windows.first,
-              let rootViewController = window.rootViewController else {
-            throw AuthenticationError.noRootViewController
-        }
+        let rootViewController = try presentingViewController()
 
         do {
             // Perform Google Sign-In
@@ -158,7 +166,7 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
 
                 let appleIDProvider = ASAuthorizationAppleIDProvider()
                 let request = appleIDProvider.createRequest()
-                request.requestedScopes = [.email]
+                request.requestedScopes = Self.appleRequestedScopes
                 request.nonce = sha256(nonce)
 
                 let authorizationController = ASAuthorizationController(authorizationRequests: [request])
@@ -179,6 +187,35 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
         }
     }
     
+    /// The view controller Google Sign-In presents from.
+    ///
+    /// `connectedScenes.first` is an unordered set's first element and
+    /// `windows.first` is not necessarily the key window, so the old lookup could
+    /// land on a background scene - or on no window at all - and refuse a sign-in
+    /// the app was perfectly able to present (Sentry ASCEND-IOS-2W, 11 refusals
+    /// on the 1.0 build, all `google_sign_in_failed`). Ask for the foreground
+    /// scene and its key window instead, and only fall back when there is
+    /// genuinely nothing on screen.
+    private func presentingViewController() throws -> UIViewController {
+        let windowScenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+
+        let orderedScenes = windowScenes.filter { $0.activationState == .foregroundActive }
+            + windowScenes.filter { $0.activationState == .foregroundInactive }
+            + windowScenes.filter { $0.activationState == .background }
+
+        for scene in orderedScenes {
+            let window = scene.keyWindow ?? scene.windows.first { $0.isKeyWindow } ?? scene.windows.first
+            if let rootViewController = window?.rootViewController {
+                // Presenting onto a controller that already has something modal
+                // over it silently does nothing, so hand Google the topmost one.
+                return rootViewController.topmostPresentedViewController
+            }
+        }
+
+        throw AuthenticationError.noRootViewController
+    }
+
     // MARK: - Apple Sign In Helper Methods
     private func randomNonceString(length: Int = 32) throws -> String {
         precondition(length > 0)
@@ -226,6 +263,18 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
 // MARK: - ASAuthorizationControllerDelegate
 extension AuthenticationService {
     func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        // Capture before anything else can fail. Apple supplies the name and
+        // email on the first authorization only, so a throw, a cancelled task or
+        // a dropped connection between here and the profile write would lose
+        // them permanently. Recording every authorization - sign-in and
+        // reauthentication alike - means no path exists that sees them and
+        // drops them.
+        if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
+            signInIdentityStore.record(
+                SignInSuppliedIdentity(credential: appleIDCredential)
+            )
+        }
+
         // Check if this is a reauthentication flow (credential-only)
         if let appleReauthContinuation = appleReauthContinuation {
             do {
@@ -260,9 +309,16 @@ extension AuthenticationService {
             return
         }
 
-        let credential = OAuthProvider.credential(providerID: AuthProviderID.apple,
-                                                  idToken: idTokenString,
-                                                  rawNonce: nonce)
+        // `fullName` is handed to Firebase as well, not just to Ascend's own
+        // capture: this is the overload that lets Firebase Auth set the account's
+        // `displayName` from the credential, and Apple populates `fullName` on
+        // the first authorization only. Passing nil later is harmless - Firebase
+        // does not clear a display name it already has.
+        let credential = OAuthProvider.appleCredential(
+            withIDToken: idTokenString,
+            rawNonce: nonce,
+            fullName: appleIDCredential.fullName
+        )
 
         Task {
             do {
@@ -350,11 +406,7 @@ extension AuthenticationService {
         let config = GIDConfiguration(clientID: clientID)
         GIDSignIn.sharedInstance.configuration = config
 
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let window = windowScene.windows.first,
-              let rootViewController = window.rootViewController else {
-            throw AuthenticationError.noRootViewController
-        }
+        let rootViewController = try presentingViewController()
 
         do {
             let userAuthentication = try await GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController)
@@ -423,7 +475,7 @@ extension AuthenticationService {
 
                 let appleIDProvider = ASAuthorizationAppleIDProvider()
                 let request = appleIDProvider.createRequest()
-                request.requestedScopes = [.email]
+                request.requestedScopes = Self.appleRequestedScopes
                 request.nonce = sha256(nonce)
 
                 // Store continuation for credential-only flow
@@ -464,5 +516,25 @@ extension AuthenticationService {
             authorizationCode: appleIDCredential.authorizationCode
                 .flatMap { String(data: $0, encoding: .utf8) }
         )
+    }
+}
+
+private extension UIViewController {
+    /// The controller actually on screen, walking past anything already presented
+    /// modally over this one.
+    ///
+    /// A controller caught mid-transition is not a controller anything can be
+    /// presented from: UIKit drops the presentation and Google's sheet never
+    /// appears. So the walk stops before one that is being dismissed - it is on
+    /// its way out - and before one that is being presented - it is not settled
+    /// in the hierarchy yet.
+    var topmostPresentedViewController: UIViewController {
+        var topmost = self
+        while let presented = topmost.presentedViewController,
+              !presented.isBeingDismissed,
+              !presented.isBeingPresented {
+            topmost = presented
+        }
+        return topmost
     }
 }

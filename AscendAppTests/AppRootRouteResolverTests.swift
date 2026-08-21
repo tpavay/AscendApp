@@ -37,12 +37,12 @@ struct AppRootRouteResolverTests {
             updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "user-1",
-            postAuthOnboardingPhase: .onboarding(.displayName),
+            postAuthOnboardingPhase: .onboarding(.stairStepperBaseline),
             entitlementState: .inactive,
             requiredEntitlementID: "app_access"
         )
 
-        #expect(route == .onboarding(.displayName))
+        #expect(route == .onboarding(.stairStepperBaseline))
     }
 
     @Test
@@ -170,7 +170,7 @@ struct AppRootRouteLockoutPrecedenceTests {
         let phases: [PostAuthOnboardingPhase] = [
             .signedOut,
             .resolving,
-            .onboarding(.displayName),
+            .onboarding(.stairStepperBaseline),
             .complete
         ]
 
@@ -233,7 +233,7 @@ struct AppRootRouteLockoutPrecedenceTests {
         let cases: [(AuthenticationState, PostAuthOnboardingPhase, MonetizationEntitlementState, AppRootRoute)] = [
             (.unauthenticated, .signedOut, .unknown, .signedOut),
             (.restoringSession, .signedOut, .unknown, .restoringSession),
-            (.authenticated, .onboarding(.displayName), .inactive, .onboarding(.displayName)),
+            (.authenticated, .onboarding(.stairStepperBaseline), .inactive, .onboarding(.stairStepperBaseline)),
             (.authenticated, .complete, .inactive, .paywall),
             (.authenticated, .complete, .active(["app_access"]), .mainApp)
         ]

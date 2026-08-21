@@ -61,13 +61,18 @@ final class RevenueCatPurchasesProvider: RevenueCatEntitlementProviding {
         return .inactive
     }
 
+    /// Translates, and records the environment pair on the way past.
+    ///
+    /// Every reading of `CustomerInfo` lands here - the stream included - so the pair a paywall or
+    /// purchase event reports is the one from the most recent answer RevenueCat actually gave,
+    /// rather than the one from whichever call happened to be an entry point (#506).
     private nonisolated static func entitlementState(
         from customerInfo: CustomerInfo
     ) -> MonetizationEntitlementState {
-        let activeEntitlementIDs = Set(customerInfo.entitlements.activeInCurrentEnvironment.keys)
+        StoreKitEnvironmentDiagnostics.shared.record(
+            holdsSandboxEntitlement: customerInfo.entitlements.holdsSandboxEntitlement
+        )
 
-        return activeEntitlementIDs.isEmpty
-            ? .inactive
-            : .active(activeEntitlementIDs)
+        return customerInfo.entitlements.appAccessEntitlementState
     }
 }

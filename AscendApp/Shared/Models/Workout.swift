@@ -11,8 +11,13 @@ import SwiftData
 enum WorkoutSource: String, CaseIterable, Codable {
     case manual = "manual"           // User entered manually
     case appleHealth = "apple_health" // Imported from Apple Health
-    case garmin = "garmin"           // Future: Garmin Connect
-    case fitbit = "fitbit"           // Future: Fitbit
+    // Placeholders for integrations that were never built. No build has ever set either, and both
+    // are now refused on the way out: `WorkoutRemoteSyncMapper.supportedSourceRawValues` throws
+    // `unsupportedSource`, and `isValidWorkoutSource` in `firestore.rules` denies the write. They
+    // stay declared only because removing a case changes the persisted shape - see
+    // `ascend-data-migration`. Reviving either means adding it back to both of those first.
+    case garmin = "garmin"
+    case fitbit = "fitbit"
     case hevy = "hevy"               // Legacy import source retained for old synced workouts
     case headphoneMotion = "headphone_motion" // Live tracking from compatible headphones
 

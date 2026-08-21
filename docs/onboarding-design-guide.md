@@ -236,7 +236,8 @@ Value screens:
 - CTA advances pages; only the final value page goes to the next flow.
 
 Survey/question screens:
-- Top row: back button, progress bar, optional skip only if the step is truly skippable.
+- Top row: leading control, progress bar, optional skip only if the step is truly skippable.
+  The leading control is a back button on every screen that has something behind it, and the sign-out control on the opening post-auth screen, which does not.
 - Brand mark can appear on section starts, not every question if it creates vertical crowding.
 - Question starts around 185-225 y on 844-height screens.
 - Answers start 28-40 below headline.
@@ -286,7 +287,8 @@ Do not use generic fitness illustrations. The user should see landmarks, rank ro
 
 ## Recommended Flow
 
-This is the V1 flow to ship. It lands at 21 screens before the paywall if auth and demographics are counted as onboarding.
+This is the V1 flow to ship, counting auth and demographics as onboarding.
+The enforced count of shipped screens and their ordered IDs is the funnel contract in the `ascend-analytics` skill, not a number restated here.
 
 ### 1. Welcome
 
@@ -546,22 +548,37 @@ Visual:
 - Use angular A mark and/or `AscendWordmark`.
 - Keep provider buttons familiar and high contrast.
 
-### 20. Name
+### Name - Resolved, Never Asked
 
-Copy:
-- Eyebrow: `FIRST THINGS FIRST`
-- Headline: `What's your name?`
-- First field: `First name`
-- Last field: `Last name`
-- Microcopy: `This is the name climbers see on leaderboards.`
-- CTA: `Continue`
+There is no name screen, and one may not be added back.
+
+App Review rejected 1.0 under Guideline 4 on 2026-08-20 because every Sign in with Apple climber was forced through a mandatory step demanding a first and last name that Authentication Services already supplies.
+A better-prefilled screen is not the fix either.
+`ASAuthorizationAppleIDCredential.fullName` is populated only on the FIRST authorization for an Apple ID and app pair and never again, so App Review's device - which has already spent that first authorization - always arrives with nothing, and a screen the reviewer cannot pass is the same rejection with extra steps.
+
+Ascend resolves the name instead, on one provider-agnostic path, first hit wins, always terminating:
+
+1. The Ascend profile Ascend already holds.
+2. Whatever the provider supplied at this sign-in - Apple's once-only credential, or the display name Google supplies on every sign-in.
+3. The placeholder first name `CHANGE`, last name `ME`.
+
+`SuppliedNameAdoption.decide` is the single pure rule, and `AscendApp/Features/Authentication/SignInSuppliedIdentity.swift` owns it.
+Deliberately not a per-provider branch: two branches are two things to drift.
 
 Behavior:
-- Both fields are required.
-- Do not split, infer, or backfill either field from a legacy display name.
-- Existing legacy display names remain untouched until the climber supplies both fields in Edit Profile.
+- Never ask the climber for a name anywhere in onboarding, and never gate reaching the app on having one.
+- Half a name - one part only - resolves to the placeholder rather than to a composed half, because there is nowhere left to ask for the missing part.
+- A profile that could not be read defers to the next launch rather than guessing.
+- The placeholder is deliberately an instruction rather than a plausible generated handle like `Climber 2A4F`, and it is written without asking.
+- The name is changed only in Settings -> Edit Profile -> First name / Last name.
+- A single supplied name string is split at the first whitespace: the first word becomes the first name and the remainder becomes the last name, so a multi-word family name survives intact.
+  That split is how the display name Google and Firebase hand back on every sign-in is consumed.
+- A profile that already resolves to a name is never overwritten, legacy `displayName`-only records included.
+  Resolution writes only when the profile carries no name at all.
 
-### 21. Required Demographics
+The opening post-auth screen carries the sign-out control, because it is the only route from onboarding back to the sign-in screen for a climber who signed into the wrong account.
+
+### 20. Required Demographics
 
 Break into low-friction screens unless the combined form remains clean:
 
@@ -597,7 +614,7 @@ It ships with no subtitle because the value drives no comparison group, no filte
 The only place a climber ever sees it is the `M` / `F` abbreviation in the demographic row of the Live Replay and per-climb completion leaderboards.
 Earlier copy calling it a division or a leaderboard comparison described behavior the app does not have; do not restore it.
 
-### 22. Value Reveal
+### 21. Value Reveal
 
 Copy:
 - Headline: `You're on the field.`
@@ -608,7 +625,7 @@ Visual:
 - Leaderboard preview with the user's display name, demographic context, and smart first climb.
 - If there are no real competitors yet, show empty-slot structure instead of fake people.
 
-### 23. Notifications
+### 22. Notifications
 
 Copy:
 - Headline: `Never miss a First Ascent.`
@@ -624,7 +641,7 @@ Visual:
   It is an independent answer: the CTA never ticks it, unticking it never suppresses the iOS prompt, and either button saves whatever state it is in.
   It is the `onboarding` source of the recorded email consent - see `functions/EMAIL_SETUP.md` for the consent record it writes.
 
-### 24. Paywall
+### 23. Paywall
 
 Purpose: make subscription the natural next click.
 
@@ -765,7 +782,7 @@ Primary path:
 App surfaces:
 - `LiveClimbCompletionSummaryView`
 - `LiveClimbPublicResultSyncStore`
-- `ClimbDetailView` leaderboard tab
+- `ClimbDetailView` All Times page
 - `LiveReplayLeaderboardService`
 - `onWorkoutReplaySplitsWritten`
 
@@ -1008,7 +1025,7 @@ Use the existing top progress pattern:
 - Fill: lime
 - Height: 4
 - Animation: 0.22 ease in/out
-- Back button left, progress centered between back and right padding
+- Leading control left, progress centered between it and the right padding
 
 ### CTA
 
@@ -1165,12 +1182,12 @@ Verify:
 ### Phase 3 — Required Profile And Permission Serve
 
 Ship:
-- First name and last name.
 - Gender, birthday, weight, and location capture.
 - Value reveal.
 - Notification opt-in framed around First Ascent drops.
 
 Verify:
+- No screen anywhere in onboarding asks for a name; the account already carries one by the time the survey opens.
 - Profile fields match `ProfileGender` raw values, and the birthday resolves to an age inside the bounds.
 - Firestore rules allow only the intended profile fields.
 - Native notification prompt is served after the in-app value frame, not before.
@@ -1234,7 +1251,6 @@ Track analytics by workflow so the dashboard can answer where the app is losing 
 - First-climb detail opened.
 
 ### Profile And Permissions
-- First and last name completed.
 - Demographics completed by field, no raw PII in analytics.
 - Notification pre-prompt shown.
 - Native notification prompt accepted or declined.

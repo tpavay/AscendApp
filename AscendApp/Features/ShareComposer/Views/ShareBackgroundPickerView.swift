@@ -169,6 +169,7 @@ struct ShareBackgroundPickerView: View {
                             )
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(preset.accessibilityLabel)
                 }
             }
             .padding(.horizontal, 24)

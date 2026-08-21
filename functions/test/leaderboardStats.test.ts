@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {join} from "node:path";
 import {
+  COMPETITION_ELIGIBLE_SOURCES,
   LeaderboardStatsSnapshot,
   LeaderboardStatsStore,
   leaderboardStatsTestHooks,
@@ -166,6 +167,41 @@ test("an unrecognised workout origin is not counted", () => {
     parseEligibleWorkout("w1", makeWorkout({source: "totally_made_up"})),
     null
   );
+});
+
+// One policy, stated once. `isValidWorkoutSource` in `firestore.rules` decides
+// which origins can exist at all; this set decides which of those score. A name
+// here that the rules refuse is dead text stating a second, looser policy that
+// nothing can exercise - `garmin` and `fitbit` were exactly that, and reading
+// them as permissive is how one list quietly becomes two.
+//
+// Subset, deliberately, not equality: narrowing eligibility BELOW what can
+// exist is the captain's competitive-eligibility decision of 2026-07-27, and
+// this test must not stand in front of it. The direction that is always wrong
+// is the other one. Read the rules text rather than a hand-copied list, so
+// drift fails here.
+test("nothing can score that the rules refuse to admit", () => {
+  const rules = readFileSync(
+    join(__dirname, "../../../firestore.rules"),
+    "utf8"
+  );
+  const body = rules.match(
+    /function isValidWorkoutSource\(source\) \{\s*return source in \[([^\]]*)\]/
+  );
+  assert.ok(body, "isValidWorkoutSource is no longer shaped as a literal list");
+
+  const admittedByRules = new Set(
+    [...body[1].matchAll(/"([^"]+)"/g)].map((match) => match[1])
+  );
+  assert.ok(admittedByRules.size > 0);
+  const scoringButRefused = [...COMPETITION_ELIGIBLE_SOURCES]
+    .filter((source) => !admittedByRules.has(source));
+  assert.deepEqual(scoringButRefused, []);
+
+  for (const source of ["garmin", "fitbit"]) {
+    assert.ok(!COMPETITION_ELIGIBLE_SOURCES.has(source));
+    assert.equal(parseEligibleWorkout("w1", makeWorkout({source})), null);
+  }
 });
 
 // The device records what it concluded about its own data. The server derives

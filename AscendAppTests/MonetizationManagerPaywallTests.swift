@@ -276,7 +276,7 @@ struct MonetizationManagerPaywallTests {
             telemetry: telemetry
         )
         lifecycle.recordFlowStartedIfNeeded(
-            context: PostAuthOnboardingStage.displayName.analyticsContext
+            context: PostAuthOnboardingStage.stairStepperBaseline.analyticsContext
         )
 
         let manager = MonetizationManager(

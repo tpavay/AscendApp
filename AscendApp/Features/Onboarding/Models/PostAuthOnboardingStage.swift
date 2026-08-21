@@ -1,7 +1,18 @@
 import Foundation
 
+/// The post-auth onboarding stages, in order.
+///
+/// There is deliberately no name stage. App Review rejected 1.0 under Guideline 4
+/// for asking a Sign in with Apple climber to type a name the framework already
+/// supplies, and the answer is not a better-prefilled screen: the name is
+/// resolved without asking (`SuppliedNameAdoption`), so the question has nothing
+/// left to ask. The case is removed rather than the screen hidden behind a
+/// condition, so no reachable state renders it.
+///
+/// `PostAuthOnboardingSnapshot` decodes stage identifiers it no longer knows by
+/// dropping them, so removing a case here does not strand or reset a climber who
+/// already stored one.
 enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
-    case displayName
     case stairStepperBaseline = "stair_stepper_baseline"
     case exerciseLevel = "exercise_level"
     case goal
@@ -21,7 +32,6 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
 
     static var allCases: [PostAuthOnboardingStage] {
         [
-            .displayName,
             .stairStepperBaseline,
             .exerciseLevel,
             .goal,
@@ -52,7 +62,7 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
     }
 
     static var first: PostAuthOnboardingStage {
-        .displayName
+        .stairStepperBaseline
     }
 
     static var last: PostAuthOnboardingStage {
@@ -73,10 +83,15 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
         self == .features ? nil : analyticsContext
     }
 
+    /// The opening stage has nothing behind it, so its leading control signs out
+    /// instead of navigating - post-auth onboarding's only route back to the
+    /// sign-in screen for a climber who signed into the wrong account.
+    var leadingControl: OnboardingLeadingControl {
+        self == Self.first ? .signOut : .back
+    }
+
     var analyticsInputType: String {
         switch self {
-        case .displayName:
-            return "text"
         case .stairStepperBaseline, .exerciseLevel, .motivation, .plan:
             return "single_select"
         case .goal:
@@ -106,7 +121,7 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
             return "multi_select"
         case .gender, .notifications, .firstClimb:
             return "single_select"
-        case .displayName, .features, .age, .weight, .location, .planLoading:
+        case .features, .age, .weight, .location, .planLoading:
             return nil
         }
     }

@@ -56,12 +56,12 @@ struct OnboardingAnalyticsFunnelTranscriptTests {
             }
 
         #expect(viewedScreenIDs == steps.map(\.screenID) + ["paywall"])
-        #expect(viewedScreenIDs.count == 21)
-        #expect(Set(viewedScreenIDs).count == 21)
+        #expect(viewedScreenIDs.count == 20)
+        #expect(Set(viewedScreenIDs).count == 20)
         #expect(viewedScreenIDs.contains("features") == false)
         #expect(records.filter { $0.name == "onboarding_flow_started" }.count == 1)
         #expect(records.filter { $0.name == "onboarding_flow_completed" }.count == 1)
-        #expect(records.filter { $0.name == "onboarding_screen_completed" }.count == 19)
+        #expect(records.filter { $0.name == "onboarding_screen_completed" }.count == 18)
         #expect(records.filter { $0.name == "onboarding_question_answered" }.count == 7)
         #expect(records.filter { $0.name == "onboarding_auth_started" }.count == 1)
         #expect(records.filter { $0.name == "onboarding_auth_completed" }.count == 1)
@@ -71,11 +71,11 @@ struct OnboardingAnalyticsFunnelTranscriptTests {
         let onboardingRecords = records.filter { $0.name.hasPrefix("onboarding_") }
         #expect(onboardingRecords.allSatisfy { $0.parameters["flow_id"] == .string("onboarding") })
         #expect(onboardingRecords.allSatisfy { $0.parameters["flow_version"] == .string("v1") })
-        #expect(onboardingRecords.allSatisfy { $0.parameters["step_count"] == .int(21) })
+        #expect(onboardingRecords.allSatisfy { $0.parameters["step_count"] == .int(20) })
 
         let completion = records.first { $0.name == "onboarding_flow_completed" }
         #expect(completion?.parameters["step_id"] == .string("paywall"))
-        #expect(completion?.parameters["step_index"] == .int(20))
+        #expect(completion?.parameters["step_index"] == .int(19))
         #expect(completion?.parameters["completion_reason"] == .string("purchase"))
 
         for step in steps where step.isInteractive {
@@ -336,8 +336,6 @@ private extension OnboardingAnalyticsFunnelTranscriptTests {
         }
 
         switch stage {
-        case .displayName:
-            return [completed(["display_name_provided": .bool(true)])]
         case .stairStepperBaseline, .exerciseLevel, .goal, .motivation, .plan:
             return surveyInteractions(for: stage, context: context) + [
                 completed(["answer_count": .int(1)])

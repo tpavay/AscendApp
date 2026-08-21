@@ -4,9 +4,8 @@ import Testing
 
 struct PostAuthOnboardingCoordinatorTests {
     @Test
-    func postAuthStagesStartWithDisplayName() {
+    func postAuthStagesStartWithTheFirstSurveyQuestion() {
         #expect(PostAuthOnboardingStage.allCases == [
-            .displayName,
             .stairStepperBaseline,
             .exerciseLevel,
             .goal,
@@ -21,14 +20,19 @@ struct PostAuthOnboardingCoordinatorTests {
             .planLoading,
             .firstClimb
         ])
-        #expect(PostAuthOnboardingStage.first == .displayName)
+        #expect(PostAuthOnboardingStage.first == .stairStepperBaseline)
         #expect(PostAuthOnboardingStage.segmentID == "post_auth_onboarding")
-        #expect(PostAuthOnboardingStage.plannedStepCount == 14)
+        #expect(PostAuthOnboardingStage.plannedStepCount == 13)
+
+        // The name step is gone, not hidden: App Review rejected 1.0 for asking a
+        // Sign in with Apple climber to type a name the framework already
+        // supplies, and `SuppliedNameAdoption` now always resolves one.
+        #expect(!PostAuthOnboardingStage.allCases.contains { $0.rawValue == "displayName" })
     }
 
     @MainActor
     @Test
-    func completingDisplayNameAdvancesToStairStepperBaseline() {
+    func completingTheFirstStageAdvancesToTheSecond() {
         let defaults = makeDefaults()
         let store = PostAuthOnboardingStore(userDefaults: defaults)
         let userId = "user-1"
@@ -37,25 +41,9 @@ struct PostAuthOnboardingCoordinatorTests {
         coordinator.resolve(userId: userId)
         coordinator.completeCurrentStage()
 
-        #expect(coordinator.phase == .onboarding(.stairStepperBaseline))
+        #expect(coordinator.phase == .onboarding(.exerciseLevel))
         #expect(!store.snapshot(for: userId).isComplete)
-        #expect(store.snapshot(for: userId).completedStages == [.displayName])
-    }
-
-    @MainActor
-    @Test
-    func existingDisplayNameCanAdvanceDirectlyToStairStepperBaseline() {
-        let defaults = makeDefaults()
-        let store = PostAuthOnboardingStore(userDefaults: defaults)
-        let userId = "user-with-name"
-
-        let coordinator = PostAuthOnboardingCoordinator(store: store)
-        coordinator.resolve(userId: userId)
-        coordinator.completeDisplayNameIfNeeded()
-
-        #expect(coordinator.phase == .onboarding(.stairStepperBaseline))
-        #expect(!store.snapshot(for: userId).isComplete)
-        #expect(store.snapshot(for: userId).completedStages == [.displayName])
+        #expect(store.snapshot(for: userId).completedStages == [.stairStepperBaseline])
     }
 
     @MainActor
@@ -100,12 +88,12 @@ struct PostAuthOnboardingCoordinatorTests {
         let coordinator = PostAuthOnboardingCoordinator(store: store)
         coordinator.resolve(userId: userId)
 
-        #expect(coordinator.phase == .onboarding(.displayName))
+        #expect(coordinator.phase == .onboarding(.stairStepperBaseline))
     }
 
     @MainActor
     @Test
-    func legacyRemovedStageSnapshotWithDisplayNameCompletedResumesAtFirstSurveyQuestion() {
+    func legacyRemovedStageSnapshotResumesAtFirstSurveyQuestion() {
         let defaults = makeDefaults()
         let store = PostAuthOnboardingStore(userDefaults: defaults)
         let userId = "user-3"
@@ -129,7 +117,7 @@ struct PostAuthOnboardingCoordinatorTests {
 
         #expect(coordinator.phase == .onboarding(.stairStepperBaseline))
         #expect(!store.snapshot(for: userId).isComplete)
-        #expect(store.snapshot(for: userId).completedStages == [.displayName])
+        #expect(store.snapshot(for: userId).completedStages.isEmpty)
     }
 
     @MainActor
@@ -141,7 +129,7 @@ struct PostAuthOnboardingCoordinatorTests {
 
         let snapshot = PostAuthOnboardingSnapshot(
             currentStage: .gender,
-            completedStages: [.displayName],
+            completedStages: [],
             isComplete: false,
             startedAt: Date(timeIntervalSince1970: 1000)
         )
@@ -152,7 +140,7 @@ struct PostAuthOnboardingCoordinatorTests {
 
         #expect(coordinator.phase == .onboarding(.stairStepperBaseline))
         #expect(!store.snapshot(for: userId).isComplete)
-        #expect(store.snapshot(for: userId).completedStages == [.displayName])
+        #expect(store.snapshot(for: userId).completedStages.isEmpty)
     }
 
     @MainActor
@@ -166,7 +154,7 @@ struct PostAuthOnboardingCoordinatorTests {
         let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTestTelemetry(sink: sink))
         coordinator.resolve(userId: userId)
 
-        #expect(coordinator.phase == .onboarding(.displayName))
+        #expect(coordinator.phase == .onboarding(.stairStepperBaseline))
         #expect(sink.records.filter { $0.name == "onboarding_flow_started" }.isEmpty)
         #expect(sink.records.filter { $0.name == "onboarding_flow_completed" }.isEmpty)
     }
@@ -187,7 +175,7 @@ struct PostAuthOnboardingCoordinatorTests {
         let relaunch = PostAuthOnboardingCoordinator(store: store, telemetry: makeTestTelemetry(sink: sink))
         relaunch.resolve(userId: userId)
 
-        #expect(relaunch.phase == .onboarding(.stairStepperBaseline))
+        #expect(relaunch.phase == .onboarding(.exerciseLevel))
         #expect(sink.records.filter { $0.name == "onboarding_flow_started" }.isEmpty)
     }
 
@@ -319,7 +307,7 @@ struct PostAuthOnboardingCoordinatorTests {
 
         let back = sink.records.filter { $0.name == "onboarding_back_tapped" }
         #expect(back.count == 1)
-        #expect(back.first?.parameters["from_step"] == .string("stair_stepper_baseline"))
+        #expect(back.first?.parameters["from_step"] == .string("exercise_level"))
     }
 
     /// The guide sub-screen the user tapped back on reports that tap itself, and it reports the
@@ -340,6 +328,34 @@ struct PostAuthOnboardingCoordinatorTests {
         coordinator.moveBack()
 
         #expect(coordinator.phase == .onboarding(.plan))
+        #expect(sink.records.filter { $0.name == "onboarding_back_tapped" }.isEmpty)
+    }
+
+    /// The opening stage has nothing behind it, so `moveBack` is a no-op there. The
+    /// control that used to be a dead chevron signs out instead - post-auth
+    /// onboarding's only route back to the sign-in screen.
+    @Test
+    func onlyTheOpeningStageCarriesTheSignOutControl() {
+        #expect(PostAuthOnboardingStage.first.leadingControl == .signOut)
+
+        for stage in PostAuthOnboardingStage.allCases.dropFirst() {
+            #expect(stage.leadingControl == .back)
+        }
+    }
+
+    @MainActor
+    @Test
+    func movingBackOffTheOpeningStageReportsNothingAndGoesNowhere() {
+        let defaults = makeDefaults()
+        let store = PostAuthOnboardingStore(userDefaults: defaults)
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let userId = "user-back-first"
+
+        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTestTelemetry(sink: sink))
+        coordinator.resolve(userId: userId)
+        coordinator.moveBack()
+
+        #expect(coordinator.phase == .onboarding(.first))
         #expect(sink.records.filter { $0.name == "onboarding_back_tapped" }.isEmpty)
     }
 
