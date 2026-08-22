@@ -19,6 +19,7 @@ import {
   mergeAnnouncedClimbIds,
   normalizeCatalogClimbs,
   planDispatchAdvance,
+  planReceiptAbandon,
   referenceStepCount,
   runClimbDropSweep,
 } from "../src/climbDropNotifications.js";
@@ -100,12 +101,17 @@ interface FakeSendCall {
 
 /** The receipt fields the sweep's re-send decision actually reads. */
 interface ReceiptRecord {
+  abandonEligibleAt: number;
   sendAttempts: number;
   state: string;
 }
 
-/** The receipt retry bound the sweep enforces, mirrored for the harness. */
-const SEND_ATTEMPT_LIMIT = 3;
+const {
+  sendAbandonMinElapsedMs: SEND_ABANDON_MIN_ELAPSED_MS,
+} = climbDropNotificationTestHooks;
+
+/** The sweep's schedule interval, which the retry ladder is paced against. */
+const FIVE_MINUTES_MS = 5 * 60 * 1000;
 
 /**
  * Builds the in-memory catalogue, store, and sender the sweep runs against.
@@ -149,6 +155,9 @@ function makeHarness(setup: {
   let createdAtCounter = 0;
   let dispatchWriteFailures = 0;
   let catalogFailure: string | null = null;
+  // A stopped clock the test moves by hand, because the abandon rule is
+  // conjunctive: attempts spent AND the protected window elapsed.
+  let nowMillis = 1_700_000_000_000;
   let unclaimableTokenHashes = new Set<string>();
   let senderBehavior: (
     tokens: ClimbDropDevice[]
@@ -194,6 +203,9 @@ function makeHarness(setup: {
     abandonedCount(): number {
       return [...dispatchDocuments.values()]
         .reduce((sum, one) => sum + one.abandonedCount, 0);
+    },
+    advanceClock(milliseconds: number) {
+      nowMillis += milliseconds;
     },
     failCatalog(message: string | null) {
       catalogFailure = message;
@@ -298,8 +310,10 @@ function makeHarness(setup: {
     },
 
     // Mirrors the Firestore store: a `create` refuses an existing receipt,
-    // and only a receipt explicitly marked `unsent` - a send that threw, so a
-    // batch FCM never saw - is re-claimed, under a bound held on the receipt.
+    // only a receipt explicitly marked `unsent` - a send that threw, so a
+    // batch FCM never saw - is re-claimed, the abandon decision runs through
+    // the same shared rule, and the page's abandons reach the dispatch
+    // document as one write after the claim pass rather than per device.
     async claimDevices(dispatchId: string, candidates: ClimbDropDevice[]) {
       const ledger = receipts.get(dispatchId) ??
         new Map<string, ReceiptRecord>();
@@ -314,12 +328,9 @@ function makeHarness(setup: {
           if (existing.state !== "unsent") {
             continue;
           }
-          if (existing.sendAttempts >= SEND_ATTEMPT_LIMIT) {
+          if (planReceiptAbandon(existing, nowMillis)) {
             existing.state = "abandoned";
             abandonedCount += 1;
-            if (dispatch) {
-              dispatch.abandonedCount += 1;
-            }
             continue;
           }
           existing.state = "claimed";
@@ -332,8 +343,15 @@ function makeHarness(setup: {
           unclaimedCount += 1;
           continue;
         }
-        ledger.set(candidate.tokenHash, {sendAttempts: 0, state: "claimed"});
+        ledger.set(candidate.tokenHash, {
+          abandonEligibleAt: nowMillis + SEND_ABANDON_MIN_ELAPSED_MS,
+          sendAttempts: 0,
+          state: "claimed",
+        });
         winners.push(candidate);
+      }
+      if (abandonedCount > 0 && dispatch) {
+        dispatch.abandonedCount += abandonedCount;
       }
       return {abandonedCount, claimed: winners, unclaimedCount};
     },
@@ -456,8 +474,11 @@ function makeHarness(setup: {
         return;
       }
       for (const outcome of outcomes) {
-        const receipt = ledger.get(outcome.tokenHash) ??
-          {sendAttempts: 0, state: "claimed"};
+        const receipt = ledger.get(outcome.tokenHash) ?? {
+          abandonEligibleAt: nowMillis + SEND_ABANDON_MIN_ELAPSED_MS,
+          sendAttempts: 0,
+          state: "claimed",
+        };
         receipt.state = outcome.ok ? "delivered" : "failed";
         ledger.set(outcome.tokenHash, receipt);
       }
@@ -680,6 +701,48 @@ test("a page the sender never reached is re-sent, not written off",
     assert.deepEqual(harness.dispatchStates(), ["sent"]);
   });
 
+test("spent sends alone never give up on a device - the clock must run too",
+  async () => {
+    const harness = makeHarness({
+      catalog: [EMPIRE],
+      catalogVersion: 10,
+      registrations: devices(2),
+      state: {announcedClimbIds: [], lastCatalogVersion: 9},
+    });
+    harness.setSenderBehavior(() => {
+      throw new Error("FCM is unreachable");
+    });
+
+    // Three sends fit inside three five-minute ticks. An attempt counter on
+    // its own would write these devices off about fifteen minutes into an FCM
+    // incident - and every page after the incident would deliver normally,
+    // leaving exactly this page's climbers the ones who never heard.
+    for (let run = 0; run < 5; run++) {
+      await harness.sweep();
+      harness.advanceClock(FIVE_MINUTES_MS);
+    }
+
+    assert.equal(harness.sendCalls.length, 5);
+    assert.equal(harness.abandonedCount(), 0,
+      "the attempt term alone must not be able to give up on a device");
+    assert.deepEqual(harness.receiptStates(), ["unsent", "unsent"]);
+    assert.deepEqual(harness.dispatchStates(), ["pending"]);
+
+    // FCM comes back inside the protected window, and the page it was holding
+    // still gets its alert.
+    harness.setSenderBehavior((tokens) => tokens.map((token) => ({
+      errorCode: null,
+      invalidToken: false,
+      ok: true,
+      tokenHash: token.tokenHash,
+    })));
+    const recovered = await harness.sweep();
+
+    assert.equal(recovered.sentCount, 2);
+    assert.equal(harness.abandonedCount(), 0);
+    assert.deepEqual(harness.receiptStates(), ["delivered", "delivered"]);
+  });
+
 test("a page the sender can never reach is given up on, and counted",
   async () => {
     const harness = makeHarness({
@@ -692,9 +755,11 @@ test("a page the sender can never reach is given up on, and counted",
       throw new Error("FCM is unreachable");
     });
 
-    // The retry is bounded on the receipt, so it terminates no matter what
-    // kills the run in between - three sends, then the page is written off.
-    for (let run = 0; run < 5; run++) {
+    // Both budgets have to be spent, so the drop keeps trying across the whole
+    // protected window before it writes anyone off.
+    await harness.sweep();
+    harness.advanceClock(SEND_ABANDON_MIN_ELAPSED_MS);
+    for (let run = 0; run < 4; run++) {
       await harness.sweep();
     }
 
@@ -703,14 +768,75 @@ test("a page the sender can never reach is given up on, and counted",
     assert.deepEqual(harness.receiptStates(), ["abandoned", "abandoned"]);
 
     // The counter is the operator's answer to "did this drop lose anyone, and
-    // how many": exactly one increment per device, written with the receipt
-    // transition, so re-walking the page cannot inflate it.
+    // how many": one increment per device, folded into a single write after
+    // the claim pass, so re-walking the page cannot inflate it.
     assert.equal(harness.abandonedCount(), 2);
     assert.deepEqual(harness.dispatchStates(), ["sent"],
       "a drop that cannot finish is the broken promise");
 
     const settled = await harness.sweep();
     assert.equal(settled.abandonedCount, 0);
+    assert.equal(harness.abandonedCount(), 2);
+  });
+
+test("the abandon rule needs both budgets spent, neither alone", () => {
+  const eligibleAt = 1_700_000_000_000;
+
+  assert.equal(
+    planReceiptAbandon({abandonEligibleAt: eligibleAt, sendAttempts: 3},
+      eligibleAt - 1),
+    false,
+    "sends spent inside the protected window must not give up on a device"
+  );
+  assert.equal(
+    planReceiptAbandon({abandonEligibleAt: eligibleAt, sendAttempts: 2},
+      eligibleAt + FIVE_MINUTES_MS),
+    false,
+    "an elapsed window must not give up on a device with sends left"
+  );
+  assert.equal(
+    planReceiptAbandon({abandonEligibleAt: eligibleAt, sendAttempts: 3},
+      eligibleAt),
+    true
+  );
+  // A bound that can never be reached is not a bound, so a receipt written
+  // without a floor falls back to the attempt term.
+  assert.equal(
+    planReceiptAbandon({abandonEligibleAt: null, sendAttempts: 3}, 0),
+    true
+  );
+  assert.equal(
+    planReceiptAbandon({abandonEligibleAt: null, sendAttempts: null}, 0),
+    false
+  );
+});
+
+test("a dispatch that gives up and then throws still reports the loss",
+  async () => {
+    const harness = makeHarness({
+      catalog: [EMPIRE],
+      catalogVersion: 10,
+      registrations: devices(4),
+      state: {announcedClimbIds: [], lastCatalogVersion: 9},
+    });
+    const options = {devicePageSize: 2};
+    harness.setSenderBehavior(() => {
+      throw new Error("FCM is unreachable");
+    });
+
+    await harness.sweep(options);
+    harness.advanceClock(SEND_ABANDON_MIN_ELAPSED_MS);
+    await harness.sweep(options);
+    await harness.sweep(options);
+
+    // Page one has now spent both budgets. This run gives up on it and then
+    // throws on page two's send, which is the exact shape that used to leave
+    // the run logging only `left drops unsent`.
+    const degraded = await harness.sweep(options);
+
+    assert.equal(degraded.dispatchErrors.length, 1);
+    assert.equal(degraded.abandonedCount, 2,
+      "a dispatch that throws must still report what it already gave up on");
     assert.equal(harness.abandonedCount(), 2);
   });
 

@@ -47,7 +47,7 @@ const CLAIM_CONCURRENCY = 25;
 const CLAIM_ATTEMPT_LIMIT = 3;
 const CLAIM_RETRY_BASE_DELAY_MS = 50;
 /**
- * Sends one claimed device gets before the drop gives up on it.
+ * Sends one claimed device gets before the drop may give up on it.
  *
  * `sendEachForMulticast` reports a per-token refusal inside its response, so a
  * send that *throws* is a batch that never reached FCM at all - nothing was
@@ -55,8 +55,25 @@ const CLAIM_RETRY_BASE_DELAY_MS = 50;
  * the receipt is marked `unsent` so a later run re-sends to exactly those
  * devices and no others. Bounded, because a device whose send keeps throwing
  * would otherwise hold the page - and its cursor - open for good.
+ *
+ * This is only half the stop rule. See `SEND_ABANDON_MIN_ELAPSED_MS`.
  */
 const SEND_ATTEMPT_LIMIT = 3;
+/**
+ * How long a claimed receipt is protected from being given up on.
+ *
+ * A retry budget without a clock is no budget. Three sends fit inside three
+ * five-minute ticks, so an attempt counter alone writes off a whole page of
+ * 500 climbers after roughly fifteen minutes of FCM being unwell - and every
+ * later page then delivers normally, leaving exactly those climbers the ones
+ * who never heard about the climb. The stop rule is conjunctive: attempts
+ * spent AND this window elapsed, neither term alone.
+ *
+ * The floor is an absolute date written onto the receipt when it is first
+ * claimed, not a duration recomputed per run, so it survives a restart, a
+ * redeploy and a cold start rather than starting over with the process.
+ */
+const SEND_ABANDON_MIN_ELAPSED_MS = 30 * 60 * 1000;
 /** How much of a climb ID a dispatch ID may carry, after sanitizing. */
 const MAX_DISPATCH_ID_PREFIX_LENGTH = 60;
 /** Firestore rejects an ALREADY_EXISTS create with this gRPC code. */
@@ -188,6 +205,17 @@ export interface ClimbDropSendCounters {
   invalidTokenCount: number;
   sentCount: number;
   unclaimedCount: number;
+}
+
+/**
+ * What one dispatch has done so far this run.
+ *
+ * Owned by the caller rather than returned, because a dispatch that throws
+ * part-way has still committed everything it did before the throw - and the
+ * devices it gave up on are exactly what the run must report.
+ */
+export interface ClimbDropDispatchProgress extends ClimbDropSendCounters {
+  abandonedCount: number;
 }
 
 export interface ClimbDropSweepSummary {
@@ -437,15 +465,18 @@ export async function runClimbDropSweep(
     // drop behind it. The dispatch stays unfinished and the next scheduled run
     // resumes it, which is this function's retry - and the receipts already
     // written mean the resume cannot duplicate.
+    const progress: ClimbDropDispatchProgress = {
+      abandonedCount: 0,
+      ...emptyCounters(),
+    };
     try {
-      const result = await deliverDispatch(deps, dispatch, options);
-      summary.abandonedCount += result.abandonedCount;
-      summary.claimedCount += result.claimedCount;
-      summary.failedCount += result.failedCount;
-      summary.invalidTokenCount += result.invalidTokenCount;
-      summary.sentCount += result.sentCount;
-      summary.unclaimedCount += result.unclaimedCount;
-      if (result.completed) {
+      const completed = await deliverDispatch(
+        deps,
+        dispatch,
+        options,
+        progress
+      );
+      if (completed) {
         summary.dispatchesCompleted.push(dispatch.id);
       }
     } catch (error) {
@@ -453,6 +484,17 @@ export async function runClimbDropSweep(
         dispatchId: dispatch.id,
         message: error instanceof Error ? error.message : "unknown_error",
       });
+    } finally {
+      // Whatever this dispatch already committed is reported either way. A
+      // page that gave up on devices and then threw on the next send would
+      // otherwise log only `left drops unsent`, silencing the one alarm the
+      // abandon counter exists to raise.
+      summary.abandonedCount += progress.abandonedCount;
+      summary.claimedCount += progress.claimedCount;
+      summary.failedCount += progress.failedCount;
+      summary.invalidTokenCount += progress.invalidTokenCount;
+      summary.sentCount += progress.sentCount;
+      summary.unclaimedCount += progress.unclaimedCount;
     }
   }
 
@@ -553,19 +595,17 @@ async function detectClimbDrop(
  * @param {object} deps Injected store and sender.
  * @param {ClimbDropDispatch} dispatch Dispatch to advance.
  * @param {ClimbDropSweepOptions} options Per-run bounds.
- * @return {Promise<object>} Counters plus whether the dispatch finished.
+ * @param {ClimbDropDispatchProgress} progress Counters the caller owns.
+ * @return {Promise<boolean>} Whether the dispatch finished.
  */
 async function deliverDispatch(
   deps: {sender: ClimbDropSender; store: ClimbDropStore},
   dispatch: ClimbDropDispatch,
-  options: ClimbDropSweepOptions
-): Promise<
-  ClimbDropSendCounters & {abandonedCount: number; completed: boolean}
-> {
+  options: ClimbDropSweepOptions,
+  progress: ClimbDropDispatchProgress
+): Promise<boolean> {
   const pageSize = options.devicePageSize ?? DEVICE_PAGE_SIZE;
   const maxPages = options.maxDevicePages ?? MAX_DEVICE_PAGES_PER_RUN;
-  const total: ClimbDropSendCounters = emptyCounters();
-  let abandonedCount = 0;
   let cursor = dispatch.deviceCursor;
   let completed = false;
 
@@ -588,7 +628,11 @@ async function deliverDispatch(
       );
       counters.claimedCount += claim.claimed.length;
       counters.unclaimedCount += claim.unclaimedCount;
-      abandonedCount += claim.abandonedCount;
+      // Recorded the moment it is known, not on the way out: the send below
+      // may throw, and the claim pass has already committed these.
+      progress.claimedCount += claim.claimed.length;
+      progress.unclaimedCount += claim.unclaimedCount;
+      progress.abandonedCount += claim.abandonedCount;
 
       if (claim.claimed.length > 0) {
         const outcomes = await sendClaimedPage(deps, dispatch, claim.claimed);
@@ -600,17 +644,16 @@ async function deliverDispatch(
           .map((outcome) => outcome.tokenHash);
         await deps.store.pruneInvalidTokens(invalidTokenHashes);
 
+        const sentCount = outcomes.filter((one) => one.ok).length;
+        const failedCount = outcomes.filter((one) => !one.ok).length;
         counters.invalidTokenCount += invalidTokenHashes.length;
-        counters.sentCount += outcomes.filter((one) => one.ok).length;
-        counters.failedCount += outcomes.filter((one) => !one.ok).length;
+        counters.sentCount += sentCount;
+        counters.failedCount += failedCount;
+        progress.invalidTokenCount += invalidTokenHashes.length;
+        progress.sentCount += sentCount;
+        progress.failedCount += failedCount;
       }
     }
-
-    total.claimedCount += counters.claimedCount;
-    total.failedCount += counters.failedCount;
-    total.invalidTokenCount += counters.invalidTokenCount;
-    total.sentCount += counters.sentCount;
-    total.unclaimedCount += counters.unclaimedCount;
 
     // A device the store could not claim within its bounded attempts is left
     // behind, and the page still advances. Holding the cursor for it would
@@ -627,7 +670,7 @@ async function deliverDispatch(
     await deps.store.advanceDispatch(dispatch.id, cursor, counters);
   }
 
-  return {...total, abandonedCount, completed};
+  return completed;
 }
 
 /**
@@ -720,6 +763,34 @@ export function planDispatchAdvance(
     advanced.deviceCursor = cursor;
   }
   return advanced;
+}
+
+/**
+ * Whether a re-sendable receipt has run out of both budgets.
+ *
+ * Conjunctive on purpose: a device is given up on only once its sends are
+ * spent AND the protected window since it was first claimed has elapsed.
+ * An attempt counter alone burns through three five-minute ticks in about
+ * fifteen minutes, which is short enough that an ordinary FCM incident
+ * permanently writes off the one page that was in flight when it started.
+ *
+ * `abandonEligibleAt` is an absolute date persisted on the receipt at its
+ * first claim, so the clock keeps running across restarts and redeploys
+ * instead of resetting with the process. A receipt that carries no floor at
+ * all falls back to the attempt term, because a bound that can never be
+ * reached is not a bound.
+ * @param {object} receipt The receipt's stored budgets.
+ * @param {number} nowMillis Current time in epoch milliseconds.
+ * @return {boolean} True when the device may be given up on.
+ */
+export function planReceiptAbandon(
+  receipt: {abandonEligibleAt: number | null; sendAttempts: number | null},
+  nowMillis: number
+): boolean {
+  const attemptsSpent = (receipt.sendAttempts ?? 0) >= SEND_ATTEMPT_LIMIT;
+  const windowElapsed = receipt.abandonEligibleAt === null ||
+    nowMillis >= receipt.abandonEligibleAt;
+  return attemptsSpent && windowElapsed;
 }
 
 /**
@@ -1028,6 +1099,12 @@ export function makeFirestoreClimbDropStore(
         async (device) => {
           const receiptRef = receipts.doc(device.tokenHash);
           const outcome = await claimReceipt(() => receiptRef.create({
+            // The half of the stop rule that is a clock. Written once, at the
+            // first claim, as an absolute date - a duration recomputed per run
+            // would start over every time the function cold-starts.
+            abandonEligibleAt: admin.firestore.Timestamp.fromMillis(
+              now.toMillis() + SEND_ABANDON_MIN_ELAPSED_MS
+            ),
             claimedAt: now,
             dispatchId,
             errorCode: null,
@@ -1042,7 +1119,6 @@ export function makeFirestoreClimbDropStore(
 
           const resolution = await resolveExistingReceipt(
             firestore,
-            dispatchRef,
             receiptRef
           );
           if (resolution === "reclaimed") {
@@ -1084,6 +1160,22 @@ export function makeFirestoreClimbDropStore(
           count: abandonedCount,
           dispatchId,
         });
+        try {
+          // One write for the whole page, after the claim pass, the way every
+          // other counter reaches this document. `update` refuses a document
+          // that is not there, so an operator who deleted the dispatch to
+          // cancel the drop does not get it recreated without a `createdAt`.
+          await dispatchRef.update({
+            abandonedCount: admin.firestore.FieldValue
+              .increment(abandonedCount),
+          });
+        } catch (error) {
+          console.error("climb drop abandon count was not recorded", {
+            count: abandonedCount,
+            dispatchId,
+            message: error instanceof Error ? error.message : "unknown_error",
+          });
+        }
       }
 
       return {
@@ -1120,6 +1212,7 @@ export function makeFirestoreClimbDropStore(
       const now = admin.firestore.Timestamp.now();
       const batch = firestore.batch();
       batch.create(dispatches.doc(dispatch.id), {
+        abandonedCount: 0,
         body: dispatch.body,
         catalogVersion: dispatch.catalogVersion,
         claimedCount: 0,
@@ -1320,19 +1413,22 @@ type ClimbDropReceiptResolution = "reclaimed" | "abandoned" | "held";
  * a page whose push landed and whose settle write did not, and a second push
  * is the one failure never-twice cannot recover from.
  *
- * The retry bound lives on the receipt, so it terminates no matter what kills
- * the run in between. Giving up flips the receipt to `abandoned` and
- * increments the dispatch's `abandonedCount` in the same transaction, which
- * makes that counter an exact, once-per-device tally of the alerts this drop
- * lost - not a per-run reading that re-inflates every time the page is walked.
+ * Both halves of the stop rule live on the receipt - the attempts spent and
+ * the absolute date before which it may not be given up on - so the bound
+ * terminates no matter what kills the run in between, and the clock does not
+ * restart with the process.
+ *
+ * The transaction touches this one receipt and nothing else. Reaching into
+ * the shared dispatch document from here would put the whole page's devices
+ * into optimistic contention on a single document at exactly the moment they
+ * are all resolving together, and the losers would be reported as claim
+ * failures rather than as the abandonments they are.
  * @param {admin.firestore.Firestore} firestore Admin Firestore instance.
- * @param {admin.firestore.DocumentReference} dispatchRef Dispatch document.
  * @param {admin.firestore.DocumentReference} receiptRef Receipt document.
  * @return {Promise<ClimbDropReceiptResolution>} What the receipt resolved to.
  */
 async function resolveExistingReceipt(
   firestore: admin.firestore.Firestore,
-  dispatchRef: admin.firestore.DocumentReference,
   receiptRef: admin.firestore.DocumentReference
 ): Promise<ClimbDropReceiptResolution> {
   return firestore.runTransaction<ClimbDropReceiptResolution>(
@@ -1342,19 +1438,16 @@ async function resolveExistingReceipt(
         return "held";
       }
 
+      const now = admin.firestore.Timestamp.now();
       const attempts = receipt.get("sendAttempts");
-      if (typeof attempts === "number" && attempts >= SEND_ATTEMPT_LIMIT) {
-        const dispatch = await transaction.get(dispatchRef);
+      if (planReceiptAbandon({
+        abandonEligibleAt: receiptAbandonFloorMillis(receipt),
+        sendAttempts: typeof attempts === "number" ? attempts : null,
+      }, now.toMillis())) {
         transaction.set(receiptRef, {
-          abandonedAt: admin.firestore.Timestamp.now(),
+          abandonedAt: now,
           state: "abandoned",
         }, {merge: true});
-        // Never recreate a dispatch an operator deleted to cancel the drop.
-        if (dispatch.exists) {
-          transaction.set(dispatchRef, {
-            abandonedCount: admin.firestore.FieldValue.increment(1),
-          }, {merge: true});
-        }
         return "abandoned";
       }
 
@@ -1362,6 +1455,25 @@ async function resolveExistingReceipt(
       return "reclaimed";
     }
   );
+}
+
+/**
+ * The absolute date a receipt may first be given up on.
+ * @param {admin.firestore.DocumentSnapshot} receipt Receipt document.
+ * @return {number | null} Epoch milliseconds, or nothing when unrecorded.
+ */
+function receiptAbandonFloorMillis(
+  receipt: admin.firestore.DocumentSnapshot
+): number | null {
+  const eligible = receipt.get("abandonEligibleAt");
+  if (eligible instanceof admin.firestore.Timestamp) {
+    return eligible.toMillis();
+  }
+  const claimed = receipt.get("claimedAt");
+  if (claimed instanceof admin.firestore.Timestamp) {
+    return claimed.toMillis() + SEND_ABANDON_MIN_ELAPSED_MS;
+  }
+  return null;
 }
 
 /**
@@ -1578,5 +1690,7 @@ export const climbDropNotificationTestHooks = {
   buildTitle,
   isAlreadyExistsError,
   receiptStateFor,
+  sendAbandonMinElapsedMs: SEND_ABANDON_MIN_ELAPSED_MS,
+  sendAttemptLimit: SEND_ATTEMPT_LIMIT,
   truncate,
 };

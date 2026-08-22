@@ -90,8 +90,18 @@ The cursor is not advanced either, so the next run re-walks exactly that page.
 A plain `claimed` receipt is deliberately **not** re-sent.
 It may be a page whose push landed and whose settle write did not, and a second push is the failure never-twice cannot recover from.
 
-The retry is bounded by `sendAttempts` on the receipt itself, so it terminates no matter what kills the run in between.
-After three sends the receipt flips to `abandoned` and that device is written off - a page that can never be reached must not hold its cursor, and its drop's per-run slot, open for good.
+**The retry is bounded, and the bound is conjunctive.**
+A device is given up on only once **both** budgets are spent: three sends, **and** thirty minutes elapsed since it was first claimed.
+Neither term alone may abandon anyone.
+
+An attempt counter on its own is not a budget here.
+Three sends fit inside three five-minute ticks, so a bare count writes off the one page that was in flight about fifteen minutes into an FCM incident - and every page after the incident then delivers normally, leaving exactly those climbers the ones who never heard about the climb.
+
+The clock is `abandonEligibleAt`, an **absolute date** written onto the receipt at its first claim, never a duration recomputed per run.
+It therefore keeps running across a restart, a redeploy and a cold start instead of starting over with the process.
+`planReceiptAbandon` is the single expression of the rule, shared by the store and its test harness.
+
+When both budgets are spent the receipt flips to `abandoned` and that device is written off - a page that can never be reached must not hold its cursor, and its drop's per-run slot, open for good.
 
 Claims run at bounded concurrency, and each device's create gets **three** attempts with a short backoff.
 Firing 500 unthrottled creates and rejecting the page on the first failure would abandon receipts that already landed, leaving those devices claimed for good and never sent to.
@@ -165,8 +175,16 @@ This is the choke point that *defers*, not the raw FCM call - the same invariant
 The per-run summary is the signal to act on - each of the devices in the last two lines missed the drop for good.
 
 **Did this drop lose anyone, and how many?** Read `abandonedCount` on `climb_drop_dispatches/{dispatchId}`.
-It is written in the same transaction as the receipt's flip to `abandoned`, so it counts each device exactly once no matter how many times the page is re-walked - it is the drop's true loss total, and a zero is a real zero.
+It is seeded to `0` when the dispatch is created, so a clean drop reads as a real zero rather than a missing field.
+Each device flips to `abandoned` exactly once, and the page's flips reach the dispatch in one `increment` after the claim pass - the same way every other counter reaches that document, and without putting 500 devices into optimistic contention on one document at the moment they all resolve together.
+Re-walking the page cannot inflate it: an already-abandoned receipt resolves as held and is not counted again.
 Cross-check it against the receipts: `state: "abandoned"` names exactly those devices.
+
+The run summary reports the same number for the run, and it survives a dispatch that also throws - a page that gave up on devices and then failed its next send still logs `gave up on devices`, because a silenced alarm is the failure this counter exists to prevent.
+
+**Recovering an abandoned page.** There is no automatic second chance: the dispatch ends `state: "sent"`, so `listUnfinishedDispatches` will never return it again.
+Re-sending to exactly those devices means, on that dispatch, deleting the `state: "abandoned"` receipts, rewinding `deviceCursor` to just before the abandoned page, and setting `state` back to `sending`.
+Delete the receipts rather than editing them - a receipt that is absent is re-claimed cleanly, and every device that already has a `delivered` receipt is skipped, so the re-run cannot double-alert anyone.
 
 `unclaimedCount` is a plain `FieldValue.increment` and re-increments every run that re-walks the same page, so it is an upper bound rather than a count; use it to notice a claim fault, not to size one.
 
