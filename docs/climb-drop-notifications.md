@@ -163,16 +163,20 @@ This is the choke point that *defers*, not the raw FCM call - the same invariant
 
 **Deploy order.** Indexes before functions: `listUnfinishedDispatches` queries `state` + `createdAt` and fails without the composite index in `firestore.indexes.json`.
 
-**Watching it.** Every run logs `announceClimbDrops sweep completed` with its counters, or an error-level line when something went wrong:
+**Watching it.** A run emits exactly **one** log line, and it always emits it.
+A clean run logs `announceClimbDrops sweep completed` at info level.
+A degraded run logs at error level and names **every** condition it hit, so no condition can suppress another - the whole counter set rides on the payload either way, alongside a `problems` array carrying the same phrases for alerting that would rather match a field than a substring.
 
-| Log line | What fired it |
+| Condition | What fired it |
 |---|---|
-| `announceClimbDrops sweep left drops unsent` | a dispatch threw; it retries on the next run |
-| `announceClimbDrops sweep could not read the catalogue` | detection failed; delivery of drops already in flight carried on |
-| `announceClimbDrops sweep gave up on devices` | a page FCM could not be reached on, three runs running |
-| `announceClimbDrops sweep left devices unclaimed` | a receipt create kept failing, or settled ambiguously |
+| `left drops unsent` | a dispatch threw; it retries on the next run |
+| `could not read the catalogue` | detection failed; delivery of drops already in flight carried on |
+| `gave up on devices` | a page whose sends kept throwing spent **both** budgets - three sends *and* thirty minutes since those receipts were first claimed |
+| `left devices unclaimed` | a receipt create kept failing, or settled ambiguously |
 
-The per-run summary is the signal to act on - each of the devices in the last two lines missed the drop for good.
+A run that hits more than one names them all in the one line: `announceClimbDrops sweep left drops unsent and gave up on devices`.
+
+The per-run summary is the signal to act on - each of the devices behind `gave up on devices` and `left devices unclaimed` missed the drop for good.
 
 **Did this drop lose anyone, and how many?** Read `abandonedCount` on `climb_drop_dispatches/{dispatchId}`.
 It is seeded to `0` when the dispatch is created, so a clean drop reads as a real zero rather than a missing field.
@@ -180,7 +184,8 @@ Each device flips to `abandoned` exactly once, and the page's flips reach the di
 Re-walking the page cannot inflate it: an already-abandoned receipt resolves as held and is not counted again.
 Cross-check it against the receipts: `state: "abandoned"` names exactly those devices.
 
-The run summary reports the same number for the run, and it survives a dispatch that also throws - a page that gave up on devices and then failed its next send still logs `gave up on devices`, because a silenced alarm is the failure this counter exists to prevent.
+The run summary reports the same number for the run, and it survives a dispatch that also throws.
+A page that gave up on devices and then failed its next send still names `gave up on devices` in the run's one log line, because a silenced alarm is the failure this counter exists to prevent.
 
 **Recovering an abandoned page.** There is no automatic second chance: the dispatch ends `state: "sent"`, so `listUnfinishedDispatches` will never return it again.
 Re-sending to exactly those devices means, on that dispatch, deleting the `state: "abandoned"` receipts, rewinding `deviceCursor` to just before the abandoned page, and setting `state` back to `sending`.

@@ -1626,6 +1626,47 @@ export function makeFcmClimbDropSender(
 }
 
 /**
+ * How one run reads, as one line.
+ *
+ * Every condition the run hit is named, so none of them can hide behind
+ * another. `problems` carries the same phrases the message does, for alerting
+ * that would rather match a field than a substring.
+ * @param {ClimbDropSweepSummary} summary What the sweep did.
+ * @return {object} Severity, the line to log, and the conditions that fired.
+ */
+export function describeClimbDropRun(summary: ClimbDropSweepSummary): {
+  degraded: boolean;
+  message: string;
+  problems: string[];
+} {
+  const problems: string[] = [];
+  if (summary.dispatchErrors.length > 0) {
+    problems.push("left drops unsent");
+  }
+  // Detection failing is a drop nobody has heard about yet; delivery of the
+  // drops already in flight carried on regardless.
+  if (summary.detectionError !== null) {
+    problems.push("could not read the catalogue");
+  }
+  // These devices were left behind by this drop and no later run picks them
+  // up, so a run that hit either must never read like a clean one.
+  if (summary.abandonedCount > 0) {
+    problems.push("gave up on devices");
+  }
+  if (summary.unclaimedCount > 0) {
+    problems.push("left devices unclaimed");
+  }
+
+  return {
+    degraded: problems.length > 0,
+    message: problems.length === 0 ?
+      "announceClimbDrops sweep completed" :
+      `announceClimbDrops sweep ${problems.join(" and ")}`,
+    problems,
+  };
+}
+
+/**
  * Announces climb drops as the hosted catalogue opens them.
  */
 export const announceClimbDrops = onSchedule(
@@ -1655,33 +1696,13 @@ export const announceClimbDrops = onSchedule(
       store: makeFirestoreClimbDropStore(admin.firestore()),
     });
 
-    if (summary.dispatchErrors.length > 0) {
-      console.error("announceClimbDrops sweep left drops unsent", summary);
-      return;
-    }
-
-    // Detection failing is a drop nobody has heard about yet; delivery of the
-    // drops already in flight carried on regardless, which is why this is not
-    // fatal to the run.
-    if (summary.detectionError !== null) {
-      console.error("announceClimbDrops sweep could not read the catalogue",
-        summary);
-      return;
-    }
-
-    // A degraded run must not read like a clean one: these devices were left
-    // behind by this drop and no later run picks them up.
-    if (summary.abandonedCount > 0) {
-      console.error("announceClimbDrops sweep gave up on devices", summary);
-      return;
-    }
-
-    if (summary.unclaimedCount > 0) {
-      console.error("announceClimbDrops sweep left devices unclaimed", summary);
-      return;
-    }
-
-    console.log("announceClimbDrops sweep completed", summary);
+    const report = describeClimbDropRun(summary);
+    // One log site, always reached. A chain of early returns made each
+    // condition able to suppress the ones after it, so a run that gave up on
+    // devices and then threw reported only the throw - and the alarm the
+    // abandon counter exists to raise never fired.
+    const write = report.degraded ? console.error : console.log;
+    write(report.message, {...summary, problems: report.problems});
   }
 );
 

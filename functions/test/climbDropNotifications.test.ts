@@ -15,6 +15,7 @@ import {
   buildClimbDropMessage,
   claimReceipt,
   climbDropNotificationTestHooks,
+  describeClimbDropRun,
   detectNewlyAvailableClimbs,
   mergeAnnouncedClimbIds,
   normalizeCatalogClimbs,
@@ -28,6 +29,7 @@ import type {
   ClimbDropDevice,
   ClimbDropSendOutcome,
   ClimbDropSweepOptions,
+  ClimbDropSweepSummary,
 } from "../src/climbDropNotifications.js";
 import {
   pushNotificationTestHooks,
@@ -838,7 +840,66 @@ test("a dispatch that gives up and then throws still reports the loss",
     assert.equal(degraded.abandonedCount, 2,
       "a dispatch that throws must still report what it already gave up on");
     assert.equal(harness.abandonedCount(), 2);
+
+    // The run is reported as one line, so the throw cannot hide the devices
+    // this run wrote off. A chain of early returns used to stop at the first
+    // condition, and the abandon alarm was the one that never got to fire.
+    const report = describeClimbDropRun(degraded);
+
+    assert.equal(report.degraded, true);
+    assert.deepEqual(report.problems,
+      ["left drops unsent", "gave up on devices"]);
+    assert.match(report.message, /gave up on devices/,
+      "a dispatch throw must not suppress the abandon alarm");
+    assert.match(report.message, /left drops unsent/);
   });
+
+test("a run is reported as one line naming every condition it hit", () => {
+  const clean: ClimbDropSweepSummary = {
+    abandonedCount: 0,
+    bootstrapped: false,
+    claimedCount: 4,
+    detectionError: null,
+    dispatchErrors: [],
+    dispatchesCompleted: ["empire-state-building-abc123def456"],
+    dispatchesCreated: [],
+    failedCount: 0,
+    invalidTokenCount: 0,
+    newlyAvailableClimbIds: [],
+    sendingSkipped: false,
+    sentCount: 4,
+    unclaimedCount: 0,
+  };
+
+  assert.deepEqual(describeClimbDropRun(clean), {
+    degraded: false,
+    message: "announceClimbDrops sweep completed",
+    problems: [],
+  });
+
+  // Every condition is named, in one line, at error level.
+  const everything = describeClimbDropRun({
+    ...clean,
+    abandonedCount: 500,
+    detectionError: "Catalogue request failed (503).",
+    dispatchErrors: [{dispatchId: "d", message: "FCM is unreachable"}],
+    unclaimedCount: 1,
+  });
+
+  assert.equal(everything.degraded, true);
+  assert.deepEqual(everything.problems, [
+    "left drops unsent",
+    "could not read the catalogue",
+    "gave up on devices",
+    "left devices unclaimed",
+  ]);
+  assert.equal(
+    everything.message,
+    "announceClimbDrops sweep left drops unsent and " +
+      "could not read the catalogue and gave up on devices and " +
+      "left devices unclaimed"
+  );
+});
 
 test("a catalogue failure cannot stall a drop already in flight", async () => {
   const harness = makeHarness({
