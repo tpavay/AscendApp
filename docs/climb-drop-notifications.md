@@ -10,7 +10,7 @@ All five of them say the alert arrives **when** a climb opens:
 
 | Surface | Copy |
 |---|---|
-| `PostAuthOnboardingFlowView.swift` | "Get an Ascend alert when new climbs open. Be ready to claim the First Ascent before anyone else." |
+| `PostAuthOnboardingFlowView.swift` | "Get an Ascend alert when new climbs open. Be ready to claim the First Ascent before anyone else." / "Email me when climbs drop." |
 | `NotificationSettingsView.swift` | "New climb drops" / "A new landmark opens in the catalog." |
 | `CollectionSection.swift` | "Be the first to know when new climbs drop." |
 | `PrestigeSection.swift` | "…be first up when the next climb drops." |
@@ -23,7 +23,7 @@ The catalogue is a static file published by a hosting deploy and carries no unlo
 Giving notice ahead of an open would take a catalogue schema change *and* a client that withholds an already-published climb until a scheduled moment - a client change.
 `scripts/test/climb-drop-promise-contract.test.mjs` fails any surface or document that reintroduces the 24-hour claim that used to live in the internal docs.
 
-The email half of that table is **not** honored yet: there is no `climb_drop` type in `functions/src/email/catalog.ts`, so nothing queues a drop email.
+The two email promises in that table - the onboarding toggle and the email-preferences row - are **not** honored yet: there is no `climb_drop` type in `functions/src/email/catalog.ts`, so nothing queues a drop email.
 That is the one remaining gap between the copy and the code.
 
 ## How a drop is detected

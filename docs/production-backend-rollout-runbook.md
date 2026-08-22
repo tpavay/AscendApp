@@ -277,6 +277,10 @@ Rollback: redeploy only `storage` from the last known good production SHA.
 
 ### 5. Hosting
 
+This step is also a fleet-wide send.
+`announceClimbDrops` polls the hosted manifest, so any climb this deploy promotes to `available` in `web/public/climbs/catalog-v1.json` is pushed to every opted-in production device within minutes, with no confirmation step in front of it.
+Read the catalogue diff before running it; `docs/climb-drop-notifications.md` owns the sender and the `sendingEnabled` stop.
+
 ```sh
 npm --prefix web ci
 npm --prefix web run build
@@ -297,6 +301,7 @@ Verify `/api/unsubscribe` routes to its deployed Function with a safe test reque
 Use a `GET`, which renders the confirmation page and never acts, rather than a `POST` that would opt someone out.
 
 Rollback: rebuild and redeploy only Hosting from the last known good production SHA.
+A rollback cannot unsend a drop alert, and a climb already announced stays announced, so pulling it back to `hidden` and promoting it again is silent.
 
 ### 6. Remote Config kill switches
 
