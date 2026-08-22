@@ -46,6 +46,19 @@ const CLAIM_CONCURRENCY = 25;
  */
 const CLAIM_ATTEMPT_LIMIT = 3;
 const CLAIM_RETRY_BASE_DELAY_MS = 50;
+/**
+ * Sends one claimed device gets before the drop gives up on it.
+ *
+ * `sendEachForMulticast` reports a per-token refusal inside its response, so a
+ * send that *throws* is a batch that never reached FCM at all - nothing was
+ * delivered, and re-sending it cannot duplicate. The claim is still kept, and
+ * the receipt is marked `unsent` so a later run re-sends to exactly those
+ * devices and no others. Bounded, because a device whose send keeps throwing
+ * would otherwise hold the page - and its cursor - open for good.
+ */
+const SEND_ATTEMPT_LIMIT = 3;
+/** How much of a climb ID a dispatch ID may carry, after sanitizing. */
+const MAX_DISPATCH_ID_PREFIX_LENGTH = 60;
 /** Firestore rejects an ALREADY_EXISTS create with this gRPC code. */
 const ALREADY_EXISTS_CODE = 6;
 
@@ -104,6 +117,7 @@ export interface ClimbDropSendOutcome {
 }
 
 export interface ClimbDropClaimResult {
+  abandonedCount: number;
   claimed: ClimbDropDevice[];
   unclaimedCount: number;
 }
@@ -141,6 +155,10 @@ export interface ClimbDropStore {
     dispatchId: string,
     outcomes: ClimbDropSendOutcome[]
   ): Promise<void>;
+  recordSendFailure(
+    dispatchId: string,
+    tokenHashes: string[]
+  ): Promise<void>;
   advanceDispatch(
     dispatchId: string,
     cursor: string | null,
@@ -173,8 +191,11 @@ export interface ClimbDropSendCounters {
 }
 
 export interface ClimbDropSweepSummary {
+  /** Devices this run wrote off: claimed, never reached, retries spent. */
+  abandonedCount: number;
   bootstrapped: boolean;
   claimedCount: number;
+  detectionError: string | null;
   dispatchesCreated: string[];
   dispatchesCompleted: string[];
   dispatchErrors: Array<{dispatchId: string; message: string}>;
@@ -263,6 +284,11 @@ export function referenceStepCount(climb: CatalogClimb): number | null {
  * Derived from the climb IDs alone, so re-detecting the same drop - a retry, a
  * redeploy, a state write that failed after the dispatch was created - lands on
  * the document that already exists instead of announcing twice.
+ * The digest alone is what makes the ID unique, so the leading climb ID is
+ * only there to make the document legible in the console - and it is
+ * sanitized down to one Firestore path segment before it is spliced into one.
+ * A catalogue row is hand-authored, and `tour/eiffel` would otherwise resolve
+ * `dispatches.doc(...)` to a collection and throw inside the admin SDK.
  * @param {string[]} climbIds Climb IDs in the drop.
  * @return {string} Deterministic dispatch document ID.
  */
@@ -272,7 +298,39 @@ export function buildClimbDropDispatchId(climbIds: string[]): string {
     .update(sorted.join("\n"))
     .digest("hex")
     .slice(0, 12);
-  return `${sorted[0]}-${digest}`;
+  const prefix = dispatchIdPrefix(sorted[0] ?? "");
+  return prefix.length > 0 ? `${prefix}-${digest}` : digest;
+}
+
+/**
+ * Reduces a climb ID to something safe to name a document with.
+ * @param {string} climbId Catalogue climb ID.
+ * @return {string} Sanitized, bounded prefix - empty when nothing survives.
+ */
+function dispatchIdPrefix(climbId: string): string {
+  return climbId
+    .replace(/[^A-Za-z0-9_-]/g, "-")
+    .slice(0, MAX_DISPATCH_ID_PREFIX_LENGTH)
+    .replace(/^[-_]+|[-_]+$/g, "");
+}
+
+/**
+ * Whether a catalogue climb ID can name Firestore documents and paths.
+ *
+ * A climb ID is carried into document IDs, the monotonic baseline and the push
+ * payload, so one that cannot be a path segment is not a climb this sweep can
+ * announce.
+ * @param {string} climbId Trimmed catalogue climb ID.
+ * @return {boolean} True when the ID is usable.
+ */
+function isUsableClimbId(climbId: string): boolean {
+  return climbId.length > 0 &&
+    climbId.length <= 1_000 &&
+    !climbId.includes("/") &&
+    climbId !== "." &&
+    climbId !== ".." &&
+    // eslint-disable-next-line no-control-regex
+    !/[\u0000-\u001f\u007f]/.test(climbId);
 }
 
 /**
@@ -326,8 +384,10 @@ export async function runClimbDropSweep(
   options: ClimbDropSweepOptions = {}
 ): Promise<ClimbDropSweepSummary> {
   const summary: ClimbDropSweepSummary = {
+    abandonedCount: 0,
     bootstrapped: false,
     claimedCount: 0,
+    detectionError: null,
     dispatchErrors: [],
     dispatchesCompleted: [],
     dispatchesCreated: [],
@@ -341,66 +401,24 @@ export async function runClimbDropSweep(
 
   const state = await deps.store.readState();
 
-  // First run in an environment. Every available climb is "new" against an
-  // empty baseline, so recording the catalogue is the only safe thing to do:
-  // announcing the whole catalogue as a drop is the fan-out disaster this
-  // function exists to avoid.
-  if (!state) {
-    const manifest = await deps.catalog.fetchManifest();
-    const climbs = await deps.catalog.fetchClimbs(manifest);
-    await deps.store.writeBootstrapState(
-      availableClimbIds(climbs),
-      manifest.catalogVersion
-    );
-    summary.bootstrapped = true;
-    return summary;
+  // Detection is isolated from delivery. A drop that already exists owes its
+  // remaining devices an alert whether or not hosting is answering, and
+  // delivery reads nothing from the catalogue - so a fetch that fails records
+  // itself on the summary and the run falls through to the dispatches still in
+  // flight. Left unguarded, one 503 on `manifest.json` stalls every drop
+  // mid-send for as long as hosting is unwell.
+  try {
+    await detectClimbDrop(deps, state, summary);
+  } catch (error) {
+    summary.detectionError = error instanceof Error ?
+      error.message :
+      "unknown_error";
   }
 
-  const manifest = await deps.catalog.fetchManifest();
-  if (manifest.catalogVersion !== state.lastCatalogVersion) {
-    const climbs = await deps.catalog.fetchClimbs(manifest);
-    const newlyAvailable = detectNewlyAvailableClimbs(
-      climbs,
-      state.announcedClimbIds
-    );
-    summary.newlyAvailableClimbIds = newlyAvailable.map((climb) => climb.id);
-
-    const baseline = mergeAnnouncedClimbIds(
-      state.announcedClimbIds,
-      availableClimbIds(climbs)
-    );
-
-    // The dispatch and the baseline move as one write, so neither can outlive
-    // the other. Two writes leave both orders broken: a baseline that lands
-    // first records the climb as announced while nothing exists to announce it
-    // and never re-detects it, and a dispatch that lands first re-detects the
-    // same climb inside a differently-hashed union whose receipts are a fresh
-    // ledger - a second push for a climb already sent. A climb belongs to
-    // exactly one dispatch, for good, and that is what the whole no-duplicate
-    // guarantee rests on.
-    if (newlyAvailable.length > 0) {
-      const message = buildClimbDropMessage(newlyAvailable);
-      const dispatchId = buildClimbDropDispatchId(message.climbIds);
-      const created = await deps.store.createDispatchWithBaseline(
-        {
-          body: message.body,
-          catalogVersion: manifest.catalogVersion,
-          climbIds: message.climbIds,
-          deviceCursor: null,
-          id: dispatchId,
-          primaryClimbId: message.primaryClimbId,
-          state: "pending",
-          title: message.title,
-        },
-        baseline,
-        manifest.catalogVersion
-      );
-      if (created) {
-        summary.dispatchesCreated.push(dispatchId);
-      }
-    } else {
-      await deps.store.recordCatalogCheck(baseline, manifest.catalogVersion);
-    }
+  // No state document means no baseline, so there is nothing to send against
+  // either: the bootstrap run records the catalogue and stops.
+  if (!state) {
+    return summary;
   }
 
   // The operator stop. A held sweep defers: dispatches stay unfinished and the
@@ -421,6 +439,7 @@ export async function runClimbDropSweep(
     // written mean the resume cannot duplicate.
     try {
       const result = await deliverDispatch(deps, dispatch, options);
+      summary.abandonedCount += result.abandonedCount;
       summary.claimedCount += result.claimedCount;
       summary.failedCount += result.failedCount;
       summary.invalidTokenCount += result.invalidTokenCount;
@@ -438,6 +457,87 @@ export async function runClimbDropSweep(
   }
 
   return summary;
+}
+
+/**
+ * Detects a drop and creates its dispatch, or records a first catalogue.
+ *
+ * Everything that reads hosting lives here, so the caller can treat a
+ * catalogue failure as a degraded detection rather than a dead run.
+ * @param {object} deps Injected catalogue and store.
+ * @param {ClimbDropSweepState | null} state Stored baseline, when there is one.
+ * @param {ClimbDropSweepSummary} summary Summary to record detection onto.
+ * @return {Promise<void>} Resolves once detection has been recorded.
+ */
+async function detectClimbDrop(
+  deps: {catalog: ClimbDropCatalogSource; store: ClimbDropStore},
+  state: ClimbDropSweepState | null,
+  summary: ClimbDropSweepSummary
+): Promise<void> {
+  const manifest = await deps.catalog.fetchManifest();
+
+  // First run in an environment. Every available climb is "new" against an
+  // empty baseline, so recording the catalogue is the only safe thing to do:
+  // announcing the whole catalogue as a drop is the fan-out disaster this
+  // function exists to avoid.
+  if (!state) {
+    const climbs = await deps.catalog.fetchClimbs(manifest);
+    await deps.store.writeBootstrapState(
+      availableClimbIds(climbs),
+      manifest.catalogVersion
+    );
+    summary.bootstrapped = true;
+    return;
+  }
+
+  if (manifest.catalogVersion === state.lastCatalogVersion) {
+    return;
+  }
+
+  const climbs = await deps.catalog.fetchClimbs(manifest);
+  const newlyAvailable = detectNewlyAvailableClimbs(
+    climbs,
+    state.announcedClimbIds
+  );
+  summary.newlyAvailableClimbIds = newlyAvailable.map((climb) => climb.id);
+
+  const baseline = mergeAnnouncedClimbIds(
+    state.announcedClimbIds,
+    availableClimbIds(climbs)
+  );
+
+  // The dispatch and the baseline move as one write, so neither can outlive
+  // the other. Two writes leave both orders broken: a baseline that lands
+  // first records the climb as announced while nothing exists to announce it
+  // and never re-detects it, and a dispatch that lands first re-detects the
+  // same climb inside a differently-hashed union whose receipts are a fresh
+  // ledger - a second push for a climb already sent. A climb belongs to
+  // exactly one dispatch, for good, and that is what the whole no-duplicate
+  // guarantee rests on.
+  if (newlyAvailable.length === 0) {
+    await deps.store.recordCatalogCheck(baseline, manifest.catalogVersion);
+    return;
+  }
+
+  const message = buildClimbDropMessage(newlyAvailable);
+  const dispatchId = buildClimbDropDispatchId(message.climbIds);
+  const created = await deps.store.createDispatchWithBaseline(
+    {
+      body: message.body,
+      catalogVersion: manifest.catalogVersion,
+      climbIds: message.climbIds,
+      deviceCursor: null,
+      id: dispatchId,
+      primaryClimbId: message.primaryClimbId,
+      state: "pending",
+      title: message.title,
+    },
+    baseline,
+    manifest.catalogVersion
+  );
+  if (created) {
+    summary.dispatchesCreated.push(dispatchId);
+  }
 }
 
 /**
@@ -459,10 +559,13 @@ async function deliverDispatch(
   deps: {sender: ClimbDropSender; store: ClimbDropStore},
   dispatch: ClimbDropDispatch,
   options: ClimbDropSweepOptions
-): Promise<ClimbDropSendCounters & {completed: boolean}> {
+): Promise<
+  ClimbDropSendCounters & {abandonedCount: number; completed: boolean}
+> {
   const pageSize = options.devicePageSize ?? DEVICE_PAGE_SIZE;
   const maxPages = options.maxDevicePages ?? MAX_DEVICE_PAGES_PER_RUN;
   const total: ClimbDropSendCounters = emptyCounters();
+  let abandonedCount = 0;
   let cursor = dispatch.deviceCursor;
   let completed = false;
 
@@ -485,16 +588,10 @@ async function deliverDispatch(
       );
       counters.claimedCount += claim.claimed.length;
       counters.unclaimedCount += claim.unclaimedCount;
+      abandonedCount += claim.abandonedCount;
 
       if (claim.claimed.length > 0) {
-        const outcomes = await deps.sender.send({
-          body: dispatch.body,
-          climbIds: dispatch.climbIds,
-          dispatchId: dispatch.id,
-          primaryClimbId: dispatch.primaryClimbId,
-          title: dispatch.title,
-          tokens: claim.claimed,
-        });
+        const outcomes = await sendClaimedPage(deps, dispatch, claim.claimed);
 
         await deps.store.recordSendOutcomes(dispatch.id, outcomes);
 
@@ -530,7 +627,57 @@ async function deliverDispatch(
     await deps.store.advanceDispatch(dispatch.id, cursor, counters);
   }
 
-  return {...total, completed};
+  return {...total, abandonedCount, completed};
+}
+
+/**
+ * Sends one claimed page, marking it re-sendable when the send never landed.
+ *
+ * The claim is kept either way - releasing it is the ordering that costs a
+ * duplicate push, and never-twice is the half of the promise that cannot be
+ * recovered from. What changes is that a claimed receipt whose send *threw*
+ * is written back as `unsent`, which is a state a later run can tell apart
+ * from a device actually alerted, and re-send to. `sendEachForMulticast`
+ * reports a per-token refusal in its response rather than throwing, so a throw
+ * here means the batch never reached FCM and nothing was delivered.
+ * @param {object} deps Injected store and sender.
+ * @param {ClimbDropDispatch} dispatch Dispatch being sent.
+ * @param {ClimbDropDevice[]} claimed Devices this page claimed.
+ * @return {Promise<ClimbDropSendOutcome[]>} Per-device outcomes.
+ */
+async function sendClaimedPage(
+  deps: {sender: ClimbDropSender; store: ClimbDropStore},
+  dispatch: ClimbDropDispatch,
+  claimed: ClimbDropDevice[]
+): Promise<ClimbDropSendOutcome[]> {
+  try {
+    return await deps.sender.send({
+      body: dispatch.body,
+      climbIds: dispatch.climbIds,
+      dispatchId: dispatch.id,
+      primaryClimbId: dispatch.primaryClimbId,
+      title: dispatch.title,
+      tokens: claimed,
+    });
+  } catch (error) {
+    try {
+      await deps.store.recordSendFailure(
+        dispatch.id,
+        claimed.map((device) => device.tokenHash)
+      );
+    } catch (markError) {
+      // The page keeps its claim and loses its retry marker, which is the
+      // behavior that existed before the marker did. Never mask the send
+      // failure with this one - it is the cause, and the summary needs it.
+      console.error("climb drop send failure was not recorded", {
+        dispatchId: dispatch.id,
+        message: markError instanceof Error ?
+          markError.message :
+          "unknown_error",
+      });
+    }
+    throw error;
+  }
 }
 
 /**
@@ -705,9 +852,10 @@ export function makeHostedClimbCatalogSource(): ClimbDropCatalogSource {
  * Reads the hosted catalogue into entries the sender can announce.
  *
  * One malformed row costs that climb its announcement, never the sweep: an
- * entry without an id or a name is skipped, so detection - and every other
- * drop in the same publish - still runs. A skipped climb is not recorded in
- * the baseline either, so a corrected publish announces it then.
+ * entry without a name, or without an id that can name a Firestore document,
+ * is skipped, so detection - and every other drop in the same publish - still
+ * runs. A skipped climb is not recorded in the baseline either, so a corrected
+ * publish announces it then.
  * @param {unknown[]} entries Raw catalogue entries.
  * @return {CatalogClimb[]} Entries with the fields the sender needs.
  */
@@ -723,7 +871,7 @@ export function normalizeCatalogClimbs(entries: unknown[]): CatalogClimb[] {
     const name = typeof candidate.name === "string" ?
       candidate.name.trim() :
       "";
-    if (id.length === 0 || name.length === 0) {
+    if (!isUsableClimbId(id) || name.length === 0) {
       console.error("climb drop catalogue entry skipped", {id: id || null});
       continue;
     }
@@ -831,26 +979,43 @@ export function makeFirestoreClimbDropStore(
       const dispatchRef = dispatches.doc(dispatchId);
       await firestore.runTransaction(async (transaction) => {
         const snapshot = await transaction.get(dispatchRef);
+        // A `{merge: true}` set creates what it cannot find, so an absent
+        // dispatch is an operator cancelling a drop by deleting it - and the
+        // document this would recreate carries counters but no `createdAt`,
+        // which `listUnfinishedDispatches` orders by and could never return.
+        // That is a permanently stalled drop nothing reports.
+        if (!snapshot.exists) {
+          return;
+        }
         const data = snapshot.data() ?? {};
+        const advance = planDispatchAdvance({
+          deviceCursor: typeof data.deviceCursor === "string" ?
+            data.deviceCursor :
+            null,
+          state: typeof data.state === "string" ? data.state : null,
+        }, cursor);
+        // An empty plan is a finished dispatch, and a lagging writer's page
+        // has already been counted by the run that completed it. Applying the
+        // increments anyway inflates the lifetime totals an operator sizes
+        // the loss with.
+        if (Object.keys(advance).length === 0) {
+          return;
+        }
         transaction.set(dispatchRef, {
           updatedAt: admin.firestore.Timestamp.now(),
           ...incrementCounters(counters),
-          ...planDispatchAdvance({
-            deviceCursor: typeof data.deviceCursor === "string" ?
-              data.deviceCursor :
-              null,
-            state: typeof data.state === "string" ? data.state : null,
-          }, cursor),
+          ...advance,
         }, {merge: true});
       });
     },
 
     async claimDevices(dispatchId, devices) {
-      const receipts = dispatches
-        .doc(dispatchId)
-        .collection(RECEIPTS_COLLECTION);
+      const dispatchRef = dispatches.doc(dispatchId);
+      const receipts = dispatchRef.collection(RECEIPTS_COLLECTION);
       const now = admin.firestore.Timestamp.now();
       const claimed: ClimbDropDevice[] = [];
+      let abandonedCount = 0;
+      let ambiguousCount = 0;
 
       // A receipt names the device, never the climber. Storing the uid here
       // would put user-keyed data outside the users/{uid} subtree, which
@@ -861,17 +1026,39 @@ export function makeFirestoreClimbDropStore(
         devices,
         CLAIM_CONCURRENCY,
         async (device) => {
-          const won = await claimReceipt(() => receipts
-            .doc(device.tokenHash)
-            .create({
-              claimedAt: now,
-              dispatchId,
-              errorCode: null,
-              schemaVersion: 1,
-              state: "claimed",
-            }));
-          if (won) {
+          const receiptRef = receipts.doc(device.tokenHash);
+          const outcome = await claimReceipt(() => receiptRef.create({
+            claimedAt: now,
+            dispatchId,
+            errorCode: null,
+            schemaVersion: 1,
+            sendAttempts: 0,
+            state: "claimed",
+          }));
+          if (outcome === "claimed") {
             claimed.push(device);
+            return;
+          }
+
+          const resolution = await resolveExistingReceipt(
+            firestore,
+            dispatchRef,
+            receiptRef
+          );
+          if (resolution === "reclaimed") {
+            claimed.push(device);
+            return;
+          }
+          if (resolution === "abandoned") {
+            abandonedCount += 1;
+            return;
+          }
+          // The receipt exists and is not re-sendable. When this call's own
+          // earlier attempt may have written it, nothing will ever send to
+          // it, so it is a device left behind rather than one already
+          // alerted by another run - and it is counted as such.
+          if (outcome === "ambiguous") {
+            ambiguousCount += 1;
           }
         }
       );
@@ -885,17 +1072,44 @@ export function makeFirestoreClimbDropStore(
         });
       }
 
-      return {claimed, unclaimedCount: failures.length};
+      if (ambiguousCount > 0) {
+        console.error("climb drop receipt claim was ambiguous", {
+          count: ambiguousCount,
+          dispatchId,
+        });
+      }
+
+      if (abandonedCount > 0) {
+        console.error("climb drop gave up on unreachable devices", {
+          count: abandonedCount,
+          dispatchId,
+        });
+      }
+
+      return {
+        abandonedCount,
+        claimed,
+        unclaimedCount: failures.length + ambiguousCount,
+      };
     },
 
     async completeDispatch(dispatchId, counters) {
-      const now = admin.firestore.Timestamp.now();
-      await dispatches.doc(dispatchId).set({
-        completedAt: now,
-        state: "sent",
-        updatedAt: now,
-        ...incrementCounters(counters),
-      }, {merge: true});
+      const dispatchRef = dispatches.doc(dispatchId);
+      await firestore.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(dispatchRef);
+        // Same guard as `advanceDispatch`: never resurrect a deleted dispatch,
+        // and never count a page twice onto one already marked sent.
+        if (!snapshot.exists || snapshot.get("state") === "sent") {
+          return;
+        }
+        const now = admin.firestore.Timestamp.now();
+        transaction.set(dispatchRef, {
+          completedAt: now,
+          state: "sent",
+          updatedAt: now,
+          ...incrementCounters(counters),
+        }, {merge: true});
+      });
     },
 
     async createDispatchWithBaseline(
@@ -1051,6 +1265,25 @@ export function makeFirestoreClimbDropStore(
       }, {merge: true});
     },
 
+    async recordSendFailure(dispatchId, tokenHashes) {
+      if (tokenHashes.length === 0) {
+        return;
+      }
+      const receipts = dispatches
+        .doc(dispatchId)
+        .collection(RECEIPTS_COLLECTION);
+      const now = admin.firestore.Timestamp.now();
+      const batch = firestore.batch();
+      for (const tokenHash of tokenHashes) {
+        batch.set(receipts.doc(tokenHash), {
+          sendAttempts: admin.firestore.FieldValue.increment(1),
+          sendFailedAt: now,
+          state: "unsent",
+        }, {merge: true});
+      }
+      await batch.commit();
+    },
+
     async recordSendOutcomes(dispatchId, outcomes) {
       if (outcomes.length === 0) {
         return;
@@ -1073,16 +1306,86 @@ export function makeFirestoreClimbDropStore(
 }
 
 /**
+ * How an already-existing receipt resolves for the run that hit it.
+ */
+type ClimbDropReceiptResolution = "reclaimed" | "abandoned" | "held";
+
+/**
+ * Decides what to do with a receipt whose `create` was refused.
+ *
+ * Only a receipt explicitly marked `unsent` is re-sendable. That marker is
+ * written when the send *threw*, which `sendEachForMulticast` does not do for
+ * a per-token refusal - so the batch never reached FCM and nothing was
+ * delivered. A plain `claimed` receipt is deliberately NOT re-sent: it may be
+ * a page whose push landed and whose settle write did not, and a second push
+ * is the one failure never-twice cannot recover from.
+ *
+ * The retry bound lives on the receipt, so it terminates no matter what kills
+ * the run in between. Giving up flips the receipt to `abandoned` and
+ * increments the dispatch's `abandonedCount` in the same transaction, which
+ * makes that counter an exact, once-per-device tally of the alerts this drop
+ * lost - not a per-run reading that re-inflates every time the page is walked.
+ * @param {admin.firestore.Firestore} firestore Admin Firestore instance.
+ * @param {admin.firestore.DocumentReference} dispatchRef Dispatch document.
+ * @param {admin.firestore.DocumentReference} receiptRef Receipt document.
+ * @return {Promise<ClimbDropReceiptResolution>} What the receipt resolved to.
+ */
+async function resolveExistingReceipt(
+  firestore: admin.firestore.Firestore,
+  dispatchRef: admin.firestore.DocumentReference,
+  receiptRef: admin.firestore.DocumentReference
+): Promise<ClimbDropReceiptResolution> {
+  return firestore.runTransaction<ClimbDropReceiptResolution>(
+    async (transaction) => {
+      const receipt = await transaction.get(receiptRef);
+      if (receipt.get("state") !== "unsent") {
+        return "held";
+      }
+
+      const attempts = receipt.get("sendAttempts");
+      if (typeof attempts === "number" && attempts >= SEND_ATTEMPT_LIMIT) {
+        const dispatch = await transaction.get(dispatchRef);
+        transaction.set(receiptRef, {
+          abandonedAt: admin.firestore.Timestamp.now(),
+          state: "abandoned",
+        }, {merge: true});
+        // Never recreate a dispatch an operator deleted to cancel the drop.
+        if (dispatch.exists) {
+          transaction.set(dispatchRef, {
+            abandonedCount: admin.firestore.FieldValue.increment(1),
+          }, {merge: true});
+        }
+        return "abandoned";
+      }
+
+      transaction.set(receiptRef, {state: "claimed"}, {merge: true});
+      return "reclaimed";
+    }
+  );
+}
+
+/**
+ * What one device's receipt create settled as.
+ *
+ * `existing` is a receipt this call did not write, so its state is the record
+ * of what has already happened to that device. `ambiguous` is a receipt that
+ * may well be this call's own: a `create` is not idempotent, so an attempt
+ * that commits and then loses its response leaves the next attempt reading
+ * ALREADY_EXISTS for a document nothing will ever send to.
+ */
+export type ClimbDropReceiptClaim = "claimed" | "existing" | "ambiguous";
+
+/**
  * Claims one device's receipt, retrying a bounded number of times.
  *
  * An existing receipt is the whole no-duplicate guarantee: that device has
- * already been sent to for this drop, by an earlier run or a concurrent one,
- * and reporting it unclaimed is not a failure. Any other refusal is retried,
- * and then given up on - the attempts are bounded so one document cannot hold
- * the drop open, and the caller counts the device as left behind.
+ * already been claimed for this drop, by an earlier run or a concurrent one.
+ * Any other refusal is retried, and then given up on - the attempts are
+ * bounded so one document cannot hold the drop open, and the caller counts the
+ * device as left behind.
  * @param {Function} create Writes the receipt, refusing an existing one.
  * @param {object} options Attempt bound and the wait between attempts.
- * @return {Promise<boolean>} True when this call won the claim.
+ * @return {Promise<ClimbDropReceiptClaim>} How the claim settled.
  */
 export async function claimReceipt(
   create: () => Promise<unknown>,
@@ -1090,21 +1393,23 @@ export async function claimReceipt(
     attemptLimit?: number;
     wait?: (milliseconds: number) => Promise<void>;
   } = {}
-): Promise<boolean> {
+): Promise<ClimbDropReceiptClaim> {
   const attemptLimit = options.attemptLimit ?? CLAIM_ATTEMPT_LIMIT;
   const wait = options.wait ?? delay;
+  let refused = false;
 
   for (let attempt = 1; attempt <= attemptLimit; attempt++) {
     try {
       await create();
-      return true;
+      return "claimed";
     } catch (error) {
       if (isAlreadyExistsError(error)) {
-        return false;
+        return refused ? "ambiguous" : "existing";
       }
       if (attempt >= attemptLimit) {
         throw error;
       }
+      refused = true;
       await wait(CLAIM_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
     }
   }
@@ -1243,8 +1548,22 @@ export const announceClimbDrops = onSchedule(
       return;
     }
 
+    // Detection failing is a drop nobody has heard about yet; delivery of the
+    // drops already in flight carried on regardless, which is why this is not
+    // fatal to the run.
+    if (summary.detectionError !== null) {
+      console.error("announceClimbDrops sweep could not read the catalogue",
+        summary);
+      return;
+    }
+
     // A degraded run must not read like a clean one: these devices were left
     // behind by this drop and no later run picks them up.
+    if (summary.abandonedCount > 0) {
+      console.error("announceClimbDrops sweep gave up on devices", summary);
+      return;
+    }
+
     if (summary.unclaimedCount > 0) {
       console.error("announceClimbDrops sweep left devices unclaimed", summary);
       return;

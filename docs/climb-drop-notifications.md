@@ -39,8 +39,15 @@ So the sweep polls, every five minutes, the same files the app reads:
 `climb_drop_notification_state/current` holds the baseline as `announcedClimbIds`, and it only ever **grows**.
 A climb pulled back to `hidden` and later reopened therefore does not announce twice.
 
-A catalogue row without an `id` or a `name` is skipped at fetch time.
+A catalogue row without a `name`, or without an `id` that can name a Firestore document, is skipped at fetch time.
 One malformed entry costs that climb its announcement and nothing else - detection, and every other climb in the same publish, still runs - and because a skipped climb never enters the baseline, a corrected publish announces it then.
+A hand-authored `"id": "tour/eiffel"` is the case that matters: an id carrying a `/` would resolve `dispatches.doc(...)` to a collection and throw inside the admin SDK.
+Belt and braces, the dispatch id sanitizes the leading climb id down to one path segment before splicing it in - the 12-character digest is what makes the id unique, so the prefix is only there to keep the document legible in the console.
+
+**Detection cannot stall delivery.**
+Everything that reads hosting lives in one guarded block.
+A drop already created owes its remaining devices an alert whether or not `manifest.json` is answering, and delivery reads nothing from the catalogue - so a fetch that fails records itself as `detectionError` on the run summary and the sweep falls through to the dispatches still in flight.
+Left unguarded, one 503 stalls every partly-sent drop for as long as hosting is unwell.
 
 **The dispatch and the baseline are one write.**
 Creating `climb_drop_dispatches/{dispatchId}` and advancing `announcedClimbIds` commit in a single Firestore batch, so neither can outlive the other.
@@ -64,15 +71,33 @@ A deploy that opens four landmarks produces **one** dispatch and one push, led b
 Sending walks `notification_devices` in ordered pages of 500 - FCM's multicast ceiling - and for each device:
 
 1. **Claims** it by `create`-ing `climb_drop_dispatches/{dispatchId}/receipts/{tokenHash}`.
-   A receipt that already exists is a device already sent to, in any earlier run, and it is skipped.
+   A receipt that already exists is a device already claimed for this drop, in any earlier run, and it is skipped.
 2. Sends the page as one `sendEachForMulticast`.
 3. Records each outcome onto the receipt, and unregisters every token FCM reports as dead.
 
 The claim happens **before** the send on purpose.
-A crash in between costs that page its alert; the other order would cost a duplicate push, and "never twice" is the harder half of the promise to recover from.
+The other order would cost a duplicate push, and "never twice" is the harder half of the promise to recover from.
+
+### A send that never reached FCM
+
+`sendEachForMulticast` reports a per-token refusal *inside* its response.
+So a send that **throws** - a 503, a DNS blip, a transport error - is a batch FCM never saw, and nothing on it was delivered.
+
+The claim is kept: releasing it is the ordering that risks a duplicate if the send did in fact land.
+The receipts are marked `state: "unsent"` instead, which a later run can tell apart from a device actually alerted, and re-send to.
+The cursor is not advanced either, so the next run re-walks exactly that page.
+
+A plain `claimed` receipt is deliberately **not** re-sent.
+It may be a page whose push landed and whose settle write did not, and a second push is the failure never-twice cannot recover from.
+
+The retry is bounded by `sendAttempts` on the receipt itself, so it terminates no matter what kills the run in between.
+After three sends the receipt flips to `abandoned` and that device is written off - a page that can never be reached must not hold its cursor, and its drop's per-run slot, open for good.
 
 Claims run at bounded concurrency, and each device's create gets **three** attempts with a short backoff.
 Firing 500 unthrottled creates and rejecting the page on the first failure would abandon receipts that already landed, leaving those devices claimed for good and never sent to.
+
+A `create` is not idempotent, so an attempt that commits and then loses its response leaves the retry reading ALREADY_EXISTS for a document nothing will ever send to.
+That case is reported as *ambiguous* rather than as "another run has this device", and counted with the devices left behind - reading it the other way is how a device vanishes from the counters entirely.
 
 A device still unclaimed after its three attempts is **left behind**: it is counted in `unclaimedCount`, the page sends to everyone it did claim, and the cursor advances as normal.
 That device misses this drop, and no later run picks it up - the same trade the claim-before-send ordering already accepts.
@@ -84,7 +109,8 @@ Pruning is housekeeping that runs *after* the send: a dead token surviving until
 
 A run processes at most 20 pages per dispatch and 3 dispatches, and the function is given the 540s timeout that budget needs - the default 60s could not execute the work the code declares.
 Because a run can outlive its own five-minute interval, the function is pinned to `maxInstances: 1` and `concurrency: 1`: two concurrent sweeps would read the same `deviceCursor` and the slower one's write would drag the drop back to a page already sent.
-Belt and braces, a page boundary can only ever move the cursor **forward**, and `state: "sent"` is terminal - `planDispatchAdvance` refuses to move a finished dispatch back into the unfinished set.
+Belt and braces, a page boundary can only ever move the cursor **forward**, and `state: "sent"` is terminal - `planDispatchAdvance` refuses to move a finished dispatch back into the unfinished set, and a page boundary that plans no change writes nothing at all rather than landing its counters on a drop another run already finished.
+Neither page write may create a dispatch it cannot find, either: an absent document is an operator cancelling a drop by deleting it, and a `{merge: true}` set would recreate it with counters and no `createdAt` - which `listUnfinishedDispatches` orders by and could therefore never return.
 Anything left over resumes from `deviceCursor`, which is persisted at every page boundary rather than once at the end of a run.
 Correctness never rested on that: the receipts make any resume free of duplicates.
 What it buys is that a run the platform kills mid-drop resumes at the page it finished, instead of re-scanning and re-claiming every device already alerted on every subsequent run.
@@ -127,9 +153,22 @@ This is the choke point that *defers*, not the raw FCM call - the same invariant
 
 **Deploy order.** Indexes before functions: `listUnfinishedDispatches` queries `state` + `createdAt` and fails without the composite index in `firestore.indexes.json`.
 
-**Watching it.** Every run logs `announceClimbDrops sweep completed` with its counters, or an error-level line when something went wrong: `announceClimbDrops sweep left drops unsent` when a dispatch threw, and `announceClimbDrops sweep left devices unclaimed` when a run's `unclaimedCount` is non-zero.
-The per-run summary is the signal to act on - each of those devices missed the drop for good.
-The dispatch document's `unclaimedCount` is a `FieldValue.increment`, so it is a lifetime total for that drop, not a per-run reading; use it to size the loss, not to detect a new one.
+**Watching it.** Every run logs `announceClimbDrops sweep completed` with its counters, or an error-level line when something went wrong:
+
+| Log line | What fired it |
+|---|---|
+| `announceClimbDrops sweep left drops unsent` | a dispatch threw; it retries on the next run |
+| `announceClimbDrops sweep could not read the catalogue` | detection failed; delivery of drops already in flight carried on |
+| `announceClimbDrops sweep gave up on devices` | a page FCM could not be reached on, three runs running |
+| `announceClimbDrops sweep left devices unclaimed` | a receipt create kept failing, or settled ambiguously |
+
+The per-run summary is the signal to act on - each of the devices in the last two lines missed the drop for good.
+
+**Did this drop lose anyone, and how many?** Read `abandonedCount` on `climb_drop_dispatches/{dispatchId}`.
+It is written in the same transaction as the receipt's flip to `abandoned`, so it counts each device exactly once no matter how many times the page is re-walked - it is the drop's true loss total, and a zero is a real zero.
+Cross-check it against the receipts: `state: "abandoned"` names exactly those devices.
+
+`unclaimedCount` is a plain `FieldValue.increment` and re-increments every run that re-walks the same page, so it is an upper bound rather than a count; use it to notice a claim fault, not to size one.
 
 ## What it costs
 

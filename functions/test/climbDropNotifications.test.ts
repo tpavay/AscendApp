@@ -98,6 +98,15 @@ interface FakeSendCall {
   tokenHashes: string[];
 }
 
+/** The receipt fields the sweep's re-send decision actually reads. */
+interface ReceiptRecord {
+  sendAttempts: number;
+  state: string;
+}
+
+/** The receipt retry bound the sweep enforces, mirrored for the harness. */
+const SEND_ATTEMPT_LIMIT = 3;
+
 /**
  * Builds the in-memory catalogue, store, and sender the sweep runs against.
  * @param {object} setup Seed catalogue, devices, and stored state.
@@ -116,8 +125,9 @@ function makeHarness(setup: {
   const registrations = new Map(
     setup.registrations.map((one) => [one.tokenHash, one])
   );
-  const receipts = new Map<string, Map<string, string>>();
+  const receipts = new Map<string, Map<string, ReceiptRecord>>();
   const dispatchDocuments = new Map<string, {
+    abandonedCount: number;
     body: string;
     catalogVersion: number | null;
     climbIds: string[];
@@ -138,6 +148,7 @@ function makeHarness(setup: {
   let catalogVersion = setup.catalogVersion;
   let createdAtCounter = 0;
   let dispatchWriteFailures = 0;
+  let catalogFailure: string | null = null;
   let unclaimableTokenHashes = new Set<string>();
   let senderBehavior: (
     tokens: ClimbDropDevice[]
@@ -180,8 +191,20 @@ function makeHarness(setup: {
     dispatchStates(): string[] {
       return [...dispatchDocuments.values()].map((one) => one.state);
     },
+    abandonedCount(): number {
+      return [...dispatchDocuments.values()]
+        .reduce((sum, one) => sum + one.abandonedCount, 0);
+    },
+    failCatalog(message: string | null) {
+      catalogFailure = message;
+    },
     failNextDispatchWrites(count: number) {
       dispatchWriteFailures = count;
+    },
+    receiptStates(): string[] {
+      return [...receipts.values()]
+        .flatMap((ledger) => [...ledger.values()].map((one) => one.state))
+        .sort();
     },
     publish(nextCatalog: CatalogClimb[], nextVersion: number) {
       catalog = nextCatalog;
@@ -207,9 +230,15 @@ function makeHarness(setup: {
 
   const source = {
     async fetchClimbs() {
+      if (catalogFailure) {
+        throw new Error(catalogFailure);
+      }
       return catalog;
     },
     async fetchManifest() {
+      if (catalogFailure) {
+        throw new Error(catalogFailure);
+      }
       return {catalogPath: "/climbs/catalog-v1.json", catalogVersion};
     },
   };
@@ -268,13 +297,33 @@ function makeHarness(setup: {
       }
     },
 
+    // Mirrors the Firestore store: a `create` refuses an existing receipt,
+    // and only a receipt explicitly marked `unsent` - a send that threw, so a
+    // batch FCM never saw - is re-claimed, under a bound held on the receipt.
     async claimDevices(dispatchId: string, candidates: ClimbDropDevice[]) {
-      const claimed = receipts.get(dispatchId) ?? new Map<string, string>();
-      receipts.set(dispatchId, claimed);
+      const ledger = receipts.get(dispatchId) ??
+        new Map<string, ReceiptRecord>();
+      receipts.set(dispatchId, ledger);
+      const dispatch = dispatchDocuments.get(dispatchId);
       const winners: ClimbDropDevice[] = [];
+      let abandonedCount = 0;
       let unclaimedCount = 0;
       for (const candidate of candidates) {
-        if (claimed.has(candidate.tokenHash)) {
+        const existing = ledger.get(candidate.tokenHash);
+        if (existing) {
+          if (existing.state !== "unsent") {
+            continue;
+          }
+          if (existing.sendAttempts >= SEND_ATTEMPT_LIMIT) {
+            existing.state = "abandoned";
+            abandonedCount += 1;
+            if (dispatch) {
+              dispatch.abandonedCount += 1;
+            }
+            continue;
+          }
+          existing.state = "claimed";
+          winners.push(candidate);
           continue;
         }
         // A transient Firestore refusal on this one create. The receipt never
@@ -283,10 +332,10 @@ function makeHarness(setup: {
           unclaimedCount += 1;
           continue;
         }
-        claimed.set(candidate.tokenHash, "claimed");
+        ledger.set(candidate.tokenHash, {sendAttempts: 0, state: "claimed"});
         winners.push(candidate);
       }
-      return {claimed: winners, unclaimedCount};
+      return {abandonedCount, claimed: winners, unclaimedCount};
     },
 
     async completeDispatch(dispatchId: string) {
@@ -320,6 +369,7 @@ function makeHarness(setup: {
       createdAtCounter += 1;
       dispatchDocuments.set(dispatch.id, {
         ...dispatch,
+        abandonedCount: 0,
         createdAt: createdAtCounter,
         deviceCursor: null,
         state: "pending",
@@ -383,19 +433,33 @@ function makeHarness(setup: {
       writeCatalogCheck(announcedClimbIds, version);
     },
 
+    async recordSendFailure(dispatchId: string, tokenHashes: string[]) {
+      const ledger = receipts.get(dispatchId);
+      if (!ledger) {
+        return;
+      }
+      for (const tokenHash of tokenHashes) {
+        const receipt = ledger.get(tokenHash);
+        if (receipt) {
+          receipt.sendAttempts += 1;
+          receipt.state = "unsent";
+        }
+      }
+    },
+
     async recordSendOutcomes(
       dispatchId: string,
       outcomes: ClimbDropSendOutcome[]
     ) {
-      const claimed = receipts.get(dispatchId);
-      if (!claimed) {
+      const ledger = receipts.get(dispatchId);
+      if (!ledger) {
         return;
       }
       for (const outcome of outcomes) {
-        claimed.set(
-          outcome.tokenHash,
-          outcome.ok ? "delivered" : "failed"
-        );
+        const receipt = ledger.get(outcome.tokenHash) ??
+          {sendAttempts: 0, state: "claimed"};
+        receipt.state = outcome.ok ? "delivered" : "failed";
+        ledger.set(outcome.tokenHash, receipt);
       }
     },
 
@@ -574,7 +638,7 @@ test("a partial batch failure is recorded and never re-sent", async () => {
   assert.equal(delivered.length, new Set(delivered).size);
 });
 
-test("a sender that dies mid-drop resumes without re-sending the claimed",
+test("a page the sender never reached is re-sent, not written off",
   async () => {
     const harness = makeHarness({
       catalog: [EMPIRE],
@@ -593,19 +657,87 @@ test("a sender that dies mid-drop resumes without re-sending the claimed",
     );
     assert.deepEqual(harness.dispatchStates(), ["pending"]);
 
+    // The claim is kept - releasing it is the ordering that risks a duplicate.
+    // The receipt is marked instead, so the resume can tell a page FCM never
+    // saw apart from a device actually alerted.
+    assert.deepEqual(harness.receiptStates(), ["unsent", "unsent", "unsent"]);
+
     harness.setSenderBehavior((tokens) => tokens.map((token) => ({
       errorCode: null,
       invalidToken: false,
       ok: true,
       tokenHash: token.tokenHash,
     })));
-    await harness.sweep();
+    const resumed = await harness.sweep();
 
-    // The claim is what survived the crash, so the devices in flight when the
-    // sender died are never sent to twice.
-    const delivered = harness.deliveredTokenHashes();
-    assert.equal(delivered.length, new Set(delivered).size);
+    // `sendEachForMulticast` returns a per-token refusal rather than throwing,
+    // so a throw is a batch FCM never saw: re-sending it cannot duplicate, and
+    // writing those devices off would be the broken promise.
+    assert.equal(resumed.sentCount, 3);
+    assert.deepEqual(harness.receiptStates(),
+      ["delivered", "delivered", "delivered"]);
+    assert.equal(harness.abandonedCount(), 0);
+    assert.deepEqual(harness.dispatchStates(), ["sent"]);
   });
+
+test("a page the sender can never reach is given up on, and counted",
+  async () => {
+    const harness = makeHarness({
+      catalog: [EMPIRE],
+      catalogVersion: 10,
+      registrations: devices(2),
+      state: {announcedClimbIds: [], lastCatalogVersion: 9},
+    });
+    harness.setSenderBehavior(() => {
+      throw new Error("FCM is unreachable");
+    });
+
+    // The retry is bounded on the receipt, so it terminates no matter what
+    // kills the run in between - three sends, then the page is written off.
+    for (let run = 0; run < 5; run++) {
+      await harness.sweep();
+    }
+
+    assert.equal(harness.sendCalls.length, 3,
+      "a device that can never be reached must not be retried forever");
+    assert.deepEqual(harness.receiptStates(), ["abandoned", "abandoned"]);
+
+    // The counter is the operator's answer to "did this drop lose anyone, and
+    // how many": exactly one increment per device, written with the receipt
+    // transition, so re-walking the page cannot inflate it.
+    assert.equal(harness.abandonedCount(), 2);
+    assert.deepEqual(harness.dispatchStates(), ["sent"],
+      "a drop that cannot finish is the broken promise");
+
+    const settled = await harness.sweep();
+    assert.equal(settled.abandonedCount, 0);
+    assert.equal(harness.abandonedCount(), 2);
+  });
+
+test("a catalogue failure cannot stall a drop already in flight", async () => {
+  const harness = makeHarness({
+    catalog: [EMPIRE],
+    catalogVersion: 10,
+    registrations: devices(250),
+    state: {announcedClimbIds: [], lastCatalogVersion: 9},
+  });
+  const options = {devicePageSize: 100, maxDevicePages: 1};
+
+  await harness.sweep(options);
+  assert.deepEqual(harness.dispatchStates(), ["sending"]);
+
+  // Hosting starts refusing the manifest mid-drop. Delivery reads nothing
+  // from the catalogue, so the devices still owed an alert must still get one.
+  harness.failCatalog("Catalogue request failed (503).");
+  const degraded = await harness.sweep(options);
+
+  assert.equal(degraded.detectionError, "Catalogue request failed (503).");
+  assert.equal(degraded.sentCount, 100);
+
+  harness.failCatalog(null);
+  await harness.sweep(options);
+  assert.equal(harness.deliveredTokenHashes().length, 250);
+});
 
 test("a drop larger than one multicast batch stays inside FCM's ceiling",
   async () => {
@@ -752,6 +884,19 @@ test("the dispatch ID is stable regardless of detection order", () => {
   );
 });
 
+test("the dispatch ID stays one Firestore path segment", () => {
+  // A hand-authored `tour/eiffel` would otherwise resolve
+  // `dispatches.doc(...)` to a collection and throw inside the admin SDK.
+  const spliced = buildClimbDropDispatchId(["tour/eiffel"]);
+
+  assert.match(spliced, /^[A-Za-z0-9_-]+$/);
+  assert.notEqual(spliced, buildClimbDropDispatchId(["tour-eiffel"]),
+    "sanitizing the prefix must not collapse two different climbs into one");
+  assert.match(buildClimbDropDispatchId(["///"]), /^[a-f0-9]{12}$/);
+  assert.match(buildClimbDropDispatchId(["a".repeat(300)]),
+    /^a{60}-[a-f0-9]{12}$/);
+});
+
 test("one climb names the landmark, the city, and the race distance", () => {
   const message = buildClimbDropMessage([EMPIRE]);
 
@@ -814,7 +959,8 @@ test("a dispatch and its baseline move together or not at all", async () => {
   // detection fold Empire State into a differently-hashed union whose receipts
   // are a fresh ledger - a second push for a climb already sent.
   harness.failNextDispatchWrites(1);
-  await assert.rejects(harness.sweep(), /dispatch write was refused/);
+  const refused = await harness.sweep();
+  assert.match(refused.detectionError ?? "", /dispatch write was refused/);
   assert.deepEqual(harness.dispatchIds(), []);
   assert.deepEqual(harness.state?.announcedClimbIds, []);
   assert.equal(harness.state?.lastCatalogVersion, 9);
@@ -875,7 +1021,7 @@ test("a claim is retried a bounded number of times, then given up on",
       }
     }, {wait});
 
-    assert.equal(transient, true, "a transient refusal must be retried");
+    assert.equal(transient, "claimed", "a transient refusal must be retried");
     assert.equal(transientAttempts, 3);
     assert.deepEqual(waits, [50, 100], "the backoff must grow, not spin");
 
@@ -893,8 +1039,25 @@ test("a claim is retried a bounded number of times, then given up on",
       throw Object.assign(new Error("already exists"), {code: 6});
     }, {wait});
 
-    assert.equal(existing, false, "an existing receipt is not a failure");
+    assert.equal(existing, "existing", "an existing receipt is not a failure");
     assert.equal(existingAttempts, 1, "a claimed device must not be retried");
+
+    // A `create` is not idempotent. When this call's own first attempt commits
+    // and then loses its response, the ALREADY_EXISTS the retry reads may name
+    // the document it just wrote - and nothing will ever send to it. Reading
+    // that as "another run has this device" is how a device vanishes from the
+    // counters entirely.
+    let ambiguousAttempts = 0;
+    const ambiguous = await claimReceipt(async () => {
+      ambiguousAttempts += 1;
+      throw ambiguousAttempts === 1 ?
+        Object.assign(new Error("deadline exceeded"), {code: 4}) :
+        Object.assign(new Error("already exists"), {code: 6});
+    }, {wait});
+
+    assert.equal(ambiguous, "ambiguous",
+      "a lost response must not read as a device already alerted");
+    assert.equal(ambiguousAttempts, 2);
   });
 
 test("a completed drop stays completed", () => {
@@ -930,6 +1093,10 @@ test("one malformed catalogue row costs that climb, not the sweep", () => {
     EMPIRE,
     {id: "no-name", releaseState: "available"},
     {name: "No ID", releaseState: "available"},
+    // An ID that cannot name a Firestore document is not a climb this sweep
+    // can announce - and it must not take the whole publish down with it.
+    {id: "tour/eiffel", name: "Eiffel Tower", releaseState: "available"},
+    {id: "..", name: "Parent", releaseState: "available"},
     "not-an-object",
     null,
     {...WILLIS, realStairCount: "2109", totalSteps: Number.NaN},
