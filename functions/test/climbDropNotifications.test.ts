@@ -139,7 +139,7 @@ function makeHarness(setup: {
   let createdAtCounter = 0;
   let dispatchWriteFailures = 0;
   let unclaimableTokenHashes = new Set<string>();
-  let senderBehaviour: (
+  let senderBehavior: (
     tokens: ClimbDropDevice[]
   ) => ClimbDropSendOutcome[] = (tokens) =>
     tokens.map((token) => ({
@@ -190,10 +190,10 @@ function makeHarness(setup: {
     setUnclaimableTokenHashes(tokenHashes: string[]) {
       unclaimableTokenHashes = new Set(tokenHashes);
     },
-    setSenderBehaviour(
-      behaviour: (tokens: ClimbDropDevice[]) => ClimbDropSendOutcome[]
+    setSenderBehavior(
+      behavior: (tokens: ClimbDropDevice[]) => ClimbDropSendOutcome[]
     ) {
-      senderBehaviour = behaviour;
+      senderBehavior = behavior;
     },
     setSendingEnabled(enabled: boolean) {
       if (state) {
@@ -223,7 +223,7 @@ function makeHarness(setup: {
         dispatchId: request.dispatchId,
         tokenHashes: request.tokens.map((token) => token.tokenHash),
       });
-      return senderBehaviour(request.tokens);
+      return senderBehavior(request.tokens);
     },
   };
 
@@ -523,7 +523,7 @@ test("an invalid token is pruned rather than retried on the next drop",
       registrations: [device("d-live"), device("d-dead")],
       state: {announcedClimbIds: [], lastCatalogVersion: 9},
     });
-    harness.setSenderBehaviour((tokens) => tokens.map((token) => ({
+    harness.setSenderBehavior((tokens) => tokens.map((token) => ({
       errorCode: token.tokenHash === "d-dead" ?
         "messaging/registration-token-not-registered" :
         null,
@@ -535,7 +535,7 @@ test("an invalid token is pruned rather than retried on the next drop",
     await harness.sweep();
     assert.deepEqual(harness.prunedTokenHashes, ["d-dead"]);
 
-    harness.setSenderBehaviour((tokens) => tokens.map((token) => ({
+    harness.setSenderBehavior((tokens) => tokens.map((token) => ({
       errorCode: null,
       invalidToken: false,
       ok: true,
@@ -555,7 +555,7 @@ test("a partial batch failure is recorded and never re-sent", async () => {
     registrations: devices(4),
     state: {announcedClimbIds: [], lastCatalogVersion: 9},
   });
-  harness.setSenderBehaviour((tokens) => tokens.map((token, index) => ({
+  harness.setSenderBehavior((tokens) => tokens.map((token, index) => ({
     errorCode: index % 2 === 0 ? null : "messaging/internal-error",
     invalidToken: false,
     ok: index % 2 === 0,
@@ -582,7 +582,7 @@ test("a sender that dies mid-drop resumes without re-sending the claimed",
       registrations: devices(3),
       state: {announcedClimbIds: [], lastCatalogVersion: 9},
     });
-    harness.setSenderBehaviour(() => {
+    harness.setSenderBehavior(() => {
       throw new Error("FCM is unreachable");
     });
 
@@ -593,7 +593,7 @@ test("a sender that dies mid-drop resumes without re-sending the claimed",
     );
     assert.deepEqual(harness.dispatchStates(), ["pending"]);
 
-    harness.setSenderBehaviour((tokens) => tokens.map((token) => ({
+    harness.setSenderBehavior((tokens) => tokens.map((token) => ({
       errorCode: null,
       invalidToken: false,
       ok: true,
@@ -661,7 +661,7 @@ test("a run killed mid-drop resumes at the page it finished", async () => {
   // The third page's send dies the way an invocation timeout does: after two
   // pages have gone out, with nothing left to write the run's progress.
   let sends = 0;
-  harness.setSenderBehaviour((tokens) => {
+  harness.setSenderBehavior((tokens) => {
     sends += 1;
     if (sends === 3) {
       throw new Error("the invocation was killed mid-drop");
