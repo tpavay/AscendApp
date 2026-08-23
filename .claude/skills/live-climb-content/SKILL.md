@@ -197,6 +197,21 @@ If changing Swift behavior or unsure about schema compatibility, run:
 xcodebuild -scheme AscendApp -configuration Debug -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
+## Promoting To Available Sends A Push
+
+Setting a climb's `releaseState` to `available` and deploying hosting **announces it**.
+`announceClimbDrops` polls the hosted manifest every five minutes, and every climb that reaches `available` and has never been announced before is pushed to every opted-in device within minutes of the deploy.
+There is no separate "send the announcement" step to forget, and no confirmation prompt in front of it - the hosting deploy is the send.
+
+What follows from that:
+
+- Promote a climb only when its artwork is in the target bucket and its `realStairCount` is published. A drop alert that lands on a climb with no image is the first thing a climber sees of it.
+- Promoting several climbs in one deploy sends **one** push naming the longest race, not one push per climb. Splitting a batch across deploys splits it into separate alerts.
+- A climb is announced once, for good. Pulling it back to `hidden` and promoting it again is silent, so a botched drop cannot be re-announced by toggling the state.
+- Dev and staging announce too, to whatever devices are registered there. That is the place to rehearse a drop.
+
+`docs/climb-drop-notifications.md` owns the sender, the copy contract it keeps, and the `sendingEnabled` stop.
+
 ## Deployment
 
 Deploy only the intended environment.

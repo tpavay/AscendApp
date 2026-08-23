@@ -629,7 +629,7 @@ Visual:
 
 Copy:
 - Headline: `Never miss a First Ascent.`
-- Subtitle: `Get 24-hour notice before each climb drop. Move before the field catches it.`
+- Subtitle: `Get an Ascend alert when new climbs open. Be ready to claim the First Ascent before anyone else.`
 - CTA: `Turn On Notifications`
 - Secondary: `Not Now`
 

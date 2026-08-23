@@ -10,6 +10,7 @@ import * as admin from "firebase-admin";
 admin.initializeApp();
 
 export {cleanupDeletedUserData} from "./accountCleanup";
+export {announceClimbDrops} from "./climbDropNotifications";
 export {onWorkoutWritten} from "./climbCompletions";
 export {processEmailJobs} from "./email/processor";
 export {onLifecycleEventEmailAutomation} from "./email/automation";

@@ -24,7 +24,7 @@ The two missing Live Replay indexes are both collection-scoped `entries` indexes
 The current query filters per-climb and per-routine live races with `isBestForUser == true`, then reads the window ahead in ascending `stepsAtBucket` order and the window behind in descending order.
 Both matching definitions already exist exactly once in `firestore.indexes.json` after rebasing onto current `develop`, so this preparation does not add duplicates.
 
-Current `develop` declares 15 composite indexes because later work also added the `workouts(source, climbId)` projection index, the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index, and the two `_revenuecat_analytics_outbox` delivery-queue indexes (`status + readyAt` and `status + processingStartedAt`).
+Current `develop` declares 16 composite indexes because later work also added the `workouts(source, climbId)` projection index, the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index, the two `_revenuecat_analytics_outbox` delivery-queue indexes (`status + readyAt` and `status + processingStartedAt`), and the climb-drop sweep's `climb_drop_dispatches(state, createdAt)` index.
 It also declares six field overrides, for `blocked.blockedUid`, `entries.userId`, `finishers.userId`, `entitlements.accessUntil`, `_revenuecat_webhook_events.retainUntil`, and `_revenuecat_analytics_outbox.retainUntil`.
 The first four carry a `COLLECTION_GROUP` scope, and `entries.userId` additionally restates its ascending and descending `COLLECTION`-scoped single-field indexes.
 The two `retainUntil` overrides declare no index at all: they exist to carry the TTL policies that expire the webhook dedupe ledger and the analytics outbox.
@@ -108,7 +108,7 @@ The workflow performs the following order automatically:
 3. Build and retain the signed production IPA.
 4. Build the Functions and Hosting artifacts.
 5. Deploy Firestore indexes.
-6. Poll the Firestore Admin API until all 15 composite indexes and every declared query scope inside all six field overrides report `READY`.
+6. Poll the Firestore Admin API until all 16 composite indexes and every declared query scope inside all six field overrides report `READY`.
 7. Deploy Functions.
 8. Verify `cleanupDeletedUserData`, `expireRevenueCatEntitlements`, `onPublicIdentityPropagationJobWritten`, `onPublicProfileIdentityWritten`, `onWorkoutWritten`, `onWorkoutReplaySplitsWritten`, `processRevenueCatAnalyticsOutbox`, `reconcileAppAccess`, `revenueCatWebhook`, and `unsubscribeFromEmails` report `ACTIVE`.
 9. Reconcile the whole deployed function set against this ref's `functions/src/index.ts` exports, failing on any missing, orphaned, or non-`ACTIVE` function.
@@ -277,6 +277,10 @@ Rollback: redeploy only `storage` from the last known good production SHA.
 
 ### 5. Hosting
 
+This step is also a fleet-wide send.
+`announceClimbDrops` polls the hosted manifest, so any climb this deploy promotes to `available` in `web/public/climbs/catalog-v1.json` is pushed to every opted-in production device within minutes, with no confirmation step in front of it.
+Read the catalogue diff before running it; `docs/climb-drop-notifications.md` owns the sender and the `sendingEnabled` stop.
+
 ```sh
 npm --prefix web ci
 npm --prefix web run build
@@ -297,6 +301,7 @@ Verify `/api/unsubscribe` routes to its deployed Function with a safe test reque
 Use a `GET`, which renders the confirmation page and never acts, rather than a `POST` that would opt someone out.
 
 Rollback: rebuild and redeploy only Hosting from the last known good production SHA.
+A rollback cannot unsend a drop alert, and a climb already announced stays announced, so pulling it back to `hidden` and promoting it again is silent.
 
 ### 6. Remote Config kill switches
 

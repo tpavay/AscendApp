@@ -143,6 +143,20 @@
       ]
     },
     {
+      "collectionGroup": "climb_drop_dispatches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "state",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "notification_devices",
       "queryScope": "COLLECTION",
       "fields": [
