@@ -87,3 +87,61 @@ test("every seeded Just Climb row carries the seed pack id the clear filters on"
   assert.match(finisherWrite, /seedPackId: args\.seedPackId,/);
   assert.match(read("scripts/seed/lib/live-replay-finisher.mjs"), /seedPackId/);
 });
+
+// The guard removed when the open set widened from 4 to 32. The old invariant
+// (open climbs disjoint from the demo account's) is deliberately false now, so
+// this pins the one that replaced it: the wholesale open-board wipe deletes
+// every finisher and replay row regardless of who wrote them, so it must never
+// reach a board a real climber has finished. A First Ascent is permanent, and
+// staging is raced by TestFlight testers.
+test("an open board a real climber finished is never cleared or rewritten", () => {
+  const source = read("scripts/seed-live-replay-leaderboards.mjs");
+
+  assert.match(
+    source,
+    /async function claimedOpenClimbIds\(/,
+    "nothing identifies open boards a real climber has already finished"
+  );
+  assert.match(
+    source,
+    /finishers\.some\(\(document\) => !isSyntheticUserId\(document\.id\)\)/,
+    "claimed boards must be detected by a non-synthetic finisher id"
+  );
+
+  const clearBlock = source.slice(
+    source.indexOf("async function clearSeedEntriesFromPlan(")
+  ).slice(0, 1200);
+  assert.match(
+    clearBlock,
+    /claimedOpen\.has\(plan\.climb\.id\)/,
+    "the clear must skip a board a real climber has finished"
+  );
+
+  const writeBlock = source.slice(source.indexOf("async function writeSeedPlan("));
+  assert.match(
+    writeBlock.slice(0, 1500),
+    /claimedOpen\.has\(plan\.climb\.id\)/,
+    "the write must skip a board a real climber has finished"
+  );
+});
+
+// Deleting users/{uid} fires cleanupDeletedUserData about five seconds later. A
+// clear that returns immediately hands back an environment with that delete
+// still in flight, so a seed started inside the window loses its fresh writes -
+// the failure that red-lit the first end-to-end run, reachable again through
+// clear-then-seed.
+test("the profiles clear waits for the account-deletion sweep to drain", () => {
+  const source = read("scripts/seed-test-users.mjs");
+  const clearBlock = source.slice(
+    source.indexOf('if (args.command === "clear")'),
+    source.indexOf("const avatarURLs =")
+  );
+
+  assert.match(clearBlock, /await waitForDeletionSweep\(db\)/);
+  assert.match(source, /async function waitForDeletionSweep\(/);
+  assert.match(
+    source,
+    /SWEPT_SUBCOLLECTIONS = \[[^\]]*"public_profile"[^\]]*"profile_stats"/s,
+    "the drain check must poll the subcollections the sweep owns"
+  );
+});

@@ -49,6 +49,7 @@ import {
   syntheticFinisherWrite,
 } from "./seed/lib/live-replay-finisher.mjs";
 import {
+  isSyntheticUserId,
   seededSummarySource,
 } from "./seed/lib/live-replay-summary-source.mjs";
 import {
@@ -266,18 +267,28 @@ async function main() {
     return;
   }
 
+  // Resolved once, before anything is deleted, and honored by both the clear
+  // and the write.
+  const claimedOpen = await claimedOpenClimbIds(db, seedPlan);
+  if (claimedOpen.size > 0) {
+    console.log(
+      `Leaving ${claimedOpen.size} open climb(s) untouched - a real climber has ` +
+      `finished them: ${[...claimedOpen].join(", ")}`
+    );
+  }
+
   if (args.command === "clear") {
-    const deleted = await clearSeedPack(db, seedPlan, args);
+    const deleted = await clearSeedPack(db, seedPlan, args, claimedOpen);
     console.log(`Cleared ${deleted.toLocaleString()} seeded replay entries.`);
     return;
   }
 
   if (!args.skipClear) {
-    const deleted = await clearSeedPack(db, seedPlan, args);
+    const deleted = await clearSeedPack(db, seedPlan, args, claimedOpen);
     console.log(`Cleared ${deleted.toLocaleString()} existing seeded replay entries.`);
   }
 
-  const written = await writeSeedPlan(db, seedPlan, args);
+  const written = await writeSeedPlan(db, seedPlan, args, claimedOpen);
   console.log(`Seeded ${written.toLocaleString()} Firestore documents into ${projectId}.`);
 }
 
@@ -807,13 +818,53 @@ function printPlan(seedPlan, args, avatarFileCount, avatarURLCount) {
   );
 }
 
-async function clearSeedPack(db, seedPlan, args) {
+/**
+ * Open-slot climbs a real climber has already finished.
+ *
+ * An open board is cleared wholesale - every finisher and every replay row,
+ * whoever wrote them - which is only safe while the fixture's promise that the
+ * climb has no completions actually holds. It held while four hand-picked
+ * un-raced climbs carried the open slot. It does not hold now that every
+ * raceable climb the pack does not contest is seeded open: on staging those are
+ * climbs TestFlight testers can and do race, and a First Ascent is permanent, so
+ * wiping one destroys something the product promises can never be taken.
+ *
+ * A board a real climber has finished is therefore left entirely alone - not
+ * cleared, not rewritten. Its slot is legitimately spent, which is the same
+ * answer the server gives.
+ * @param {object} db Firestore instance.
+ * @param {object} seedPlan Built seed plan.
+ * @return {Promise<Set<string>>} Climb ids to leave untouched.
+ */
+async function claimedOpenClimbIds(db, seedPlan) {
+  const claimed = new Set();
+
+  for (const plan of seedPlan.climbPlans) {
+    const isOpen = isOpenFirstAscentSummary({
+      completedCount: plan.completedCount,
+      hasFirstAscent: plan.firstAscentAttempt !== null,
+    });
+    if (!isOpen) {
+      continue;
+    }
+
+    const finishers = await finishersCollection(db, plan.climb.id).listDocuments();
+    if (finishers.some((document) => !isSyntheticUserId(document.id))) {
+      claimed.add(plan.climb.id);
+    }
+  }
+
+  return claimed;
+}
+
+async function clearSeedPack(db, seedPlan, args, claimedOpen = new Set()) {
   const writer = bulkWriter(db);
   let deleted = await clearSeedEntriesFromPlan(
     db,
     writer,
     seedPlan,
-    args.seedPackId
+    args.seedPackId,
+    claimedOpen
   );
   const activeContextKeys = contextKeysForPlan(seedPlan);
   deleted += await clearStaleSeedContexts(
@@ -825,6 +876,10 @@ async function clearSeedPack(db, seedPlan, args) {
 
   const now = FieldValue.serverTimestamp();
   for (const plan of seedPlan.climbPlans) {
+    if (claimedOpen.has(plan.climb.id)) {
+      continue;
+    }
+
     const ref = leaderboardRef(db, plan.climb.id);
     writer.set(ref, {
       completedCount: 0,
@@ -949,10 +1004,22 @@ async function clearJustClimbSeedRows(db, writer, seedPlan, seedPackId) {
   return deleted;
 }
 
-async function clearSeedEntriesFromPlan(db, writer, seedPlan, seedPackId) {
+async function clearSeedEntriesFromPlan(
+  db,
+  writer,
+  seedPlan,
+  seedPackId,
+  claimedOpen = new Set()
+) {
   let deleted = 0;
 
   for (const plan of seedPlan.climbPlans) {
+    // A real climber's board is never wiped, whatever the fixture intended it
+    // to be.
+    if (claimedOpen.has(plan.climb.id)) {
+      continue;
+    }
+
     if (isOpenFirstAscentSummary({
       completedCount: plan.completedCount,
       hasFirstAscent: plan.firstAscentAttempt !== null,
@@ -1004,10 +1071,14 @@ async function clearSeedEntriesFromPlan(db, writer, seedPlan, seedPackId) {
  * @param {object} seedPlan Built seed plan.
  * @return {Promise<object>} Per-climb board states and the Just Climb state.
  */
-async function resolveSeededCompletedCounts(db, seedPlan) {
+async function resolveSeededCompletedCounts(db, seedPlan, claimedOpen = new Set()) {
   const climbBoards = new Map();
 
   for (const plan of seedPlan.climbPlans) {
+    if (claimedOpen.has(plan.climb.id)) {
+      continue;
+    }
+
     const board = await boardFinisherState(
       finishersCollection(db, plan.climb.id),
       plan.attempts.map((attempt) => attempt.userId),
@@ -1060,16 +1131,21 @@ async function boardFinisherState(finishersRef, seededUserIds, plannedCount) {
   };
 }
 
-async function writeSeedPlan(db, seedPlan, args) {
+async function writeSeedPlan(db, seedPlan, args, claimedOpen = new Set()) {
   const writer = bulkWriter(db);
   const now = FieldValue.serverTimestamp();
   const {climbBoards, justClimbBoard} = await resolveSeededCompletedCounts(
     db,
-    seedPlan
+    seedPlan,
+    claimedOpen
   );
   let writes = 0;
 
   for (const plan of seedPlan.climbPlans) {
+    if (claimedOpen.has(plan.climb.id)) {
+      continue;
+    }
+
     const targetSteps = referenceStepCount(plan.climb);
     const summaryRef = leaderboardRef(db, plan.climb.id);
     const board = climbBoards.get(plan.climb.id);

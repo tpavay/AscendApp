@@ -5,7 +5,7 @@ import {isAllowedPublicPhotoURL} from "./public-identity-contract.mjs";
  *
  * Capturing App Store screenshots, video and marketing from staging only works
  * if the environment looks like somebody has genuinely been using Ascend for
- * months. That is a judgement call until it is written down, and a judgement
+ * months. That is a judgment call until it is written down, and a judgment
  * call cannot be re-run. So the definition lives here, the seed asserts it, and
  * `seed-content-ready.mjs verify` re-checks it at any time without writing.
  *
@@ -62,7 +62,7 @@ export const CONTENT_READY_THRESHOLDS = Object.freeze({
    * The server only lets a finisher claim a slot on a board with no completions,
    * so every climb the seed fills with competitors spends its First Ascent
    * permanently. That rule is correct; what is not is spending the whole
-   * catalogue on it. Staging offered four claimable climbs out of thirty-two,
+   * catalog on it. Staging offered four claimable climbs out of thirty-two,
    * which is not enough to demonstrate the hook, let alone film it twice. The
    * seed now leaves every raceable climb it does not contest genuinely open, so
    * the floor is high on purpose: falling under it means seeding has started
@@ -121,7 +121,7 @@ export function unphotographableDisplayName(displayName) {
  * Reports why the account's published photo is not fit to be photographed.
  *
  * Checked separately from the seeded rows, and this is the gap that let the one
- * account every screenshot is centred on sit there as a grey circle: the seeded
+ * account every screenshot is centered on sit there as a grey circle: the seeded
  * row sampler skips anything with `isSynthetic !== true`, which is precisely the
  * real account. Validity is the shared identity contract's rule, because a photo
  * the server would refuse to project is the same as no photo.
@@ -131,7 +131,7 @@ export function unphotographableDisplayName(displayName) {
 export function unphotographableAccountPhoto(photoURL) {
   if (typeof photoURL !== "string" || photoURL.trim().length === 0) {
     return "the account publishes no profile photo, so the row every " +
-      "screenshot is centred on renders as an empty circle";
+      "screenshot is centered on renders as an empty circle";
   }
 
   if (!isAllowedPublicPhotoURL(photoURL.trim())) {

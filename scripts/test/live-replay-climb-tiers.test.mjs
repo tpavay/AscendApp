@@ -50,9 +50,9 @@ test("no climb is both contested and left open", () => {
 });
 
 // The point of the split. A contested board's First Ascent is spent for good, so
-// the only thing standing between seeding and a catalogue with nothing left to
+// the only thing standing between seeding and a catalog with nothing left to
 // claim is how many climbs the pack contests.
-test("the seed leaves most of the raceable catalogue claimable", () => {
+test("the seed leaves most of the raceable catalog claimable", () => {
   const climbs = catalog();
   const contested = contestedClimbIds();
   const open = firstAscentOpenConfigs(climbs, contested);

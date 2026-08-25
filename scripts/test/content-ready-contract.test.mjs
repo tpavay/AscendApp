@@ -153,7 +153,7 @@ test("seeded rows with a machine-shaped name fail the contract", () => {
 
 // The seeded-row sampler skips anything with isSynthetic !== true, which is
 // exactly the real account - so its photo needs its own check or the one row
-// every screenshot is centred on goes unexamined.
+// every screenshot is centered on goes unexamined.
 test("an account with no photo fails the contract", () => {
   const failures = contentReadinessFailures(contentReadyState({
     accountPhotoURL: "",

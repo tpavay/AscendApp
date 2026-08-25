@@ -33,6 +33,14 @@ import {
 } from "./seed/fixtures/profile-fixtures.mjs";
 
 const BATCH_LIMIT = 450;
+const SWEEP_DRAIN_TIMEOUT_MS = 60_000;
+const SWEEP_POLL_INTERVAL_MS = 1_000;
+const SWEPT_SUBCOLLECTIONS = [
+  "public_profile",
+  "profile_stats",
+  "profile_workouts",
+  "achievements",
+];
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 // Curated 512x512 JPEGs live in the repo rather than behind a --avatar-dir flag
@@ -100,6 +108,7 @@ async function main() {
     if (args.dryRun) return;
     await commitDeletes(db, refs);
     console.log(`Deleted ${refs.length} seeded documents.`);
+    await waitForDeletionSweep(db);
     return;
   }
 
@@ -262,6 +271,60 @@ async function commitWrites(db, writes) {
     }
     await batch.commit();
   }
+}
+
+/**
+ * Waits for `cleanupDeletedUserData` to finish sweeping the personas.
+ *
+ * Deleting `users/{uid}` fires that trigger, and it lands about five seconds
+ * later and deletes every subcollection under the user. That is exactly what a
+ * clear wants - but it means a clear returning immediately hands back a
+ * environment with a delete still in flight, and a `seed` started inside the
+ * window has its fresh writes swept out from under it. That is the failure that
+ * red-lit the first end-to-end run, and it is still reachable through
+ * `clear` followed promptly by `seed`.
+ *
+ * So a clear does not return until the sweep has drained. It polls the
+ * subcollections the trigger owns rather than the trigger itself, because what
+ * matters is that nothing is left for it to delete. A timeout warns instead of
+ * failing: the trigger may not be deployed at all in dev, and a clear that
+ * cleared everything is not a failed clear.
+ * @param {object} db Firestore instance.
+ */
+async function waitForDeletionSweep(db) {
+  const deadline = Date.now() + SWEEP_DRAIN_TIMEOUT_MS;
+
+  while (Date.now() < deadline) {
+    if (await sweptSubcollectionCount(db) === 0) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, SWEEP_POLL_INTERVAL_MS));
+  }
+
+  console.warn(
+    `Account-deletion sweep still had documents after ` +
+    `${SWEEP_DRAIN_TIMEOUT_MS / 1000}s. Seeding profiles now may race it; ` +
+    "re-run the clear, or wait before seeding."
+  );
+}
+
+/**
+ * Counts the persona documents the deletion sweep still has to remove.
+ * @param {object} db Firestore instance.
+ * @return {Promise<number>} Remaining swept documents.
+ */
+async function sweptSubcollectionCount(db) {
+  let remaining = 0;
+
+  for (const userId of expectedProfileUserIds()) {
+    const userRef = db.collection("users").doc(userId);
+    for (const name of SWEPT_SUBCOLLECTIONS) {
+      const snapshot = await userRef.collection(name).limit(1).get();
+      remaining += snapshot.size;
+    }
+  }
+
+  return remaining;
 }
 
 async function commitDeletes(db, refs) {

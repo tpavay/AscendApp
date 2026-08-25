@@ -1,5 +1,5 @@
 /**
- * How the seed pack divides the catalogue between contested boards and
+ * How the seed pack divides the catalog between contested boards and
  * claimable First Ascent slots.
  *
  * Shared because the division is a contract between two scripts, not a detail of
@@ -58,7 +58,7 @@ export const RACEABLE_RELEASE_STATE = "available";
  * Builds the open-First Ascent configs: every raceable climb the pack does not
  * contest.
  *
- * Seeding is what decides how much of the catalogue can still demonstrate a
+ * Seeding is what decides how much of the catalog can still demonstrate a
  * First Ascent, and it used to spend that budget without meaning to. The server
  * only lets a finisher claim a slot on a board with no completions, so every
  * climb the pack fills with synthetic competitors takes its First Ascent off the

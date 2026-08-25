@@ -502,7 +502,7 @@ async function buildSeedPlan(db, catalog, authUser, args) {
 /**
  * Makes sure the account has a real profile photograph, and returns its URL.
  *
- * This account is the one every screenshot is centred on, so an empty photo is a
+ * This account is the one every screenshot is centered on, so an empty photo is a
  * grey circle in the middle of the shot. It is also the one row on a seeded
  * board that a person actually owns, so its picture has to live under its own
  * `users/{uid}/profile_pictures/` prefix rather than pointing at the shared
