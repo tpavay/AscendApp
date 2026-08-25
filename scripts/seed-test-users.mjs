@@ -118,7 +118,10 @@ async function main() {
   printSeedPlan(writes, avatarURLs);
   if (args.dryRun) return;
 
-  await commitDeletes(db, await seedDocumentRefs(db));
+  await commitDeletes(
+    db,
+    await seedDocumentRefs(db, {includeUserDocuments: false})
+  );
   await commitWrites(db, writes);
   console.log(`Wrote ${writes.length} seeded documents.`);
 }
@@ -187,7 +190,27 @@ function downloadURL(bucketName, objectPath, token) {
     `${encodeURIComponent(objectPath)}?alt=media&token=${token}`;
 }
 
-async function seedDocumentRefs(db) {
+/**
+ * Documents a clear or a re-seed removes.
+ *
+ * `includeUserDocuments` is the difference between the two, and it is not
+ * cosmetic. Deleting `users/{uid}` fires `cleanupDeletedUserData`, which sweeps
+ * every subcollection under that user - so a *seed* that deletes the persona
+ * root first is racing an account-deletion sweep against its own writes. On
+ * 2026-08-24 the sweep won: the seed wrote 376 documents at 00:30:35 UTC and the
+ * trigger deleted `public_profile`, `profile_stats`, `achievements` and
+ * `profile_workouts` for all twelve personas at 00:30:40, leaving root documents
+ * with nothing under them and failing the audit.
+ *
+ * A seed does not need the delete anyway: every persona document is rewritten
+ * with a whole-document `set`, so no stale field survives. A clear does want it,
+ * because there the sweep is the point.
+ * @param {object} db Firestore instance.
+ * @param {object} [options] Selection options.
+ * @param {boolean} [options.includeUserDocuments=true] Delete persona root docs.
+ * @return {Promise<object[]>} Document references to delete.
+ */
+async function seedDocumentRefs(db, {includeUserDocuments = true} = {}) {
   const refs = [];
   for (const userId of expectedProfileUserIds()) {
     const userRef = db.collection("users").doc(userId);
@@ -198,7 +221,9 @@ async function seedDocumentRefs(db) {
     const achievements = await userRef.collection("achievements").get();
     workouts.docs.forEach((doc) => refs.push(doc.ref));
     achievements.docs.forEach((doc) => refs.push(doc.ref));
-    refs.push(userRef);
+    if (includeUserDocuments) {
+      refs.push(userRef);
+    }
   }
 
   expectedLeaderboardDocIds().forEach((docId) => {

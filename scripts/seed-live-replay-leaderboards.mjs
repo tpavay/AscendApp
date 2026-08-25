@@ -546,17 +546,11 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
   }
 
   const justClimbAttempts = climbPlans.flatMap((plan) => plan.attempts);
-  const justClimbClearAttemptIds = climbPlans.flatMap(
-    (plan) => plan.clearAttemptIds
-  );
-  const justClimbClearUserIds = climbPlans.flatMap(
-    (plan) => plan.clearUserIds
-  );
   const justClimbMaxBucketIndex = MAX_BUCKET_INDEX;
+  // No clear id lists: this context is cleared by seed-pack query, because its
+  // rows outlive the climb list that produced them.
   const justClimbPlan = {
     attempts: justClimbAttempts,
-    clearAttemptIds: justClimbClearAttemptIds,
-    clearUserIds: justClimbClearUserIds,
     maxBucketIndex: justClimbMaxBucketIndex,
     entryDocumentCount: justClimbAttempts.length * (justClimbMaxBucketIndex + 1),
   };
@@ -692,7 +686,12 @@ function printPlan(seedPlan, args, avatarFileCount, avatarURLCount) {
 
 async function clearSeedPack(db, seedPlan, args) {
   const writer = bulkWriter(db);
-  let deleted = await clearSeedEntriesFromPlan(db, writer, seedPlan);
+  let deleted = await clearSeedEntriesFromPlan(
+    db,
+    writer,
+    seedPlan,
+    args.seedPackId
+  );
   const activeContextKeys = contextKeysForPlan(seedPlan);
   deleted += await clearStaleSeedContexts(
     db,
@@ -780,7 +779,54 @@ async function clearStaleSeedContexts(db, writer, seedPackId, activeContextKeys)
   return deleted;
 }
 
-async function clearSeedEntriesFromPlan(db, writer, seedPlan) {
+/**
+ * Deletes every row this pack has ever put in the global Just Climb context.
+ *
+ * Found by query rather than by derived id, unlike the per-climb boards. The
+ * global context carries one row per attempt on *every* seeded climb, so its
+ * contents outlive the climb list: retiring a climb takes its own board away
+ * with `clearStaleSeedContexts`, but its attempts stay here, under ids the
+ * current plan can no longer name. Staging accumulated 424 of them from eight
+ * retired climbs, which is what failed the audit - `replayEntryCount` said 903
+ * while 1,327 rows carried this pack's id.
+ *
+ * The clear runs before the write, so taking out everything with this pack's id
+ * is safe: the seed puts the current rows straight back, and a real climber's
+ * rows carry no `seedPackId` at all.
+ * @param {object} db Firestore instance.
+ * @param {object} writer BulkWriter that performs the deletes.
+ * @param {object} seedPlan Built seed plan.
+ * @return {Promise<number>} Count of entry documents deleted.
+ */
+async function clearJustClimbSeedRows(db, writer, seedPlan, seedPackId) {
+  let deleted = 0;
+
+  for (
+    let bucketIndex = 0;
+    bucketIndex <= seedPlan.justClimbPlan.maxBucketIndex;
+    bucketIndex += 1
+  ) {
+    const entries = await justClimbEntriesCollection(db, bucketIndex)
+      .where("seedPackId", "==", seedPackId)
+      .get();
+    for (const entry of entries.docs) {
+      writer.delete(entry.ref);
+      deleted += 1;
+    }
+  }
+
+  const finishers = await justClimbFinishersCollection(db)
+    .where("seedPackId", "==", seedPackId)
+    .get();
+  for (const finisher of finishers.docs) {
+    writer.delete(finisher.ref);
+    deleted += 1;
+  }
+
+  return deleted;
+}
+
+async function clearSeedEntriesFromPlan(db, writer, seedPlan, seedPackId) {
   let deleted = 0;
 
   for (const plan of seedPlan.climbPlans) {
@@ -812,17 +858,7 @@ async function clearSeedEntriesFromPlan(db, writer, seedPlan) {
     }
   }
 
-  for (let bucketIndex = 0; bucketIndex <= MAX_BUCKET_INDEX; bucketIndex += 1) {
-    for (const attemptId of seedPlan.justClimbPlan.clearAttemptIds) {
-      writer.delete(justClimbEntriesCollection(db, bucketIndex).doc(attemptId));
-      deleted += 1;
-    }
-  }
-
-  for (const userId of seedPlan.justClimbPlan.clearUserIds) {
-    writer.delete(justClimbFinishersCollection(db).doc(userId));
-    deleted += 1;
-  }
+  deleted += await clearJustClimbSeedRows(db, writer, seedPlan, seedPackId);
 
   return deleted;
 }
