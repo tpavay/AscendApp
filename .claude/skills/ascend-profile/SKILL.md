@@ -26,7 +26,8 @@ description: Use when working on Ascend profiles - own vs other-user profile sur
   The signed-in climber is not an exception: their own row renders the same resolved name and derived initials as every other climber's, falling back to the same stable placeholder identity when the account has no name yet, and a `YOU` chip beside the name is the only marker of whose row it is.
   Never substitute the literal string `You` for a name or `YOU` for an avatar token.
   Public profile, leaderboard, Live Replay, finisher, and First Ascent mirrors store validated identity, and the server propagation trigger keeps existing projections current.
-  Production has no identity backfill to run: the propagation trigger and its indexes must be deployed before the binary that publishes identity. Rollout order: `docs/production-backend-rollout-runbook.md`.
+  The propagation trigger and its indexes must be deployed before the binary that publishes identity, so a published profile is validated and propagated by the server from the start.
+  That trigger only ever reaches rows written after it, and production has held real climbers' identity and projections since the App Store launch - so an identity-policy change no longer gets to assume there is nothing to backfill. Count the pre-policy production rows first and ship the backfill they need. Rollout order, the production-data fact, and the backfill obligation: `docs/production-backend-rollout-runbook.md`.
   Dev and staging do hold pre-policy rows, and the only sanctioned repair writes the public profile mirror and lets that same trigger fan it out - never `leaderboard_stats` directly, which rules make server-owned outright. See `ascend-dev-fixtures`.
 - Firestore does not support field-level read masking on a document. Keep `users/{uid}` owner-readable because it contains private account fields, and mirror only public-safe profile fields into public profile documents/subcollections for other-user profile reads.
 

@@ -5,6 +5,20 @@ description: Use before answering any question about what is actually in a Fires
 
 # Investigating Ascend's Data
 
+## Query production; never recall it
+
+If anything could possibly concern production or the data in it, **read production**.
+Do not infer it, do not remember it, and do not trust a document that states it - including this one.
+
+Ascend has been live on the App Store since 2026-08-25, so `ascend-prod-9c8f2` accumulates real climbers' data continuously.
+Any sentence shaped like "production is empty", "there is nothing to backfill", or "that collection has no rows" is a measurement with a timestamp, not a standing fact, and a stale one has already been used to justify skipping work that real user data requires.
+`docs/production-backend-rollout-runbook.md` is the single owner of what production holds; a fresh read beats it.
+
+The trap is that Firebase tooling answers for whichever project is currently **active**, and that is never production by default:
+`.firebaserc` points `default` at the dev project, and an earlier task can leave staging selected.
+Staging is full of QA and seeded accounts that look exactly like real climbers, so the likeliest wrong answer is a plausible one from the wrong database.
+Confirm the active project before trusting anything, pass `--env` explicitly on every read, and name the environment in the answer.
+
 ## The absence rule
 
 **Never report that data is absent until the same method has returned a positive result against data you already know is there.**
@@ -106,9 +120,15 @@ An explicit `--env` always means the real backend, even with an emulator running
 
 | Alias | Project | Notes |
 |---|---|---|
-| `dev` | `ascend-f2e4f` | Seeded fixtures (`ascend-dev-fixtures`). |
-| `staging` | `ascend-staging-fa7d5` | TestFlight traffic. |
-| `prod` | `ascend-prod-9c8f2` | Real climbers. Needs `--confirm-production`. |
+| `dev` | `ascend-f2e4f` | Seeded fixtures (`ascend-dev-fixtures`). Also the `.firebaserc` `default`. |
+| `staging` | `ascend-staging-fa7d5` | TestFlight traffic plus QA and seeded accounts that look exactly like real climbers. |
+| `prod` | `ascend-prod-9c8f2` | Real climbers, live on the App Store since 2026-08-25. Needs `--confirm-production`. |
+
+Confirm which project the tooling is pointed at before reading anything, because none of these commands defaults to production:
+
+```bash
+npx -y firebase-tools@15.22.1 use          # prints the active alias/project
+```
 
 Identifiers differ per environment, so a document ID, a product ID or a count from one says nothing about another.
 Staging subscription products are `ascend_staging_yearly` / `ascend_staging_monthly`; production is `ascend_yearly` / `ascend_monthly` (`docs/superwall-paywall-setup.md` is the authority).
@@ -140,7 +160,8 @@ Storage objects live under `users/{uid}/...` prefixes (`photos`, `videos`, `work
 
 ## Before you answer
 
+- [ ] Is this a claim about production? Then did you *read* production, rather than recall it or quote a document?
 - [ ] Did the method return a positive result somewhere before you claimed a zero?
-- [ ] Did you name the environment?
+- [ ] Did you confirm which project was active, and did you name the environment?
 - [ ] Did any command exit non-zero, or print `FAILED` or `UNVERIFIED`?
 - [ ] If the answer is "nothing is there", did you check for subcollections and phantom parents beneath it?
