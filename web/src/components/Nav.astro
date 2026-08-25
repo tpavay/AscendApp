@@ -1,4 +1,5 @@
 ---
+import { APP_STORE_URL } from '../appStore';
 ---
 <nav>
   <a href="/" class="logo">
@@ -9,7 +10,7 @@
     <a href="/#the-sport">The Sport</a>
     <a href="/#live-climbs">Live Climbs</a>
   </div>
-  <a class="nav-cta" href="/#download">Coming Soon</a>
+  <a class="nav-cta" href={APP_STORE_URL}>Download</a>
   <button class="hamburger" id="menuToggle" aria-label="Open menu">
     <span></span>
     <span></span>
