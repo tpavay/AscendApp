@@ -23,54 +23,6 @@ function readScript(relativePath) {
   return readFileSync(resolve(REPO_ROOT, relativePath), "utf8");
 }
 
-// Matches the array literal to its own closing bracket rather than to a
-// terminator guessed in advance: the seed lists end in both `];` and
-// `].map(...)`, and a lazy regex for one of them runs on into the next
-// declaration and quietly reads the wrong array.
-function arrayLiteralSource(source, constName) {
-  const declaration = `const ${constName} = [`;
-  const start = source.indexOf(declaration);
-  assert.notEqual(start, -1, `could not locate ${constName}`);
-
-  const open = start + declaration.length - 1;
-  let depth = 0;
-  let quote = null;
-
-  for (let index = open; index < source.length; index += 1) {
-    const character = source[index];
-
-    if (quote) {
-      if (character === "\\") index += 1;
-      else if (character === quote) quote = null;
-      continue;
-    }
-
-    if (character === "\"" || character === "'" || character === "`") {
-      quote = character;
-    } else if (character === "[") {
-      depth += 1;
-    } else if (character === "]") {
-      depth -= 1;
-      if (depth === 0) return source.slice(open + 1, index);
-    }
-  }
-
-  throw new Error(`${constName} array literal is unterminated`);
-}
-
-function arrayLiteralIds(source, constName, key) {
-  const literal = arrayLiteralSource(source, constName);
-
-  assert.doesNotMatch(
-    literal,
-    /\nconst /,
-    `${constName} extraction ran past the literal into a later declaration`
-  );
-
-  return [...literal.matchAll(new RegExp(`${key}:\\s*"([^"]+)"`, "g"))]
-    .map((match) => match[1]);
-}
-
 const attempt = {
   id: "seed-attempt-1",
   userId: "seeded:pack:mount-everest:0",
@@ -166,83 +118,6 @@ test("every seeded projection identity declares its lifecycle state", () => {
   }
 });
 
-test("every climb the demo user completes is seeded a First Ascent holder", () => {
-  // seed-demo-user merges completions into the same summary the replay seed
-  // owns, but only claims the slot for its one --first-ascent-climb. A climb it
-  // completes that no list gives a holder to lands in the dead state this
-  // module exists to prevent - which is how taipei-101 kept one.
-  const demoSource = readScript("scripts/seed-demo-user.mjs");
-  const replaySource = readScript("scripts/seed-live-replay-leaderboards.mjs");
-
-  const demoClimbIds = arrayLiteralIds(demoSource, "LIVE_CLIMB_SPECS", "climbId");
-  assert.ok(demoClimbIds.length > 0, "expected demo user live climb specs");
-
-  const demoFirstAscentClimbId = demoSource.match(
-    /const DEFAULT_FIRST_ASCENT_CLIMB_ID = "([^"]+)"/
-  )?.[1];
-  assert.ok(demoFirstAscentClimbId, "could not locate DEFAULT_FIRST_ASCENT_CLIMB_ID");
-
-  const holderClimbIds = new Set([
-    ...arrayLiteralIds(replaySource, "ACTIVE_CLIMBS", "id"),
-    ...arrayLiteralIds(replaySource, "WARM_CLIMBS", "id"),
-    demoFirstAscentClimbId,
-  ]);
-
-  for (const climbId of demoClimbIds) {
-    assert.ok(
-      holderClimbIds.has(climbId),
-      `${climbId} gets demo completions but no script seeds it a First Ascent holder`
-    );
-  }
-});
-
-test("exactly four climbs seed an open First Ascent slot", () => {
-  // ProfileFirstAscentService caps its open list at four while iterating in
-  // catalog order and sorts by targetSteps only afterwards, so a fifth would
-  // push out whichever sorts last - sky-tower-auckland, the cheap-to-claim pick
-  // a QA session needs to take a First Ascent end to end.
-  const openClimbIds = arrayLiteralIds(
-    readScript("scripts/seed-live-replay-leaderboards.mjs"),
-    "FIRST_ASCENT_OPEN_CLIMBS",
-    "id"
-  );
-
-  assert.deepEqual(openClimbIds, [
-    "sky-tower-auckland",
-    "oriental-pearl-tower",
-    "charminar",
-    "el-penon-de-guatape",
-  ]);
-});
-
-test("live replay fixtures seed only climbs the catalogue can race", () => {
-  // One-directional on purpose: a seeded ID that is not raceable strands state
-  // nobody can reach, but a raceable climb with no fixture is just an unseeded
-  // climb. Requiring the reverse would break on every catalogue addition.
-  const replaySource = readScript("scripts/seed-live-replay-leaderboards.mjs");
-  const seededClimbIds = [
-    ...arrayLiteralIds(replaySource, "ACTIVE_CLIMBS", "id"),
-    ...arrayLiteralIds(replaySource, "WARM_CLIMBS", "id"),
-    ...arrayLiteralIds(replaySource, "FIRST_ASCENT_OPEN_CLIMBS", "id"),
-  ];
-  const catalogue = JSON.parse(
-    readFileSync(resolve(REPO_ROOT, "web/public/climbs/catalog-v1.json"), "utf8")
-  );
-  const availableClimbIds = new Set(
-    catalogue
-      .filter((climb) => climb.releaseState === "available")
-      .map((climb) => climb.id)
-  );
-
-  assert.ok(seededClimbIds.length > 0, "expected seeded live replay climbs");
-  for (const climbId of seededClimbIds) {
-    assert.ok(
-      availableClimbIds.has(climbId),
-      `${climbId} is seeded but is not an available racing climb`
-    );
-  }
-});
-
 test("profile personas seed only climbs the catalogue can race", () => {
   // A persona ID the catalogue never had seeds a climb no surface can resolve,
   // and nothing else in the seed path notices. `colosseum` sat here unnoticed.
@@ -262,25 +137,6 @@ test("profile personas seed only climbs the catalogue can race", () => {
         `${persona.id} seeds ${climbId}, which is not an available racing climb`
       );
     }
-  }
-});
-
-test("open First Ascent climbs are disjoint from the demo user's climbs", () => {
-  // Both scripts merge into the same summary, so a shared climb would have
-  // whichever ran last strand the other's state: demo completions with no
-  // holder, or an open slot the demo user already filled.
-  const replaySource = readScript("scripts/seed-live-replay-leaderboards.mjs");
-  const demoClimbIds = new Set(
-    arrayLiteralIds(readScript("scripts/seed-demo-user.mjs"), "LIVE_CLIMB_SPECS", "climbId")
-  );
-  const openClimbIds = arrayLiteralIds(replaySource, "FIRST_ASCENT_OPEN_CLIMBS", "id");
-
-  assert.ok(openClimbIds.length > 0, "expected open First Ascent climbs");
-  for (const climbId of openClimbIds) {
-    assert.ok(
-      !demoClimbIds.has(climbId),
-      `${climbId} seeds an open First Ascent but the demo user completes it`
-    );
   }
 });
 

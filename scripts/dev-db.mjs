@@ -434,6 +434,9 @@ function printPlan() {
   console.log("  node scripts/dev-db.mjs create-auth-user --project staging --email qa@example.com --display-name \"QA Tester\"");
   console.log("  node scripts/dev-db.mjs hydrate-user --project dev --user <uid> --display-name \"Tyler P.\" --age 27 --gender man --height-in 70 --weight-lb 178 --country US --region IL");
   console.log("  node scripts/dev-db.mjs seed-demo-user --project staging --email person@example.com");
+  console.log("\nTo put staging into a state worth photographing, use the composed recipe instead:");
+  console.log("  node scripts/seed-content-ready.mjs --email person@example.com");
+  console.log("  docs/staging-content-capture.md owns what that state is and how to get back.");
 }
 
 function resolveProjectId(projectOrAlias) {

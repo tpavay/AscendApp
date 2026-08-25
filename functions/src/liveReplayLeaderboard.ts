@@ -38,6 +38,24 @@ const FIRESTORE_NOT_FOUND_CODE = 5;
 const BULK_WRITER_MAX_ATTEMPTS = 3;
 
 /**
+ * What produced the completions a replay summary counts.
+ *
+ * The seed scripts stamp `seeded` on a board they populate with synthetic
+ * competitors, and operators read it to mean "no real climber is on this
+ * board". Nothing else maintained it, so a board that later took genuine
+ * finishes still reported itself as seeded, and the field could not be trusted
+ * for the one question it exists to answer.
+ *
+ * A publish therefore restamps it: once a real completion lands, the board is
+ * live, whatever synthetic rows still stand beside it. `seedPackId` and
+ * `seededAttemptCount` keep saying how many of those rows the seed wrote, so
+ * nothing is lost by moving this one field off `seeded`.
+ * `scripts/seed/lib/live-replay-summary-source.mjs` is the same two values on
+ * the seed side; the two must agree.
+ */
+const REPLAY_SUMMARY_SOURCE_LIVE = "live";
+
+/**
  * The field a context ranks its completions on.
  *
  * A climb fixes the step target and lets the clock vary, so the fastest run
@@ -1830,6 +1848,7 @@ function replaySummaryWrite(
     contextId: input.payload.contextId,
     contextType: input.payload.contextType,
     schemaVersion: 1,
+    source: REPLAY_SUMMARY_SOURCE_LIVE,
     targetStepCount: input.payload.targetStepCount,
     totalClimbers: input.completedCount,
   };
