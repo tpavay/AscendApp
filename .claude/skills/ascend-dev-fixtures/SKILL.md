@@ -1,6 +1,6 @@
 ---
 name: ascend-dev-fixtures
-description: Use when seeding or clearing Ascend dev/staging data - the dev-db script, profile and leaderboard fixtures, live replay seed packs, debug workout seeding presets, the Firestore emulator, or Internal QA sign-in and its credentials. Covers the production refusal guard, why multi-user seeds must be server-side, and synthetic-data labeling.
+description: Use when seeding or clearing Ascend dev/staging data - the dev-db script, the staging content-capture command, profile and leaderboard fixtures, live replay seed packs, debug workout seeding presets, the Firestore emulator, or Internal QA sign-in and its credentials. Covers the production refusal guard, why multi-user seeds must be server-side, synthetic-data labeling, and why seeding a climb with competitors spends its First Ascent forever.
 paths:
   - scripts/**
   - AscendApp/Features/Debug/**
@@ -76,10 +76,27 @@ paths:
   It used to floor totals at a `minimumStepsByTimeFrame` (640,000 yearly, and so on), which is where identical demo totals and the podium ties they produced came from.
   That floor is gone, so demo standings now differ per account and match the seeded workouts.
 
+## Staging content capture
+
+- One command puts staging into a state worth photographing: `node scripts/seed-content-ready.mjs --email <account>`.
+  It composes the existing seeds rather than replacing them, and `docs/staging-content-capture.md` owns the definition of "content-ready", the run order and what the reset path can and cannot undo.
+- `scripts/seed/lib/content-ready-contract.mjs` is that definition as numbers, asserted after every seed and re-checkable read-only with `seed-content-ready.mjs verify`.
+  Changing a threshold is a deliberate change to what the captured content shows.
+- **Seeding a climb with competitors spends its First Ascent permanently.**
+  The server claims a slot only for a finisher on a board with no completions and no holder, which is what makes a First Ascent worth holding - so the number of climbs the pack contests is also the number of First Ascents it destroys.
+  `scripts/seed/lib/live-replay-climb-tiers.mjs` owns the split: `ACTIVE_CLIMBS` and `WARM_CLIMBS` are contested on purpose, and every other raceable catalog climb gets an empty summary so its slot is open *and* visibly open.
+  An unseeded climb is not equivalent to an open one: the open-slot surfaces require an existing summary, so a climb with no document reads as nothing.
+  Moving a climb into a contested list is therefore a content decision, not a tuning one.
+- A demo account's First Ascent has to sit outside the contested set. `seed-demo-user.mjs` refuses a contested climb rather than writing a holder that renders as first-ever beside climbers who already finished.
+- `seed-demo-user.mjs clear` takes one account's seeded documents back out. It leaves the account's identity alone, and it cannot remove a climb performed in the app - the device holds its own SwiftData copy, so only the app's own delete removes both.
+
 ## Live replay seeding
 - Live replay leaderboard seed data must be Admin SDK/server-written into the read-only `live_replay_leaderboards` index, never client-written during a live session.
 - `scripts/seed-live-replay-leaderboards.mjs` may write only to dev (`ascend-f2e4f`) or staging (`ascend-staging-fa7d5`) and must hard-refuse production or any unknown project; use environment-specific seed packs for repeatable active/warm Live Climb replay fixtures.
 - Live replay seed entries must carry `isSynthetic`, `source`, and `seedPackId` so synthetic replay data can be filtered, cleared, or phased out later. Do not claim seeded replay rows are users climbing right now.
+- A summary's `source` answers "is anyone real on this board", so every writer maintains it: `scripts/seed/lib/live-replay-summary-source.mjs` holds the two values, the seed stamps `seeded` only while every surviving finisher is synthetic, and `replaySummaryWrite` in `functions/src/liveReplayLeaderboard.ts` stamps `live` on every publish.
+  `seedPackId` and `seededAttemptCount` are where the synthetic row count lives, so moving `source` off `seeded` loses nothing.
+- A seeded summary's `totalClimbers` is the board population, not the synthetic row count. The Cloud Function writes `totalClimbers = completedCount`, so any other meaning puts two numbers describing different populations on one document.
 - Live replay seed data must not reuse the same synthetic profile name or photo within a climb. Duplicate profiles make the replay look like one person appears multiple times.
 - Seeded replay summaries must stay on a First Ascent state the app can actually reach: completions imply a holder, and an open slot implies zero completions.
   Seeding completions without `firstAscent*` fields permanently kills the slot, because the server only claims it when there are no completions and no holder.

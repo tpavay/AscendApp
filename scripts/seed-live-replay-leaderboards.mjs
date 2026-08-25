@@ -48,6 +48,15 @@ import {
 import {
   syntheticFinisherWrite,
 } from "./seed/lib/live-replay-finisher.mjs";
+import {
+  seededSummarySource,
+} from "./seed/lib/live-replay-summary-source.mjs";
+import {
+  ACTIVE_CLIMBS,
+  WARM_CLIMBS,
+  contestedClimbIds,
+  firstAscentOpenConfigs,
+} from "./seed/lib/live-replay-climb-tiers.mjs";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
@@ -67,69 +76,6 @@ const ALLOWED_SEED_PROJECTS = new Map([
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
-
-const ACTIVE_CLIMBS = [
-  {id: "merdeka-118", totalClimbers: 247, replayEntries: 96, completionRate: 0.36},
-  {id: "empire-state-building", totalClimbers: 198, replayEntries: 88, completionRate: 0.42},
-  {id: "burj-khalifa", totalClimbers: 173, replayEntries: 84, completionRate: 0.34},
-  {id: "reunion-tower", totalClimbers: 166, replayEntries: 72, completionRate: 0.48},
-  {id: "eiffel-tower", totalClimbers: 156, replayEntries: 72, completionRate: 0.44},
-  {id: "lotte-world-tower", totalClimbers: 142, replayEntries: 68, completionRate: 0.38},
-  {id: "cn-tower", totalClimbers: 137, replayEntries: 64, completionRate: 0.36},
-  {id: "statue-of-liberty", totalClimbers: 128, replayEntries: 60, completionRate: 0.54},
-  {id: "eureka-tower", totalClimbers: 118, replayEntries: 56, completionRate: 0.35},
-  {id: "q1-tower", totalClimbers: 104, replayEntries: 52, completionRate: 0.46},
-];
-
-const WARM_CLIMBS = [
-  {id: "space-needle", totalClimbers: 62, replayEntries: 30, completionRate: 0.44},
-  {id: "torre-latinoamericana", totalClimbers: 58, replayEntries: 28, completionRate: 0.48},
-  {id: "willis-tower", totalClimbers: 54, replayEntries: 28, completionRate: 0.36},
-  {id: "one-world-trade-center", totalClimbers: 49, replayEntries: 26, completionRate: 0.34},
-  {id: "farol-santander", totalClimbers: 46, replayEntries: 24, completionRate: 0.40},
-  {id: "monserrate", totalClimbers: 42, replayEntries: 24, completionRate: 0.40},
-  {id: "st-peters-basilica", totalClimbers: 39, replayEntries: 22, completionRate: 0.46},
-  {id: "sacre-coeur", totalClimbers: 36, replayEntries: 20, completionRate: 0.58},
-  {id: "elizabeth-tower", totalClimbers: 34, replayEntries: 20, completionRate: 0.58},
-  {id: "tokyo-tower", totalClimbers: 32, replayEntries: 20, completionRate: 0.40},
-  {id: "shanghai-tower", totalClimbers: 29, replayEntries: 18, completionRate: 0.34},
-  {id: "taipei-101", totalClimbers: 28, replayEntries: 18, completionRate: 0.34},
-  {id: "canton-tower", totalClimbers: 27, replayEntries: 18, completionRate: 0.34},
-  {id: "leaning-tower-of-pisa", totalClimbers: 24, replayEntries: 16, completionRate: 0.56},
-  {id: "berlin-tv-tower", totalClimbers: 23, replayEntries: 16, completionRate: 0.44},
-  {id: "sydney-tower", totalClimbers: 21, replayEntries: 16, completionRate: 0.56},
-];
-
-/**
- * Climbs seeded with a summary but no completions, so their First Ascent slot is
- * genuinely open.
- *
- * A climb with no summary document at all is not equivalent: the open-First
- * Ascent surfaces key off an existing summary (`ProfileFirstAscentService`
- * requires `updatedAt != nil && completedCount == 0`), so an unseeded climb
- * never renders as a claimable opportunity. These give the open state a real
- * document to read.
- *
- * The spread covers three continents and includes two short races so a QA session
- * can actually finish one and claim a First Ascent end to end.
- *
- * Exactly four, and no climb that `seed-demo-user.mjs` completes. Four because
- * `ProfileFirstAscentService` fills its open list in catalog order and caps at
- * four, so a fifth would push out whichever climb sorts last - Sky Tower, the
- * one QA needs. Disjoint from the demo user's climbs because both scripts merge
- * into the same summary, and whichever runs last would strand the other's state.
- */
-const FIRST_ASCENT_OPEN_CLIMBS = [
-  {id: "sky-tower-auckland"},
-  {id: "oriental-pearl-tower"},
-  {id: "charminar"},
-  {id: "el-penon-de-guatape"},
-].map((config) => ({
-  ...config,
-  totalClimbers: 0,
-  replayEntries: 0,
-  completionRate: 0,
-}));
 
 const SEEDED_DISPLAY_NAMES = [
   "Sarah K.", "Marcus T.", "Jenny W.", "Alex M.", "Priya S.", "Jordan L.",
@@ -523,10 +469,11 @@ function downloadURL(bucketName, objectPath, token) {
 }
 
 function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
+  const contestedIds = contestedClimbIds();
   const configs = [
     ...ACTIVE_CLIMBS.map((config) => ({...config, activityTier: "active"})),
     ...WARM_CLIMBS.map((config) => ({...config, activityTier: "warm"})),
-    ...FIRST_ASCENT_OPEN_CLIMBS.map((config) => ({
+    ...firstAscentOpenConfigs(climbsById, contestedIds).map((config) => ({
       ...config,
       activityTier: FIRST_ASCENT_OPEN_ACTIVITY_TIER,
     })),
@@ -896,13 +843,13 @@ async function clearSeedEntriesFromPlan(db, writer, seedPlan) {
  * board once this pack lands, whatever wrote it.
  * @param {object} db Firestore instance.
  * @param {object} seedPlan Built seed plan.
- * @return {Promise<object>} Per-climb counts and the Just Climb count.
+ * @return {Promise<object>} Per-climb board states and the Just Climb state.
  */
 async function resolveSeededCompletedCounts(db, seedPlan) {
-  const climbCounts = new Map();
+  const climbBoards = new Map();
 
   for (const plan of seedPlan.climbPlans) {
-    const completedCount = await boardFinisherPopulation(
+    const board = await boardFinisherState(
       finishersCollection(db, plan.climb.id),
       plan.attempts.map((attempt) => attempt.userId),
       plan.completedCount
@@ -912,15 +859,15 @@ async function resolveSeededCompletedCounts(db, seedPlan) {
     // state, so a stranded finisher fails the run before anything is written.
     assertFirstAscentInvariant({
       climbId: plan.climb.id,
-      completedCount,
+      completedCount: board.population,
       hasFirstAscent: plan.firstAscentAttempt !== null,
     });
-    climbCounts.set(plan.climb.id, completedCount);
+    climbBoards.set(plan.climb.id, board);
   }
 
   return {
-    climbCounts,
-    justClimbCount: await boardFinisherPopulation(
+    climbBoards,
+    justClimbBoard: await boardFinisherState(
       justClimbFinishersCollection(db),
       seedPlan.justClimbPlan.attempts.map((attempt) => attempt.userId),
       seedPlan.justClimbPlan.attempts.length
@@ -929,26 +876,35 @@ async function resolveSeededCompletedCounts(db, seedPlan) {
 }
 
 /**
- * Counts every climber that will hold a finisher document on one board.
+ * Resolves who will hold a finisher document on one board after this run.
+ *
+ * Both the population and the identities matter. The population is the
+ * denominator a finished climb freezes its rank against. The identities decide
+ * the summary's `source`: this pack clears only its own finishers, so a real
+ * climber can survive the clear, and a board carrying one is not seeded however
+ * many synthetic rows sit beside them.
  * @param {object} finishersRef `finishers` collection reference.
  * @param {string[]} seededUserIds Climbers this pack is about to write.
  * @param {number} plannedCount Completions the plan intended to seed.
- * @return {Promise<number>} Finishers standing on the board after the write.
+ * @return {Promise<object>} Population and surviving finisher ids.
  */
-async function boardFinisherPopulation(finishersRef, seededUserIds, plannedCount) {
+async function boardFinisherState(finishersRef, seededUserIds, plannedCount) {
   const surviving = await finishersRef.listDocuments();
   const userIds = new Set(surviving.map((document) => document.id));
   for (const userId of seededUserIds) {
     userIds.add(userId);
   }
 
-  return Math.max(plannedCount, userIds.size);
+  return {
+    population: Math.max(plannedCount, userIds.size),
+    survivingFinisherIds: Array.from(userIds),
+  };
 }
 
 async function writeSeedPlan(db, seedPlan, args) {
   const writer = bulkWriter(db);
   const now = FieldValue.serverTimestamp();
-  const {climbCounts, justClimbCount} = await resolveSeededCompletedCounts(
+  const {climbBoards, justClimbBoard} = await resolveSeededCompletedCounts(
     db,
     seedPlan
   );
@@ -957,19 +913,26 @@ async function writeSeedPlan(db, seedPlan, args) {
   for (const plan of seedPlan.climbPlans) {
     const targetSteps = referenceStepCount(plan.climb);
     const summaryRef = leaderboardRef(db, plan.climb.id);
+    const board = climbBoards.get(plan.climb.id);
     const summary = {
       activityTier: plan.config.activityTier,
       bucketIntervalSeconds: BUCKET_INTERVAL_SECONDS,
-      completedCount: climbCounts.get(plan.climb.id),
+      completedCount: board.population,
       contextId: plan.climb.id,
       contextType: LIVE_CLIMB_CONTEXT_TYPE,
       replayEntryCount: plan.attempts.length,
       schemaVersion: 1,
       seedPackId: args.seedPackId,
       seededAttemptCount: plan.attempts.length,
-      source: "seeded",
+      source: seededSummarySource(board),
       targetStepCount: targetSteps,
-      totalClimbers: plan.attempts.length,
+      // The board population, not the synthetic row count. `replaySummaryWrite`
+      // in the Cloud Function writes `totalClimbers = completedCount`, so a seed
+      // stamping the attempt count here left the two numbers describing
+      // different populations on the same document the moment a real climber
+      // finished. `seededAttemptCount` and `replayEntryCount` are where the
+      // synthetic row count lives.
+      totalClimbers: board.population,
       updatedAt: now,
     };
 
@@ -1037,16 +1000,16 @@ async function writeSeedPlan(db, seedPlan, args) {
 
   writer.set(justClimbLeaderboardRef(db), {
     bucketIntervalSeconds: BUCKET_INTERVAL_SECONDS,
-    completedCount: justClimbCount,
+    completedCount: justClimbBoard.population,
     contextId: JUST_CLIMB_GLOBAL_CONTEXT_ID,
     contextType: JUST_CLIMB_CONTEXT_TYPE,
     replayEntryCount: seedPlan.justClimbPlan.attempts.length,
     schemaVersion: 1,
     seedPackId: args.seedPackId,
     seededAttemptCount: seedPlan.justClimbPlan.attempts.length,
-    source: "seeded",
+    source: seededSummarySource(justClimbBoard),
     targetStepCount: null,
-    totalClimbers: seedPlan.justClimbPlan.attempts.length,
+    totalClimbers: justClimbBoard.population,
     updatedAt: now,
   }, {merge: true});
   writes += 1;

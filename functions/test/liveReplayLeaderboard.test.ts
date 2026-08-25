@@ -237,9 +237,28 @@ test("builds replay summary fields with coherent total climbers", () => {
     contextId: "empire-state-building",
     contextType: "live_climb",
     schemaVersion: 1,
+    source: "live",
     targetStepCount: 2096,
     totalClimbers: 84,
   });
+});
+
+// The seed stamps `seeded` on a board it fills with synthetic competitors, and
+// operators read that to mean nobody real is on it. Nothing used to move it off
+// that value, so a board taking genuine finishes still reported itself seeded.
+test("a publish stops a seeded board calling itself seeded", () => {
+  const payload = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(
+    makeWorkoutDocument(),
+    {requireEligibleParticipation: true}
+  );
+  assert.ok(payload);
+
+  const write = liveReplayLeaderboardTestHooks.replaySummaryWrite({
+    payload,
+    completedCount: 1,
+  });
+
+  assert.equal(write.source, "live");
 });
 
 test("builds replay entry fields with context identity", () => {
