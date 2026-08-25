@@ -448,3 +448,128 @@ test("a clean call always carries an empty note list", () => {
     assert.deepEqual(normalize(type, payload).fieldNotes, [], type);
   }
 });
+
+/**
+ * Builds the onboarding mirror patch for a raw callable payload.
+ * @param {string} type Lifecycle event type.
+ * @param {Record<string, unknown>} payload Raw client payload.
+ * @return {Record<string, unknown>} The onboarding mirror object.
+ */
+function onboardingMirrorFor(
+  type: string,
+  payload: Record<string, unknown>
+) {
+  const event = normalize(type, payload);
+  const patch = lifecycleTestHooks.statePatchForEvent(
+    event as never,
+    {},
+    now
+  );
+  return patch.onboarding as Record<string, unknown>;
+}
+
+test("a repaired completedStages leaves the mirror alone, stage still lands", () => {
+  // The mirror is replaced, not merged, so writing the salvageable subset
+  // would truncate accumulated onboarding history that cannot be rebuilt.
+  const mirror = onboardingMirrorFor("onboarding_stage_reached", {
+    completedStages: ["goal", 7, "***"],
+    stage: "notifications",
+  });
+
+  assert.equal("completedStages" in mirror, false);
+  assert.equal(mirror.currentStage, "notifications");
+  assert.equal(mirror.status, "in_progress");
+  assert.equal(mirror.lastUpdatedAt, now);
+  assert.equal(mirror.startedAt, now);
+});
+
+test("a non-array completedStages leaves the mirror alone", () => {
+  const mirror = onboardingMirrorFor("onboarding_stage_reached", {
+    completedStages: "goal",
+    stage: "notifications",
+  });
+
+  assert.equal("completedStages" in mirror, false);
+  assert.equal(mirror.currentStage, "notifications");
+});
+
+test("an oversized completedStages leaves the mirror alone", () => {
+  const mirror = onboardingMirrorFor("onboarding_stage_reached", {
+    completedStages: Array.from({length: 30}, (_, i) => `stage_${i}`),
+    stage: "notifications",
+  });
+
+  assert.equal("completedStages" in mirror, false);
+});
+
+test("onboarding_completed also protects the mirror from a lossy repair", () => {
+  const mirror = onboardingMirrorFor("onboarding_completed", {
+    completedStages: ["goal", 7],
+    currentStage: "done",
+  });
+
+  assert.equal("completedStages" in mirror, false);
+  assert.equal(mirror.currentStage, "done");
+  assert.equal(mirror.status, "completed");
+  assert.equal(mirror.completedAt, now);
+});
+
+test("a normalized-only completedStages still writes the mirror", () => {
+  // Nothing was lost, so suppressing the write would throw away real progress.
+  const mirror = onboardingMirrorFor("onboarding_stage_reached", {
+    completedStages: ["goal", "firstClimb"],
+    stage: "notifications",
+  });
+
+  assert.deepEqual(mirror.completedStages, ["goal", "first_climb"]);
+});
+
+test("a clean completedStages still writes the mirror", () => {
+  const mirror = onboardingMirrorFor("onboarding_completed", {
+    completedStages: ["goal", "age"],
+    currentStage: "done",
+  });
+
+  assert.deepEqual(mirror.completedStages, ["goal", "age"]);
+});
+
+test("a normalized note names the entry that needed repair", () => {
+  // The note used to render the whole list, so the 120-character bound cut out
+  // the one entry the note exists to identify.
+  const stages = Array.from({length: 19}, (_, i) => `onboarding_stage_${i}`);
+  const event = normalize("onboarding_stage_reached", {
+    completedStages: [...stages, "firstClimb"],
+    stage: "notifications",
+  });
+  const note = noteFor(event, "completedStages");
+
+  assert.equal(note.resolution, "normalized");
+  assert.equal(note.received, "[\"firstClimb\"]");
+  assert.equal(note.resolved, "[\"first_climb\"]");
+});
+
+test("a dropped-items note reports what was actually stored", () => {
+  const event = normalize("onboarding_stage_reached", {
+    completedStages: ["goal", 7, "***"],
+    stage: "notifications",
+  });
+  const note = noteFor(event, "completedStages");
+
+  assert.equal(note.resolution, "items_dropped");
+  assert.equal(note.resolved, "[\"goal\"]");
+});
+
+test("a truncation note reports the count that was actually stored", () => {
+  // Every entry coerces to the same key, so dedupe shrinks the stored list far
+  // below the bound. Reporting the bound here would be a lie.
+  const event = normalize("onboarding_stage_reached", {
+    completedStages: Array.from({length: 5_000}, () => "Not A Key !!!"),
+    stage: "notifications",
+  });
+  const truncated = event.fieldNotes.find(
+    (note) => note.resolution === "truncated"
+  );
+
+  assert.equal(truncated?.received, "5000 entries");
+  assert.equal(truncated?.resolved, "1 entry");
+});

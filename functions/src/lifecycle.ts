@@ -34,6 +34,17 @@ type LifecycleFieldResolution =
   | "truncated";
 
 /**
+ * The resolutions under which entries did not survive the repair.
+ *
+ * `normalized` is absent on purpose: a coerced entry is still that entry.
+ */
+const lossyFieldResolutions = new Set<LifecycleFieldResolution>([
+  "fallback",
+  "items_dropped",
+  "truncated",
+]);
+
+/**
  * A durable record that an optional field arrived unusable.
  *
  * Every value is a bounded string so the note is safe to write to Firestore
@@ -295,15 +306,16 @@ function statePatchForEvent(
       currentOnboarding.startedAt ?
       currentOnboarding.startedAt :
       now;
-    return {
-      onboarding: {
-        completedStages: event.payload.completedStages,
-        currentStage: event.payload.stage,
-        lastUpdatedAt: now,
-        startedAt,
-        status: "in_progress",
-      },
+    const onboarding: PlainObject = {
+      currentStage: event.payload.stage,
+      lastUpdatedAt: now,
+      startedAt,
+      status: "in_progress",
     };
+    if (!completedStagesLostEntries(event)) {
+      onboarding.completedStages = event.payload.completedStages;
+    }
+    return {onboarding};
   }
 
   case "onboarding_completed": {
@@ -312,16 +324,17 @@ function statePatchForEvent(
       currentOnboarding.startedAt ?
       currentOnboarding.startedAt :
       now;
-    return {
-      onboarding: {
-        completedAt: now,
-        completedStages: event.payload.completedStages,
-        currentStage: event.payload.currentStage,
-        lastUpdatedAt: now,
-        startedAt,
-        status: "completed",
-      },
+    const onboarding: PlainObject = {
+      completedAt: now,
+      currentStage: event.payload.currentStage,
+      lastUpdatedAt: now,
+      startedAt,
+      status: "completed",
     };
+    if (!completedStagesLostEntries(event)) {
+      onboarding.completedStages = event.payload.completedStages;
+    }
+    return {onboarding};
   }
 
   case "paywall_reached":
@@ -369,6 +382,24 @@ function statePatchForEvent(
     // document, so a copy here would go stale.
     return {};
   }
+}
+
+/**
+ * Reports whether repairing `completedStages` cost the event real entries.
+ *
+ * The onboarding mirror is replaced wholesale rather than merged, so writing a
+ * shrunken list would quietly truncate accumulated history that cannot be
+ * reconstructed. A `normalized` entry lost nothing - the list is complete and
+ * faithful - so only the resolutions that drop or substitute entries count.
+ * @param {NormalizedEvent} event Normalized lifecycle event.
+ * @return {boolean} True when entries were lost repairing the field.
+ */
+function completedStagesLostEntries(event: NormalizedEvent): boolean {
+  return event.fieldNotes.some(
+    (note) =>
+      note.field === "completedStages" &&
+      lossyFieldResolutions.has(note.resolution)
+  );
 }
 
 /**
@@ -746,17 +777,10 @@ function optionalLifecycleKeyArray(
   // array outright, so repairing entry by entry over the raw list would hand a
   // caller an unbounded amount of server work for one request.
   const bounded = value.slice(0, maxLifecycleKeyArrayLength);
-  if (value.length > maxLifecycleKeyArrayLength) {
-    notes.push({
-      field,
-      received: `${value.length} entries`,
-      resolution: "truncated",
-      resolved: `${maxLifecycleKeyArrayLength} entries`,
-    });
-  }
 
   const keys: string[] = [];
-  const normalized: string[] = [];
+  const repairedFrom: unknown[] = [];
+  const repairedTo: string[] = [];
   const dropped: unknown[] = [];
 
   for (const item of bounded) {
@@ -766,19 +790,33 @@ function optionalLifecycleKeyArray(
     }
     const coerced = coerceLifecycleKey(item);
     if (coerced) {
-      normalized.push(coerced);
+      repairedFrom.push(item);
+      repairedTo.push(coerced);
       keys.push(coerced);
       continue;
     }
     dropped.push(item);
   }
 
-  if (normalized.length > 0) {
+  const stored = Array.from(new Set(keys));
+
+  if (value.length > maxLifecycleKeyArrayLength) {
     notes.push({
       field,
-      received: describeValue(bounded),
+      received: describeEntryCount(value.length),
+      resolution: "truncated",
+      resolved: describeEntryCount(stored.length),
+    });
+  }
+  // Only the entries that needed repair, paired positionally with what they
+  // became. Rendering the whole list here let the 120-character note bound cut
+  // out the very entry the note exists to name.
+  if (repairedFrom.length > 0) {
+    notes.push({
+      field,
+      received: describeValue(repairedFrom),
       resolution: "normalized",
-      resolved: describeValue(normalized),
+      resolved: describeValue(repairedTo),
     });
   }
   if (dropped.length > 0) {
@@ -786,11 +824,20 @@ function optionalLifecycleKeyArray(
       field,
       received: describeValue(dropped),
       resolution: "items_dropped",
-      resolved: "[]",
+      resolved: describeValue(stored),
     });
   }
 
-  return Array.from(new Set(keys));
+  return stored;
+}
+
+/**
+ * Renders an entry count for a note.
+ * @param {number} count Number of entries.
+ * @return {string} Human-readable count.
+ */
+function describeEntryCount(count: number): string {
+  return `${count} ${count === 1 ? "entry" : "entries"}`;
 }
 
 /**
