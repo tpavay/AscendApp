@@ -4,8 +4,15 @@ import {resolve} from "node:path";
 // Migration history answers whether a repair has already run in an environment.
 // A database reset must not erase that audit trail or cause completed repairs to
 // run again against newly seeded data.
+//
+// `comp_grants` is the same class of thing: the record of who was given free
+// app access, by whom, and why (`comp-access-policy.mjs`). It is deliberately
+// undeclared in `firestore.rules`, so Firestore's default deny already keeps
+// every client out of it, and it is protected here rather than made deletable
+// because an audit trail that a reset can erase is not an audit trail.
 export const PROTECTED_WIPE_COLLECTION_IDS = Object.freeze([
   "_migrations",
+  "comp_grants",
 ]);
 
 // These collections outlived their producers and therefore have no current
