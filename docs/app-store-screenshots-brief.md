@@ -87,7 +87,7 @@ here. Section 8 is the per-caption checklist. Two rules specific to this set:
 There is no Figma composition step and no hand-editing of a rendered PNG; a change to the set is a change to the renderer or to a source image.
 
 Every image input is a durable copy under `AppStoreAssets/sources/`: the two approved transformation photographs and one real app capture per screen.
-Those captures come from a staging build pointed at a seeded environment; `docs/staging-content-capture.md` owns the one command that puts staging into a state worth capturing, and what that state contains.
+Where the shipped captures were taken is not recorded. To take a new one, `docs/staging-content-capture.md` owns the one command that puts staging into a state worth capturing and what that state contains.
 Nothing is read out of `web/` except the Sharp package, so re-cropping or replacing a website marketing image cannot change these renders.
 
 ```bash
