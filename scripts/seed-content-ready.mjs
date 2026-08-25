@@ -374,6 +374,7 @@ async function observeContentState(db, uid) {
     hasPublicProfile: publicProfile.exists,
     hasProfileStats: profileStats.exists,
     accountDisplayName: publicProfile.data()?.displayName ?? null,
+    accountPhotoURL: publicProfile.data()?.photoURL ?? null,
     seededRowsSampled: rows.sampled,
     seededRowsWithoutPhoto: rows.withoutPhoto,
     seededRowsWithPlaceholderName: rows.withPlaceholderName,

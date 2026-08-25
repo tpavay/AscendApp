@@ -14,7 +14,9 @@ export const ACTIVE_CLIMBS = [
   // distinct names and avatars the pack can give them, so its last six rows had
   // no human name and no face. See `assertSeededIdentitySupply`.
   {id: "merdeka-118", totalClimbers: 247, replayEntries: 96, completionRate: 0.33},
-  {id: "empire-state-building", totalClimbers: 198, replayEntries: 88, completionRate: 0.42},
+  // 0.41 rather than 0.42: at 0.42 this board seeded 83 finishers, one past the
+  // 82 distinct names and competitor avatars the pack can give them.
+  {id: "empire-state-building", totalClimbers: 198, replayEntries: 88, completionRate: 0.41},
   {id: "burj-khalifa", totalClimbers: 173, replayEntries: 84, completionRate: 0.34},
   {id: "reunion-tower", totalClimbers: 166, replayEntries: 72, completionRate: 0.48},
   {id: "eiffel-tower", totalClimbers: 156, replayEntries: 72, completionRate: 0.44},

@@ -1,3 +1,5 @@
+import {isAllowedPublicPhotoURL} from "./public-identity-contract.mjs";
+
 /**
  * What "content-ready" means, as numbers rather than taste.
  *
@@ -116,6 +118,31 @@ export function unphotographableDisplayName(displayName) {
 }
 
 /**
+ * Reports why the account's published photo is not fit to be photographed.
+ *
+ * Checked separately from the seeded rows, and this is the gap that let the one
+ * account every screenshot is centred on sit there as a grey circle: the seeded
+ * row sampler skips anything with `isSynthetic !== true`, which is precisely the
+ * real account. Validity is the shared identity contract's rule, because a photo
+ * the server would refuse to project is the same as no photo.
+ * @param {unknown} photoURL Published photo URL.
+ * @return {string | null} Failure message, or null when the photo is fine.
+ */
+export function unphotographableAccountPhoto(photoURL) {
+  if (typeof photoURL !== "string" || photoURL.trim().length === 0) {
+    return "the account publishes no profile photo, so the row every " +
+      "screenshot is centred on renders as an empty circle";
+  }
+
+  if (!isAllowedPublicPhotoURL(photoURL.trim())) {
+    return `the account's photo URL is not a Firebase Storage download URL, ` +
+      "so the identity projection drops it and the row renders empty";
+  }
+
+  return null;
+}
+
+/**
  * Judges an observed environment against the contract.
  *
  * Returns every failure rather than the first, because the fix for a
@@ -153,6 +180,11 @@ export function contentReadinessFailures(observed) {
   const nameFailure = unphotographableDisplayName(observed.accountDisplayName);
   if (nameFailure) {
     failures.push(nameFailure);
+  }
+
+  const photoFailure = unphotographableAccountPhoto(observed.accountPhotoURL);
+  if (photoFailure) {
+    failures.push(photoFailure);
   }
 
   // Read back off the rows themselves rather than trusting the seed: the avatar

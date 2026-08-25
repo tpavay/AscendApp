@@ -52,6 +52,10 @@ import {
   seededSummarySource,
 } from "./seed/lib/live-replay-summary-source.mjs";
 import {
+  competitorAvatars,
+  seedAvatarPrefix,
+} from "./seed/lib/seed-avatar-allocation.mjs";
+import {
   ACTIVE_CLIMBS,
   WARM_CLIMBS,
   contestedClimbIds,
@@ -87,8 +91,9 @@ const REPO_ROOT = resolve(SCRIPT_DIR, "..");
  * `avatarURLForDisplayName` indexes the avatar set by a name's position here, so
  * a name past the last uploaded image gets no photo and renders as initials.
  *
- * So this stays the same length as the uploaded avatar set (83), and no climb
- * seeds more finishers than that - `assertSeededIdentitySupply` enforces both,
+ * So this stays the same length as the competitor avatar pool - every uploaded
+ * image except the one reserved for the account being seeded - and no climb
+ * seeds more finishers than that. `assertSeededIdentitySupply` enforces both,
  * because the failure is invisible until it is on a screenshot.
  */
 const SEEDED_DISPLAY_NAMES = [
@@ -105,7 +110,7 @@ const SEEDED_DISPLAY_NAMES = [
   "Dana O.", "Pablo G.", "Yuki T.", "Marta L.", "Isaac B.", "Freya N.",
   "Andre P.", "Sofia R.", "Ravi M.", "Clara V.", "Emeka O.", "Anya D.",
   "Tobias H.", "Nadia F.", "Liam C.", "Rosa E.", "Kenji A.", "Greta S.",
-  "Malik J.", "Ines B.", "Oscar W.", "Talia K.", "Devon R.",
+  "Malik J.", "Ines B.", "Oscar W.", "Talia K.",
 ];
 
 function parseArgs(argv) {
@@ -447,7 +452,7 @@ function loadAvatarFiles(avatarDir) {
  */
 async function resolveSeedAvatarURLs(avatarFiles, args) {
   if (avatarFiles.length > 0) {
-    return uploadSeedAvatars(avatarFiles, args);
+    return competitorAvatars(await uploadSeedAvatars(avatarFiles, args));
   }
 
   const urls = await hostedSeedAvatarURLs(args);
@@ -469,10 +474,10 @@ async function resolveSeedAvatarURLs(avatarFiles, args) {
  */
 async function hostedSeedAvatarURLs(args) {
   const bucket = getStorage().bucket();
-  const prefix = `live-replay-avatars/${sanitizeContextId(args.seedPackId)}/`;
+  const prefix = seedAvatarPrefix(sanitizeContextId(args.seedPackId));
   const [files] = await bucket.getFiles({prefix});
 
-  return files
+  const urls = files
     .filter((file) => file.metadata.metadata?.firebaseStorageDownloadTokens)
     .sort((lhs, rhs) => lhs.name.localeCompare(rhs.name))
     .map((file) => downloadURL(
@@ -480,6 +485,10 @@ async function hostedSeedAvatarURLs(args) {
       file.name,
       String(file.metadata.metadata.firebaseStorageDownloadTokens).split(",")[0]
     ));
+
+  // The last one belongs to the account being seeded, which stands on these same
+  // boards; handing it to a competitor too would put one face on two rows.
+  return competitorAvatars(urls);
 }
 
 async function uploadSeedAvatars(avatarFiles, args) {
@@ -1280,13 +1289,44 @@ async function backfillSeedAvatarURLs(db, args, avatarURLs) {
   return {scanned, updated};
 }
 
+/**
+ * gRPC status codes worth another attempt.
+ *
+ * All of them mean "the backend was busy", not "this write is wrong": deadline
+ * exceeded, unavailable, resource exhausted, aborted, and internal. A wrong
+ * write fails the same way every time and is not in this set.
+ */
+const RETRYABLE_WRITE_CODES = new Set([4, 8, 10, 13, 14]);
+const BULK_WRITE_MAX_ATTEMPTS = 8;
+
+/**
+ * A BulkWriter that survives a busy backend.
+ *
+ * This seed pushes several hundred thousand operations through one writer, so a
+ * transient `DEADLINE_EXCEEDED` somewhere in the middle is expected rather than
+ * exceptional - and giving up after three attempts failed a 20-minute run on one
+ * write to one split bucket, leaving staging half-seeded. Retrying a busy
+ * backend further is the difference between a command that reliably finishes and
+ * one that has to be babysat.
+ *
+ * Non-retryable codes still stop immediately: a write the backend refuses on its
+ * merits will be refused just as firmly on the eighth attempt.
+ * @param {object} db Firestore instance.
+ * @return {object} Configured BulkWriter.
+ */
 function bulkWriter(db) {
   const writer = db.bulkWriter();
   writer.onWriteError((error) => {
-    if (error.failedAttempts < 3) {
+    const retryable = RETRYABLE_WRITE_CODES.has(error.code);
+    if (retryable && error.failedAttempts < BULK_WRITE_MAX_ATTEMPTS) {
       return true;
     }
-    console.error(`Bulk write failed after ${error.failedAttempts} attempts: ${error.message}`);
+
+    console.error(
+      `Bulk write to ${error.documentRef.path} failed after ` +
+      `${error.failedAttempts} attempt(s)` +
+      `${retryable ? "" : " (not retryable)"}: ${error.message}`
+    );
     return false;
   });
   return writer;

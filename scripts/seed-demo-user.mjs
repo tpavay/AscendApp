@@ -17,12 +17,13 @@
  *   node scripts/seed-demo-user.mjs clear --project staging --email person@example.com
  */
 
-import {createHash} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import {readFileSync} from "node:fs";
 import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {getAuth} from "firebase-admin/auth";
+import {getStorage} from "firebase-admin/storage";
 import {FieldValue, getFirestore, Timestamp} from "firebase-admin/firestore";
 import {
   canonicalWorkoutDocumentId,
@@ -41,6 +42,11 @@ import {
   REPLAY_SUMMARY_SOURCE_LIVE,
 } from "./seed/lib/live-replay-summary-source.mjs";
 import {contestedClimbIds} from "./seed/lib/live-replay-climb-tiers.mjs";
+import {defaultSeedPackId} from "./seed/lib/environments.mjs";
+import {
+  reservedAccountAvatar,
+  seedAvatarPrefix,
+} from "./seed/lib/seed-avatar-allocation.mjs";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
@@ -312,7 +318,11 @@ async function main() {
   const projectId = resolveProjectId(args.project);
   assertAllowedProject(projectId);
 
-  initializeApp({credential: applicationDefault(), projectId});
+  initializeApp({
+    credential: applicationDefault(),
+    projectId,
+    storageBucket: `${projectId}.firebasestorage.app`,
+  });
   const auth = getAuth();
   const db = getFirestore();
   const authUser = await resolveAuthUser(auth, args);
@@ -323,7 +333,13 @@ async function main() {
     return;
   }
 
-  const seedPlan = await buildSeedPlan(db, catalog, authUser, args);
+  const accountPhotoURL = args.dryRun ?
+    null :
+    await ensureAccountPhoto(authUser, args, projectId);
+  const seedPlan = await buildSeedPlan(db, catalog, authUser, {
+    ...args,
+    photoURL: args.photoURL ?? accountPhotoURL,
+  });
 
   printPlan(projectId, seedPlan, args);
 
@@ -481,6 +497,60 @@ async function buildSeedPlan(db, catalog, authUser, args) {
     stats,
     leaderboardRowCount,
   };
+}
+
+/**
+ * Makes sure the account has a real profile photograph, and returns its URL.
+ *
+ * This account is the one every screenshot is centred on, so an empty photo is a
+ * grey circle in the middle of the shot. It is also the one row on a seeded
+ * board that a person actually owns, so its picture has to live under its own
+ * `users/{uid}/profile_pictures/` prefix rather than pointing at the shared
+ * avatar tree - user media never lives on a shared root path.
+ *
+ * An account that already has a photo keeps it: a real climber's own picture is
+ * not the fixture's to replace. Otherwise the seed copies the avatar reserved
+ * for it out of this pack's set, so the face is real, belongs to no competitor
+ * on the same leaderboard, and stays the same across re-seeds.
+ * @param {object} authUser Resolved Firebase Auth user.
+ * @param {object} args Parsed CLI arguments.
+ * @param {string} projectId Target Firebase project.
+ * @return {Promise<string | null>} Published photo URL, or null when none exists.
+ */
+async function ensureAccountPhoto(authUser, args, projectId) {
+  if (trimmed(args.photoURL) || trimmed(authUser.photoURL)) {
+    return trimmed(args.photoURL) ?? trimmed(authUser.photoURL);
+  }
+
+  const bucket = getStorage().bucket();
+  const seedPackId = defaultSeedPackId("live-replay", projectId);
+  const prefix = seedAvatarPrefix(seedPackId);
+  const [files] = await bucket.getFiles({prefix});
+  const source = reservedAccountAvatar(
+    files.sort((lhs, rhs) => lhs.name.localeCompare(rhs.name))
+  );
+
+  if (!source) {
+    console.warn(
+      `No avatar images under ${prefix}, so this account will publish no photo ` +
+      "and render as a grey circle. Pass --photo-url, or seed the live replay " +
+      "pack with --avatar-dir once."
+    );
+    return null;
+  }
+
+  const destination = `users/${authUser.uid}/profile_pictures/${seedPackId}.jpg`;
+  const token = randomUUID();
+  await source.copy(bucket.file(destination), {
+    metadata: {
+      cacheControl: "public,max-age=31536000,immutable",
+      contentType: "image/jpeg",
+      metadata: {firebaseStorageDownloadTokens: token},
+    },
+  });
+
+  return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/` +
+    `${encodeURIComponent(destination)}?alt=media&token=${token}`;
 }
 
 /**

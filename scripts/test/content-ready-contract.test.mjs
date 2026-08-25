@@ -4,6 +4,7 @@ import {test} from "node:test";
 import {
   CONTENT_READY_THRESHOLDS,
   contentReadinessFailures,
+  unphotographableAccountPhoto,
   unphotographableDisplayName,
 } from "../seed/lib/content-ready-contract.mjs";
 
@@ -25,6 +26,7 @@ function contentReadyState(overrides = {}) {
     openFirstAscentBoards: t.minimumOpenFirstAscentBoards + 11,
     routineTemplateCount: t.minimumRoutineTemplates,
     accountDisplayName: "Morgan Hale",
+    accountPhotoURL: "https://firebasestorage.googleapis.com/v0/b/ascend-staging-fa7d5.firebasestorage.app/o/users%2Fu1%2Fprofile_pictures%2Flive-replay-v1-staging.jpg?alt=media&token=abc",
     seededRowsSampled: 896,
     seededRowsWithoutPhoto: 0,
     seededRowsWithPlaceholderName: 0,
@@ -147,4 +149,31 @@ test("seeded rows with a machine-shaped name fail the contract", () => {
 
   assert.equal(failures.length, 1);
   assert.match(failures[0], /23 seeded leaderboard rows carry a machine-shaped/);
+});
+
+// The seeded-row sampler skips anything with isSynthetic !== true, which is
+// exactly the real account - so its photo needs its own check or the one row
+// every screenshot is centred on goes unexamined.
+test("an account with no photo fails the contract", () => {
+  const failures = contentReadinessFailures(contentReadyState({
+    accountPhotoURL: "",
+  }));
+
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /renders as an empty circle/);
+});
+
+test("an account photo the server would drop fails the contract", () => {
+  assert.match(
+    unphotographableAccountPhoto("https://example.test/avatar.jpg"),
+    /not a Firebase Storage download URL/
+  );
+  assert.match(unphotographableAccountPhoto(null), /publishes no profile photo/);
+});
+
+test("a real Storage download URL passes", () => {
+  assert.equal(
+    unphotographableAccountPhoto(contentReadyState().accountPhotoURL),
+    null
+  );
 });
