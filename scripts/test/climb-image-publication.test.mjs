@@ -133,6 +133,15 @@ test("the production deploy audits artwork before it publishes the catalogue", (
     "the artwork audit must run BEFORE the hosting deploy - after it, the empty cards are already live"
   );
 
+  // Stronger than "before Hosting": a catalogue missing artwork should stop the
+  // release without production having been touched at all.
+  const firstDeployIndex = workflow.indexOf("firebase-tools@15.22.1 deploy");
+  assert.notEqual(firstDeployIndex, -1, "deploy-production must deploy something");
+  assert.ok(
+    auditIndex < firstDeployIndex,
+    "the artwork audit must run before the FIRST deploy step, so a failure leaves production untouched"
+  );
+
   const authIndex = workflow.indexOf("google-github-actions/auth");
   assert.notEqual(
     authIndex,
