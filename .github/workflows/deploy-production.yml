@@ -300,6 +300,9 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
+      # Workload Identity Federation needs the job's OIDC token to authenticate
+      # the climb-artwork audit against the production Storage bucket.
+      id-token: write
 
     steps:
       - name: Checkout repository
@@ -314,9 +317,50 @@ jobs:
         run: |
           npm --prefix functions ci
           npm --prefix web ci
+          npm --prefix scripts ci
 
       - name: Build web app
         run: npm --prefix web run build
+
+      # This runs before the first deploy step, not just before Hosting, so a
+      # catalogue with missing artwork stops the release without production
+      # having been touched at all.
+      #
+      # The Hosting deploy publishes the climb catalogue, and publishing the
+      # catalogue is what makes a climb browsable AND what announces it:
+      # announceClimbDrops polls this manifest every five minutes and pushes
+      # every newly `available` climb to every opted-in device. So this deploy
+      # is the last moment anything can stop a climb going live without its
+      # artwork - which is what happened on 2026-08-10, when #467 promoted 28
+      # World Tour venues whose images had only ever been uploaded to dev and
+      # staging. Half the browsable catalogue rendered as empty cards for
+      # fifteen days, through launch.
+      #
+      # `releaseState` is not per-environment: one catalogue file deploys to
+      # every project, so promoting a climb commits production to having its
+      # artwork. Images are not per-environment content - they are copied
+      # bucket to bucket - so nothing about deploying the catalogue moves them.
+      # That gap was documented as a manual instruction and the manual step was
+      # not performed. This is that instruction with teeth.
+      #
+      # The audit exits non-zero when any `available` climb lacks a complete
+      # hero/card/thumb set in the production bucket, and refuses to read an
+      # empty listing as a verified-empty bucket.
+      #
+      # FIREBASE_TOKEN cannot do this: it is a firebase-tools refresh token, and
+      # the CLI has no command that lists Storage objects. The audit reads the
+      # bucket through the Admin SDK, so this job needs a Google credential -
+      # supplied by Workload Identity Federation, which mints a short-lived
+      # token from the job's OIDC identity and keeps no key in a secret.
+      - name: Authenticate to Google Cloud for the artwork audit
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Verify production carries artwork for every available climb
+        run: node scripts/sync-climb-images.mjs audit --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}"
+
 
       # Indexes go first because onWorkoutWritten immediately queries workouts
       # by source + climbId. Functions go before Hosting because both Hosting
