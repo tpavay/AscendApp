@@ -1,6 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import AppStoreBadge from '../components/AppStoreBadge.astro';
+import { APP_STORE_URL } from '../appStore';
 ---
 <BaseLayout title="Ascend - Stair Stepper Racing" description="Ascend is a stair stepper racing app for iOS. Race real towers from any gym, against every climber who has taken them on.">
 
@@ -912,7 +913,7 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
         </p>
 
         <div class="hero-actions">
-          <AppStoreBadge />
+          <AppStoreBadge href={APP_STORE_URL} />
         </div>
       </div>
     </div>
@@ -1140,12 +1141,12 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
 
       <div class="faq-item">
         <button class="faq-question">
-          When will Ascend be available?
+          Where do I get Ascend?
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div class="faq-answer">
           <div class="faq-answer-inner">
-            Ascend is in active development and launching on the App Store soon. Check back here for the release.
+            Ascend is out now on the App Store for iPhone. Download it, pick a tower, and start the race.
           </div>
         </div>
       </div>
@@ -1154,10 +1155,10 @@ import AppStoreBadge from '../components/AppStoreBadge.astro';
 
   <section class="cta-section" id="download">
     <h2>Pick your tower. Start the race.</h2>
-    <p>Ascend is coming to the App Store. Race real towers from any gym, and climb the leaderboard one attempt at a time.</p>
+    <p>Ascend is out now on the App Store. Race real towers from any gym, and climb the leaderboard one attempt at a time.</p>
 
     <div class="cta-actions" style="margin-top: 28px;">
-      <AppStoreBadge />
+      <AppStoreBadge href={APP_STORE_URL} />
     </div>
   </section>
 
