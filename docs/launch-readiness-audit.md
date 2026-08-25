@@ -1,5 +1,10 @@
 # Launch-Readiness Audit
 
+> **Historical record. Ascend launched on the App Store on 2026-08-25; this audit predates that by more than two months and is deliberately not rewritten.**
+> Read every "pre-launch", "before submission", and "nobody outside the captain's accounts" statement below as a claim about June 11, 2026, not about today.
+> Production now holds real climbers' data, and `docs/production-backend-rollout-runbook.md` is the single owner of what it contains - check there, or query production, before acting on anything here.
+> One item has flipped outright: the note under blocker 3b calls a dropped catalogue entry acceptable "pre-launch because nobody outside the captain's accounts has those completions". That is no longer true, so issue #456 (tombstone metadata) is now a live precondition on any catalogue deletion rather than a post-launch follow-up.
+
 Date: June 11, 2026 · Branch audited: `feature/ascend-map-scene` (working tree)
 Method: four parallel read-only passes — monetization, Live Climb hero loop, auth/account lifecycle, environments/release.
 

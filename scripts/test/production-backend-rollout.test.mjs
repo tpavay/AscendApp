@@ -1189,7 +1189,15 @@ test("production release documentation orders identity backend ahead of the bina
     "utf8"
   );
 
-  assert.match(runbook, /There is no public identity backfill to run/);
+  assert.match(runbook, /## Production holds real user data/);
+  assert.match(
+    runbook,
+    /No change may be justified on the premise that production is empty/
+  );
+  assert.match(
+    runbook,
+    /"there is no public identity backfill to run" conclusion this runbook used to draw is void/
+  );
   assert.match(
     runbook,
     /onPublicProfileIdentityWritten[\s\S]*?onPublicIdentityPropagationJobWritten[\s\S]*?before the binary that publishes identity/

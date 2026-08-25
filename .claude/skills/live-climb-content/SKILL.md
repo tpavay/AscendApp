@@ -79,7 +79,7 @@ Reuse an existing `category` where one fits. Introducing a new value is a code c
 - `hidden`: not raceable and off the browse surfaces. Use for planned content that should not tease, and for content retired from racing.
 - `disabled`: not raceable and off the browse surfaces. Use for retired or blocked content.
 
-Hidden means not raceable, never that earned history disappears. A climber's held First Ascent and claimed Collection card on a hidden climb keep rendering, and the detail screen reached through history states a truthful non-raceable action - never `Coming Soon`, which promises a drop that is not coming. `ClimbService.loadAllClimbs()` is the read for history-resolving surfaces; racing surfaces read the available set. Changing a climb's release state is safe for earned history in a way that **deleting its catalogue row is not**: a deleted row leaves a claim with nothing to render from. See `docs/launch-readiness-audit.md` for what that costs today.
+Hidden means not raceable, never that earned history disappears. A climber's held First Ascent and claimed Collection card on a hidden climb keep rendering, and the detail screen reached through history states a truthful non-raceable action - never `Coming Soon`, which promises a drop that is not coming. `ClimbService.loadAllClimbs()` is the read for history-resolving surfaces; racing surfaces read the available set. Changing a climb's release state is safe for earned history in a way that **deleting its catalogue row is not**: a deleted row leaves a claim with nothing to render from. Now that Ascend is live, that cost lands on real climbers' earned history, so issue #456 (tombstone metadata) is a precondition on any catalogue deletion rather than a follow-up; `docs/launch-readiness-audit.md` records the original pre-launch assessment and is dated.
 
 If images are missing or uncertain, default new climbs to `comingSoon` or `hidden`, not `available`.
 
@@ -196,6 +196,21 @@ If changing Swift behavior or unsure about schema compatibility, run:
 ```bash
 xcodebuild -scheme AscendApp -configuration Debug -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
+
+## Promoting To Available Sends A Push
+
+Setting a climb's `releaseState` to `available` and deploying hosting **announces it**.
+`announceClimbDrops` polls the hosted manifest every five minutes, and every climb that reaches `available` and has never been announced before is pushed to every opted-in device within minutes of the deploy.
+There is no separate "send the announcement" step to forget, and no confirmation prompt in front of it - the hosting deploy is the send.
+
+What follows from that:
+
+- Promote a climb only when its artwork is in the target bucket and its `realStairCount` is published. A drop alert that lands on a climb with no image is the first thing a climber sees of it.
+- Promoting several climbs in one deploy sends **one** push naming the longest race, not one push per climb. Splitting a batch across deploys splits it into separate alerts.
+- A climb is announced once, for good. Pulling it back to `hidden` and promoting it again is silent, so a botched drop cannot be re-announced by toggling the state.
+- Dev and staging announce too, to whatever devices are registered there. That is the place to rehearse a drop.
+
+`docs/climb-drop-notifications.md` owns the sender, the copy contract it keeps, and the `sendingEnabled` stop.
 
 ## Deployment
 

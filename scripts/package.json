@@ -5,6 +5,9 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "db:plan": "node dev-db.mjs plan",
+    "fsq": "node firestore-query.mjs",
+    "fsq:dev": "node firestore-query.mjs --env dev",
+    "fsq:staging": "node firestore-query.mjs --env staging",
     "db:seed": "node dev-db.mjs seed --project dev",
     "db:seed:staging": "node dev-db.mjs seed --project staging",
     "db:audit": "node dev-db.mjs audit --project dev",

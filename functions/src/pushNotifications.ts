@@ -1,6 +1,7 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import {createHash} from "crypto";
+import {delay, runWithBoundedConcurrency} from "./concurrency";
 
 type PlainObject = Record<string, unknown>;
 
@@ -21,7 +22,15 @@ const deliverableAuthorizationStatuses = new Set([
 
 const validPlatforms = new Set(["ios"]);
 const validAudienceTypes = new Set(["all_opted_in", "user"]);
-const fcmInvalidTokenCodes = new Set([
+/** Token deactivations in flight at once. Each one costs three RPCs. */
+const tokenDeactivationConcurrency = 25;
+/**
+ * The FCM error codes that mean a token is dead rather than the send failed.
+ *
+ * Shared with the scheduled climb-drop sweep: two copies of this set would
+ * become two different answers to "prune or retry".
+ */
+export const fcmInvalidTokenCodes = new Set([
   "messaging/invalid-argument",
   "messaging/invalid-registration-token",
   "messaging/registration-token-not-registered",
@@ -235,7 +244,7 @@ export const sendClimbDropNotification = onCall(async (request) => {
     updatedAt: admin.firestore.Timestamp.now(),
   }, {merge: true});
 
-  await deactivateInvalidTokens(result.invalidTokenHashes);
+  await deactivatePushTokensByHash(result.invalidTokenHashes);
 
   return {
     campaignId: campaignRef.id,
@@ -411,16 +420,14 @@ function selectDeliverableClimbDropDevices(
 
   for (const registration of registrations) {
     const {data} = registration;
-    if (!isDeliverableAuthorizationStatus(data.authorizationStatus)) {
+    if (!isDeliverableClimbDropRegistration(data)) {
       continue;
     }
 
-    if (typeof data.fcmToken === "string" && data.fcmToken.length > 0) {
-      devices.push({
-        fcmToken: data.fcmToken,
-        tokenHash: registration.tokenHash,
-      });
-    }
+    devices.push({
+      fcmToken: data.fcmToken as string,
+      tokenHash: registration.tokenHash,
+    });
   }
 
   return devices;
@@ -436,6 +443,27 @@ function isDeliverableAuthorizationStatus(
 ): boolean {
   return typeof authorizationStatus === "string" &&
     deliverableAuthorizationStatuses.has(authorizationStatus);
+}
+
+/**
+ * Whether one stored registration may receive a climb-drop push.
+ *
+ * The opt-in, the delivery capability, and a token to deliver to are separate
+ * facts and all three have to hold. Exported so the scheduled sweep answers
+ * the question the same way the operational callable does - a second copy of
+ * this predicate would become a second answer to who asked for a drop alert.
+ * @param {PlainObject} registration Stored notification_devices document.
+ * @return {boolean} True when the device is opted in and deliverable.
+ */
+export function isDeliverableClimbDropRegistration(
+  registration: PlainObject
+): boolean {
+  return registration.active === true &&
+    registration.climbDropPushEnabled === true &&
+    registration.platform === "ios" &&
+    isDeliverableAuthorizationStatus(registration.authorizationStatus) &&
+    typeof registration.fcmToken === "string" &&
+    registration.fcmToken.length > 0;
 }
 
 /**
@@ -557,28 +585,47 @@ async function deactivateActiveUserTokens(
 }
 
 /**
- * Deactivates invalid tokens returned by FCM.
+ * Deactivates tokens FCM has reported as dead.
+ *
+ * Shared with the scheduled climb-drop sweep so a pruned token leaves both
+ * the root registry and the user's mirror, however the send was triggered.
  * @param {string[]} tokenHashes Invalid token hashes.
  * @return {Promise<void>} Resolves when invalid tokens are deactivated.
  */
-async function deactivateInvalidTokens(tokenHashes: string[]) {
+export async function deactivatePushTokensByHash(tokenHashes: string[]) {
   if (tokenHashes.length === 0) {
     return;
   }
 
   const now = admin.firestore.Timestamp.now();
   const firestore = admin.firestore();
-  await Promise.all(tokenHashes.map(async (tokenHash) => {
-    const snapshot = await firestore
-      .collection("notification_devices")
-      .doc(tokenHash)
-      .get();
-    const uid = snapshot.data()?.uid;
-    if (typeof uid !== "string" || uid.length === 0) {
-      return;
+  // Three RPCs per hash, so the fan-out is bounded for the same reason the
+  // climb-drop claim is. Pruning is housekeeping that runs after the send has
+  // already gone out: one hash it cannot reach must not fail the caller, since
+  // a dead token surviving until the next drop is a far smaller cost than a
+  // stalled dispatch or a callable that reports a completed send as failed.
+  const failures = await runWithBoundedConcurrency(
+    tokenHashes,
+    tokenDeactivationConcurrency,
+    async (tokenHash) => {
+      const snapshot = await firestore
+        .collection("notification_devices")
+        .doc(tokenHash)
+        .get();
+      const uid = snapshot.data()?.uid;
+      if (typeof uid !== "string" || uid.length === 0) {
+        return;
+      }
+      await deactivateToken(firestore, uid, tokenHash, now);
     }
-    await deactivateToken(firestore, uid, tokenHash, now);
-  }));
+  );
+
+  if (failures.length > 0) {
+    console.error("invalid push tokens were not pruned", {
+      attemptedCount: tokenHashes.length,
+      failedCount: failures.length,
+    });
+  }
 }
 
 const grpcAbortedCode = 10;
@@ -635,15 +682,6 @@ function isTransactionContentionError(error: unknown): boolean {
     return false;
   }
   return (error as {code?: unknown}).code === grpcAbortedCode;
-}
-
-/**
- * Waits for a duration.
- * @param {number} milliseconds Delay duration.
- * @return {Promise<void>} Resolves after the delay.
- */
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 /**
@@ -788,6 +826,7 @@ function invalidArgument(message: string) {
 
 export const pushNotificationTestHooks = {
   chunkArray,
+  isDeliverableClimbDropRegistration,
   deactivateToken,
   hashToken,
   normalizeRegisterPushDevicePayload,
