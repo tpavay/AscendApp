@@ -23,9 +23,9 @@ Dates do move forward on each run, which is the point - it is what keeps the new
 `--project dev` rehearses the same recipe against dev.
 Production is refused before anything initializes, and there is no flag that changes that.
 
-Expect a full run to take **tens of minutes**.
-The replay seed clears and rewrites one document per synthetic attempt per ten-second split bucket across 26 contested boards, which is several hundred thousand operations before anything else starts.
-A dry run answers in seconds, so use it to check the plan.
+A full run takes a while and looks stalled while it works, because the replay seed prints its whole plan up front and then goes quiet.
+It is clearing and rewriting one document per synthetic attempt per ten-second split bucket across 26 contested boards - several hundred thousand operations.
+Leave it alone; a dry run answers in seconds if all you want is the plan.
 
 ## What "content-ready" means
 

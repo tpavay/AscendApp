@@ -31,7 +31,6 @@ import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {getAuth} from "firebase-admin/auth";
 import {getFirestore} from "firebase-admin/firestore";
 import {
-  STAGING_PROJECT_ID,
   assertSeedableProject,
   resolveProjectId,
   seedEnvironmentName,
@@ -173,7 +172,7 @@ async function main() {
   console.log(`Command:     ${args.command}${args.dryRun ? " (dry run)" : ""}`);
 
   if (args.command === "verify") {
-    await verify(projectId, account);
+    await verify(account);
     return;
   }
 
@@ -197,7 +196,10 @@ async function main() {
   }
 
   runAudit(projectId);
-  await verify(projectId, account);
+  if (!await verify(account)) {
+    return;
+  }
+
   console.log(
     "\nStaging is content-ready. Reinstall or sign out and back in on the " +
     "capture device so it hydrates the new state."
@@ -306,10 +308,10 @@ function runScript(script, scriptArgs) {
  * Separate from the seed so it can be re-run at any time - after a capture
  * session, after a real climb, after a week - to answer "is staging still worth
  * pointing a camera at" without writing anything.
- * @param {string} projectId Target Firebase project.
  * @param {object} account Firebase Auth user record.
+ * @return {Promise<boolean>} Whether the contract is satisfied.
  */
-async function verify(projectId, account) {
+async function verify(account) {
   const observed = await observeContentState(getFirestore(), account.uid);
   const failures = contentReadinessFailures(observed);
 
@@ -320,10 +322,11 @@ async function verify(projectId, account) {
     console.error("\nStaging is NOT content-ready:");
     failures.forEach((failure) => console.error(`  - ${failure}`));
     process.exitCode = 1;
-    return;
+    return false;
   }
 
   console.log("\nContent-ready contract satisfied.");
+  return true;
 }
 
 /**
@@ -409,9 +412,9 @@ function daysBetween(earlierMs, laterMs) {
 main().catch((error) => {
   console.error(error.message);
   console.error(
-    `\nNothing beyond this point ran. Fix the error and rerun; every step is ` +
-    `idempotent, so a rerun repeats the recipe rather than doubling it. ` +
-    `Staging default project id: ${STAGING_PROJECT_ID}.`
+    "\nNothing after that step ran. Every step is idempotent, so fix the error " +
+    "and rerun the same command - a rerun repeats the recipe rather than " +
+    "doubling it."
   );
   process.exit(1);
 });
