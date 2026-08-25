@@ -1,5 +1,6 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import * as logger from "firebase-functions/logger";
 import {
   buildNextCommunicationPreferences,
   isAppLifecycleEmailConsentSource,
@@ -19,8 +20,37 @@ type LifecycleEventType =
 
 type PlainObject = Record<string, unknown>;
 
+/**
+ * What the server did with an optional field it could not store as sent.
+ *
+ * `normalized` kept the climber's meaning in the lifecycle key shape,
+ * `fallback` could not and used the documented default instead, and the two
+ * array outcomes name which part of a list was unusable.
+ */
+type LifecycleFieldResolution =
+  | "normalized"
+  | "fallback"
+  | "items_dropped"
+  | "truncated";
+
+/**
+ * A durable record that an optional field arrived unusable.
+ *
+ * Every value is a bounded string so the note is safe to write to Firestore
+ * verbatim, whatever the client sent.
+ */
+interface LifecycleFieldNote {
+  field: string;
+  received: string;
+  resolution: LifecycleFieldResolution;
+  resolved: string;
+}
+
 interface NormalizedEvent {
   eventDocId: string;
+  // Empty for a clean call. Always written, never merged, so a later clean
+  // call clears the notes an earlier malformed one left on the same document.
+  fieldNotes: LifecycleFieldNote[];
   payload: PlainObject;
   type: LifecycleEventType;
 }
@@ -63,6 +93,16 @@ const validAppleHealthStatuses = new Set([
 
 const keyPattern = /^[a-z][a-z0-9_]{0,63}$/;
 
+const maxLifecycleKeyLength = 64;
+const maxLifecycleKeyArrayLength = 20;
+const maxCoercionInputLength = 512;
+
+// Bounds what an untrusted client value can cost in a note. Long enough to
+// identify the offending value in Cloud Logging, short enough that no payload
+// can inflate the event document.
+const maxNoteValueLength = 120;
+const noteTruncationMarker = "...";
+
 /**
  * Records low-volume, client-observed lifecycle state for email automation.
  *
@@ -79,6 +119,18 @@ export const recordLifecycleEvent = onCall(async (request) => {
   }
 
   const event = normalizeRequestData(request.data);
+  if (event.fieldNotes.length > 0) {
+    // A malformed optional field no longer rejects the call, so this warning
+    // is the only live signal that a client is sending one. ASCEND-IOS-1 stayed
+    // invisible for two months precisely because nothing said so out loud.
+    logger.warn("Lifecycle event carried unusable optional fields.", {
+      eventDocId: event.eventDocId,
+      fieldNotes: event.fieldNotes,
+      type: event.type,
+      uid,
+    });
+  }
+
   const firestore = admin.firestore();
   const now = admin.firestore.Timestamp.now();
   const userRef = firestore.collection("users").doc(uid);
@@ -125,6 +177,10 @@ export const recordLifecycleEvent = onCall(async (request) => {
     transaction.set(eventRef, {
       createdAt: currentEvent.createdAt ?? now,
       eventDocId: event.eventDocId,
+      // The event document is the one home for these notes: the lifecycle
+      // state mirror holds what the server decided to use, not what it had to
+      // repair to get there.
+      fieldNotes: event.fieldNotes,
       lastReceivedAt: now,
       payload: event.payload,
       receivedCount,
@@ -346,6 +402,7 @@ function normalizeRatingPromptAnswered(payload: PlainObject): NormalizedEvent {
 
   return {
     eventDocId: "rating_prompt_answered_v1",
+    fieldNotes: [],
     payload: {response},
     type: "rating_prompt_answered",
   };
@@ -359,11 +416,18 @@ function normalizeRatingPromptAnswered(payload: PlainObject): NormalizedEvent {
 function normalizeAppStoreReviewRequested(
   payload: PlainObject
 ): NormalizedEvent {
+  const fieldNotes: LifecycleFieldNote[] = [];
+  const reason = optionalLifecycleKey(
+    payload.reason,
+    "reason",
+    fieldNotes,
+    "unknown"
+  ) ?? "unknown";
+
   return {
     eventDocId: "app_store_review_requested_v1",
-    payload: {
-      reason: optionalLifecycleKey(payload.reason, "reason") ?? "unknown",
-    },
+    fieldNotes,
+    payload: {reason},
     type: "app_store_review_requested",
   };
 }
@@ -376,14 +440,17 @@ function normalizeAppStoreReviewRequested(
 function normalizeOnboardingStageReached(
   payload: PlainObject
 ): NormalizedEvent {
+  const fieldNotes: LifecycleFieldNote[] = [];
   const stage = requiredLifecycleKey(payload.stage, "stage");
   const completedStages = optionalLifecycleKeyArray(
     payload.completedStages,
-    "completedStages"
+    "completedStages",
+    fieldNotes
   ) ?? [];
 
   return {
     eventDocId: "onboarding_stage_reached_v1",
+    fieldNotes,
     payload: {completedStages, stage},
     type: "onboarding_stage_reached",
   };
@@ -395,17 +462,22 @@ function normalizeOnboardingStageReached(
  * @return {NormalizedEvent} Normalized event.
  */
 function normalizeOnboardingCompleted(payload: PlainObject): NormalizedEvent {
+  const fieldNotes: LifecycleFieldNote[] = [];
   const currentStage = optionalLifecycleKey(
     payload.currentStage,
-    "currentStage"
+    "currentStage",
+    fieldNotes,
+    "unknown"
   ) ?? "unknown";
   const completedStages = optionalLifecycleKeyArray(
     payload.completedStages,
-    "completedStages"
+    "completedStages",
+    fieldNotes
   ) ?? [];
 
   return {
     eventDocId: "onboarding_completed_v1",
+    fieldNotes,
     payload: {completedStages, currentStage},
     type: "onboarding_completed",
   };
@@ -429,10 +501,17 @@ function normalizePaywallEvent(
     throw invalidArgument("Unsupported paywall placement.");
   }
 
-  const reason = optionalLifecycleKey(payload.reason, "reason");
+  const fieldNotes: LifecycleFieldNote[] = [];
+  const reason = optionalLifecycleKey(
+    payload.reason,
+    "reason",
+    fieldNotes,
+    "omitted"
+  );
 
   return {
     eventDocId: `${type}_${placement}_v1`,
+    fieldNotes,
     payload: {
       placement,
       ...(reason ? {reason} : {}),
@@ -459,6 +538,7 @@ function normalizeNotificationPermissionObserved(
 
   return {
     eventDocId: "notification_permission_observed_v1",
+    fieldNotes: [],
     payload: {status},
     type: "notification_permission_observed",
   };
@@ -485,18 +565,24 @@ function normalizeAppleHealthIntegrationChanged(
   // still send it, and the backend has to satisfy both contracts at once
   // (docs/backend-contract-compatibility.md). Absent means "this client has no
   // such concept", which is not the same claim as auto-import being off.
-  if (
-    autoImportEnabled !== undefined &&
-    typeof autoImportEnabled !== "boolean"
-  ) {
-    throw invalidArgument("Apple Health auto import state must be boolean.");
+  const fieldNotes: LifecycleFieldNote[] = [];
+  const usable = typeof autoImportEnabled === "boolean";
+  if (!usable && autoImportEnabled !== undefined) {
+    // Treated as absent rather than fatal, for the same reason as `reason`:
+    // the connection status is the point of this event and must not be lost to
+    // a companion field the mirror is allowed to go without.
+    fieldNotes.push({
+      field: "autoImportEnabled",
+      received: describeValue(autoImportEnabled),
+      resolution: "fallback",
+      resolved: "omitted",
+    });
   }
 
   return {
     eventDocId: "apple_health_integration_changed_v1",
-    payload: autoImportEnabled === undefined ?
-      {status} :
-      {autoImportEnabled, status},
+    fieldNotes,
+    payload: usable ? {autoImportEnabled, status} : {status},
     type: "apple_health_integration_changed",
   };
 }
@@ -530,20 +616,33 @@ function normalizeCommunicationPreferencesUpdated(
   // Where the climber answered. A source with no decision behind it records
   // nothing, and a decision with no source inherits the last one written: a
   // consent record is only evidence while both halves arrive together.
+  const fieldNotes: LifecycleFieldNote[] = [];
   const source = payload.lifecycleEmailsSource;
   const isConsentDecision =
     typeof normalized.lifecycleEmailsEnabled === "boolean";
   if (isConsentDecision) {
+    // Required here, so it stays loud: a consent decision with an unrecognized
+    // source is not a consent record, and storing one anyway would forge the
+    // evidence rather than lose it.
     if (!isAppLifecycleEmailConsentSource(source)) {
       throw invalidArgument("Unsupported lifecycle email consent source.");
     }
     normalized.lifecycleEmailsSource = source;
-  } else if (source !== undefined) {
-    throw invalidArgument("Unsupported lifecycle email consent source.");
+  } else if (source !== undefined && source !== null) {
+    // Optional here, so it is dropped rather than fatal. A source with no
+    // decision behind it was already going to be discarded; discarding the
+    // preferences the climber did change alongside it was the defect.
+    fieldNotes.push({
+      field: "lifecycleEmailsSource",
+      received: describeValue(source),
+      resolution: "fallback",
+      resolved: "omitted",
+    });
   }
 
   return {
     eventDocId: "communication_preferences_updated_v1",
+    fieldNotes,
     payload: normalized,
     type: "communication_preferences_updated",
   };
@@ -551,31 +650,15 @@ function normalizeCommunicationPreferencesUpdated(
 
 /**
  * Requires a small lifecycle key string.
+ *
+ * Required keys are never repaired. They identify the event, so a malformed
+ * one means the caller is describing something the server cannot place, and
+ * accepting a guess would be worse than refusing the call.
  * @param {unknown} value Candidate value.
  * @param {string} field Field name for error reporting.
  * @return {string} Validated key.
  */
 function requiredLifecycleKey(value: unknown, field: string): string {
-  const key = optionalLifecycleKey(value, field);
-  if (!key) {
-    throw invalidArgument(`${field} must be a lifecycle key.`);
-  }
-  return key;
-}
-
-/**
- * Validates an optional small lifecycle key string.
- * @param {unknown} value Candidate value.
- * @param {string} field Field name for error reporting.
- * @return {string | undefined} Validated key.
- */
-function optionalLifecycleKey(
-  value: unknown,
-  field: string
-): string | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
   if (typeof value !== "string" || !keyPattern.test(value)) {
     throw invalidArgument(`${field} must be a lifecycle key.`);
   }
@@ -583,28 +666,195 @@ function optionalLifecycleKey(
 }
 
 /**
- * Validates an optional lifecycle key array.
+ * Resolves an optional lifecycle key without ever rejecting the whole event.
+ *
+ * An optional field the server is happy to do without may not decide whether
+ * the surrounding lifecycle event survives (ASCEND-IOS-1: every paywall
+ * dismissal was discarded because `String(describing:)` prints a Swift enum as
+ * `manualClose`). A value that still carries meaning is normalized into the key
+ * shape, one that does not falls back the way an absent value already does, and
+ * either repair is recorded so the bad input stays visible.
  * @param {unknown} value Candidate value.
- * @param {string} field Field name for error reporting.
- * @return {string[] | undefined} Validated array.
+ * @param {string} field Field name for reporting.
+ * @param {LifecycleFieldNote[]} notes Collector for repairs made.
+ * @param {string} fallbackLabel What the caller uses when there is no key.
+ * @return {string | undefined} Usable key, or undefined to fall back.
+ */
+function optionalLifecycleKey(
+  value: unknown,
+  field: string,
+  notes: LifecycleFieldNote[],
+  fallbackLabel: string
+): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value === "string" && keyPattern.test(value)) {
+    return value;
+  }
+
+  const normalized = coerceLifecycleKey(value);
+  if (normalized) {
+    notes.push({
+      field,
+      received: describeValue(value),
+      resolution: "normalized",
+      resolved: normalized,
+    });
+    return normalized;
+  }
+
+  notes.push({
+    field,
+    received: describeValue(value),
+    resolution: "fallback",
+    resolved: fallbackLabel,
+  });
+  return undefined;
+}
+
+/**
+ * Resolves an optional lifecycle key array without rejecting the whole event.
+ *
+ * Same contract as {@link optionalLifecycleKey}, applied per entry: usable
+ * entries are kept, unusable ones are dropped, and the list is bounded rather
+ * than refused for being long.
+ * @param {unknown} value Candidate value.
+ * @param {string} field Field name for reporting.
+ * @param {LifecycleFieldNote[]} notes Collector for repairs made.
+ * @return {string[] | undefined} Usable keys, or undefined to fall back.
  */
 function optionalLifecycleKeyArray(
   value: unknown,
-  field: string
+  field: string,
+  notes: LifecycleFieldNote[]
 ): string[] | undefined {
   if (value === undefined || value === null) {
     return undefined;
   }
-  if (!Array.isArray(value) || value.length > 20) {
-    throw invalidArgument(`${field} must be a small lifecycle key array.`);
+  if (!Array.isArray(value)) {
+    notes.push({
+      field,
+      received: describeValue(value),
+      resolution: "fallback",
+      resolved: "[]",
+    });
+    return undefined;
   }
 
-  return Array.from(new Set(value.map((item) => {
-    if (typeof item !== "string" || !keyPattern.test(item)) {
-      throw invalidArgument(`${field} contains an invalid lifecycle key.`);
+  // Bounded before anything iterates it. The old code refused an oversized
+  // array outright, so repairing entry by entry over the raw list would hand a
+  // caller an unbounded amount of server work for one request.
+  const bounded = value.slice(0, maxLifecycleKeyArrayLength);
+  if (value.length > maxLifecycleKeyArrayLength) {
+    notes.push({
+      field,
+      received: `${value.length} entries`,
+      resolution: "truncated",
+      resolved: `${maxLifecycleKeyArrayLength} entries`,
+    });
+  }
+
+  const keys: string[] = [];
+  const normalized: string[] = [];
+  const dropped: unknown[] = [];
+
+  for (const item of bounded) {
+    if (typeof item === "string" && keyPattern.test(item)) {
+      keys.push(item);
+      continue;
     }
-    return item;
-  })));
+    const coerced = coerceLifecycleKey(item);
+    if (coerced) {
+      normalized.push(coerced);
+      keys.push(coerced);
+      continue;
+    }
+    dropped.push(item);
+  }
+
+  if (normalized.length > 0) {
+    notes.push({
+      field,
+      received: describeValue(bounded),
+      resolution: "normalized",
+      resolved: describeValue(normalized),
+    });
+  }
+  if (dropped.length > 0) {
+    notes.push({
+      field,
+      received: describeValue(dropped),
+      resolution: "items_dropped",
+      resolved: "[]",
+    });
+  }
+
+  return Array.from(new Set(keys));
+}
+
+/**
+ * Coerces an arbitrary client value into the lifecycle key shape.
+ *
+ * Word boundaries survive the trip, so a Swift enum printed as `manualClose`
+ * lands as `manual_close` rather than being thrown away.
+ * @param {unknown} value Candidate value.
+ * @return {string | undefined} A valid lifecycle key, or undefined.
+ */
+function coerceLifecycleKey(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  // Cut before the regex chain runs. Nothing past this prefix can contribute
+  // to a key that is itself capped at 64 characters, and a caller does not get
+  // to pay the server for scanning a megabyte of it.
+  const key = value
+    .slice(0, maxCoercionInputLength)
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^[^a-z]+/, "")
+    .slice(0, maxLifecycleKeyLength)
+    .replace(/_+$/g, "");
+
+  return keyPattern.test(key) ? key : undefined;
+}
+
+/**
+ * Renders an untrusted value as a bounded string safe to store and log.
+ * @param {unknown} value Candidate value.
+ * @return {string} Bounded rendering of the value.
+ */
+function describeValue(value: unknown): string {
+  if (typeof value === "string") {
+    return truncateForNote(value);
+  }
+  if (value === undefined) {
+    return "undefined";
+  }
+  try {
+    return truncateForNote(JSON.stringify(value) ?? String(value));
+  } catch {
+    return truncateForNote(String(value));
+  }
+}
+
+/**
+ * Bounds a rendered value so no client can inflate an event document.
+ *
+ * The marker is inside the bound, so a note value is never longer than
+ * `maxNoteValueLength` whatever arrived.
+ * @param {string} value Rendered value.
+ * @return {string} Value within the note length bound.
+ */
+function truncateForNote(value: string): string {
+  if (value.length <= maxNoteValueLength) {
+    return value;
+  }
+  const kept = maxNoteValueLength - noteTruncationMarker.length;
+  return `${value.slice(0, kept)}${noteTruncationMarker}`;
 }
 
 /**
