@@ -73,6 +73,49 @@ export const CONTENT_READY_THRESHOLDS = Object.freeze({
 });
 
 /**
+ * Display names that belong to tooling rather than to a climber.
+ *
+ * These reach a public leaderboard, so they end up in a screenshot. Matched
+ * case-insensitively against the account's published name.
+ */
+export const PLACEHOLDER_DISPLAY_NAMES = Object.freeze([
+  "content capture",
+  "product tester",
+  "qa tester",
+  "test user",
+  "change me",
+  "climber",
+]);
+
+/**
+ * Reports why a published display name is not fit to be photographed.
+ *
+ * A leaderboard row is the product's shop window, and the name on it has to read
+ * as a person. Digits are the giveaway for a machine-shaped name - an
+ * email-derived "Qa G4 Noname", or the "Climber 061" placeholder the seed used
+ * past the end of its name list.
+ * @param {unknown} displayName Published display name.
+ * @return {string | null} Failure message, or null when the name is fine.
+ */
+export function unphotographableDisplayName(displayName) {
+  if (typeof displayName !== "string" || displayName.trim().length === 0) {
+    return "the account publishes no display name, so its leaderboard row is blank";
+  }
+
+  const name = displayName.trim();
+  if (/\d/u.test(name)) {
+    return `the account publishes "${name}", and a digit in a name reads as ` +
+      "tooling rather than a climber";
+  }
+
+  if (PLACEHOLDER_DISPLAY_NAMES.includes(name.toLowerCase())) {
+    return `the account publishes "${name}", which is a placeholder, not a climber`;
+  }
+
+  return null;
+}
+
+/**
  * Judges an observed environment against the contract.
  *
  * Returns every failure rather than the first, because the fix for a
@@ -106,6 +149,29 @@ export function contentReadinessFailures(observed) {
     "climb boards with an open First Ascent");
   atLeast(failures, observed.routineTemplateCount, t.minimumRoutineTemplates,
     "routine templates");
+
+  const nameFailure = unphotographableDisplayName(observed.accountDisplayName);
+  if (nameFailure) {
+    failures.push(nameFailure);
+  }
+
+  // Read back off the rows themselves rather than trusting the seed: the avatar
+  // set lives in Storage and the rows only carry URLs into it, so a run that
+  // could not resolve the images still writes a complete-looking board of
+  // lettered circles.
+  if (observed.seededRowsWithoutPhoto > 0) {
+    failures.push(
+      `${observed.seededRowsWithoutPhoto} of ${observed.seededRowsSampled} ` +
+      "seeded leaderboard rows carry no photo, so they render as lettered circles"
+    );
+  }
+
+  if (observed.seededRowsWithPlaceholderName > 0) {
+    failures.push(
+      `${observed.seededRowsWithPlaceholderName} seeded leaderboard rows carry a ` +
+      "machine-shaped display name"
+    );
+  }
 
   if (observed.daysSinceNewestClimb === null) {
     failures.push("the account has no sessions at all");

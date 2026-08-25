@@ -38,6 +38,7 @@ import {
 import {
   CONTENT_READY_THRESHOLDS,
   contentReadinessFailures,
+  unphotographableDisplayName,
 } from "./seed/lib/content-ready-contract.mjs";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -65,6 +66,7 @@ function parseArgs(argv) {
     project: "staging",
     email: null,
     userId: null,
+    displayName: null,
     dryRun: false,
   };
   const start = first && !first.startsWith("-") ? 3 : 2;
@@ -81,6 +83,9 @@ function parseArgs(argv) {
       case "--user":
       case "--uid":
         args.userId = requireValue(argv, ++index, value);
+        break;
+      case "--display-name":
+        args.displayName = requireValue(argv, ++index, value);
         break;
       case "--dry-run":
         args.dryRun = true;
@@ -134,6 +139,10 @@ Commands:
 Options:
   --email <email>   The account to seed. Required for seed, verify, and clear.
   --user <uid>      Use a Firebase Auth uid instead of an email.
+  --display-name <name>
+                    The name published on leaderboards. Defaults to the
+                    account's own. This name is what a screenshot shows, so it
+                    has to read as a climber.
   --project <name>  staging (default) or dev. Production is refused outright.
   --dry-run         Print every step's plan and write nothing.
 
@@ -267,6 +276,7 @@ function seedAccount(projectId, args, account) {
     "seed",
     "--project", projectId,
     "--user", account.uid,
+    ...(args.displayName ? ["--display-name", args.displayName] : []),
     ...(args.dryRun ? ["--dry-run"] : []),
   ]);
 }
@@ -358,10 +368,16 @@ async function observeContentState(db, uid) {
   const stats = profileStats.data() ?? {};
   const heldFirstAscents = summaries.docs
     .filter((document) => document.data().firstAscentUserId === uid);
+  const rows = await sampleSeededRows(summaries.docs);
 
   return {
     hasPublicProfile: publicProfile.exists,
     hasProfileStats: profileStats.exists,
+    accountDisplayName: publicProfile.data()?.displayName ?? null,
+    seededRowsSampled: rows.sampled,
+    seededRowsWithoutPhoto: rows.withoutPhoto,
+    seededRowsWithPlaceholderName: rows.withPlaceholderName,
+    rowsWithoutPhotoExamples: rows.withoutPhotoExamples,
     workoutCount: workouts.size,
     climbsCompleted: numberValue(stats.total_climbs_completed) ?? 0,
     firstAscentsHeld: heldFirstAscents.length,
@@ -392,6 +408,49 @@ async function observeContentState(db, uid) {
       })
       .map((document) => document.id),
   };
+}
+
+/**
+ * Reads the seeded leaderboard rows back and reports what they would render as.
+ *
+ * Bucket zero only: every climber who has a row on a board has one there, and it
+ * is the cheapest place to see the identity each row carries. What matters is
+ * what is stored, not what the seed believed it stored - the avatar images live
+ * in Storage and the rows only carry URLs into them, so a run that failed to
+ * resolve the set still writes a complete-looking board of lettered circles.
+ * @param {object[]} summaryDocs Live climb summary documents.
+ * @return {Promise<object>} Row counts and a few offending examples.
+ */
+async function sampleSeededRows(summaryDocs) {
+  let sampled = 0;
+  let withoutPhoto = 0;
+  let withPlaceholderName = 0;
+  const withoutPhotoExamples = [];
+
+  for (const summary of summaryDocs) {
+    const entries = await summary.ref
+      .collection("splitBuckets").doc("0").collection("entries").get();
+
+    for (const entry of entries.docs) {
+      const data = entry.data();
+      if (data.isSynthetic !== true) {
+        continue;
+      }
+
+      sampled += 1;
+      if (typeof data.photoURL !== "string" || data.photoURL.length === 0) {
+        withoutPhoto += 1;
+        if (withoutPhotoExamples.length < 5) {
+          withoutPhotoExamples.push(`${summary.id}/${data.displayName}`);
+        }
+      }
+      if (unphotographableDisplayName(data.displayName) !== null) {
+        withPlaceholderName += 1;
+      }
+    }
+  }
+
+  return {sampled, withoutPhoto, withPlaceholderName, withoutPhotoExamples};
 }
 
 function millisecondsValue(value) {

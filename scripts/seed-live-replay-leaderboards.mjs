@@ -77,6 +77,20 @@ const ALLOWED_SEED_PROJECTS = new Map([
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 
+/**
+ * The synthetic climbers' names, one per hosted avatar image.
+ *
+ * Length is load-bearing twice over. `displayNameForAttempt` falls back to
+ * "Climber 061" past the end of this list, so a board with more finishers than
+ * there are names puts a machine-readable placeholder on a leaderboard somebody
+ * is about to photograph - Empire State Building carried 23 of them. And
+ * `avatarURLForDisplayName` indexes the avatar set by a name's position here, so
+ * a name past the last uploaded image gets no photo and renders as initials.
+ *
+ * So this stays the same length as the uploaded avatar set (83), and no climb
+ * seeds more finishers than that - `assertSeededIdentitySupply` enforces both,
+ * because the failure is invisible until it is on a screenshot.
+ */
 const SEEDED_DISPLAY_NAMES = [
   "Sarah K.", "Marcus T.", "Jenny W.", "Alex M.", "Priya S.", "Jordan L.",
   "Nina R.", "Owen B.", "Maya C.", "Eli P.", "Sam D.", "Taylor H.",
@@ -88,6 +102,10 @@ const SEEDED_DISPLAY_NAMES = [
   "Ruby N.", "Jace M.", "Elle K.", "Sean P.", "Vera L.", "Hugo T.",
   "Luca S.", "Mila B.", "Nate R.", "Lia P.", "Ezra K.", "June V.",
   "Rae C.", "Ty D.", "Skye M.", "Amir N.", "Hope J.", "Kira W.",
+  "Dana O.", "Pablo G.", "Yuki T.", "Marta L.", "Isaac B.", "Freya N.",
+  "Andre P.", "Sofia R.", "Ravi M.", "Clara V.", "Emeka O.", "Anya D.",
+  "Tobias H.", "Nadia F.", "Liam C.", "Rosa E.", "Kenji A.", "Greta S.",
+  "Malik J.", "Ines B.", "Oscar W.", "Talia K.", "Devon R.",
 ];
 
 function parseArgs(argv) {
@@ -203,9 +221,8 @@ async function main() {
   const db = getFirestore();
   const avatarFiles = args.avatarDir ? loadAvatarFiles(args.avatarDir) : [];
   const avatarURLs = ["seed", "backfill-avatars"].includes(args.command) &&
-      avatarFiles.length > 0 &&
       !args.dryRun
-    ? await uploadSeedAvatars(avatarFiles, args)
+    ? await resolveSeedAvatarURLs(avatarFiles, args)
     : [];
 
   if (args.command === "backfill-avatars") {
@@ -411,6 +428,60 @@ function loadAvatarFiles(avatarDir) {
   return files;
 }
 
+/**
+ * The avatar URLs this run should publish on its synthetic climbers.
+ *
+ * Uploading needs a local image folder, which nobody has to hand months later -
+ * so a run without `--avatar-dir` used to publish no photo at all, and every
+ * seeded leaderboard row rendered as a lettered circle while 83 real avatar
+ * images sat unused in Storage.
+ *
+ * They are reusable without the originals: each object was uploaded with its own
+ * `firebaseStorageDownloadTokens`, which is the only part of a download URL that
+ * cannot be derived from the path. So a run with no folder reads the objects
+ * back and rebuilds the identical URLs, which also keeps a climber's face stable
+ * across re-seeds instead of minting a new token every time.
+ * @param {string[]} avatarFiles Local avatar images, empty when none were given.
+ * @param {object} args Parsed CLI arguments.
+ * @return {Promise<string[]>} Download URLs, ordered by object name.
+ */
+async function resolveSeedAvatarURLs(avatarFiles, args) {
+  if (avatarFiles.length > 0) {
+    return uploadSeedAvatars(avatarFiles, args);
+  }
+
+  const urls = await hostedSeedAvatarURLs(args);
+  if (urls.length === 0) {
+    console.warn(
+      `No avatar images found locally or under live-replay-avatars/` +
+      `${sanitizeContextId(args.seedPackId)}/. Seeded climbers will render as ` +
+      "initials. Pass --avatar-dir <path> once to upload a set."
+    );
+  }
+
+  return urls;
+}
+
+/**
+ * Rebuilds download URLs for the avatars this seed pack already uploaded.
+ * @param {object} args Parsed CLI arguments.
+ * @return {Promise<string[]>} Download URLs, ordered by object name.
+ */
+async function hostedSeedAvatarURLs(args) {
+  const bucket = getStorage().bucket();
+  const prefix = `live-replay-avatars/${sanitizeContextId(args.seedPackId)}/`;
+  const [files] = await bucket.getFiles({prefix});
+
+  return files
+    .filter((file) => file.metadata.metadata?.firebaseStorageDownloadTokens)
+    .sort((lhs, rhs) => lhs.name.localeCompare(rhs.name))
+    .map((file) => downloadURL(
+      bucket.name,
+      file.name,
+      String(file.metadata.metadata.firebaseStorageDownloadTokens).split(",")[0]
+    ));
+}
+
 async function uploadSeedAvatars(avatarFiles, args) {
   const bucket = getStorage().bucket();
   const seedPackPath = sanitizeContextId(args.seedPackId);
@@ -466,6 +537,47 @@ function contentTypeForImage(filePath) {
 function downloadURL(bucketName, objectPath, token) {
   return `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/` +
     `${encodeURIComponent(objectPath)}?alt=media&token=${token}`;
+}
+
+/**
+ * Fails a plan that would put more finishers on a board than the pack can give
+ * distinct identities.
+ *
+ * Both halves of a synthetic climber's identity are indexed by position:
+ * `displayNameForAttempt` falls back to "Climber 061" past the end of the name
+ * list, and `avatarURLForDisplayName` returns nothing for a name past the last
+ * uploaded image. Neither failure is visible in the seed's own output - it shows
+ * up as placeholder names and lettered circles on a leaderboard, which is
+ * usually discovered by looking at a screenshot.
+ *
+ * The name shortfall is a config error and fails the run. The avatar shortfall
+ * only warns: an environment that has never been given an avatar set still has a
+ * usable board, just an uglier one.
+ * @param {object[]} climbPlans Built per-climb plans.
+ * @param {string[]} avatarURLs Avatar URLs available to this run.
+ */
+function assertSeededIdentitySupply(climbPlans, avatarURLs) {
+  const overNamed = climbPlans
+    .filter((plan) => plan.completedCount > SEEDED_DISPLAY_NAMES.length)
+    .map((plan) => `${plan.climb.id} (${plan.completedCount})`);
+
+  if (overNamed.length > 0) {
+    throw new Error(
+      `${overNamed.join(", ")} would seed more finishers than the ` +
+      `${SEEDED_DISPLAY_NAMES.length} distinct names available, so the ` +
+      "overflow would render as \"Climber 061\" on a leaderboard. Lower the " +
+      "completion rate or add names and avatars together."
+    );
+  }
+
+  const widest = Math.max(...climbPlans.map((plan) => plan.completedCount));
+  if (avatarURLs.length > 0 && avatarURLs.length < widest) {
+    console.warn(
+      `Only ${avatarURLs.length} avatar image(s) available for a board of ` +
+      `${widest} finishers, so ${widest - avatarURLs.length} row(s) will ` +
+      "render as initials."
+    );
+  }
 }
 
 function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
@@ -544,6 +656,8 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
   if (climbPlans.length === 0) {
     throw new Error("No configured seed climbs matched the catalog.");
   }
+
+  assertSeededIdentitySupply(climbPlans, avatarURLs);
 
   const justClimbAttempts = climbPlans.flatMap((plan) => plan.attempts);
   const justClimbMaxBucketIndex = MAX_BUCKET_INDEX;

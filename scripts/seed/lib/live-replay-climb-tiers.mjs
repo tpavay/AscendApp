@@ -10,7 +10,10 @@
  */
 
 export const ACTIVE_CLIMBS = [
-  {id: "merdeka-118", totalClimbers: 247, replayEntries: 96, completionRate: 0.36},
+  // 0.33 rather than 0.36: at 0.36 this board seeded 89 finishers, past the 83
+  // distinct names and avatars the pack can give them, so its last six rows had
+  // no human name and no face. See `assertSeededIdentitySupply`.
+  {id: "merdeka-118", totalClimbers: 247, replayEntries: 96, completionRate: 0.33},
   {id: "empire-state-building", totalClimbers: 198, replayEntries: 88, completionRate: 0.42},
   {id: "burj-khalifa", totalClimbers: 173, replayEntries: 84, completionRate: 0.34},
   {id: "reunion-tower", totalClimbers: 166, replayEntries: 72, completionRate: 0.48},

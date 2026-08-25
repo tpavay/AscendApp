@@ -717,12 +717,33 @@ function staleDocumentIds(canonicalId) {
   return [canonicalId.toLowerCase()].filter((id) => id !== canonicalId);
 }
 
+/**
+ * A believable human name for an account that has not supplied one.
+ *
+ * This name is published to public leaderboards, so it is what a screenshot
+ * shows. "Product Tester" was the old fallback and no climber is called that.
+ * Deliberately outside `SEEDED_DISPLAY_NAMES` so the account never collides with
+ * a synthetic competitor on the same board.
+ */
+const FALLBACK_DEMO_DISPLAY_NAME = "Morgan Hale";
+
 function userSnapshot(authUser, args) {
+  // No email-derived name. An address local part is an identifier, not a name -
+  // deriving one published "Content Capture" and "Qa G4 Noname" onto leaderboards
+  // that exist to be photographed. Synthetic rows are told apart by isSynthetic,
+  // source and seedPackId, so nothing needs the display name to carry a marker.
   const displayName =
     trimmed(args.displayName) ??
     trimmed(authUser.displayName) ??
-    displayNameFromEmail(authUser.email ?? args.email) ??
-    "Product Tester";
+    FALLBACK_DEMO_DISPLAY_NAME;
+
+  if (!trimmed(args.displayName) && !trimmed(authUser.displayName)) {
+    console.warn(
+      `This account has no display name, so it will be published as ` +
+      `"${FALLBACK_DEMO_DISPLAY_NAME}". Pass --display-name to choose one.`
+    );
+  }
+
   const photoURL = trimmed(args.photoURL) ?? trimmed(authUser.photoURL) ?? "";
 
   return {
@@ -1428,18 +1449,6 @@ function avatarToken(displayName) {
     .join("")
     .toUpperCase();
   return initials || "A";
-}
-
-function displayNameFromEmail(email) {
-  const localPart = trimmed(email)?.split("@")[0];
-  if (!localPart) {
-    return null;
-  }
-  return localPart
-    .split(/[._-]+/)
-    .filter(Boolean)
-    .map((part) => part[0].toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 function deterministicUUID(input) {

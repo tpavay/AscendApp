@@ -4,6 +4,7 @@ import {test} from "node:test";
 import {
   CONTENT_READY_THRESHOLDS,
   contentReadinessFailures,
+  unphotographableDisplayName,
 } from "../seed/lib/content-ready-contract.mjs";
 
 function contentReadyState(overrides = {}) {
@@ -23,6 +24,10 @@ function contentReadyState(overrides = {}) {
     contestedClimbBoards: t.minimumContestedBoards + 2,
     openFirstAscentBoards: t.minimumOpenFirstAscentBoards + 11,
     routineTemplateCount: t.minimumRoutineTemplates,
+    accountDisplayName: "Morgan Hale",
+    seededRowsSampled: 896,
+    seededRowsWithoutPhoto: 0,
+    seededRowsWithPlaceholderName: 0,
     incoherentBoards: [],
     ...overrides,
   };
@@ -96,4 +101,50 @@ test("every shortfall is reported, not just the first", () => {
   assert.ok(failures.some((failure) => failure.includes("landmark climbs completed")));
   assert.ok(failures.some((failure) => failure.includes("First Ascents held")));
   assert.ok(failures.some((failure) => failure.includes("climbers")));
+});
+
+test("a name with a digit in it is not fit to be photographed", () => {
+  assert.match(unphotographableDisplayName("Climber 061"), /reads as tooling/);
+  assert.match(unphotographableDisplayName("Qa G4 Noname"), /reads as tooling/);
+});
+
+test("tooling placeholders are rejected however they are cased", () => {
+  assert.match(unphotographableDisplayName("Content Capture"), /placeholder/);
+  assert.match(unphotographableDisplayName("product tester"), /placeholder/);
+  assert.match(unphotographableDisplayName("CHANGE ME"), /placeholder/);
+});
+
+test("an ordinary human name passes", () => {
+  assert.equal(unphotographableDisplayName("Morgan Hale"), null);
+  assert.equal(unphotographableDisplayName("Sarah K."), null);
+});
+
+test("an account publishing a placeholder name fails the contract", () => {
+  const failures = contentReadinessFailures(contentReadyState({
+    accountDisplayName: "Content Capture",
+  }));
+
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /placeholder, not a climber/);
+});
+
+// The avatars live in Storage and the rows only carry URLs into them, so a run
+// that could not resolve the set still writes a complete-looking board.
+test("seeded rows with no photo fail the contract", () => {
+  const failures = contentReadinessFailures(contentReadyState({
+    seededRowsWithoutPhoto: 903,
+    seededRowsSampled: 903,
+  }));
+
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /903 of 903 seeded leaderboard rows carry no photo/);
+});
+
+test("seeded rows with a machine-shaped name fail the contract", () => {
+  const failures = contentReadinessFailures(contentReadyState({
+    seededRowsWithPlaceholderName: 23,
+  }));
+
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /23 seeded leaderboard rows carry a machine-shaped/);
 });
