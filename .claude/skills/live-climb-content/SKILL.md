@@ -153,7 +153,11 @@ node scripts/sync-climb-images.mjs sync --from staging --to production --confirm
 
 Writes to production require `--confirm-production`. Sync copies only missing/changed objects (md5 compare) and never deletes. When adding a climb: upload images to dev/staging first, validate in-app, then sync to production alongside (or before) the catalog deploy that references them.
 
-`releaseState` is not per-environment: one catalogue file deploys to dev, staging, and production, so promoting a climb to `available` commits every environment to having its artwork. Audit the production bucket before that deploy, not after it.
+`audit` fails when any `available` climb lacks a **complete** hero/card/thumb set - a partial set reads worse than none, because the card is the browse surface. It honors the same versioned-then-legacy fallback the app does (`FirebaseClimbImageRepository.candidateRemotePaths`), and it refuses to read a zero-object listing as a verified-empty bucket.
+
+`releaseState` is not per-environment: one catalogue file deploys to dev, staging, and production, so promoting a climb to `available` commits every environment to having its artwork. **Images are not per-environment content and no deploy moves them** - they are copied bucket to bucket by this tool alone.
+
+That instruction used to live here as prose, and prose lost. On 2026-08-10 #467 promoted 28 World Tour venues to `available`; their artwork had been uploaded to dev and staging only, and production had last received images in a single manual bulk copy on 2026-07-06. Twenty-eight of the 58 browsable climbs rendered as empty cards for fifteen days, through launch. `deploy-production.yml` now runs `audit --project production` immediately before the Hosting deploy, so the catalogue cannot publish past missing artwork; `scripts/test/climb-image-publication.test.mjs` pins that ordering.
 
 ## Workflow
 
