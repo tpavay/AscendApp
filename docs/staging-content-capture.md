@@ -51,6 +51,7 @@ Run it after a capture session, after a real climb, or a week later, to find out
 |---|---|
 | 26 contested climb boards, 14 of them with 20+ finishers | A rank nobody had to earn is not worth capturing |
 | 31 climbs with an open First Ascent | The claimable state has to be showable, and claimable for real on camera |
+| 896 seeded rows, every one with a face and a human name | A leaderboard of lettered circles is not what anyone is photographing |
 | 2 routine templates and 12 profile personas with avatars | The routines, profile and global leaderboard surfaces are not empty |
 
 The numbers are the contract.
@@ -74,6 +75,18 @@ The account's own First Ascent therefore has to sit outside the contested set, o
 `seed-demo-user.mjs` refuses a contested climb rather than writing that contradiction, and the default is 875 North Michigan Avenue - the John Hancock Center, home of the Hustle Up the Hancock.
 
 Which four climbs reach the profile's open preview is unchanged: it fills in catalog order and caps at four, and those four sort ahead of the newly opened ones.
+
+## Every row on screen has to read as a person
+
+A leaderboard is the product's shop window, so what a row carries is content, not fixture detail. Two supplies have to line up, and neither shortfall is visible in the seed's own output - only on a screenshot.
+
+**Faces.** The 83 avatar images live in Firebase Storage under `live-replay-avatars/<seedPackId>/`. Uploading them needs a local image folder, which nobody has months later, so a run without `--avatar-dir` used to publish no photo at all. It now reads the existing objects back instead and rebuilds their download URLs from the tokens stored on each object, so no folder is needed and a climber's face stays the same across re-seeds. Pass `--avatar-dir <path>` only to replace the set.
+
+**Names.** `SEEDED_DISPLAY_NAMES` is 83 long, one per avatar, and no board seeds more finishers than that. Both limits are enforced by `assertSeededIdentitySupply`, which fails the run rather than let a config quietly reintroduce `Climber 061` - the placeholder five boards were already using, Empire State Building among them.
+
+**The account's own name.** Whatever it publishes is what a screenshot shows, so the seed no longer derives one from an email local part: an address is an identifier, not a name. It uses `--display-name`, else the account's own Auth name, else a plain human fallback, and says which it chose. Synthetic rows are told apart by `isSynthetic`, `source` and `seedPackId`, so nothing needs the display name to carry a marker.
+
+`verify` reads all of this back off the stored rows and fails on any seeded row with no photo or a machine-shaped name, and on an account publishing a placeholder.
 
 ## Getting back
 
