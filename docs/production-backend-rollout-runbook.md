@@ -13,6 +13,31 @@ The workflow uses the repository's protected `production` environment and requir
 Exactly one job carries that environment, `Approve Production Deploy`, so the run requests a single approval before any build or deploy work starts.
 The captain must approve that job before production work begins; nothing later in the run asks again.
 
+## Production holds real user data
+
+**Ascend went live on the App Store at 14:01 UTC on 2026-08-25.**
+From that moment `ascend-prod-9c8f2` accumulates real third-party climbers' data - `users`, workouts, public-profile mirrors, `leaderboard_stats` and the other projections, entitlements, notification devices.
+Ascend 1.0 is live, so this rollout has already run against production at least once: every step below now operates on a populated backend, not a clean one.
+
+This section is the single owner of that fact.
+`CLAUDE.md` and `docs/quality/contracts/ascend-block-report-moderation.md` point here rather than restating it, so there is one place to correct the next time the world changes.
+
+What follows from it:
+
+- **No change may be justified on the premise that production is empty.** Any phrasing along the lines of "there is nothing to backfill", "no historical rows exist", or "only the live write path can reach production" is a claim about real customer data now, and a wrong one damages real customers.
+- **A skipped migration or backfill has to be earned by a measurement, not by a memory.** Say what you counted, in which project, and when.
+- **Measure it against production itself.** Never infer it, never recall it, and never take it from a document - including this one, which records a fact about the world rather than a reading of the database.
+
+```sh
+node scripts/firestore-query.mjs count users --env prod --confirm-production
+node scripts/firestore-query.mjs count leaderboard_stats --env prod --confirm-production
+```
+
+`EMPTY (UNVERIFIED)` is not a zero, and a read that failed prints the same nothing as a read that found nothing.
+The `ascend-data-investigation` skill owns that procedure and its traps; `ascend-firebase-data` owns the schema and rules side.
+`scripts/firestore-query.mjs` is read-only by construction and tested to stay that way, so a production count is a read rather than one of the captain-only production *operations* the safety boundary above governs.
+Confirm which project the tooling is actually pointed at before trusting any answer: dev/default is `ascend-f2e4f`, staging is `ascend-staging-fa7d5`, production is `ascend-prod-9c8f2`, and staging is full of QA accounts that look exactly like real climbers.
+
 ## What this rollout contains
 
 The audit examined an older `develop` SHA that declared 11 composite indexes and found nine of them deployed.
@@ -81,11 +106,27 @@ node scripts/backfill-live-replay-best-per-user.mjs --project prod --dry-run
 Do not use `--confirm-production` for this preflight.
 If the dry-run reports writes, stop and prepare a separate migration review before deploying the binary.
 
-There is no public identity backfill to run.
-Ascend is pre-launch: production holds no `users`, no `leaderboard_stats`, and no public-profile data, so account-authored identity only ever reaches production through the live write path.
-Deploy the moderation rules, identity policy rules, required indexes, `onPublicProfileIdentityWritten`, and `onPublicIdentityPropagationJobWritten` before the binary that publishes identity, so the first published profile is validated and propagated by the server from the start.
-For the first rollout of this policy, deploy that backend preparation as a separately reviewed captain operation before approving the release workflow.
+### Public identity backfill
+
+Deploy the moderation rules, identity policy rules, required indexes, `onPublicProfileIdentityWritten`, and `onPublicIdentityPropagationJobWritten` before the binary that publishes identity, so a published profile is validated and propagated by the server from the start.
+For the first rollout of this policy, that backend preparation was deployed as a separately reviewed captain operation before the release workflow was approved.
 The release workflow may redeploy the same backend SHA after approval because those deployments are idempotent.
+
+**The "there is no public identity backfill to run" conclusion this runbook used to draw is void, and must not be carried into any later change.**
+It rested on production being empty, and production stopped being empty on 2026-08-25 - see "Production holds real user data" above.
+Every projection that carries account-authored identity now has real rows in it: public-profile mirrors, `leaderboard_stats`, Live Replay entries and finishers, First Ascents.
+So any later change to the identity policy - a new screening rule, a new bounded field, a changed fallback - has to count the pre-policy rows already in production and ship the backfill they need.
+Deploying the trigger reaches rows written after it; it reaches nothing already sitting there.
+
+Count before you decide, and say what you counted:
+
+```sh
+node scripts/firestore-query.mjs count users --env prod --confirm-production
+node scripts/firestore-query.mjs count leaderboard_stats --env prod --confirm-production
+```
+
+Shipping no backfill is a defensible outcome only when a production read says the affected rows are not there, reported as `EMPTY (verified)`.
+It is never a default, and it is never inherited from this document.
 
 ## One-command launch
 

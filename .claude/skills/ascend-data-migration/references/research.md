@@ -88,7 +88,7 @@ Each row is something a shipped app defends against, not a hypothetical.
 | Progress reporting | you control the loop | none |
 | Migrations independent of app types | enforced by convention | impossible; the schema *is* Swift types |
 
-This is not an argument to leave SwiftData - Ascend is deep in it, and switching stores before launch would be a far larger risk than the one being mitigated.
+This is not an argument to leave SwiftData - Ascend is deep in it, and switching stores would be a far larger risk than the one being mitigated.
 It is an argument that anything on that list which Ascend needs has to be built by hand, and that `AscendMigrationPlan`'s on-disk stash, page-bounded sweep, attempt counter and explicit diagnostics are exactly that hand-built machinery rather than over-engineering.
 
 Apple's own guidance, from WWDC22, on the part that is yours: *"If you perform app-specific logic during your migrations ... that logic must be 'restartable' in the event the migration is interrupted due to the process terminating."* **Observed.**
@@ -119,7 +119,7 @@ Sources: <https://www.getyourguide.careers/posts/how-we-automate-the-app-release
 
 **Rejected, with reasons**
 
-- **Automatic rollout halting on a crash threshold.** Squarespace and GetYourGuide both automate this, and both have release trains, dedicated tooling, and enough traffic for the statistics to mean something. Ascend is pre-launch; a confidence interval over near-zero sessions halts on noise. Revisit once there is a session baseline.
+- **Automatic rollout halting on a crash threshold.** Squarespace and GetYourGuide both automate this, and both have release trains, dedicated tooling, and enough traffic for the statistics to mean something. Ascend had none of those when this was written, and no sessions at all; a confidence interval over near-zero sessions halts on noise. Ascend launched on 2026-08-25, so the missing input is now accumulating - revisit once production carries a real session baseline, and read that volume from production rather than assuming it is still near zero.
 - **Keeping a full backup copy of the store before migrating.** Genuinely sound, and the standard industry safety net. But SwiftData exposes no `replacePersistentStore` equivalent, so there is no supported migrate-into-a-copy-and-swap, and `Workout` carries its heart-rate series inline so a hand-rolled copy can be gigabytes. Reconsider per-migration if one ever rewrites rows in place rather than adding to them.
 - **A blanket sweep of default values across every model.** See above. It buys nothing and it hides the one case that matters.
 

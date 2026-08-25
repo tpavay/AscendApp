@@ -7,6 +7,8 @@ description: Use when adding, renaming, or removing any Firestore field - includ
 
 Load the `vibe-security` skill for any auth/authz/trust-boundary change, and `firebase-firestore-standard` for rules and query design.
 
+Before any claim about what a database *already holds* - whether a backfill is needed, whether a collection has rows, whether production is affected - use `ascend-data-investigation` and read the database. Never infer it, recall it, or take it from a document; production has held real climbers' data since the App Store launch, and `docs/production-backend-rollout-runbook.md` is the single owner of that fact.
+
 ## Schema changes (rules first - writes are rejected server-side otherwise)
 
 `firestore.rules` uses strict `hasOnly` + `hasAll` field validation on every client-writable collection. Adding, removing, or renaming a field in the app **requires a matching update to `firestore.rules`** - otherwise writes will be rejected at the server.
