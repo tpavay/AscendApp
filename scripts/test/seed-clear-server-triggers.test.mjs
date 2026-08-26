@@ -46,15 +46,34 @@ test("the profiles clear still deletes persona root user documents", () => {
 // climb, so its contents outlive the climb list. Retiring a climb takes its own
 // board away but leaves its attempts here under ids the current plan cannot
 // name - staging accumulated 424 of them from eight retired climbs.
-test("the global Just Climb context is cleared by seed pack, not by derived id", () => {
+//
+// The clear used to find them with a `where("seedPackId", ...)` query per bucket,
+// which is one round trip per bucket and needs an index. It now lists what is
+// actually there and decides ownership locally, which finds strictly more: a row
+// written by a pack whose id nobody remembers still has this pack's id shape.
+// What both versions must never do is derive the ids to delete from the plan.
+test("the global Just Climb context is cleared by what exists, not by derived id", () => {
   const source = read("scripts/seed-live-replay-leaderboards.mjs");
   const clearBlock = source.slice(
-    source.indexOf("async function clearJustClimbSeedRows("),
-    source.indexOf("async function clearSeedEntriesFromPlan(")
+    source.indexOf("async function seededDocumentsUnder("),
+    source.indexOf("function contextKeysForPlan(")
   );
 
-  assert.match(clearBlock, /justClimbEntriesCollection\(db, bucketIndex\)\s*\n?\s*\.where\("seedPackId", "==", seedPackId\)/);
-  assert.match(clearBlock, /justClimbFinishersCollection\(db\)\s*\n?\s*\.where\("seedPackId", "==", seedPackId\)/);
+  assert.match(
+    clearBlock,
+    /listDocumentsAcross\(entryCollections/,
+    "the clear must enumerate the rows that exist"
+  );
+  assert.match(
+    clearBlock,
+    /isSeededAttemptId\(document\.id, seedPackId\)/,
+    "ownership must be decided from the row's own id"
+  );
+  assert.doesNotMatch(
+    clearBlock,
+    /seedAttemptId\(|clearAttemptIds|clearUserIds/,
+    "deriving the ids to delete is the drift that left 424 rows behind"
+  );
 });
 
 test("no derived id list survives for the Just Climb context", () => {
@@ -75,14 +94,27 @@ test("no derived id list survives for the Just Climb context", () => {
 // filters on, or the clear silently deletes nothing.
 test("every seeded Just Climb row carries the seed pack id the clear filters on", () => {
   const source = read("scripts/seed-live-replay-leaderboards.mjs");
+  // Both replay contexts now share one finisher writer, so the Just Climb rows
+  // carry the pack id for the same reason the per-climb ones do: there is only
+  // one place left that could omit it.
+  const contexts = source.slice(
+    source.indexOf("function prepareContexts("),
+    source.indexOf("async function writeSeedPlan(")
+  );
+  assert.match(
+    contexts,
+    /finishersRef: justClimbFinishersCollection\(db\)/,
+    "the seed no longer gives the Just Climb context a finishers collection"
+  );
+
   const writeBlock = source.slice(source.indexOf("async function writeSeedPlan("));
   const finisherWrite = writeBlock.slice(
-    writeBlock.indexOf("justClimbFinishersCollection(db).doc(attempt.userId)")
+    writeBlock.indexOf("context.finishersRef.doc(attempt.userId)")
   ).slice(0, 400);
 
   assert.ok(
-    writeBlock.includes("justClimbFinishersCollection(db).doc(attempt.userId)"),
-    "the seed no longer writes Just Climb finishers in a shape this can read"
+    writeBlock.includes("context.finishersRef.doc(attempt.userId)"),
+    "the seed no longer writes finishers in a shape this can read"
   );
   assert.match(finisherWrite, /seedPackId: args\.seedPackId,/);
   assert.match(read("scripts/seed/lib/live-replay-finisher.mjs"), /seedPackId/);
@@ -108,19 +140,25 @@ test("an open board a real climber finished is never cleared or rewritten", () =
     "claimed boards must be detected by a non-synthetic finisher id"
   );
 
+  // Both halves take the board out of their working set up front rather than
+  // testing it per row, so the skip cannot be forgotten halfway down a loop.
   const clearBlock = source.slice(
-    source.indexOf("async function clearSeedEntriesFromPlan(")
-  ).slice(0, 1200);
+    source.indexOf("function clearableContexts("),
+    source.indexOf("async function seededDocumentsUnder(")
+  );
   assert.match(
     clearBlock,
-    /claimedOpen\.has\(plan\.climb\.id\)/,
+    /\.filter\(\(plan\) => !claimedOpen\.has\(plan\.climb\.id\)\)/,
     "the clear must skip a board a real climber has finished"
   );
 
-  const writeBlock = source.slice(source.indexOf("async function writeSeedPlan("));
+  const writeBlock = source.slice(
+    source.indexOf("function prepareContexts("),
+    source.indexOf("async function writeSeedPlan(")
+  );
   assert.match(
-    writeBlock.slice(0, 1500),
-    /claimedOpen\.has\(plan\.climb\.id\)/,
+    writeBlock,
+    /\.filter\(\(plan\) => !claimedOpen\.has\(plan\.climb\.id\)\)/,
     "the write must skip a board a real climber has finished"
   );
 });

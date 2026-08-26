@@ -26,20 +26,26 @@
  *   gcloud auth application-default login
  */
 
-import {randomUUID} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import {readFileSync, readdirSync, statSync} from "node:fs";
 import {dirname, extname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {FieldValue, getFirestore} from "firebase-admin/firestore";
 import {getStorage} from "firebase-admin/storage";
+import {
+  appendAll,
+  createBatchWriter,
+  createProgressReporter,
+  listDocumentsAcross,
+  runPool,
+  withRetry,
+} from "./lib/firestore-bulk.mjs";
 import {hashString, mulberry32} from "./seed/lib/deterministic.mjs";
 import {
   FIRST_ASCENT_OPEN_ACTIVITY_TIER,
   PUBLIC_IDENTITY_STATE_PUBLISHED,
   assertFirstAscentInvariant,
-  clearOpenFirstAscentEntries,
-  clearOpenFirstAscentFinishers,
   clearedFirstAscentFields,
   firstAscentClaimedAt,
   firstAscentSeedFields,
@@ -79,6 +85,31 @@ const ALLOWED_SEED_PROJECTS = new Map([
   [STAGING_PROJECT_ID, {defaultSeedPackId: DEFAULT_STAGING_SEED_PACK_ID}],
 ]);
 
+/**
+ * The hash of the rows a board holds, and how many buckets they span.
+ *
+ * Written on the summary after the rows land, so the next run can tell a board
+ * that already holds exactly what it would write from one that does not, and
+ * skip it. This is what makes a repeat seed seconds rather than minutes.
+ */
+const SEED_FINGERPRINT_FIELD = "seedRowFingerprint";
+const SEED_BUCKET_COUNT_FIELD = "seedBucketCount";
+
+/**
+ * Bumped by hand when the *shape* of a seeded document changes in a way the
+ * fingerprint's inputs do not already cover - a new field, a renamed one, a
+ * changed constant. The step values are hashed directly, so the maths behind
+ * them needs no bump.
+ */
+const SEED_WRITE_REVISION = 2;
+
+/** Replay contexts enumerated at once. Each fans out again over its own buckets. */
+const CONTEXT_CONCURRENCY = 12;
+/** Parallel listings within one context. */
+const READ_CONCURRENCY = 64;
+/** Coprime-ish stride that scatters one climber's buckets away from the next climber's. */
+const BUCKET_STRIPE_STEP = 137;
+
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 
@@ -96,22 +127,30 @@ const REPO_ROOT = resolve(SCRIPT_DIR, "..");
  * image except the one reserved for the account being seeded - and no climb
  * seeds more finishers than that. `assertSeededIdentitySupply` enforces both,
  * because the failure is invisible until it is on a screenshot.
+ *
+ * Full names, not "Sarah K.", and that is what the product actually publishes.
+ * `SuppliedNameAdoption` takes whatever Sign in with Apple or Google hands over,
+ * which is a given name and a family name, so every real leaderboard row carries
+ * a full name. Abbreviated fixtures read as fixtures next to one - which is what
+ * a podium showed when "Tyler R." stood beside the account's own "Tyler Pavay".
+ * Order is load-bearing: a climber's face is resolved by position in this list,
+ * so names may be rewritten in place but not reordered.
  */
 const SEEDED_DISPLAY_NAMES = [
-  "Sarah K.", "Marcus T.", "Jenny W.", "Alex M.", "Priya S.", "Jordan L.",
-  "Nina R.", "Owen B.", "Maya C.", "Eli P.", "Sam D.", "Taylor H.",
-  "Ari N.", "Chris V.", "Riley F.", "Noah G.", "Ava M.", "Leo S.",
-  "Mia L.", "Ben C.", "Ivy R.", "Theo J.", "Lena P.", "Kai W.",
-  "Nora B.", "Cole A.", "Zara T.", "Miles K.", "Eva D.", "Jules R.",
-  "Drew S.", "Iris M.", "Cal N.", "Tessa V.", "Remy P.", "Sage L.",
-  "Quinn E.", "Omar H.", "Gia F.", "Finn R.", "Ana C.", "Max W.",
-  "Ruby N.", "Jace M.", "Elle K.", "Sean P.", "Vera L.", "Hugo T.",
-  "Luca S.", "Mila B.", "Nate R.", "Lia P.", "Ezra K.", "June V.",
-  "Rae C.", "Ty D.", "Skye M.", "Amir N.", "Hope J.", "Kira W.",
-  "Dana O.", "Pablo G.", "Yuki T.", "Marta L.", "Isaac B.", "Freya N.",
-  "Andre P.", "Sofia R.", "Ravi M.", "Clara V.", "Emeka O.", "Anya D.",
-  "Tobias H.", "Nadia F.", "Liam C.", "Rosa E.", "Kenji A.", "Greta S.",
-  "Malik J.", "Ines B.", "Oscar W.", "Talia K.",
+  "Sarah Keller", "Marcus Tate", "Jenny Whitfield", "Alex Mercado", "Priya Sundaram", "Jordan Leclair",
+  "Nina Rasmussen", "Owen Brannigan", "Maya Castellanos", "Eli Pruitt", "Sam Doherty", "Taylor Hargrove",
+  "Ari Nakamura", "Chris Valdez", "Riley Faulkner", "Noah Gallagher", "Ava Montrose", "Leo Sandoval",
+  "Mia Larkin", "Ben Castillo", "Ivy Redmond", "Theo Janssen", "Lena Petrova", "Kai Whitlock",
+  "Nora Bergstrom", "Cole Ashford", "Zara Thibault", "Miles Kowalski", "Eva Delgado", "Jules Renaud",
+  "Drew Sorensen", "Iris Mendoza", "Cal Nakashima", "Tessa Vandenberg", "Remy Pichon", "Sage Lindqvist",
+  "Quinn Ellery", "Omar Haddad", "Gia Ferraro", "Finn Rourke", "Ana Cabrera", "Max Weatherby",
+  "Ruby Nightingale", "Jace Mullins", "Elle Kavanagh", "Sean Prescott", "Vera Lindholm", "Hugo Trevino",
+  "Luca Sartori", "Mila Brennan", "Nate Ridgeway", "Lia Pastore", "Ezra Kaufman", "June Vasquez",
+  "Rae Cormier", "Ty Donnelly", "Skye Marchetti", "Amir Nazari", "Hope Jamison", "Kira Wallace",
+  "Dana Okonkwo", "Pablo Guerrero", "Yuki Tanabe", "Marta Lindgren", "Isaac Barlow", "Freya Nilsen",
+  "Andre Perrault", "Sofia Ricci", "Ravi Menon", "Clara Vogel", "Emeka Obiora", "Anya Dragomir",
+  "Tobias Hoffmann", "Nadia Farouk", "Liam Callahan", "Rosa Escobar", "Kenji Arakawa", "Greta Sundberg",
+  "Malik Johannsen", "Ines Batista", "Oscar Wexler", "Talia Kirkland",
 ];
 
 function parseArgs(argv) {
@@ -119,7 +158,11 @@ function parseArgs(argv) {
     command: argv[2] ?? "help",
     project: "dev",
     dryRun: false,
-    skipClear: false,
+    // A full clear before the write is now opt-in: the write replaces rows in
+    // place under derived ids, so clearing first only costs a second pass.
+    // `--skip-clear` is still accepted, and now describes the default.
+    clearFirst: false,
+    force: false,
     seedPackId: null,
     sourceUserId: process.env.ASCEND_SEED_SOURCE_USER_ID ?? null,
     avatarDir: null,
@@ -148,7 +191,12 @@ function parseArgs(argv) {
         args.dryRun = true;
         break;
       case "--skip-clear":
-        args.skipClear = true;
+        break;
+      case "--clear-first":
+        args.clearFirst = true;
+        break;
+      case "--force":
+        args.force = true;
         break;
       case "--help":
       case "-h":
@@ -193,7 +241,10 @@ Options:
   --seed-pack <id>                      Seed pack marker. Defaults by project: ${DEFAULT_DEV_SEED_PACK_ID}, ${DEFAULT_STAGING_SEED_PACK_ID}.
   --apple-health-step-factor <number>   Calibration for Apple Health steps. Default: ${DEFAULT_APPLE_HEALTH_STEP_FACTOR}.
   --dry-run                             Print the plan without writing.
-  --skip-clear                          Do not clear existing entries for the seed pack before seeding.
+  --clear-first                         Delete every row this pack owns before writing. Rarely needed:
+                                        the write replaces rows in place and deletes what it has retired.
+  --skip-clear                          Accepted and ignored. Describes the default.
+  --force                               Rewrite every board even when it already holds this pack's rows.
 `);
 }
 
@@ -267,6 +318,8 @@ async function main() {
     return;
   }
 
+  const startedAt = Date.now();
+
   // Resolved once, before anything is deleted, and honored by both the clear
   // and the write.
   const claimedOpen = await claimedOpenClimbIds(db, seedPlan);
@@ -279,17 +332,36 @@ async function main() {
 
   if (args.command === "clear") {
     const deleted = await clearSeedPack(db, seedPlan, args, claimedOpen);
-    console.log(`Cleared ${deleted.toLocaleString()} seeded replay entries.`);
+    console.log(
+      `Cleared ${deleted.toLocaleString()} seeded replay documents in ` +
+      `${elapsedSeconds(startedAt)}s.`
+    );
     return;
   }
 
-  if (!args.skipClear) {
+  // The write replaces every row it still plans in place - the ids are derived,
+  // so a `set` overwrites rather than duplicates - and deletes only what the
+  // plan has retired. A blanket clear beforehand is a second full pass over the
+  // same half a million documents that leaves staging empty in between, so it is
+  // opt-in rather than the default.
+  if (args.clearFirst) {
     const deleted = await clearSeedPack(db, seedPlan, args, claimedOpen);
-    console.log(`Cleared ${deleted.toLocaleString()} existing seeded replay entries.`);
+    console.log(`Cleared ${deleted.toLocaleString()} existing seeded replay documents.`);
   }
 
   const written = await writeSeedPlan(db, seedPlan, args, claimedOpen);
-  console.log(`Seeded ${written.toLocaleString()} Firestore documents into ${projectId}.`);
+  console.log(
+    `Seeded ${written.toLocaleString()} Firestore documents into ${projectId} in ` +
+    `${elapsedSeconds(startedAt)}s.`
+  );
+}
+
+/**
+ * @param {number} startedAt Epoch milliseconds.
+ * @return {string} Seconds since then, to one decimal.
+ */
+function elapsedSeconds(startedAt) {
+  return ((Date.now() - startedAt) / 1000).toFixed(1);
 }
 
 function resolveProjectId(projectOrAlias) {
@@ -837,57 +909,93 @@ function printPlan(seedPlan, args, avatarFileCount, avatarURLCount) {
  * @return {Promise<Set<string>>} Climb ids to leave untouched.
  */
 async function claimedOpenClimbIds(db, seedPlan) {
+  const openPlans = seedPlan.climbPlans.filter((plan) => isOpenFirstAscentSummary({
+    completedCount: plan.completedCount,
+    hasFirstAscent: plan.firstAscentAttempt !== null,
+  }));
   const claimed = new Set();
 
-  for (const plan of seedPlan.climbPlans) {
-    const isOpen = isOpenFirstAscentSummary({
-      completedCount: plan.completedCount,
-      hasFirstAscent: plan.firstAscentAttempt !== null,
-    });
-    if (!isOpen) {
-      continue;
-    }
-
-    const finishers = await finishersCollection(db, plan.climb.id).listDocuments();
+  await runPool(openPlans, READ_CONCURRENCY, async (plan) => {
+    const finishers = await withRetry(
+      () => finishersCollection(db, plan.climb.id).listDocuments(),
+      {description: `listDocuments(finishers/${plan.climb.id})`}
+    );
     if (finishers.some((document) => !isSyntheticUserId(document.id))) {
       claimed.add(plan.climb.id);
     }
-  }
+  });
 
   return claimed;
 }
 
+/**
+ * Takes this pack's rows back out.
+ *
+ * Enumerate-then-delete, in that order and both in parallel. The version this
+ * replaced deleted by derived id across every bucket index the schema allows,
+ * which queued 769,652 deletes for a pack that had written 520,784 rows - most
+ * of them for documents that were never there. Reading what exists is one
+ * `listDocuments` per bucket, and 64 of those run at once.
+ * @param {object} db Firestore instance.
+ * @param {object} seedPlan Built seed plan.
+ * @param {object} args Parsed CLI arguments.
+ * @param {Set<string>} claimedOpen Climb ids a real climber has finished.
+ * @return {Promise<number>} Count of documents deleted.
+ */
 async function clearSeedPack(db, seedPlan, args, claimedOpen = new Set()) {
-  const writer = bulkWriter(db);
-  let deleted = await clearSeedEntriesFromPlan(
-    db,
-    writer,
-    seedPlan,
-    args.seedPackId,
-    claimedOpen
-  );
-  const activeContextKeys = contextKeysForPlan(seedPlan);
-  deleted += await clearStaleSeedContexts(
-    db,
-    writer,
-    args.seedPackId,
-    activeContextKeys
-  );
+  const contexts = clearableContexts(db, seedPlan, claimedOpen);
+  const enumeration = createProgressReporter({
+    label: "Clear (reading what exists)",
+    total: contexts.length,
+    unit: "boards",
+  });
+  const doomed = [];
 
+  await runPool(contexts, CONTEXT_CONCURRENCY, async (context) => {
+    appendAll(doomed, await seededDocumentsUnder(db, context.ref, args.seedPackId, enumeration, {
+      clearsEveryRow: context.clearsEveryRow,
+    }));
+    enumeration.advance(1);
+  });
+
+  const stale = await staleSeedContextDocuments(
+    db,
+    args.seedPackId,
+    contextKeysForPlan(seedPlan),
+    enumeration
+  );
+  appendAll(doomed, stale);
+  enumeration.finish(`${doomed.length.toLocaleString()} documents to delete`);
+
+  const deletion = createProgressReporter({
+    label: "Clear (deleting)",
+    total: doomed.length,
+    unit: "docs",
+  });
+  const writer = createBatchWriter(db, {progress: deletion});
+  for (const ref of doomed) {
+    writer.delete(ref);
+  }
+  await writer.flush();
+
+  // Zeroing the summaries is the last thing, so an interrupted clear leaves
+  // boards whose counts still describe rows that are really gone rather than
+  // boards that claim to be empty while their rows survive.
   const now = FieldValue.serverTimestamp();
   for (const plan of seedPlan.climbPlans) {
     if (claimedOpen.has(plan.climb.id)) {
       continue;
     }
 
-    const ref = leaderboardRef(db, plan.climb.id);
-    writer.set(ref, {
+    writer.set(leaderboardRef(db, plan.climb.id), {
       completedCount: 0,
       replayEntryCount: 0,
       seedPackId: args.seedPackId,
       seededAttemptCount: 0,
       totalClimbers: 0,
       updatedAt: now,
+      [SEED_FINGERPRINT_FIELD]: FieldValue.delete(),
+      [SEED_BUCKET_COUNT_FIELD]: 0,
       // Zeroing completions without dropping the holder would leave the slot
       // readable as open while the server still refuses to claim it.
       ...clearedFirstAscentFields(FieldValue.delete()),
@@ -901,10 +1009,94 @@ async function clearSeedPack(db, seedPlan, args, claimedOpen = new Set()) {
     seededAttemptCount: 0,
     totalClimbers: 0,
     updatedAt: now,
+    [SEED_FINGERPRINT_FIELD]: FieldValue.delete(),
+    [SEED_BUCKET_COUNT_FIELD]: 0,
   }, {merge: true});
 
-  await writer.close();
-  return deleted;
+  await writer.drain();
+  deletion.finish(`${doomed.length.toLocaleString()} documents deleted`);
+  return doomed.length;
+}
+
+/**
+ * The context documents a clear is allowed to empty.
+ * @param {object} db Firestore instance.
+ * @param {object} seedPlan Built seed plan.
+ * @param {Set<string>} claimedOpen Climb ids a real climber has finished.
+ * @return {object[]} Context descriptors.
+ */
+function clearableContexts(db, seedPlan, claimedOpen) {
+  const contexts = seedPlan.climbPlans
+    .filter((plan) => !claimedOpen.has(plan.climb.id))
+    .map((plan) => ({
+      key: plan.climb.id,
+      ref: leaderboardRef(db, plan.climb.id),
+      clearsEveryRow: isOpenFirstAscentSummary({
+        completedCount: plan.completedCount,
+        hasFirstAscent: plan.firstAscentAttempt !== null,
+      }),
+    }));
+  contexts.push({
+    key: JUST_CLIMB_GLOBAL_CONTEXT_ID,
+    ref: justClimbLeaderboardRef(db),
+    clearsEveryRow: false,
+  });
+  return contexts;
+}
+
+/**
+ * Finds every document this pack owns under one replay context.
+ *
+ * Split bucket entries are found by listing rather than by query, because a
+ * `where("seedPackId", ...)` per bucket is one round trip per bucket that also
+ * needs an index; the ids the pack writes are derived, so membership is decided
+ * locally. Finishers are found by listing for the same reason, and filtered by
+ * `isSyntheticUserId` so a real climber's document is never in the set.
+ * @param {object} db Firestore instance.
+ * @param {object} contextRef Replay context document reference.
+ * @param {string} seedPackId Pack being cleared.
+ * @param {object} progress Reporter kept alive during enumeration.
+ * @return {Promise<object[]>} Document references to delete.
+ */
+async function seededDocumentsUnder(db, contextRef, seedPackId, progress, {
+  clearsEveryRow = false,
+} = {}) {
+  const bucketRefs = await withRetry(
+    () => contextRef.collection("splitBuckets").listDocuments(),
+    {description: `listDocuments(${contextRef.path}/splitBuckets)`, onRetry: () => progress.retried()}
+  );
+  const entryCollections = bucketRefs.map((bucketRef) => bucketRef.collection("entries"));
+  const [entries, finishers] = await Promise.all([
+    listDocumentsAcross(entryCollections, {progress}),
+    withRetry(() => contextRef.collection("finishers").listDocuments(), {
+      description: `listDocuments(${contextRef.path}/finishers)`,
+      onRetry: () => progress.retried(),
+    }),
+  ]);
+
+  // A contested board carries real climbers' rows beside the pack's, under ids
+  // only they know, and those are not the fixture's to delete. A board seeded
+  // with an open First Ascent is the documented exception: it promises zero
+  // completions, and `claimedOpenClimbIds` has already taken any board a real
+  // climber genuinely finished out of this set, so whatever is left there is
+  // the pack's own residue whether the ids say so or not.
+  const doomedEntries = clearsEveryRow ?
+    entries :
+    entries.filter((document) => isSeededAttemptId(document.id, seedPackId));
+  const doomedFinishers = clearsEveryRow ?
+    finishers :
+    finishers.filter((document) => isSyntheticUserId(document.id));
+
+  // Bucket parents only go when nothing under them survives; a bucket document
+  // holds no fields of its own, so deleting one that still has entries orphans
+  // them behind a parent the console renders as missing.
+  const doomed = appendAll([], doomedEntries);
+  appendAll(doomed, doomedFinishers);
+  if (doomedEntries.length === entries.length) {
+    appendAll(doomed, bucketRefs);
+  }
+
+  return doomed;
 }
 
 function contextKeysForPlan(seedPlan) {
@@ -917,140 +1109,32 @@ function contextKeysForPlan(seedPlan) {
   return keys;
 }
 
-async function clearStaleSeedContexts(db, writer, seedPackId, activeContextKeys) {
-  const snapshot = await db
-    .collection(LIVE_REPLAY_COLLECTION)
-    .where("seedPackId", "==", seedPackId)
-    .get();
-  let deleted = 0;
-
-  for (const document of snapshot.docs) {
-    if (activeContextKeys.has(document.id)) {
-      continue;
-    }
-
-    const splitBucketRefs = await document.ref.collection("splitBuckets").listDocuments();
-    for (const splitBucketRef of splitBucketRefs) {
-      const entries = await splitBucketRef
-        .collection("entries")
-        .where("seedPackId", "==", seedPackId)
-        .get();
-      for (const entry of entries.docs) {
-        writer.delete(entry.ref);
-        deleted += 1;
-      }
-    }
-
-    const finishers = await document.ref
-      .collection("finishers")
-      .where("seedPackId", "==", seedPackId)
-      .get();
-    for (const finisher of finishers.docs) {
-      writer.delete(finisher.ref);
-      deleted += 1;
-    }
-
-    writer.delete(document.ref);
-    deleted += 1;
-  }
-
-  return deleted;
-}
-
 /**
- * Deletes every row this pack has ever put in the global Just Climb context.
- *
- * Found by query rather than by derived id, unlike the per-climb boards. The
- * global context carries one row per attempt on *every* seeded climb, so its
- * contents outlive the climb list: retiring a climb takes its own board away
- * with `clearStaleSeedContexts`, but its attempts stay here, under ids the
- * current plan can no longer name. Staging accumulated 424 of them from eight
- * retired climbs, which is what failed the audit - `replayEntryCount` said 903
- * while 1,327 rows carried this pack's id.
- *
- * The clear runs before the write, so taking out everything with this pack's id
- * is safe: the seed puts the current rows straight back, and a real climber's
- * rows carry no `seedPackId` at all.
+ * Finds the rows of retired contexts - boards this pack once wrote and no longer
+ * plans.
  * @param {object} db Firestore instance.
- * @param {object} writer BulkWriter that performs the deletes.
- * @param {object} seedPlan Built seed plan.
- * @return {Promise<number>} Count of entry documents deleted.
+ * @param {string} seedPackId Pack being cleared.
+ * @param {Set<string>} activeContextKeys Contexts the current plan still owns.
+ * @param {object} progress Reporter kept alive during enumeration.
+ * @return {Promise<object[]>} Document references to delete.
  */
-async function clearJustClimbSeedRows(db, writer, seedPlan, seedPackId) {
-  let deleted = 0;
+async function staleSeedContextDocuments(db, seedPackId, activeContextKeys, progress) {
+  const snapshot = await withRetry(
+    () => db.collection(LIVE_REPLAY_COLLECTION).where("seedPackId", "==", seedPackId).get(),
+    {description: `query(${LIVE_REPLAY_COLLECTION} by seedPackId)`, onRetry: () => progress.retried()}
+  );
+  const stale = snapshot.docs.filter((document) => !activeContextKeys.has(document.id));
+  const doomed = [];
 
-  for (
-    let bucketIndex = 0;
-    bucketIndex <= seedPlan.justClimbPlan.maxBucketIndex;
-    bucketIndex += 1
-  ) {
-    const entries = await justClimbEntriesCollection(db, bucketIndex)
-      .where("seedPackId", "==", seedPackId)
-      .get();
-    for (const entry of entries.docs) {
-      writer.delete(entry.ref);
-      deleted += 1;
-    }
-  }
+  await runPool(stale, CONTEXT_CONCURRENCY, async (document) => {
+    // The whole board is being retired, so nothing under it is worth keeping.
+    appendAll(doomed, await seededDocumentsUnder(db, document.ref, seedPackId, progress, {
+      clearsEveryRow: true,
+    }));
+    doomed.push(document.ref);
+  });
 
-  const finishers = await justClimbFinishersCollection(db)
-    .where("seedPackId", "==", seedPackId)
-    .get();
-  for (const finisher of finishers.docs) {
-    writer.delete(finisher.ref);
-    deleted += 1;
-  }
-
-  return deleted;
-}
-
-async function clearSeedEntriesFromPlan(
-  db,
-  writer,
-  seedPlan,
-  seedPackId,
-  claimedOpen = new Set()
-) {
-  let deleted = 0;
-
-  for (const plan of seedPlan.climbPlans) {
-    // A real climber's board is never wiped, whatever the fixture intended it
-    // to be.
-    if (claimedOpen.has(plan.climb.id)) {
-      continue;
-    }
-
-    if (isOpenFirstAscentSummary({
-      completedCount: plan.completedCount,
-      hasFirstAscent: plan.firstAscentAttempt !== null,
-    })) {
-      deleted += await clearOpenFirstAscentEntries(
-        splitBucketsCollection(db, plan.climb.id),
-        writer
-      );
-      deleted += await clearOpenFirstAscentFinishers(
-        finishersCollection(db, plan.climb.id),
-        writer
-      );
-      continue;
-    }
-
-    for (let bucketIndex = 0; bucketIndex <= MAX_BUCKET_INDEX; bucketIndex += 1) {
-      for (const attemptId of plan.clearAttemptIds) {
-        writer.delete(entriesCollection(db, plan.climb.id, bucketIndex).doc(attemptId));
-        deleted += 1;
-      }
-    }
-
-    for (const userId of plan.clearUserIds) {
-      writer.delete(finishersCollection(db, plan.climb.id).doc(userId));
-      deleted += 1;
-    }
-  }
-
-  deleted += await clearJustClimbSeedRows(db, writer, seedPlan, seedPackId);
-
-  return deleted;
+  return doomed;
 }
 
 /**
@@ -1069,16 +1153,14 @@ async function clearSeedEntriesFromPlan(
  * board once this pack lands, whatever wrote it.
  * @param {object} db Firestore instance.
  * @param {object} seedPlan Built seed plan.
+ * @param {Set<string>} claimedOpen Climb ids a real climber has finished.
  * @return {Promise<object>} Per-climb board states and the Just Climb state.
  */
 async function resolveSeededCompletedCounts(db, seedPlan, claimedOpen = new Set()) {
+  const plans = seedPlan.climbPlans.filter((plan) => !claimedOpen.has(plan.climb.id));
   const climbBoards = new Map();
 
-  for (const plan of seedPlan.climbPlans) {
-    if (claimedOpen.has(plan.climb.id)) {
-      continue;
-    }
-
+  await runPool(plans, CONTEXT_CONCURRENCY, async (plan) => {
     const board = await boardFinisherState(
       finishersCollection(db, plan.climb.id),
       plan.attempts.map((attempt) => attempt.userId),
@@ -1093,7 +1175,7 @@ async function resolveSeededCompletedCounts(db, seedPlan, claimedOpen = new Set(
       hasFirstAscent: plan.firstAscentAttempt !== null,
     });
     climbBoards.set(plan.climb.id, board);
-  }
+  });
 
   return {
     climbBoards,
@@ -1119,7 +1201,9 @@ async function resolveSeededCompletedCounts(db, seedPlan, claimedOpen = new Set(
  * @return {Promise<object>} Population and surviving finisher ids.
  */
 async function boardFinisherState(finishersRef, seededUserIds, plannedCount) {
-  const surviving = await finishersRef.listDocuments();
+  const surviving = await withRetry(() => finishersRef.listDocuments(), {
+    description: `listDocuments(${finishersRef.path})`,
+  });
   const userIds = new Set(surviving.map((document) => document.id));
   for (const userId of seededUserIds) {
     userIds.add(userId);
@@ -1131,67 +1215,184 @@ async function boardFinisherState(finishersRef, seededUserIds, plannedCount) {
   };
 }
 
+/**
+ * The step series one attempt publishes, one value per bucket index.
+ *
+ * Materialized once and used twice - to fingerprint the context and to write it -
+ * so the fingerprint is over the numbers that actually land rather than over the
+ * parameters they were derived from. A change to `stepsAtBucketIndex` therefore
+ * invalidates the fingerprint without anyone having to remember to say so.
+ * @param {object} attempt Generated attempt.
+ * @param {number} maxBucketIndex Highest bucket index this context publishes.
+ * @return {number[]} Steps at each bucket index.
+ */
+function stepSeries(attempt, maxBucketIndex) {
+  const series = new Array(maxBucketIndex + 1);
+  for (let bucketIndex = 0; bucketIndex <= maxBucketIndex; bucketIndex += 1) {
+    series[bucketIndex] = stepsAtBucketIndex(attempt, bucketIndex);
+  }
+  return series;
+}
+
+/**
+ * What one context's rows will contain, as a hash.
+ *
+ * This is what makes a re-run seconds instead of minutes. Every id and every
+ * value the seed writes is derived from the plan, so a context whose plan has
+ * not changed already holds exactly the documents this run would write. The hash
+ * is stamped on the summary only after the rows land, so an interrupted run
+ * leaves no fingerprint and the next run rewrites the context in full.
+ * @param {object} context Prepared context.
+ * @param {string} seedPackId Pack being written.
+ * @return {string} Hex digest.
+ */
+function contextFingerprint(context, seedPackId) {
+  const hash = createHash("sha256");
+  hash.update(`${SEED_WRITE_REVISION}|${seedPackId}|${context.contextType}|`);
+  hash.update(`${context.contextId}|${context.maxBucketIndex}|${BUCKET_INTERVAL_SECONDS}\n`);
+
+  for (const {attempt, series} of context.rows) {
+    hash.update([
+      attempt.id,
+      attempt.userId,
+      attempt.displayName,
+      attempt.avatarToken,
+      attempt.photoURL ?? "",
+      attempt.finalSteps,
+      attempt.completionDurationSeconds.toFixed(4),
+      series.join(","),
+    ].join("|"));
+    hash.update("\n");
+  }
+
+  return hash.digest("hex");
+}
+
+/**
+ * Flattens the plan into the two contexts the writer works over.
+ * @param {object} seedPlan Built seed plan.
+ * @param {Set<string>} claimedOpen Climb ids a real climber has finished.
+ * @param {object} db Firestore instance.
+ * @return {object[]} Prepared contexts, each carrying its materialized rows.
+ */
+function prepareContexts(seedPlan, claimedOpen, db) {
+  const contexts = seedPlan.climbPlans
+    .filter((plan) => !claimedOpen.has(plan.climb.id))
+    .map((plan) => ({
+      plan,
+      contextType: LIVE_CLIMB_CONTEXT_TYPE,
+      contextId: plan.climb.id,
+      label: plan.climb.id,
+      summaryRef: leaderboardRef(db, plan.climb.id),
+      finishersRef: finishersCollection(db, plan.climb.id),
+      entriesCollection: (bucketIndex) => entriesCollection(db, plan.climb.id, bucketIndex),
+      splitBucketsRef: splitBucketsCollection(db, plan.climb.id),
+      attempts: plan.attempts,
+      maxBucketIndex: plan.maxBucketIndex,
+      collapsesRepeatFinishers: true,
+      rows: plan.attempts.map((attempt) => ({
+        attempt,
+        series: stepSeries(attempt, plan.maxBucketIndex),
+      })),
+    }));
+
+  const justClimb = seedPlan.justClimbPlan;
+  contexts.push({
+    plan: justClimb,
+    contextType: JUST_CLIMB_CONTEXT_TYPE,
+    contextId: JUST_CLIMB_GLOBAL_CONTEXT_ID,
+    label: "just-climb-global",
+    summaryRef: justClimbLeaderboardRef(db),
+    finishersRef: justClimbFinishersCollection(db),
+    entriesCollection: (bucketIndex) => justClimbEntriesCollection(db, bucketIndex),
+    splitBucketsRef: justClimbLeaderboardRef(db).collection("splitBuckets"),
+    attempts: justClimb.attempts,
+    maxBucketIndex: justClimb.maxBucketIndex,
+    collapsesRepeatFinishers: false,
+    rows: justClimb.attempts.map((attempt) => ({
+      attempt,
+      series: stepSeries(attempt, justClimb.maxBucketIndex),
+    })),
+  });
+
+  return contexts;
+}
+
 async function writeSeedPlan(db, seedPlan, args, claimedOpen = new Set()) {
-  const writer = bulkWriter(db);
   const now = FieldValue.serverTimestamp();
+  const contexts = prepareContexts(seedPlan, claimedOpen, db);
   const {climbBoards, justClimbBoard} = await resolveSeededCompletedCounts(
     db,
     seedPlan,
     claimedOpen
   );
-  let writes = 0;
 
-  for (const plan of seedPlan.climbPlans) {
-    if (claimedOpen.has(plan.climb.id)) {
+  const summaries = await withRetry(
+    () => db.getAll(...contexts.map((context) => context.summaryRef)),
+    {description: `getAll(${contexts.length} replay summaries)`}
+  );
+  const stored = new Map(summaries.map((snapshot) => [snapshot.ref.path, snapshot.data() ?? {}]));
+
+  const changed = [];
+  let skippedEntries = 0;
+  for (const context of contexts) {
+    context.fingerprint = contextFingerprint(context, args.seedPackId);
+    const previous = stored.get(context.summaryRef.path) ?? {};
+    context.previousBucketCount = Number.isInteger(previous[SEED_BUCKET_COUNT_FIELD]) ?
+      previous[SEED_BUCKET_COUNT_FIELD] :
+      null;
+    context.entryCount = context.rows.length * (context.maxBucketIndex + 1);
+
+    if (!args.force && previous[SEED_FINGERPRINT_FIELD] === context.fingerprint) {
+      skippedEntries += context.entryCount;
       continue;
     }
+    changed.push(context);
+  }
 
-    const targetSteps = referenceStepCount(plan.climb);
-    const summaryRef = leaderboardRef(db, plan.climb.id);
-    const board = climbBoards.get(plan.climb.id);
-    const summary = {
-      activityTier: plan.config.activityTier,
-      bucketIntervalSeconds: BUCKET_INTERVAL_SECONDS,
-      completedCount: board.population,
-      contextId: plan.climb.id,
-      contextType: LIVE_CLIMB_CONTEXT_TYPE,
-      replayEntryCount: plan.attempts.length,
-      schemaVersion: 1,
-      seedPackId: args.seedPackId,
-      seededAttemptCount: plan.attempts.length,
-      source: seededSummarySource(board),
-      targetStepCount: targetSteps,
-      // The board population, not the synthetic row count. `replaySummaryWrite`
-      // in the Cloud Function writes `totalClimbers = completedCount`, so a seed
-      // stamping the attempt count here left the two numbers describing
-      // different populations on the same document the moment a real climber
-      // finished. `seededAttemptCount` and `replayEntryCount` are where the
-      // synthetic row count lives.
-      totalClimbers: board.population,
-      updatedAt: now,
-    };
+  if (skippedEntries > 0) {
+    console.log(
+      `Unchanged: ${(contexts.length - changed.length)} of ${contexts.length} boards ` +
+      `already hold this pack's ${skippedEntries.toLocaleString()} rows. Skipping them.`
+    );
+  }
 
-    Object.assign(summary, plan.firstAscentAttempt ?
-      firstAscentSeedFields(
-        plan.firstAscentAttempt,
-        firstAscentClaimedAt(args.seedPackId, plan.climb.id)
-      ) :
-      // An earlier seed may have left a holder here; an open slot has to be
-      // genuinely empty for the next finisher to claim it.
-      clearedFirstAscentFields(FieldValue.delete()));
+  const plannedEntries = changed.reduce((sum, context) => sum + context.entryCount, 0);
+  const plannedFinishers = changed.reduce((sum, context) => sum + context.rows.length, 0);
+  const progress = createProgressReporter({
+    label: "Seed",
+    total: plannedEntries + plannedFinishers + contexts.length,
+    unit: "docs",
+  });
+  const writer = createBatchWriter(db, {progress});
+  let writes = 0;
 
-    writer.set(summaryRef, summary, {merge: true});
+  // Summaries first and fingerprints last, both deliberate. The summary a board
+  // renders from is written before its rows so a run interrupted mid-context
+  // leaves a board that under-reports rather than one that promises rows it does
+  // not have; the fingerprint is only stamped once the rows are in.
+  for (const context of contexts) {
+    writer.set(
+      context.summaryRef,
+      summaryWrite(context, {args, now, climbBoards, justClimbBoard, seedPlan}),
+      {merge: true}
+    );
     writes += 1;
+  }
+  await writer.flush();
 
-    // A publish writes a finisher document in the same transaction as the row,
-    // and the rank frozen on a finished climb counts those documents. A seeded
-    // board carrying entries but no finishers reads as an empty field, so it
-    // would freeze a mid-field climber at "1st of 84".
-    for (const [index, attempt] of plan.attempts.entries()) {
+  for (const context of changed) {
+    progress.note(context.label);
+    const doomed = await retiredRowRefs(context, args.seedPackId, progress);
+    for (const ref of doomed) {
+      writer.delete(ref);
+    }
+
+    for (const [index, {attempt}] of context.rows.entries()) {
       writer.set(
-        finishersCollection(db, plan.climb.id).doc(attempt.userId),
+        context.finishersRef.doc(attempt.userId),
         syntheticFinisherWrite(attempt, {
-          contextType: LIVE_CLIMB_CONTEXT_TYPE,
+          contextType: context.contextType,
           globalCompletionOrder: index + 1,
           identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
           schemaVersion: 1,
@@ -1202,210 +1403,247 @@ async function writeSeedPlan(db, seedPlan, args, claimedOpen = new Set()) {
       writes += 1;
     }
 
-    for (let bucketIndex = 0; bucketIndex <= plan.maxBucketIndex; bucketIndex += 1) {
-      for (const attempt of plan.attempts) {
-        const entryRef = entriesCollection(db, plan.climb.id, bucketIndex).doc(attempt.id);
-        const stepsAtBucket = stepsAtBucketIndex(attempt, bucketIndex);
-        writer.set(entryRef, {
-          avatarToken: attempt.avatarToken,
-          completionDurationSeconds: attempt.completionDurationSeconds,
-          contextId: plan.climb.id,
-          contextType: LIVE_CLIMB_CONTEXT_TYPE,
-          displayName: attempt.displayName,
-          finalSteps: attempt.finalSteps,
-          // Every synthetic attempt is its own climber, so each is its own best.
-          identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
-          isBestForUser: true,
-          isSynthetic: true,
-          photoURL: attempt.photoURL ?? "",
-          schemaVersion: 1,
-          seedPackId: args.seedPackId,
-          source: "synthetic",
-          splitBucketCount: plan.maxBucketIndex + 1,
-          splitIntervalSeconds: BUCKET_INTERVAL_SECONDS,
-          stepsAtBucket,
-          updatedAt: now,
-          userId: attempt.userId,
-          workoutId: attempt.id,
-        });
+    // Climber-major, not bucket-major, and this ordering is worth 9x.
+    //
+    // Every entry in one split bucket lives in the same `entries` collection, so
+    // a 500-write batch filled bucket-first is 500 writes into one collection
+    // and 500 index updates over the same `stepsAtBucket` range. Firestore
+    // answers that with contention: filled bucket-first this measured 2,327
+    // docs/s and retried, filled climber-first the same batch touches 500
+    // different bucket collections and measured over 20,000 docs/s.
+    const bucketCount = context.maxBucketIndex + 1;
+    for (const [row, {attempt, series}] of context.rows.entries()) {
+      const entry = entryWrite(context, attempt, 0, {seedPackId: args.seedPackId, now});
+      // Each climber starts at a different bucket and wraps, so the batches in
+      // flight at any moment are spread over the bucket range instead of all
+      // crowding its first few hundred collections at once.
+      const offset = (row * BUCKET_STRIPE_STEP) % bucketCount;
+      for (let step = 0; step < bucketCount; step += 1) {
+        const bucketIndex = (offset + step) % bucketCount;
+        writer.set(
+          context.entriesCollection(bucketIndex).doc(attempt.id),
+          {...entry, stepsAtBucket: series[bucketIndex]}
+        );
         writes += 1;
       }
     }
+
+    await writer.flush();
+    writer.set(context.summaryRef, {
+      [SEED_FINGERPRINT_FIELD]: context.fingerprint,
+      [SEED_BUCKET_COUNT_FIELD]: context.maxBucketIndex + 1,
+    }, {merge: true});
+    await writer.flush();
   }
 
-  writer.set(justClimbLeaderboardRef(db), {
-    bucketIntervalSeconds: BUCKET_INTERVAL_SECONDS,
-    completedCount: justClimbBoard.population,
-    contextId: JUST_CLIMB_GLOBAL_CONTEXT_ID,
-    contextType: JUST_CLIMB_CONTEXT_TYPE,
-    replayEntryCount: seedPlan.justClimbPlan.attempts.length,
-    schemaVersion: 1,
-    seedPackId: args.seedPackId,
-    seededAttemptCount: seedPlan.justClimbPlan.attempts.length,
-    source: seededSummarySource(justClimbBoard),
-    targetStepCount: null,
-    totalClimbers: justClimbBoard.population,
-    updatedAt: now,
-  }, {merge: true});
-  writes += 1;
-
-  // The open race ranks attempts, not climbers, so its finishers are not in the
-  // frozen rank's numerator. They still stand for the same climbers the summary
-  // counts, and a real publish writes one, so the fixture writes one too.
-  for (const [index, attempt] of seedPlan.justClimbPlan.attempts.entries()) {
-    writer.set(
-      justClimbFinishersCollection(db).doc(attempt.userId),
-      syntheticFinisherWrite(attempt, {
-        contextType: JUST_CLIMB_CONTEXT_TYPE,
-        globalCompletionOrder: index + 1,
-        identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
-        schemaVersion: 1,
-        seedPackId: args.seedPackId,
-        updatedAt: now,
-      })
-    );
-    writes += 1;
-  }
-
-  for (
-    let bucketIndex = 0;
-    bucketIndex <= seedPlan.justClimbPlan.maxBucketIndex;
-    bucketIndex += 1
-  ) {
-    for (const attempt of seedPlan.justClimbPlan.attempts) {
-      const entryRef = justClimbEntriesCollection(db, bucketIndex)
-        .doc(attempt.id);
-      const stepsAtBucket = stepsAtBucketIndex(attempt, bucketIndex);
-      writer.set(entryRef, {
-        avatarToken: attempt.avatarToken,
-        completionDurationSeconds: attempt.completionDurationSeconds,
-        contextId: JUST_CLIMB_GLOBAL_CONTEXT_ID,
-        contextType: JUST_CLIMB_CONTEXT_TYPE,
-        displayName: attempt.displayName,
-        finalSteps: attempt.finalSteps,
-        // No isBestForUser: the open Just Climb race has no step target, so it
-        // races every completed attempt as its own opponent rather than
-        // collapsing a climber's repeats onto a "fastest" one.
-        identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
-        isSynthetic: true,
-        photoURL: attempt.photoURL ?? "",
-        schemaVersion: 1,
-        seedPackId: args.seedPackId,
-        source: "synthetic",
-        splitBucketCount: seedPlan.justClimbPlan.maxBucketIndex + 1,
-        splitIntervalSeconds: BUCKET_INTERVAL_SECONDS,
-        stepsAtBucket,
-        updatedAt: now,
-        userId: attempt.userId,
-        workoutId: attempt.id,
-      });
-      writes += 1;
-    }
-  }
-
-  await writer.close();
+  await writer.drain();
+  progress.finish(`${writes.toLocaleString()} documents written`);
   return writes;
 }
 
+/**
+ * Rows a previous run left behind that this one no longer plans.
+ *
+ * Two ways a row is orphaned: its bucket index is past the range this plan
+ * publishes, or its attempt index is past the field this plan seeds. Both are
+ * read back rather than derived, because a summary written before this field
+ * existed cannot say how far the previous run reached.
+ * @param {object} context Prepared context.
+ * @param {string} seedPackId Pack being written.
+ * @param {object} progress Reporter kept alive during enumeration.
+ * @return {Promise<object[]>} Document references to delete.
+ */
+async function retiredRowRefs(context, seedPackId, progress) {
+  const plannedIds = new Set(context.rows.map(({attempt}) => attempt.id));
+  const bucketRefs = await withRetry(() => context.splitBucketsRef.listDocuments(), {
+    description: `listDocuments(${context.splitBucketsRef.path})`,
+    onRetry: () => progress.retried(),
+  });
+  const retiredBuckets = bucketRefs.filter((bucketRef) => {
+    const index = Number.parseInt(bucketRef.id, 10);
+    return !Number.isInteger(index) || index > context.maxBucketIndex;
+  });
+  const survivingBuckets = bucketRefs.filter((bucketRef) => !retiredBuckets.includes(bucketRef));
+
+  const [retiredEntries, survivingEntries] = await Promise.all([
+    listDocumentsAcross(retiredBuckets.map((ref) => ref.collection("entries")), {progress: null}),
+    listDocumentsAcross(survivingBuckets.map((ref) => ref.collection("entries")), {progress: null}),
+  ]);
+  const finishers = await withRetry(() => context.finishersRef.listDocuments(), {
+    description: `listDocuments(${context.finishersRef.path})`,
+    onRetry: () => progress.retried(),
+  });
+
+  const plannedUserIds = new Set(context.rows.map(({attempt}) => attempt.userId));
+  const retired = appendAll([], retiredEntries);
+  appendAll(retired, retiredBuckets);
+  appendAll(retired, survivingEntries.filter((ref) =>
+    !plannedIds.has(ref.id) && isSeededAttemptId(ref.id, seedPackId)));
+  appendAll(retired, finishers.filter((ref) =>
+    isSyntheticUserId(ref.id) && !plannedUserIds.has(ref.id)));
+
+  return retired;
+}
+
+/**
+ * Whether one entry document id belongs to this seed pack.
+ *
+ * Prefix-matched against exactly what `seedAttemptId` builds. A real climber's
+ * entry id is their `workoutId`, which never takes this shape, so this is what
+ * keeps a clear off rows the seed did not write.
+ * @param {string} attemptId Entry document id.
+ * @param {string} seedPackId Pack being written.
+ * @return {boolean} Whether this pack owns the row.
+ */
+function isSeededAttemptId(attemptId, seedPackId) {
+  return typeof attemptId === "string" &&
+    attemptId.startsWith(`seed_${sanitizeContextId(seedPackId)}_`);
+}
+
+/**
+ * The summary document one context publishes.
+ * @param {object} context Prepared context.
+ * @param {object} state Shared write state.
+ * @return {object} Summary fields.
+ */
+function summaryWrite(context, {args, now, climbBoards, justClimbBoard, seedPlan}) {
+  if (context.contextType === JUST_CLIMB_CONTEXT_TYPE) {
+    return {
+      bucketIntervalSeconds: BUCKET_INTERVAL_SECONDS,
+      completedCount: justClimbBoard.population,
+      contextId: JUST_CLIMB_GLOBAL_CONTEXT_ID,
+      contextType: JUST_CLIMB_CONTEXT_TYPE,
+      replayEntryCount: seedPlan.justClimbPlan.attempts.length,
+      schemaVersion: 1,
+      seedPackId: args.seedPackId,
+      seededAttemptCount: seedPlan.justClimbPlan.attempts.length,
+      source: seededSummarySource(justClimbBoard),
+      targetStepCount: null,
+      totalClimbers: justClimbBoard.population,
+      updatedAt: now,
+    };
+  }
+
+  const plan = context.plan;
+  const board = climbBoards.get(plan.climb.id);
+  const summary = {
+    activityTier: plan.config.activityTier,
+    bucketIntervalSeconds: BUCKET_INTERVAL_SECONDS,
+    completedCount: board.population,
+    contextId: plan.climb.id,
+    contextType: LIVE_CLIMB_CONTEXT_TYPE,
+    replayEntryCount: plan.attempts.length,
+    schemaVersion: 1,
+    seedPackId: args.seedPackId,
+    seededAttemptCount: plan.attempts.length,
+    source: seededSummarySource(board),
+    targetStepCount: referenceStepCount(plan.climb),
+    // The board population, not the synthetic row count. `replaySummaryWrite`
+    // in the Cloud Function writes `totalClimbers = completedCount`, so a seed
+    // stamping the attempt count here left the two numbers describing
+    // different populations on the same document the moment a real climber
+    // finished. `seededAttemptCount` and `replayEntryCount` are where the
+    // synthetic row count lives.
+    totalClimbers: board.population,
+    updatedAt: now,
+  };
+
+  return Object.assign(summary, plan.firstAscentAttempt ?
+    firstAscentSeedFields(
+      plan.firstAscentAttempt,
+      firstAscentClaimedAt(args.seedPackId, plan.climb.id)
+    ) :
+    // An earlier seed may have left a holder here; an open slot has to be
+    // genuinely empty for the next finisher to claim it.
+    clearedFirstAscentFields(FieldValue.delete()));
+}
+
+/**
+ * One split bucket entry.
+ * @param {object} context Prepared context.
+ * @param {object} attempt Generated attempt.
+ * @param {number} stepsAtBucket Steps this attempt had reached at this bucket.
+ * @param {object} state Shared write state.
+ * @return {object} Entry fields.
+ */
+function entryWrite(context, attempt, stepsAtBucket, {seedPackId, now}) {
+  const entry = {
+    avatarToken: attempt.avatarToken,
+    completionDurationSeconds: attempt.completionDurationSeconds,
+    contextId: context.contextId,
+    contextType: context.contextType,
+    displayName: attempt.displayName,
+    finalSteps: attempt.finalSteps,
+    identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
+    isSynthetic: true,
+    photoURL: attempt.photoURL ?? "",
+    schemaVersion: 1,
+    seedPackId,
+    source: "synthetic",
+    splitBucketCount: context.maxBucketIndex + 1,
+    splitIntervalSeconds: BUCKET_INTERVAL_SECONDS,
+    stepsAtBucket,
+    updatedAt: now,
+    userId: attempt.userId,
+    workoutId: attempt.id,
+  };
+
+  // Every synthetic attempt is its own climber, so each is its own best. The
+  // open Just Climb race has no step target and races every completed attempt
+  // as its own opponent, so it carries no flag at all - filtering there would
+  // empty the field.
+  if (context.collapsesRepeatFinishers) {
+    entry.isBestForUser = true;
+  }
+
+  return entry;
+}
+
 async function backfillSeedAvatarURLs(db, args, avatarURLs) {
-  const writer = bulkWriter(db);
   const contexts = [
     ...[...ACTIVE_CLIMBS, ...WARM_CLIMBS].map((config) => ({
       label: config.id,
       ref: leaderboardRef(db, config.id),
     })),
-    {
-      label: "just-climb-global",
-      ref: justClimbLeaderboardRef(db),
-    },
+    {label: "just-climb-global", ref: justClimbLeaderboardRef(db)},
   ];
+  const progress = createProgressReporter({label: "Backfill avatars", unit: "entries"});
+  const writer = createBatchWriter(db, {progress});
   let scanned = 0;
   let updated = 0;
 
   for (const context of contexts) {
-    const contextScannedStart = scanned;
-    const contextUpdatedStart = updated;
-    const splitBucketRefs = await context.ref
-      .collection("splitBuckets")
-      .listDocuments();
-    console.log(`Scanning ${context.label} (${splitBucketRefs.length} buckets)`);
+    progress.note(context.label);
+    const splitBucketRefs = await withRetry(
+      () => context.ref.collection("splitBuckets").listDocuments(),
+      {description: `listDocuments(${context.ref.path}/splitBuckets)`}
+    );
 
-    for (const splitBucketRef of splitBucketRefs) {
-      const snapshot = await splitBucketRef
-        .collection("entries")
-        .where("seedPackId", "==", args.seedPackId)
-        .get();
+    await runPool(splitBucketRefs, READ_CONCURRENCY, async (splitBucketRef) => {
+      const snapshot = await withRetry(
+        () => splitBucketRef.collection("entries").where("seedPackId", "==", args.seedPackId).get(),
+        {description: `query(${splitBucketRef.path}/entries)`, onRetry: () => progress.retried()}
+      );
 
       for (const document of snapshot.docs) {
         scanned += 1;
-        const data = document.data();
-        const displayName = stringValue(data.displayName);
-        const photoURL = displayName
-          ? avatarURLForDisplayName(displayName, avatarURLs)
-          : null;
-
-        if (photoURL && stringValue(data.photoURL) !== photoURL) {
-          writer.update(document.ref, {
-            photoURL,
-            updatedAt: FieldValue.serverTimestamp(),
-          });
-          updated += 1;
+        const displayName = document.data().displayName;
+        const photoURL = avatarURLForDisplayName(displayName, avatarURLs);
+        if (!photoURL || document.data().photoURL === photoURL) {
+          continue;
         }
-      }
-    }
 
-    console.log(
-      `  ${context.label}: ` +
-        `${(updated - contextUpdatedStart).toLocaleString()} updated, ` +
-        `${(scanned - contextScannedStart).toLocaleString()} scanned`
-    );
+        writer.update(document.ref, {photoURL});
+        updated += 1;
+      }
+    });
+
+    await writer.flush();
   }
 
-  await writer.close();
+  await writer.drain();
+  progress.finish(`${updated.toLocaleString()} of ${scanned.toLocaleString()} entries updated`);
   return {scanned, updated};
-}
-
-/**
- * gRPC status codes worth another attempt.
- *
- * All of them mean "the backend was busy", not "this write is wrong": deadline
- * exceeded, unavailable, resource exhausted, aborted, and internal. A wrong
- * write fails the same way every time and is not in this set.
- */
-const RETRYABLE_WRITE_CODES = new Set([4, 8, 10, 13, 14]);
-const BULK_WRITE_MAX_ATTEMPTS = 8;
-
-/**
- * A BulkWriter that survives a busy backend.
- *
- * This seed pushes several hundred thousand operations through one writer, so a
- * transient `DEADLINE_EXCEEDED` somewhere in the middle is expected rather than
- * exceptional - and giving up after three attempts failed a 20-minute run on one
- * write to one split bucket, leaving staging half-seeded. Retrying a busy
- * backend further is the difference between a command that reliably finishes and
- * one that has to be babysat.
- *
- * Non-retryable codes still stop immediately: a write the backend refuses on its
- * merits will be refused just as firmly on the eighth attempt.
- * @param {object} db Firestore instance.
- * @return {object} Configured BulkWriter.
- */
-function bulkWriter(db) {
-  const writer = db.bulkWriter();
-  writer.onWriteError((error) => {
-    const retryable = RETRYABLE_WRITE_CODES.has(error.code);
-    if (retryable && error.failedAttempts < BULK_WRITE_MAX_ATTEMPTS) {
-      return true;
-    }
-
-    console.error(
-      `Bulk write to ${error.documentRef.path} failed after ` +
-      `${error.failedAttempts} attempt(s)` +
-      `${retryable ? "" : " (not retryable)"}: ${error.message}`
-    );
-    return false;
-  });
-  return writer;
 }
 
 function leaderboardRef(db, climbId) {

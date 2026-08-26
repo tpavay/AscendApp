@@ -24,12 +24,15 @@
  *   The target account has signed into the target environment at least once.
  */
 
-import {spawnSync} from "node:child_process";
 import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {getAuth} from "firebase-admin/auth";
 import {getFirestore} from "firebase-admin/firestore";
+import {runSeedStep} from "./lib/seed-step-runner.mjs";
+import {planIdentityRepair} from "./lib/staging-identity-repair.mjs";
+import {PROFILE_SEED_PERSONAS} from "./seed/fixtures/profile-fixtures.mjs";
+import {createBatchWriter, createProgressReporter} from "./lib/firestore-bulk.mjs";
 import {
   assertSeedableProject,
   resolveProjectId,
@@ -40,6 +43,7 @@ import {
   contentReadinessFailures,
   unphotographableDisplayName,
 } from "./seed/lib/content-ready-contract.mjs";
+import {FieldValue} from "firebase-admin/firestore";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
@@ -196,16 +200,21 @@ async function main() {
     return;
   }
 
+  const startedAt = Date.now();
   seedWorld(projectId, args);
   seedAccount(projectId, args, account);
+  await repairBoardIdentities(getFirestore(), account, args, stepSeconds);
 
   if (args.dryRun) {
+    printTimings(startedAt);
     console.log("\nDry run only. Nothing was written, so there is nothing to verify.");
     return;
   }
 
   runAudit(projectId);
-  if (!await verify(account)) {
+  const ready = await verify(account);
+  printTimings(startedAt);
+  if (!ready) {
     return;
   }
 
@@ -290,6 +299,104 @@ function clearAccount(projectId, args, account) {
   ]);
 }
 
+/**
+ * Gives every other account on the boards a name fit to photograph.
+ *
+ * Runs after the two seeds because it has to see the identities they publish
+ * before it can avoid colliding with them. What it repairs is the population
+ * neither seed owns: the QA and tester accounts that signed into staging and
+ * left "CHANGE ME", "Content Capture" and "Climber 6J84R7" on the boards.
+ *
+ * It writes only the account's own public profile mirror. The deployed
+ * `onPublicProfileIdentityWritten` trigger carries the new name to
+ * `leaderboard_stats` and to every replay projection, which is the one path
+ * allowed to publish account-authored identity.
+ * @param {object} db Firestore instance.
+ * @param {object} account The account being captured.
+ * @param {object} args Parsed CLI arguments.
+ * @param {Array} timings Per-step wall clocks to append to.
+ * @return {Promise<object>} The plan that was applied.
+ */
+async function repairBoardIdentities(db, account, args, timings) {
+  const startedAt = Date.now();
+  const identities = await readPublishedIdentities(db);
+  const {renames, photoless, seedOwnedFailures} = planIdentityRepair(identities, {
+    protectedUid: account.uid,
+    seedOwnedUids: new Set(PROFILE_SEED_PERSONAS.map((persona) => persona.id)),
+  });
+
+  if (seedOwnedFailures.length > 0) {
+    throw new Error(
+      "These identities come from scripts/seed/fixtures/profile-fixtures.mjs, so " +
+      "renaming them here would last exactly until the next seed. Fix the " +
+      "fixture:\n" +
+      seedOwnedFailures
+        .map((failure) => `  ${failure.uid}: ${failure.reason}`)
+        .join("\n")
+    );
+  }
+
+  console.log(`\n> repair board identities (${identities.length} published)`);
+  if (renames.length === 0) {
+    console.log("  Every published name already reads as a climber.");
+  }
+
+  for (const rename of renames) {
+    console.log(`  ${rename.uid}: ${JSON.stringify(rename.from)} -> "${rename.to}"  (${rename.reason})`);
+  }
+
+  if (photoless.length > 0) {
+    console.log(
+      `  ${photoless.length} published identit${photoless.length === 1 ? "y has" : "ies have"} ` +
+      "no photo and will render as a lettered circle. A face has to be a picture " +
+      "somebody chose, so this is reported rather than invented - give one with " +
+      `node dev-db.mjs hydrate-user --project ${args.project} --user <uid> --photo-url <storage url>.`
+    );
+    photoless.forEach((uid) => console.log(`    ${uid}`));
+  }
+
+  if (args.dryRun || renames.length === 0) {
+    timings.push(["repair-identities", (Date.now() - startedAt) / 1000]);
+    return {renames, photoless};
+  }
+
+  const progress = createProgressReporter({label: "Identities", total: renames.length, quiet: true});
+  const writer = createBatchWriter(db, {progress});
+  for (const rename of renames) {
+    writer.set(db.collection("users").doc(rename.uid).collection("public_profile").doc("current"), {
+      displayName: rename.to,
+      identityPolicyVersion: 1,
+      identityChangedAt: FieldValue.serverTimestamp(),
+    }, {merge: true});
+  }
+  await writer.drain();
+  const seconds = progress.finish(`${renames.length} identit${renames.length === 1 ? "y" : "ies"} republished`);
+  timings.push(["repair-identities", (Date.now() - startedAt) / 1000]);
+  void seconds;
+
+  console.log(
+    "  onPublicProfileIdentityWritten carries these to leaderboard_stats and " +
+    "the replay projections; give it a few seconds before verifying."
+  );
+  return {renames, photoless};
+}
+
+/**
+ * Every identity this environment publishes, as the boards see it.
+ * @param {object} db Firestore instance.
+ * @return {Promise<object[]>} `{uid, displayName, photoURL}` per published mirror.
+ */
+async function readPublishedIdentities(db) {
+  const snapshot = await db.collectionGroup("public_profile").get();
+  return snapshot.docs
+    .filter((document) => document.id === "current")
+    .map((document) => ({
+      uid: document.ref.parent.parent.id,
+      displayName: document.data().displayName ?? null,
+      photoURL: document.data().photoURL ?? null,
+    }));
+}
+
 function runAudit(projectId) {
   runScript("audit-seed-data.mjs", ["--project", projectId, "--target", "all"]);
 }
@@ -301,15 +408,29 @@ function runAudit(projectId) {
  */
 function runScript(script, scriptArgs) {
   console.log(`\n> node ${script} ${scriptArgs.join(" ")}`);
-  const result = spawnSync(
-    process.execPath,
-    [resolve(SCRIPT_DIR, script), ...scriptArgs],
-    {cwd: SCRIPT_DIR, stdio: "inherit"}
-  );
+  stepSeconds.push([script, runSeedStep(resolve(SCRIPT_DIR, script), scriptArgs, {
+    cwd: SCRIPT_DIR,
+    label: script,
+  })]);
+}
 
-  if (result.status !== 0) {
-    throw new Error(`${script} exited ${result.status}`);
+/** Every step's wall clock, printed as one table when the recipe finishes. */
+const stepSeconds = [];
+
+/**
+ * Prints where the time went.
+ *
+ * The recipe is four scripts deep, so "the seed is slow" is not actionable
+ * without knowing which of them was slow. One line each, plus a total.
+ * @param {number} startedAt Epoch milliseconds the recipe started.
+ */
+function printTimings(startedAt) {
+  const total = (Date.now() - startedAt) / 1000;
+  console.log("\nWhere the time went:");
+  for (const [script, seconds] of stepSeconds) {
+    console.log(`  ${script.padEnd(28)} ${seconds.toFixed(1).padStart(7)}s`);
   }
+  console.log(`  ${"total".padEnd(28)} ${total.toFixed(1).padStart(7)}s`);
 }
 
 /**
@@ -368,7 +489,18 @@ async function observeContentState(db, uid) {
   const stats = profileStats.data() ?? {};
   const heldFirstAscents = summaries.docs
     .filter((document) => document.data().firstAscentUserId === uid);
-  const rows = await sampleSeededRows(summaries.docs);
+  const [firstAscentBoards, rows] = await Promise.all([
+    Promise.all(heldFirstAscents.map(async (document) => {
+      const finisher = await document.ref.collection("finishers").doc(uid).get();
+      return {
+        contextKey: document.id,
+        completedCount: numberValue(document.data().completedCount) ?? 0,
+        totalClimbers: numberValue(document.data().totalClimbers) ?? 0,
+        holderCompletionOrder: numberValue(finisher.data()?.globalCompletionOrder),
+      };
+    })),
+    sampleSeededRows(summaries.docs),
+  ]);
 
   return {
     hasPublicProfile: publicProfile.exists,
@@ -382,11 +514,7 @@ async function observeContentState(db, uid) {
     workoutCount: workouts.size,
     climbsCompleted: numberValue(stats.total_climbs_completed) ?? 0,
     firstAscentsHeld: heldFirstAscents.length,
-    firstAscentBoards: heldFirstAscents.map((document) => ({
-      contextKey: document.id,
-      completedCount: numberValue(document.data().completedCount) ?? 0,
-      totalClimbers: numberValue(document.data().totalClimbers) ?? 0,
-    })),
+    firstAscentBoards,
     daysSinceNewestClimb: startedAtMs.length > 0 ?
       daysBetween(Math.max(...startedAtMs), now) :
       null,

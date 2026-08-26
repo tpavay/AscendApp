@@ -135,57 +135,6 @@ export function clearedFirstAscentFields(deleteSentinel) {
 }
 
 /**
- * Deletes every replay entry under a climb seeded with an open First Ascent.
- *
- * The seed can address its own rows by their deterministic IDs, but a real
- * climber's it cannot: the Cloud Function keys each entry by workoutId and
- * writes one per split bucket. Re-seeding by known ID would leave those rows
- * beside a summary reset to zero completions - the inverse dead state, on the
- * one fixture whose whole purpose is to be claimed and reset. So an open climb's
- * entries are found by query and dropped wholesale, which is safe precisely
- * because the fixture promises the climb has no completions at all.
- * @param {object} splitBucketsRef `splitBuckets` collection reference.
- * @param {object} writer BulkWriter that performs the deletes.
- * @return {Promise<number>} Count of entry documents deleted.
- */
-export async function clearOpenFirstAscentEntries(splitBucketsRef, writer) {
-  let deleted = 0;
-  const bucketRefs = await splitBucketsRef.listDocuments();
-
-  for (const bucketRef of bucketRefs) {
-    const entries = await bucketRef.collection("entries").get();
-    for (const entry of entries.docs) {
-      writer.delete(entry.ref);
-      deleted += 1;
-    }
-  }
-
-  return deleted;
-}
-
-/**
- * Deletes every finisher under a climb seeded with an open First Ascent.
- *
- * Same reasoning as the entries: a real climber's finisher document is keyed by
- * their uid and is unknown to the seed, and the fixture promises the climb has
- * no completions at all. The frozen rank stamped on a finished climb counts
- * finisher documents, so a stranded one seats the next claimant behind a
- * climber the reset summary says does not exist.
- * @param {object} finishersRef `finishers` collection reference.
- * @param {object} writer BulkWriter that performs the deletes.
- * @return {Promise<number>} Count of finisher documents deleted.
- */
-export async function clearOpenFirstAscentFinishers(finishersRef, writer) {
-  const finishers = await finishersRef.get();
-
-  for (const finisher of finishers.docs) {
-    writer.delete(finisher.ref);
-  }
-
-  return finishers.docs.length;
-}
-
-/**
  * Reports whether a climb's First Ascent slot is still open.
  *
  * Derived from the counts and the holder, never from `activityTier`: those are

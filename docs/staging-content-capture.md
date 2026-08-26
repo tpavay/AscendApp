@@ -23,9 +23,26 @@ Dates do move forward on each run, which is the point - it is what keeps the new
 `--project dev` rehearses the same recipe against dev.
 Production is refused before anything initializes, and there is no flag that changes that.
 
-A full run takes a while and looks stalled while it works, because the replay seed prints its whole plan up front and then goes quiet.
-It is clearing and rewriting one document per synthetic attempt per ten-second split bucket across 26 contested boards - several hundred thousand operations.
-Leave it alone; a dry run answers in seconds if all you want is the plan.
+## How long it takes, and how you can tell it is alive
+
+A warm run - staging already holds this seed's content, nothing in the fixtures changed - takes about **36 seconds** end to end.
+
+A cold run takes about **three minutes**, and a cold run is the exception: it happens when the environment is empty, or when a fixture change means the boards really do have to be rewritten.
+There are 520,784 split-bucket rows behind the replay boards - one document per synthetic climber per ten-second bucket - and Firestore accepts them at around 3,000 a second once every field on them is indexed.
+
+The difference is a fingerprint.
+Each board's summary carries a hash of the rows it holds (`seedRowFingerprint`), stamped only after those rows land.
+A board whose plan hashes to the same value already holds exactly what this run would write, so the run skips it.
+`--force` rewrites every board regardless; clearing a board drops its fingerprint, so the next seed rebuilds it.
+
+**Every step prints where it has got to, on a two-second clock, with a rate and an ETA**, and the recipe prints a per-step table at the end.
+Nothing waits without a deadline: every Firestore call has 30 seconds and six attempts, and every step has a wall clock, so a wedged step is killed and named rather than waited on.
+If a run goes quiet, it is not working - that is a bug, and it will say so.
+
+This was not always true.
+`db.bulkWriter()` strands its last few writes under load - reproduced 6/6 against staging, where six processes each queued 20,000 writes, settled about 19,985 of them, and left every `close()` promise pending 90 seconds later at 0% CPU with no open connection.
+A seed awaiting that promise waited forever, printed nothing, and could not be told apart from a dead process without sampling it in a debugger.
+`scripts/lib/firestore-bulk.mjs` replaced it with `db.batch()` commits through a worker pool, which is both bounded and about four times faster.
 
 ## What "content-ready" means
 
@@ -43,7 +60,7 @@ Run it after a capture session, after a real climb, or a week later, to find out
 |---|---|
 | 7 landmark climbs finished | Fills the Collection grid and gives the globe somewhere to have been |
 | 12 sessions across 42 days | Best Efforts ranks a history; a record book with six rows in it reads as a first week |
-| A First Ascent it genuinely holds | The retention hook, on screen, uncontested |
+| A First Ascent it genuinely holds | The retention hook, on screen. First ever, not only ever: the check is that the account finished that board first (`globalCompletionOrder == 1`), which is what the app itself counts - climbers finishing it afterwards is the board working |
 | Newest session today, oldest 42 days back | Relative dates are what give a stale account away |
 | Standing rows in all five leaderboard windows | A rank exists to point a camera at |
 
@@ -51,7 +68,7 @@ Run it after a capture session, after a real climb, or a week later, to find out
 |---|---|
 | 26 contested climb boards, 14 of them with 20+ finishers | A rank nobody had to earn is not worth capturing |
 | 31 climbs with an open First Ascent | The claimable state has to be showable, and claimable for real on camera |
-| 896 seeded rows, every one with a face and a human name | A leaderboard of lettered circles is not what anyone is photographing |
+| 894 seeded rows, every one with a face and a full human name | A leaderboard of lettered circles is not what anyone is photographing |
 | 2 routine templates and 12 profile personas with avatars | The routines, profile and global leaderboard surfaces are not empty |
 
 The numbers are the contract.
@@ -82,7 +99,19 @@ A leaderboard is the product's shop window, so what a row carries is content, no
 
 **Faces.** The 83 avatar images live in Firebase Storage under `live-replay-avatars/<seedPackId>/`. Uploading them needs a local image folder, which nobody has months later, so a run without `--avatar-dir` used to publish no photo at all. It now reads the existing objects back instead and rebuilds their download URLs from the tokens stored on each object, so no folder is needed and a climber's face stays the same across re-seeds. Pass `--avatar-dir <path>` only to replace the set.
 
-**Names.** `SEEDED_DISPLAY_NAMES` is 83 long, one per avatar, and no board seeds more finishers than that. Both limits are enforced by `assertSeededIdentitySupply`, which fails the run rather than let a config quietly reintroduce `Climber 061` - the placeholder five boards were already using, Empire State Building among them.
+**Names.** `SEEDED_DISPLAY_NAMES` is 82 long, one per competitor avatar, and no board seeds more finishers than that. Both limits are enforced by `assertSeededIdentitySupply`, which fails the run rather than let a config quietly reintroduce `Climber 061` - the placeholder five boards were already using, Empire State Building among them.
+
+They are full names, and that is not cosmetic. `SuppliedNameAdoption` publishes whatever Sign in with Apple or Google hands over, which is a given name and a family name, so every real leaderboard row carries a full name. An abbreviated fixture reads as a fixture beside one, which is what a podium showed when the seed's `Tyler R.` stood next to the capture account's own `Tyler Pavay`. `unphotographableDisplayName` now rejects an initial for a surname, so the pattern cannot come back.
+
+**Everybody else on the board.** The seed dresses its own climbers and the recipe dresses the capture account; nobody owned the rest. QA and tester accounts that signed into staging, finished a climb and left a finisher document behind carried whatever name their sign-in produced - `CHANGE ME` (the placeholder `SignInNamePlaceholder` publishes for an Apple account that supplied no name), `Content Capture`, `Climber 6J84R7` - onto the same podiums a camera points at.
+
+The recipe now repairs them, after both seeds so it can see the names they publish and avoid colliding. It writes `users/{uid}/public_profile/current` and nothing else: that is the one validated write path for account-authored identity, and the deployed `onPublicProfileIdentityWritten` trigger carries the new name to `leaderboard_stats` and every replay projection. Names are assigned by uid, so a re-run does not shuffle who is who between capture sessions.
+
+Two things it will not do. It never renames an identity a fixture owns - a persona publishing an unfit name is a defect in `profile-fixtures.mjs`, and a rename here would last exactly until the next seed, so those fail the run instead. And it never invents a photo: a face has to be a picture somebody chose, the avatar pool has exactly one image per synthetic climber plus one reserved for the capture account, and there are none spare. Accounts with no photo are listed with the command that gives them one:
+
+```bash
+node scripts/dev-db.mjs hydrate-user --project staging --user <uid> --photo-url <storage download url>
+```
 
 **The account's own name.** Whatever it publishes is what a screenshot shows, so the seed no longer derives one from an email local part: an address is an identifier, not a name. It uses `--display-name`, else the account's own Auth name, else a plain human fallback, and says which it chose. Synthetic rows are told apart by `isSynthetic`, `source` and `seedPackId`, so nothing needs the display name to carry a marker.
 
@@ -137,8 +166,9 @@ Staging requires a server-owned `app_access` grant for paid data, so the capture
 
 1. `dev-db.mjs seed --target profiles,leaderboard,live-replay,routine-templates` - competitors, global standings, replay boards, routines.
 2. `seed-demo-user.mjs seed --user <uid>` - the named account's climbs, records, standings and First Ascent.
-3. `audit-seed-data.mjs --target all` - the existing fixture audit.
-4. The content-ready contract above.
+3. The board-identity repair above - every other account's published name.
+4. `audit-seed-data.mjs --target all` - the existing fixture audit.
+5. The content-ready contract above.
 
 Two edges in that order are load-bearing:
 

@@ -19,6 +19,7 @@ import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {FieldValue, getFirestore, Timestamp} from "firebase-admin/firestore";
+import {createBatchWriter, createProgressReporter} from "./lib/firestore-bulk.mjs";
 import {
   assertSeedableProject,
   resolveProjectId,
@@ -235,12 +236,36 @@ async function seedDocumentRefs(db, {includeUserDocuments = true} = {}) {
     }
   }
 
-  expectedLeaderboardDocIds().forEach((docId) => {
-    refs.push(db.collection("leaderboard_stats").doc(docId));
-  });
-  legacyLeaderboardDocIds().forEach((docId) => {
-    refs.push(db.collection("leaderboard_stats").doc(docId));
-  });
+  // Found by query, not only by derived id.
+  //
+  // `expectedLeaderboardDocIds` builds ids from *today's* period keys, so it can
+  // name `daily_2026-08-26_<persona>` and never `daily_2026-08-25_<persona>`.
+  // Yesterday's row therefore survived every re-seed, kept whatever display name
+  // it was written with, and staging accumulated one stale row per persona per
+  // day it was seeded - which is how "Anika P." was still on a board hours after
+  // the fixture had been renamed to "Anika Patel".
+  const staleRows = await Promise.all(
+    expectedProfileUserIds().map((userId) =>
+      db.collection("leaderboard_stats").where("userId", "==", userId).get()
+    )
+  );
+  const seen = new Set(refs.map((ref) => ref.path));
+  for (const snapshot of staleRows) {
+    for (const document of snapshot.docs) {
+      if (!seen.has(document.ref.path)) {
+        seen.add(document.ref.path);
+        refs.push(document.ref);
+      }
+    }
+  }
+
+  for (const docId of [...expectedLeaderboardDocIds(), ...legacyLeaderboardDocIds()]) {
+    const ref = db.collection("leaderboard_stats").doc(docId);
+    if (!seen.has(ref.path)) {
+      seen.add(ref.path);
+      refs.push(ref);
+    }
+  }
 
   return refs;
 }
@@ -264,13 +289,13 @@ function printClearPlan(refs) {
 }
 
 async function commitWrites(db, writes) {
-  for (let index = 0; index < writes.length; index += BATCH_LIMIT) {
-    const batch = db.batch();
-    for (const {ref, data} of writes.slice(index, index + BATCH_LIMIT)) {
-      batch.set(ref, data);
-    }
-    await batch.commit();
+  const progress = createProgressReporter({label: "Profiles", total: writes.length});
+  const writer = createBatchWriter(db, {progress});
+  for (const {ref, data} of writes) {
+    writer.set(ref, data);
   }
+  await writer.drain();
+  progress.finish();
 }
 
 /**
@@ -328,11 +353,13 @@ async function sweptSubcollectionCount(db) {
 }
 
 async function commitDeletes(db, refs) {
-  for (let index = 0; index < refs.length; index += BATCH_LIMIT) {
-    const batch = db.batch();
-    refs.slice(index, index + BATCH_LIMIT).forEach((ref) => batch.delete(ref));
-    await batch.commit();
+  const progress = createProgressReporter({label: "Profiles (clear)", total: refs.length});
+  const writer = createBatchWriter(db, {progress});
+  for (const ref of refs) {
+    writer.delete(ref);
   }
+  await writer.drain();
+  progress.finish();
 }
 
 main().catch((error) => {

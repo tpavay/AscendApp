@@ -17,7 +17,12 @@ function contentReadyState(overrides = {}) {
     climbsCompleted: t.minimumClimbsCompleted + 1,
     firstAscentsHeld: t.minimumFirstAscentsHeld,
     firstAscentBoards: [
-      {contextKey: "live_climb__a", completedCount: 1, totalClimbers: 1},
+      {
+        contextKey: "live_climb__a",
+        completedCount: 1,
+        totalClimbers: 1,
+        holderCompletionOrder: 1,
+      },
     ],
     daysSinceNewestClimb: 0,
     historyDepthDays: t.minimumHistoryDepthDays + 2,
@@ -59,15 +64,48 @@ test("an account with no sessions fails on the emptiness, not the recency", () =
   assert.ok(failures.some((failure) => failure.includes("no sessions at all")));
 });
 
-test("a First Ascent held on a contested board is a contradiction, not a pass", () => {
+test("a First Ascent claimed behind another climber is a contradiction, not a pass", () => {
   const failures = contentReadinessFailures(contentReadyState({
-    firstAscentBoards: [
-      {contextKey: "live_climb__empire-state-building", completedCount: 84, totalClimbers: 84},
-    ],
+    firstAscentBoards: [{
+      contextKey: "live_climb__empire-state-building",
+      completedCount: 84,
+      totalClimbers: 84,
+      holderCompletionOrder: 12,
+    }],
   }));
 
   assert.equal(failures.length, 1);
+  assert.match(failures[0], /finished 12th/);
   assert.match(failures[0], /reads as first ever beside climbers who finished before it/);
+});
+
+// First ever, not only ever. Requiring the board to hold exactly one completion
+// was a different and wrong claim: on staging other climbers do finish a board
+// after the account claims it, and every one of them turned a legitimate First
+// Ascent into a failure the seed had no way to fix.
+test("a First Ascent stands on a board other climbers have since finished", () => {
+  assert.deepEqual(contentReadinessFailures(contentReadyState({
+    firstAscentBoards: [{
+      contextKey: "live_climb__875-north-michigan-avenue",
+      completedCount: 3,
+      totalClimbers: 3,
+      holderCompletionOrder: 1,
+    }],
+  })), []);
+});
+
+test("a First Ascent with no finisher document behind it fails", () => {
+  const failures = contentReadinessFailures(contentReadyState({
+    firstAscentBoards: [{
+      contextKey: "live_climb__a",
+      completedCount: 1,
+      totalClimbers: 1,
+      holderCompletionOrder: null,
+    }],
+  }));
+
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /nothing records that it finished at all/);
 });
 
 test("boards whose two population fields disagree are reported by name", () => {
@@ -118,7 +156,19 @@ test("tooling placeholders are rejected however they are cased", () => {
 
 test("an ordinary human name passes", () => {
   assert.equal(unphotographableDisplayName("Morgan Hale"), null);
-  assert.equal(unphotographableDisplayName("Sarah K."), null);
+  assert.equal(unphotographableDisplayName("Ren Kobayashi"), null);
+  // One word is a name a real climber can publish, and several in staging do.
+  assert.equal(unphotographableDisplayName("Bryce"), null);
+});
+
+// `SuppliedNameAdoption` publishes whatever Sign in with Apple or Google hands
+// over, which is a given name and a family name. An initial for a surname is
+// therefore something only a fixture produces, and a podium showed it: the seed's
+// "Tyler R." stood next to the capture account's own "Tyler Pavay".
+test("an initial for a surname reads as fixture data", () => {
+  assert.match(unphotographableDisplayName("Sarah K."), /initial for a surname/);
+  assert.match(unphotographableDisplayName("Tyler R"), /initial for a surname/);
+  assert.match(unphotographableDisplayName("Mateo G."), /initial for a surname/);
 });
 
 test("an account publishing a placeholder name fails the contract", () => {

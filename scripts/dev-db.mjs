@@ -19,7 +19,6 @@
  *   node scripts/dev-db.mjs seed-demo-user --project staging --email person@example.com
  */
 
-import {spawnSync} from "node:child_process";
 import {randomBytes} from "node:crypto";
 import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -36,6 +35,7 @@ import {
   classifyWipeCollections,
   reviewedWipeCollectionIds,
 } from "./lib/firestore-wipe-policy.mjs";
+import {runSeedStep} from "./lib/seed-step-runner.mjs";
 import {
   assertPublishablePublicIdentity,
 } from "./seed/lib/public-identity-contract.mjs";
@@ -501,14 +501,10 @@ function runTargetScript(target, command, projectId, args) {
   }
 
   console.log(`\n> node ${targetConfig.script} ${scriptArgs.slice(1).join(" ")}`);
-  const result = spawnSync(process.execPath, scriptArgs, {
+  runSeedStep(scriptArgs[0], scriptArgs.slice(1), {
     cwd: SCRIPT_DIR,
-    stdio: "inherit",
+    label: `${targetConfig.script} ${command}`,
   });
-
-  if (result.status !== 0) {
-    throw new Error(`${targetConfig.script} ${command} failed with exit code ${result.status}`);
-  }
 }
 
 function runDemoUserScript(projectId, args) {
@@ -568,14 +564,10 @@ function runDemoUserScript(projectId, args) {
   }
 
   console.log(`\n> node seed-demo-user.mjs ${scriptArgs.slice(1).join(" ")}`);
-  const result = spawnSync(process.execPath, scriptArgs, {
+  runSeedStep(scriptArgs[0], scriptArgs.slice(1), {
     cwd: SCRIPT_DIR,
-    stdio: "inherit",
+    label: "seed-demo-user.mjs seed",
   });
-
-  if (result.status !== 0) {
-    throw new Error(`seed-demo-user.mjs seed failed with exit code ${result.status}`);
-  }
 }
 
 function runAuditScript(projectId, args) {
@@ -588,14 +580,10 @@ function runAuditScript(projectId, args) {
   ];
 
   console.log(`\n> node audit-seed-data.mjs ${scriptArgs.slice(1).join(" ")}`);
-  const result = spawnSync(process.execPath, scriptArgs, {
+  runSeedStep(scriptArgs[0], scriptArgs.slice(1), {
     cwd: SCRIPT_DIR,
-    stdio: "inherit",
+    label: "audit-seed-data.mjs",
   });
-
-  if (result.status !== 0) {
-    throw new Error(`audit-seed-data.mjs failed with exit code ${result.status}`);
-  }
 }
 
 function appendSeedPassthroughArgs(target, scriptArgs, args) {
