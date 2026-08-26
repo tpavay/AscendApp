@@ -77,6 +77,20 @@ The REST `:listCollectionIds` endpoint, and the `listCollections` call behind it
 Treat a negative from it as no information.
 Settle it by querying the expected paths directly: `subcollections <doc> --expect finishers,splitBuckets,completionSnapshots` counts each named path itself.
 
+The endpoint itself is sound - re-verified on 2026-08-26 against staging, where it returns all four subcollections of `live_replay_leaderboards/live_climb__empire-state-building` via REST, the Admin SDK, and the Firebase MCP tool alike.
+What breaks is the call, silently, and a hand-rolled `curl` gives two reproduced ways for that to happen:
+
+```zsh
+DOC="live_replay_leaderboards/live_climb__Empire-State-Building"
+echo "$DOC:listCollectionIds"    # live_replay_leaderboards/live_climb__empire-state-buildingistCollectionIds
+echo "${DOC}:listCollectionIds"  # correct
+```
+
+`:l` is a zsh modifier, so an unbraced expansion eats the `:l` and lowercases the path.
+The URL then has no `:` verb left, which routes the POST to **`createDocument`** instead - a write attempt, which fails on parent validation and answers `INVALID_ARGUMENT` about a name that "lacks / at index 84", saying nothing about collections.
+Brace every path variable.
+And the database ID must survive intact: literal `(default)` and percent-encoded `%28default%29` both work, while a bare `default` answers `NOT_FOUND` - "The database default does not exist" - which reads like a missing database rather than a typo.
+
 **A document that does not exist can still have data under it.**
 Firestore keeps subcollections beneath a document that was never written.
 `get` always reports the subcollections beneath the path for this reason.
