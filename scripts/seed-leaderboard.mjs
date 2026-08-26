@@ -18,6 +18,7 @@ import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {FieldValue, getFirestore, Timestamp} from "firebase-admin/firestore";
+import {createBatchWriter, createProgressReporter, withRetry} from "./lib/firestore-bulk.mjs";
 import {
   assertSeedableProject,
   resolveProjectId,
@@ -180,9 +181,14 @@ function uniqueRefs(refs) {
 }
 
 async function commitWrites(db, writes) {
+  const progress = createProgressReporter({label: "Leaderboard", total: writes.length});
   for (let index = 0; index < writes.length; index += BATCH_LIMIT) {
     const page = writes.slice(index, index + BATCH_LIMIT);
-    await db.runTransaction(async (transaction) => {
+    // Kept a transaction: it re-reads each climber's published identity and
+    // refuses a row that went stale mid-seed. Wrapped in a deadline so a
+    // transaction the backend never answers fails this command instead of
+    // parking it.
+    await withRetry(() => db.runTransaction(async (transaction) => {
       const userIds = [...new Set(page.map((writeItem) =>
         writeItem.data.userId
       ))];
@@ -224,16 +230,24 @@ async function commitWrites(db, writes) {
         }
         transaction.set(ref, data);
       }
+    }), {
+      description: `leaderboard identity transaction for ${page.length} row(s)`,
+      onRetry: () => progress.retried(),
     });
+    progress.advance(page.length);
   }
+
+  progress.finish();
 }
 
 async function commitDeletes(db, refs) {
-  for (let index = 0; index < refs.length; index += BATCH_LIMIT) {
-    const batch = db.batch();
-    refs.slice(index, index + BATCH_LIMIT).forEach((ref) => batch.delete(ref));
-    await batch.commit();
+  const progress = createProgressReporter({label: "Leaderboard (clear)", total: refs.length});
+  const writer = createBatchWriter(db, {progress});
+  for (const ref of refs) {
+    writer.delete(ref);
   }
+  await writer.drain();
+  progress.finish();
 }
 
 main().catch((error) => {

@@ -24,6 +24,7 @@ import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {FieldValue, getFirestore} from "firebase-admin/firestore";
+import {createBatchWriter, createProgressReporter} from "./lib/firestore-bulk.mjs";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
@@ -432,11 +433,12 @@ function printPlan(projectId, args, templates) {
 }
 
 async function seedTemplates(db, templates, seedPackId) {
-  const batch = db.batch();
+  const progress = createProgressReporter({label: "Routine templates", total: templates.length});
+  const writer = createBatchWriter(db, {progress});
   const now = FieldValue.serverTimestamp();
 
   for (const template of templates) {
-    batch.set(
+    writer.set(
       db.collection(COLLECTION_ID).doc(template.templateId),
       {
         ...template,
@@ -447,7 +449,8 @@ async function seedTemplates(db, templates, seedPackId) {
     );
   }
 
-  await batch.commit();
+  await writer.drain();
+  progress.finish();
 }
 
 async function clearSeedPack(db, seedPackId) {
@@ -459,26 +462,14 @@ async function clearSeedPack(db, seedPackId) {
     return 0;
   }
 
-  let batch = db.batch();
-  let pending = 0;
-  let deleted = 0;
-
+  const progress = createProgressReporter({label: "Routine templates (clear)", total: snapshot.size});
+  const writer = createBatchWriter(db, {progress});
   for (const doc of snapshot.docs) {
-    batch.delete(doc.ref);
-    pending += 1;
-    deleted += 1;
-
-    if (pending === 450) {
-      await batch.commit();
-      batch = db.batch();
-      pending = 0;
-    }
+    writer.delete(doc.ref);
   }
 
-  if (pending > 0) {
-    await batch.commit();
-  }
-
+  const deleted = await writer.drain();
+  progress.finish();
   return deleted;
 }
 

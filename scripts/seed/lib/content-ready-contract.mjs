@@ -114,8 +114,27 @@ export function unphotographableDisplayName(displayName) {
     return `the account publishes "${name}", which is a placeholder, not a climber`;
   }
 
+  if (ABBREVIATED_SURNAME.test(name)) {
+    return `the account publishes "${name}", and an initial for a surname reads ` +
+      "as fixture data beside the full names real sign-ins supply";
+  }
+
   return null;
 }
+
+/**
+ * A name whose last word is a single letter, with or without a period.
+ *
+ * "Sarah K." is not a name the product can produce. `SuppliedNameAdoption` takes
+ * what Sign in with Apple or Google hands over - a given name and a family name -
+ * so a real leaderboard row carries a full name, and the seeded rows beside it
+ * carried initials. On a podium next to the capture account's own "Tyler Pavay",
+ * a "Tyler R." reads as exactly what it is.
+ *
+ * A single-word name is deliberately allowed: a real climber can publish one, and
+ * several in staging do.
+ */
+const ABBREVIATED_SURNAME = /\s\p{L}\.?$/u;
 
 /**
  * Reports why the account's published photo is not fit to be photographed.
@@ -219,16 +238,29 @@ export function contentReadinessFailures(observed) {
       "days of history behind the newest session");
   }
 
-  // A First Ascent means first ever. A board where the account holds it while
-  // other climbers already finished says the opposite on the one screen that
-  // exists to say it, so the claim is checked against its own board rather than
-  // just counted.
+  // A First Ascent means first ever, not only ever.
+  //
+  // This used to require the board to hold exactly one completion, which is a
+  // different claim and a wrong one: on staging other climbers do finish a board
+  // after the account claims it, and every one of them turned a legitimate First
+  // Ascent into a failure the seed could not fix. What has to hold is the same
+  // thing the app itself checks - `ProfileSnapshotBuilder` counts a First Ascent
+  // as a completion whose `globalCompletionOrder` is 1 - so the claim is judged
+  // on the holder's own order on its own board.
   for (const board of observed.firstAscentBoards ?? []) {
-    if (board.completedCount !== 1) {
+    if (board.holderCompletionOrder === null) {
       failures.push(
-        `${board.contextKey}: the account holds the First Ascent but the board ` +
-        `reports ${board.completedCount} completions, so it reads as first ` +
-        "ever beside climbers who finished before it"
+        `${board.contextKey}: the account holds the First Ascent but has no ` +
+        "finisher document on that board, so nothing records that it finished at all"
+      );
+      continue;
+    }
+
+    if (board.holderCompletionOrder !== 1) {
+      failures.push(
+        `${board.contextKey}: the account holds the First Ascent but finished ` +
+        `${ordinal(board.holderCompletionOrder)}, so it reads as first ever ` +
+        "beside climbers who finished before it"
       );
     }
   }
@@ -256,4 +288,17 @@ function atLeast(failures, actual, minimum, label) {
   if (!(actual >= minimum)) {
     failures.push(`${actual} ${label}, want at least ${minimum}`);
   }
+}
+
+/**
+ * @param {number} value Positive integer.
+ * @return {string} Its English ordinal.
+ */
+function ordinal(value) {
+  const remainderTen = value % 10;
+  const remainderHundred = value % 100;
+  if (remainderTen === 1 && remainderHundred !== 11) return `${value}st`;
+  if (remainderTen === 2 && remainderHundred !== 12) return `${value}nd`;
+  if (remainderTen === 3 && remainderHundred !== 13) return `${value}rd`;
+  return `${value}th`;
 }

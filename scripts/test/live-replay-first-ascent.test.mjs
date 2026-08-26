@@ -7,7 +7,6 @@ import {test} from "node:test";
 import {
   FIRST_ASCENT_FIELD_NAMES,
   assertFirstAscentInvariant,
-  clearOpenFirstAscentEntries,
   clearedFirstAscentFields,
   firstAscentClaimedAt,
   firstAscentInvariantFailure,
@@ -100,9 +99,11 @@ test("seed script publishes the same First Ascent fields as the Cloud Function",
 test("every seeded projection identity declares its lifecycle state", () => {
   const expectedPublishedWrites = new Map([
     ["scripts/seed-demo-user.mjs", 3],
-    // Entry rows, plus the finisher document written beside them on each of
-    // the two contexts the seed publishes into.
-    ["scripts/seed-live-replay-leaderboards.mjs", 4],
+    // One entry writer and one finisher writer. Both replay contexts used to
+    // have their own copy of each - four in total - and now flow through the
+    // same two, which is the point: an identity state can only be forgotten in
+    // a place that states it.
+    ["scripts/seed-live-replay-leaderboards.mjs", 2],
   ]);
 
   for (const [script, expectedCount] of expectedPublishedWrites) {
@@ -318,73 +319,62 @@ test("a QA climber claiming a seeded open slot reads as held, not open", () => {
 // workoutId, one document per bucket. `entries` deliberately exposes no `where`,
 // so a seedPackId-filtered read throws rather than quietly skipping the real
 // climber rows this clear exists to remove.
-function fakeSplitBuckets(bucketsById) {
-  return {
-    listDocuments: async () => Object.entries(bucketsById).map(([bucketId, entryIds]) => ({
-      id: bucketId,
-      collection: (name) => {
-        assert.equal(name, "entries", "open climbs must clear the entries collection");
-        return {
-          get: async () => ({
-            docs: entryIds.map((entryId) => ({
-              id: entryId,
-              ref: {path: `splitBuckets/${bucketId}/entries/${entryId}`},
-            })),
-          }),
-        };
-      },
-    })),
-  };
-}
-
-test("clearing an open First Ascent climb deletes every entry in every bucket", async () => {
-  // The Cloud Function writes one entry per split bucket, so a QA climber who
-  // claims the seeded open slot leaves rows well past bucket zero. Clearing only
-  // bucket zero would green the audit - it inspects bucket zero alone - while the
-  // phantom opponent still shows up mid-race.
-  const deletedPaths = [];
-  const writer = {delete: (ref) => deletedPaths.push(ref.path)};
-
-  const deleted = await clearOpenFirstAscentEntries(
-    fakeSplitBuckets({0: ["qa-workout-1"], 7: ["qa-workout-1"], 14: ["qa-workout-1"]}),
-    writer
-  );
-
-  assert.equal(deleted, 3);
-  assert.deepEqual(deletedPaths, [
-    "splitBuckets/0/entries/qa-workout-1",
-    "splitBuckets/7/entries/qa-workout-1",
-    "splitBuckets/14/entries/qa-workout-1",
-  ]);
-});
-
-test("clearing an open First Ascent climb reports zero when nothing was seeded", async () => {
-  const writer = {delete: () => assert.fail("nothing to delete")};
-
-  assert.equal(await clearOpenFirstAscentEntries(fakeSplitBuckets({}), writer), 0);
-});
-
-test("the seed clears open First Ascent climbs by query, not by seeded ID", () => {
-  // A real climber's entry IDs are their workoutId and are unknown to the seed,
-  // and an open climb seeds zero attempts, so `clearAttemptIds` is empty for it.
-  // Delete-by-seeded-id therefore deletes nothing and re-seeding strands the
-  // claimed rows next to a summary reset to zero completions.
+test("an open First Ascent board is cleared wholesale, a contested one is not", () => {
+  // Two rules in one place, and they are opposites.
+  //
+  // A real climber's entry ids are their workoutId, unknown to the seed. On an
+  // open board that does not matter: the fixture promises zero completions, and
+  // `claimedOpenClimbIds` has already removed any board a real climber genuinely
+  // finished, so everything left is the pack's own residue and goes wholesale.
+  // Clearing by seeded id there would delete nothing - an open climb seeds no
+  // attempts - and strand the claimed rows beside a summary reset to zero.
+  //
+  // On a contested board the same wholesale delete would take a real climber's
+  // rows with it, so there the clear is filtered to ids this pack wrote.
   const source = readScript("scripts/seed-live-replay-leaderboards.mjs");
   const clearBody = source.match(
-    /async function clearSeedEntriesFromPlan\([\s\S]*?\n\}/
+    /async function seededDocumentsUnder\([\s\S]*?\n\}\n/
   )?.[0];
-  assert.ok(clearBody, "could not locate clearSeedEntriesFromPlan in the seed script");
+  assert.ok(clearBody, "could not locate seededDocumentsUnder in the seed script");
 
   assert.match(
     clearBody,
-    /isOpenFirstAscentSummary\(/,
-    "the clear path must branch on the plan's First Ascent state"
+    /clearsEveryRow \?\s*\n?\s*entries :/,
+    "an open board's entries must be deleted without filtering by seeded id"
   );
   assert.match(
     clearBody,
-    /clearOpenFirstAscentEntries\(/,
-    "open climbs must have their entries cleared by query"
+    /entries\.filter\(\(document\) => isSeededAttemptId\(document\.id, seedPackId\)\)/,
+    "a contested board must only lose the rows this pack wrote"
   );
+  assert.match(
+    clearBody,
+    /finishers\.filter\(\(document\) => isSyntheticUserId\(document\.id\)\)/,
+    "a contested board must keep a real climber's finisher document"
+  );
+
+  const contexts = source.match(
+    /function clearableContexts\([\s\S]*?\n\}\n/
+  )?.[0];
+  assert.ok(contexts, "could not locate clearableContexts in the seed script");
+  assert.match(
+    contexts,
+    /clearsEveryRow: isOpenFirstAscentSummary\(/,
+    "which of the two rules applies must be decided by the shared First Ascent predicate"
+  );
+});
+
+test("a seeded entry id is recognized by exactly the shape the seed writes", () => {
+  // The one predicate standing between a clear and a real climber's rows. A
+  // prefix that does not match what `seedAttemptId` builds silently turns the
+  // filtered clear into no clear at all, or into a wholesale one.
+  const source = readScript("scripts/seed-live-replay-leaderboards.mjs");
+  const builder = source.match(/function seedAttemptId\([\s\S]*?\n\}\n/)?.[0];
+  const predicate = source.match(/function isSeededAttemptId\([\s\S]*?\n\}\n/)?.[0];
+
+  assert.ok(builder && predicate, "could not locate the seeded attempt id pair");
+  assert.match(builder, /"seed",\s*\n\s*sanitizeContextId\(seedPackId\)/);
+  assert.match(predicate, /`seed_\$\{sanitizeContextId\(seedPackId\)\}_`/);
 });
 
 test("the audit reads the First Ascent state off the data, not activityTier", () => {

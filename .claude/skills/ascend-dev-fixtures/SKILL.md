@@ -81,6 +81,15 @@ paths:
 
 - One command puts staging into a state worth photographing: `node scripts/seed-content-ready.mjs --email <account>`.
   It composes the existing seeds rather than replacing them, and `docs/staging-content-capture.md` owns the definition of "content-ready", the run order and what the reset path can and cannot undo.
+- **Never wait on a Firestore call without a deadline in a seed.**
+  `db.bulkWriter()` strands its last few writes under load - reproduced 6/6 against staging, six processes each settling ~19,985 of 20,000 writes with every `close()` promise still pending 90 seconds later at 0% CPU and no open connection - and a seed awaiting it waited forever while printing nothing.
+  `scripts/lib/firestore-bulk.mjs` is the one home for bulk reads and writes: `db.batch()` commits through a worker pool, a deadline and retry budget on every call, a progress line on a two-second clock, and a watchdog that calls a phase wedged rather than waiting on it.
+  It is also about four times faster than an unthrottled BulkWriter.
+  `scripts/lib/seed-step-runner.mjs` does the same for a spawned child, so a wedged step is killed and named instead of blocking its parent.
+- A repeat seed is a skip, not a rewrite. Each replay board's summary carries `seedRowFingerprint`, a hash of the rows it holds, stamped only after those rows land; a matching hash means the board already holds exactly what the run would write. That is the difference between a 36-second warm run and a three-minute cold one. `--force` overrides it, and a clear drops it.
+- Fill a batch climber-major, not bucket-major. Every entry in one split bucket shares an `entries` collection, so 500 writes filled bucket-first all land on one collection and one index range: 2,327 docs/s with retries, against over 20,000 filled climber-first.
+- Seeded display names are full names, because `SuppliedNameAdoption` publishes the given and family name a sign-in supplies and an abbreviated fixture reads as a fixture beside a real row. `unphotographableDisplayName` rejects an initial for a surname, and `scripts/test/seeded-display-names.test.mjs` pins the pools.
+- The recipe repairs the *other* accounts' published names - the QA and tester accounts that left `CHANGE ME` and `Content Capture` on the boards - by writing `users/{uid}/public_profile/current` only, letting `onPublicProfileIdentityWritten` fan it out. It never renames a fixture-owned identity (that is a defect in `profile-fixtures.mjs` and fails the run), and it never invents a photo.
 - `scripts/seed/lib/content-ready-contract.mjs` is that definition as numbers, asserted after every seed and re-checkable read-only with `seed-content-ready.mjs verify`.
   Changing a threshold is a deliberate change to what the captured content shows.
 - **Seeding a climb with competitors spends its First Ascent permanently.**

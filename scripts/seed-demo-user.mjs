@@ -25,6 +25,7 @@ import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {getAuth} from "firebase-admin/auth";
 import {getStorage} from "firebase-admin/storage";
 import {FieldValue, getFirestore, Timestamp} from "firebase-admin/firestore";
+import {createBatchWriter, createProgressReporter} from "./lib/firestore-bulk.mjs";
 import {
   canonicalWorkoutDocumentId,
   seededReplayCompletedCount,
@@ -47,6 +48,7 @@ import {
   reservedAccountAvatar,
   seedAvatarPrefix,
 } from "./seed/lib/seed-avatar-allocation.mjs";
+import {isAllowedPublicPhotoURL} from "./seed/lib/public-identity-contract.mjs";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
@@ -508,18 +510,47 @@ async function buildSeedPlan(db, catalog, authUser, args) {
  * `users/{uid}/profile_pictures/` prefix rather than pointing at the shared
  * avatar tree - user media never lives on a shared root path.
  *
- * An account that already has a photo keeps it: a real climber's own picture is
- * not the fixture's to replace. Otherwise the seed copies the avatar reserved
- * for it out of this pack's set, so the face is real, belongs to no competitor
- * on the same leaderboard, and stays the same across re-seeds.
+ * An account that already has a *publishable* photo keeps it: a real climber's
+ * own picture is not the fixture's to replace. Otherwise the seed copies the
+ * avatar reserved for it out of this pack's set, so the face is real, belongs to
+ * no competitor on the same leaderboard, and stays the same across re-seeds.
+ *
+ * "Publishable" is load-bearing and is why this used to fail. A Google or Apple
+ * sign-in leaves a provider avatar on the Auth record - `lh3.googleusercontent.com`
+ * for the account this was run against - and the identity contract only accepts a
+ * Firebase Storage download URL. Handing that one straight through published a
+ * photo the projection then dropped, so the one account every screenshot centers
+ * on rendered as a grey circle while the seed reported success. A URL the server
+ * will not project is the same as no photo, so it takes the reserved avatar
+ * instead.
  * @param {object} authUser Resolved Firebase Auth user.
  * @param {object} args Parsed CLI arguments.
  * @param {string} projectId Target Firebase project.
  * @return {Promise<string | null>} Published photo URL, or null when none exists.
  */
 async function ensureAccountPhoto(authUser, args, projectId) {
-  if (trimmed(args.photoURL) || trimmed(authUser.photoURL)) {
-    return trimmed(args.photoURL) ?? trimmed(authUser.photoURL);
+  const requested = trimmed(args.photoURL);
+  if (requested) {
+    if (!isAllowedPublicPhotoURL(requested)) {
+      throw new Error(
+        `--photo-url ${requested} is not a Firebase Storage download URL, so the ` +
+        "identity projection would drop it and the account would render as an " +
+        "empty circle."
+      );
+    }
+    return requested;
+  }
+
+  const existing = trimmed(authUser.photoURL);
+  if (existing && isAllowedPublicPhotoURL(existing)) {
+    return existing;
+  }
+  if (existing) {
+    console.log(
+      `Ignoring the provider photo on this Auth record (${new URL(existing).host}): ` +
+      "the identity contract only publishes Firebase Storage download URLs. " +
+      "Using this pack's reserved avatar instead."
+    );
   }
 
   const bucket = getStorage().bucket();
@@ -814,7 +845,10 @@ function userSnapshot(authUser, args) {
     );
   }
 
-  const photoURL = trimmed(args.photoURL) ?? trimmed(authUser.photoURL) ?? "";
+  // Same rule as `ensureAccountPhoto`: a provider URL the projection would drop
+  // is not a photo. `args.photoURL` is the resolved one by this point.
+  const resolved = trimmed(args.photoURL) ?? trimmed(authUser.photoURL) ?? "";
+  const photoURL = isAllowedPublicPhotoURL(resolved) ? resolved : "";
 
   return {
     uid: authUser.uid,
@@ -1538,23 +1572,23 @@ function deterministicId(input) {
 }
 
 async function commitDeletes(db, deletes) {
-  for (let index = 0; index < deletes.length; index += BATCH_LIMIT) {
-    const batch = db.batch();
-    for (const ref of deletes.slice(index, index + BATCH_LIMIT)) {
-      batch.delete(ref);
-    }
-    await batch.commit();
+  const progress = createProgressReporter({label: "Account (clear)", total: deletes.length});
+  const writer = createBatchWriter(db, {progress});
+  for (const ref of deletes) {
+    writer.delete(ref);
   }
+  await writer.drain();
+  progress.finish();
 }
 
 async function commitWrites(db, writes) {
-  for (let index = 0; index < writes.length; index += BATCH_LIMIT) {
-    const batch = db.batch();
-    for (const [ref, data] of writes.slice(index, index + BATCH_LIMIT)) {
-      batch.set(ref, data, {merge: true});
-    }
-    await batch.commit();
+  const progress = createProgressReporter({label: "Account", total: writes.length});
+  const writer = createBatchWriter(db, {progress});
+  for (const [ref, data] of writes) {
+    writer.set(ref, data, {merge: true});
   }
+  await writer.drain();
+  progress.finish();
 }
 
 function printPlan(projectId, seedPlan, args) {
