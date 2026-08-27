@@ -32,6 +32,8 @@
     "content:staging:verify": "node seed-content-ready.mjs verify --project staging",
     "content:staging:clear": "node seed-content-ready.mjs clear --project staging",
     "content:plan": "node seed-content-ready.mjs plan",
+    "filmable:staging": "node verify-filmable.mjs --project staging",
+    "filmable:dev": "node verify-filmable.mjs --project dev",
     "seed:all": "node dev-db.mjs seed --target all --project dev",
     "seed:all:staging": "node dev-db.mjs seed --target all --project staging",
     "audit:all": "node dev-db.mjs audit --target all --project dev",

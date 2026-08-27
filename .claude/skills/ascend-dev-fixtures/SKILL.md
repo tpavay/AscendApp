@@ -92,6 +92,13 @@ paths:
 - The recipe repairs the *other* accounts' published names - the QA and tester accounts that left `CHANGE ME` and `Content Capture` on the boards - by writing `users/{uid}/public_profile/current` only, letting `onPublicProfileIdentityWritten` fan it out. It never renames a fixture-owned identity (that is a defect in `profile-fixtures.mjs` and fails the run), and it never invents a photo.
 - `scripts/seed/lib/content-ready-contract.mjs` is that definition as numbers, asserted after every seed and re-checkable read-only with `seed-content-ready.mjs verify`.
   Changing a threshold is a deliberate change to what the captured content shows.
+- **A seed's own report is a claim about Firestore, never a claim about the screen.**
+  The seed summary, `audit-seed-data.mjs` and the content-ready contract all confirm that documents were written; none of them confirms that a climber opening the app sees a populated product, and staging was repeatedly declared ready while a board the app rendered as "4 completed" carried a summary saying 85.
+  `scripts/verify-filmable.mjs` closes that gap - it reads every surface through the same collections, aggregates and query shapes the client uses, prints one named pass/fail per surface in about two seconds, and `seed-content-ready.mjs` runs it last and refuses to report success when it fails.
+  Its three rules: where the app runs a `count()` aggregate the check runs the same aggregate over the same path (never the stored counter beside it); a read that FAILED is `ERROR` and exit 2, never an empty result; and a live race's field may only ever thin, because a climber leaves a race by finishing it and nobody joins one part way up a building.
+  `scripts/lib/app-render-contract.mjs` mirrors the client parsers field for field, so a row Firestore holds but the app drops counts as what it renders as - nothing.
+  Adding a surface means adding a check there, not another probe run by hand.
+  Full description: `docs/staging-content-capture.md`.
 - **Seeding a climb with competitors spends its First Ascent permanently.**
   The server claims a slot only for a finisher on a board with no completions and no holder, which is what makes a First Ascent worth holding - so the number of climbs the pack contests is also the number of First Ascents it destroys.
   `scripts/seed/lib/live-replay-climb-tiers.mjs` owns the split: `ACTIVE_CLIMBS` and `WARM_CLIMBS` are contested on purpose, and every other raceable catalog climb gets an empty summary so its slot is open *and* visibly open.
