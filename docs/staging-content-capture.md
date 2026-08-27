@@ -53,7 +53,7 @@ So the definition is a set of numbers in `scripts/seed/lib/content-ready-contrac
 node scripts/seed-content-ready.mjs verify --email you@example.com
 ```
 
-`verify` only reads.
+`verify` only reads, and it runs the filmable check below as well, so one command answers both "does staging hold the content" and "would the app show it".
 Run it after a capture session, after a real climb, or a week later, to find out whether staging is still worth pointing a camera at.
 
 | The account has | Why |
@@ -73,6 +73,39 @@ Run it after a capture session, after a real climb, or a week later, to find out
 
 The numbers are the contract.
 Changing one is a deliberate change to what the captured content shows, not a tuning detail.
+
+## Is it filmable? The check that reads what the app reads
+
+Everything above answers a question about Firestore.
+The seed's own summary, the fixture audit and the content-ready contract all confirm that documents were written, and none of them confirms that a climber opening the app sees a populated product.
+
+That gap cost two and a half days.
+Staging was reported ready and was not: leaderboards that rendered empty, four rivals instead of a field, and the entire bottom half of the Empire State Building with nobody in it while its own summary said 85 climbers had finished it.
+The summary was not wrong about what it held.
+It was answering a different question than the screen.
+
+```bash
+node scripts/verify-filmable.mjs --project staging --email you@example.com
+```
+
+It reads every surface the way the app reads it - the same collections, the same aggregates, the same query shapes - and prints one named line per surface with the measured number and the expectation beside it.
+It takes about two seconds, so it is meant to be run after every seed, and `seed-content-ready.mjs` runs it as its last step and refuses to report success when it fails.
+
+Three rules make it worth trusting:
+
+- **Where the app runs a Firestore `count()` aggregate, the check runs the same aggregate over the same path.**
+  Climb detail's "N completed" is `count(live_replay_leaderboards/{key}/splitBuckets/0/entries)` at runtime, and the board summary's `completedCount` is fetched, held for a few milliseconds and then overwritten by it.
+  Reading the stored field instead of the aggregate is precisely the discrepancy that made a board with four rows look like a board with eighty-five.
+- **A read that failed is never rendered as a read that came back empty.**
+  A broken query and an empty collection both print nothing, and a check that conflates them is how a production leaderboard holding thirteen entries was once reported as holding none.
+  A failed read is `ERROR`, it exits 2, and it says that nothing about that surface is known.
+- **A live race's field may only ever thin.**
+  A climber leaves a race by finishing it; nobody joins one part way up a building.
+  So the entry counts across ascending split buckets have to be non-increasing, and any rise is rows missing from every bucket below it.
+  A field falling from 85 to 81 partway up is four climbers finishing and is correct; a field of 4 at the base and 81 near the summit is the Empire State defect, and the check names the bucket, the elapsed time, and how many rows are missing.
+
+`scripts/lib/app-render-contract.mjs` holds the client parsers, mirrored field for field, so a row Firestore holds but the app drops - an `identityPolicyVersion` from a previous policy, an achievement type this build cannot name, a routine template published for a later version - is counted as what it renders as, which is nothing.
+`scripts/lib/filmable-report.mjs` holds the judgment, and both are pinned by tests that run without a network.
 
 ## First Ascents: what seeding spends, and what it leaves
 
@@ -169,6 +202,7 @@ Staging requires a server-owned `app_access` grant for paid data, so the capture
 3. The board-identity repair above - every other account's published name.
 4. `audit-seed-data.mjs --target all` - the existing fixture audit.
 5. The content-ready contract above.
+6. `verify-filmable.mjs --user <uid>` - the filmable check above, which is what stops the recipe stamping "done" on a board the app renders as empty.
 
 Two edges in that order are load-bearing:
 
