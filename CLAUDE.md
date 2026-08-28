@@ -90,7 +90,10 @@ Xcode keys DerivedData to the project's *filesystem path* and never garbage-coll
 A build driven through XcodeBuildMCP or the `xcode` MCP server has to be pointed at the same `$PWD/.build/dd`, because those tools otherwise use the default DerivedData and orphan `~/Library/Developer/Xcode/DerivedData/AscendApp-<hash>` from a throwaway worktree exactly as a bare `xcodebuild` would.
 That relocation puts the Firebase Crashlytics `run` binary inside `SRCROOT`, where `ENABLE_USER_SCRIPT_SANDBOXING` denies an undeclared read, so the Crashlytics phase declares it in `inputPaths` - delete that one line and every local build fails with `Sandbox: bash deny(1) file-read-data`, not with a missing file.
 That declaration hardcodes the literal `$(SRCROOT)/.build/dd/SourcePackages/...`, so the path in the project file and the `-derivedDataPath` value documented here are coupled and renaming the directory means changing both; the documented commands pass `-project AscendApp.xcodeproj` relatively, which is what forces `$PWD` to be `SRCROOT`.
+`scripts/test/derived-data-path-contract.test.mjs` holds that coupling: it fails if the project file's literal and the documented commands ever name different directories, if a documented command loses the flag, or if `ENABLE_USER_SCRIPT_SANDBOXING` stops being `YES` and the declaration quietly loses its reason to exist.
+Repo scripts that shell out to `xcodebuild` carry the flag on the same terms - `scripts/ci/assert-mixpanel-build-settings.mjs` adds it only when `GITHUB_ACTIONS` is unset, because `-showBuildSettings` resolves packages into whichever store it is pointed at.
 CI is the deliberate exception: its runners are discarded whole, and all three workflows restore an `actions/cache` keyed on `~/Library/Developer/Xcode/DerivedData/**/SourcePackages`, which relocating DerivedData would silently defeat (`ascend-deploy`).
+The workflows and the fastlane archive lanes are CI-only and deliberately stay on the default store.
 
 ```bash
 # iOS tests (mirrors CI - .github/workflows/ci.yml; -derivedDataPath is local-only)
