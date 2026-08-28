@@ -18,11 +18,11 @@ struct AppAccessResolvingSnapshotTests {
     @Test
     func rendersTheWaitAndRecoverySurfacesFromTheRealView() async throws {
         let waiting = makeManager()
-        waiting.prepareIdentity(userId: "returning-subscriber")
+        waiting.prepareIdentity(.climber("returning-subscriber"))
 
         let stalled = makeManager(identityResolution: .unknown)
-        let transition = stalled.prepareIdentity(userId: "returning-subscriber")
-        await stalled.identify(userId: "returning-subscriber", transition: transition)
+        let transition = stalled.prepareIdentity(.climber("returning-subscriber"))
+        await stalled.identify(.climber("returning-subscriber"), transition: transition)
 
         #expect(waiting.entitlementState == .unknown)
         #expect(waiting.hasFailedIdentityResolution == false)

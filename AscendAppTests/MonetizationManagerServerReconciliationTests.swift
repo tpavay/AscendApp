@@ -147,7 +147,7 @@ struct MonetizationManagerServerReconciliationTests {
             await manager.refreshEntitlements(force: true, waitsForPendingIdentity: true)
         }
         await reconciler.waitUntilReconciling()
-        _ = entitlementService.prepareIdentity(userId: "switched-user")
+        _ = entitlementService.prepareIdentity(.climber("switched-user"))
         reconciler.finishReconciling()
 
         #expect(await refresh.value == .unavailable(.identityUnresolved))

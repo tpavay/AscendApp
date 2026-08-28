@@ -205,7 +205,7 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
         )
 
         fixture.coordinator.recordFlowStartedIfNeeded(context: OnboardingAnalyticsEvent.welcomeContext)
-        monetization.prepareIdentity(userId: "climber-a")
+        monetization.prepareIdentity(.climber("climber-a"))
         monetization.prepareIdentityReset()
 
         // Climber A's start is gone, so their pass cannot be closed by whoever comes next.

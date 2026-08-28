@@ -20,9 +20,9 @@ struct RevenueCatEntitlementServiceTests {
             startsConfigured: true
         )
 
-        let identity = service.prepareIdentity(userId: "subscriber")
+        let identity = service.prepareIdentity(.climber("subscriber"))
         let identifyTask = Task {
-            await service.identify(userId: "subscriber", transition: identity)
+            await service.identify(.climber("subscriber"), transition: identity)
         }
         #expect(await invocations.next() == .logIn(userID: "subscriber"))
 
@@ -52,16 +52,16 @@ struct RevenueCatEntitlementServiceTests {
         }
         #expect(await invocations.next() == .logOut)
 
-        let supersededIdentity = service.prepareIdentity(userId: "superseded-user")
+        let supersededIdentity = service.prepareIdentity(.climber("superseded-user"))
         let supersededIdentifyTask = Task {
             await service.identify(
-                userId: "superseded-user",
+                .climber("superseded-user"),
                 transition: supersededIdentity
             )
         }
-        let currentIdentity = service.prepareIdentity(userId: "current-user")
+        let currentIdentity = service.prepareIdentity(.climber("current-user"))
         let identifyTask = Task {
-            await service.identify(userId: "current-user", transition: currentIdentity)
+            await service.identify(.climber("current-user"), transition: currentIdentity)
         }
 
         provider.completeLogOut(with: .inactive)
@@ -86,9 +86,9 @@ struct RevenueCatEntitlementServiceTests {
             startsConfigured: true
         )
 
-        let identity = service.prepareIdentity(userId: "subscriber")
+        let identity = service.prepareIdentity(.climber("subscriber"))
         let identifyTask = Task {
-            await service.identify(userId: "subscriber", transition: identity)
+            await service.identify(.climber("subscriber"), transition: identity)
         }
         #expect(await invocations.next() == .logIn(userID: "subscriber"))
         provider.failLogIn()
@@ -117,9 +117,9 @@ struct RevenueCatEntitlementServiceTests {
             startsConfigured: true
         )
 
-        let identity = service.prepareIdentity(userId: "subscriber")
+        let identity = service.prepareIdentity(.climber("subscriber"))
         let identifyTask = Task {
-            await service.identify(userId: "subscriber", transition: identity)
+            await service.identify(.climber("subscriber"), transition: identity)
         }
         #expect(await invocations.next() == .logIn(userID: "subscriber"))
         provider.failLogIn()
@@ -156,9 +156,9 @@ struct RevenueCatEntitlementServiceTests {
             startsConfigured: true
         )
 
-        let identity = service.prepareIdentity(userId: "subscriber")
+        let identity = service.prepareIdentity(.climber("subscriber"))
         let identifyTask = Task {
-            await service.identify(userId: "subscriber", transition: identity)
+            await service.identify(.climber("subscriber"), transition: identity)
         }
         #expect(await invocations.next() == .logIn(userID: "subscriber"))
 
@@ -172,6 +172,144 @@ struct RevenueCatEntitlementServiceTests {
         #expect(provider.completedIdentityMutations == [.logIn(userID: "subscriber")])
     }
 
+    /// The whole point of the change: a customer created after this ships is a person, not an
+    /// opaque `$RCAnonymous...` id. The account identifier is claimed first and the address the
+    /// sign-in already supplied lands on the customer that log-in just settled on - in that order,
+    /// because a subscriber attribute attaches to whichever app user RevenueCat currently holds.
+    @Test
+    func signingInIdentifiesTheCustomerThenAttachesTheSuppliedEmail() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true
+        )
+
+        let customer = MonetizationCustomerIdentity(
+            userID: "subscriber",
+            email: "climber@example.com"
+        )
+        let identity = service.prepareIdentity(customer)
+        let identifyTask = Task {
+            await service.identify(customer, transition: identity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
+
+        // Nothing is attached until RevenueCat has actually moved onto this customer.
+        #expect(provider.completedIdentityMutations == [])
+
+        provider.completeLogIn(with: .active(["app_access"]))
+        await identifyTask.value
+
+        #expect(
+            provider.completedIdentityMutations == [
+                .logIn(userID: "subscriber"),
+                .setEmail("climber@example.com")
+            ]
+        )
+    }
+
+    /// Not knowing an address is not the same as knowing there is none. A sign-in that supplied
+    /// nothing still claims the account identifier, and writes no attribute at all - blanking one
+    /// would erase the very thing that made an earlier customer identifiable.
+    @Test
+    func signingInWithoutAnEmailWritesNoAttribute() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true
+        )
+
+        let identity = service.prepareIdentity(.climber("subscriber"))
+        let identifyTask = Task {
+            await service.identify(.climber("subscriber"), transition: identity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
+        provider.completeLogIn(with: .active(["app_access"]))
+        await identifyTask.value
+
+        #expect(provider.completedIdentityMutations == [.logIn(userID: "subscriber")])
+    }
+
+    /// A log-in that never settled leaves the app on whatever customer it already held, so
+    /// attaching an address there would stamp one climber's email onto another's record.
+    @Test
+    func aFailedSignInAttachesNothing() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true
+        )
+
+        let customer = MonetizationCustomerIdentity(
+            userID: "subscriber",
+            email: "climber@example.com"
+        )
+        let identity = service.prepareIdentity(customer)
+        let identifyTask = Task {
+            await service.identify(customer, transition: identity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
+        provider.failLogIn()
+        await identifyTask.value
+
+        #expect(provider.completedIdentityMutations == [])
+        #expect(service.entitlementState == .unknown)
+    }
+
+    /// Two climbers, one device. Each address has to reach its own customer, which holds only
+    /// because the identity mutations are serialized: the second log-in cannot start until the
+    /// first has finished attaching. Signing out clears nothing - the departing climber's address
+    /// belongs on the departing climber's own customer, and log-out moves the app onto a fresh
+    /// anonymous customer that never carried one.
+    @Test
+    func switchingAccountsAttachesEachAddressToItsOwnCustomer() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true
+        )
+
+        let first = MonetizationCustomerIdentity(userID: "climber-a", email: "a@example.com")
+        let firstIdentity = service.prepareIdentity(first)
+        let firstIdentifyTask = Task {
+            await service.identify(first, transition: firstIdentity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "climber-a"))
+        provider.completeLogIn(with: .active(["app_access"]))
+        await firstIdentifyTask.value
+
+        let reset = service.prepareIdentityReset()
+        let resetTask = Task {
+            await service.resetIdentity(transition: reset)
+        }
+        #expect(await invocations.next() == .logOut)
+        provider.completeLogOut(with: .inactive)
+        await resetTask.value
+
+        let second = MonetizationCustomerIdentity(userID: "climber-b", email: "b@example.com")
+        let secondIdentity = service.prepareIdentity(second)
+        let secondIdentifyTask = Task {
+            await service.identify(second, transition: secondIdentity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "climber-b"))
+        provider.completeLogIn(with: .inactive)
+        await secondIdentifyTask.value
+
+        #expect(
+            provider.completedIdentityMutations == [
+                .logIn(userID: "climber-a"),
+                .setEmail("a@example.com"),
+                .logOut,
+                .logIn(userID: "climber-b"),
+                .setEmail("b@example.com")
+            ]
+        )
+    }
+
     @Test
     func delayedRefreshCannotOverwriteNewIdentity() async throws {
         let provider = ControlledRevenueCatEntitlementProvider()
@@ -181,9 +319,9 @@ struct RevenueCatEntitlementServiceTests {
             startsConfigured: true
         )
 
-        let firstIdentity = service.prepareIdentity(userId: "first-user")
+        let firstIdentity = service.prepareIdentity(.climber("first-user"))
         let firstIdentifyTask = Task {
-            await service.identify(userId: "first-user", transition: firstIdentity)
+            await service.identify(.climber("first-user"), transition: firstIdentity)
         }
         #expect(await invocations.next() == .logIn(userID: "first-user"))
         provider.completeLogIn(with: .active(["app_access"]))
@@ -194,9 +332,9 @@ struct RevenueCatEntitlementServiceTests {
         }
         #expect(await invocations.next() == .customerInfo)
 
-        let currentIdentity = service.prepareIdentity(userId: "current-user")
+        let currentIdentity = service.prepareIdentity(.climber("current-user"))
         let currentIdentifyTask = Task {
-            await service.identify(userId: "current-user", transition: currentIdentity)
+            await service.identify(.climber("current-user"), transition: currentIdentity)
         }
         #expect(await invocations.next() == .logIn(userID: "current-user"))
         provider.completeLogIn(with: .active(["app_access"]))
@@ -217,9 +355,9 @@ struct RevenueCatEntitlementServiceTests {
             startsConfigured: true
         )
 
-        let identity = service.prepareIdentity(userId: "subscriber")
+        let identity = service.prepareIdentity(.climber("subscriber"))
         let identifyTask = Task {
-            await service.identify(userId: "subscriber", transition: identity)
+            await service.identify(.climber("subscriber"), transition: identity)
         }
         #expect(await invocations.next() == .logIn(userID: "subscriber"))
         provider.completeLogIn(with: .active(["app_access"]))
@@ -241,9 +379,9 @@ struct RevenueCatEntitlementServiceTests {
             startsConfigured: true
         )
 
-        let identity = service.prepareIdentity(userId: "subscriber")
+        let identity = service.prepareIdentity(.climber("subscriber"))
         let identifyTask = Task {
-            await service.identify(userId: "subscriber", transition: identity)
+            await service.identify(.climber("subscriber"), transition: identity)
         }
         #expect(await invocations.next() == .logIn(userID: "subscriber"))
         provider.completeLogIn(with: .active(["app_access"]))
@@ -371,9 +509,9 @@ struct RevenueCatEntitlementServiceTests {
             startsConfigured: true
         )
 
-        let identity = service.prepareIdentity(userId: "subscriber")
+        let identity = service.prepareIdentity(.climber("subscriber"))
         let identifyTask = Task {
-            await service.identify(userId: "subscriber", transition: identity)
+            await service.identify(.climber("subscriber"), transition: identity)
         }
         #expect(await invocations.next() == .logIn(userID: "subscriber"))
 
@@ -397,9 +535,9 @@ struct RevenueCatEntitlementServiceTests {
             startsConfigured: true
         )
 
-        let identity = service.prepareIdentity(userId: "subscriber")
+        let identity = service.prepareIdentity(.climber("subscriber"))
         let identifyTask = Task {
-            await service.identify(userId: "subscriber", transition: identity)
+            await service.identify(.climber("subscriber"), transition: identity)
         }
         #expect(await invocations.next() == .logIn(userID: "subscriber"))
 
@@ -427,9 +565,9 @@ struct RevenueCatEntitlementServiceTests {
             startsConfigured: true
         )
 
-        let identity = service.prepareIdentity(userId: "subscriber")
+        let identity = service.prepareIdentity(.climber("subscriber"))
         let identifyTask = Task {
-            await service.identify(userId: "subscriber", transition: identity)
+            await service.identify(.climber("subscriber"), transition: identity)
         }
         #expect(await invocations.next() == .logIn(userID: "subscriber"))
 
@@ -454,9 +592,9 @@ struct RevenueCatEntitlementServiceTests {
             startsConfigured: true
         )
 
-        let identity = service.prepareIdentity(userId: "subscriber")
+        let identity = service.prepareIdentity(.climber("subscriber"))
         let identifyTask = Task {
-            await service.identify(userId: "subscriber", transition: identity)
+            await service.identify(.climber("subscriber"), transition: identity)
         }
         #expect(await invocations.next() == .logIn(userID: "subscriber"))
         provider.completeLogIn(with: .active(["app_access"]))
@@ -484,9 +622,9 @@ struct RevenueCatEntitlementServiceTests {
             startsConfigured: true
         )
 
-        let firstIdentity = service.prepareIdentity(userId: "first-user")
+        let firstIdentity = service.prepareIdentity(.climber("first-user"))
         let firstIdentifyTask = Task {
-            await service.identify(userId: "first-user", transition: firstIdentity)
+            await service.identify(.climber("first-user"), transition: firstIdentity)
         }
         #expect(await invocations.next() == .logIn(userID: "first-user"))
         provider.completeLogIn(with: .active(["app_access"]))
@@ -497,9 +635,9 @@ struct RevenueCatEntitlementServiceTests {
         }
         #expect(await invocations.next() == .customerInfo)
 
-        let switchedIdentity = service.prepareIdentity(userId: "switched-user")
+        let switchedIdentity = service.prepareIdentity(.climber("switched-user"))
         let switchedIdentifyTask = Task {
-            await service.identify(userId: "switched-user", transition: switchedIdentity)
+            await service.identify(.climber("switched-user"), transition: switchedIdentity)
         }
         #expect(await invocations.next() == .logIn(userID: "switched-user"))
 
@@ -523,9 +661,9 @@ struct RevenueCatEntitlementServiceTests {
             startsConfigured: true
         )
 
-        let identity = service.prepareIdentity(userId: "subscriber")
+        let identity = service.prepareIdentity(.climber("subscriber"))
         let identifyTask = Task {
-            await service.identify(userId: "subscriber", transition: identity)
+            await service.identify(.climber("subscriber"), transition: identity)
         }
         #expect(await invocations.next() == .logIn(userID: "subscriber"))
         provider.failLogIn()
@@ -551,9 +689,9 @@ struct RevenueCatEntitlementServiceTests {
             startsConfigured: true
         )
 
-        let identity = service.prepareIdentity(userId: "subscriber")
+        let identity = service.prepareIdentity(.climber("subscriber"))
         let identifyTask = Task {
-            await service.identify(userId: "subscriber", transition: identity)
+            await service.identify(.climber("subscriber"), transition: identity)
         }
         #expect(await invocations.next() == .logIn(userID: "subscriber"))
         provider.failLogIn()
@@ -580,9 +718,9 @@ struct RevenueCatEntitlementServiceTests {
             startsConfigured: true
         )
 
-        let identity = service.prepareIdentity(userId: "subscriber")
+        let identity = service.prepareIdentity(.climber("subscriber"))
         let identifyTask = Task {
-            await service.identify(userId: "subscriber", transition: identity)
+            await service.identify(.climber("subscriber"), transition: identity)
         }
         #expect(await invocations.next() == .logIn(userID: "subscriber"))
         provider.completeLogIn(with: .active(["app_access"]))
@@ -612,6 +750,7 @@ private func settle(until condition: () -> Bool) async {
 private enum RevenueCatProviderInvocation: Equatable {
     case customerInfo
     case logIn(userID: String)
+    case setEmail(String)
     case logOut
     case restore
 }
@@ -663,6 +802,13 @@ private final class ControlledRevenueCatEntitlementProvider: RevenueCatEntitleme
         }
         completedIdentityMutations.append(.logIn(userID: userID))
         return state
+    }
+
+    /// Recorded only in `completedIdentityMutations`. It is a local store write with no round trip
+    /// to wait on, so putting it in the invocation stream would only make every test that steps
+    /// through log-ins consume a turn for it.
+    func setCustomerEmail(_ email: String) {
+        completedIdentityMutations.append(.setEmail(email))
     }
 
     func logOutState() async throws -> MonetizationEntitlementState {

@@ -18,8 +18,11 @@ protocol EntitlementServicing: AnyObject {
     ///   from this must never read `entitlementState` when the refresh reports `.unavailable`.
     @discardableResult
     func refreshCustomerInfo(waitsForPendingIdentity: Bool) async -> MonetizationEntitlementRefresh
-    func prepareIdentity(userId: String) -> MonetizationIdentityTransition
-    func identify(userId: String, transition: MonetizationIdentityTransition) async
+    func prepareIdentity(_ customer: MonetizationCustomerIdentity) -> MonetizationIdentityTransition
+    func identify(
+        _ customer: MonetizationCustomerIdentity,
+        transition: MonetizationIdentityTransition
+    ) async
     func prepareIdentityReset() -> MonetizationIdentityTransition
     func resetIdentity(transition: MonetizationIdentityTransition) async
     func retryIdentityResolution() async

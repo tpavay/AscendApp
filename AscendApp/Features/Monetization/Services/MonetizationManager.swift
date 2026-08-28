@@ -122,37 +122,36 @@ final class MonetizationManager: MonetizationIdentityManaging {
     }
 
     @discardableResult
-    func prepareIdentity(userId: String) -> MonetizationIdentityTransition {
-        if identifiedUserID != userId {
-            identifiedUserID = userId
+    func prepareIdentity(
+        _ customer: MonetizationCustomerIdentity
+    ) -> MonetizationIdentityTransition {
+        if identifiedUserID != customer.userID {
+            identifiedUserID = customer.userID
             onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
         }
 
         // The pass that opened before auth belongs to whoever just claimed it; a different account
         // retires it, and the grant provenance it was carrying, rather than inheriting either.
-        onboardingLifecycle.adoptPassOwner(userId)
+        onboardingLifecycle.adoptPassOwner(customer.userID)
 
-        let transition = entitlementService.prepareIdentity(userId: userId)
+        let transition = entitlementService.prepareIdentity(customer)
         preparedIdentityTransition = transition
         return transition
     }
 
     func identify(
-        userId: String,
+        _ customer: MonetizationCustomerIdentity,
         transition: MonetizationIdentityTransition
     ) async {
-        await entitlementService.identify(
-            userId: userId,
-            transition: transition
-        )
+        await entitlementService.identify(customer, transition: transition)
 
-        guard identifiedUserID == userId,
+        guard identifiedUserID == customer.userID,
               preparedIdentityTransition == transition else {
             return
         }
 
         preparedIdentityTransition = nil
-        paywallPresenter.identify(userId: userId)
+        paywallPresenter.identify(userId: customer.userID)
     }
 
     @discardableResult
