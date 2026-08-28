@@ -41,7 +41,7 @@ struct ProfileExactPlacementCounts: Equatable {
 /// only when the finalized records loaded: the `profile_stats` counters are banded into
 /// top 1 / 3 / 10 / 100 and carry no second-versus-third breakdown, so a profile that fell
 /// back to them reports `nil` and the placement badges are withheld rather than guessed at.
-struct ProfileAchievementLadder: Equatable {
+struct ProfileAchievementLadder: Equatable, Sendable {
     let counts: ProfileAchievementCounts
     let records: [ProfileAchievementRecord]
     let placements: ProfileExactPlacementCounts?
@@ -65,5 +65,30 @@ struct ProfileAchievementLadder: Equatable {
 
     var hasAny: Bool {
         counts.hasAny
+    }
+
+    /// How many times this climber finished exactly second, or `nil` when this ladder cannot
+    /// say. See `exactFinishes(atRank:)` for why a banded ladder can sometimes still answer.
+    var secondPlaceFinishes: Int? {
+        exactFinishes(atRank: 2)
+    }
+
+    /// How many times this climber finished exactly third, or `nil` when this ladder cannot say.
+    var thirdPlaceFinishes: Int? {
+        exactFinishes(atRank: 3)
+    }
+
+    /// `nil` means *this ladder cannot speak to that rank* - which is not the same as zero.
+    ///
+    /// The banded `profile_stats` counters carry no second-versus-third breakdown, so a ladder
+    /// built from them normally cannot tell one apart from the other. It can at zero: every
+    /// second and third place also counts toward `top3`, so when `top3` holds nothing beyond
+    /// the champion finishes there is provably nothing on the podium below first. Withholding
+    /// that answer would hide a decorated climber's own row rather than protect anyone.
+    private func exactFinishes(atRank rank: Int) -> Int? {
+        if let placements {
+            return rank == 2 ? placements.second : placements.third
+        }
+        return counts.top3 == counts.top1 ? 0 : nil
     }
 }

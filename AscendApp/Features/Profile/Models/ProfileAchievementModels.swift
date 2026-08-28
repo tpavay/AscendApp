@@ -44,7 +44,7 @@ enum ProfileAchievementType: String, CaseIterable {
     }
 }
 
-enum ProfileAchievementRankBand: String, Identifiable {
+enum ProfileAchievementRankBand: String, Identifiable, Sendable {
     case top1
     case top3
     case top10

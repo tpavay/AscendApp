@@ -378,11 +378,6 @@ private struct ProfileComparisonBioTab: View {
                 }
             }
 
-            PublicProfileAchievementsSection(
-                achievements: otherUser.achievements,
-                isOtherLoading: isOtherLoading
-            )
-
             ProfileComparisonSection(title: "ALL-TIME") {
                 VStack(spacing: 0) {
                     ProfileComparisonStatRow(
@@ -420,6 +415,14 @@ private struct ProfileComparisonBioTab: View {
                     )
                 }
             }
+
+            // Last on purpose: ACHIEVEMENTS is the only section here whose height and existence
+            // vary with the data, so putting it last keeps PROFILE and ALL-TIME from moving.
+            PublicProfileAchievementsSection(
+                viewerAchievements: viewer.achievements,
+                otherAchievements: otherUser.achievements,
+                isOtherLoading: isOtherLoading
+            )
         }
     }
 
@@ -555,43 +558,6 @@ private struct ProfileComparisonStatRow: View {
             }
         }
         .padding(.vertical, 10)
-    }
-}
-
-private struct ProfileComparisonStatBar: View {
-    let viewerValue: Double
-    let otherValue: Double
-    var isLoadingOtherValue = false
-
-    private var viewerRatio: CGFloat {
-        if isLoadingOtherValue {
-            return 0.5
-        }
-        let total = viewerValue + otherValue
-        guard total > 0 else { return 0.5 }
-        return CGFloat(max(min(viewerValue / total, 1), 0))
-    }
-
-    var body: some View {
-        GeometryReader { geometry in
-            HStack(spacing: 0) {
-                Rectangle()
-                    .fill(Color.ascendAccent)
-                    .frame(width: max(geometry.size.width * viewerRatio, 0))
-
-                if isLoadingOtherValue {
-                    Rectangle()
-                        .fill(ProfileVisualStyle.skeletonFill)
-                        .ascendSkeletonShimmer()
-                } else {
-                    Rectangle()
-                        .fill(ProfileVisualStyle.opponentBlue)
-                }
-            }
-            .clipShape(Capsule(style: .continuous))
-            .opacity(viewerValue + otherValue > 0 || isLoadingOtherValue ? 1 : 0.35)
-        }
-        .frame(height: 5)
     }
 }
 

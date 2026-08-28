@@ -4,7 +4,7 @@ import Foundation
 ///
 /// A band badge lists every finish inside the band. A placement badge lists only the finishes
 /// at that exact rank, because an exact rank is the only claim that badge makes.
-enum ProfileAchievementHistoryFilter: Identifiable, Equatable {
+enum ProfileAchievementHistoryFilter: Identifiable, Equatable, Sendable {
     case band(ProfileAchievementRankBand)
     case placement(Int)
 
