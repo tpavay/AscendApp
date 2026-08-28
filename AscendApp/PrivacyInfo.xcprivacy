@@ -60,7 +60,15 @@
     <!-- ============================================================ -->
     <key>NSPrivacyCollectedDataTypes</key>
     <array>
-        <!-- Email Address - Sign in with Apple / Google, profile, feedback -->
+        <!--
+          Email Address - Sign in with Apple / Google, profile, feedback, and the
+          address sent to RevenueCat as the customer's `$email` subscriber
+          attribute so a subscription or grant can be matched to the account it
+          belongs to. That is account management and support, so the purpose and
+          the Linked / Tracking flags below are unchanged by it. A
+          @privaterelay.appleid.com address is a real address and is treated as
+          one.
+        -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeEmailAddress</string>

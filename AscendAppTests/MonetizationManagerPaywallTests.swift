@@ -235,6 +235,32 @@ struct MonetizationManagerPaywallTests {
         #expect(manager.onboardingCompletionReasonForActiveAccess == .restore)
     }
 
+    /// The manager owns the paywall and onboarding side of an identity change, but it is not the
+    /// place where the customer record is narrowed to an id. Whatever the sign-in supplied has to
+    /// reach the entitlement service intact, or RevenueCat never learns who the customer is.
+    @Test
+    func preparingAnIdentityForwardsTheWholeCustomerToTheEntitlementService() {
+        let fixture = OnboardingLifecycleFixture()
+        defer { fixture.cleanUp() }
+
+        let entitlementService = EntitlementServiceStub()
+        let manager = MonetizationManager(
+            entitlementService: entitlementService,
+            paywallPresenter: PaywallPresenterSpy(),
+            onboardingLifecycle: fixture.makeLifecycle()
+        )
+
+        manager.prepareIdentity(
+            MonetizationCustomerIdentity(userID: "climber-a", email: "a@example.com")
+        )
+
+        #expect(
+            entitlementService.preparedCustomers == [
+                MonetizationCustomerIdentity(userID: "climber-a", email: "a@example.com")
+            ]
+        )
+    }
+
     /// A second account replaces the pass outright, and the grant provenance is part of that pass,
     /// so nothing the previous climber's paywall did may attribute the next climber's access.
     @Test
@@ -250,11 +276,11 @@ struct MonetizationManagerPaywallTests {
             onboardingLifecycle: fixture.makeLifecycle()
         )
 
-        manager.prepareIdentity(userId: "climber-a")
+        manager.prepareIdentity(.climber("climber-a"))
         manager.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
         paywallPresenter.send(.purchased)
 
-        manager.prepareIdentity(userId: "climber-b")
+        manager.prepareIdentity(.climber("climber-b"))
         entitlementService.setEntitlementState(.active(["app_access"]))
 
         #expect(manager.onboardingCompletionReasonForActiveAccess == .existingEntitlement)
@@ -351,14 +377,14 @@ struct MonetizationManagerPaywallTests {
             telemetry: makeTestTelemetry(sink: sink)
         )
 
-        let firstIdentity = manager.prepareIdentity(userId: "user-a")
-        await manager.identify(userId: "user-a", transition: firstIdentity)
+        let firstIdentity = manager.prepareIdentity(.climber("user-a"))
+        await manager.identify(.climber("user-a"), transition: firstIdentity)
         manager.presentPaywall(.onboardingPaywall)
         manager.presentPaywall(.onboardingPaywall)
         let reset = manager.prepareIdentityReset()
         await manager.resetIdentity(transition: reset)
-        let secondIdentity = manager.prepareIdentity(userId: "user-b")
-        await manager.identify(userId: "user-b", transition: secondIdentity)
+        let secondIdentity = manager.prepareIdentity(.climber("user-b"))
+        await manager.identify(.climber("user-b"), transition: secondIdentity)
         manager.presentPaywall(.onboardingPaywall)
 
         let onboardingViews = sink.records.filter { $0.name == "onboarding_screen_viewed" }
@@ -376,11 +402,11 @@ struct MonetizationManagerPaywallTests {
             telemetry: makeTestTelemetry(sink: sink)
         )
 
-        let firstIdentity = manager.prepareIdentity(userId: "user-a")
-        await manager.identify(userId: "user-a", transition: firstIdentity)
+        let firstIdentity = manager.prepareIdentity(.climber("user-a"))
+        await manager.identify(.climber("user-a"), transition: firstIdentity)
         manager.presentPaywall(.onboardingPaywall)
-        let repeatedIdentity = manager.prepareIdentity(userId: "user-a")
-        await manager.identify(userId: "user-a", transition: repeatedIdentity)
+        let repeatedIdentity = manager.prepareIdentity(.climber("user-a"))
+        await manager.identify(.climber("user-a"), transition: repeatedIdentity)
         manager.presentPaywall(.onboardingPaywall)
 
         #expect(sink.records.filter { $0.name == "onboarding_screen_viewed" }.count == 1)
@@ -419,7 +445,7 @@ struct MonetizationManagerPaywallTests {
         await manager.resetIdentity(transition: reset)
 
         entitlementService.identityResolution = .active(["app_access"])
-        let signIn = manager.prepareIdentity(userId: "returning-subscriber")
+        let signIn = manager.prepareIdentity(.climber("returning-subscriber"))
 
         let resolvingRoute = AppRootRouteResolver.resolve(
             updatePresentation: nil,
@@ -439,7 +465,7 @@ struct MonetizationManagerPaywallTests {
         #expect(paywallPresenter.registeredPlacement == nil)
 
         await manager.identify(
-            userId: "returning-subscriber",
+            .climber("returning-subscriber"),
             transition: signIn
         )
 
@@ -592,6 +618,8 @@ final class EntitlementServiceStub: EntitlementServicing {
     var identityGeneration: MonetizationIdentityTransition? { currentTransition }
     var isConfigured = true
     var identityResolution = MonetizationEntitlementState.inactive
+    /// Every customer handed to `prepareIdentity`, in order.
+    private(set) var preparedCustomers: [MonetizationCustomerIdentity] = []
     var restoreError: (any Error)?
     /// A restore resolves its own answer even when a pending identity transition holds
     /// `entitlementState` at `.unknown`, so the two are settable independently.
@@ -626,12 +654,15 @@ final class EntitlementServiceStub: EntitlementServicing {
         .refreshed(entitlementState)
     }
 
-    func prepareIdentity(userId: String) -> MonetizationIdentityTransition {
-        prepare(userID: userId)
+    func prepareIdentity(
+        _ customer: MonetizationCustomerIdentity
+    ) -> MonetizationIdentityTransition {
+        preparedCustomers.append(customer)
+        return prepare(userID: customer.userID)
     }
 
     func identify(
-        userId: String,
+        _ customer: MonetizationCustomerIdentity,
         transition: MonetizationIdentityTransition
     ) async {
         resolve(identityResolution, for: transition)

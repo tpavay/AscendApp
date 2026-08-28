@@ -138,7 +138,10 @@ class AuthenticationViewModel {
                         initialAuthenticationState = .restoringSession
                     }
                     self.beginAuthenticatedSession(
-                        userID: user.uid,
+                        customer: MonetizationCustomerIdentity(
+                            userID: user.uid,
+                            email: user.email
+                        ),
                         initialState: initialAuthenticationState
                     )
 
@@ -227,16 +230,17 @@ class AuthenticationViewModel {
     /// Claims the new RevenueCat identity *before* publishing an authenticated state, so routing
     /// never evaluates access against the previous identity's stale answer. The entitlement state
     /// is `.unknown` the moment the app is authenticated, which routes to a wait, not the paywall.
+    ///
+    /// This runs on every launch that restores a session, not only on an interactive sign-in, which
+    /// is what lets a customer created before Ascend sent any of this pick the identity up.
     func beginAuthenticatedSession(
-        userID: String,
+        customer: MonetizationCustomerIdentity,
         initialState: AuthenticationState
     ) {
-        let monetizationTransition = monetizationIdentityManager.prepareIdentity(
-            userId: userID
-        )
+        let monetizationTransition = monetizationIdentityManager.prepareIdentity(customer)
         Task {
             await monetizationIdentityManager.identify(
-                userId: userID,
+                customer,
                 transition: monetizationTransition
             )
         }

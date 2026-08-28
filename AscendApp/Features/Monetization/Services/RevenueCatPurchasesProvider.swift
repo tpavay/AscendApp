@@ -28,6 +28,10 @@ final class RevenueCatPurchasesProvider: RevenueCatEntitlementProviding {
         return Self.entitlementState(from: result.customerInfo)
     }
 
+    func setCustomerEmail(_ email: String) {
+        Purchases.shared.attribution.setEmail(email)
+    }
+
     func logOutState() async throws -> MonetizationEntitlementState {
         do {
             return Self.entitlementState(from: try await Purchases.shared.logOut())

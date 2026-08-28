@@ -179,18 +179,20 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         )
     }
 
-    func prepareIdentity(userId: String) -> MonetizationIdentityTransition {
+    func prepareIdentity(
+        _ customer: MonetizationCustomerIdentity
+    ) -> MonetizationIdentityTransition {
         prepareIdentityMutation(
-            userID: userId,
-            mutation: .identify(userID: userId)
+            userID: customer.userID,
+            mutation: .identify(customer)
         )
     }
 
     func identify(
-        userId: String,
+        _ customer: MonetizationCustomerIdentity,
         transition: MonetizationIdentityTransition
     ) async {
-        guard transition.userID == userId else { return }
+        guard transition.userID == customer.userID else { return }
         await identityMutationTasks[transition]?.value
     }
 
@@ -289,9 +291,23 @@ final class RevenueCatEntitlementService: EntitlementServicing {
 
         do {
             switch mutation {
-            case .identify(let userID):
-                return try await provider.logInState(userID: userID)
+            case .identify(let customer):
+                let state = try await provider.logInState(userID: customer.userID)
+
+                // Only ever after the log-in settles, and only ever from inside this serialized
+                // mutation: the attribute lands on whichever app user RevenueCat currently holds,
+                // and `identityMutationTail` is what guarantees that is still `customer`. Nothing
+                // is written when the app knows no address - see `setCustomerEmail`.
+                if let email = customer.email {
+                    provider.setCustomerEmail(email)
+                }
+
+                return state
             case .reset:
+                // Signing out leaves the departing climber's email on the departing climber's own
+                // customer, which is the record the captain needs to keep. RevenueCat's log-out
+                // moves the app onto a fresh anonymous customer that never carried an address, so
+                // there is nothing stale here to clear.
                 return try await provider.logOutState()
             }
         } catch {

@@ -75,7 +75,7 @@ struct ReturningSubscriberJourneyTranscriptTests {
         //    back yet, and routing is evaluated right here - the exact instant the bug fired.
         entitlementService.identityResolution = .active(["app_access"])
         authentication.beginAuthenticatedSession(
-            userID: "returning-subscriber",
+            customer: .climber("returning-subscriber"),
             initialState: .authenticated
         )
         record("3. Signs in -> answer still outstanding", userId: "returning-subscriber")
