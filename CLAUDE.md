@@ -106,7 +106,7 @@ xcodebuild -project AscendApp.xcodeproj -scheme "AscendApp" \
   CODE_SIGNING_ALLOWED=NO build
 
 npm run test:firebase-rules            # Firestore/Storage rules (emulator)
-node --test scripts/test/*.test.mjs    # scripts + shared migration vectors
+node --test scripts/test/*.test.mjs    # scripts + shared migration vectors (needs `npm --prefix scripts ci` first)
 cd functions && npm run lint && npm test   # Cloud Functions
 cd web && npm run build                    # Website -> web/dist/
 
