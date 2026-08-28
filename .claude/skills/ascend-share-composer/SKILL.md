@@ -20,6 +20,21 @@ Sharing in Ascend is a **user-composed canvas**, not a gallery of pre-designed c
 - Alignment: center + edge snap guides (V1). Full Instagram-grade snapping (third-lines, between-sticker magnetism) is deferred.
 - **Editing is SwiftUI-over-player; export is the only AVFoundation work.** While composing, the canvas is a SwiftUI `ZStack` of the background (an `Image` or an `AVPlayer`-backed video) with draggable sticker views on top - no composition happens during editing. Composition runs ONCE at save/share time.
 
+## Camera Roll scope - album and date
+
+The Camera Roll tab is scoped, not one unfiltered roll.
+`ShareCameraRollScope` composes an album selection with an optional `ShareDateWindow` into a single PhotoKit predicate, so the two scopes stay genuinely independent and neither overwrites the other.
+The three source pills (Camera Roll / Presets / Recaps) are untouched at fixed width; a text-only underline filter row sits under them and a calendar button sits in the header.
+Each rule below is carried in its own type's doc comments and pinned by `AscendAppTests/ShareCameraRollScopeTests.swift` - read those before changing an ordering, a window, or a fetch.
+
+- **`All Albums` sits second, directly right of `Recents` - not last.** Measured at Montserrat's real widths only about four items fit before the row scrolls, so anywhere further along a long album name pushes off the one item that leads everywhere else. Opening an album from the All Albums grid turns that same slot into a back item, and while it does, that album is dropped from the shortcuts further along so it cannot appear twice. `ShareScopeShortcuts` is pure for exactly that reason - the ordering is testable without a photo library or a view tree.
+- **The album is persisted across launches; the date deliberately never is.** An album is a place, a date is a moment - persisting one opens the composer in October still scoped to August onto an empty grid. Only an album selection writes the stored scope, and only Recents clears it: browsing the album grid and backing out is not a choice.
+- **The date sheet's primary button IS the live count** (`SHOW 312 PHOTOS`, disabled `NO PHOTOS IN MARCH 2024`), counted inside the album already selected. A wheel picker otherwise lets a climber assemble a combination that holds nothing and only says so afterwards. `.wheel` draws its own selection band and does not permit restyling; only the row content is ours.
+- **The calendar button appears exactly when photos are on screen.** It is absent on the All Albums grid (browsing albums, nothing to date-filter yet) and on Presets and Recaps.
+- **Albums are fetched only under `.authorized`.** PhotoKit cannot fetch user albums at all under `.limited`, so the call is skipped rather than made and found empty - an empty result there is indistinguishable from owning no albums, and the two need opposite screens.
+- **iCloud shared albums, My Photo Stream, and Hidden are excluded.** The first two are cloud-only, so opening one starts a network download inside a picker with no loading state for it, and limited access cannot see them at all. Hidden needs `includeHiddenAssets` and would be a privacy incident with a tile on it.
+- Square photo cells with a 3pt gap are the picker's settled geometry, kept deliberately over an edge-to-edge 3:4 grid even though the share canvas is 9:19.5 portrait.
+
 ## One card format, one interpreter
 
 Everything drawn on a share - a sticker on the canvas, a full recap template, every exported pixel - is a `ShareCardNode` tree rendered by `ShareCardRenderer`. **Never add a second renderer.** The composer's worst bug came from having two: a per-stat setting the chosen one did not accept was silently discarded, so a label placed on the left jumped back on top the moment a stat was added.
@@ -92,6 +107,8 @@ The first composer open on an installation plays a four-step walkthrough - backg
 
 ## Boundaries
 - Photos library permission is requested at first share (point of use), never in onboarding.
+  `NSPhotoLibraryUsageDescription` describes that one feature - photos and videos used as backgrounds for a shared climb - and is stored in four places that must be changed together (`ascend-privacy-manifest`).
+- **`PHPhotoLibraryPreventAutomaticLimitedAccessAlert` is on, so the picker owns limited access itself.** iOS no longer re-prompts a limited-access climber on the first PhotoKit call after every launch; the in-context *Add more* control is the offer instead. That only works because `SharePhotoLibrary` registers a `PHPhotoLibraryChangeObserver` - the limited-library picker signals its result through exactly that callback, and it is also what makes a photo taken while the composer is open appear. Callbacks are coalesced and authorization is re-read on each one, because a climber can widen access from inside that sheet.
 - Card templates ship **bundled**, and are rendered on-device. Do not build a remote template service or server-rendered card images. The format is shaped so a payload *could* later arrive over the wire; when a real reason appears (a campaign card, a template that ships broken), point the same decoder at the hosted climb-catalog channel this app already trusts (`HostedClimbCatalogRepository`) rather than adopting a second remote-content pattern. `minRendererVersion` filtering, unknown-element no-ops, and nullable stat references are already in place for that day.
 - Backgrounds/presets are bundled or locally composed - NOT server-rendered. Don't reintroduce backend-driven share backgrounds or remote-configured stat layouts.
 - The Live Climb completion summary stays as the emotional payoff; its Share button opens the composer (with the climb's card available as a background preset). The composer never replaces the summary screen itself.

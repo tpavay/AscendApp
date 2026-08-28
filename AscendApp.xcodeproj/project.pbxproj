@@ -603,7 +603,7 @@
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend reads heart rate and active energy from Health during the climbs you run in Ascend, so each climb shows what it cost you.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Ascend uses motion from compatible headphones to count steps during Live Climbs, Just Climb sessions, and routines.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend needs access to your photo library to attach photos and videos to workouts.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend uses photos and videos from your library as backgrounds for the climbs you share.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
@@ -785,7 +785,7 @@
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend reads heart rate and active energy from Health during the climbs you run in Ascend, so each climb shows what it cost you.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Ascend uses motion from compatible headphones to count steps during Live Climbs, Just Climb sessions, and routines.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend needs access to your photo library to attach photos and videos to workouts.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend uses photos and videos from your library as backgrounds for the climbs you share.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
@@ -843,7 +843,7 @@
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend reads heart rate and active energy from Health during the climbs you run in Ascend, so each climb shows what it cost you.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Ascend uses motion from compatible headphones to count steps during Live Climbs, Just Climb sessions, and routines.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend needs access to your photo library to attach photos and videos to workouts.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend uses photos and videos from your library as backgrounds for the climbs you share.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;

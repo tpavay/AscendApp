@@ -18,6 +18,16 @@ struct ShareBackgroundPickerView: View {
     @State private var selectedTab: Tab = .cameraRoll
     @AccessibilityFocusState private var sourceTabsAreFocused: Bool
 
+    /// Owned here rather than by the grid: the filter row and the calendar button both sit above the
+    /// grid and drive the same scope, so the state has to outlive the grid's identity.
+    @State private var library = SharePhotoLibrary()
+    @State private var showDateSheet = false
+
+    /// An album is a place - "my climb photos live here" is still true next month - so it survives
+    /// the composer closing and the app relaunching. A date is a moment and is deliberately never
+    /// persisted, or you open in October still scoped to August and stare at an empty grid.
+    @AppStorage("shareComposerAlbumID") private var rememberedAlbumID = ""
+
     private let accent = Color(red: 0.706, green: 0.8, blue: 0)
 
     enum Tab { case cameraRoll, presets, recaps }
@@ -42,7 +52,7 @@ struct ShareBackgroundPickerView: View {
 
                 switch visibleTab {
                 case .cameraRoll:
-                    ShareCameraRollGrid(onPick: onPick)
+                    cameraRollContent
                 case .presets:
                     presetsContent
                 case .recaps:
@@ -52,10 +62,100 @@ struct ShareBackgroundPickerView: View {
                 Spacer(minLength: 0)
             }
         }
+        .task { await library.loadIfNeeded() }
+        .task(id: library.albums) { await restoreRememberedAlbum() }
         .onChange(of: walkthrough.restingFocusTarget) { _, target in
             guard target == .sources else { return }
             sourceTabsAreFocused = true
         }
+        .sheet(isPresented: $showDateSheet) {
+            ShareDateFilterSheet(
+                availableYears: library.availableYears,
+                current: library.scope.dateWindow,
+                countProvider: { await library.photoCount(forDateWindow: $0) },
+                onApply: { window in
+                    Task { await library.setDateWindow(window) }
+                }
+            )
+            .presentationDetents([.height(470)])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(Color(hex: "121212"))
+        }
+    }
+
+    // MARK: - Camera Roll
+
+    private var cameraRollContent: some View {
+        VStack(spacing: 0) {
+            ShareScopeFilterRow(
+                items: scopeItems,
+                selection: library.scope.selection,
+                albumsAreAvailable: library.accessState == .authorized,
+                onSelect: select
+            )
+
+            if library.scope.selection == .allAlbums {
+                ShareAlbumGrid(
+                    albums: library.albums,
+                    isLoading: library.isLoadingAlbums,
+                    selectedAlbumID: library.scope.browsedAlbum?.id,
+                    library: library,
+                    onSelect: openAlbum
+                )
+            } else {
+                ShareCameraRollGrid(
+                    library: library,
+                    onPick: onPick,
+                    onClearDate: { Task { await library.setDateWindow(nil) } },
+                    onShowRecents: { select(.recents) }
+                )
+            }
+        }
+    }
+
+    private var scopeItems: [ShareScopeItem] {
+        ShareScopeShortcuts.items(
+            albums: library.albums,
+            scope: library.scope,
+            rememberedAlbumID: rememberedAlbumID.isEmpty ? nil : rememberedAlbumID
+        )
+    }
+
+    /// Only an actual album selection writes the persisted scope, and only Recents - the deliberate
+    /// show-me-everything - clears it. Opening the album grid and backing out leaves it alone:
+    /// browsing is not a choice, and treating it as one silently drops the climber's standing scope.
+    private func select(_ item: ShareScopeItem) {
+        Task {
+            await library.select(item.selection)
+            switch item {
+            case .recents: rememberedAlbumID = ""
+            case .album(let album): rememberedAlbumID = album.id
+            case .allAlbums, .back: break
+            }
+        }
+    }
+
+    private func openAlbum(_ album: ShareAlbum) {
+        Task {
+            await library.select(.album(album), browsedFromAllAlbums: true)
+            rememberedAlbumID = album.id
+        }
+    }
+
+    /// Reopen in the album the climber last used. A remembered album that no longer resolves is
+    /// dropped silently - an album they deleted themselves is not news.
+    private func restoreRememberedAlbum() async {
+        guard !rememberedAlbumID.isEmpty,
+              library.scope.selection == .recents,
+              library.scope.dateWindow == nil
+        else { return }
+
+        guard let album = library.albums.first(where: { $0.id == rememberedAlbumID }) else {
+            if !library.albums.isEmpty { rememberedAlbumID = "" }
+            return
+        }
+        guard !album.isEmpty else { return }
+        await library.select(.album(album))
     }
 
     /// A selection can only ever name a tab the pill is drawing.
@@ -93,6 +193,9 @@ struct ShareBackgroundPickerView: View {
                         .frame(width: 44, height: 44)
                 }
                 Spacer()
+                if offersDateFilter {
+                    dateFilterButton
+                }
             }
             .overlay {
                 Text("Select background")
@@ -106,6 +209,44 @@ struct ShareBackgroundPickerView: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
+    }
+
+    /// The calendar appears whenever photos are on screen and disappears whenever they are not.
+    ///
+    /// The All Albums grid is browsing albums rather than photos, so there is nothing to filter yet;
+    /// Presets is one piece of climb artwork and Recaps are generated cards, so neither can be
+    /// scoped by date either.
+    private var offersDateFilter: Bool {
+        visibleTab == .cameraRoll
+            && library.scope.showsPhotos
+            && library.accessState != .denied
+    }
+
+    private var isDateFiltered: Bool { library.scope.dateWindow != nil }
+
+    private var dateFilterButton: some View {
+        Button {
+            HapticsManager.shared.trigger(.lightImpact)
+            showDateSheet = true
+        } label: {
+            Image(systemName: "calendar")
+                .font(.system(size: 18, weight: .semibold))
+                // Lime outline reads as "tap this to filter"; the filled capsule is the composer's
+                // own selected-state idiom, so "filtering right now" is a distinct state rather than
+                // the same lime twice.
+                .foregroundStyle(isDateFiltered ? .black.opacity(0.82) : accent)
+                .frame(width: 34, height: 34)
+                .background {
+                    if isDateFiltered {
+                        Circle().fill(accent)
+                    }
+                }
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isDateFiltered
+            ? "Filter by date, filtering \(library.scope.dateWindow?.displayName() ?? "")"
+            : "Filter by date")
     }
 
     // MARK: - Tabs

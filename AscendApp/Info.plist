@@ -63,7 +63,11 @@
 		<string>App-Prefs</string>
 	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Ascend needs access to your photo library to attach photos and videos to workouts.</string>
+	<string>Ascend uses photos and videos from your library as backgrounds for the climbs you share.</string>
+	<!-- The picker owns an in-context "Add more" control, so iOS must stop re-prompting
+	     limited-access climbers on the first PhotoKit call after every launch. -->
+	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
+	<true/>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Ascend reads heart rate and active energy from Health during the climbs you run in Ascend, so each climb shows what it cost you.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
