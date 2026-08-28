@@ -110,8 +110,11 @@ Waiting is a loud failure if it times out; attaching the wrong binary is a silen
 The dry run reports which locales still have empty "What's New", once the version record exists to read localizations from.
 It sends no POST and no PATCH.
 
-If the version record already has a **different** build attached, the run refuses rather than swapping the binary under a version you may be part-way through preparing.
-Re-run with `--build <number>` to say that is what you mean.
+If the version record already has a **different** build attached, a strictly newer build replaces it and the run says so plainly, naming both build numbers.
+That is ordinary iteration: a prepared version carrying build 100, a fix merged, the deploy uploading 101.
+Anything else refuses - an attached build that is newer, that shares the number but not the record, or whose number cannot be ordered at all - because that is the case where the binary would be swapped under somebody part-way through preparing.
+Re-run with `--build <number>` to say which binary you mean.
+The attachment is read before the wait, so a refusal it can decide on costs seconds rather than the whole polling budget.
 
 You can also re-run it from the Actions tab: **Prepare App Store Version** accepts an optional version and build number.
 
@@ -145,13 +148,14 @@ Either you meant to bump `MARKETING_VERSION` for the next release, or you want t
 Running **Prepare App Store Version** from the Actions tab yourself still fails loudly on the same state (`App Store version X is IN_REVIEW, which this script may not write to`), because there you asked for that version by name.
 The script never writes to a version mid-review; that is not recoverable from a script.
 
-**"App Store version X already has a different build attached"**
-Somebody, or an earlier run, already attached a build to that version record.
-The run will not swap it out silently.
+**"App Store version X already has build N attached, which is not older than build M"**
+The build on that version record is not one this run may step backwards from: it is newer than the build selected, shares its number without being the same record, or carries a number that cannot be ordered.
+A strictly newer build would have replaced it automatically and said so.
 Decide which binary goes to review and re-run with `--build <number>`, or attach it in App Store Connect.
 
 **The prepare run timed out waiting for a build**
 It waits for the *newest* build in the train, deliberately, so a stale build that processed first is never attached instead.
+The budget is 50 minutes, inside the workflow's 60-minute job cap, so a timeout means something is genuinely wrong rather than that Apple was slow.
 Re-run it from the Actions tab once App Store Connect shows the build as ready; it is idempotent.
 
 **A bad build is already live**

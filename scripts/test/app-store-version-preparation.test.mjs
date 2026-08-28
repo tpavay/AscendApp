@@ -3,10 +3,12 @@ import test from "node:test";
 
 import {
   AppStorePreparationRefusal,
+  earlyAttachmentRefusal,
   localesMissingReleaseNotes,
   manualNextSteps,
   nonEditableVersionRefusal,
   parseMarketingVersion,
+  resolveAttachmentPlan,
   resolveVersionRecordOutcome,
   selectAttachableBuild,
   versionState,
@@ -277,7 +279,12 @@ test("arguments parse into the shape the run uses, and refuse nonsense", () => {
  * records every request so a test can prove which ones were sent - above all, that no
  * submission endpoint was ever touched.
  */
-function fakeAppStoreConnect({versions = [], builds = [], localizations = []} = {}) {
+function fakeAppStoreConnect({
+  versions = [],
+  builds = [],
+  attachedBuilds = [],
+  localizations = [],
+} = {}) {
   const calls = [];
   const state = {versions: [...versions], attachedBuildByVersion: new Map()};
 
@@ -292,6 +299,16 @@ function fakeAppStoreConnect({versions = [], builds = [], localizations = []} = 
     }
     if (/^\/apps\/\d+\?/.test(pathOrURL)) {
       return {data: {id: "6757202987", attributes: {bundleId: "com.TylerPavay.AscendApp"}}};
+    }
+    if (/^\/builds\/[^/?]+/.test(pathOrURL)) {
+      const buildId = pathOrURL.slice("/builds/".length).split("?")[0];
+      const record = [...builds, ...attachedBuilds].find((entry) => entry.build.id === buildId);
+      return {
+        data: {
+          id: buildId,
+          attributes: {version: record?.build?.attributes?.version ?? null},
+        },
+      };
     }
     if (pathOrURL.startsWith("/builds?")) {
       // `fields[builds]` is a sparse fieldset that selects relationships as well as
@@ -373,6 +390,7 @@ test("a confirmed run creates the version, attaches the build, and submits nothi
     buildNumber: "2026082801",
     written: true,
     outcome: "prepared",
+    attachmentAction: "attach",
     missingReleaseNotes: ["en-US"],
   });
 
@@ -578,40 +596,148 @@ test("a version already with Apple is a reported no-op when the caller says it m
   );
 });
 
-test("a build already attached is not swapped out from under a human", async () => {
+test("a newer build replaces an older attachment, loudly", async () => {
   const existing = {
     id: "existing-version",
     attributes: {versionString: "1.0.1", appVersionState: "PREPARE_FOR_SUBMISSION"},
   };
   const connect = fakeAppStoreConnect({
     versions: [existing],
-    builds: [buildRecord({id: "build-2", version: "2026082802", train: "1.0.1"})],
+    builds: [
+      buildRecord({id: "build-100", version: "100", train: "1.0.1"}),
+      buildRecord({id: "build-101", version: "101", train: "1.0.1"}),
+    ],
   });
-  connect.state.attachedBuildByVersion.set("existing-version", "build-1");
+  connect.state.attachedBuildByVersion.set("existing-version", "build-100");
+  const reported = [];
+
+  const result = await prepareAppStoreVersion(
+    {...parseArguments(["--confirm", "--version", "1.0.1"]), appId: "6757202987"},
+    {...RUN_HARNESS_DEFAULTS, request: connect.request, report: (message) => reported.push(message)},
+  );
+
+  assert.equal(result.attachmentAction, "replace");
+  assert.equal(connect.state.attachedBuildByVersion.get("existing-version"), "build-101");
+  assert.match(reported.join("\n"), /build 100 is being swapped out for build 101/);
+});
+
+test("the same build already attached stays an idempotent no-op", async () => {
+  const existing = {
+    id: "existing-version",
+    attributes: {versionString: "1.0.1", appVersionState: "PREPARE_FOR_SUBMISSION"},
+  };
+  const connect = fakeAppStoreConnect({
+    versions: [existing],
+    builds: [buildRecord({id: "build-100", version: "100", train: "1.0.1"})],
+  });
+  connect.state.attachedBuildByVersion.set("existing-version", "build-100");
+
+  const result = await prepareAppStoreVersion(
+    {...parseArguments(["--confirm", "--version", "1.0.1"]), appId: "6757202987"},
+    {...RUN_HARNESS_DEFAULTS, request: connect.request},
+  );
+
+  assert.equal(result.attachmentAction, "already-attached");
+  assert.equal(
+    connect.calls.filter((call) => call.method === "PATCH").length,
+    0,
+    "an unchanged attachment must not be re-written",
+  );
+});
+
+test("a build newer than the one this run selected is never stepped back from", () => {
+  const refusal = resolveAttachmentPlan({
+    versionString: "1.0.1",
+    attachment: {buildId: "build-102", buildNumber: "102"},
+    selectedBuildId: "build-101",
+    selectedBuildNumber: "101",
+  });
+  assert.equal(refusal.action, "refuse");
+  assert.match(refusal.message, /already has build 102 attached, which is not older than build 101/);
+
+  const equal = resolveAttachmentPlan({
+    versionString: "1.0.1",
+    attachment: {buildId: "other", buildNumber: "101"},
+    selectedBuildId: "build-101",
+    selectedBuildNumber: "101",
+  });
+  assert.equal(equal.action, "refuse");
+
+  const pinned = resolveAttachmentPlan({
+    versionString: "1.0.1",
+    attachment: {buildId: "build-102", buildNumber: "102"},
+    selectedBuildId: "build-101",
+    selectedBuildNumber: "101",
+    buildExplicitlyRequested: true,
+  });
+  assert.equal(pinned.action, "replace", "--build is a human naming the binary they mean");
+});
+
+test("an attachment that can never be compared refuses before the wait, not after it", async () => {
+  const existing = {
+    id: "existing-version",
+    attributes: {versionString: "1.0.1", appVersionState: "PREPARE_FOR_SUBMISSION"},
+  };
+  const connect = fakeAppStoreConnect({
+    versions: [existing],
+    builds: [buildRecord({id: "build-1.2.3", version: "1.2.3", train: "1.0.1"})],
+  });
+  connect.state.attachedBuildByVersion.set("existing-version", "build-1.2.3");
+
+  assert.equal(
+    earlyAttachmentRefusal({
+      versionString: "1.0.1",
+      attachment: {buildId: "b", buildNumber: "1.2.3"},
+    }) !== null,
+    true,
+  );
+  assert.equal(
+    earlyAttachmentRefusal({versionString: "1.0.1", attachment: {buildId: "b", buildNumber: "100"}}),
+    null,
+  );
 
   await assert.rejects(
     prepareAppStoreVersion(
       {...parseArguments(["--confirm", "--version", "1.0.1"]), appId: "6757202987"},
       {...RUN_HARNESS_DEFAULTS, request: connect.request},
     ),
-    /already has a different build attached/,
+    /cannot be ordered against the one this run would select/,
   );
 
-  assert.equal(
-    connect.state.attachedBuildByVersion.get("existing-version"),
-    "build-1",
-    "the attached build must survive a run that did not name it",
+  assert.ok(
+    connect.calls.every((call) => !call.path.startsWith("/builds?")),
+    "a conflict decidable up front must not pay the polling budget first",
+  );
+  assert.equal(connect.state.attachedBuildByVersion.get("existing-version"), "build-1.2.3");
+});
+
+test("a dry run reports the refusal the confirmed run would raise", async () => {
+  const existing = {
+    id: "existing-version",
+    attributes: {versionString: "1.0.1", appVersionState: "PREPARE_FOR_SUBMISSION"},
+  };
+  const connect = fakeAppStoreConnect({
+    versions: [existing],
+    builds: [buildRecord({id: "build-100", version: "100", train: "1.0.1"})],
+    // Same build number, different record: nothing here can show the selected build to be
+    // newer, which is the case the guard exists for.
+    attachedBuilds: [buildRecord({id: "legacy-100", version: "100", train: "1.0.1"})],
+    localizations: [{attributes: {locale: "en-US", whatsNew: "Notes"}}],
+  });
+  connect.state.attachedBuildByVersion.set("existing-version", "legacy-100");
+  const reported = [];
+
+  const result = await prepareAppStoreVersion(
+    {...parseArguments(["--version", "1.0.1"]), appId: "6757202987"},
+    {...RUN_HARNESS_DEFAULTS, request: connect.request, report: (message) => reported.push(message)},
   );
 
-  // --build is the human saying which binary they mean, so it may replace one.
-  await prepareAppStoreVersion(
-    {
-      ...parseArguments(["--confirm", "--version", "1.0.1", "--build", "2026082802"]),
-      appId: "6757202987",
-    },
-    {...RUN_HARNESS_DEFAULTS, request: connect.request},
+  assert.equal(result.attachmentAction, "refuse");
+  assert.match(reported.join("\n"), /A confirmed run would refuse/);
+  assert.ok(
+    connect.calls.every((call) => call.method === "GET"),
+    `a dry run may only read, sent: ${connect.calls.map((call) => `${call.method} ${call.path}`)}`,
   );
-  assert.equal(connect.state.attachedBuildByVersion.get("existing-version"), "build-2");
 });
 
 test("the build listing asks for the relationship the train check reads", async () => {

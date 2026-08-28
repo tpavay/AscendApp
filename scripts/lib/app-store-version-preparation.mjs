@@ -319,19 +319,96 @@ export function assertBuildIsAttachable(record) {
   return record;
 }
 
+/** A build number can only be ordered against another when both are plain digits. */
+export function isComparableBuildNumber(buildNumber) {
+  return /^\d+$/.test(String(buildNumber ?? ""));
+}
+
 /**
- * Why a build already attached to a version record is not replaced on this run's own say-so.
+ * What this run may do about the build already attached to the version record, decided
+ * before anything is written.
  *
- * A version record with a build on it is one a human may be halfway through preparing.
- * Swapping the binary underneath them is the same silent wrong result as attaching a stale
- * one, so replacing it takes an explicit `--build`.
+ * Two rules the captain set have to hold at once, and the obvious implementation of either
+ * one breaks the other:
+ *
+ *   - Never silently swap the binary under a version somebody may be part-way through
+ *     preparing, and never step backwards onto an older build.
+ *   - Never produce a red run for an outcome that is expected. Ordinary iteration is a
+ *     prepared version carrying build 100, a fix merged, the deploy uploading 101, and the
+ *     chained run finding 100 attached - refusing that is refusing the exact case the
+ *     automation exists to handle.
+ *
+ * So a strictly NEWER build replaces an older one and says so loudly, `--build` replaces
+ * whatever a human named, an identical build is an idempotent no-op, and anything else -
+ * an attached build that is newer, equal-but-different, or not comparable at all - is a
+ * refusal.
  */
-export function attachedBuildConflictRefusal({versionString, attachedBuildId, buildNumber}) {
+export function resolveAttachmentPlan({
+  versionString,
+  attachment,
+  selectedBuildId,
+  selectedBuildNumber,
+  buildExplicitlyRequested = false,
+}) {
+  assertVersionString(versionString);
+
+  if (!attachment?.buildId) {
+    return {action: "attach", message: null};
+  }
+
+  if (attachment.buildId === selectedBuildId) {
+    return {
+      action: "already-attached",
+      message: `Build ${selectedBuildNumber} is already attached to version ${versionString}.`,
+    };
+  }
+
+  const attachedBuildNumber = attachment.buildNumber ?? "(unknown)";
+  const replacement = (why) => ({
+    action: "replace",
+    message:
+      `Replacing the build attached to version ${versionString}: build ${attachedBuildNumber} ` +
+      `is being swapped out for build ${selectedBuildNumber}, ${why}.`,
+  });
+
+  if (buildExplicitlyRequested) return replacement("which --build named explicitly");
+
+  const comparable =
+    isComparableBuildNumber(attachment.buildNumber) &&
+    isComparableBuildNumber(selectedBuildNumber);
+  if (comparable && BigInt(selectedBuildNumber) > BigInt(attachment.buildNumber)) {
+    return replacement("which is newer than the one attached");
+  }
+
+  return {
+    action: "refuse",
+    message:
+      `App Store version ${versionString} already has build ${attachedBuildNumber} attached, ` +
+      `which is not older than build ${selectedBuildNumber}. Refusing to swap the binary under ` +
+      "a version somebody may be part-way through preparing. Re-run with " +
+      `--build ${selectedBuildNumber} to say that is what you mean, or attach it in App Store ` +
+      "Connect.",
+  };
+}
+
+/**
+ * The one conflict decidable before the wait: an attached build whose number cannot be
+ * ordered can never turn out to be older, so without an explicit `--build` this run can
+ * only ever refuse. Saying so now costs seconds instead of the whole polling budget.
+ */
+export function earlyAttachmentRefusal({
+  versionString,
+  attachment,
+  buildExplicitlyRequested = false,
+}) {
+  if (!attachment?.buildId || buildExplicitlyRequested) return null;
+  if (isComparableBuildNumber(attachment.buildNumber)) return null;
+
   return (
-    `App Store version ${versionString} already has a different build attached (App Store ` +
-    `Connect build id ${attachedBuildId ?? "(unknown)"}), not build ${buildNumber}. Refusing to ` +
-    "swap the binary under a version somebody may be part-way through preparing. Re-run with " +
-    `--build ${buildNumber} to say that is what you mean, or attach it in App Store Connect.`
+    `App Store version ${versionString} has build ` +
+    `${attachment.buildNumber ?? "(unknown)"} attached, whose build number cannot be ordered ` +
+    "against the one this run would select, so no build can be shown to be newer than it. " +
+    "Re-run with --build <number> to name the build you mean, or attach it in App Store Connect."
   );
 }
 

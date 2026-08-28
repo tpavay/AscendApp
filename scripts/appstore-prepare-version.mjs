@@ -19,11 +19,14 @@
  *   1. Resolves the marketing version from the Xcode project (or `--version`).
  *   2. Reads the existing version record and stops early if it is past editing - a refusal
  *      by default, a reported no-op under `--skip-when-not-editable`.
- *   3. Waits, on a bounded budget, for Apple to finish processing the build.
- *   4. Creates the version record when it does not exist yet - `releaseType: MANUAL`, so
+ *   3. Reads the build already attached, so a conflict it can decide on costs seconds
+ *      rather than the whole polling budget.
+ *   4. Waits, on a bounded budget, for Apple to finish processing the build.
+ *   5. Creates the version record when it does not exist yet - `releaseType: MANUAL`, so
  *      even an approved release waits for a human.
- *   5. Attaches the build.
- *   6. Reports what a human still has to do.
+ *   6. Attaches the build, replacing an older one loudly and refusing to step backwards
+ *      onto one that is not older.
+ *   7. Reports what a human still has to do.
  *
  * Metadata is deliberately NOT written. The repository's App Store copy under
  * `data/ascend-support-page-and-product-page-package/` records the listing that is already
@@ -60,18 +63,23 @@ import {
 import {
   AppStorePreparationRefusal,
   assertVersionString,
-  attachedBuildConflictRefusal,
+  earlyAttachmentRefusal,
   localesMissingReleaseNotes,
   manualNextSteps,
   nonEditableVersionNotice,
   nonEditableVersionRefusal,
   parseMarketingVersion,
+  resolveAttachmentPlan,
   resolveVersionRecordOutcome,
   selectAttachableBuild,
 } from "./lib/app-store-version-preparation.mjs";
 
 export const DEFAULT_BUNDLE_ID = "com.TylerPavay.AscendApp";
-export const DEFAULT_TIMEOUT_SECONDS = 2_400;
+// Waiting for the NEWEST build in the train is load-bearing, so every run now pays Apple's
+// full processing latency rather than settling for a build that happened to be ready. This
+// budget stays inside the workflow's `timeout-minutes: 60` with room for checkout, Node setup
+// and the summary step, so a timeout means something is wrong rather than that Apple was slow.
+export const DEFAULT_TIMEOUT_SECONDS = 3_000;
 export const DEFAULT_POLL_INTERVAL_SECONDS = 60;
 
 const PROJECT_FILE = "AscendApp.xcodeproj/project.pbxproj";
@@ -87,6 +95,7 @@ const BUILD_LISTING_CONTRACT =
   "sparse fieldset selects relationships too) and fields[preReleaseVersions]";
 const ATTACHED_BUILD_CONTRACT =
   "GET /v1/appStoreVersions/{id}/relationships/build returns the attached build's identifier";
+const ATTACHED_BUILD_DETAIL_CONTRACT = "GET /v1/builds/{id} accepts fields[builds]=version";
 const LOCALIZATION_CONTRACT =
   "GET /v1/appStoreVersions/{id}/appStoreVersionLocalizations accepts " +
   "fields[appStoreVersionLocalizations]=locale,whatsNew";
@@ -393,6 +402,26 @@ async function attachedBuildId({token, versionId}, request) {
   return result?.data?.id ?? null;
 }
 
+/**
+ * The build currently attached to a version record, by identifier AND number.
+ *
+ * The relationship carries only an opaque identifier, and deciding whether this run's build
+ * is newer than the attached one needs the number, so it costs one extra GET.
+ */
+async function fetchAttachment({token, versionId}, request) {
+  const buildId = await attachedBuildId({token, versionId}, request);
+  if (!buildId) return null;
+
+  const result = await requestUnderContract(
+    token,
+    `/builds/${buildId}?fields%5Bbuilds%5D=version`,
+    request,
+    ATTACHED_BUILD_DETAIL_CONTRACT,
+  );
+
+  return {buildId, buildNumber: result?.data?.attributes?.version ?? null};
+}
+
 async function attachBuild({token, versionId, buildId}, request) {
   await request(token, `/appStoreVersions/${versionId}/relationships/build`, {
     method: "PATCH",
@@ -431,8 +460,8 @@ export async function prepareAppStoreVersion(
   report(`App Store Connect app ${appId} (${options.bundleId}), marketing version ${versionString}.`);
 
   // Read the version record before waiting on a build. A version already in review, awaiting
-  // release, or released cannot take this build, and finding that out after forty minutes of
-  // polling helps nobody.
+  // release, or released cannot take this build, and finding that out after the whole polling
+  // budget helps nobody.
   const existingRecords = await fetchVersionRecords({token, appId}, request);
   const versionOutcome = resolveVersionRecordOutcome(existingRecords, versionString);
 
@@ -466,6 +495,25 @@ export async function prepareAppStoreVersion(
       : `Version ${versionString} does not exist yet; it will be created.`,
   );
 
+  // Read what is attached now, for the same reason the version state is read now: a conflict
+  // this run can already decide on must not cost the full polling budget first.
+  const attachment = existing
+    ? await fetchAttachment({token, versionId: existing.id}, request)
+    : null;
+  if (attachment) {
+    report(
+      `Version ${versionString} currently has build ${attachment.buildNumber ?? "(unknown)"} ` +
+        "attached.",
+    );
+  }
+
+  const earlyRefusal = earlyAttachmentRefusal({
+    versionString,
+    attachment,
+    buildExplicitlyRequested: options.buildNumber !== null,
+  });
+  if (earlyRefusal) throw new AppStorePreparationRefusal(earlyRefusal);
+
   const selectedBuild = await awaitAttachableBuild(
     {
       appId,
@@ -488,10 +536,23 @@ export async function prepareAppStoreVersion(
         )
       : [];
 
+    // The plan is resolved here too, so the preview cannot promise an attach the confirmed
+    // run would refuse.
+    const plan = resolveAttachmentPlan({
+      versionString,
+      attachment,
+      selectedBuildId: selectedBuild.build.id,
+      selectedBuildNumber: buildNumber,
+      buildExplicitlyRequested: options.buildNumber !== null,
+    });
+
     report(
-      `\nDry run. Re-run with --confirm to ${existing ? "attach" : "create version " + versionString + " and attach"} ` +
-        `build ${buildNumber}.`,
+      plan.action === "refuse"
+        ? `\nDry run. A confirmed run would refuse: ${plan.message}`
+        : `\nDry run. Re-run with --confirm to ${existing ? "attach" : "create version " + versionString + " and attach"} ` +
+            `build ${buildNumber}.`,
     );
+    if (plan.action !== "refuse" && plan.message) report(plan.message);
     reportReleaseNotesGap(report, {existing, missingReleaseNotes});
 
     return {
@@ -500,41 +561,37 @@ export async function prepareAppStoreVersion(
       buildNumber,
       written: false,
       outcome: "dry-run",
+      attachmentAction: plan.action,
       missingReleaseNotes,
     };
   }
 
-  // Every token minted at the start of a run that may have waited forty minutes has expired
-  // by now; the write path mints its own.
+  // Every token minted at the start of a run that may have waited out the whole budget has
+  // expired by now; the write path mints its own.
   const writeToken = makeToken();
   const versionRecord =
     existing ?? (await createVersionRecord({token: writeToken, appId, versionString}, request));
   if (!existing) report(`Created App Store version ${versionString} with releaseType MANUAL.`);
 
-  const alreadyAttached = await attachedBuildId(
-    {token: writeToken, versionId: versionRecord.id},
-    request,
-  );
-  if (alreadyAttached === selectedBuild.build.id) {
-    report(`Build ${buildNumber} is already attached to version ${versionString}.`);
-  } else if (alreadyAttached && options.buildNumber === null) {
-    // A version carrying a build is one a human may be part-way through preparing. Swapping
-    // the binary underneath them is the same silent wrong result as attaching a stale build,
-    // so replacing one takes an explicit --build.
-    throw new AppStorePreparationRefusal(
-      attachedBuildConflictRefusal({
-        versionString,
-        attachedBuildId: alreadyAttached,
-        buildNumber,
-      }),
-    );
+  // Re-read rather than trusting the early read: a wait can outlast a human deciding to
+  // attach something themselves, and this decision exists to protect exactly that person.
+  const currentAttachment = existing
+    ? await fetchAttachment({token: writeToken, versionId: versionRecord.id}, request)
+    : null;
+  const plan = resolveAttachmentPlan({
+    versionString,
+    attachment: currentAttachment,
+    selectedBuildId: selectedBuild.build.id,
+    selectedBuildNumber: buildNumber,
+    buildExplicitlyRequested: options.buildNumber !== null,
+  });
+
+  if (plan.action === "refuse") throw new AppStorePreparationRefusal(plan.message);
+
+  if (plan.action === "already-attached") {
+    report(plan.message);
   } else {
-    if (alreadyAttached) {
-      report(
-        `Replacing the build attached to version ${versionString} (App Store Connect build id ` +
-          `${alreadyAttached}) with build ${buildNumber}, which --build named explicitly.`,
-      );
-    }
+    if (plan.message) report(plan.message);
     await attachBuild(
       {token: writeToken, versionId: versionRecord.id, buildId: selectedBuild.build.id},
       request,
@@ -557,6 +614,7 @@ export async function prepareAppStoreVersion(
     buildNumber,
     written: true,
     outcome: "prepared",
+    attachmentAction: plan.action,
     missingReleaseNotes,
   };
 }
