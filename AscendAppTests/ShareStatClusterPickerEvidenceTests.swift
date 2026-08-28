@@ -201,9 +201,12 @@ struct ShareStatClusterPickerEvidenceTests {
     /// whatever it was drawn with. When the standing lands the same template is redrawn and swapped
     /// in, or they export the empty rank tab the captain reported.
     ///
-    /// Judged on the canvas rather than in the accessibility tree, because a baked card publishes
-    /// no text of its own. That the swap keeps their placed stickers is pinned separately, on the
-    /// view model, where routing the redraw through a canvas reset would show up.
+    /// Judged on the canvas region rather than in the accessibility tree, because a baked card
+    /// publishes no text of its own, and an automatic redraw deliberately draws no overlay - so
+    /// once the climber's own apply has settled, the swapped image is the only thing that can
+    /// repaint there. The orderings that redraw has to survive are pinned without any timing in
+    /// `ShareRecapBakeStateTests`, and that the swap keeps placed stickers is pinned on the view
+    /// model, where routing it through a canvas reset would show up.
     @Test
     func aRecapAppliedBeforeTheStandingLandsIsRedrawnWithIt() async throws {
         let defaultsSuite = "ShareStatClusterPickerEvidenceTests-rebake-\(UUID().uuidString)"
@@ -243,15 +246,12 @@ struct ShareStatClusterPickerEvidenceTests {
             try activateAccessibilityElement(in: window) {
                 $0.accessibilityLabel?.hasSuffix("Result") == true
             }
-            try await settle(window, seconds: 2.0)
-            let rankless = try Self.capture(window)
+            let rankless = try await settledCanvas(window)
 
             pending.standing = await Self.fetchedStanding(workoutId: workoutId, in: frozenStore)
-            try await settle(window, seconds: 2.5)
-            let ranked = try Self.capture(window)
 
             #expect(
-                rankless != ranked,
+                try await canvasChanges(from: rankless, in: window),
                 "the applied recap kept the card it was baked with when the standing landed"
             )
             try Self.photograph(window, named: "share-cluster-picker-5-recap-rebaked-with-rank")
@@ -400,6 +400,47 @@ struct ShareStatClusterPickerEvidenceTests {
             // main actor free, not held by this loop.
             try await Task.sleep(for: .milliseconds(30))
         }
+    }
+
+    /// The canvas region, as PNG bytes. Cropped above the action bar so the comparison answers a
+    /// question about the card rather than about anything else on screen.
+    private static func captureCanvas(_ window: UIWindow) throws -> Data {
+        let canvas = CGRect(
+            origin: .zero,
+            size: CGSize(width: window.bounds.width, height: window.bounds.height * 0.6)
+        )
+        let image = UIGraphicsImageRenderer(size: canvas.size).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        return try #require(image.pngData(), "UIImage produced no PNG data")
+    }
+
+    /// The canvas once it stops changing, so a render in flight is never mistaken for a finished
+    /// card.
+    private func settledCanvas(_ window: UIWindow, timeout: TimeInterval = 8) async throws -> Data {
+        var last = try Self.captureCanvas(window)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            try await settle(window, seconds: 0.3)
+            let next = try Self.captureCanvas(window)
+            if next == last { return next }
+            last = next
+        }
+        return last
+    }
+
+    /// Whether the canvas repaints away from `reference` before the deadline.
+    private func canvasChanges(
+        from reference: Data,
+        in window: UIWindow,
+        timeout: TimeInterval = 8
+    ) async throws -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            try await settle(window, seconds: 0.3)
+            if try Self.captureCanvas(window) != reference { return true }
+        }
+        return false
     }
 
     /// What the window is drawing right now, as PNG bytes.

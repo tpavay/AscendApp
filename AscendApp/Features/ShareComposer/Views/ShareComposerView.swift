@@ -22,11 +22,10 @@ struct ShareComposerView: View {
     @State private var renameText = ""
     @State private var exportingAction: ExportAction?
     @State private var toast: String?
-    @State private var applyingRecap = false
-    /// The recap template currently baked into the background. Kept because the bake is a
-    /// snapshot: when the standing lands afterwards the same card has to be redrawn, or the
-    /// climber exports the rank-less image they were given before the read finished.
-    @State private var appliedRecapTemplate: ShareCardTemplate?
+    /// Which recap render is in flight, what it was drawn against, and what is waiting behind it.
+    /// The bake is a snapshot, so a standing landing at any point has to reach the applied card;
+    /// `ShareRecapBakeState` owns that ordering.
+    @State private var recapBake: ShareRecapBakeState
     /// The Recaps tab's templates and their resolved data, built once the
     /// injected stats land.
     @State private var recapPreview: ShareBackgroundPickerView.RecapPreview?
@@ -69,7 +68,9 @@ struct ShareComposerView: View {
         walkthroughStore: ShareComposerWalkthroughStore = ShareComposerWalkthroughStore()
     ) {
         let settings = SettingsManager.shared
-        self.rankInput = ShareComposerRank(rank: climbRank, total: climbRankTotal)
+        let rankInput = ShareComposerRank(rank: climbRank, total: climbRankTotal)
+        self.rankInput = rankInput
+        _recapBake = State(initialValue: ShareRecapBakeState(rank: rankInput))
         _viewModel = State(initialValue: ShareComposerViewModel(
             workout: workout,
             measurementSystem: settings.measurementSystem,
@@ -154,50 +155,59 @@ struct ShareComposerView: View {
         walkthrough.presentedSourceOptions ?? liveSourceOptions
     }
 
-    /// Bake the selected template to an image and use it as the background.
-    /// The user can then add stickers on top or save as-is.
-    private func applyTemplate(_ template: ShareCardTemplate) {
-        guard !applyingRecap else { return }
-        applyingRecap = true
+    /// The standing the composer holds right now.
+    ///
+    /// Read from the view model rather than `rankInput`, because a `Task` captures this view's
+    /// value: after an await the stored property still reads whatever was there when the closure
+    /// was made, while the view model is the same object throughout.
+    private var resolvedRank: ShareComposerRank {
+        ShareComposerRank(rank: viewModel.climbRank, total: viewModel.climbRankTotal)
+    }
 
-        Task { @MainActor in
-            defer { applyingRecap = false }
-            guard let preview = recapPreview, let climb = preview.climb,
-                  let image = await exporter.renderTemplate(
-                      template,
-                      context: preview.context,
-                      climb: climb
-                  ) else {
-                toast = "Could not build recap"
-                return
+    /// Run whatever the bake state says is next, and ask it again when that render lands.
+    private func runRecapBake(_ next: ShareRecapBakeState.Next) {
+        switch next {
+        case .idle:
+            break
+
+        case .apply(let template):
+            Task { @MainActor in
+                let renderedAgainst = resolvedRank
+                let image = await renderRecap(template)
+                if let image {
+                    viewModel.resetForNewBackground(.recap(image))
+                    walkthrough.backgroundSelected(.recap)
+                } else {
+                    toast = "Could not build recap"
+                }
+                runRecapBake(recapBake.applyFinished(
+                    template,
+                    renderedAgainst: renderedAgainst,
+                    succeeded: image != nil
+                ))
             }
-            viewModel.resetForNewBackground(.recap(image))
-            appliedRecapTemplate = template
-            walkthrough.backgroundSelected(.recap)
+
+        case .redraw(let template):
+            Task { @MainActor in
+                let renderedAgainst = resolvedRank
+                let image = await renderRecap(template)
+                // Swapped in place, never through the canvas reset a freshly picked background
+                // gets: this is the card the climber already chose and may have decorated, and a
+                // render that failed leaves them the one they have.
+                if let image {
+                    viewModel.replaceRecapBackground(image)
+                }
+                runRecapBake(recapBake.redrawFinished(
+                    renderedAgainst: renderedAgainst,
+                    succeeded: image != nil
+                ))
+            }
         }
     }
 
-    /// Redraw the applied recap against a standing that landed after it was baked.
-    ///
-    /// The image is swapped in place: the climber chose this card and may already have placed
-    /// stickers on it, so nothing here may reset the canvas. A render that fails leaves the card
-    /// they have rather than blanking it.
-    private func rebakeAppliedRecap() {
-        guard let template = appliedRecapTemplate, !applyingRecap else { return }
-        applyingRecap = true
-
-        Task { @MainActor in
-            defer { applyingRecap = false }
-            guard let preview = recapPreview, let climb = preview.climb,
-                  let image = await exporter.renderTemplate(
-                      template,
-                      context: preview.context,
-                      climb: climb
-                  ) else {
-                return
-            }
-            viewModel.replaceRecapBackground(image)
-        }
+    private func renderRecap(_ template: ShareCardTemplate) async -> UIImage? {
+        guard let preview = recapPreview, let climb = preview.climb else { return nil }
+        return await exporter.renderTemplate(template, context: preview.context, climb: climb)
     }
 
     var body: some View {
@@ -213,7 +223,7 @@ struct ShareComposerView: View {
                     onPick: { source in
                         // Re-picking a background starts a clean canvas.
                         viewModel.resetForNewBackground(source)
-                        appliedRecapTemplate = nil
+                        recapBake.backgroundReplaced()
                         if walkthrough.backgroundSelected(.photoOrPreset) {
                             Task {
                                 try? await Task.sleep(for: .seconds(0.35))
@@ -221,7 +231,9 @@ struct ShareComposerView: View {
                             }
                         }
                     },
-                    onPickRecap: offersRecaps ? { template in applyTemplate(template) } : nil,
+                    onPickRecap: offersRecaps ? { template in
+                        runRecapBake(recapBake.climberPicked(template))
+                    } : nil,
                     onClose: { dismiss() },
                     walkthrough: walkthrough
                 )
@@ -229,7 +241,7 @@ struct ShareComposerView: View {
                 composer
             }
 
-            if applyingRecap {
+            if recapBake.isBakingForClimber {
                 Color.black.opacity(0.62)
                     .ignoresSafeArea()
 
@@ -250,7 +262,7 @@ struct ShareComposerView: View {
         }
         .overlayPreferenceValue(ShareComposerCoachMarkAnchorKey.self) { anchors in
             GeometryReader { proxy in
-                if !applyingRecap,
+                if !recapBake.isBakingForClimber,
                    walkthrough.target != .stats,
                    let target = walkthrough.target,
                    let presentation = walkthrough.presentation {
@@ -359,10 +371,11 @@ struct ShareComposerView: View {
             // Every surface a missing standing emptied is refilled here: the view model drops its
             // derived data so the rank cluster and stickers resolve, the recap tab is rebuilt so
             // its Standing card and the other templates' rank tab appear, and a card already baked
-            // without the rank is redrawn with it.
+            // without the rank is redrawn with it. The preview is rebuilt before the bake state is
+            // told, because the redraw it asks for renders from that preview.
             viewModel.setClimbRank(rank.rank, total: rank.total)
             recapPreview = makeRecapPreview()
-            rebakeAppliedRecap()
+            runRecapBake(recapBake.standingChanged(to: rank))
         }
         .onChange(of: walkthrough.restingFocusTarget) { _, target in
             switch target {
