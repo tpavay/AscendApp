@@ -261,6 +261,8 @@ struct MonetizationManagerPaywallTests {
         )
     }
 
+    /// A second account replaces the pass outright, and the grant provenance is part of that pass,
+    /// so nothing the previous climber's paywall did may attribute the next climber's access.
     @Test
     func replacingTheAccountClearsTheGrantEvidenceOfThePreviousPass() {
         let fixture = OnboardingLifecycleFixture()
