@@ -40,7 +40,8 @@ struct ProfileExactPlacementCounts: Equatable {
 /// `counts` are the cumulative bands. `placements` are the exact finishes, and they exist
 /// only when the finalized records loaded: the `profile_stats` counters are banded into
 /// top 1 / 3 / 10 / 100 and carry no second-versus-third breakdown, so a profile that fell
-/// back to them reports `nil` and the placement badges are withheld rather than guessed at.
+/// back to them withholds the placement badges rather than guessing at them. The one thing
+/// such a profile can still prove is an empty podium below first - see `exactFinishes(atRank:)`.
 ///
 /// A ladder is one of three things, and the three are deliberately not interchangeable:
 /// record-backed (every count is provable), banded (the bands are provable and the exact
