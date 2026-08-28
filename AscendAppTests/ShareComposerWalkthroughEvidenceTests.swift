@@ -54,8 +54,8 @@ struct ShareComposerWalkthroughEvidenceTests {
         let composer = ShareComposerView(
             workout: workout,
             climb: .preview,
-            liveClimbRank: 4,
-            liveClimbRankTotal: 1_284,
+            climbRank: 4,
+            climbRankTotal: 1_284,
             walkthroughStore: ShareComposerWalkthroughStore(defaults: defaults)
         )
         .modelContainer(container)
@@ -151,6 +151,9 @@ struct ShareComposerWalkthroughEvidenceTests {
         let expectedTitle = ShareComposerSourceOptions.cameraRollOnly.title
         let composer = ShareComposerView(
             workout: fixture.workout,
+            climb: nil,
+            climbRank: nil,
+            climbRankTotal: nil,
             walkthroughStore: ShareComposerWalkthroughStore(defaults: fixture.defaults)
         )
         .modelContainer(fixture.container)

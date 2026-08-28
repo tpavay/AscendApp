@@ -22,6 +22,10 @@ final class StubLiveReplayLeaderboardService: LiveReplayLeaderboardServicing, @u
     /// supplies one so it settles instead of showing "Leaderboard unavailable".
     var completionLeaderboard: LiveReplayCompletionLeaderboard?
     private(set) var summaryFetchCount = 0
+    /// The frozen standing the server holds for a workout, and how many times it was asked for -
+    /// the count is what proves a stored snapshot is served without a request.
+    var completionRankSnapshot: LiveReplayCompletionRankSnapshot?
+    private(set) var completionRankSnapshotFetchCount = 0
 
     init(
         summary: LiveReplayLeaderboardSummary = .empty,
@@ -65,7 +69,13 @@ final class StubLiveReplayLeaderboardService: LiveReplayLeaderboardServicing, @u
         context: LiveReplayLeaderboardContext,
         workoutId: String
     ) async throws -> LiveReplayCompletionRankSnapshot? {
-        nil
+        completionRankSnapshotFetchCount += 1
+        guard let completionRankSnapshot,
+              completionRankSnapshot.workoutId == workoutId else {
+            return nil
+        }
+
+        return completionRankSnapshot
     }
 
     func fetchPublishStatus(workoutId: String) async throws -> LiveReplayPublishStatus? {

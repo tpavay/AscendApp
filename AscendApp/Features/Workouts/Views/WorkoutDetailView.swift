@@ -30,6 +30,12 @@ struct WorkoutDetailView: View {
     @State private var deleteTask: Task<Void, Never>? = nil
     @State private var copyConfirmationTask: Task<Void, Never>? = nil
     @State private var showingLiveClimbSummaryPreview = false
+    /// The frozen standing this climb's share card asserts. Resolved once per workout through
+    /// `CompletedClimbRankService`, which is the same source the completion summary reads.
+    @State private var shareStanding: SavedClimbShareStanding?
+    /// Which workout `shareStanding` belongs to. Keyed by id rather than a bare flag so a reused
+    /// view showing a different climb cannot share the previous climb's rank.
+    @State private var shareStandingWorkoutId: UUID?
     @State private var copyConfirmationText: String?
     @State private var enrichmentService = AppleHealthEnrichmentService.shared
 
@@ -109,13 +115,20 @@ struct WorkoutDetailView: View {
             .interactiveDismissDisabled()
         }
         .fullScreenCover(isPresented: $showingShareWorkoutView) {
-            ShareComposerView(workout: workout, climb: liveClimbDetailClimb)
+            ShareComposerView(
+                workout: workout,
+                climb: liveClimbDetailClimb,
+                climbRank: shareStanding?.rank,
+                climbRankTotal: shareStanding?.totalClimbers
+            )
         }
         .fullScreenCover(isPresented: $showingLiveClimbSummaryPreview) {
             if liveClimbSummaryMetadata?.climbId == nil || liveClimbDetailClimb != nil {
-                // The summary owns rank resolution: it reads the frozen server snapshot once and
-                // reuses it. Fetching a rank here too would be the second, disagreeing source the
-                // leaderboard audit flagged, and would refetch on every open.
+                // The summary owns rank resolution, including the current-basis fallback this
+                // screen deliberately has no copy of: recomputing a rank here would be the second,
+                // disagreeing source the leaderboard audit flagged, and would refetch on every
+                // open. What this screen does read is the frozen snapshot, through the one shared
+                // read path both surfaces use - see `SavedClimbShareStanding`.
                 LiveClimbCompletionSummaryView(
                     climb: liveClimbDetailClimb,
                     workout: workout,
@@ -145,6 +158,7 @@ struct WorkoutDetailView: View {
             // rather than running its own retry loop - the screen is one more surface onto the
             // same series, not a second one racing it.
             enrichmentService.resumeTracking(modelContext: modelContext)
+            await resolveShareStandingIfNeeded()
         }
         .onDisappear {
             copyConfirmationTask?.cancel()
@@ -563,6 +577,25 @@ struct WorkoutDetailView: View {
 
     private var liveClimbSummaryRankingLabelOverride: String? {
         liveClimbSummaryMetadata?.trackingMode == .routine ? "ROUTINE RANK" : nil
+    }
+
+    /// Reads the workout's frozen standing so the share composer can offer the rank clusters,
+    /// stickers and the recap card's rank tab from this screen, not only from the completion
+    /// summary. At most one read per workout per install: a stored snapshot answers without a
+    /// request, and `shareStandingWorkoutId` stops a workout the server has not ranked from asking
+    /// again every time the screen reappears.
+    @MainActor
+    private func resolveShareStandingIfNeeded() async {
+        guard shareStandingWorkoutId != workout.id else { return }
+
+        shareStanding = nil
+        shareStandingWorkoutId = workout.id
+        guard let context = liveClimbSummaryLeaderboardContext else { return }
+
+        shareStanding = await SavedClimbShareStanding.resolve(
+            context: context,
+            workoutId: workout.id.uuidString
+        )
     }
 
     /// A climb either has heart-rate data to show or this section does not exist. Enrichment still

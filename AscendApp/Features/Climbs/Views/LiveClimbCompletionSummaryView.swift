@@ -110,8 +110,8 @@ struct LiveClimbCompletionSummaryView: View {
             ShareComposerView(
                 workout: workout,
                 climb: climb,
-                liveClimbRank: hero?.standing?.rank,
-                liveClimbRankTotal: hero?.total
+                climbRank: hero?.standing?.rank,
+                climbRankTotal: hero?.total
             )
         }
         .task(id: workout.id) {

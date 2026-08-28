@@ -50,8 +50,8 @@ struct ShareStatClusterPickerEvidenceTests {
         let composer = ShareComposerView(
             workout: workout,
             climb: .preview,
-            liveClimbRank: 4,
-            liveClimbRankTotal: 1_284,
+            climbRank: 4,
+            climbRankTotal: 1_284,
             walkthroughStore: walkthroughStore
         )
         .modelContainer(container)
@@ -108,6 +108,130 @@ struct ShareStatClusterPickerEvidenceTests {
             try await settle(window, seconds: 1.0)
             try Self.photograph(window, named: "share-cluster-picker-2-splits-placed")
         }
+    }
+
+    /// The captain's report, walked on the surface he walked it on: a saved Empire State climb
+    /// opened from Workout Detail, whose rank the completion summary had already resolved.
+    ///
+    /// The whole saved path runs here - the frozen `completionSnapshots` document staging holds for
+    /// that climb, through `SavedClimbShareStanding` and `CompletedClimbRankService`, into the
+    /// shipping composer - and the assertion is the tile list he enumerated. Before the fix that
+    /// path supplied no rank at all and the grid came back HERO, ROW, SPLITS, RECEIPT, MINIMAL,
+    /// HR HERO, HR ROW, FULL GRID with no RANK anywhere.
+    @Test
+    func aSavedClimbOpenedFromWorkoutDetailStillOffersItsRankCluster() async throws {
+        let defaultsSuite = "ShareStatClusterPickerEvidenceTests-saved-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
+        defaults.removePersistentDomain(forName: defaultsSuite)
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let walkthroughStore = ShareComposerWalkthroughStore(defaults: defaults)
+        walkthroughStore.markSeen()
+
+        // Staging's own document for the climb the captain shared: 32nd of 85.
+        let frozenStore = FrozenCompletionRankStore(defaults: defaults)
+        let context = LiveReplayLeaderboardContext.liveClimb(
+            climbId: Climb.preview.id,
+            targetSteps: 1_576
+        )
+        let workoutId = UUID()
+        frozenStore.freeze(
+            LiveReplayCompletionRankSnapshot(
+                workoutId: workoutId.uuidString,
+                rank: 32,
+                completedCount: 85,
+                completionDurationSeconds: 1_006,
+                rankedAt: Date(timeIntervalSince1970: 1_787_859_963),
+                rankingMetric: "completionDurationSeconds",
+                tiePolicy: "competition_rank_equal_durations_share_rank"
+            ),
+            contextKey: context.contextKey
+        )
+        let standing = await SavedClimbShareStanding.resolve(
+            context: context,
+            workoutId: workoutId.uuidString,
+            service: CompletedClimbRankService(
+                leaderboardService: StubLiveReplayLeaderboardService(),
+                store: frozenStore
+            )
+        )
+
+        let container = try Self.makeContainer()
+        let workout = ShareStatClusterPresetTests.recordedWorkout(
+            name: "Empire State Building",
+            trackingMode: .liveClimb,
+            climbId: Climb.preview.id,
+            heartRate: true,
+            recordedSteps: 1_576
+        )
+        container.mainContext.insert(workout)
+        try container.mainContext.save()
+
+        let composer = ShareComposerView(
+            workout: workout,
+            climb: .preview,
+            climbRank: standing?.rank,
+            climbRankTotal: standing?.totalClimbers,
+            walkthroughStore: walkthroughStore
+        )
+        .modelContainer(container)
+
+        try await withAccessibilityAutomation {
+            let controller = UIHostingController(rootView: composer)
+            controller.overrideUserInterfaceStyle = .dark
+            controller.view.frame = CGRect(origin: .zero, size: Self.screenSize)
+
+            let scene = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .first
+            let window = scene.map { UIWindow(windowScene: $0) }
+                ?? UIWindow(frame: CGRect(origin: .zero, size: Self.screenSize))
+            window.frame = CGRect(origin: .zero, size: Self.screenSize)
+            window.overrideUserInterfaceStyle = .dark
+            window.rootViewController = controller
+            window.makeKeyAndVisible()
+            defer {
+                window.isHidden = true
+                window.rootViewController = nil
+                window.windowScene = nil
+            }
+
+            _ = try await settledAccessibilityElements(under: controller.view)
+
+            // The climber picks a background, and the add sheet opens on its own.
+            try activateAccessibilityElement(labelled: "Presets", in: controller.view)
+            try await settle(window)
+            try activateAccessibilityElement(in: controller.view) {
+                $0.accessibilityLabel == Climb.preview.name && $0.accessibilityTraits.contains(.button)
+            }
+            try await settle(window, seconds: 1.2)
+
+            let sheetLabels = try await settledAccessibilityElements(under: window) {
+                $0.contains { $0.accessibilityLabel?.hasSuffix("HERO") == true }
+            }.compactMap(\.accessibilityLabel)
+            let rankTile = sheetLabels.first { $0.hasSuffix("RANK") }
+            #expect(
+                rankTile != nil,
+                "sharing a saved climb offered no RANK cluster. Saw: \(sheetLabels)"
+            )
+            // The tile reads out what it draws, so the frozen numbers have to be in it.
+            #expect(
+                rankTile?.contains("32") == true && rankTile?.contains("85") == true,
+                "the RANK tile did not name the frozen standing. Saw: \(rankTile ?? "nothing")"
+            )
+            try Self.photograph(window, named: "share-cluster-picker-3-saved-climb-rank")
+        }
+    }
+
+    private static func makeContainer() throws -> ModelContainer {
+        try ModelContainer(
+            for: Workout.self,
+            WorkoutSourceLink.self,
+            WorkoutParticipation.self,
+            ClimbAttempt.self,
+            BestEffortCacheEntry.self,
+            BestEffortCacheMetadata.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
     }
 
     private func settle(_ window: UIWindow, seconds: TimeInterval = 0.5) async throws {

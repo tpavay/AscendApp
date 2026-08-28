@@ -46,11 +46,17 @@ struct ShareComposerView: View {
     private let accent = Color(red: 0.706, green: 0.8, blue: 0)
     private static let storyAspectRatio = ShareCardFormat.aspectRatio
 
+    /// - Parameters:
+    ///   - climbRank: The standing this climb's card asserts, and `climbRankTotal` the field it was
+    ///     measured against. Deliberately carries no default: every entry point has to state
+    ///     whether it knows the rank, because a call site that silently omitted it is exactly how
+    ///     the saved-climb path lost its rank clusters, stickers and recap rank tab. Pass `nil`
+    ///     only for a session that genuinely ranks nowhere.
     init(
         workout: Workout,
-        climb: Climb? = nil,
-        liveClimbRank: Int? = nil,
-        liveClimbRankTotal: Int? = nil,
+        climb: Climb?,
+        climbRank: Int?,
+        climbRankTotal: Int?,
         walkthroughStore: ShareComposerWalkthroughStore = ShareComposerWalkthroughStore()
     ) {
         let settings = SettingsManager.shared
@@ -60,8 +66,8 @@ struct ShareComposerView: View {
             stepHeight: settings.stepHeight,
             climb: climb,
             climbName: climb?.name,
-            climbRank: liveClimbRank,
-            climbRankTotal: liveClimbRankTotal
+            climbRank: climbRank,
+            climbRankTotal: climbRankTotal
         ))
 
         // Only the hero artwork is offered as a background preset; the card and
