@@ -16,6 +16,18 @@ struct PublicProfileAchievementsVisualEvidenceTests {
     /// Three champion periods, two seconds, one third, and a long tail of ranked finishes.
     private static let champion = ProfileAchievementLadder(records: championRecords())
 
+    /// One champion period, one third place, and a shorter tail - so every comparison row has
+    /// two different numbers on it and the bar actually leans.
+    private static let viewerChampion = ProfileAchievementLadder(
+        records: [
+            record(id: "viewer-champion-1", type: .weeklyTop1, rank: 1),
+            record(id: "viewer-third-1", type: .monthlyTop3, rank: 3),
+            record(id: "viewer-top-ten-1", type: .weeklyTop10, rank: 6),
+            record(id: "viewer-top-ten-2", type: .weeklyTop10, rank: 9),
+            record(id: "viewer-top-hundred-1", type: .weeklyTop100, rank: 44)
+        ]
+    )
+
     private static func championRecords() -> [ProfileAchievementRecord] {
         var records: [ProfileAchievementRecord] = []
 
@@ -60,11 +72,62 @@ struct PublicProfileAchievementsVisualEvidenceTests {
     }
 
     @Test
-    func loadedChampionProfileShowsTheirCrownAndBandCounts() throws {
+    func twoDecoratedClimbersSplitEveryBadgeRowLeftAndRight() throws {
         try Self.capture(
-            name: "public-profile-achievements-loaded-champion",
-            caption: "Another climber's public profile, snapshot loaded: their own crown and band counts",
-            achievements: Self.champion,
+            name: "public-profile-achievements-both-decorated",
+            caption: "Both decorated: one row per badge, your count left, theirs right, lime/blue bar underneath",
+            viewer: Self.viewerChampion,
+            other: Self.champion,
+            isOtherLoading: false
+        )
+    }
+
+    /// The lopsided case, which is the normal one. A ghosted badge over a real `0` reads as a
+    /// slot not yet filled; a blank half would read as a rendering failure and a dash would
+    /// claim we did not know.
+    @Test
+    func aDecoratedViewerAgainstANewClimberGhostsTheirSide() throws {
+        try Self.capture(
+            name: "public-profile-achievements-viewer-decorated",
+            caption: "Decorated viewer, brand-new climber: your badges still drawn, their side ghosted at a real 0",
+            viewer: Self.champion,
+            other: .empty,
+            isOtherLoading: false
+        )
+    }
+
+    @Test
+    func aNewViewerAgainstADecoratedClimberGhostsTheViewersSide() throws {
+        try Self.capture(
+            name: "public-profile-achievements-other-decorated",
+            caption: "Brand-new viewer, decorated climber: their badges attributed to the right, your side ghosted at 0",
+            viewer: .empty,
+            other: Self.champion,
+            isOtherLoading: false
+        )
+    }
+
+    /// A read that failed is not a climber with nothing. The unreadable side carries a dash,
+    /// which is what a dash already means on every other row of this screen, and the bar sits in
+    /// its dimmed neutral state because it cannot weigh a number nobody read.
+    @Test
+    func anUnreadableViewerLadderDashesTheViewersSide() throws {
+        try Self.capture(
+            name: "public-profile-achievements-viewer-unreadable",
+            caption: "Your ladder could not be read: your side is a dash, not a 0, and the bar stays neutral",
+            viewer: .unreadable,
+            other: Self.champion,
+            isOtherLoading: false
+        )
+    }
+
+    @Test
+    func anUnreadableOtherLadderDashesTheOtherClimbersSide() throws {
+        try Self.capture(
+            name: "public-profile-achievements-other-unreadable",
+            caption: "Their ladder could not be read: their side is a dash, your real counts stay drawn",
+            viewer: Self.champion,
+            other: .unreadable,
             isOtherLoading: false
         )
     }
@@ -73,8 +136,9 @@ struct PublicProfileAchievementsVisualEvidenceTests {
     func loadedProfileWithNoAchievementsShowsNoSection() throws {
         try Self.capture(
             name: "public-profile-achievements-loaded-empty",
-            caption: "Snapshot loaded, zero achievements: no heading, no shell, PROFILE runs straight into ALL-TIME",
-            achievements: .empty,
+            caption: "Neither climber holds a badge: no heading, no shell, the screen ends at ALL-TIME",
+            viewer: .empty,
+            other: .empty,
             isOtherLoading: false
         )
     }
@@ -83,8 +147,9 @@ struct PublicProfileAchievementsVisualEvidenceTests {
     func loadingProfileShowsNothingUntilTheCountsResolve() throws {
         try Self.capture(
             name: "public-profile-achievements-loading",
-            caption: "Snapshot still loading: nothing claimed for this climber until the counts resolve",
-            achievements: Self.champion,
+            caption: "Snapshot still loading: no row drawn until both sides' counts resolve",
+            viewer: Self.champion,
+            other: Self.champion,
             isOtherLoading: true
         )
     }
@@ -133,11 +198,12 @@ struct PublicProfileAchievementsVisualEvidenceTests {
     }
 
     @Test
-    func theWholeOtherClimberLadderFitsInOneReviewableFrame() throws {
+    func theWholeComparisonLadderFitsInOneReviewableFrame() throws {
         try Self.capture(
             name: "public-profile-achievements-full-ladder-wide",
-            caption: "Another climber, whole shelf unscrolled: CHAMPION · #2 · #3 · TOP 10 · TOP 100, no TOP 3",
-            achievements: Self.champion,
+            caption: "Whole comparison ladder: CHAMPION · #2 · #3 · TOP 10 · TOP 100, no TOP 3",
+            viewer: Self.viewerChampion,
+            other: Self.champion,
             isOtherLoading: false,
             width: 680
         )
@@ -216,7 +282,8 @@ struct PublicProfileAchievementsVisualEvidenceTests {
     private static func capture(
         name: String,
         caption: String,
-        achievements: ProfileAchievementLadder,
+        viewer: ProfileAchievementLadder = .empty,
+        other: ProfileAchievementLadder,
         isOtherLoading: Bool,
         width: CGFloat = 402
     ) throws {
@@ -233,16 +300,17 @@ struct PublicProfileAchievementsVisualEvidenceTests {
                         .foregroundStyle(ProfileVisualStyle.secondaryText)
                 }
 
-                PublicProfileAchievementsSection(
-                    achievements: achievements,
-                    isOtherLoading: isOtherLoading
-                )
-
                 ProfileComparisonSection(title: "ALL-TIME") {
                     Text("Steps · Climbs · Duration · Avg steps/min")
                         .font(.montserratRegular(size: 13))
                         .foregroundStyle(ProfileVisualStyle.secondaryText)
                 }
+
+                PublicProfileAchievementsSection(
+                    viewer: ProfileAchievementTally(ladder: viewer),
+                    other: ProfileAchievementTally(ladder: other),
+                    isOtherLoading: isOtherLoading
+                )
             }
         }
         .padding(20)
