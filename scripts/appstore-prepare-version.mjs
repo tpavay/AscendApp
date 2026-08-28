@@ -17,7 +17,8 @@
  *
  * What it does, in order:
  *   1. Resolves the marketing version from the Xcode project (or `--version`).
- *   2. Reads the existing version record and refuses early if it is past editing.
+ *   2. Reads the existing version record and stops early if it is past editing - a refusal
+ *      by default, a reported no-op under `--skip-when-not-editable`.
  *   3. Waits, on a bounded budget, for Apple to finish processing the build.
  *   4. Creates the version record when it does not exist yet - `releaseType: MANUAL`, so
  *      even an approved release waits for a human.
@@ -34,12 +35,17 @@
  *   node scripts/appstore-prepare-version.mjs            # dry run: reports, writes nothing
  *   node scripts/appstore-prepare-version.mjs --confirm --version 1.0.1 --build 2026082801
  *
+ * `--skip-when-not-editable` turns a version that is already with Apple into a reported
+ * no-op instead of a failure. The chained workflow run passes it, because a backend-only
+ * merge to `main` uploads a build while the previous version is in review and that outcome
+ * is expected; a human dispatching the workflow by name does not, and still gets a red run.
+ *
  * Credentials come from the same environment variables the TestFlight upload lane uses:
  *   APP_STORE_CONNECT_API_KEY_ID, APP_STORE_CONNECT_API_ISSUER_ID,
  *   APP_STORE_CONNECT_API_KEY (base64-encoded .p8)
  */
 
-import {readFile} from "node:fs/promises";
+import {appendFile, readFile} from "node:fs/promises";
 import {setTimeout as delay} from "node:timers/promises";
 
 import {isEntrypoint} from "./lib/is-entrypoint.mjs";
@@ -52,13 +58,16 @@ import {
   requestUnderContract,
 } from "./lib/app-store-connect-client.mjs";
 import {
+  AppStorePreparationRefusal,
   assertVersionString,
+  attachedBuildConflictRefusal,
   localesMissingReleaseNotes,
   manualNextSteps,
+  nonEditableVersionNotice,
+  nonEditableVersionRefusal,
   parseMarketingVersion,
+  resolveVersionRecordOutcome,
   selectAttachableBuild,
-  selectPreparableVersionRecord,
-  versionState,
 } from "./lib/app-store-version-preparation.mjs";
 
 export const DEFAULT_BUNDLE_ID = "com.TylerPavay.AscendApp";
@@ -74,7 +83,8 @@ const VERSION_LISTING_CONTRACT =
   "GET /v1/apps/{id}/appStoreVersions accepts filter[platform]=IOS and limit";
 const BUILD_LISTING_CONTRACT =
   "GET /v1/builds accepts filter[app], filter[preReleaseVersion.version], " +
-  "include=preReleaseVersion, fields[builds] and fields[preReleaseVersions]";
+  "include=preReleaseVersion, fields[builds] (which must list preReleaseVersion, because a " +
+  "sparse fieldset selects relationships too) and fields[preReleaseVersions]";
 const ATTACHED_BUILD_CONTRACT =
   "GET /v1/appStoreVersions/{id}/relationships/build returns the attached build's identifier";
 const LOCALIZATION_CONTRACT =
@@ -90,6 +100,7 @@ export function parseArguments(argv) {
     timeoutSeconds: DEFAULT_TIMEOUT_SECONDS,
     pollIntervalSeconds: DEFAULT_POLL_INTERVAL_SECONDS,
     confirmed: false,
+    skipWhenNotEditable: false,
   };
 
   const valueFlags = new Map([
@@ -110,12 +121,18 @@ export function parseArguments(argv) {
       continue;
     }
 
+    if (argument === "--skip-when-not-editable") {
+      options.skipWhenNotEditable = true;
+      continue;
+    }
+
     const field = valueFlags.get(argument);
     if (!field) {
       throw new Error(
         `Unknown argument '${argument}'. Usage: appstore-prepare-version.mjs [--confirm] ` +
-          "[--app-id <id>] [--bundle-id <id>] [--version <versionString>] [--build <number>] " +
-          "[--timeout-seconds <n>] [--poll-seconds <n>]",
+          "[--skip-when-not-editable] [--app-id <id>] [--bundle-id <id>] " +
+          "[--version <versionString>] [--build <number>] [--timeout-seconds <n>] " +
+          "[--poll-seconds <n>]",
       );
     }
 
@@ -208,7 +225,12 @@ async function fetchBuildRecords({token, appId, versionString}, request) {
     `/builds?filter%5Bapp%5D=${appId}` +
     `&filter%5BpreReleaseVersion.version%5D=${encodeURIComponent(versionString)}` +
     "&include=preReleaseVersion" +
-    "&fields%5Bbuilds%5D=version,processingState,expired,uploadedDate" +
+    // `fields[builds]` is a sparse fieldset that selects RELATIONSHIPS as well as
+    // attributes, so `preReleaseVersion` has to be named here even though `include=` already
+    // asks for it. Omitting it strips `relationships.preReleaseVersion` from every build,
+    // every train reads as unknown, and the run burns its whole budget on a train mismatch
+    // that never existed.
+    "&fields%5Bbuilds%5D=version,processingState,expired,uploadedDate,preReleaseVersion" +
     "&fields%5BpreReleaseVersions%5D=version" +
     `&limit=${PAGE_LIMIT}`;
 
@@ -223,10 +245,26 @@ async function fetchBuildRecords({token, appId, versionString}, request) {
 
     for (const build of result.data) {
       const trainId = build?.relationships?.preReleaseVersion?.data?.id;
+      if (!trainId) {
+        throw new AppStorePreparationRefusal(
+          `APP_STORE_CONTRACT_UNEXPECTED_SHAPE: build ${build?.id ?? "(unknown)"} came back with ` +
+            "no preReleaseVersion relationship, so the train it belongs to cannot be read. " +
+            `The assumption that stopped holding: ${BUILD_LISTING_CONTRACT}.`,
+        );
+      }
+
       const train = (result.included ?? []).find(
         (entry) => entry.type === "preReleaseVersions" && entry.id === trainId,
       );
-      records.push({build, trainVersion: train?.attributes?.version ?? null});
+      if (!train?.attributes?.version) {
+        throw new AppStorePreparationRefusal(
+          `APP_STORE_CONTRACT_UNEXPECTED_SHAPE: build ${build?.id ?? "(unknown)"} names train ` +
+            `${trainId}, which the listing did not include. ` +
+            `The assumption that stopped holding: ${BUILD_LISTING_CONTRACT}.`,
+        );
+      }
+
+      records.push({build, trainVersion: train.attributes.version});
     }
 
     next = result?.links?.next ?? null;
@@ -280,14 +318,17 @@ export async function awaitAttachableBuild(
 
       lastFailure = null;
       report(
-        `No processed build in train ${versionString} yet on attempt ${attempt} ` +
-          `(${records.length} build record(s) in the train). Waiting for Apple to finish ` +
-          "processing.",
+        `The newest build in train ${versionString} has not finished processing on attempt ` +
+          `${attempt} (${records.length} build record(s) in the train). Waiting for Apple ` +
+          "rather than attaching an older build that happens to be ready.",
       );
     } catch (error) {
       // A refusal Apple understood - an unknown build number, an expired binary, a rejected
       // filter - says the same thing every minute for the next forty. Only a rate limit or
-      // an outage earns a retry.
+      // an outage earns a retry. A refusal this script raised itself carries no HTTP status,
+      // so it has to be recognised by type: without that it looked transient, burned the
+      // whole budget, and surfaced as a processing timeout that blamed Apple's queue.
+      if (error instanceof AppStorePreparationRefusal) throw error;
       if (!isTransientAppStoreConnectFailure(error)) throw error;
 
       lastFailure = error.message;
@@ -393,10 +434,35 @@ export async function prepareAppStoreVersion(
   // release, or released cannot take this build, and finding that out after forty minutes of
   // polling helps nobody.
   const existingRecords = await fetchVersionRecords({token, appId}, request);
-  const existing = selectPreparableVersionRecord(existingRecords, versionString);
+  const versionOutcome = resolveVersionRecordOutcome(existingRecords, versionString);
+
+  if (versionOutcome.outcome === "not-editable") {
+    // Whether this is a failure is the caller's call, passed in explicitly rather than read
+    // from the GitHub context here: the chained run finds this every time a backend-only
+    // merge ships while the previous version is with Apple, and a red run for an expected
+    // outcome teaches everyone to ignore red runs.
+    if (!options.skipWhenNotEditable) {
+      throw new AppStorePreparationRefusal(
+        nonEditableVersionRefusal(versionString, versionOutcome.state),
+      );
+    }
+
+    const notice = nonEditableVersionNotice(versionString, versionOutcome.state);
+    report(notice);
+    return {
+      appId,
+      versionString,
+      buildNumber: null,
+      written: false,
+      outcome: "version-not-editable",
+      notice,
+    };
+  }
+
+  const existing = versionOutcome.record;
   report(
     existing
-      ? `Version ${versionString} already exists as ${versionState(existing)}; reusing it.`
+      ? `Version ${versionString} already exists as ${versionOutcome.state}; reusing it.`
       : `Version ${versionString} does not exist yet; it will be created.`,
   );
 
@@ -413,11 +479,29 @@ export async function prepareAppStoreVersion(
   const buildNumber = selectedBuild.build.attributes.version;
 
   if (!options.confirmed) {
+    // The release-notes gap is the deliberate substitute for pushing metadata, so a dry run
+    // that cannot report it is only reporting half of what it would do. Reading it stays a
+    // plain GET, and only an existing version record has localizations to read.
+    const missingReleaseNotes = existing
+      ? localesMissingReleaseNotes(
+          await fetchLocalizations({token: makeToken(), versionId: existing.id}, request),
+        )
+      : [];
+
     report(
       `\nDry run. Re-run with --confirm to ${existing ? "attach" : "create version " + versionString + " and attach"} ` +
         `build ${buildNumber}.`,
     );
-    return {appId, versionString, buildNumber, written: false};
+    reportReleaseNotesGap(report, {existing, missingReleaseNotes});
+
+    return {
+      appId,
+      versionString,
+      buildNumber,
+      written: false,
+      outcome: "dry-run",
+      missingReleaseNotes,
+    };
   }
 
   // Every token minted at the start of a run that may have waited forty minutes has expired
@@ -433,7 +517,24 @@ export async function prepareAppStoreVersion(
   );
   if (alreadyAttached === selectedBuild.build.id) {
     report(`Build ${buildNumber} is already attached to version ${versionString}.`);
+  } else if (alreadyAttached && options.buildNumber === null) {
+    // A version carrying a build is one a human may be part-way through preparing. Swapping
+    // the binary underneath them is the same silent wrong result as attaching a stale build,
+    // so replacing one takes an explicit --build.
+    throw new AppStorePreparationRefusal(
+      attachedBuildConflictRefusal({
+        versionString,
+        attachedBuildId: alreadyAttached,
+        buildNumber,
+      }),
+    );
   } else {
+    if (alreadyAttached) {
+      report(
+        `Replacing the build attached to version ${versionString} (App Store Connect build id ` +
+          `${alreadyAttached}) with build ${buildNumber}, which --build named explicitly.`,
+      );
+    }
     await attachBuild(
       {token: writeToken, versionId: versionRecord.id, buildId: selectedBuild.build.id},
       request,
@@ -450,16 +551,53 @@ export async function prepareAppStoreVersion(
     report(`  - ${step}`);
   }
 
-  return {appId, versionString, buildNumber, written: true, missingReleaseNotes};
+  return {
+    appId,
+    versionString,
+    buildNumber,
+    written: true,
+    outcome: "prepared",
+    missingReleaseNotes,
+  };
+}
+
+function reportReleaseNotesGap(report, {existing, missingReleaseNotes}) {
+  if (!existing) {
+    report(
+      "Release notes cannot be read yet: the version record does not exist, so it has no " +
+        "localizations. The confirmed run reports them.",
+    );
+    return;
+  }
+
+  report(
+    missingReleaseNotes.length > 0
+      ? `"What's New" is still empty for: ${missingReleaseNotes.join(", ")}. Nothing in this ` +
+          "repository owns that copy, so a human writes it in App Store Connect."
+      : 'Every locale already has "What\'s New" text.',
+  );
+}
+
+/**
+ * Lets the workflow's summary step tell a prepared version from a run that correctly found
+ * nothing to do. Only the GitHub Actions handoff lives here; the decision itself is made in
+ * pure code above.
+ */
+async function recordWorkflowOutcome(outcome) {
+  const outputPath = process.env.GITHUB_OUTPUT;
+  if (!outputPath) return;
+  await appendFile(outputPath, `outcome=${outcome}\n`);
 }
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
   const credentials = readAppStoreConnectCredentials();
 
-  await prepareAppStoreVersion(options, {
+  const result = await prepareAppStoreVersion(options, {
     makeToken: () => makeAppStoreConnectToken(credentials),
   });
+
+  await recordWorkflowOutcome(result.outcome);
 }
 
 if (isEntrypoint(import.meta.url)) {

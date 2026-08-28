@@ -98,7 +98,12 @@ test("no script the pipeline runs can submit a build for review", async () => {
 
 test("no workflow or fastlane lane can submit, auto-release, or steer a rollout", async () => {
   const paths = [
-    ...(await filesUnder(".github/workflows", (name) => name.endsWith(".yml"))),
+    // GitHub accepts either extension, so a workflow added as `.yaml` must be scanned too;
+    // one that was not would carry a submission step past this guard.
+    ...(await filesUnder(
+      ".github/workflows",
+      (name) => name.endsWith(".yml") || name.endsWith(".yaml"),
+    )),
     "fastlane/Fastfile",
   ];
 

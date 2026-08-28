@@ -31,7 +31,7 @@ on:
         required: false
         type: string
       build:
-        description: "Build number to attach. Defaults to the newest processed build in that version's train."
+        description: "Build number to attach. Defaults to the newest build in that version's train, waited for until Apple has processed it."
         required: false
         type: string
 
@@ -75,12 +75,14 @@ jobs:
       # Store Connect API key the TestFlight upload lane already authenticates with; no new
       # credential is introduced.
       - name: Create the version record and attach the build
+        id: prepare
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
           REQUESTED_VERSION: ${{ inputs.version }}
           REQUESTED_BUILD: ${{ inputs.build }}
+          EVENT_NAME: ${{ github.event_name }}
         shell: bash
         run: |
           set -euo pipefail
@@ -98,12 +100,40 @@ jobs:
           if [ -n "${REQUESTED_BUILD:-}" ]; then
             arguments+=(--build "$REQUESTED_BUILD")
           fi
+          # A backend-only merge to `main` still archives and uploads a build while the
+          # previous version sits with Apple, so on the chained path a version that cannot
+          # take a build is the expected answer, not a fault - and a red run for a correct
+          # outcome teaches everyone to ignore red runs. A human who dispatched this run by
+          # name asked for it specifically, so there it still fails loudly.
+          if [ "$EVENT_NAME" != "workflow_dispatch" ]; then
+            arguments+=(--skip-when-not-editable)
+          fi
 
           node scripts/appstore-prepare-version.mjs "${arguments[@]}"
 
       - name: Say what is left for a human
         shell: bash
+        env:
+          OUTCOME: ${{ steps.prepare.outputs.outcome }}
         run: |
+          set -euo pipefail
+
+          if [ "${OUTCOME:-}" = "version-not-editable" ]; then
+            {
+              echo "### Nothing to prepare"
+              echo ""
+              echo "The App Store version for this marketing version is already with Apple, or"
+              echo "already released, so it cannot take a build. Nothing was written."
+              echo ""
+              echo "That is the expected outcome for a deploy that shipped the backend while the"
+              echo "previous version is in review. Bump \`MARKETING_VERSION\` when the next"
+              echo "release is meant to go out."
+              echo ""
+              echo "https://appstoreconnect.apple.com/apps/${APP_STORE_CONNECT_APP_ID}/distribution"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
           {
             echo "### App Store version prepared"
             echo ""

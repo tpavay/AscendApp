@@ -95,7 +95,7 @@ The workflow is a thin wrapper around a script you can run yourself, with the sa
 # Report what it would do. Writes nothing.
 npm --prefix scripts run appstore:prepare-version
 
-# Create the version record and attach the newest processed build.
+# Create the version record and attach the newest build in the train, once it is processed.
 npm --prefix scripts run appstore:prepare-version:confirm
 
 # Pin the version and the build explicitly.
@@ -103,7 +103,15 @@ node scripts/appstore-prepare-version.mjs --confirm --version 1.0.1 --build 2026
 ```
 
 Without `--version` it reads `MARKETING_VERSION` from the checked-out Xcode project, and refuses if the targets disagree.
-Without `--build` it takes the newest processed, unexpired build in that version's train, which is the same build App Store Connect offers you in its Build picker.
+Without `--build` it takes the **newest** build in that version's train and waits until Apple has processed it.
+Not the newest build that happens to be processed already: this workflow starts seconds after the deploy uploads, so an earlier build in the same train is very often ready first, and attaching it would hand you the previous binary and call it success.
+Waiting is a loud failure if it times out; attaching the wrong binary is a silent wrong result.
+
+The dry run reports which locales still have empty "What's New", once the version record exists to read localizations from.
+It sends no POST and no PATCH.
+
+If the version record already has a **different** build attached, the run refuses rather than swapping the binary under a version you may be part-way through preparing.
+Re-run with `--build <number>` to say that is what you mean.
 
 You can also re-run it from the Actions tab: **Prepare App Store Version** accepts an optional version and build number.
 
@@ -129,10 +137,22 @@ Check the **Prepare App Store Version** workflow, not Deploy Production.
 It only runs when Deploy Production concluded `success`.
 If Apple was still processing the build when its budget ran out, re-run it from the Actions tab; it is idempotent, and reuses the version record if one already exists.
 
-**"App Store version X is IN_REVIEW, which this script may not write to"**
-The version you are trying to prepare is already with Apple.
+**The prepare run says there is nothing to prepare**
+The version for that marketing version is already with Apple, or already released, so it cannot take a build.
+On the run chained off Deploy Production that is a clean green no-op with a run summary saying so, because a backend-only merge to `main` still uploads a build while the previous version is in review, and a red run for a correct outcome only teaches everyone to ignore red runs.
 Either you meant to bump `MARKETING_VERSION` for the next release, or you want to cancel the submission in App Store Connect first.
-The script refuses rather than guessing, because writing to a version mid-review is not recoverable from a script.
+
+Running **Prepare App Store Version** from the Actions tab yourself still fails loudly on the same state (`App Store version X is IN_REVIEW, which this script may not write to`), because there you asked for that version by name.
+The script never writes to a version mid-review; that is not recoverable from a script.
+
+**"App Store version X already has a different build attached"**
+Somebody, or an earlier run, already attached a build to that version record.
+The run will not swap it out silently.
+Decide which binary goes to review and re-run with `--build <number>`, or attach it in App Store Connect.
+
+**The prepare run timed out waiting for a build**
+It waits for the *newest* build in the train, deliberately, so a stale build that processed first is never attached instead.
+Re-run it from the Actions tab once App Store Connect shows the build as ready; it is idempotent.
 
 **A bad build is already live**
 Neither this pipeline nor a resubmission is the fast lever.

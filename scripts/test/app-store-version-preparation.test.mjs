@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  AppStorePreparationRefusal,
   localesMissingReleaseNotes,
   manualNextSteps,
+  nonEditableVersionRefusal,
   parseMarketingVersion,
+  resolveVersionRecordOutcome,
   selectAttachableBuild,
-  selectPreparableVersionRecord,
   versionState,
 } from "../lib/app-store-version-preparation.mjs";
 import {parseArguments, prepareAppStoreVersion} from "../appstore-prepare-version.mjs";
@@ -41,29 +43,43 @@ test("a version state is read under both the current and the deprecated attribut
   assert.equal(versionState({attributes: {}}), null);
 });
 
-test("a version that is past editing is refused rather than written to", () => {
+test("a version that is past editing is reported as such rather than written to", () => {
   const live = {id: "v1", attributes: {versionString: "1.0", appStoreState: "READY_FOR_SALE"}};
   const editable = {
     id: "v2",
     attributes: {versionString: "1.0.1", appStoreState: "PREPARE_FOR_SUBMISSION"},
   };
 
-  assert.equal(selectPreparableVersionRecord([live, editable], "1.0.1"), editable);
-  assert.equal(selectPreparableVersionRecord([live], "1.0.1"), null);
+  assert.deepEqual(resolveVersionRecordOutcome([live, editable], "1.0.1"), {
+    outcome: "reuse",
+    record: editable,
+    state: "PREPARE_FOR_SUBMISSION",
+  });
+  assert.deepEqual(resolveVersionRecordOutcome([live], "1.0.1"), {
+    outcome: "create",
+    record: null,
+    state: null,
+  });
 
-  assert.throws(
-    () => selectPreparableVersionRecord([live], "1.0"),
-    /is READY_FOR_SALE, which this script may not write to/,
-  );
-  assert.throws(
-    () => selectPreparableVersionRecord(
+  assert.deepEqual(resolveVersionRecordOutcome([live], "1.0"), {
+    outcome: "not-editable",
+    record: live,
+    state: "READY_FOR_SALE",
+  });
+  assert.equal(
+    resolveVersionRecordOutcome(
       [{id: "v3", attributes: {versionString: "1.0.1", appVersionState: "IN_REVIEW"}}],
       "1.0.1",
-    ),
+    ).outcome,
+    "not-editable",
+  );
+  assert.match(
+    nonEditableVersionRefusal("1.0.1", "IN_REVIEW"),
     /is IN_REVIEW, which this script may not write to/,
   );
+
   assert.throws(
-    () => selectPreparableVersionRecord([editable, {...editable, id: "v4"}], "1.0.1"),
+    () => resolveVersionRecordOutcome([editable, {...editable, id: "v4"}], "1.0.1"),
     /2 App Store version records share version string 1\.0\.1/,
   );
 });
@@ -71,19 +87,37 @@ test("a version that is past editing is refused rather than written to", () => {
 test("a rejected version is still preparable, because that is what a resubmission needs", () => {
   for (const state of ["DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED", "INVALID_BINARY"]) {
     const record = {id: "v1", attributes: {versionString: "1.0.1", appVersionState: state}};
-    assert.equal(selectPreparableVersionRecord([record], "1.0.1"), record, state);
+    assert.deepEqual(
+      resolveVersionRecordOutcome([record], "1.0.1"),
+      {outcome: "reuse", record, state},
+      state,
+    );
   }
 });
 
-test("the newest processed build in the train is attached, and nothing else is", () => {
+test("the newest build in the train is attached, and nothing else is", () => {
   const records = [
     buildRecord({id: "old", version: "2026082801", train: "1.0.1"}),
     buildRecord({id: "new", version: "2026082803", train: "1.0.1"}),
-    buildRecord({id: "processing", version: "2026082804", processingState: "PROCESSING", train: "1.0.1"}),
-    buildRecord({id: "expired", version: "2026082805", expired: true, train: "1.0.1"}),
   ];
 
   assert.equal(selectAttachableBuild(records, {versionString: "1.0.1"}).build.id, "new");
+});
+
+test("an older VALID build is never attached while a newer one is still processing", () => {
+  // The workflow starts seconds after the deploy uploads, so this is the ordinary state of
+  // the world on a re-deploy of the same marketing version. Attaching `old` here would put
+  // the previous binary in front of the captain and call it success.
+  const records = [
+    buildRecord({id: "old", version: "2026082801", train: "1.0.1"}),
+    buildRecord({id: "uploading", version: "2026082802", processingState: "PROCESSING", train: "1.0.1"}),
+  ];
+
+  assert.equal(
+    selectAttachableBuild(records, {versionString: "1.0.1"}),
+    null,
+    "the run must wait for the newest build rather than attach an older ready one",
+  );
 });
 
 test("build numbers order numerically, not lexicographically", () => {
@@ -102,6 +136,49 @@ test("no processed build yet is a wait, not a failure", () => {
 
   assert.equal(selectAttachableBuild(records, {versionString: "1.0.1"}), null);
   assert.equal(selectAttachableBuild([], {versionString: "1.0.1"}), null);
+});
+
+test("a newest build that can never be attached is refused, not waited on", () => {
+  const expired = [
+    buildRecord({id: "old", version: "2026082801", train: "1.0.1"}),
+    buildRecord({id: "expired", version: "2026082805", expired: true, train: "1.0.1"}),
+  ];
+  const failed = [
+    buildRecord({id: "failed", version: "2026082806", processingState: "FAILED", train: "1.0.1"}),
+  ];
+  const ambiguous = [
+    buildRecord({id: "a", version: "2026082807", train: "1.0.1"}),
+    buildRecord({id: "b", version: "2026082807", train: "1.0.1"}),
+  ];
+
+  assert.throws(
+    () => selectAttachableBuild(expired, {versionString: "1.0.1"}),
+    /expired and cannot be attached/,
+  );
+  assert.throws(() => selectAttachableBuild(failed, {versionString: "1.0.1"}), /FAILED/);
+  assert.throws(
+    () => selectAttachableBuild(ambiguous, {versionString: "1.0.1"}),
+    /share build number 2026082807/,
+  );
+});
+
+test("every deterministic selection refusal is typed so the wait loop cannot retry it", () => {
+  const refusals = [
+    () => selectAttachableBuild([buildRecord({id: "other", version: "1", train: "1.0"})], {versionString: "1.0.1"}),
+    () => selectAttachableBuild([buildRecord({id: "e", version: "2", expired: true, train: "1.0.1"})], {versionString: "1.0.1"}),
+    () => selectAttachableBuild(
+      [buildRecord({id: "a", version: "3", train: "1.0.1"}), buildRecord({id: "b", version: "3", train: "1.0.1"})],
+      {versionString: "1.0.1"},
+    ),
+    () => selectAttachableBuild([buildRecord({id: "a", version: "3", train: "1.0.1"})], {
+      versionString: "1.0.1",
+      requestedBuildNumber: "99",
+    }),
+  ];
+
+  for (const refuse of refusals) {
+    assert.throws(refuse, AppStorePreparationRefusal);
+  }
 });
 
 test("a train filter App Store Connect ignored is refused, never fallen back on", () => {
@@ -217,10 +294,22 @@ function fakeAppStoreConnect({versions = [], builds = [], localizations = []} = 
       return {data: {id: "6757202987", attributes: {bundleId: "com.TylerPavay.AscendApp"}}};
     }
     if (pathOrURL.startsWith("/builds?")) {
+      // `fields[builds]` is a sparse fieldset that selects relationships as well as
+      // attributes, exactly as the live API does: a listing that does not name
+      // `preReleaseVersion` gets no `relationships.preReleaseVersion` back. Without this the
+      // suite supplies a relationship Apple would have withheld, and the query that breaks
+      // every real run passes here.
+      const query = new URLSearchParams(pathOrURL.slice(pathOrURL.indexOf("?") + 1));
+      const buildFields = (query.get("fields[builds]") ?? "").split(",").filter(Boolean);
+      const relationshipSelected =
+        buildFields.length === 0 || buildFields.includes("preReleaseVersion");
+
       return {
         data: builds.map((record) => ({
           ...record.build,
-          relationships: {preReleaseVersion: {data: {id: `train-${record.trainVersion}`}}},
+          ...(relationshipSelected
+            ? {relationships: {preReleaseVersion: {data: {id: `train-${record.trainVersion}`}}}}
+            : {}),
         })),
         included: [...new Set(builds.map((record) => record.trainVersion))].map((train) => ({
           type: "preReleaseVersions",
@@ -283,6 +372,7 @@ test("a confirmed run creates the version, attaches the build, and submits nothi
     versionString: "1.0.1",
     buildNumber: "2026082801",
     written: true,
+    outcome: "prepared",
     missingReleaseNotes: ["en-US"],
   });
 
@@ -317,6 +407,35 @@ test("a run without --confirm reports the plan and writes nothing", async () => 
   );
 
   assert.equal(result.written, false);
+  assert.equal(result.outcome, "dry-run");
+  assert.ok(
+    connect.calls.every((call) => call.method === "GET"),
+    `a dry run may only read, sent: ${connect.calls.map((call) => `${call.method} ${call.path}`)}`,
+  );
+});
+
+test("a dry run against an existing version reports the release-notes gap it would leave", async () => {
+  const existing = {
+    id: "existing-version",
+    attributes: {versionString: "1.0.1", appVersionState: "PREPARE_FOR_SUBMISSION"},
+  };
+  const connect = fakeAppStoreConnect({
+    versions: [existing],
+    builds: [buildRecord({id: "build-1", version: "2026082801", train: "1.0.1"})],
+    localizations: [
+      {attributes: {locale: "en-US", whatsNew: ""}},
+      {attributes: {locale: "de-DE", whatsNew: "Neu"}},
+    ],
+  });
+  const reported = [];
+
+  const result = await prepareAppStoreVersion(
+    {...parseArguments(["--version", "1.0.1"]), appId: "6757202987"},
+    {...RUN_HARNESS_DEFAULTS, request: connect.request, report: (message) => reported.push(message)},
+  );
+
+  assert.deepEqual(result.missingReleaseNotes, ["en-US"]);
+  assert.match(reported.join("\n"), /"What's New" is still empty for: en-US/);
   assert.ok(
     connect.calls.every((call) => call.method === "GET"),
     `a dry run may only read, sent: ${connect.calls.map((call) => `${call.method} ${call.path}`)}`,
@@ -429,4 +548,116 @@ test("a transient failure is retried while a refusal Apple understood is not", a
       assert.ok(buildListings > 1, "a transient failure must be retried inside the budget");
     }
   }
+});
+
+test("a version already with Apple is a reported no-op when the caller says it may be", async () => {
+  const connect = fakeAppStoreConnect({
+    versions: [{id: "v", attributes: {versionString: "1.0.1", appVersionState: "IN_REVIEW"}}],
+    builds: [buildRecord({id: "build-1", version: "2026082801", train: "1.0.1"})],
+  });
+  const reported = [];
+
+  const result = await prepareAppStoreVersion(
+    {
+      ...parseArguments(["--confirm", "--skip-when-not-editable", "--version", "1.0.1"]),
+      appId: "6757202987",
+    },
+    {...RUN_HARNESS_DEFAULTS, request: connect.request, report: (message) => reported.push(message)},
+  );
+
+  assert.equal(result.outcome, "version-not-editable");
+  assert.equal(result.written, false);
+  assert.match(reported.join("\n"), /nothing to prepare and nothing was written/);
+  assert.ok(
+    connect.calls.every((call) => call.method === "GET"),
+    "a skipped run may not write",
+  );
+  assert.ok(
+    connect.calls.every((call) => !call.path.startsWith("/builds?")),
+    "a skipped run must not wait on a build either",
+  );
+});
+
+test("a build already attached is not swapped out from under a human", async () => {
+  const existing = {
+    id: "existing-version",
+    attributes: {versionString: "1.0.1", appVersionState: "PREPARE_FOR_SUBMISSION"},
+  };
+  const connect = fakeAppStoreConnect({
+    versions: [existing],
+    builds: [buildRecord({id: "build-2", version: "2026082802", train: "1.0.1"})],
+  });
+  connect.state.attachedBuildByVersion.set("existing-version", "build-1");
+
+  await assert.rejects(
+    prepareAppStoreVersion(
+      {...parseArguments(["--confirm", "--version", "1.0.1"]), appId: "6757202987"},
+      {...RUN_HARNESS_DEFAULTS, request: connect.request},
+    ),
+    /already has a different build attached/,
+  );
+
+  assert.equal(
+    connect.state.attachedBuildByVersion.get("existing-version"),
+    "build-1",
+    "the attached build must survive a run that did not name it",
+  );
+
+  // --build is the human saying which binary they mean, so it may replace one.
+  await prepareAppStoreVersion(
+    {
+      ...parseArguments(["--confirm", "--version", "1.0.1", "--build", "2026082802"]),
+      appId: "6757202987",
+    },
+    {...RUN_HARNESS_DEFAULTS, request: connect.request},
+  );
+  assert.equal(connect.state.attachedBuildByVersion.get("existing-version"), "build-2");
+});
+
+test("the build listing asks for the relationship the train check reads", async () => {
+  const connect = fakeAppStoreConnect({
+    builds: [buildRecord({id: "build-1", version: "2026082801", train: "1.0.1"})],
+  });
+
+  await prepareAppStoreVersion(
+    {...parseArguments(["--version", "1.0.1"]), appId: "6757202987"},
+    {...RUN_HARNESS_DEFAULTS, request: connect.request},
+  );
+
+  const listing = connect.calls.find((call) => call.path.startsWith("/builds?"));
+  const query = new URLSearchParams(listing.path.slice(listing.path.indexOf("?") + 1));
+  assert.ok(
+    query.get("fields[builds]").split(",").includes("preReleaseVersion"),
+    "fields[builds] selects relationships too, so it must name preReleaseVersion or every " +
+      "build comes back trainless",
+  );
+});
+
+test("a refusal this script raised is not retried for the whole budget", async () => {
+  // Every one of these carries no HTTP status, which is what made them look transient.
+  const connect = fakeAppStoreConnect({
+    builds: [buildRecord({id: "other", version: "2026082801", train: "1.0"})],
+  });
+  let clock = 0;
+  let buildListings = 0;
+
+  await assert.rejects(
+    prepareAppStoreVersion(
+      {...parseArguments(["--confirm", "--version", "1.0.1", "--timeout-seconds", "600"]), appId: "6757202987"},
+      {
+        ...RUN_HARNESS_DEFAULTS,
+        now: () => clock,
+        sleep: async (seconds) => {
+          clock += seconds * 1_000;
+        },
+        request: async (token, path, options) => {
+          if (path.startsWith("/builds?")) buildListings += 1;
+          return connect.request(token, path, options);
+        },
+      },
+    ),
+    /APP_STORE_CONTRACT_FILTER_IGNORED/,
+  );
+
+  assert.equal(buildListings, 1, "a refusal that will not change must stop the wait at once");
 });
