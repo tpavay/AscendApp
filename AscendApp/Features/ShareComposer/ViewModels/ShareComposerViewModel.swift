@@ -15,8 +15,10 @@ final class ShareComposerViewModel {
     let stepHeight: Double
     let climb: Climb?
     let climbName: String?
-    let climbRank: Int?
-    let climbRankTotal: Int?
+    /// The standing the card asserts. Mutable because a saved climb's frozen standing is read when
+    /// the composer opens and can land after it is already on screen; see `setClimbRank`.
+    private(set) var climbRank: Int?
+    private(set) var climbRankTotal: Int?
 
     // Editing state
     var background: ShareBackgroundSource?
@@ -126,8 +128,9 @@ final class ShareComposerViewModel {
         return resolver
     }
 
-    /// Drops every derived value. Called when the inputs behind them change —
-    /// the climb rename and the injected stat lists — and nowhere else.
+    /// Drops every derived value. Called when the inputs behind them change -
+    /// the climb rename, the resolved standing and the injected stat lists - and
+    /// nowhere else.
     private func invalidateResolvedData() {
         cachedResolver = nil
         statCache.removeAll()
@@ -349,6 +352,20 @@ final class ShareComposerViewModel {
     /// Best Efforts read from the Best Effort cache by the view.
     func setBestEffortStats(_ stats: [ResolvedShareStat]) {
         bestEffortStats = stats
+        invalidateResolvedData()
+    }
+
+    // MARK: - Standing
+
+    /// Adopt the standing the presenting surface now knows.
+    ///
+    /// Every derived value is dropped, because the rank clusters, both rank stickers and the recap
+    /// card's rank tab are all filtered on whether the rank resolves - a standing that landed after
+    /// the composer opened would otherwise stay invisible for the whole presentation.
+    func setClimbRank(_ rank: Int?, total: Int?) {
+        guard rank != climbRank || total != climbRankTotal else { return }
+        climbRank = rank
+        climbRankTotal = total
         invalidateResolvedData()
     }
 

@@ -170,7 +170,80 @@ struct SavedClimbShareRankTests {
         #expect(onPhoto.contains("rank"))
     }
 
+    // MARK: - A standing that lands after the composer opens
+
+    /// The composer opens on the frame Share was tapped, so the standing is applied to a view model
+    /// that is already on screen. Every derived value has to be dropped with it: a cluster list, a
+    /// sticker list or a resolved standing computed while the rank was missing would keep answering
+    /// the old question for the whole presentation.
+    @Test
+    func aStandingAppliedAfterTheComposerOpensRestoresTheClusterAndBothStickers() throws {
+        let viewModel = Self.savedClimbViewModel(standing: nil)
+        #expect(viewModel.availablePresets().allSatisfy { $0.id != "rank" })
+        #expect(viewModel.climbStats().allSatisfy { $0.kind != .climbRank })
+
+        let standing = try #require(SavedClimbShareStanding(snapshot: Self.snapshot()))
+        viewModel.setClimbRank(standing.rank, total: standing.totalClimbers)
+
+        #expect(
+            viewModel.availablePresets().contains { $0.id == "rank" },
+            "the standing landed and the Climb tab still offered no rank cluster"
+        )
+        #expect(viewModel.climbStats().contains { $0.kind == .climbRank })
+        #expect(viewModel.climbStats().contains { $0.kind == .climbRankWithTotal })
+        #expect(
+            ResolvedShareStanding(
+                rank: viewModel.climbRank,
+                totalClimbers: viewModel.climbRankTotal
+            ) != nil,
+            "the recap card could not build the standing it renders its rank tab from"
+        )
+    }
+
+    // MARK: - Only a frozen standing reaches a card
+
+    /// A card publishes; a screen reports. The completion summary keeps showing where the climber
+    /// stands right now, and it forwards a rank to the composer only when that rank is the
+    /// permanent one - so a climb the server has not ranked yet shares without a rank rather than
+    /// printing today's position onto an image that outlives it.
+    @Test
+    func onlyAFrozenSummaryStandingIsForwardedToTheCard() throws {
+        let recomputed = try #require(Self.hero(
+            standings: [LiveClimbSummaryRankHero.Standing(rank: 34, total: 91, basis: .current)]
+        ))
+        #expect(recomputed.value == .rank(34), "the summary stopped showing the current standing")
+        #expect(recomputed.standing?.frozen == nil)
+
+        let session = LiveClimbSummaryRankHero.Standing(rank: 3, total: 8, basis: .liveSession)
+        #expect(session?.frozen == nil)
+
+        let frozen = try #require(Self.hero(
+            standings: [
+                LiveClimbSummaryRankHero.Standing(rank: 32, total: 85, basis: .atCompletion),
+                LiveClimbSummaryRankHero.Standing(rank: 34, total: 91, basis: .current)
+            ]
+        ))
+        #expect(frozen.standing?.frozen?.rank == 32)
+        #expect(frozen.standing?.frozen?.renderableTotal == 85)
+    }
+
     // MARK: - Fixtures
+
+    private static func hero(
+        standings: [LiveClimbSummaryRankHero.Standing?]
+    ) -> LiveClimbSummaryRankHero? {
+        LiveClimbSummaryRankHero.make(
+            isClimbContext: true,
+            standings: standings,
+            sync: LiveClimbSummaryRankHero.SyncState(
+                phase: .published,
+                hasRankContext: true,
+                rankResolution: .settled
+            ),
+            copy: LiveClimbSummaryRankHero.Copy()
+        )
+    }
+
 
     private static func savedClimbViewModel(
         standing: SavedClimbShareStanding?

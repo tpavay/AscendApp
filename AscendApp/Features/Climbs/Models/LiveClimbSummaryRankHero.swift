@@ -65,6 +65,21 @@ struct LiveClimbSummaryRankHero: Equatable {
         init?(reading: Reading, basis: Basis) {
             self.init(rank: reading.rank, total: reading.total, basis: basis)
         }
+
+        /// This standing only when it is the permanent one.
+        ///
+        /// A share card is published: it keeps asserting its number long after the leaderboard has
+        /// moved, so only the position the server froze may be rendered onto one. The screen is
+        /// free to keep showing a recomputed standing - the two are supposed to differ.
+        var frozen: Standing? {
+            basis == .atCompletion ? self : nil
+        }
+
+        /// The denominator worth rendering beside `rank`, or `nil` when the source reported none.
+        var renderableTotal: Int? {
+            guard let total, total > 0 else { return nil }
+            return total
+        }
     }
 
     /// One rank and its denominator exactly as a single source reported them.
@@ -203,8 +218,7 @@ struct LiveClimbSummaryRankHero: Equatable {
     /// The denominator to render beside the value, or `nil` when there is none to
     /// show. Only ever the total belonging to the standing that produced `value`.
     var total: Int? {
-        guard let standing, let total = standing.total, total > 0 else { return nil }
-        return total
+        standing?.renderableTotal
     }
 
     /// The candidate standings a surface offers, most authoritative first.

@@ -30,7 +30,7 @@ struct WorkoutDetailView: View {
     @State private var deleteTask: Task<Void, Never>? = nil
     @State private var copyConfirmationTask: Task<Void, Never>? = nil
     @State private var showingLiveClimbSummaryPreview = false
-    /// The frozen standing this climb's share card asserts. Resolved once per workout through
+    /// The frozen standing this climb's share card asserts. Read when the composer opens, through
     /// `CompletedClimbRankService`, which is the same source the completion summary reads.
     @State private var shareStanding: SavedClimbShareStanding?
     /// Which workout `shareStanding` belongs to. Keyed by id rather than a bare flag so a reused
@@ -121,6 +121,9 @@ struct WorkoutDetailView: View {
                 climbRank: shareStanding?.rank,
                 climbRankTotal: shareStanding?.totalClimbers
             )
+            // The composer opens on the frame it was asked for and adopts the standing when it
+            // lands, so an offline device still gets a composer and no climber waits on a read.
+            .task { await resolveShareStandingIfNeeded() }
         }
         .fullScreenCover(isPresented: $showingLiveClimbSummaryPreview) {
             if liveClimbSummaryMetadata?.climbId == nil || liveClimbDetailClimb != nil {
@@ -158,7 +161,6 @@ struct WorkoutDetailView: View {
             // rather than running its own retry loop - the screen is one more surface onto the
             // same series, not a second one racing it.
             enrichmentService.resumeTracking(modelContext: modelContext)
-            await resolveShareStandingIfNeeded()
         }
         .onDisappear {
             copyConfirmationTask?.cancel()
@@ -581,21 +583,30 @@ struct WorkoutDetailView: View {
 
     /// Reads the workout's frozen standing so the share composer can offer the rank clusters,
     /// stickers and the recap card's rank tab from this screen, not only from the completion
-    /// summary. At most one read per workout per install: a stored snapshot answers without a
-    /// request, and `shareStandingWorkoutId` stops a workout the server has not ranked from asking
-    /// again every time the screen reappears.
+    /// summary.
+    ///
+    /// Runs when the composer opens rather than when the screen does, so a session the server
+    /// ranks nowhere - a Just Climb, a routine - costs nothing to look at. At most one read per
+    /// workout per install: a stored snapshot answers without a request, and
+    /// `shareStandingWorkoutId` stops a re-open from asking again for a workout already answered,
+    /// while still admitting a different one. The service ignores cancellation, so the id is
+    /// re-checked after the await: a resolve for the climb this view used to show must not land on
+    /// the one it shows now.
     @MainActor
     private func resolveShareStandingIfNeeded() async {
-        guard shareStandingWorkoutId != workout.id else { return }
+        let resolvingWorkoutId = workout.id
+        guard shareStandingWorkoutId != resolvingWorkoutId else { return }
 
         shareStanding = nil
-        shareStandingWorkoutId = workout.id
+        shareStandingWorkoutId = resolvingWorkoutId
         guard let context = liveClimbSummaryLeaderboardContext else { return }
 
-        shareStanding = await SavedClimbShareStanding.resolve(
+        let resolved = await SavedClimbShareStanding.resolve(
             context: context,
-            workoutId: workout.id.uuidString
+            workoutId: resolvingWorkoutId.uuidString
         )
+        guard shareStandingWorkoutId == resolvingWorkoutId else { return }
+        shareStanding = resolved
     }
 
     /// A climb either has heart-rate data to show or this section does not exist. Enrichment still

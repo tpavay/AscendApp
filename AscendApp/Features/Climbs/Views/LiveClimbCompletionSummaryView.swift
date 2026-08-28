@@ -107,11 +107,15 @@ struct LiveClimbCompletionSummaryView: View {
         .background(Color.black.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .fullScreenCover(isPresented: $showingShareSheet) {
+            // The hero on screen may be showing a rank recomputed against today's rows. That is
+            // right for a screen and wrong for a card, which keeps asserting its number after the
+            // next climber finishes, so only the frozen standing is forwarded.
+            let frozen = hero?.standing?.frozen
             ShareComposerView(
                 workout: workout,
                 climb: climb,
-                climbRank: hero?.standing?.rank,
-                climbRankTotal: hero?.total
+                climbRank: frozen?.rank,
+                climbRankTotal: frozen?.renderableTotal
             )
         }
         .task(id: workout.id) {

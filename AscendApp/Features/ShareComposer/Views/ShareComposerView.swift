@@ -42,6 +42,10 @@ struct ShareComposerView: View {
     private let exporter = ShareComposerExporter()
     private let templateStore = ShareCardTemplateStore()
     private let presets: [ShareComposerPreset]
+    /// The standing the presenting surface knows right now. Re-read on every evaluation of `body`
+    /// rather than only at init, because a saved climb's frozen standing is fetched when the
+    /// composer opens and can land while it is already on screen.
+    private let rankInput: ShareComposerRank
     private let shareTitle: String
     private let accent = Color(red: 0.706, green: 0.8, blue: 0)
     private static let storyAspectRatio = ShareCardFormat.aspectRatio
@@ -51,7 +55,8 @@ struct ShareComposerView: View {
     ///     measured against. Deliberately carries no default: every entry point has to state
     ///     whether it knows the rank, because a call site that silently omitted it is exactly how
     ///     the saved-climb path lost its rank clusters, stickers and recap rank tab. Pass `nil`
-    ///     only for a session that genuinely ranks nowhere.
+    ///     only for a session that genuinely ranks nowhere, or for a standing still being read -
+    ///     the composer adopts one that arrives after it is on screen.
     init(
         workout: Workout,
         climb: Climb?,
@@ -60,6 +65,7 @@ struct ShareComposerView: View {
         walkthroughStore: ShareComposerWalkthroughStore = ShareComposerWalkthroughStore()
     ) {
         let settings = SettingsManager.shared
+        self.rankInput = ShareComposerRank(rank: climbRank, total: climbRankTotal)
         _viewModel = State(initialValue: ShareComposerViewModel(
             workout: workout,
             measurementSystem: settings.measurementSystem,
@@ -319,6 +325,13 @@ struct ShareComposerView: View {
         .overlay(alignment: .bottom) { toastView }
         .onChange(of: viewModel.selectedID) {
             walkthrough.stickerSelected(selectedSticker)
+        }
+        .onChange(of: rankInput) { _, rank in
+            // Both symptoms of a missing standing are fixed here: the view model drops its derived
+            // data so the rank cluster and stickers resolve, and the recap tab is rebuilt so its
+            // Standing card and the other templates' rank tab appear.
+            viewModel.setClimbRank(rank.rank, total: rank.total)
+            recapPreview = makeRecapPreview()
         }
         .onChange(of: walkthrough.restingFocusTarget) { _, target in
             switch target {
