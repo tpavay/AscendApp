@@ -26,6 +26,15 @@ struct ClimbDetailHeadphoneAffordanceTests {
         catalogRepository: StubClimbCatalogRepository(climbs: [.preview])
     )
 
+    /// The label under test is hardware copy, not a standing, so the board this screen would
+    /// otherwise fetch five ways answers from memory: hosting the real view must not take a
+    /// live Firestore dependency on whichever project the test host happens to point at.
+    private static let leaderboardService = StubLiveReplayLeaderboardService(
+        completionLeaderboard: .empty
+    )
+
+    private static let headphoneControlLabel = "Compatible headphones"
+
     /// Held for the process, not per render: the detail screen keeps observing SwiftData for a
     /// beat after its host is torn down, and a container that has already gone traps on the
     /// next fetch any other suite performs.
@@ -42,26 +51,43 @@ struct ClimbDetailHeadphoneAffordanceTests {
     @Test("Climb Detail publishes a labelled route to the compatible-headphones list")
     func theCompatibleHeadphonesControlIsReachable() async throws {
         try await withHostedClimbDetail { root in
-            let elements = accessibilityElements(under: root)
-            let control = elements.first { $0.accessibilityLabel == "Compatible headphones" }
-
-            let onScreen = elements.compactMap(\.accessibilityLabel)
-            let found = try #require(
-                control,
-                "Climb Detail must keep a route to the compatible-headphones list. On screen: \(onScreen)"
+            let elements = try await settledClimbDetailElements(under: root)
+            let control = try #require(
+                elements.first { $0.accessibilityLabel == Self.headphoneControlLabel },
+                """
+                Climb Detail must keep a route to the compatible-headphones list. \
+                On screen: \(elements.compactMap(\.accessibilityLabel))
+                """
             )
-            #expect(found.accessibilityHint == "Opens the compatible headphones list.")
+
+            #expect(control.accessibilityHint == "Opens the compatible headphones list.")
         }
     }
 
     @Test("The worded tracking card is gone from the overview")
     func theTrackingExplainerCardIsNotOnScreen() async throws {
         try await withHostedClimbDetail { root in
-            let labels = accessibilityElements(under: root).compactMap(\.accessibilityLabel)
+            let labels = try await settledClimbDetailElements(under: root)
+                .compactMap(\.accessibilityLabel)
+
+            // Absence proves nothing about a screen that never rendered, so the control that
+            // replaced the card has to be there before the card's copy is allowed to be gone.
+            #expect(
+                labels.contains(Self.headphoneControlLabel),
+                "Climb Detail never rendered its overview. On screen: \(labels)"
+            )
 
             // The card's own copy, and the phrase that made it read as a manual.
             #expect(!labels.contains { $0.contains("How it works") })
             #expect(!labels.contains { $0.contains("track your steps") })
+        }
+    }
+
+    /// The tree read once the overview is actually published, not whatever the first read after
+    /// `layoutIfNeeded()` happened to catch while another suite held the main actor.
+    private func settledClimbDetailElements(under root: UIView) async throws -> [NSObject] {
+        try await settledAccessibilityElements(under: root) { elements in
+            elements.contains { $0.accessibilityLabel == Self.headphoneControlLabel }
         }
     }
 
@@ -78,7 +104,11 @@ struct ClimbDetailHeadphoneAffordanceTests {
         try await withAccessibilityAutomation {
             let host = UIHostingController(
                 rootView: NavigationStack {
-                    ClimbDetailView(climb: .preview, climbService: Self.catalogService)
+                    ClimbDetailView(
+                        climb: .preview,
+                        climbService: Self.catalogService,
+                        leaderboardService: Self.leaderboardService
+                    )
                 }
                 .modelContainer(container)
                 .environment(ModerationStore.shared)

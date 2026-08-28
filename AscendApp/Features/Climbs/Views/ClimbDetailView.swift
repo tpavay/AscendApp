@@ -119,17 +119,30 @@ struct ClimbDetailView: View {
     @State private var activeCoachStep: ClimbDetailCoachStep?
     @State private var coachTargetFrames: [ClimbDetailCoachStep: CGRect] = [:]
 
+    /// The line box of the race action's label, and of the glyph beside it. Only this half of
+    /// either control's height tracks Dynamic Type; the padding around it is fixed, so scaling
+    /// the whole 58pt square would grow it past the button it has to stay level with.
+    @ScaledMetric(relativeTo: .largeTitle) private var primaryActionLineBox: CGFloat = 22
+    @ScaledMetric(relativeTo: .largeTitle) private var headphoneGlyphSize: CGFloat = 19
+
     init(
         climb: Climb,
         showsBrowseBackButton: Bool = false,
         analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown,
         onboardingCoach: ClimbDetailOnboardingCoachMode? = nil,
-        climbService: ClimbService = .shared
+        climbService: ClimbService = .shared,
+        leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared
     ) {
         self.showsBrowseBackButton = showsBrowseBackButton
         self.analyticsEntryPoint = analyticsEntryPoint
         self.onboardingCoach = onboardingCoach
-        _viewModel = State(initialValue: ClimbDetailViewModel(climb: climb, climbService: climbService))
+        _viewModel = State(
+            initialValue: ClimbDetailViewModel(
+                climb: climb,
+                climbService: climbService,
+                leaderboardService: leaderboardService
+            )
+        )
     }
 
     private var effectiveColorScheme: ColorScheme {
@@ -1775,7 +1788,7 @@ struct ClimbDetailView: View {
                     .font(.montserratBold(size: 18))
                     .foregroundStyle(isPrimaryActionEnabled ? .black : .white.opacity(0.7))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 18)
+                    .padding(.vertical, Self.primaryActionVerticalPadding)
                     .background(
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
                             .fill(isPrimaryActionEnabled ? Color.accent : .white.opacity(0.08))
@@ -1811,9 +1824,9 @@ struct ClimbDetailView: View {
             showingHeadphoneHelp = true
         } label: {
             Image(systemName: "headphones")
-                .font(.system(size: 19, weight: .semibold))
+                .font(.system(size: headphoneGlyphSize, weight: .semibold))
                 .foregroundStyle(headphoneButtonGlyphColor)
-                .frame(width: 58, height: 58)
+                .frame(width: compatibleHeadphonesButtonSide, height: compatibleHeadphonesButtonSide)
                 .background(
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .fill(selectorBackgroundColor)
@@ -1827,6 +1840,14 @@ struct ClimbDetailView: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Compatible headphones")
         .accessibilityHint("Opens the compatible headphones list.")
+    }
+
+    private static let primaryActionVerticalPadding: CGFloat = 18
+
+    /// 58pt at the default text size, and whatever keeps it square and level with the race
+    /// action at every other one: the same line box, inside the same padding.
+    private var compatibleHeadphonesButtonSide: CGFloat {
+        primaryActionLineBox + Self.primaryActionVerticalPadding * 2
     }
 
     private var headphoneButtonGlyphColor: Color {
