@@ -417,6 +417,11 @@ struct ShareStatClusterPickerEvidenceTests {
 
     /// The canvas once it stops changing, so a render in flight is never mistaken for a finished
     /// card.
+    ///
+    /// A canvas still repainting when the budget runs out is a failure rather than a result:
+    /// handing back that frame would make a mid-apply paint the rankless reference, and the repaint
+    /// the caller then watches for would be the apply's own render landing rather than the redraw
+    /// under test - a pass for the one assertion this exists to make.
     private func settledCanvas(_ window: UIWindow, timeout: TimeInterval = 8) async throws -> Data {
         var last = try Self.captureCanvas(window)
         let deadline = Date().addingTimeInterval(timeout)
@@ -426,7 +431,7 @@ struct ShareStatClusterPickerEvidenceTests {
             if next == last { return next }
             last = next
         }
-        return last
+        throw CanvasNeverSettled(timeout: timeout)
     }
 
     /// Whether the canvas repaints away from `reference` before the deadline.
@@ -462,6 +467,15 @@ struct ShareStatClusterPickerEvidenceTests {
         try png.write(to: url)
         #expect(png.count > 5_000)
         print("evidence: \(url.path())")
+    }
+}
+
+/// A canvas that was still repainting when its settle budget ran out.
+private struct CanvasNeverSettled: Error, CustomStringConvertible {
+    let timeout: TimeInterval
+
+    var description: String {
+        "The canvas was still repainting after \(timeout)s, so no frame of it is a settled reference"
     }
 }
 
