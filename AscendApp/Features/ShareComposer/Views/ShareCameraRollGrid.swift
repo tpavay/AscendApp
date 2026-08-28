@@ -27,14 +27,29 @@ struct ShareCameraRollGrid: View {
             switch library.accessState {
             case .denied:
                 deniedState
+            case .unknown:
+                loadingState
             default:
                 if library.assets.isEmpty {
-                    emptyScopeState
+                    // A library still being enumerated has no assets yet, and saying "No photos
+                    // yet" to a climber holding 30,000 of them is a lie the spinner prevents.
+                    if library.isLoadingAssets {
+                        loadingState
+                    } else {
+                        emptyScopeState
+                    }
                 } else {
                     grid
                 }
             }
         }
+    }
+
+    private var loadingState: some View {
+        ProgressView()
+            .tint(.white)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityLabel("Loading photos")
     }
 
     private var grid: some View {
@@ -154,6 +169,18 @@ struct ShareCameraRollGrid: View {
                 primaryTitle: "Clear the date",
                 primaryAction: onClearDate,
                 secondary: scope.selection.album == nil ? nil : ("Show recents", onShowRecents),
+                accessibilityAlbum: nil
+            )
+        } else if library.accessState == .limited {
+            // The "Add more" row lives inside the grid, which does not exist with nothing selected.
+            // Without this branch a limited climber who picked nothing has no route back to the
+            // limited-library picker at all.
+            emptyState(
+                title: "Ascend can't see any photos.",
+                message: "You picked none to share. Pick the shots it can use.",
+                primaryTitle: "Add photos",
+                primaryAction: { presentLimitedLibraryPicker() },
+                secondary: ("Allow full access", { openSettings() }),
                 accessibilityAlbum: nil
             )
         } else {

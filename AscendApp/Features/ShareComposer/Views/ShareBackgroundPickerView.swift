@@ -121,22 +121,25 @@ struct ShareBackgroundPickerView: View {
         )
     }
 
+    /// Only an actual album selection writes the persisted scope, and only Recents - the deliberate
+    /// show-me-everything - clears it. Opening the album grid and backing out leaves it alone:
+    /// browsing is not a choice, and treating it as one silently drops the climber's standing scope.
     private func select(_ item: ShareScopeItem) {
         Task {
             await library.select(item.selection)
-            rememberAlbum(item.selection.album)
+            switch item {
+            case .recents: rememberedAlbumID = ""
+            case .album(let album): rememberedAlbumID = album.id
+            case .allAlbums, .back: break
+            }
         }
     }
 
     private func openAlbum(_ album: ShareAlbum) {
         Task {
             await library.select(.album(album), browsedFromAllAlbums: true)
-            rememberAlbum(album)
+            rememberedAlbumID = album.id
         }
-    }
-
-    private func rememberAlbum(_ album: ShareAlbum?) {
-        rememberedAlbumID = album?.id ?? ""
     }
 
     /// Reopen in the album the climber last used. A remembered album that no longer resolves is

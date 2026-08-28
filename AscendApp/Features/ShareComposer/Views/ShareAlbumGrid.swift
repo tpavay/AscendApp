@@ -22,8 +22,12 @@ struct ShareAlbumGrid: View {
         GridItem(.flexible(), spacing: 7)
     ]
 
+    private var trimmedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private var sections: [(title: String, albums: [ShareAlbum])] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = trimmedQuery
         let filtered = trimmed.isEmpty
             ? albums
             : albums.filter { $0.title.localizedStandardContains(trimmed) }
@@ -54,8 +58,8 @@ struct ShareAlbumGrid: View {
                     .padding(.horizontal, 10)
                 }
 
-                if sections.isEmpty && !isLoading {
-                    emptyResults
+                if sections.isEmpty {
+                    emptyState
                 }
             }
             .padding(.top, 6)
@@ -87,12 +91,37 @@ struct ShareAlbumGrid: View {
         .padding(.top, 10)
     }
 
-    private var emptyResults: some View {
-        Text("No albums match that.")
-            .font(.montserratMedium(size: 14))
-            .foregroundStyle(Color.customGray)
+    /// A search miss and an album-less library are different facts, and answering the first when
+    /// the climber asked neither is what the loading case used to do on its way through.
+    @ViewBuilder
+    private var emptyState: some View {
+        if isLoading {
+            ProgressView()
+                .tint(.white)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 40)
+                .accessibilityLabel("Loading albums")
+        } else if !trimmedQuery.isEmpty {
+            Text("No albums match that.")
+                .font(.montserratMedium(size: 14))
+                .foregroundStyle(Color.customGray)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 40)
+        } else {
+            VStack(spacing: 8) {
+                Text("No albums yet.")
+                    .font(.montserratSemiBold(size: 16))
+                    .foregroundStyle(.white)
+
+                Text("Make one in Photos and it lands here.")
+                    .font(.montserratRegular(size: 13))
+                    .foregroundStyle(Color.customGray)
+                    .multilineTextAlignment(.center)
+            }
             .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.horizontal, 40)
             .padding(.top, 40)
+        }
     }
 
     private func tile(_ album: ShareAlbum) -> some View {

@@ -51,8 +51,9 @@ enum ShareScopeItem: Identifiable, Equatable, Hashable, Sendable {
 /// off, an earned slot, and no album appearing twice - are the parts most worth testing, and none of
 /// them need a photo library or a view tree.
 enum ShareScopeShortcuts {
-    /// Smart albums that get a fixed shortcut, in the order they appear.
-    private static let pinnedSmartTitles = ["Favorites", "Videos"]
+    /// Smart albums that get a fixed shortcut, in the order they appear. Matched on PhotoKit's
+    /// subtype rather than its localized title, which is only ever English on an English phone.
+    private static let pinnedSmartKinds: [ShareAlbum.Kind.Smart] = [.favorites, .videos]
 
     static func items(
         albums: [ShareAlbum],
@@ -78,8 +79,8 @@ enum ShareScopeShortcuts {
             shown.insert(earned.id)
         }
 
-        for title in pinnedSmartTitles {
-            guard let album = albums.first(where: { $0.kind == .smart && $0.title == title }),
+        for smart in pinnedSmartKinds {
+            guard let album = albums.first(where: { $0.kind == .smart(smart) }),
                   !album.isEmpty,
                   !shown.contains(album.id)
             else { continue }
@@ -102,7 +103,7 @@ enum ShareScopeShortcuts {
         }
 
         return albums
-            .filter { $0.kind == .user && !$0.isEmpty && $0.newestAssetDate != nil }
+            .filter { $0.isUserCreated && !$0.isEmpty && $0.newestAssetDate != nil }
             .max { lhs, rhs in
                 (lhs.newestAssetDate ?? .distantPast) < (rhs.newestAssetDate ?? .distantPast)
             }
@@ -111,8 +112,8 @@ enum ShareScopeShortcuts {
     /// The albums the All Albums grid draws, grouped. User albums first, because an album someone
     /// named themselves beats one iOS generated.
     static func gridSections(albums: [ShareAlbum]) -> [(title: String, albums: [ShareAlbum])] {
-        let user = albums.filter { $0.kind == .user }
-        let smart = albums.filter { $0.kind == .smart && !$0.isEmpty }
+        let user = albums.filter(\.isUserCreated)
+        let smart = albums.filter { $0.isSmart && !$0.isEmpty }
 
         var sections: [(title: String, albums: [ShareAlbum])] = []
         if !user.isEmpty { sections.append(("My Albums", user)) }

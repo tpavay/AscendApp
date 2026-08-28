@@ -24,7 +24,21 @@ final class SharePhotoLibrary {
     /// Empty under `.limited`, where PhotoKit cannot fetch user albums at all, and empty until the
     /// off-actor load lands - the grid draws its own loading state rather than blocking.
     private(set) var albums: [ShareAlbum] = []
-    private(set) var isLoadingAlbums = false
+
+    /// A counter rather than a flag: the initial load and a change-observer refresh overlap, and a
+    /// bare bool lets whichever finishes first declare both of them done.
+    private var albumLoadsInFlight = 0
+    var isLoadingAlbums: Bool { albumLoadsInFlight > 0 }
+
+    /// True while an asset fetch is in flight. Without it an empty `assets` means both "still
+    /// counting a 30,000-photo library" and "you have no photos", and the grid tells the first
+    /// climber the second thing.
+    private(set) var isLoadingAssets = false
+
+    /// Stamps every asset fetch, so a slower refresh started against an older scope cannot land on
+    /// top of a newer one. Cancellation would not do: a library-change refresh must not be able to
+    /// kill the fetch a climber's own tap started.
+    private var assetGeneration = 0
 
     /// What the Camera Roll tab is showing. Mutated only through `select` / `setDateWindow`.
     private(set) var scope = ShareCameraRollScope.recents
@@ -42,13 +56,14 @@ final class SharePhotoLibrary {
     /// Non-Sendable values ferried across a Photos callback or actor boundary.
     private struct SendableImage: @unchecked Sendable { let image: UIImage? }
     private struct SendableURL: @unchecked Sendable { let url: URL? }
-    /// `PHAsset` is an immutable snapshot and safe to read from any thread, which is what lets the
-    /// whole enumeration happen off the main actor instead of blocking it on a large library.
-    private struct SendableAssets: @unchecked Sendable { let assets: [PHAsset] }
 
     /// Registered for the life of this object. The observer unregisters itself, because a
     /// `@MainActor` class's `deinit` is nonisolated and cannot reach its own stored properties.
     private var changeObserver: ChangeObserver?
+
+    /// The coalescing window for `photoLibraryDidChange`, held so a burst of callbacks reschedules
+    /// one refresh instead of stacking several.
+    private var pendingChangeTask: Task<Void, Never>?
 
     // MARK: - Authorization + fetch
 
@@ -110,11 +125,21 @@ final class SharePhotoLibrary {
     private func refreshAssets() async {
         guard accessState != .denied else { return }
 
-        let collectionID = scope.selection.album?.id
-        // The album browser draws albums, not photos, so it needs no asset fetch at all.
-        guard scope.showsPhotos else { return }
+        assetGeneration &+= 1
+        let generation = assetGeneration
 
+        // The album browser draws albums, not photos, so it needs no asset fetch at all. The
+        // generation still moved, so a fetch already in flight can no longer land behind it.
+        guard scope.showsPhotos else {
+            isLoadingAssets = false
+            return
+        }
+
+        isLoadingAssets = true
+        let collectionID = scope.selection.album?.id
         let loaded = await Self.loadAssets(collectionID: collectionID, dateWindow: scope.dateWindow)
+        guard generation == assetGeneration else { return }
+
         switch loaded {
         case .some(let fetched):
             assets = fetched
@@ -122,8 +147,11 @@ final class SharePhotoLibrary {
             // The album stopped resolving - deleted since it was remembered. Fall back to Recents
             // silently: an album the climber deleted themselves is not news.
             scope = scope.clearingAlbum()
-            assets = await Self.loadAssets(collectionID: nil, dateWindow: scope.dateWindow) ?? []
+            let fallback = await Self.loadAssets(collectionID: nil, dateWindow: scope.dateWindow) ?? []
+            guard generation == assetGeneration else { return }
+            assets = fallback
         }
+        isLoadingAssets = false
     }
 
     /// `nil` means the named collection no longer resolves. An empty array means it resolved and
@@ -150,7 +178,7 @@ final class SharePhotoLibrary {
         var collected: [PHAsset] = []
         collected.reserveCapacity(result.count)
         result.enumerateObjects { asset, _, _ in collected.append(asset) }
-        return SendableAssets(assets: collected).assets
+        return collected
     }
 
     nonisolated private static func assetCount(
@@ -203,8 +231,8 @@ final class SharePhotoLibrary {
             return
         }
 
-        isLoadingAlbums = true
-        defer { isLoadingAlbums = false }
+        albumLoadsInFlight += 1
+        defer { albumLoadsInFlight -= 1 }
         albums = await Self.loadAlbums()
     }
 
@@ -257,7 +285,19 @@ final class SharePhotoLibrary {
                 .fetchAssetCollections(with: .smartAlbum, subtype: subtype, options: nil)
                 .firstObject
             else { return nil }
-            return makeAlbum(from: collection, kind: .smart)
+            return makeAlbum(from: collection, kind: .smart(smartKind(for: subtype)))
+        }
+    }
+
+    /// The pinned shortcuts key off this rather than off `localizedTitle`, which PhotoKit returns in
+    /// the device's language.
+    nonisolated private static func smartKind(
+        for subtype: PHAssetCollectionSubtype
+    ) -> ShareAlbum.Kind.Smart {
+        switch subtype {
+        case .smartAlbumFavorites: return .favorites
+        case .smartAlbumVideos: return .videos
+        default: return .other
         }
     }
 
@@ -311,8 +351,20 @@ final class SharePhotoLibrary {
 
         changeObserver = ChangeObserver { [weak self] in
             Task { @MainActor [weak self] in
-                await self?.libraryDidChange()
+                self?.scheduleLibraryRefresh()
             }
+        }
+    }
+
+    /// PhotoKit fires its change callback repeatedly through an iCloud sync or a burst import, and
+    /// each refresh enumerates the whole library and counts every album, so a burst is collapsed
+    /// into one refresh rather than run once per notification.
+    private func scheduleLibraryRefresh() {
+        pendingChangeTask?.cancel()
+        pendingChangeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            await self?.libraryDidChange()
         }
     }
 

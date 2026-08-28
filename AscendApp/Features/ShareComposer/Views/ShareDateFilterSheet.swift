@@ -29,7 +29,10 @@ struct ShareDateFilterSheet: View {
 
     private var canApply: Bool {
         // "Any time" always applies - it is how the filter is cleared.
-        candidate == nil || (count ?? 0) > 0
+        guard candidate != nil else { return true }
+        // A count still in flight belongs to the window the wheels just left, so applying off it
+        // would hand back exactly the empty grid this button exists to refuse.
+        return !isCounting && (count ?? 0) > 0
     }
 
     var body: some View {

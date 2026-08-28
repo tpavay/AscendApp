@@ -35,10 +35,9 @@ struct ShareDateWindow: Equatable, Hashable, Sendable {
 
     /// What the sheet's button and any accessibility label call this window.
     func displayName(calendar: Calendar = .current) -> String {
-        guard let month, let interval = dateInterval(calendar: calendar) else {
+        guard month != nil, let interval = dateInterval(calendar: calendar) else {
             return String(year)
         }
-        _ = month
         return interval.start.formatted(.dateTime.month(.abbreviated).year())
     }
 }

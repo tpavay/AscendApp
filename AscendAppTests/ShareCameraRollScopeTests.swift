@@ -18,7 +18,7 @@ struct ShareCameraRollScopeTests {
     func allAlbumsIsAlwaysSecondHoweverLongTheEarnedAlbumsNameIs() {
         let albums = [
             Self.userAlbum(id: "long", title: "Summer 2026 Colorado Trip With Everyone", count: 40, daysAgo: 1),
-            Self.smartAlbum(id: "fav", title: "Favorites", count: 12)
+            Self.smartAlbum(id: "fav", title: "Favorites", count: 12, smart: .favorites)
         ]
 
         let items = ShareScopeShortcuts.items(
@@ -103,7 +103,7 @@ struct ShareCameraRollScopeTests {
     /// or it would appear twice in one row.
     @Test
     func theBrowsedAlbumIsNotAlsoOfferedAsAShortcut() {
-        let favorites = Self.smartAlbum(id: "fav", title: "Favorites", count: 629)
+        let favorites = Self.smartAlbum(id: "fav", title: "Favorites", count: 629, smart: .favorites)
         var scope = ShareCameraRollScope.recents
         scope.selection = .album(favorites)
         scope.browsedAlbum = favorites
@@ -126,13 +126,28 @@ struct ShareCameraRollScopeTests {
     /// slot 2 stays `All Albums`.
     @Test
     func choosingAShortcutLeavesSlotTwoAsAllAlbums() {
-        let album = Self.smartAlbum(id: "fav", title: "Favorites", count: 20)
+        let album = Self.smartAlbum(id: "fav", title: "Favorites", count: 20, smart: .favorites)
         var scope = ShareCameraRollScope.recents
         scope.selection = .album(album)
 
         let items = ShareScopeShortcuts.items(albums: [album], scope: scope, rememberedAlbumID: nil)
 
         #expect(items[1] == .allAlbums)
+    }
+
+    /// PhotoKit hands back `localizedTitle` in the device's language, so pinning the Favorites and
+    /// Videos shortcuts on their English names drops both from the row on a French phone.
+    @Test
+    func pinnedShortcutsSurviveALocalizedAlbumTitle() {
+        let albums = [
+            Self.smartAlbum(id: "fav", title: "Favoris", count: 12, smart: .favorites),
+            Self.smartAlbum(id: "vid", title: "Vidéos", count: 8, smart: .videos),
+            Self.smartAlbum(id: "shots", title: "Captures d'écran", count: 900)
+        ]
+
+        let items = ShareScopeShortcuts.items(albums: albums, scope: .recents, rememberedAlbumID: nil)
+
+        #expect(items.map(\.id) == ["recents", "all-albums", "album-fav", "album-vid"])
     }
 
     // MARK: - The calendar's visibility rule
@@ -153,7 +168,7 @@ struct ShareCameraRollScopeTests {
     @Test
     func theGridPutsUserAlbumsFirstAndDropsEmptySmartOnes() {
         let albums = [
-            Self.smartAlbum(id: "fav", title: "Favorites", count: 12),
+            Self.smartAlbum(id: "fav", title: "Favorites", count: 12, smart: .favorites),
             Self.smartAlbum(id: "raw", title: "RAW", count: 0),
             Self.userAlbum(id: "mine", title: "Ascend Climbs", count: 5, daysAgo: 1)
         ]
@@ -254,7 +269,12 @@ struct ShareCameraRollScopeTests {
         )
     }
 
-    private static func smartAlbum(id: String, title: String, count: Int) -> ShareAlbum {
-        ShareAlbum(id: id, title: title, count: count, newestAssetDate: nil, kind: .smart)
+    private static func smartAlbum(
+        id: String,
+        title: String,
+        count: Int,
+        smart: ShareAlbum.Kind.Smart = .other
+    ) -> ShareAlbum {
+        ShareAlbum(id: id, title: title, count: count, newestAssetDate: nil, kind: .smart(smart))
     }
 }

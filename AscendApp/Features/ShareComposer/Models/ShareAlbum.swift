@@ -11,7 +11,17 @@ struct ShareAlbum: Identifiable, Equatable, Hashable, Sendable {
         /// An album the climber made themselves.
         case user
         /// One of the curated smart albums iOS generates.
-        case smart
+        case smart(Smart)
+
+        /// Which curated smart album this is, carried as an app-owned value rather than read back
+        /// off `title`: PhotoKit localizes `localizedTitle` to the device's language, so a French
+        /// phone calls Favorites "Favoris" and any match on the display string silently misses.
+        enum Smart: Equatable, Hashable, Sendable {
+            case favorites
+            case videos
+            /// A curated album with no fixed shortcut of its own.
+            case other
+        }
     }
 
     let id: String
@@ -26,4 +36,11 @@ struct ShareAlbum: Identifiable, Equatable, Hashable, Sendable {
     let kind: Kind
 
     var isEmpty: Bool { count == 0 }
+
+    var isUserCreated: Bool { kind == .user }
+
+    var isSmart: Bool {
+        if case .smart = kind { return true }
+        return false
+    }
 }
