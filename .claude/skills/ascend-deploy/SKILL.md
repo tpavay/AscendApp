@@ -95,10 +95,12 @@ The derivation is positional: `scripts/ci/list-required-check-contexts.mjs` read
 A required iOS verify job declared outside that block is invisible to the matrix, so branch protection would demand a context the eligible fallback never publishes - which is the original defect.
 `scripts/test/ci-workflow-contracts.test.mjs` fails on either mistake: an `iOS Verify` job outside the block, or a non-verify job inside it.
 
-**The router is an allowlist, not the inverse of the CI trigger.** `classifyChangedPaths` answers "is every changed path positively known to need no verification?" - `VERIFICATION_IRRELEVANT_PATHS` is `docs/**`, `AppStoreAssets/**`, `data/ascend-support-page-and-product-page-package/**`, `.claude/skills/**`, `README.md`, and `.gitignore`, and CI-relevance is evaluated first so the four gated `docs/*.md` files still route to real CI.
+**The router is an allowlist, not the inverse of the CI trigger.** `classifyChangedPaths` answers "is every changed path positively known to need no verification?" - `VERIFICATION_IRRELEVANT_PATHS` is `docs/**`, `AppStoreAssets/**`, `data/ascend-support-page-and-product-page-package/**`, `README.md`, and `.gitignore`, and CI-relevance is evaluated first so the four gated `docs/*.md` files still route to real CI.
 Anything unrecognised is blocked, which is the deliberate fail-closed default.
 Two root files look like trivia and are deliberately CI-relevant: `.ruby-version` selects the Ruby that resolves the `Gemfile`, and `AGENTS.md` is a git-mode-120000 symlink to `CLAUDE.md`.
 The Ruby path runs `ruby-verify` - which resolves the bundle under the pinned deploy Ruby, not the value in `.ruby-version` - while the project-guide path runs the same `scripts` filter as `CLAUDE.md`.
+`.claude/skills/**` is deliberately CI-relevant on those same terms and through that same `scripts` filter, so a skills-only PR triggers `ci.yml` and runs `scripts-verify` rather than auto-greening through the fallback.
+It earns that because `scripts/test/derived-data-path-contract.test.mjs` discovers every copyable `xcodebuild` command the skill files carry and fails when one drops `-derivedDataPath`, which makes them a verified input rather than prose.
 
 Firebase rules, Firebase configuration, the root rules-test package, Ruby dependencies, and `fastlane/**` are all in the CI-relevant contract.
 Do not add any of them to the fallback allowlist.
