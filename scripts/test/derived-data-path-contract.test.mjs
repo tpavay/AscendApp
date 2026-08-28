@@ -22,6 +22,16 @@
  * stale the first time a new skill grows a build command, which is the exact
  * regression it exists to catch.
  *
+ * Discovery is then narrowed to the Markdown this guard can actually be
+ * triggered by, using the CI router's own path lists rather than a restatement
+ * of them. A file the guard cannot be triggered by must not be silently claimed
+ * as guarded: a bad command added under a path outside the CI trigger merges
+ * green and then fails this test on an unrelated pull request that happens to
+ * touch `scripts/`, which is a red with nothing to do with its author. Every
+ * copyable command lives in `CLAUDE.md`, `AGENTS.md` or `.claude/skills/**`
+ * today, all of which are CI-relevant, and promoting any other path to
+ * CI-relevant widens this guard automatically.
+ *
  * The sandboxing assertion is part of the coupling, not decoration: the
  * `inputPaths` entry exists only because user script sandboxing is on. If it is
  * ever turned off, the declaration's whole reason goes away and the trade should
@@ -36,6 +46,7 @@ import test from "node:test";
 import {fileURLToPath} from "node:url";
 
 import {buildConfigurations, settingValue} from "../lib/monetization-build-settings.mjs";
+import {CI_RELEVANT_PATHS, matchesAny} from "../lib/required-check-routing.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 const projectPath = join(repositoryRoot, "AscendApp.xcodeproj/project.pbxproj");
@@ -102,7 +113,13 @@ async function crashlyticsInputPaths() {
 // Tracked files only, which is what keeps build output and vendored Markdown
 // out: .build/, node_modules/ and web/dist/ are all gitignored, so none of them
 // can reach this list.
-function trackedMarkdownFiles() {
+//
+// The list is then filtered to the paths that trigger CI, because a file this
+// guard cannot be triggered by must not be claimed as guarded - the failure
+// would surface on an unrelated pull request. `CI_RELEVANT_PATHS` is imported
+// from the router rather than restated so the guard's scope and the router's
+// scope cannot drift apart.
+function guardedMarkdownFiles() {
   const result = spawnSync("git", ["ls-files", "-z", "*.md"], {
     cwd: repositoryRoot,
     encoding: "utf8"
@@ -114,9 +131,15 @@ function trackedMarkdownFiles() {
     "git ls-files must enumerate the repository's tracked Markdown files"
   );
 
-  const files = result.stdout.split("\0").filter((path) => path.length > 0);
+  const files = result.stdout
+    .split("\0")
+    .filter((path) => path.length > 0)
+    .filter((path) => matchesAny(path, CI_RELEVANT_PATHS));
 
-  assert.ok(files.length > 0, "the repository must track at least one Markdown file");
+  assert.ok(
+    files.length > 0,
+    "the repository must track at least one CI-relevant Markdown file"
+  );
 
   return files;
 }
@@ -155,11 +178,11 @@ function buildsTestsOrArchives(command) {
     .some((token) => XCODEBUILD_ACTIONS.has(token));
 }
 
-/** Every copyable build, test or archive command any tracked doc carries. */
+/** Every copyable build, test or archive command a CI-gated doc carries. */
 async function documentedBuildCommands() {
   const commands = [];
 
-  for (const file of trackedMarkdownFiles()) {
+  for (const file of guardedMarkdownFiles()) {
     const markdown = await readFile(join(repositoryRoot, file), "utf8");
 
     for (const command of xcodebuildCommands(markdown)) {

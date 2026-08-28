@@ -101,7 +101,9 @@ Two root files look like trivia and are deliberately CI-relevant: `.ruby-version
 The Ruby path runs `ruby-verify` - which resolves the bundle under the pinned deploy Ruby, not the value in `.ruby-version` - while the project-guide path runs the same `scripts` filter as `CLAUDE.md`.
 `.claude/skills/**` is deliberately CI-relevant on those same terms and through that same `scripts` filter, so a skills-only PR triggers `ci.yml` and runs `scripts-verify` rather than auto-greening through the fallback.
 It earns that because `scripts/test/derived-data-path-contract.test.mjs` fails when a copyable `xcodebuild` command drops `-derivedDataPath`, which makes those files a verified input rather than prose.
-That test discovers those commands across *every* tracked Markdown file, not only the skills, so `docs/**` is a declared input that is still allowlisted: a build command added there merges green and surfaces the failure on the next pull request that happens to touch `scripts`.
+That test discovers those commands by enumerating tracked Markdown and then filtering to the paths `CI_RELEVANT_PATHS` marks as CI-relevant, importing that list from the router rather than restating it.
+Its scope is therefore exactly the set of files that can trigger it, and promoting a new path to CI-relevant widens the guard with no edit to the test: a file the guard cannot be triggered by must never be claimed as guarded, because the failure would land on an unrelated pull request.
+`CLAUDE.md`, `AGENTS.md` and `.claude/skills/**` are where every copyable `xcodebuild` command lives today, and an `xcodebuild` command added under still-allowlisted `docs/**` is deliberately outside the guard.
 
 Firebase rules, Firebase configuration, the root rules-test package, Ruby dependencies, and `fastlane/**` are all in the CI-relevant contract.
 Do not add any of them to the fallback allowlist.
