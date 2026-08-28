@@ -16,6 +16,12 @@
  * project file's literal and the documented flag never meet. This test is where
  * they meet.
  *
+ * The documented commands are discovered rather than listed. Agents do not
+ * invent build commands, they copy the ones the docs carry, so the guard has to
+ * cover whatever the docs carry *now* - a hand-maintained inventory would go
+ * stale the first time a new skill grows a build command, which is the exact
+ * regression it exists to catch.
+ *
  * The sandboxing assertion is part of the coupling, not decoration: the
  * `inputPaths` entry exists only because user script sandboxing is on. If it is
  * ever turned off, the declaration's whole reason goes away and the trade should
@@ -23,6 +29,7 @@
  */
 
 import assert from "node:assert/strict";
+import {spawnSync} from "node:child_process";
 import {readFile} from "node:fs/promises";
 import {join} from "node:path";
 import test from "node:test";
@@ -44,17 +51,22 @@ const CRASHLYTICS_RUN_SUFFIX = "/SourcePackages/checkouts/firebase-ios-sdk/Crash
 // components off it lands on a directory holding no SourcePackages at all.
 const CRASHLYTICS_INPUT_ANCHOR = "$(SRCROOT)/";
 
-// Every file carrying a local `xcodebuild` command a human or an agent is meant
-// to copy. Docs that merely describe what CI runs are deliberately absent: CI
-// keeps the default DerivedData so its `actions/cache` on
-// `~/Library/Developer/Xcode/DerivedData/**/SourcePackages` keeps hitting.
-const DOCUMENTED_COMMAND_FILES = [
-  "CLAUDE.md",
-  ".claude/skills/live-climb-content/SKILL.md"
-];
+// An `xcodebuild` invocation only writes DerivedData when it is asked to do
+// work. `-showBuildSettings` alone resolves packages but names no action, so it
+// carries none of these tokens and is judged separately by the script that runs
+// it.
+const XCODEBUILD_ACTIONS = new Set([
+  "build",
+  "build-for-testing",
+  "test",
+  "test-without-building",
+  "archive",
+  "analyze",
+  "install"
+]);
 
 const FENCED_BLOCK_PATTERN = /^```[^\n]*\n([\s\S]*?)^```/gm;
-const DERIVED_DATA_FLAG_PATTERN = /-derivedDataPath\s+"\$PWD\/([^"]+)"/g;
+const DERIVED_DATA_FLAG_PATTERN = /-derivedDataPath "\$PWD\/([^"]+)"/;
 
 /** The `inputPaths` entries of the shell script phase that runs Crashlytics. */
 async function crashlyticsInputPaths() {
@@ -87,6 +99,28 @@ async function crashlyticsInputPaths() {
     .filter((entry) => entry.length > 0);
 }
 
+// Tracked files only, which is what keeps build output and vendored Markdown
+// out: .build/, node_modules/ and web/dist/ are all gitignored, so none of them
+// can reach this list.
+function trackedMarkdownFiles() {
+  const result = spawnSync("git", ["ls-files", "-z", "*.md"], {
+    cwd: repositoryRoot,
+    encoding: "utf8"
+  });
+
+  assert.equal(
+    result.status,
+    0,
+    "git ls-files must enumerate the repository's tracked Markdown files"
+  );
+
+  const files = result.stdout.split("\0").filter((path) => path.length > 0);
+
+  assert.ok(files.length > 0, "the repository must track at least one Markdown file");
+
+  return files;
+}
+
 /** Every `xcodebuild` invocation inside a fenced block, continuations joined. */
 function xcodebuildCommands(markdown) {
   const commands = [];
@@ -108,6 +142,43 @@ function xcodebuildCommands(markdown) {
       commands.push(command.trim());
     }
   }
+
+  return commands;
+}
+
+// A bare action token is what separates a command that writes DerivedData from
+// one that only reads settings. Flag values cannot be mistaken for actions: they
+// are either quoted or attached to their `-flag`.
+function buildsTestsOrArchives(command) {
+  return command
+    .split(/\s+/)
+    .some((token) => XCODEBUILD_ACTIONS.has(token));
+}
+
+/** Every copyable build, test or archive command any tracked doc carries. */
+async function documentedBuildCommands() {
+  const commands = [];
+
+  for (const file of trackedMarkdownFiles()) {
+    const markdown = await readFile(join(repositoryRoot, file), "utf8");
+
+    for (const command of xcodebuildCommands(markdown)) {
+      if (buildsTestsOrArchives(command)) {
+        commands.push({file, command});
+      }
+    }
+  }
+
+  // Parsing that quietly found nothing would make every assertion below pass
+  // over an empty list.
+  assert.ok(
+    commands.length >= 3,
+    "the documented build, test and content commands must all be discovered"
+  );
+  assert.ok(
+    commands.some(({file}) => file === "CLAUDE.md"),
+    "discovery must reach CLAUDE.md, the file every agent copies its build commands from"
+  );
 
   return commands;
 }
@@ -171,33 +242,18 @@ test("user script sandboxing stays on, which is why the declaration exists", asy
 });
 
 test("every documented xcodebuild command relocates DerivedData into the worktree", async () => {
-  let commandCount = 0;
-
-  for (const file of DOCUMENTED_COMMAND_FILES) {
-    const markdown = await readFile(join(repositoryRoot, file), "utf8");
-    const commands = xcodebuildCommands(markdown);
-
-    assert.ok(
-      commands.length > 0,
-      `${file} must still document at least one xcodebuild command`
+  for (const {file, command} of await documentedBuildCommands()) {
+    assert.match(
+      command,
+      DERIVED_DATA_FLAG_PATTERN,
+      `${file} documents an xcodebuild command with no -derivedDataPath, which ` +
+        "orphans ~9 GiB of DerivedData for every throwaway worktree it runs in: " +
+        command
     );
-
-    for (const command of commands) {
-      assert.match(
-        command,
-        /-derivedDataPath "\$PWD\/[^"]+"/,
-        `${file} documents an xcodebuild command with no -derivedDataPath, which ` +
-          "orphans ~9 GiB of DerivedData for every throwaway worktree it runs in: " +
-          command
-      );
-      commandCount += 1;
-    }
   }
-
-  assert.ok(commandCount >= 3, "the documented build, test and content commands must all be covered");
 });
 
-test("the project file and the documented flag name the same directory", async () => {
+test("the project file and every documented command name the same directory", async () => {
   const declaredDirectory = await declaredDerivedDataDirectory();
 
   assert.equal(
@@ -206,21 +262,16 @@ test("the project file and the documented flag name the same directory", async (
     "renaming this directory means changing the project file and every documented command together"
   );
 
-  for (const file of DOCUMENTED_COMMAND_FILES) {
-    const markdown = await readFile(join(repositoryRoot, file), "utf8");
-    const documented = [...markdown.matchAll(DERIVED_DATA_FLAG_PATTERN)].map(([, value]) => value);
+  for (const {file, command} of await documentedBuildCommands()) {
+    const documented = command.match(DERIVED_DATA_FLAG_PATTERN)?.[1];
 
-    assert.ok(documented.length > 0, `${file} must document a -derivedDataPath value`);
-
-    for (const value of documented) {
-      assert.equal(
-        value,
-        declaredDirectory,
-        `${file} documents -derivedDataPath "$PWD/${value}" while the Crashlytics ` +
-          `inputPaths entry allows "$(SRCROOT)/${declaredDirectory}"; the sandbox ` +
-          "denies the read the moment these two disagree"
-      );
-    }
+    assert.equal(
+      documented,
+      declaredDirectory,
+      `${file} documents -derivedDataPath "$PWD/${documented}" while the Crashlytics ` +
+        `inputPaths entry allows "$(SRCROOT)/${declaredDirectory}"; the sandbox ` +
+        "denies the read the moment these two disagree"
+    );
   }
 });
 
