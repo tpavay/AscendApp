@@ -31,6 +31,9 @@ The tests only guarantee that every category such a parameter can land in is dec
 The privacy manifest, the user-facing Privacy Policy at `ascendstepper.com/privacy`, the App Store Connect "App Privacy" questionnaire (nutrition labels), and the `NS*UsageDescription` strings in `Info.plist` must all describe the SAME set of data practices. If you change one, change all four.
 
 A usage string describes features, not APIs, so it goes stale when a feature starts or stops reading a sensor rather than when the manifest changes.
+**Every usage string is stored four times, and only one copy is the one iOS shows.**
+`AscendApp/Info.plist` holds it, and so does the matching `INFOPLIST_KEY_NS*UsageDescription` build setting in all three build configurations in `project.pbxproj` - the build setting wins at build time, so editing the plist alone changes nothing a climber sees.
+Change all four copies together, and audit them whenever the feature behind a string moves.
 `NSMotionUsageDescription` is the one pinned executably: `scripts/test/motion-usage-description.test.mjs` requires the string in `AscendApp/Info.plist` to match all three `INFOPLIST_KEY_NSMotionUsageDescription` build configurations verbatim, stay plain English within the ~140 characters the alert shows, and name every feature that reads headphone motion.
 The same test fails when a file outside the audited headphone-motion feed imports Core Motion or starts a second reader, so a new sensor consumer cannot ship behind a string that does not describe it.
 
