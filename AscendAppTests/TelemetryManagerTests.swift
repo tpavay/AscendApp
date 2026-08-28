@@ -18,7 +18,8 @@ struct TelemetryManagerTests {
             sinks: [analyticsSink, crashlyticsSink],
             crashlyticsReporter: NoopCrashlyticsReporter(),
             collectionEnabledOverride: true,
-            buildMetadata: Self.stagingBuildMetadata
+            buildMetadata: Self.stagingBuildMetadata,
+            identityStore: makeTestIdentityStore()
         )
 
         telemetry.configure()
@@ -75,7 +76,8 @@ struct TelemetryManagerTests {
                 appVersion: "",
                 buildNumber: "",
                 bundleIdentifier: "com.tylerpavay.AscendApp"
-            )
+            ),
+            identityStore: makeTestIdentityStore()
         )
 
         telemetry.configure()
@@ -120,7 +122,8 @@ struct TelemetryManagerTests {
         let telemetry = TelemetryManager(
             sinks: [analyticsSink],
             crashlyticsReporter: NoopCrashlyticsReporter(),
-            collectionEnabledOverride: false
+            collectionEnabledOverride: false,
+            identityStore: makeTestIdentityStore()
         )
 
         telemetry.configure()
@@ -130,6 +133,39 @@ struct TelemetryManagerTests {
         #expect(analyticsSink.collectionEnabledValues == [false])
         #expect(analyticsSink.records.isEmpty)
         #expect(analyticsSink.screens.isEmpty)
+    }
+
+    /// Not only Mixpanel: a Release binary on a simulator carries the shipped Firebase plist and
+    /// the shipped Sentry DSN too, so the whole manager goes quiet rather than one sink. The check
+    /// sits above the launch-argument overrides on purpose - production is measured, never
+    /// rehearsed, and no flag may re-open it.
+    @Test
+    func aProductionBuildOnASimulatorCollectsNothingAtAll() {
+        let suppressed = TelemetryManager.shouldEnableCollection(
+            arguments: ["AscendApp", "-TelemetryEnabled"],
+            environment: [:],
+            userDefaults: .standard,
+            buildMetadata: Self.productionBuildMetadata,
+            runtime: TelemetryRuntimeEnvironment(isSimulator: true)
+        )
+        let onACustomersPhone = TelemetryManager.shouldEnableCollection(
+            arguments: ["AscendApp"],
+            environment: [:],
+            userDefaults: .standard,
+            buildMetadata: Self.productionBuildMetadata,
+            runtime: TelemetryRuntimeEnvironment(isSimulator: false)
+        )
+        let stagingOnASimulator = TelemetryManager.shouldEnableCollection(
+            arguments: ["AscendApp"],
+            environment: [:],
+            userDefaults: .standard,
+            buildMetadata: Self.stagingBuildMetadata,
+            runtime: TelemetryRuntimeEnvironment(isSimulator: true)
+        )
+
+        #expect(suppressed == false)
+        #expect(onACustomersPhone)
+        #expect(stagingOnASimulator)
     }
 
     #if DEBUG
@@ -250,5 +286,13 @@ struct TelemetryManagerTests {
         appVersion: "1.2.3",
         buildNumber: "456",
         bundleIdentifier: "com.tylerpavay.AscendApp.staging"
+    )
+
+    private static let productionBuildMetadata = TelemetryBuildMetadata(
+        appEnvironment: "production",
+        buildConfig: "release",
+        appVersion: "1.0",
+        buildNumber: "2026082101",
+        bundleIdentifier: "com.tylerpavay.AscendApp"
     )
 }

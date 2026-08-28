@@ -27,7 +27,8 @@ struct MixpanelTelemetrySinkTests {
             sinks: [sink],
             crashlyticsReporter: NoopCrashlyticsReporter(),
             collectionEnabledOverride: true,
-            buildMetadata: buildMetadata
+            buildMetadata: buildMetadata,
+            identityStore: makeTestIdentityStore()
         )
 
         telemetry.configure()
@@ -72,6 +73,7 @@ struct MixpanelTelemetrySinkTests {
                 ]
             ),
             buildMetadata: buildMetadata,
+            runtime: TelemetryRuntimeEnvironment(isSimulator: false),
             makeClient: { _, _ in client }
         )
 
@@ -142,7 +144,8 @@ struct MixpanelTelemetrySinkTests {
             sinks: [sink],
             crashlyticsReporter: NoopCrashlyticsReporter(),
             collectionEnabledOverride: true,
-            buildMetadata: buildMetadata
+            buildMetadata: buildMetadata,
+            identityStore: makeTestIdentityStore()
         )
 
         telemetry.configure()
@@ -203,6 +206,50 @@ struct MixpanelTelemetrySinkTests {
         #expect(unvalidatableClient.calls.isEmpty)
     }
     #endif
+
+    /// The sink is the last thing between a Release-on-simulator build and the production project,
+    /// and it has to refuse without trapping: the build is doing exactly what it was asked to, so
+    /// this is not the destination-drift trap and must behave identically in DEBUG and Release.
+    @Test
+    func aProductionSinkOnASimulatorNeverEvenBuildsAClient() throws {
+        let client = RecordingMixpanelClient()
+        let buildMetadata = TelemetryBuildMetadata(
+            appEnvironment: "production",
+            buildConfig: "release",
+            appVersion: "1.0",
+            buildNumber: "2026082101",
+            bundleIdentifier: "com.tylerpavay.AscendApp"
+        )
+        let sink = MixpanelTelemetrySink(
+            configuration: AnalyticsConfiguration(
+                infoDictionary: [
+                    AnalyticsConfiguration.mixpanelTokenInfoKey: "token",
+                    AnalyticsConfiguration.mixpanelProjectIDInfoKey: "4051100"
+                ]
+            ),
+            buildMetadata: buildMetadata,
+            runtime: TelemetryRuntimeEnvironment(isSimulator: true),
+            makeClient: { _, _ in client }
+        )
+
+        sink.setCollectionEnabled(true)
+        sink.setUserID("climber-a")
+        sink.record(
+            EnvelopedTelemetryRecord(
+                record: TelemetryRecord(name: "simulator_event"),
+                envelope: try TelemetryEnvelope(validating: buildMetadata)
+            )
+        )
+        sink.record(
+            screen: EnvelopedTelemetryScreen(
+                screen: TelemetryScreen(name: "simulator_screen", screenClass: "Screen"),
+                envelope: try TelemetryEnvelope(validating: buildMetadata)
+            )
+        )
+
+        #expect(client.calls.isEmpty)
+        #expect(client.trackedEvents.isEmpty)
+    }
 
     private static let stagingBuildMetadata = TelemetryBuildMetadata(
         appEnvironment: "staging",

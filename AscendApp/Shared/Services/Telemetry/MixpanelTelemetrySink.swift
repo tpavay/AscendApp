@@ -6,6 +6,7 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
 
     private let configuration: AnalyticsConfiguration
     private let buildMetadata: TelemetryBuildMetadata
+    private let runtime: TelemetryRuntimeEnvironment
     private let validatedEnvelope: TelemetryEnvelope?
     private let makeClient: (String, Double) -> any MixpanelClient
     private let lock = NSLock()
@@ -14,12 +15,14 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
     init(
         configuration: AnalyticsConfiguration = .live,
         buildMetadata: TelemetryBuildMetadata = .current,
+        runtime: TelemetryRuntimeEnvironment = .current,
         makeClient: @escaping (String, Double) -> any MixpanelClient = {
             MixpanelSDKClient(token: $0, flushInterval: $1)
         }
     ) {
         self.configuration = configuration
         self.buildMetadata = buildMetadata
+        self.runtime = runtime
         self.validatedEnvelope = try? TelemetryEnvelope(validating: buildMetadata)
         self.makeClient = makeClient
     }
@@ -114,7 +117,12 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
         }
 
         do {
-            return try configuration.validatedMixpanelToken(for: validatedEnvelope)
+            return try configuration.validatedMixpanelToken(for: validatedEnvelope, runtime: runtime)
+        } catch AnalyticsConfiguration.ValidationError.simulatorCannotReachProduction {
+            // Not drift, and not a misconfiguration: a Release binary on a simulator is a build
+            // doing exactly what it was asked to. It goes silent everywhere rather than trapping,
+            // so the same refusal holds whether or not the build happens to be a DEBUG one.
+            return nil
         } catch {
             #if DEBUG
             preconditionFailure("Mixpanel destination does not match this build configuration.")
