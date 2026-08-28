@@ -20,7 +20,7 @@ struct MonetizationCustomerIdentity: Equatable, Sendable {
     /// one the climber typed.
     let email: String?
 
-    init(userID: String, email: String? = nil) {
+    init(userID: String, email: String?) {
         self.userID = userID
         self.email = Self.normalizedEmail(email)
     }

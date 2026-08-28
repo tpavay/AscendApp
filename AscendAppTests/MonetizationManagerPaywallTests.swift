@@ -235,8 +235,6 @@ struct MonetizationManagerPaywallTests {
         #expect(manager.onboardingCompletionReasonForActiveAccess == .restore)
     }
 
-    /// A second account replaces the pass outright, and the grant provenance is part of that pass,
-    /// so nothing the previous climber's paywall did may attribute the next climber's access.
     /// The manager owns the paywall and onboarding side of an identity change, but it is not the
     /// place where the customer record is narrowed to an id. Whatever the sign-in supplied has to
     /// reach the entitlement service intact, or RevenueCat never learns who the customer is.
