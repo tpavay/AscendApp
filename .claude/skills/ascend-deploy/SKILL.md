@@ -111,7 +111,7 @@ Two shapes the router deliberately avoids.
 Do not replace it with an inverse `paths-ignore` trigger: GitHub runs `paths-ignore` workflows when any changed file is outside the ignored set, so a mixed code-and-docs PR would run both workflows.
 Do not express the allowlist as `dorny/paths-filter` negation rules: dorny ORs its rules per file, so `!docs/**` reads as "any file that is not under docs", which inverts the decision instead of excluding anything.
 
-`ios-verify` is the **only** job anywhere that compiles `AscendAppTests`. `ios-verify-release` builds the shipping app, the widget extension embedded in it, and the retained `AscendWatch` dependency the 1.0 IPA does not embed - but no test target, and both deploy pipelines only build the IPA. So a test target that stops compiling shows up on exactly one check, and "Release passed" or "Deploy Staging on develop passed" is not evidence that the tree is healthy. That asymmetry is what made the 2026-07-20 `develop` breakage read as CI infrastructure flake.
+`ios-verify` is the **only** job anywhere that compiles `AscendAppTests`. `ios-verify-release` builds the shipping app, the widget extension embedded in it, and the retained `AscendWatch` dependency no IPA before 1.1 embeds - but no test target, and both deploy pipelines only build the IPA. So a test target that stops compiling shows up on exactly one check, and "Release passed" or "Deploy Staging on develop passed" is not evidence that the tree is healthy. That asymmetry is what made the 2026-07-20 `develop` breakage read as CI infrastructure flake.
 
 Two PRs that are each green on their own base can still break `develop` together: #248 added a call site and #251 added a parameter to the callee, merging 13 seconds apart. Nothing in CI re-verifies the merged result, so the next PR to rebase inherits the break. When a job starts failing on several unrelated branches at once, suspect the shared base before suspecting the runner.
 
@@ -153,7 +153,7 @@ The IPA is the artifact Apple's upload validation actually rejects, and it is th
 Given an IPA the script always checks the installable phone app and checks a watch app nested under `Payload/<app>.app/Watch/` when one is present.
 It selects each `Info.plist` exactly rather than by wildcard for the reason in the Fastlane section.
 An IPA carrying **no** watch app passes, with a `::warning::` annotation on the run summary: this guard's job is that the icon Apple rejects is present, not that the watch app ships.
-The watch app ships in 1.1 and 1.0 is submitted without it, a decision owned by `docs/heart-rate-zones-plan.md`, so zero embedded watch bundles is the **normal** case for every 1.0 build rather than an edge case or an act of leniency - do not tighten this branch into a hard requirement, which would fail the deploy after the archive is already built.
+The watch app ships in 1.1 and every release before it is submitted without it, a decision owned by `docs/heart-rate-zones-plan.md`, so zero embedded watch bundles is the **normal** case for every build before 1.1 rather than an edge case or an act of leniency - do not tighten this branch into a hard requirement, which would fail the deploy after the archive is already built.
 More than one nested watch bundle stays fatal, because that is a defect however the scope question lands.
 
 `.github/workflows/deploy-production-watchdog.yml` runs on `workflow_run` completion of Deploy Production, on a 3-hourly cron, and on dispatch. It runs `scripts/check-deploy-production-health.mjs`, which opens/updates/closes a single marker-identified issue labelled `deploy-health` and exits non-zero when unhealthy. It is deliberately outside the pipeline it watches - see below.
@@ -206,7 +206,7 @@ Do not introduce a *new* long-lived JSON service-account key for deploy auth; th
   - `upload_testflight`
 - The automation past TestFlight is **not** a Fastlane lane. `deliver` / `upload_to_app_store` is one boolean (`submit_for_review`) away from crossing the boundary above, and every other App Store Connect read in this repository already goes through `scripts/lib/app-store-connect-client.mjs`. Version-record preparation follows that convention: `scripts/appstore-prepare-version.mjs`.
 - iOS deploy lanes use `fastlane match` for signing material sync (CI runs in `readonly` mode).
-- The retained watch target is built and signed as a dependency for 1.1, but its product is not embedded in the 1.0 phone app.
+- The retained watch target is built and signed as a dependency for 1.1, but no phone app before 1.1 embeds its product.
   Its identifier reaches `match_options_for`, `AscendWatch` is listed in `update_code_signing_settings`, and the export plist's `provisioningProfiles` map keeps the 1.1 signing configuration ready.
   `AscendWatch` pins `PROVISIONING_PROFILE_SPECIFIER[sdk=watchos*]` to `match AppStore com.TylerPavay.AscendApp.staging.watch` (Staging) and `match AppStore com.TylerPavay.AscendApp.watch` (Release); both profiles exist in the signing repository.
   `docs/heart-rate-zones-plan.md` owns the release split.
@@ -216,7 +216,7 @@ Do not introduce a *new* long-lived JSON service-account key for deploy auth; th
   `-exportArchive` names the IPA after the scheme, so a first-match glob over the output directory can rename a *previous* run's IPA onto the published name and hand every downstream check a stale build.
   Both lanes therefore export into `build/export`, emptied first, and publish through `scripts/ci/publish-exported-ipa.mjs`, which moves the single candidate to `build/AscendApp-{Staging,Production}.ipa` and fails loudly on none or on more than one.
   Inside the IPA the same rule applies for the same reason: a nested watch bundle carries its own `Info.plist`, so `assert-mixpanel-bundle.mjs` and `verify-ipa-build-number.sh` each select `Payload/<app>.app/Info.plist` exactly and refuse anything but one match, rather than reading the first `Payload/*.app/Info.plist` - that wildcard is what broke the Mixpanel check the day the watch app was embedded.
-  A 1.0 IPA nests nothing, so the wildcard would read correctly today and go on doing so until the 1.1 build that re-embeds; the exact selection stays.
+  No IPA before 1.1 nests anything, so the wildcard would read correctly today and go on doing so until the 1.1 build that re-embeds; the exact selection stays.
   `scripts/lib/exported-ipa.mjs`, `scripts/lib/ipa-bundle.mjs`, and `scripts/test/exported-ipa-publication.test.mjs` hold the contract.
 - `build_staging` and `build_production` upload the archive's dSYMs to Sentry right after `xcodebuild archive` and before the IPA export, so a build that cannot be symbolicated never reaches TestFlight. Both build jobs install the pinned Sentry CLI and fail early on a missing `SENTRY_AUTH_TOKEN`. Contract and environment variables: `docs/sentry-setup.md`.
 - Required iOS signing secrets for CI:
