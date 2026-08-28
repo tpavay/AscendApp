@@ -84,10 +84,17 @@ Whether a dependency-only build still demands an installed watchOS simulator run
 It runs locally too; CI runs it before both iOS jobs and before each deploy pipeline's archive.
 `docs/heart-rate-zones-plan.md` owns the 1.0 and 1.1 packaging decision; `ascend-deploy` owns the CI side.
 
+**Every local `xcodebuild` keeps `-derivedDataPath "$PWD/.build/dd"`, and CI keeps none.**
+Xcode keys DerivedData to the project's *filesystem path* and never garbage-collects it, so a build run from a throwaway worktree - a no-mistakes ULID worktree, a treehouse lane - mints `~/Library/Developer/Xcode/DerivedData/AscendApp-<hash>` for a path deleted minutes later and orphans ~9 GiB forever; 197 recorded runs had accumulated 224 GB before this flag.
+`.build/` is gitignored, so the output now dies with the directory that produced it and no sweep is needed.
+That relocation puts the Firebase Crashlytics `run` binary inside `SRCROOT`, where `ENABLE_USER_SCRIPT_SANDBOXING` denies an undeclared read, so the Crashlytics phase declares it in `inputPaths` - delete that one line and every local build fails with `Sandbox: bash deny(1) file-read-data`, not with a missing file.
+CI is the deliberate exception: its runners are discarded whole, and all three workflows restore an `actions/cache` keyed on `~/Library/Developer/Xcode/DerivedData/**/SourcePackages`, which relocating DerivedData would silently defeat (`ascend-deploy`).
+
 ```bash
-# iOS tests (mirrors CI - .github/workflows/ci.yml)
+# iOS tests (mirrors CI - .github/workflows/ci.yml; -derivedDataPath is local-only)
 xcodebuild -project AscendApp.xcodeproj -scheme "AscendApp-Staging" \
   -configuration Staging -destination "platform=iOS Simulator,name=iPhone 16 Pro" \
+  -derivedDataPath "$PWD/.build/dd" \
   ENABLE_TESTABILITY=YES test
 
 # iOS Release compile check (unsigned, device destination - catches Release-only
@@ -95,6 +102,7 @@ xcodebuild -project AscendApp.xcodeproj -scheme "AscendApp-Staging" \
 # SDK and still report success (`ascend-deploy`).
 xcodebuild -project AscendApp.xcodeproj -scheme "AscendApp" \
   -configuration Release -destination "generic/platform=iOS" \
+  -derivedDataPath "$PWD/.build/dd" \
   CODE_SIGNING_ALLOWED=NO build
 
 npm run test:firebase-rules            # Firestore/Storage rules (emulator)

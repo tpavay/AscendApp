@@ -198,7 +198,7 @@ npm --prefix web run build
 If changing Swift behavior or unsure about schema compatibility, run:
 
 ```bash
-xcodebuild -scheme AscendApp -configuration Debug -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+xcodebuild -scheme AscendApp -configuration Debug -destination 'generic/platform=iOS' -derivedDataPath "$PWD/.build/dd" CODE_SIGNING_ALLOWED=NO build
 ```
 
 ## Promoting To Available Sends A Push
