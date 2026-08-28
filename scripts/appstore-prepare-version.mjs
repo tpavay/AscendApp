@@ -440,6 +440,36 @@ async function fetchLocalizations({token, versionId}, request) {
   return result?.data ?? [];
 }
 
+/**
+ * A version past editing is either a failure or the expected answer, and which one is the
+ * caller's call, passed in explicitly rather than read from the GitHub context here: the
+ * chained run finds this every time a backend-only merge ships while the previous version is
+ * with Apple, and a red run for an expected outcome teaches everyone to ignore red runs.
+ */
+function refuseOrSkipNonEditableVersion({
+  appId,
+  versionString,
+  state,
+  buildNumber,
+  skipWhenNotEditable,
+  report,
+}) {
+  if (!skipWhenNotEditable) {
+    throw new AppStorePreparationRefusal(nonEditableVersionRefusal(versionString, state));
+  }
+
+  const notice = nonEditableVersionNotice(versionString, state);
+  report(notice);
+  return {
+    appId,
+    versionString,
+    buildNumber,
+    written: false,
+    outcome: "version-not-editable",
+    notice,
+  };
+}
+
 export async function prepareAppStoreVersion(
   options,
   {
@@ -466,26 +496,14 @@ export async function prepareAppStoreVersion(
   const versionOutcome = resolveVersionRecordOutcome(existingRecords, versionString);
 
   if (versionOutcome.outcome === "not-editable") {
-    // Whether this is a failure is the caller's call, passed in explicitly rather than read
-    // from the GitHub context here: the chained run finds this every time a backend-only
-    // merge ships while the previous version is with Apple, and a red run for an expected
-    // outcome teaches everyone to ignore red runs.
-    if (!options.skipWhenNotEditable) {
-      throw new AppStorePreparationRefusal(
-        nonEditableVersionRefusal(versionString, versionOutcome.state),
-      );
-    }
-
-    const notice = nonEditableVersionNotice(versionString, versionOutcome.state);
-    report(notice);
-    return {
+    return refuseOrSkipNonEditableVersion({
       appId,
       versionString,
+      state: versionOutcome.state,
       buildNumber: null,
-      written: false,
-      outcome: "version-not-editable",
-      notice,
-    };
+      skipWhenNotEditable: options.skipWhenNotEditable,
+      report,
+    });
   }
 
   const existing = versionOutcome.record;
@@ -569,13 +587,40 @@ export async function prepareAppStoreVersion(
   // Every token minted at the start of a run that may have waited out the whole budget has
   // expired by now; the write path mints its own.
   const writeToken = makeToken();
-  const versionRecord =
-    existing ?? (await createVersionRecord({token: writeToken, appId, versionString}, request));
-  if (!existing) report(`Created App Store version ${versionString} with releaseType MANUAL.`);
 
-  // Re-read rather than trusting the early read: a wait can outlast a human deciding to
-  // attach something themselves, and this decision exists to protect exactly that person.
-  const currentAttachment = existing
+  // Re-read the version state as well as the attachment, rather than trusting reads taken
+  // before a wait that can run the better part of an hour. The human who might attach a build
+  // mid-wait is the same human who might press Submit mid-wait, and he is the captain: a
+  // submission during that window used to make this run PATCH a WAITING_FOR_REVIEW version,
+  // which Apple refuses as a raw API error that --skip-when-not-editable can no longer turn
+  // into the clean no-op it exists for. Two GETs are the price of not confusing him during
+  // his own release.
+  const currentVersionOutcome = existing
+    ? resolveVersionRecordOutcome(
+        await fetchVersionRecords({token: writeToken, appId}, request),
+        versionString,
+      )
+    : {outcome: "create", record: null, state: null};
+
+  if (currentVersionOutcome.outcome === "not-editable") {
+    return refuseOrSkipNonEditableVersion({
+      appId,
+      versionString,
+      state: currentVersionOutcome.state,
+      buildNumber,
+      skipWhenNotEditable: options.skipWhenNotEditable,
+      report,
+    });
+  }
+
+  const versionRecord =
+    currentVersionOutcome.record ??
+    (await createVersionRecord({token: writeToken, appId, versionString}, request));
+  if (!currentVersionOutcome.record) {
+    report(`Created App Store version ${versionString} with releaseType MANUAL.`);
+  }
+
+  const currentAttachment = currentVersionOutcome.record
     ? await fetchAttachment({token: writeToken, versionId: versionRecord.id}, request)
     : null;
   const plan = resolveAttachmentPlan({

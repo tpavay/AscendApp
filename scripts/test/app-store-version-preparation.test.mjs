@@ -787,3 +787,75 @@ test("a refusal this script raised is not retried for the whole budget", async (
 
   assert.equal(buildListings, 1, "a refusal that will not change must stop the wait at once");
 });
+
+/**
+ * The captain pressing Submit while this run waits for Apple to finish processing. The state
+ * that was editable before the wait is not editable after it.
+ */
+function submitsDuringTheWait(connect, versionRecord) {
+  return async (token, path, options) => {
+    const result = await connect.request(token, path, options);
+    if (path.startsWith("/builds?")) {
+      versionRecord.attributes.appVersionState = "WAITING_FOR_REVIEW";
+    }
+    return result;
+  };
+}
+
+test("a submission during the wait is a clean no-op when the caller allows one", async () => {
+  const existing = {
+    id: "existing-version",
+    attributes: {versionString: "1.0.1", appVersionState: "PREPARE_FOR_SUBMISSION"},
+  };
+  const connect = fakeAppStoreConnect({
+    versions: [existing],
+    builds: [buildRecord({id: "build-1", version: "2026082801", train: "1.0.1"})],
+  });
+  const reported = [];
+
+  const result = await prepareAppStoreVersion(
+    {
+      ...parseArguments(["--confirm", "--skip-when-not-editable", "--version", "1.0.1"]),
+      appId: "6757202987",
+    },
+    {
+      ...RUN_HARNESS_DEFAULTS,
+      request: submitsDuringTheWait(connect, existing),
+      report: (message) => reported.push(message),
+    },
+  );
+
+  assert.equal(result.outcome, "version-not-editable");
+  assert.equal(result.buildNumber, "2026082801", "the build it waited for is still named");
+  assert.match(reported.join("\n"), /nothing to prepare and nothing was written/);
+  assert.ok(
+    connect.calls.every((call) => call.method === "GET"),
+    `a version that went to Apple mid-wait must not be written to, sent: ${connect.calls.map(
+      (call) => `${call.method} ${call.path}`,
+    )}`,
+  );
+});
+
+test("a submission during the wait still fails loudly when a human asked for the run", async () => {
+  const existing = {
+    id: "existing-version",
+    attributes: {versionString: "1.0.1", appVersionState: "PREPARE_FOR_SUBMISSION"},
+  };
+  const connect = fakeAppStoreConnect({
+    versions: [existing],
+    builds: [buildRecord({id: "build-1", version: "2026082801", train: "1.0.1"})],
+  });
+
+  await assert.rejects(
+    prepareAppStoreVersion(
+      {...parseArguments(["--confirm", "--version", "1.0.1"]), appId: "6757202987"},
+      {...RUN_HARNESS_DEFAULTS, request: submitsDuringTheWait(connect, existing)},
+    ),
+    /is WAITING_FOR_REVIEW, which this script may not write to/,
+  );
+
+  assert.ok(
+    connect.calls.every((call) => call.method === "GET"),
+    "the build relationship must not be PATCHed on a version that is with Apple",
+  );
+});

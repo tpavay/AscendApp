@@ -145,6 +145,8 @@ The version for that marketing version is already with Apple, or already release
 On the run chained off Deploy Production that is a clean green no-op with a run summary saying so, because a backend-only merge to `main` still uploads a build while the previous version is in review, and a red run for a correct outcome only teaches everyone to ignore red runs.
 Either you meant to bump `MARKETING_VERSION` for the next release, or you want to cancel the submission in App Store Connect first.
 
+Pressing Submit yourself while the run is still waiting for Apple to finish processing lands in the same place: the run re-reads the version state before it writes anything, and reports that there is nothing left to prepare.
+
 Running **Prepare App Store Version** from the Actions tab yourself still fails loudly on the same state (`App Store version X is IN_REVIEW, which this script may not write to`), because there you asked for that version by name.
 The script never writes to a version mid-review; that is not recoverable from a script.
 
