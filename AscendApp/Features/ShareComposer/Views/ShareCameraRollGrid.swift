@@ -1,13 +1,19 @@
 import Photos
+import PhotosUI
 import SwiftUI
 import UIKit
 
 /// Inline Camera Roll grid — the user's real photos and videos, tapped to pick
 /// directly as a background (no intermediate "choose" button).
+///
+/// The library is injected rather than owned: the filter row and the calendar button both sit above
+/// this grid and drive the same scope, so the state has to outlive this view's identity.
 struct ShareCameraRollGrid: View {
+    let library: SharePhotoLibrary
     let onPick: (ShareBackgroundSource) -> Void
+    var onClearDate: () -> Void = {}
+    var onShowRecents: () -> Void = {}
 
-    @State private var library = SharePhotoLibrary()
     @State private var isLoadingSelection = false
 
     private let columns = [
@@ -22,14 +28,21 @@ struct ShareCameraRollGrid: View {
             case .denied:
                 deniedState
             default:
-                grid
+                if library.assets.isEmpty {
+                    emptyScopeState
+                } else {
+                    grid
+                }
             }
         }
-        .task { await library.loadIfNeeded() }
     }
 
     private var grid: some View {
         ScrollView {
+            if library.accessState == .limited {
+                limitedSelectionRow
+            }
+
             LazyVGrid(columns: columns, spacing: 3) {
                 ForEach(library.assets, id: \.localIdentifier) { asset in
                     Button {
@@ -42,13 +55,171 @@ struct ShareCameraRollGrid: View {
                 }
             }
             .padding(.horizontal, 3)
-            .padding(.top, 16)
+            .padding(.top, library.accessState == .limited ? 12 : 16)
+
+            if library.accessState == .limited {
+                fullAccessFooter
+            }
         }
         .overlay {
             if isLoadingSelection {
                 ProgressView().tint(.white)
             }
         }
+    }
+
+    // MARK: - Limited access
+
+    /// PhotoKit can fetch no albums at all under limited access, so the album shortcuts go inert and
+    /// this becomes the one control that still does something.
+    private var limitedSelectionRow: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 7) {
+                Image(systemName: "photo.stack")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("Selected Photos · \(library.assets.count)")
+                    .font(.montserratSemiBold(size: 11))
+                    .tracking(1.2)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .foregroundStyle(.white)
+
+            Spacer(minLength: 8)
+
+            Button {
+                HapticsManager.shared.trigger(.lightImpact)
+                presentLimitedLibraryPicker()
+            } label: {
+                Text("Add more")
+                    .font(.montserratBold(size: 11))
+                    .tracking(1.2)
+                    .foregroundStyle(.black.opacity(0.82))
+                    .padding(.horizontal, 12)
+                    .frame(height: 28)
+                    .background(Capsule().fill(Color.ascendAccent))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 12)
+    }
+
+    /// After the last photo rather than above the first: the climber reads this exactly when they
+    /// have run out, which is when they want it.
+    private var fullAccessFooter: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Ascend can only see the \(library.assets.count) photos you picked.")
+                .font(.montserratRegular(size: 12))
+                .foregroundStyle(Color.customGray)
+
+            Button {
+                openSettings()
+            } label: {
+                Text("Allow full access")
+                    .font(.montserratSemiBold(size: 12))
+                    .foregroundStyle(Color.ascendAccent)
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 24)
+        .padding(.top, 16)
+        .padding(.bottom, 8)
+    }
+
+    // MARK: - Empty states
+
+    @ViewBuilder
+    private var emptyScopeState: some View {
+        let scope = library.scope
+
+        if let album = scope.selection.album, scope.dateWindow == nil {
+            emptyState(
+                title: "This album is empty.",
+                message: "Nothing here to put behind your climb.",
+                primaryTitle: "Show recents",
+                primaryAction: onShowRecents,
+                secondary: nil,
+                accessibilityAlbum: album.title
+            )
+        } else if let window = scope.dateWindow {
+            let name = window.displayName()
+            emptyState(
+                title: scope.selection.album.map { "Nothing in \($0.title) from \(name)." }
+                    ?? "Nothing from \(name).",
+                message: scope.selection.album.map {
+                    "The album has \($0.count.formatted(.number.grouping(.automatic))) photos. None of them are from then."
+                } ?? "Pick a different month.",
+                primaryTitle: "Clear the date",
+                primaryAction: onClearDate,
+                secondary: scope.selection.album == nil ? nil : ("Show recents", onShowRecents),
+                accessibilityAlbum: nil
+            )
+        } else {
+            emptyState(
+                title: "No photos yet.",
+                message: "Shoot something worth putting behind a climb.",
+                primaryTitle: nil,
+                primaryAction: nil,
+                secondary: nil,
+                accessibilityAlbum: nil
+            )
+        }
+    }
+
+    private func emptyState(
+        title: String,
+        message: String,
+        primaryTitle: String?,
+        primaryAction: (() -> Void)?,
+        secondary: (String, () -> Void)?,
+        accessibilityAlbum: String?
+    ) -> some View {
+        VStack(spacing: 14) {
+            Image(systemName: "photo.on.rectangle")
+                .font(.system(size: 30, weight: .light))
+                .foregroundStyle(.white.opacity(0.6))
+
+            Text(title)
+                .font(.montserratSemiBold(size: 16))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+
+            Text(message)
+                .font(.montserratRegular(size: 13))
+                .foregroundStyle(Color.customGray)
+                .multilineTextAlignment(.center)
+
+            if let primaryTitle, let primaryAction {
+                Button {
+                    HapticsManager.shared.trigger(.lightImpact)
+                    primaryAction()
+                } label: {
+                    Text(primaryTitle)
+                        .font(.montserratSemiBold(size: 14))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 22)
+                        .frame(height: 44)
+                        .background(Capsule().fill(Color.ascendAccent))
+                }
+                .buttonStyle(.plain)
+            }
+
+            if let secondary {
+                Button {
+                    HapticsManager.shared.trigger(.lightImpact)
+                    secondary.1()
+                } label: {
+                    Text(secondary.0)
+                        .font(.montserratSemiBold(size: 12))
+                        .foregroundStyle(Color.customGray)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var deniedState: some View {
@@ -64,16 +235,14 @@ struct ShareCameraRollGrid: View {
                 .foregroundStyle(Color.customGray)
                 .multilineTextAlignment(.center)
             Button {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
+                openSettings()
             } label: {
                 Text("Open Settings")
                     .font(.montserratSemiBold(size: 14))
                     .foregroundStyle(.black)
                     .padding(.horizontal, 22)
                     .frame(height: 44)
-                    .background(Capsule().fill(Color(red: 0.706, green: 0.8, blue: 0)))
+                    .background(Capsule().fill(Color.ascendAccent))
             }
             .buttonStyle(.plain)
         }
@@ -81,21 +250,45 @@ struct ShareCameraRollGrid: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    // MARK: - Actions
+
     private func select(_ asset: PHAsset) {
         HapticsManager.shared.trigger(.lightImpact)
         isLoadingSelection = true
+        let identifier = asset.localIdentifier
+        let isVideo = asset.mediaType == .video
         Task {
             defer { isLoadingSelection = false }
-            if asset.mediaType == .video {
-                if let url = await library.videoURL(forIdentifier: asset.localIdentifier) {
+            if isVideo {
+                if let url = await library.videoURL(forIdentifier: identifier) {
                     onPick(.video(url))
                 }
             } else {
-                if let image = await library.fullImage(forIdentifier: asset.localIdentifier) {
+                if let image = await library.fullImage(forIdentifier: identifier) {
                     onPick(.photo(image))
                 }
             }
         }
+    }
+
+    private func openSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+
+    /// PhotosUI only offers this from a `UIViewController`, so the top one has to be found by hand.
+    /// Changing the selection fires the library change observer, which is what refreshes the grid.
+    private func presentLimitedLibraryPicker() {
+        guard let scene = UIApplication.shared.connectedScenes
+            .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
+              let root = scene.keyWindow?.rootViewController
+        else { return }
+
+        var presenter = root
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: presenter)
     }
 }
 
