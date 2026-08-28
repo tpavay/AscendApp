@@ -8,8 +8,6 @@ struct ProfileAchievementTally: Equatable, Sendable {
     let ladder: ProfileAchievementLadder
     let firstAscentsHeld: Int
 
-    static let empty = ProfileAchievementTally(ladder: .empty)
-
     init(ladder: ProfileAchievementLadder, firstAscentsHeld: Int = 0) {
         self.ladder = ladder
         self.firstAscentsHeld = max(firstAscentsHeld, 0)

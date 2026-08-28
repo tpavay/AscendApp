@@ -29,7 +29,7 @@ enum ProfileAchievementCatalogue {
             label: ProfileTerminology.topOneAchievementLabel,
             historyFilter: .band(.top1),
             surfaces: [.ownProfile, .comparison],
-            count: { $0.ladder.counts.top1 }
+            count: { $0.ladder.bandFinishes(.top1) }
         ),
         ProfileAchievementDefinition(
             id: "place2",
@@ -58,7 +58,7 @@ enum ProfileAchievementCatalogue {
             label: ProfileTerminology.topTenAchievementLabel,
             historyFilter: .band(.top10),
             surfaces: [.ownProfile, .comparison],
-            count: { $0.ladder.counts.top10 }
+            count: { $0.ladder.bandFinishes(.top10) }
         ),
         ProfileAchievementDefinition(
             id: "top100",
@@ -67,7 +67,7 @@ enum ProfileAchievementCatalogue {
             label: ProfileTerminology.topHundredAchievementLabel,
             historyFilter: .band(.top100),
             surfaces: [.ownProfile, .comparison],
-            count: { $0.ladder.counts.top100 }
+            count: { $0.ladder.bandFinishes(.top100) }
         )
     ]
 
@@ -79,31 +79,62 @@ enum ProfileAchievementCatalogue {
 
     /// The comparison rows for one matchup, in catalogue order.
     ///
-    /// A row is emitted only when both sides can *answer* for that badge and at least one of
-    /// them holds it. A side that merely cannot say is not a zero, so ghosting it would claim
-    /// they hold none of a badge they may well hold; and a badge neither climber has won is a
-    /// row about nothing, which is what would turn two new climbers' first meeting into a
-    /// monument to things neither of them has done.
+    /// A row is emitted only when at least one side is *known* to hold the badge. A badge
+    /// neither climber has won is a row about nothing, which is what would turn two new
+    /// climbers' first meeting into a monument to things neither of them has done.
+    ///
+    /// The two silences a side can return are deliberately not the same thing. A ladder that
+    /// was never read cannot be given a zero it did not earn, so it renders as a dash beside
+    /// the other climber's real count. A readable ladder that answers `nil` is the banded
+    /// `profile_stats` fallback, whose taxonomy simply cannot tell a #2 from a #3 - nothing
+    /// failed there, so that row is dropped entirely rather than dashed.
     static func comparisonEntries(
         viewer: ProfileAchievementTally,
         other: ProfileAchievementTally
     ) -> [ProfileAchievementComparisonEntry] {
         definitions(for: .comparison).compactMap { definition in
-            guard
-                let viewerCount = definition.count(viewer),
-                let otherCount = definition.count(other),
-                viewerCount > 0 || otherCount > 0
-            else { return nil }
+            let viewerSide = sideCount(definition, for: viewer)
+            let otherSide = sideCount(definition, for: other)
+
+            guard viewerSide != .cannotSay, otherSide != .cannotSay else { return nil }
+
+            let viewerCount = viewerSide.knownCount
+            let otherCount = otherSide.knownCount
+            guard (viewerCount ?? 0) > 0 || (otherCount ?? 0) > 0 else { return nil }
 
             return ProfileAchievementComparisonEntry(
                 id: definition.id,
                 asset: definition.asset,
                 tint: definition.tint,
-                label: definition.displayLabel(count: max(viewerCount, otherCount)),
+                label: definition.displayLabel(count: max(viewerCount ?? 0, otherCount ?? 0)),
                 accessibilityName: definition.accessibilityName,
                 viewerCount: viewerCount,
                 otherCount: otherCount
             )
         }
+    }
+
+    /// What one side can say about one badge.
+    private enum SideCount: Equatable {
+        case known(Int)
+        /// The read failed, so the side is drawn as a dash rather than guessed at.
+        case unreadable
+        /// The read worked but its taxonomy is coarser than this badge, so the row is dropped.
+        case cannotSay
+
+        var knownCount: Int? {
+            if case .known(let count) = self { return count }
+            return nil
+        }
+    }
+
+    private static func sideCount(
+        _ definition: ProfileAchievementDefinition,
+        for tally: ProfileAchievementTally
+    ) -> SideCount {
+        if let count = definition.count(tally) {
+            return .known(count)
+        }
+        return tally.ladder.isReadable ? .cannotSay : .unreadable
     }
 }

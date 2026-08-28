@@ -5,14 +5,14 @@ import SwiftUI
 /// and answer "who is winning" as well. The full-prestige shelf still lives on the climber's own
 /// profile, which is the screen for admiring a case rather than counting it against someone's.
 struct PublicProfileAchievementsSection: View {
-    let viewerAchievements: ProfileAchievementLadder
-    let otherAchievements: ProfileAchievementLadder
+    let viewer: ProfileAchievementTally
+    let other: ProfileAchievementTally
     let isOtherLoading: Bool
 
     private var presentation: PublicProfileAchievementPresentation {
         PublicProfileAchievementPresentation(
-            viewer: viewerAchievements,
-            other: otherAchievements,
+            viewer: viewer,
+            other: other,
             isOtherLoading: isOtherLoading
         )
     }

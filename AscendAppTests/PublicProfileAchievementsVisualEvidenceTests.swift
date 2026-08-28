@@ -107,6 +107,31 @@ struct PublicProfileAchievementsVisualEvidenceTests {
         )
     }
 
+    /// A read that failed is not a climber with nothing. The unreadable side carries a dash,
+    /// which is what a dash already means on every other row of this screen, and the bar sits in
+    /// its dimmed neutral state because it cannot weigh a number nobody read.
+    @Test
+    func anUnreadableViewerLadderDashesTheViewersSide() throws {
+        try Self.capture(
+            name: "public-profile-achievements-viewer-unreadable",
+            caption: "Your ladder could not be read: your side is a dash, not a 0, and the bar stays neutral",
+            viewer: .unreadable,
+            other: Self.champion,
+            isOtherLoading: false
+        )
+    }
+
+    @Test
+    func anUnreadableOtherLadderDashesTheOtherClimbersSide() throws {
+        try Self.capture(
+            name: "public-profile-achievements-other-unreadable",
+            caption: "Their ladder could not be read: their side is a dash, your real counts stay drawn",
+            viewer: Self.champion,
+            other: .unreadable,
+            isOtherLoading: false
+        )
+    }
+
     @Test
     func loadedProfileWithNoAchievementsShowsNoSection() throws {
         try Self.capture(
@@ -282,8 +307,8 @@ struct PublicProfileAchievementsVisualEvidenceTests {
                 }
 
                 PublicProfileAchievementsSection(
-                    viewerAchievements: viewer,
-                    otherAchievements: other,
+                    viewer: ProfileAchievementTally(ladder: viewer),
+                    other: ProfileAchievementTally(ladder: other),
                     isOtherLoading: isOtherLoading
                 )
             }

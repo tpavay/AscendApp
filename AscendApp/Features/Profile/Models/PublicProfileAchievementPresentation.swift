@@ -1,7 +1,7 @@
 /// What the comparison screen's ACHIEVEMENTS section draws.
 ///
-/// The section is hidden only when the matchup has nothing to compare - neither climber holds a
-/// badge either side can answer for. It is deliberately never hidden on the *other* climber's
+/// The section is hidden only when the matchup has nothing to compare - neither climber is known
+/// to hold a badge this screen draws. It is deliberately never hidden on the *other* climber's
 /// emptiness: a decorated viewer opening a brand-new climber's profile is the normal case on
 /// this screen, and their own case is exactly what the comparison is for.
 enum PublicProfileAchievementPresentation: Equatable {
@@ -9,8 +9,8 @@ enum PublicProfileAchievementPresentation: Equatable {
     case visible([ProfileAchievementComparisonEntry])
 
     init(
-        viewer: ProfileAchievementLadder,
-        other: ProfileAchievementLadder,
+        viewer: ProfileAchievementTally,
+        other: ProfileAchievementTally,
         isOtherLoading: Bool
     ) {
         // The row set depends on both sides, so nothing here can be drawn honestly until the
@@ -20,10 +20,7 @@ enum PublicProfileAchievementPresentation: Equatable {
             return
         }
 
-        let entries = ProfileAchievementCatalogue.comparisonEntries(
-            viewer: ProfileAchievementTally(ladder: viewer),
-            other: ProfileAchievementTally(ladder: other)
-        )
+        let entries = ProfileAchievementCatalogue.comparisonEntries(viewer: viewer, other: other)
         self = entries.isEmpty ? .hidden : .visible(entries)
     }
 }

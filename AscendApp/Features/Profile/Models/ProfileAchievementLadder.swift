@@ -41,18 +41,31 @@ struct ProfileExactPlacementCounts: Equatable {
 /// only when the finalized records loaded: the `profile_stats` counters are banded into
 /// top 1 / 3 / 10 / 100 and carry no second-versus-third breakdown, so a profile that fell
 /// back to them reports `nil` and the placement badges are withheld rather than guessed at.
+///
+/// A ladder is one of three things, and the three are deliberately not interchangeable:
+/// record-backed (every count is provable), banded (the bands are provable and the exact
+/// placements are not), or `unreadable` - nobody managed to read this climber's ladder at all,
+/// so every count is `nil` and a zero is never claimed on their behalf.
 struct ProfileAchievementLadder: Equatable, Sendable {
     let counts: ProfileAchievementCounts
     let records: [ProfileAchievementRecord]
     let placements: ProfileExactPlacementCounts?
+    /// `false` only when the read that would have filled this ladder failed. Zeroed counts on an
+    /// unreadable ladder are placeholders nobody may quote.
+    let isReadable: Bool
 
+    /// Record-backed and genuinely empty: this climber holds nothing, and we know it.
     static let empty = ProfileAchievementLadder(records: [])
+
+    /// The read failed. Distinct from `empty`, which is a measured zero.
+    static let unreadable = ProfileAchievementLadder(unreadable: ())
 
     /// The finalized records themselves, so every placement is provable.
     init(records: [ProfileAchievementRecord]) {
         self.counts = ProfileAchievementCounts(records: records)
         self.records = records
         self.placements = ProfileExactPlacementCounts(records: records)
+        self.isReadable = true
     }
 
     /// Only the banded `profile_stats` counters reached the client. Nothing here can name an
@@ -61,10 +74,35 @@ struct ProfileAchievementLadder: Equatable, Sendable {
         self.counts = counts
         self.records = []
         self.placements = nil
+        self.isReadable = true
+    }
+
+    private init(unreadable: ()) {
+        self.counts = .zero
+        self.records = []
+        self.placements = nil
+        self.isReadable = false
     }
 
     var hasAny: Bool {
-        counts.hasAny
+        isReadable && counts.hasAny
+    }
+
+    /// How many finishes this climber has inside a cumulative band, or `nil` when the ladder was
+    /// never read. The bands are the one thing both readable ladders can always answer.
+    func bandFinishes(_ band: ProfileAchievementRankBand) -> Int? {
+        guard isReadable else { return nil }
+
+        switch band {
+        case .top1:
+            return counts.top1
+        case .top3:
+            return counts.top3
+        case .top10:
+            return counts.top10
+        case .top100:
+            return counts.top100
+        }
     }
 
     /// How many times this climber finished exactly second, or `nil` when this ladder cannot
@@ -86,6 +124,8 @@ struct ProfileAchievementLadder: Equatable, Sendable {
     /// the champion finishes there is provably nothing on the podium below first. Withholding
     /// that answer would hide a decorated climber's own row rather than protect anyone.
     private func exactFinishes(atRank rank: Int) -> Int? {
+        guard isReadable else { return nil }
+
         if let placements {
             return rank == 2 ? placements.second : placements.third
         }

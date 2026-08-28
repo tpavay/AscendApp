@@ -194,6 +194,53 @@ struct PublicProfileAchievementRenderingTests {
         #expect(labels.contains { $0.hasPrefix("TOP 3,") } == false)
     }
 
+    /// A ladder nobody read is not a ladder of zeros. The row still belongs to the climber whose
+    /// count is real, and the unreadable side reads as a dash - the same neutral mark the PROFILE
+    /// rows already use for a value this screen does not have.
+    @Test
+    func anUnreadableViewerLadderReadsAsUnknownRatherThanZero() async throws {
+        let elements = try await renderedElements(
+            viewer: .unreadable,
+            other: Self.podiumLadder,
+            isOtherLoading: false
+        )
+        let labels = elements.compactMap(\.accessibilityLabel)
+
+        #expect(labels.contains("CHAMPION, you unknown, them 1"))
+        #expect(labels.contains("Second place, you unknown, them 2"))
+        #expect(labels.contains("TOP 100, you unknown, them 6"))
+        #expect(labels.contains { $0.hasPrefix("CHAMPION, you 0") } == false)
+    }
+
+    @Test
+    func anUnreadableOtherLadderReadsAsUnknownRatherThanZero() async throws {
+        let elements = try await renderedElements(
+            viewer: Self.podiumLadder,
+            other: .unreadable,
+            isOtherLoading: false
+        )
+        let labels = elements.compactMap(\.accessibilityLabel)
+
+        #expect(labels.contains("CHAMPION, you 1, them unknown"))
+        #expect(labels.contains("TOP 100, you 6, them unknown"))
+        #expect(labels.contains { $0.hasSuffix("them 0") } == false)
+    }
+
+    /// Neither side is known to hold anything, so there is nothing to compare and no shell.
+    @Test
+    func twoUnreadableLaddersRenderNoPublicAchievementShell() async throws {
+        let elements = try await renderedElements(
+            viewer: .unreadable,
+            other: .unreadable,
+            isOtherLoading: false
+        )
+        let labels = elements.compactMap(\.accessibilityLabel)
+
+        #expect(labels.contains("Public profile test host"))
+        #expect(labels.contains("Achievements") == false)
+        #expect(labels.contains { $0.contains(", you ") } == false)
+    }
+
     @Test
     func publicComparisonRowsNeverOpenAchievementHistory() async throws {
         let elements = try await renderedElements(
@@ -487,8 +534,8 @@ struct PublicProfileAchievementRenderingTests {
     ) async throws -> [NSObject] {
         try await renderedElements(
             hosting: PublicProfileAchievementsSection(
-                viewerAchievements: viewer,
-                otherAchievements: other,
+                viewer: ProfileAchievementTally(ladder: viewer),
+                other: ProfileAchievementTally(ladder: other),
                 isOtherLoading: isOtherLoading
             )
         )

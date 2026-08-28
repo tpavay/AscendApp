@@ -53,6 +53,18 @@ struct ProfileAchievementComparisonTests {
         )
     }
 
+    private func presentation(
+        viewer: ProfileAchievementLadder,
+        other: ProfileAchievementLadder,
+        isOtherLoading: Bool = false
+    ) -> PublicProfileAchievementPresentation {
+        PublicProfileAchievementPresentation(
+            viewer: ProfileAchievementTally(ladder: viewer),
+            other: ProfileAchievementTally(ladder: other),
+            isOtherLoading: isOtherLoading
+        )
+    }
+
     // MARK: - The four matchups
 
     @Test
@@ -104,23 +116,13 @@ struct ProfileAchievementComparisonTests {
     @Test
     func theSectionHidesOnlyWhenNeitherClimberHoldsABadge() {
         #expect(
-            PublicProfileAchievementPresentation(
-                viewer: .empty,
-                other: .empty,
-                isOtherLoading: false
-            ) == .hidden
+            presentation(viewer: .empty, other: .empty) == .hidden
         )
     }
 
     @Test
     func theSectionStaysVisibleWhenOnlyTheViewerHoldsBadges() {
-        let presentation = PublicProfileAchievementPresentation(
-            viewer: Self.decorated,
-            other: .empty,
-            isOtherLoading: false
-        )
-
-        guard case .visible(let rows) = presentation else {
+        guard case .visible(let rows) = presentation(viewer: Self.decorated, other: .empty) else {
             Issue.record("A decorated viewer must keep the section, whoever they are looking at")
             return
         }
@@ -129,13 +131,7 @@ struct ProfileAchievementComparisonTests {
 
     @Test
     func theSectionStaysVisibleWhenOnlyTheOtherClimberHoldsBadges() {
-        let presentation = PublicProfileAchievementPresentation(
-            viewer: .empty,
-            other: Self.decorated,
-            isOtherLoading: false
-        )
-
-        #expect(presentation != .hidden)
+        #expect(presentation(viewer: .empty, other: Self.decorated) != .hidden)
     }
 
     /// The row set depends on both sides, so nothing can be drawn honestly mid-load. Half a
@@ -143,7 +139,7 @@ struct ProfileAchievementComparisonTests {
     @Test
     func theSectionHidesWhileTheOtherClimbersSnapshotIsStillLoading() {
         #expect(
-            PublicProfileAchievementPresentation(
+            presentation(
                 viewer: Self.decorated,
                 other: Self.decorated,
                 isOtherLoading: true
@@ -238,5 +234,86 @@ struct ProfileAchievementComparisonTests {
         )
 
         #expect(tokens.map(\.label) == ["First Ascent"])
+    }
+
+    // MARK: - A ladder nobody read
+
+    /// The hole a confident zero left: `.empty` is a measured zero, and a failed read used to
+    /// borrow it. An unreadable ladder answers `nil` for the *bands* too, not only the exact
+    /// placements, or the comparison would still ghost a decorated climber's crown.
+    @Test
+    func anUnreadableLadderAnswersNothingAtAll() {
+        let unreadable = ProfileAchievementLadder.unreadable
+
+        #expect(unreadable.isReadable == false)
+        #expect(unreadable.hasAny == false)
+        #expect(unreadable.bandFinishes(.top1) == nil)
+        #expect(unreadable.bandFinishes(.top3) == nil)
+        #expect(unreadable.bandFinishes(.top10) == nil)
+        #expect(unreadable.bandFinishes(.top100) == nil)
+        #expect(unreadable.secondPlaceFinishes == nil)
+        #expect(unreadable.thirdPlaceFinishes == nil)
+        #expect(unreadable != .empty)
+    }
+
+    /// A measured zero stays a measured zero, which is what makes the dash mean something.
+    @Test
+    func anEmptyLadderStillAnswersZeroForEveryBadge() {
+        let empty = ProfileAchievementLadder.empty
+
+        #expect(empty.isReadable)
+        #expect(empty.bandFinishes(.top1) == 0)
+        #expect(empty.bandFinishes(.top100) == 0)
+        #expect(empty.secondPlaceFinishes == 0)
+        #expect(empty.thirdPlaceFinishes == 0)
+    }
+
+    @Test
+    func anUnreadableViewerKeepsTheDecoratedClimbersRowsAndDashesTheirOwnSide() {
+        let rows = entries(viewer: .unreadable, other: Self.decorated)
+
+        #expect(rows.map(\.id) == ["top1", "place2", "place3", "top10", "top100"])
+        #expect(rows.allSatisfy { $0.viewerCount == nil })
+        #expect(rows.map(\.otherCount) == [1, 2, 1, 5, 6])
+    }
+
+    @Test
+    func anUnreadableClimberKeepsTheViewersRowsAndDashesTheirSide() {
+        let rows = entries(viewer: Self.decorated, other: .unreadable)
+
+        #expect(rows.map(\.id) == ["top1", "place2", "place3", "top10", "top100"])
+        #expect(rows.map(\.viewerCount) == [1, 2, 1, 5, 6])
+        #expect(rows.allSatisfy { $0.otherCount == nil })
+    }
+
+    /// Nobody is known to hold anything, so there is nothing to compare and nothing to draw.
+    @Test
+    func twoUnreadableLaddersProduceNoRowsAndHideTheSection() {
+        #expect(entries(viewer: .unreadable, other: .unreadable).isEmpty)
+        #expect(presentation(viewer: .unreadable, other: .unreadable) == .hidden)
+    }
+
+    @Test
+    func anUnreadableLadderAgainstAProvenEmptyOneProducesNoRows() {
+        #expect(entries(viewer: .unreadable, other: .empty).isEmpty)
+        #expect(entries(viewer: .empty, other: .unreadable).isEmpty)
+        #expect(presentation(viewer: .unreadable, other: .empty) == .hidden)
+    }
+
+    /// The two silences stay distinguishable. A banded ladder was *read* - its taxonomy is
+    /// simply coarser than a #2 - so its placement rows are dropped rather than dashed, which
+    /// is the settled design and not the same thing as a failed read.
+    @Test
+    func aBandedLadderDropsThePlacementsWhileAnUnreadableOneDashesThem() {
+        let banded = ProfileAchievementLadder(
+            bandedCounters: ProfileAchievementCounts(top1: 1, top3: 3, top10: 4, top100: 9)
+        )
+
+        let bandedRows = entries(viewer: Self.decorated, other: banded)
+        #expect(bandedRows.map(\.id) == ["top1", "top10", "top100"])
+        #expect(bandedRows.allSatisfy { $0.otherCount != nil })
+
+        let unreadableRows = entries(viewer: Self.decorated, other: .unreadable)
+        #expect(unreadableRows.map(\.id) == ["top1", "place2", "place3", "top10", "top100"])
     }
 }

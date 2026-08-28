@@ -419,8 +419,14 @@ private struct ProfileComparisonBioTab: View {
             // Last on purpose: ACHIEVEMENTS is the only section here whose height and existence
             // vary with the data, so putting it last keeps PROFILE and ALL-TIME from moving.
             PublicProfileAchievementsSection(
-                viewerAchievements: viewer.achievements,
-                otherAchievements: otherUser.achievements,
+                viewer: ProfileAchievementTally(
+                    ladder: viewer.achievements,
+                    firstAscentsHeld: viewer.firstAscentsHeld.count
+                ),
+                other: ProfileAchievementTally(
+                    ladder: otherUser.achievements,
+                    firstAscentsHeld: otherUser.firstAscentsHeld.count
+                ),
                 isOtherLoading: isOtherLoading
             )
         }

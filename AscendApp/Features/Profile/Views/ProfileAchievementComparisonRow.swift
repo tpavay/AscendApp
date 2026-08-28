@@ -8,8 +8,9 @@ import SwiftUI
 /// there is no owner caption to forget. The art sits outboard of each count, which keeps both
 /// numbers pointing at the centre label.
 ///
-/// A side that holds none of this badge renders a real `0` under ghosted art. Never a dash: a
-/// dash on this screen means *we do not know this*, and here we know exactly.
+/// A side that holds none of this badge renders a real `0` under ghosted art. A dash appears
+/// only where a dash means what it means everywhere else on this screen - *we do not know this*
+/// - which here is a ladder nobody managed to read.
 struct ProfileAchievementComparisonRow: View {
     let entry: ProfileAchievementComparisonEntry
     var showDivider = true
@@ -32,8 +33,8 @@ struct ProfileAchievementComparisonRow: View {
             }
 
             ProfileComparisonStatBar(
-                viewerValue: Double(entry.viewerCount),
-                otherValue: Double(entry.otherCount)
+                viewerValue: barValues.viewer,
+                otherValue: barValues.other
             )
 
             if showDivider {
@@ -46,18 +47,32 @@ struct ProfileAchievementComparisonRow: View {
         .padding(.vertical, 10)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            "\(entry.accessibilityName), you \(entry.viewerCount), them \(entry.otherCount)"
+            "\(entry.accessibilityName), you \(spokenCount(entry.viewerCount)), "
+                + "them \(spokenCount(entry.otherCount))"
         )
     }
 
-    private func side(count: Int, isViewer: Bool) -> some View {
+    /// A bar cannot weigh a number nobody read, so an unreadable side collapses the pair to the
+    /// bar's own dimmed 50/50 state rather than handing the whole width to the readable side.
+    private var barValues: (viewer: Double, other: Double) {
+        guard let viewerCount = entry.viewerCount, let otherCount = entry.otherCount else {
+            return (0, 0)
+        }
+        return (Double(viewerCount), Double(otherCount))
+    }
+
+    private func spokenCount(_ count: Int?) -> String {
+        count.map(String.init) ?? "unknown"
+    }
+
+    private func side(count: Int?, isViewer: Bool) -> some View {
         HStack(spacing: 8) {
             if isViewer {
-                artwork(isEarned: count > 0)
+                artwork(isEarned: (count ?? 0) > 0)
                 countText(count)
             } else {
                 countText(count)
-                artwork(isEarned: count > 0)
+                artwork(isEarned: (count ?? 0) > 0)
             }
         }
         .frame(maxWidth: .infinity, alignment: isViewer ? .leading : .trailing)
@@ -72,10 +87,10 @@ struct ProfileAchievementComparisonRow: View {
         )
     }
 
-    private func countText(_ count: Int) -> some View {
-        Text(count.formatted(.number.grouping(.automatic)))
+    private func countText(_ count: Int?) -> some View {
+        Text(count.map { $0.formatted(.number.grouping(.automatic)) } ?? "-")
             .font(.montserratBold(size: 17))
-            .foregroundStyle(count > 0 ? Color.white : ProfileVisualStyle.tertiaryText)
+            .foregroundStyle((count ?? 0) > 0 ? Color.white : ProfileVisualStyle.tertiaryText)
             .lineLimit(1)
             .minimumScaleFactor(0.7)
     }
