@@ -86,6 +86,8 @@
     "remoteconfig:publish-new:staging": "node publish-new-kill-switches.mjs staging",
     "remoteconfig:publish-new:production": "node publish-new-kill-switches.mjs prod --confirm-production ascend-prod-9c8f2",
     "remoteconfig:drift": "node ci/report-remote-config-drift.mjs dev staging prod",
+    "appstore:prepare-version": "node appstore-prepare-version.mjs",
+    "appstore:prepare-version:confirm": "node appstore-prepare-version.mjs --confirm",
     "phased-release:status": "node appstore-phased-release.mjs status",
     "phased-release:pause": "node appstore-phased-release.mjs pause --confirm"
   },

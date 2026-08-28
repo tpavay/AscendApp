@@ -158,6 +158,9 @@ More than one nested watch bundle stays fatal, because that is a defect however 
 
 `.github/workflows/deploy-production-watchdog.yml` runs on `workflow_run` completion of Deploy Production, on a 3-hourly cron, and on dispatch. It runs `scripts/check-deploy-production-health.mjs`, which opens/updates/closes a single marker-identified issue labelled `deploy-health` and exits non-zero when unhealthy. It is deliberately outside the pipeline it watches - see below.
 
+`.github/workflows/prepare-app-store-version.yml` runs on `workflow_run` completion of Deploy Production - only when it concluded `success` - and on dispatch with optional `version` and `build` inputs. It runs `scripts/appstore-prepare-version.mjs`, which waits for Apple to finish processing the build, creates the App Store version record for the archived `MARKETING_VERSION` (with `releaseType: MANUAL`), attaches the build, and stops. It is a separate workflow rather than a final job in `deploy-production.yml` because build processing outlasts the upload by far, and waiting inside the `deploy-production` concurrency group would displace a queued production deploy - the exact silent cancellation the watchdog exists to catch.
+**Nothing in this repository submits for review, releases automatically, or steers a phased rollout unattended, and nothing may be extended to.** The captain presses Submit himself. `scripts/test/app-store-submission-guard.test.mjs` fails the build if any workflow, Fastlane lane, or pipeline script gains that power. Procedure, including the closed-version-train trap: `docs/release-procedure.md`.
+
 `.github/workflows/remote-config-drift.yml` runs on a weekly cron and on `workflow_dispatch`, and is strictly read-only across dev, staging and production - see "Phased release and the remote kill switches" below, and `docs/remote-config-kill-switches.md` for what it reports.
 
 ## A cancelled run is silent - the 2026-07 production outage
@@ -201,6 +204,7 @@ Do not introduce a *new* long-lived JSON service-account key for deploy auth; th
   - `build_staging`
   - `build_production`
   - `upload_testflight`
+- The automation past TestFlight is **not** a Fastlane lane. `deliver` / `upload_to_app_store` is one boolean (`submit_for_review`) away from crossing the boundary above, and every other App Store Connect read in this repository already goes through `scripts/lib/app-store-connect-client.mjs`. Version-record preparation follows that convention: `scripts/appstore-prepare-version.mjs`.
 - iOS deploy lanes use `fastlane match` for signing material sync (CI runs in `readonly` mode).
 - The retained watch target is built and signed as a dependency for 1.1, but its product is not embedded in the 1.0 phone app.
   Its identifier reaches `match_options_for`, `AscendWatch` is listed in `update_code_signing_settings`, and the export plist's `provisioningProfiles` map keeps the 1.1 signing configuration ready.
@@ -278,4 +282,5 @@ The Staging and Production plists are gitignored; the Dev plist is committed (se
 
 ## Related
 - For archive/export/IPA automation, load `asc-xcode-build`.
+- For the end-to-end release procedure - version trains, what is automatic, and what stays the captain's - read `docs/release-procedure.md`.
 - For App Store Connect release, metadata, submission, and TestFlight tasks, load `asc-release-flow`, `asc-metadata-sync`, `asc-submission-health`, `asc-testflight-orchestration`.
