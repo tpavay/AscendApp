@@ -246,7 +246,6 @@ struct ProfileAchievementComparisonTests {
         let unreadable = ProfileAchievementLadder.unreadable
 
         #expect(unreadable.isReadable == false)
-        #expect(unreadable.hasAny == false)
         #expect(unreadable.bandFinishes(.top1) == nil)
         #expect(unreadable.bandFinishes(.top3) == nil)
         #expect(unreadable.bandFinishes(.top10) == nil)

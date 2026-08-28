@@ -125,14 +125,6 @@ struct ProfileAchievementCounts: Equatable {
 
     static let zero = ProfileAchievementCounts(top1: 0, top3: 0, top10: 0, top100: 0)
 
-    var total: Int {
-        top1 + top3 + top10 + top100
-    }
-
-    var hasAny: Bool {
-        total > 0
-    }
-
     init(top1: Int, top3: Int, top10: Int, top100: Int) {
         self.top1 = max(top1, 0)
         self.top3 = max(top3, self.top1, 0)

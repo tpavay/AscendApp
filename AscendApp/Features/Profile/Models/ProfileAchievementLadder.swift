@@ -84,10 +84,6 @@ struct ProfileAchievementLadder: Equatable, Sendable {
         self.isReadable = false
     }
 
-    var hasAny: Bool {
-        isReadable && counts.hasAny
-    }
-
     /// How many finishes this climber has inside a cumulative band, or `nil` when the ladder was
     /// never read. The bands are the one thing both readable ladders can always answer.
     func bandFinishes(_ band: ProfileAchievementRankBand) -> Int? {
