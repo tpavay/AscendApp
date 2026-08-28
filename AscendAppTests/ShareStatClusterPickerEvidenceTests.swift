@@ -49,8 +49,8 @@ struct ShareStatClusterPickerEvidenceTests {
         )
         .modelContainer(container)
 
-        try await hostComposer(composer) { window, controller in
-            try await openTheAddSheet(in: controller, window: window)
+        try await hostComposer(composer) { window, _ in
+            try await openTheAddSheet(in: window)
 
             // A tile reads out everything it draws and ends on its own name, so
             // the labels below are also what a VoiceOver climber hears.
@@ -78,12 +78,13 @@ struct ShareStatClusterPickerEvidenceTests {
     /// The captain's report, walked on the surface he walked it on: a saved Empire State climb
     /// opened from Workout Detail, whose rank the completion summary had already resolved.
     ///
-    /// What runs here is the saved path's data - the frozen `completionSnapshots` document staging
-    /// holds for that climb, through `SavedClimbShareStanding` and `CompletedClimbRankService` -
-    /// handed to the shipping composer, and the assertion is the tile list he enumerated. It does
-    /// not exercise `WorkoutDetailView` itself; what stops a new entry point from silently
-    /// dropping rank again is that `ShareComposerView`'s rank parameters carry no defaults, so
-    /// omitting them is a compile error.
+    /// What runs here is the Share tap's own seed - the frozen `completionSnapshots` document
+    /// staging holds for that climb, read synchronously and network-free through
+    /// `SavedClimbShareStanding.stored` - handed to the shipping composer before it draws, and the
+    /// assertion is the tile list he enumerated. A device that already holds the snapshot therefore
+    /// never shows a rank-less frame at all. It does not exercise `WorkoutDetailView` itself; what
+    /// stops a new entry point from silently dropping rank again is that `ShareComposerView`'s rank
+    /// parameters carry no defaults, so omitting them is a compile error.
     @Test
     func aSavedClimbOpenedFromWorkoutDetailStillOffersItsRankCluster() async throws {
         let defaultsSuite = "ShareStatClusterPickerEvidenceTests-saved-\(UUID().uuidString)"
@@ -95,7 +96,7 @@ struct ShareStatClusterPickerEvidenceTests {
 
         let frozenStore = FrozenCompletionRankStore(defaults: defaults)
         let workoutId = UUID()
-        let standing = await Self.frozenStanding(workoutId: workoutId, in: frozenStore)
+        let standing = Self.storedStanding(workoutId: workoutId, in: frozenStore)
 
         let container = try Self.makeContainer()
         let workout = ShareStatClusterPresetTests.recordedWorkout(
@@ -117,15 +118,20 @@ struct ShareStatClusterPickerEvidenceTests {
         )
         .modelContainer(container)
 
-        try await hostComposer(composer) { window, controller in
-            try await openTheAddSheet(in: controller, window: window)
+        try await hostComposer(composer) { window, _ in
+            try await openTheAddSheet(in: window)
             try await expectRankTile(in: window, from: "sharing a saved climb")
             try Self.photograph(window, named: "share-cluster-picker-3-saved-climb-rank")
         }
     }
 
-    /// A saved climb's standing is read when the composer opens, so it lands after the first frame.
-    /// The composer has to adopt it instead of freezing the nothing it held at init.
+    /// A workout whose snapshot this install has never read resolves it while the composer is
+    /// already up, so the standing lands behind the presented screen.
+    ///
+    /// Hosted through a real `fullScreenCover` on purpose: the seed covers the frame-one case, and
+    /// what is left to prove is that a standing landing in the presenter's own state reaches a
+    /// composer the cover is already showing. A plain parent view would only prove the composer
+    /// adopts a changed input, not that the cover delivers one.
     ///
     /// Both of the captain's symptoms are walked on the surfaces that show them: the Recaps tab
     /// gains its Standing card, and the Climb tab's grid gains the RANK cluster naming the frozen
@@ -154,18 +160,16 @@ struct ShareStatClusterPickerEvidenceTests {
         let frozenStore = FrozenCompletionRankStore(defaults: defaults)
         let workoutId = UUID()
         let pending = LateArrivingStanding()
-        let host = LateArrivingStandingHost(
+        let host = SharePresentingHost(
             workout: workout,
             walkthroughStore: walkthroughStore,
             pending: pending
         )
         .modelContainer(container)
 
-        try await hostComposer(host) { window, controller in
-            _ = try await settledAccessibilityElements(under: controller.view) {
-                $0.contains { $0.accessibilityLabel == "Recaps" }
-            }
-            try activateAccessibilityElement(labelled: "Recaps", in: controller.view)
+        try await hostComposer(host) { window, _ in
+            try await awaitControl(labelled: "Recaps", in: window)
+            try activateAccessibilityElement(labelled: "Recaps", in: window)
             try await settle(window, seconds: 1.0)
             let beforeLabels = try await settledAccessibilityElements(under: window)
                 .compactMap(\.accessibilityLabel)
@@ -174,7 +178,7 @@ struct ShareStatClusterPickerEvidenceTests {
                 "a climb with no resolved standing was offered a Standing card. Saw: \(beforeLabels)"
             )
 
-            pending.standing = await Self.frozenStanding(workoutId: workoutId, in: frozenStore)
+            pending.standing = await Self.fetchedStanding(workoutId: workoutId, in: frozenStore)
             try await settle(window, seconds: 1.2)
 
             let afterLabels = try await settledAccessibilityElements(under: window)
@@ -184,12 +188,73 @@ struct ShareStatClusterPickerEvidenceTests {
                 "the standing landed and the Recaps tab still had no Standing card. Saw: \(afterLabels)"
             )
 
-            try await openTheAddSheet(in: controller, window: window)
+            try await openTheAddSheet(in: window)
             try await expectRankTile(
                 in: window,
                 from: "a standing that landed after the composer opened"
             )
             try Self.photograph(window, named: "share-cluster-picker-4-late-standing-rank")
+        }
+    }
+
+    /// A recap is a baked image, so the card a climber applies before the read finishes keeps
+    /// whatever it was drawn with. When the standing lands the same template is redrawn and swapped
+    /// in, or they export the empty rank tab the captain reported.
+    ///
+    /// Judged on the canvas rather than in the accessibility tree, because a baked card publishes
+    /// no text of its own. That the swap keeps their placed stickers is pinned separately, on the
+    /// view model, where routing the redraw through a canvas reset would show up.
+    @Test
+    func aRecapAppliedBeforeTheStandingLandsIsRedrawnWithIt() async throws {
+        let defaultsSuite = "ShareStatClusterPickerEvidenceTests-rebake-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
+        defaults.removePersistentDomain(forName: defaultsSuite)
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let walkthroughStore = ShareComposerWalkthroughStore(defaults: defaults)
+        walkthroughStore.markSeen()
+
+        let container = try Self.makeContainer()
+        let workout = ShareStatClusterPresetTests.recordedWorkout(
+            name: "Empire State Building",
+            trackingMode: .liveClimb,
+            climbId: Climb.preview.id,
+            heartRate: true,
+            recordedSteps: 1_576
+        )
+        container.mainContext.insert(workout)
+        try container.mainContext.save()
+
+        let frozenStore = FrozenCompletionRankStore(defaults: defaults)
+        let workoutId = UUID()
+        let pending = LateArrivingStanding()
+        let host = SharePresentingHost(
+            workout: workout,
+            walkthroughStore: walkthroughStore,
+            pending: pending
+        )
+        .modelContainer(container)
+
+        try await hostComposer(host) { window, _ in
+            try await awaitControl(labelled: "Recaps", in: window)
+            try activateAccessibilityElement(labelled: "Recaps", in: window)
+            try await settle(window, seconds: 1.0)
+
+            // The climber picks a card while the read is still out.
+            try activateAccessibilityElement(in: window) {
+                $0.accessibilityLabel?.hasSuffix("Result") == true
+            }
+            try await settle(window, seconds: 2.0)
+            let rankless = try Self.capture(window)
+
+            pending.standing = await Self.fetchedStanding(workoutId: workoutId, in: frozenStore)
+            try await settle(window, seconds: 2.5)
+            let ranked = try Self.capture(window)
+
+            #expect(
+                rankless != ranked,
+                "the applied recap kept the card it was baked with when the standing landed"
+            )
+            try Self.photograph(window, named: "share-cluster-picker-5-recap-rebaked-with-rank")
         }
     }
 
@@ -221,54 +286,79 @@ struct ShareStatClusterPickerEvidenceTests {
                 window.windowScene = nil
             }
 
-            _ = try await settledAccessibilityElements(under: controller.view)
+            _ = try await settledAccessibilityElements(under: window)
             try await body(window, controller)
         }
     }
 
     /// The climber picks the climb's own artwork as a background; the add sheet then opens by
-    /// itself, which is where the groups live.
-    private func openTheAddSheet(in controller: UIViewController, window: UIWindow) async throws {
-        try activateAccessibilityElement(labelled: "Presets", in: controller.view)
+    /// itself, which is where the groups live. Searched from the window rather than the hosting
+    /// controller's view so a composer presented in a cover is reachable too.
+    private func openTheAddSheet(in window: UIWindow) async throws {
+        try activateAccessibilityElement(labelled: "Presets", in: window)
         try await settle(window)
-        try activateAccessibilityElement(in: controller.view) {
+        try activateAccessibilityElement(in: window) {
             $0.accessibilityLabel == Climb.preview.name && $0.accessibilityTraits.contains(.button)
         }
         try await settle(window, seconds: 1.2)
     }
 
+    /// Waits for a control the composer only publishes once its own `.task` has run.
+    private func awaitControl(labelled label: String, in window: UIWindow) async throws {
+        _ = try await settledAccessibilityElements(under: window) {
+            $0.contains { $0.accessibilityLabel == label }
+        }
+    }
+
     // MARK: - Fixtures
 
-    /// Staging's own `completionSnapshots` document for the climb the captain shared: 32nd of 85,
-    /// resolved through the one read path a saved climb uses.
-    private static func frozenStanding(
+    private static let leaderboardContext = LiveReplayLeaderboardContext.liveClimb(
+        climbId: Climb.preview.id,
+        targetSteps: 1_576
+    )
+
+    /// Staging's own `completionSnapshots` document for the climb the captain shared: 32nd of 85.
+    private static func stagingSnapshot(workoutId: UUID) -> LiveReplayCompletionRankSnapshot {
+        LiveReplayCompletionRankSnapshot(
+            workoutId: workoutId.uuidString,
+            rank: 32,
+            completedCount: 85,
+            completionDurationSeconds: 1_006,
+            rankedAt: Date(timeIntervalSince1970: 1_787_859_963),
+            rankingMetric: "completionDurationSeconds",
+            tiePolicy: "competition_rank_equal_durations_share_rank"
+        )
+    }
+
+    /// What the Share tap seeds from on a device that has already read this climb's standing: no
+    /// request, no await, so the composer is built with the rank already in hand.
+    private static func storedStanding(
         workoutId: UUID,
         in store: FrozenCompletionRankStore
-    ) async -> SavedClimbShareStanding? {
-        let context = LiveReplayLeaderboardContext.liveClimb(
-            climbId: Climb.preview.id,
-            targetSteps: 1_576
-        )
-        store.freeze(
-            LiveReplayCompletionRankSnapshot(
-                workoutId: workoutId.uuidString,
-                rank: 32,
-                completedCount: 85,
-                completionDurationSeconds: 1_006,
-                rankedAt: Date(timeIntervalSince1970: 1_787_859_963),
-                rankingMetric: "completionDurationSeconds",
-                tiePolicy: "competition_rank_equal_durations_share_rank"
-            ),
-            contextKey: context.contextKey
-        )
-
-        return await SavedClimbShareStanding.resolve(
-            context: context,
+    ) -> SavedClimbShareStanding? {
+        store.freeze(stagingSnapshot(workoutId: workoutId), contextKey: leaderboardContext.contextKey)
+        return SavedClimbShareStanding.stored(
+            context: leaderboardContext,
             workoutId: workoutId.uuidString,
             service: CompletedClimbRankService(
                 leaderboardService: StubLiveReplayLeaderboardService(),
                 store: store
             )
+        )
+    }
+
+    /// What the cover's own read produces for a workout this install has never held a snapshot for:
+    /// the server document, fetched once and frozen, arriving after the composer is on screen.
+    private static func fetchedStanding(
+        workoutId: UUID,
+        in store: FrozenCompletionRankStore
+    ) async -> SavedClimbShareStanding? {
+        let leaderboard = StubLiveReplayLeaderboardService()
+        leaderboard.completionRankSnapshot = stagingSnapshot(workoutId: workoutId)
+        return await SavedClimbShareStanding.resolve(
+            context: leaderboardContext,
+            workoutId: workoutId.uuidString,
+            service: CompletedClimbRankService(leaderboardService: leaderboard, store: store)
         )
     }
 
@@ -312,13 +402,18 @@ struct ShareStatClusterPickerEvidenceTests {
         }
     }
 
-    private static func photograph(_ window: UIWindow, named name: String) throws {
+    /// What the window is drawing right now, as PNG bytes.
+    private static func capture(_ window: UIWindow) throws -> Data {
         let format = UIGraphicsImageRendererFormat.preferred()
         format.scale = 3
         let image = UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
+        return try #require(image.pngData(), "UIImage produced no PNG data")
+    }
+
+    private static func photograph(_ window: UIWindow, named name: String) throws {
+        let png = try capture(window)
 
         let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
             ?? NSTemporaryDirectory()
@@ -336,20 +431,26 @@ private final class LateArrivingStanding {
     var standing: SavedClimbShareStanding?
 }
 
-/// Stands in for the Share tap on Workout Detail: the composer is presented before the frozen
-/// standing has been read, and is handed it when it lands.
-private struct LateArrivingStandingHost: View {
+/// Stands in for the Share tap on Workout Detail, presentation included: the composer goes up in a
+/// `fullScreenCover` before the frozen standing has been read, and the standing lands in the
+/// presenter's state afterwards.
+private struct SharePresentingHost: View {
     let workout: Workout
     let walkthroughStore: ShareComposerWalkthroughStore
     let pending: LateArrivingStanding
+    @State private var isSharing = true
 
     var body: some View {
-        ShareComposerView(
-            workout: workout,
-            climb: .preview,
-            climbRank: pending.standing?.rank,
-            climbRankTotal: pending.standing?.totalClimbers,
-            walkthroughStore: walkthroughStore
-        )
+        Color.black
+            .ignoresSafeArea()
+            .fullScreenCover(isPresented: $isSharing) {
+                ShareComposerView(
+                    workout: workout,
+                    climb: .preview,
+                    climbRank: pending.standing?.rank,
+                    climbRankTotal: pending.standing?.totalClimbers,
+                    walkthroughStore: walkthroughStore
+                )
+            }
     }
 }

@@ -23,6 +23,10 @@ struct ShareComposerView: View {
     @State private var exportingAction: ExportAction?
     @State private var toast: String?
     @State private var applyingRecap = false
+    /// The recap template currently baked into the background. Kept because the bake is a
+    /// snapshot: when the standing lands afterwards the same card has to be redrawn, or the
+    /// climber exports the rank-less image they were given before the read finished.
+    @State private var appliedRecapTemplate: ShareCardTemplate?
     /// The Recaps tab's templates and their resolved data, built once the
     /// injected stats land.
     @State private var recapPreview: ShareBackgroundPickerView.RecapPreview?
@@ -43,8 +47,8 @@ struct ShareComposerView: View {
     private let templateStore = ShareCardTemplateStore()
     private let presets: [ShareComposerPreset]
     /// The standing the presenting surface knows right now. Re-read on every evaluation of `body`
-    /// rather than only at init, because a saved climb's frozen standing is fetched when the
-    /// composer opens and can land while it is already on screen.
+    /// rather than only at init, because a saved climb whose snapshot this install has never read
+    /// resolves it while the composer is already on screen.
     private let rankInput: ShareComposerRank
     private let shareTitle: String
     private let accent = Color(red: 0.706, green: 0.8, blue: 0)
@@ -168,7 +172,31 @@ struct ShareComposerView: View {
                 return
             }
             viewModel.resetForNewBackground(.recap(image))
+            appliedRecapTemplate = template
             walkthrough.backgroundSelected(.recap)
+        }
+    }
+
+    /// Redraw the applied recap against a standing that landed after it was baked.
+    ///
+    /// The image is swapped in place: the climber chose this card and may already have placed
+    /// stickers on it, so nothing here may reset the canvas. A render that fails leaves the card
+    /// they have rather than blanking it.
+    private func rebakeAppliedRecap() {
+        guard let template = appliedRecapTemplate, !applyingRecap else { return }
+        applyingRecap = true
+
+        Task { @MainActor in
+            defer { applyingRecap = false }
+            guard let preview = recapPreview, let climb = preview.climb,
+                  let image = await exporter.renderTemplate(
+                      template,
+                      context: preview.context,
+                      climb: climb
+                  ) else {
+                return
+            }
+            viewModel.replaceRecapBackground(image)
         }
     }
 
@@ -185,6 +213,7 @@ struct ShareComposerView: View {
                     onPick: { source in
                         // Re-picking a background starts a clean canvas.
                         viewModel.resetForNewBackground(source)
+                        appliedRecapTemplate = nil
                         if walkthrough.backgroundSelected(.photoOrPreset) {
                             Task {
                                 try? await Task.sleep(for: .seconds(0.35))
@@ -327,11 +356,13 @@ struct ShareComposerView: View {
             walkthrough.stickerSelected(selectedSticker)
         }
         .onChange(of: rankInput) { _, rank in
-            // Both symptoms of a missing standing are fixed here: the view model drops its derived
-            // data so the rank cluster and stickers resolve, and the recap tab is rebuilt so its
-            // Standing card and the other templates' rank tab appear.
+            // Every surface a missing standing emptied is refilled here: the view model drops its
+            // derived data so the rank cluster and stickers resolve, the recap tab is rebuilt so
+            // its Standing card and the other templates' rank tab appear, and a card already baked
+            // without the rank is redrawn with it.
             viewModel.setClimbRank(rank.rank, total: rank.total)
             recapPreview = makeRecapPreview()
+            rebakeAppliedRecap()
         }
         .onChange(of: walkthrough.restingFocusTarget) { _, target in
             switch target {

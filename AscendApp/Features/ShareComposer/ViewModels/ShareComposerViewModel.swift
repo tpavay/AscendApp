@@ -15,8 +15,8 @@ final class ShareComposerViewModel {
     let stepHeight: Double
     let climb: Climb?
     let climbName: String?
-    /// The standing the card asserts. Mutable because a saved climb's frozen standing is read when
-    /// the composer opens and can land after it is already on screen; see `setClimbRank`.
+    /// The standing the card asserts. Mutable because a saved climb whose snapshot this install has
+    /// never read resolves it while the composer is already on screen; see `setClimbRank`.
     private(set) var climbRank: Int?
     private(set) var climbRankTotal: Int?
 
@@ -444,6 +444,16 @@ final class ShareComposerViewModel {
         processedBackgroundImage = nil
         processedCache.removeAll()
         background = source
+    }
+
+    /// Swap the baked recap image for a freshly rendered one.
+    ///
+    /// Deliberately not `resetForNewBackground`: this is the same card the climber chose, redrawn
+    /// because its standing landed, so everything they placed on top of it has to survive. A
+    /// non-recap background is left alone, which is what makes a stale template harmless.
+    func replaceRecapBackground(_ image: UIImage) {
+        guard case .recap = background else { return }
+        background = .recap(image)
     }
 
     /// Filters available for the current background. Geometric (Core Image)

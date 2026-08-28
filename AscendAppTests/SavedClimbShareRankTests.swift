@@ -212,10 +212,13 @@ struct SavedClimbShareRankTests {
             standings: [LiveClimbSummaryRankHero.Standing(rank: 34, total: 91, basis: .current)]
         ))
         #expect(recomputed.value == .rank(34), "the summary stopped showing the current standing")
-        #expect(recomputed.standing?.frozen == nil)
+        let recomputedStanding = try #require(recomputed.standing)
+        #expect(recomputedStanding.frozen == nil)
 
-        let session = LiveClimbSummaryRankHero.Standing(rank: 3, total: 8, basis: .liveSession)
-        #expect(session?.frozen == nil)
+        let session = try #require(
+            LiveClimbSummaryRankHero.Standing(rank: 3, total: 8, basis: .liveSession)
+        )
+        #expect(session.frozen == nil)
 
         let frozen = try #require(Self.hero(
             standings: [
@@ -223,8 +226,95 @@ struct SavedClimbShareRankTests {
                 LiveClimbSummaryRankHero.Standing(rank: 34, total: 91, basis: .current)
             ]
         ))
-        #expect(frozen.standing?.frozen?.rank == 32)
-        #expect(frozen.standing?.frozen?.renderableTotal == 85)
+        let frozenStanding = try #require(frozen.standing?.frozen)
+        #expect(frozenStanding.rank == 32)
+        #expect(frozenStanding.renderableTotal == 85)
+    }
+
+    // MARK: - What the Share tap hands over
+
+    /// The tap seeds from what this device already holds, so a climb whose standing has been read
+    /// once reaches the composer's first frame: no request, and nothing to await.
+    @Test
+    func aStoredStandingIsSeededSynchronouslyAndWithoutARequest() throws {
+        let (store, defaults, suiteName) = Self.frozenStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        store.freeze(Self.snapshot(), contextKey: Self.context.contextKey)
+
+        let leaderboard = StubLiveReplayLeaderboardService()
+        let service = CompletedClimbRankService(leaderboardService: leaderboard, store: store)
+
+        let seeded = try #require(SavedClimbShareStanding.stored(
+            context: Self.context,
+            workoutId: Self.workoutId,
+            service: service
+        ))
+
+        #expect(seeded.rank == 32)
+        #expect(seeded.totalClimbers == 85)
+        #expect(leaderboard.completionRankSnapshotFetchCount == 0, "the seed reached the network")
+    }
+
+    /// A device that has never read this climb's standing seeds nothing, which is what sends the
+    /// composer's own read after it. Nothing is invented locally to fill the gap.
+    @Test
+    func aStandingThisDeviceHasNeverReadSeedsNothing() {
+        let (store, defaults, suiteName) = Self.frozenStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let leaderboard = StubLiveReplayLeaderboardService()
+        leaderboard.completionRankSnapshot = Self.snapshot()
+        let service = CompletedClimbRankService(leaderboardService: leaderboard, store: store)
+
+        let seeded = SavedClimbShareStanding.stored(
+            context: Self.context,
+            workoutId: Self.workoutId,
+            service: service
+        )
+
+        #expect(seeded == nil)
+        #expect(leaderboard.completionRankSnapshotFetchCount == 0)
+    }
+
+    // MARK: - A recap redrawn for a late standing
+
+    /// The redraw swaps the baked image and nothing else. A climber who placed stickers on the card
+    /// while the read was out keeps them: routing this through the canvas reset that a fresh
+    /// background gets would wipe their work to fix a missing rank tab, which is the worse trade.
+    @Test
+    func redrawingAnAppliedRecapKeepsEverythingTheClimberPlacedOnIt() throws {
+        let viewModel = Self.savedClimbViewModel(standing: nil)
+        let baked = Self.card(.darkGray)
+        viewModel.resetForNewBackground(.recap(baked))
+        viewModel.addSticker(kind: .steps)
+        let placed = try #require(viewModel.stickers.first)
+
+        let redrawn = Self.card(.systemTeal)
+        viewModel.replaceRecapBackground(redrawn)
+
+        guard case .recap(let shown)? = viewModel.background else {
+            Issue.record("the canvas lost its recap background")
+            return
+        }
+        #expect(shown === redrawn, "the applied card was not redrawn")
+        #expect(viewModel.stickers.map(\.id) == [placed.id], "the redraw wiped the climber's work")
+    }
+
+    /// Only a recap is redrawn. A stale template cannot repaint over the photograph a climber
+    /// picked afterwards.
+    @Test
+    func redrawingLeavesANonRecapBackgroundAlone() {
+        let viewModel = Self.savedClimbViewModel(standing: nil)
+        let photo = Self.card(.darkGray)
+        viewModel.resetForNewBackground(.photo(photo))
+
+        viewModel.replaceRecapBackground(Self.card(.systemTeal))
+
+        guard case .photo(let shown)? = viewModel.background else {
+            Issue.record("the canvas lost the photograph the climber picked")
+            return
+        }
+        #expect(shown === photo)
     }
 
     // MARK: - Fixtures
@@ -269,8 +359,12 @@ struct SavedClimbShareRankTests {
     /// not how they read, so the pixels are irrelevant and a bundled photograph would only make the
     /// test slower.
     private static func photograph() -> UIImage {
+        card(.darkGray)
+    }
+
+    private static func card(_ color: UIColor) -> UIImage {
         UIGraphicsImageRenderer(size: CGSize(width: 120, height: 214)).image { context in
-            UIColor.darkGray.setFill()
+            color.setFill()
             context.fill(CGRect(origin: .zero, size: CGSize(width: 120, height: 214)))
         }
     }
