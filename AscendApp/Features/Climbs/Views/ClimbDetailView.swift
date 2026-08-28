@@ -819,8 +819,6 @@ struct ClimbDetailView: View {
                 communityStatsRow
             }
 
-            trackingExplainerRow
-
             primaryActionRow
         }
         .padding(.horizontal, 4)
@@ -1765,75 +1763,74 @@ struct ClimbDetailView: View {
         .buttonStyle(.plain)
     }
 
+    /// The race action, and beside it the one quiet route to the compatible-headphones
+    /// list. The hardware requirement used to be a worded card above this button; it is
+    /// a glyph now, because the explanation already lands in the first-climb coach mark
+    /// and again - blocking - in the session gate, so a permanent paragraph here only
+    /// taxed the climbers who had already read it.
     private var primaryActionRow: some View {
-        Button(action: handlePrimaryAction) {
-            Text(primaryActionTitle)
-                .font(.montserratBold(size: 18))
-                .foregroundStyle(isPrimaryActionEnabled ? .black : .white.opacity(0.7))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
-                .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(isPrimaryActionEnabled ? Color.accent : .white.opacity(0.08))
-                )
-        }
-        .buttonStyle(.plain)
-        .disabled(!isPrimaryActionEnabled)
-        .background(coachTargetFrameReader(for: .start))
-        .overlay {
-            coachTargetRoundedHighlight(for: .start, cornerRadius: 22)
+        HStack(spacing: 12) {
+            Button(action: handlePrimaryAction) {
+                Text(primaryActionTitle)
+                    .font(.montserratBold(size: 18))
+                    .foregroundStyle(isPrimaryActionEnabled ? .black : .white.opacity(0.7))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 18)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(isPrimaryActionEnabled ? Color.accent : .white.opacity(0.08))
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(!isPrimaryActionEnabled)
+            // The coach mark's `.start` step talks about starting a climb, so its
+            // spotlight stays on the button alone rather than growing to swallow an
+            // affordance that step never mentions.
+            .background(coachTargetFrameReader(for: .start))
+            .overlay {
+                coachTargetRoundedHighlight(for: .start, cornerRadius: 22)
+            }
+
+            compatibleHeadphonesButton
         }
     }
 
-    /// Persistent, worded explanation of how live tracking works. Unlike the
-    /// first-climb coach mark (which only fires via the onboarding handoff),
-    /// this row is always visible on the overview, so climbers arriving from
-    /// Browse, Home, or a push climb drop still learn that their headphones -
-    /// not a watch or phone - are the step tracker before their first attempt.
-    /// It renders directly *above* `primaryActionRow` so it lands before the
-    /// Start Live Climb button in scroll order - a climber reads how tracking
-    /// works without scrolling past the CTA. Keep it above the button.
-    private var trackingExplainerRow: some View {
+    /// Icon-only by design: the requirement is real, but it is not this screen's
+    /// headline. It stays a control rather than a sentence so a climber who needs
+    /// the compatible-device list can always find it, next to the action it
+    /// qualifies, without every other visit paying for the reminder.
+    private var compatibleHeadphonesButton: some View {
         Button {
             TelemetryManager.shared.track(
                 LiveClimbAnalyticsEvent.headphoneHelpOpened(
                     climb: viewModel.climb,
                     entryPoint: analyticsEntryPoint,
-                    surface: .detailTrackingRow
+                    surface: .detailHelpButton
                 )
             )
             showingHeadphoneHelp = true
         } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "airpodspro")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.accent)
-
-                Text("Your headphones track your steps, not a watch or phone.")
-                    .font(.montserratMedium(size: 13))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.72) : .black.opacity(0.62))
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Spacer(minLength: 6)
-
-                Text("How it works")
-                    .font(.montserratSemiBold(size: 13))
-                    .foregroundStyle(.accent)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 12)
-            .padding(.horizontal, 14)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(.white.opacity(0.05))
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            Image(systemName: "headphones")
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(headphoneButtonGlyphColor)
+                .frame(width: 58, height: 58)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(selectorBackgroundColor)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(selectorStrokeColor, lineWidth: 1)
+                        )
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("How live climb tracking works. Your headphones track your steps, not a watch or phone.")
+        .accessibilityLabel("Compatible headphones")
         .accessibilityHint("Opens the compatible headphones list.")
+    }
+
+    private var headphoneButtonGlyphColor: Color {
+        effectiveColorScheme == .dark ? .white.opacity(0.66) : .black.opacity(0.56)
     }
 
     private var primaryActionTitle: String {
