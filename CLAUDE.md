@@ -87,6 +87,7 @@ It runs locally too; CI runs it before both iOS jobs and before each deploy pipe
 **Every local `xcodebuild` keeps `-derivedDataPath "$PWD/.build/dd"`, and CI keeps none.**
 Xcode keys DerivedData to the project's *filesystem path* and never garbage-collects it, so a build run from a throwaway worktree - a no-mistakes ULID worktree, a treehouse lane - mints `~/Library/Developer/Xcode/DerivedData/AscendApp-<hash>` for a path deleted minutes later and orphans ~9 GiB forever; 197 recorded runs had accumulated 224 GB before this flag.
 `.build/` is gitignored, so the output now dies with the directory that produced it and no sweep is needed.
+A build driven through XcodeBuildMCP or the `xcode` MCP server has to be pointed at the same `$PWD/.build/dd`, because those tools otherwise use the default DerivedData and orphan `~/Library/Developer/Xcode/DerivedData/AscendApp-<hash>` from a throwaway worktree exactly as a bare `xcodebuild` would.
 That relocation puts the Firebase Crashlytics `run` binary inside `SRCROOT`, where `ENABLE_USER_SCRIPT_SANDBOXING` denies an undeclared read, so the Crashlytics phase declares it in `inputPaths` - delete that one line and every local build fails with `Sandbox: bash deny(1) file-read-data`, not with a missing file.
 CI is the deliberate exception: its runners are discarded whole, and all three workflows restore an `actions/cache` keyed on `~/Library/Developer/Xcode/DerivedData/**/SourcePackages`, which relocating DerivedData would silently defeat (`ascend-deploy`).
 
