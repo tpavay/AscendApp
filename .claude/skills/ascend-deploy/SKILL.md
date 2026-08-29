@@ -56,6 +56,9 @@ Every verify job is gated on the changed paths, so a functions-only PR skips the
   It runs `test` only (no build step) with `-scheme "AscendApp-Staging" -configuration Staging ENABLE_TESTABILITY=YES`.
   Its `Select simulator` step provisions the simulator at runtime via `xcrun simctl` against the newest installed iOS runtime - downloading the runtime if the image ships none - then reuses a preferred iPhone model, falls back to any iPhone, and finally creates one, failing only when the runtime supports no iPhone device type. It does not pass `CODE_SIGNING_ALLOWED=NO`.
   Both iOS jobs run `scripts/ci/ensure-watchos-runtime.sh` before `xcodebuild`, and so does each deploy pipeline's `build-ios` job before its Fastlane archive.
+  Neither iOS job passes `-derivedDataPath`, and neither may gain one, even though `CLAUDE.md` now documents it for every local build.
+  Both jobs - and each deploy pipeline's `build-ios` - restore an `actions/cache` keyed on `~/Library/Developer/Xcode/DerivedData/**/SourcePackages`, so relocating DerivedData moves `SourcePackages` out from under that path and silently re-resolves every Swift package on every run.
+  The local flag exists only because a developer machine reuses one DerivedData store across throwaway worktrees; a runner is discarded whole, so the leak it prevents cannot happen here.
   The watch target remains a build dependency for 1.1 even though the 1.0 phone app does not embed its product, so a scheme that builds that target **may** still need the runtime - whether it does is unverified.
   The refusal that proved this was a hard precondition (`This scheme builds an embedded Apple Watch app`) keyed off the embed phase, and 1.0 embeds nothing, so no evidence in the repository says a dependency-only build still demands an installed runtime - issue #496 records that verification.
   Until it lands the step is **best effort** end to end: every inability - an uninstalled watchOS platform, a `simctl`/`jq` failure, a failed download, no matching runtime afterwards - warns and exits 0.
@@ -92,10 +95,15 @@ The derivation is positional: `scripts/ci/list-required-check-contexts.mjs` read
 A required iOS verify job declared outside that block is invisible to the matrix, so branch protection would demand a context the eligible fallback never publishes - which is the original defect.
 `scripts/test/ci-workflow-contracts.test.mjs` fails on either mistake: an `iOS Verify` job outside the block, or a non-verify job inside it.
 
-**The router is an allowlist, not the inverse of the CI trigger.** `classifyChangedPaths` answers "is every changed path positively known to need no verification?" - `VERIFICATION_IRRELEVANT_PATHS` is `docs/**`, `AppStoreAssets/**`, `data/ascend-support-page-and-product-page-package/**`, `.claude/skills/**`, `README.md`, and `.gitignore`, and CI-relevance is evaluated first so the four gated `docs/*.md` files still route to real CI.
+**The router is an allowlist, not the inverse of the CI trigger.** `classifyChangedPaths` answers "is every changed path positively known to need no verification?" - `VERIFICATION_IRRELEVANT_PATHS` is `docs/**`, `AppStoreAssets/**`, `data/ascend-support-page-and-product-page-package/**`, `README.md`, and `.gitignore`, and CI-relevance is evaluated first so the four gated `docs/*.md` files still route to real CI.
 Anything unrecognised is blocked, which is the deliberate fail-closed default.
 Two root files look like trivia and are deliberately CI-relevant: `.ruby-version` selects the Ruby that resolves the `Gemfile`, and `AGENTS.md` is a git-mode-120000 symlink to `CLAUDE.md`.
 The Ruby path runs `ruby-verify` - which resolves the bundle under the pinned deploy Ruby, not the value in `.ruby-version` - while the project-guide path runs the same `scripts` filter as `CLAUDE.md`.
+`.claude/skills/**` is deliberately CI-relevant on those same terms and through that same `scripts` filter, so a skills-only PR triggers `ci.yml` and runs `scripts-verify` rather than auto-greening through the fallback.
+It earns that because `scripts/test/derived-data-path-contract.test.mjs` fails when a copyable `xcodebuild` command drops `-derivedDataPath`, which makes those files a verified input rather than prose.
+That test discovers those commands by enumerating tracked Markdown and then filtering to the paths `CI_RELEVANT_PATHS` marks as CI-relevant, importing that list from the router rather than restating it.
+Its scope is therefore exactly the set of files that can trigger it, and promoting a new path to CI-relevant widens the guard with no edit to the test: a file the guard cannot be triggered by must never be claimed as guarded, because the failure would land on an unrelated pull request.
+`CLAUDE.md`, `AGENTS.md` and `.claude/skills/**` are where every copyable `xcodebuild` command lives today, and an `xcodebuild` command added under still-allowlisted `docs/**` is deliberately outside the guard.
 
 Firebase rules, Firebase configuration, the root rules-test package, Ruby dependencies, and `fastlane/**` are all in the CI-relevant contract.
 Do not add any of them to the fallback allowlist.

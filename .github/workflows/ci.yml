@@ -34,6 +34,9 @@ on:
       - "docs/launch-readiness-audit.md"
       - "CLAUDE.md"
       - "AGENTS.md"
+      # The derived-data-path contract reads the skill files as declared inputs,
+      # so an edit to one has to run the suite that guards it.
+      - ".claude/skills/**"
       - ".github/workflows/**"
       # required-check-paths:end
 
@@ -135,6 +138,10 @@ jobs:
               # AGENTS.md is a symlink to CLAUDE.md, so it gates identically.
               - "CLAUDE.md"
               - "AGENTS.md"
+              # The derived-data-path contract reads the skill files as declared
+              # inputs, discovering every copyable xcodebuild command they carry,
+              # so an edit to one has to run the suite that guards it.
+              - ".claude/skills/**"
               # The exported-IPA suite asserts both signed lanes publish their
               # artifact by exact name, so a Fastfile edit must run it: a lane
               # that goes back to picking a wildcard match hands every

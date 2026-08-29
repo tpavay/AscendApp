@@ -449,6 +449,7 @@
 				"$(SRCROOT)/AscendApp/App/Firebase/GoogleService-Info-Dev.plist",
 				"$(SRCROOT)/AscendApp/App/Firebase/GoogleService-Info-Staging.plist",
 				"$(SRCROOT)/AscendApp/App/Firebase/GoogleService-Info-Production.plist",
+				"$(SRCROOT)/.build/dd/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run",
 			);
 			outputFileListPaths = (
 			);

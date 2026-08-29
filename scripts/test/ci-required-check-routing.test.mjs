@@ -299,6 +299,10 @@ test("CI-relevant changes never reach the fallback", () => {
       ["CLAUDE.md", "docs/release-process.md"],
     ],
     ["the AGENTS.md symlink to that guide", ["AGENTS.md"]],
+    [
+      "a skill carrying a build command the scripts suite asserts against",
+      [".claude/skills/live-climb-content/SKILL.md"],
+    ],
   ];
 
   for (const [name, paths] of scenarios) {
@@ -323,7 +327,6 @@ test("only explicitly allowlisted changes let the fallback claim the check", () 
       "App Store product copy package",
       ["data/ascend-support-page-and-product-page-package/app-store-copy.md"],
     ],
-    ["project skills only", [".claude/skills/ascend-deploy/SKILL.md"]],
     ["gitignore only", [".gitignore"]],
   ];
 

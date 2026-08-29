@@ -84,10 +84,22 @@ Whether a dependency-only build still demands an installed watchOS simulator run
 It runs locally too; CI runs it before both iOS jobs and before each deploy pipeline's archive.
 `docs/heart-rate-zones-plan.md` owns the 1.0 and 1.1 packaging decision; `ascend-deploy` owns the CI side.
 
+**Every local `xcodebuild` keeps `-derivedDataPath "$PWD/.build/dd"`, and CI keeps none.**
+Xcode keys DerivedData to the project's *filesystem path* and never garbage-collects it, so a build run from a throwaway worktree - a no-mistakes ULID worktree, a treehouse lane - mints `~/Library/Developer/Xcode/DerivedData/AscendApp-<hash>` for a path deleted minutes later and orphans ~9 GiB forever; 197 recorded runs had accumulated 224 GB before this flag.
+`.build/` is gitignored, so the output now dies with the directory that produced it and no sweep is needed.
+A build driven through XcodeBuildMCP or the `xcode` MCP server has to be pointed at the same `$PWD/.build/dd`, because those tools otherwise use the default DerivedData and orphan `~/Library/Developer/Xcode/DerivedData/AscendApp-<hash>` from a throwaway worktree exactly as a bare `xcodebuild` would.
+That relocation puts the Firebase Crashlytics `run` binary inside `SRCROOT`, where `ENABLE_USER_SCRIPT_SANDBOXING` denies an undeclared read, so the Crashlytics phase declares it in `inputPaths` - delete that one line and every local build fails with `Sandbox: bash deny(1) file-read-data`, not with a missing file.
+That declaration hardcodes the literal `$(SRCROOT)/.build/dd/SourcePackages/...`, so the path in the project file and the `-derivedDataPath` value documented here are coupled and renaming the directory means changing both; the documented commands pass `-project AscendApp.xcodeproj` relatively, which is what forces `$PWD` to be `SRCROOT`.
+`scripts/test/derived-data-path-contract.test.mjs` holds that coupling: it fails if the project file's literal and the documented commands ever name different directories, if a documented command loses the flag, or if `ENABLE_USER_SCRIPT_SANDBOXING` stops being `YES` and the declaration quietly loses its reason to exist.
+Repo scripts that shell out to `xcodebuild` carry the flag on the same terms - `scripts/ci/assert-mixpanel-build-settings.mjs` adds it only when `GITHUB_ACTIONS` is unset, because `-showBuildSettings` resolves packages into whichever store it is pointed at.
+CI is the deliberate exception: its runners are discarded whole, and all three workflows restore an `actions/cache` keyed on `~/Library/Developer/Xcode/DerivedData/**/SourcePackages`, which relocating DerivedData would silently defeat (`ascend-deploy`).
+The workflows and the fastlane archive lanes are CI-only and deliberately stay on the default store.
+
 ```bash
-# iOS tests (mirrors CI - .github/workflows/ci.yml)
+# iOS tests (mirrors CI - .github/workflows/ci.yml; -derivedDataPath is local-only)
 xcodebuild -project AscendApp.xcodeproj -scheme "AscendApp-Staging" \
   -configuration Staging -destination "platform=iOS Simulator,name=iPhone 16 Pro" \
+  -derivedDataPath "$PWD/.build/dd" \
   ENABLE_TESTABILITY=YES test
 
 # iOS Release compile check (unsigned, device destination - catches Release-only
@@ -95,10 +107,11 @@ xcodebuild -project AscendApp.xcodeproj -scheme "AscendApp-Staging" \
 # SDK and still report success (`ascend-deploy`).
 xcodebuild -project AscendApp.xcodeproj -scheme "AscendApp" \
   -configuration Release -destination "generic/platform=iOS" \
+  -derivedDataPath "$PWD/.build/dd" \
   CODE_SIGNING_ALLOWED=NO build
 
 npm run test:firebase-rules            # Firestore/Storage rules (emulator)
-node --test scripts/test/*.test.mjs    # scripts + shared migration vectors
+node --test scripts/test/*.test.mjs    # scripts + shared migration vectors (needs `npm --prefix scripts ci` first)
 cd functions && npm run lint && npm test   # Cloud Functions
 cd web && npm run build                    # Website -> web/dist/
 

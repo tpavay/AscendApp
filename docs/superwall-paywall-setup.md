@@ -240,7 +240,7 @@ Substitute that environment's own product identifiers throughout - `ascend_yearl
 Before the first review submission:
 
 1. Verify the configured Staging and Release keys still reach their own vendor projects.
-2. Run `node --test scripts/test/*.test.mjs`.
+2. Run `node --test scripts/test/*.test.mjs` (needs `npm --prefix scripts ci` first).
 3. Run the Staging iOS test suite.
 4. Build the unsigned Release configuration.
 5. Build the website and confirm the retired discount page returns 404.
