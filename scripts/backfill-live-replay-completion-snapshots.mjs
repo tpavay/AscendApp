@@ -7,6 +7,9 @@
  * existing leaderboard rows by reconstructing attempt completion time from the
  * private workout backup when available.
  *
+ * It is also the repair path for snapshots frozen before the standing counted
+ * completions: run it with `--force` over one context to rewrite them.
+ *
  * Usage:
  *   node scripts/backfill-live-replay-completion-snapshots.mjs --project dev --dry-run
  *   node scripts/backfill-live-replay-completion-snapshots.mjs --project staging
@@ -329,25 +332,22 @@ function buildCompletionSnapshots(entries) {
     }
     return lhs.workoutId.localeCompare(rhs.workoutId);
   });
-  const firstCompletionByUser = new Map();
-
-  for (const entry of sorted) {
-    const previous = firstCompletionByUser.get(entry.userId);
-    if (previous === undefined || entry.completionMillis < previous) {
-      firstCompletionByUser.set(entry.userId, entry.completionMillis);
-    }
-  }
 
   return sorted.map((entry) => {
-    const completedCount = Math.max(
-      [...firstCompletionByUser.values()]
-        .filter((completedAt) => completedAt <= entry.completionMillis)
-        .length,
-      1
+    // One population on both halves, the same one the live publish path counts
+    // and the same one Climb Detail lists: completed attempts, this climber's
+    // own earlier ones included. Counting distinct climbers here needed a
+    // `Math.min` clamp to stay possible at all, and clamping is what made a
+    // repeat climber's slower run read "1st of 1".
+    const completedAttempts = entries.filter(
+      (candidate) => candidate.completionMillis <= entry.completionMillis
     );
-    const rawRank = entries.filter(
+    const completedCount = Math.max(completedAttempts.length, 1);
+    // Strictly faster only, so attempts tied on the clock share a rank. Every
+    // row counted here is one of the rows `completedCount` counted, so the pair
+    // is coherent by construction and needs no clamp.
+    const rank = completedAttempts.filter(
       (candidate) =>
-        candidate.completionMillis <= entry.completionMillis &&
         candidate.completionDurationSeconds < entry.completionDurationSeconds
     ).length + 1;
 
@@ -357,13 +357,7 @@ function buildCompletionSnapshots(entries) {
       contextId: entry.contextId,
       contextType: entry.contextType,
       finalSteps: entry.finalSteps,
-      // Still clamped on purpose: this backfill ranks entry rows against a
-      // distinct-climber count, so its two halves count different populations
-      // and only the clamp keeps the pair possible. The live publish path in
-      // functions/src/liveReplayLeaderboard.ts counts one population on both
-      // halves by construction and therefore dropped its clamp and throws
-      // instead; the divergence is deliberate, not an oversight.
-      rank: Math.min(rawRank, completedCount),
+      rank,
       rankedAt: entry.rankedAt,
       rankingMetric: "completionDurationSeconds",
       schemaVersion: 1,

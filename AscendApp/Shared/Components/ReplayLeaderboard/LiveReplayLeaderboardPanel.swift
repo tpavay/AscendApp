@@ -177,8 +177,12 @@ struct LiveReplayLeaderboardPanel: View {
         effectiveColorScheme == .dark ? .white.opacity(0.42) : .black.opacity(0.4)
     }
 
+    /// The anchor the board scrolls to: the attempt in progress, which is the
+    /// only row that moves. A repeat climber also owns their earlier
+    /// completions on this board, and anchoring on one of those would park the
+    /// view somewhere the climber is not.
     private var currentUserRowID: String? {
-        rows.first(where: \.isCurrentUser)?.id
+        rows.first(where: \.isLiveAttempt)?.id
     }
 
     private func scrollToCurrentUserIfNeeded(using proxy: ScrollViewProxy) {
@@ -253,14 +257,14 @@ private struct LiveReplayLeaderboardRowView: View {
 
     var body: some View {
         ZStack(alignment: .leading) {
-            if row.isCurrentUser {
+            if row.isLiveAttempt {
                 progressBackground
             }
 
             HStack(spacing: 10) {
                 Text(rankLabel)
                     .font(.montserratBold(size: 16))
-                    .foregroundStyle(row.isCurrentUser ? tint : secondaryColor)
+                    .foregroundStyle(row.isLiveAttempt ? tint : secondaryColor)
                     .frame(width: 38, alignment: .center)
                     .monospacedDigit()
 
@@ -287,7 +291,14 @@ private struct LiveReplayLeaderboardRowView: View {
                         }
                     }
 
-                    if let demographicSummaryText = row.demographicSummaryText {
+                    // A rival's row is worth characterising; the viewer's is
+                    // not. The attempt in progress can never carry demographics
+                    // - it is assembled from the live step count - so drawing
+                    // them under the climber's own finished attempt is what let
+                    // two rows belonging to one person disagree about whose
+                    // they were.
+                    if !row.isCurrentUser,
+                       let demographicSummaryText = row.demographicSummaryText {
                         Text(demographicSummaryText)
                             .font(.montserratSemiBold(size: 10))
                             .foregroundStyle(secondaryColor)
@@ -299,8 +310,8 @@ private struct LiveReplayLeaderboardRowView: View {
                 Spacer(minLength: 0)
 
                 Text(row.stepsAtBucket.formatted())
-                    .font(.montserratBold(size: row.isCurrentUser ? 24 : 22))
-                    .foregroundStyle(row.isCurrentUser ? tint : primaryColor)
+                    .font(.montserratBold(size: row.isLiveAttempt ? 24 : 22))
+                    .foregroundStyle(row.isLiveAttempt ? tint : primaryColor)
                     .monospacedDigit()
                     .contentTransition(.numericText())
                     .lineLimit(1)
@@ -310,7 +321,7 @@ private struct LiveReplayLeaderboardRowView: View {
 
             previousBestMarker
         }
-        .frame(height: row.isCurrentUser ? 74 : 70)
+        .frame(height: row.isLiveAttempt ? 74 : 70)
         .accessibilityElement(children: .combine)
     }
 
@@ -332,7 +343,7 @@ private struct LiveReplayLeaderboardRowView: View {
     }
 
     private var rowProgress: Double {
-        if row.isCurrentUser {
+        if row.isLiveAttempt {
             return min(max(progress, 0), 1)
         }
 

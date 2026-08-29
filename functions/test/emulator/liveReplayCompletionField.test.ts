@@ -3,15 +3,14 @@
  * Firestore.
  *
  * The unit suite proves the arithmetic once the counts are in hand, but the
- * defect this suite exists for lived in the counts themselves: the rank counted
- * every strictly better entry while the denominator counted distinct climbers,
- * so one rival with five faster attempts pushed a finisher to 6th on a board of
- * 3 - and a clamp rewrote that to "3rd of 3". Only a real query over real rows
- * shows which population each half actually counted.
+ * defect this suite exists for lived in the counts themselves: the two halves
+ * counted different populations, so a rank could land outside its own
+ * denominator. Only a real query over real rows shows which population each
+ * half actually counted.
  *
- * A collapsing board now counts finisher documents, which are one per climber
- * by construction rather than one per climber eventually, so these tests seed
- * finishers and entries the way a publish writes them.
+ * Both halves now count completed attempts at bucket zero - the rows the static
+ * per-climb board ranks - so these tests seed entries the way a publish writes
+ * them and read the standing back the way the summary will show it.
  *
  * Lives under test/emulator/ so `npm test` (glob: lib/test/*.test.js) does not
  * pick it up without a Firestore behind it. `npm run test:emulator` runs it.
@@ -56,71 +55,68 @@ beforeEach(async () => {
   await clearFirestore();
 });
 
-test("a rival's five faster attempts are one climber ahead on a climb",
-  async () => {
-    const payload = liveClimbPayload();
-    await seedRivalAttempts(payload.contextKey, {collapses: true});
+test("counts every completion standing ahead, on a climb too", async () => {
+  const payload = liveClimbPayload();
+  await seedRivalAttempts(payload.contextKey, {collapses: true});
 
-    const reading = await liveReplayLeaderboardTestHooks.readCompletionField(
-      payload,
-      WORKOUT
-    );
+  const reading = await liveReplayLeaderboardTestHooks.readCompletionField(
+    payload,
+    WORKOUT
+  );
 
-    // One finisher document per climber, so the five attempts are one rival.
-    assert.deepEqual(reading, {betterRowCount: 1, attemptCount: null});
-    assert.deepEqual(
-      liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-        payload,
-        reading,
-        completedCount: 2,
-        existingFinisherData: undefined,
-      }),
-      {rank: 2, population: 2}
-    );
+  // One population, and it is the one the static per-climb board shows: five
+  // faster completions ahead, six completions once this one lands.
+  assert.deepEqual(reading, {betterRowCount: 5, attemptCount: 6});
+  assert.deepEqual(
+    liveReplayLeaderboardTestHooks.frozenCompletionStanding({
+      reading,
+      contextKey: payload.contextKey,
+    }),
+    {rank: 6, population: 6}
+  );
+});
+
+test("cannot see the best-flag window it no longer reads", async () => {
+  const payload = liveClimbPayload();
+
+  // publishReplayEntries commits an improved row flagged best while the old
+  // row is still flagged best, and reconcileUserBestEntries clears the old one
+  // many awaits later. Counting entries at bucket zero never consults the flag,
+  // so the window it opens is invisible here: both rows are completions, and
+  // both were always ahead.
+  await seedEntry(payload.contextKey, {
+    workoutId: "rival-old-best",
+    userId: RIVAL,
+    completionDurationSeconds: ATTEMPT_DURATION_SECONDS - 30,
+    isBestForUser: true,
+  });
+  await seedEntry(payload.contextKey, {
+    workoutId: "rival-new-best",
+    userId: RIVAL,
+    completionDurationSeconds: ATTEMPT_DURATION_SECONDS - 60,
+    isBestForUser: true,
   });
 
-test("a rival caught mid-improvement is still one climber ahead",
-  async () => {
-    const payload = liveClimbPayload();
+  const before = await liveReplayLeaderboardTestHooks.readCompletionField(
+    payload,
+    WORKOUT
+  );
 
-    // The window the flag-based numerator could not close: publishReplayEntries
-    // commits the improved row flagged best while the old row is still flagged
-    // best, and reconcileUserBestEntries clears the old one many awaits later.
-    // Counting entries here read one rival as two climbers and inflated a
-    // permanent rank by one; counting finishers cannot see the window at all.
-    await seedFinisher(payload.contextKey, {
-      userId: RIVAL,
-      bestCompletionDurationSeconds: ATTEMPT_DURATION_SECONDS - 60,
-    });
-    await seedEntry(payload.contextKey, {
-      workoutId: "rival-old-best",
-      userId: RIVAL,
-      completionDurationSeconds: ATTEMPT_DURATION_SECONDS - 30,
-      isBestForUser: true,
-    });
-    await seedEntry(payload.contextKey, {
-      workoutId: "rival-new-best",
-      userId: RIVAL,
-      completionDurationSeconds: ATTEMPT_DURATION_SECONDS - 60,
-      isBestForUser: true,
-    });
+  await db
+    .collection(LIVE_REPLAY_COLLECTION)
+    .doc(payload.contextKey)
+    .collection("splitBuckets")
+    .doc("0")
+    .collection("entries")
+    .doc("rival-old-best")
+    .set({isBestForUser: false}, {merge: true});
 
-    const reading = await liveReplayLeaderboardTestHooks.readCompletionField(
-      payload,
-      WORKOUT
-    );
-
-    assert.deepEqual(reading, {betterRowCount: 1, attemptCount: null});
-    assert.deepEqual(
-      liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-        payload,
-        reading,
-        completedCount: 2,
-        existingFinisherData: undefined,
-      }),
-      {rank: 2, population: 2}
-    );
-  });
+  assert.deepEqual(before, {betterRowCount: 2, attemptCount: 3});
+  assert.deepEqual(
+    await liveReplayLeaderboardTestHooks.readCompletionField(payload, WORKOUT),
+    before
+  );
+});
 
 test("a rival's five faster attempts are five opponents on a Just Climb",
   async () => {
@@ -137,62 +133,27 @@ test("a rival's five faster attempts are five opponents on a Just Climb",
     assert.deepEqual(reading, {betterRowCount: 5, attemptCount: 6});
     assert.deepEqual(
       liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-        payload,
         reading,
-        // The summary counts one distinct finisher; the stamp must not.
-        completedCount: 1,
-        existingFinisherData: undefined,
+        contextKey: payload.contextKey,
       }),
       {rank: 6, population: 6}
     );
   });
 
-test("a climber is never seated behind their own faster attempt",
-  async () => {
-    const payload = liveClimbPayload();
-    const ownFinisher = {
-      userId: CLIMBER,
-      bestCompletionDurationSeconds: ATTEMPT_DURATION_SECONDS - 100,
-    };
-    await seedFinisher(payload.contextKey, ownFinisher);
-    await seedEntry(payload.contextKey, {
-      workoutId: "own-faster",
-      userId: CLIMBER,
-      completionDurationSeconds: ATTEMPT_DURATION_SECONDS - 100,
-      isBestForUser: true,
-    });
-
-    const reading = await liveReplayLeaderboardTestHooks.readCompletionField(
-      payload,
-      WORKOUT
-    );
-
-    // The climber's own finisher document is the one row counted, so it has to
-    // come back out: a board with one row per climber must never seat someone
-    // behind themselves.
-    assert.deepEqual(reading, {betterRowCount: 1, attemptCount: null});
-    assert.deepEqual(
-      liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-        payload,
-        reading,
-        completedCount: 1,
-        existingFinisherData: ownFinisher,
-      }),
-      {rank: 1, population: 1}
-    );
-  });
-
-test("beating your own attempt adds no climber to the field", async () => {
+test("seats a climber behind their own faster attempt", async () => {
   const payload = liveClimbPayload();
-  const ownFinisher = {
+
+  // The captain's St Peter's pair, as the database held it: one climber, an
+  // earlier faster completion, and this slower one publishing now. The summary
+  // has to say what climb detail says - second of two - and used to say first.
+  await seedFinisher(payload.contextKey, {
     userId: CLIMBER,
-    bestCompletionDurationSeconds: ATTEMPT_DURATION_SECONDS + 100,
-  };
-  await seedFinisher(payload.contextKey, ownFinisher);
+    bestCompletionDurationSeconds: ATTEMPT_DURATION_SECONDS - 100,
+  });
   await seedEntry(payload.contextKey, {
-    workoutId: "own-slower",
+    workoutId: "own-faster",
     userId: CLIMBER,
-    completionDurationSeconds: ATTEMPT_DURATION_SECONDS + 100,
+    completionDurationSeconds: ATTEMPT_DURATION_SECONDS - 100,
     isBestForUser: true,
   });
 
@@ -201,61 +162,104 @@ test("beating your own attempt adds no climber to the field", async () => {
     WORKOUT
   );
 
-  assert.deepEqual(reading, {betterRowCount: 0, attemptCount: null});
+  assert.deepEqual(reading, {betterRowCount: 1, attemptCount: 2});
   assert.deepEqual(
     liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-      payload,
       reading,
-      // One climber before, one after: improving on themselves adds nobody.
-      completedCount: 1,
-      existingFinisherData: ownFinisher,
+      contextKey: payload.contextKey,
     }),
-    {rank: 1, population: 1}
+    {rank: 2, population: 2}
   );
 });
 
-test("a repeat run by a standing rival leaves the rank where it was",
+test("puts a faster repeat attempt in front of the climber's own record",
   async () => {
     const payload = liveClimbPayload();
     await seedFinisher(payload.contextKey, {
-      userId: RIVAL,
-      bestCompletionDurationSeconds: ATTEMPT_DURATION_SECONDS - 60,
+      userId: CLIMBER,
+      bestCompletionDurationSeconds: ATTEMPT_DURATION_SECONDS + 100,
     });
     await seedEntry(payload.contextKey, {
-      workoutId: "rival-best",
-      userId: RIVAL,
-      completionDurationSeconds: ATTEMPT_DURATION_SECONDS - 60,
+      workoutId: "own-slower",
+      userId: CLIMBER,
+      completionDurationSeconds: ATTEMPT_DURATION_SECONDS + 100,
       isBestForUser: true,
     });
-    const before = await liveReplayLeaderboardTestHooks.readCompletionField(
+
+    const reading = await liveReplayLeaderboardTestHooks.readCompletionField(
       payload,
       WORKOUT
     );
 
-    // The rival runs again and does not improve, so their finisher document
-    // stands untouched and the rank it holds is the rank it held.
-    await seedEntry(payload.contextKey, {
-      workoutId: "rival-repeat",
-      userId: RIVAL,
-      completionDurationSeconds: ATTEMPT_DURATION_SECONDS - 30,
-      isBestForUser: false,
-    });
-
+    assert.deepEqual(reading, {betterRowCount: 0, attemptCount: 2});
     assert.deepEqual(
-      await liveReplayLeaderboardTestHooks.readCompletionField(
-        payload,
-        WORKOUT
-      ),
-      before
+      liveReplayLeaderboardTestHooks.frozenCompletionStanding({
+        reading,
+        contextKey: payload.contextKey,
+      }),
+      {rank: 1, population: 2}
     );
   });
 
+test("shares one rank with an attempt tied on the metric", async () => {
+  const payload = liveClimbPayload();
+
+  // Only strictly faster rows count, so a dead heat leaves both attempts
+  // first of two rather than reshuffling one of them behind the other.
+  await seedEntry(payload.contextKey, {
+    workoutId: "rival-tied",
+    userId: RIVAL,
+    completionDurationSeconds: ATTEMPT_DURATION_SECONDS,
+    isBestForUser: true,
+  });
+
+  const reading = await liveReplayLeaderboardTestHooks.readCompletionField(
+    payload,
+    WORKOUT
+  );
+
+  assert.deepEqual(reading, {betterRowCount: 0, attemptCount: 2});
+  assert.deepEqual(
+    liveReplayLeaderboardTestHooks.frozenCompletionStanding({
+      reading,
+      contextKey: payload.contextKey,
+    }),
+    {rank: 1, population: 2}
+  );
+});
+
+test("a repeat run by a standing rival moves the field it counts", async () => {
+  const payload = liveClimbPayload();
+  await seedEntry(payload.contextKey, {
+    workoutId: "rival-best",
+    userId: RIVAL,
+    completionDurationSeconds: ATTEMPT_DURATION_SECONDS - 60,
+    isBestForUser: true,
+  });
+  const before = await liveReplayLeaderboardTestHooks.readCompletionField(
+    payload,
+    WORKOUT
+  );
+
+  // The rival runs again and does not improve. Their slower repeat is still a
+  // completion the static board lists, so it joins the denominator without
+  // moving the rank.
+  await seedEntry(payload.contextKey, {
+    workoutId: "rival-repeat",
+    userId: RIVAL,
+    completionDurationSeconds: ATTEMPT_DURATION_SECONDS - 30,
+    isBestForUser: false,
+  });
+
+  assert.deepEqual(before, {betterRowCount: 1, attemptCount: 2});
+  assert.deepEqual(
+    await liveReplayLeaderboardTestHooks.readCompletionField(payload, WORKOUT),
+    {betterRowCount: 2, attemptCount: 3}
+  );
+});
+
 test("a routine board reads the steps its intervals rank on", async () => {
   const payload = routinePayload();
-  await seedFinisher(payload.contextKey, {
-    userId: RIVAL,
-    bestFinalSteps: 1900,
-  });
   await seedEntry(payload.contextKey, {
     workoutId: "rival-best",
     userId: RIVAL,
@@ -274,29 +278,9 @@ test("a routine board reads the steps its intervals rank on", async () => {
     WORKOUT
   );
 
-  assert.deepEqual(reading, {betterRowCount: 1, attemptCount: null});
+  // The fixture routine attempt takes 1,840 steps, so both rival rows lead it.
+  assert.deepEqual(reading, {betterRowCount: 2, attemptCount: 3});
 });
-
-test("a finisher with no stored best is a board this cannot rank against",
-  async () => {
-    const payload = liveClimbPayload();
-
-    // A finisher document written before the best fields existed is invisible
-    // to the inequality behind the numerator. No such document survives in any
-    // environment - production and staging carry five between them, every one
-    // written after the fields shipped - and every new one is written with the
-    // metric its board ranks on. This pins the behaviour anyway, so a
-    // regression reads as an undercount and never as an inflated rank.
-    await seedFinisher(payload.contextKey, {userId: RIVAL});
-
-    assert.deepEqual(
-      await liveReplayLeaderboardTestHooks.readCompletionField(
-        payload,
-        WORKOUT
-      ),
-      {betterRowCount: 0, attemptCount: null}
-    );
-  });
 
 test("a republished attempt is already one of the attempts counted",
   async () => {
@@ -321,10 +305,8 @@ test("a republished attempt is already one of the attempts counted",
     assert.deepEqual(reading, {betterRowCount: 5, attemptCount: 6});
     assert.deepEqual(
       liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-        payload,
         reading,
-        completedCount: 1,
-        existingFinisherData: undefined,
+        contextKey: payload.contextKey,
       }),
       {rank: 6, population: 6}
     );

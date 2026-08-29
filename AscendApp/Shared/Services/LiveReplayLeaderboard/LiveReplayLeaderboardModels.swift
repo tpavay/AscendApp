@@ -304,15 +304,14 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     let finalSteps: Int
     let deltaFromUser: Int
     let isCurrentUser: Bool
-    /// A completion this same climber already published to this board.
+    /// The climber's own attempt *in progress* - the one row whose steps come
+    /// from the live step counter rather than a published replay curve.
     ///
-    /// Distinct from `isCurrentUser`, which marks the attempt in progress. A
-    /// per-climb board collapses each climber to their best run, so at most one
-    /// of these exists: the climber's previous best. It is drawn as the `BEST`
-    /// marker inside the climber's own row rather than as a row of its own, and
-    /// it is never ranked - a board of climbers must not seat somebody behind
-    /// themselves.
-    let isOwnPreviousCompletion: Bool
+    /// Separate from `isCurrentUser` because a repeat climber owns two kinds of
+    /// row at once: this one, and every completion they have already published
+    /// to this board. Both are theirs; only this one anchors the progress
+    /// treatment, holds the live rank, and yields ties to completed attempts.
+    let isLiveAttempt: Bool
     let isPersonalBest: Bool
     let completionDurationSeconds: TimeInterval?
     let userId: String?
@@ -332,7 +331,7 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         finalSteps: Int,
         deltaFromUser: Int,
         isCurrentUser: Bool,
-        isOwnPreviousCompletion: Bool = false,
+        isLiveAttempt: Bool = false,
         isPersonalBest: Bool,
         completionDurationSeconds: TimeInterval?,
         userId: String? = nil,
@@ -354,7 +353,7 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         self.finalSteps = finalSteps
         self.deltaFromUser = deltaFromUser
         self.isCurrentUser = isCurrentUser
-        self.isOwnPreviousCompletion = isOwnPreviousCompletion
+        self.isLiveAttempt = isLiveAttempt
         self.isPersonalBest = isPersonalBest
         self.completionDurationSeconds = completionDurationSeconds
         self.userId = userId
@@ -425,6 +424,7 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
             finalSteps: max(steps, 0),
             deltaFromUser: 0,
             isCurrentUser: true,
+            isLiveAttempt: true,
             isPersonalBest: isPersonalBest,
             completionDurationSeconds: nil,
             userId: nil,
@@ -436,7 +436,7 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     }
 
     func projected(elapsedSeconds: Int, bucketElapsedSeconds: Int) -> LiveReplayLeaderboardRow {
-        guard !isCurrentUser else { return self }
+        guard !isLiveAttempt else { return self }
 
         let projectedSteps: Int
         if let completionDurationSeconds,
@@ -456,6 +456,18 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
 
         return updating(
             stepsAtBucket: min(max(projectedSteps, stepsAtBucket), max(finalSteps, stepsAtBucket))
+        )
+    }
+
+    /// A finished attempt, held at the step count it finished on.
+    ///
+    /// Its stored `stepsAtBucket` is whichever bucket the row was read from, so
+    /// a finisher read out of bucket zero would otherwise re-enter the race at
+    /// the handful of steps it had taken in its first ten seconds.
+    func holdingFinalSteps(currentSteps: Int) -> LiveReplayLeaderboardRow {
+        updating(
+            stepsAtBucket: finalSteps,
+            deltaFromUser: finalSteps - max(currentSteps, 0)
         )
     }
 
@@ -480,7 +492,7 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
             finalSteps: finalSteps,
             deltaFromUser: deltaFromUser ?? self.deltaFromUser,
             isCurrentUser: isCurrentUser,
-            isOwnPreviousCompletion: isOwnPreviousCompletion,
+            isLiveAttempt: isLiveAttempt,
             isPersonalBest: isPersonalBest,
             completionDurationSeconds: completionDurationSeconds,
             userId: userId,
@@ -499,7 +511,7 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         finalSteps: Int,
         deltaFromUser: Int,
         isCurrentUser: Bool,
-        isOwnPreviousCompletion: Bool,
+        isLiveAttempt: Bool,
         isPersonalBest: Bool,
         completionDurationSeconds: TimeInterval?,
         userId: String?,
@@ -515,7 +527,7 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         self.finalSteps = finalSteps
         self.deltaFromUser = deltaFromUser
         self.isCurrentUser = isCurrentUser
-        self.isOwnPreviousCompletion = isOwnPreviousCompletion
+        self.isLiveAttempt = isLiveAttempt
         self.isPersonalBest = isPersonalBest
         self.completionDurationSeconds = completionDurationSeconds
         self.userId = userId
@@ -606,7 +618,7 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
     /// leaving it in the list would put the climber's name on the board twice
     /// and rank them behind themselves.
     var opponentRows: [LiveReplayLeaderboardRow] {
-        rows.filter { !$0.isOwnPreviousCompletion }
+        rows.filter { !($0.isCurrentUser && !$0.isLiveAttempt) }
     }
 
     /// Where the climber's previous best had reached at this moment in the race,
@@ -617,7 +629,7 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
     /// the fill and the line is the message.
     func previousBestStepsAtBucket(currentElapsedSeconds: Int) -> Int? {
         let ownRows = ownPreviousCompletionRow.map { [$0] }
-            ?? rows.filter(\.isOwnPreviousCompletion)
+            ?? rows.filter { $0.isCurrentUser && !$0.isLiveAttempt }
 
         return ownRows
             .map {
@@ -673,7 +685,7 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
             .sorted(by: Self.sortRowsByLivePosition)
 
         guard let adjustedCurrentRank,
-              let currentUserIndex = orderedRows.firstIndex(where: \.isCurrentUser) else {
+              let currentUserIndex = orderedRows.firstIndex(where: \.isLiveAttempt) else {
             return orderedRows
         }
 
@@ -692,8 +704,11 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
             return lhs.stepsAtBucket > rhs.stepsAtBucket
         }
 
-        if lhs.isCurrentUser != rhs.isCurrentUser {
-            return rhs.isCurrentUser
+        // Tied completed attempts rank ahead of the attempt still running -
+        // including the climber's own earlier completion, which is a finished
+        // row like any other and must not be displaced by the run chasing it.
+        if lhs.isLiveAttempt != rhs.isLiveAttempt {
+            return rhs.isLiveAttempt
         }
 
         return (lhs.rank ?? Int.max) < (rhs.rank ?? Int.max)
@@ -708,7 +723,7 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
             currentSteps: liveCurrentSteps,
             currentElapsedSeconds: currentElapsedSeconds
         )
-        guard let currentUserIndex = rankedRows.firstIndex(where: \.isCurrentUser),
+        guard let currentUserIndex = rankedRows.firstIndex(where: \.isLiveAttempt),
               let currentUserRank = rankedRows[currentUserIndex].rank else {
             return false
         }
@@ -719,10 +734,10 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
         }
 
         let visibleRowsAhead = rankedRows[..<currentUserIndex]
-            .filter { !$0.isCurrentUser }
+            .filter { !$0.isLiveAttempt }
             .count
         let visibleRowsBehind = rankedRows[rankedRows.index(after: currentUserIndex)...]
-            .filter { !$0.isCurrentUser }
+            .filter { !$0.isLiveAttempt }
             .count
 
         let hasKnownRowsAhead = currentUserRank > 1 || opponentRows.contains { row in

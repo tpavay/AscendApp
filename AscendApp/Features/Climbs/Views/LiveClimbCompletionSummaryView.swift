@@ -170,7 +170,7 @@ struct LiveClimbCompletionSummaryView: View {
             LiveClimbSummaryRankHeroView(
                 hero: hero,
                 rankingMetric: effectiveLeaderboardContext?.type.rankingMetric ?? .fastestCompletion,
-                fieldPopulation: effectiveLeaderboardContext?.type.fieldPopulation ?? .climbers,
+                fieldPopulation: .completionStanding,
                 onRetrySync: retryRankSync
             )
         }

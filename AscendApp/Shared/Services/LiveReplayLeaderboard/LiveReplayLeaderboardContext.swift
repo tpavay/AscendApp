@@ -53,6 +53,16 @@ enum LiveReplayFieldPopulation: Sendable {
     /// One row per completed attempt.
     case completions
 
+    /// What a completion standing - frozen or recomputed - is measured against,
+    /// on every board.
+    ///
+    /// The live race collapses a climber's repeat runs to their best, but a
+    /// completion summary ranks the attempt that just finished, and the climber
+    /// reads it against a static board that keeps every completion. Ranking the
+    /// climber there instead is what told a repeat climber they came first with
+    /// a slower time than their own record.
+    static let completionStanding = LiveReplayFieldPopulation.completions
+
     /// The field-size line a board pins beneath its rows, e.g. `27 CLIMBERS`.
     func fieldSizeLabel(count: Int) -> String {
         let noun = switch self {

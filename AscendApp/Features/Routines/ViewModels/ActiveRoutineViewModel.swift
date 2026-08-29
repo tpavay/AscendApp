@@ -174,7 +174,7 @@ final class ActiveRoutineViewModel {
 
     var completionLeaderboardRank: Int? {
         guard earnsRoutineStanding else { return nil }
-        return leaderboardWindow?.currentUserRank ?? leaderboardRows.first(where: \.isCurrentUser)?.rank
+        return leaderboardWindow?.currentUserRank ?? leaderboardRows.first(where: \.isLiveAttempt)?.rank
     }
 
     var completionLeaderboardTotal: Int? {
