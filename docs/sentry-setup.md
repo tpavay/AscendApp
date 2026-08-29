@@ -24,7 +24,9 @@ The app reads Sentry config from `Info.plist`:
 - `ASCEND_SENTRY_ENABLED`: optional kill switch for the in-app SDK only. Use `false`/`0`/`no`/`off` to stop the app from initializing Sentry and sending events.
   It does not gate dSYM upload: symbols are debug metadata with no user data, and upload stays independent so a shipped build can never become permanently unsymbolicated.
 
-Sentry is still gated by `TelemetryManager.shouldEnableCollection()`, which forces collection off under XCTest and honours the debug toggles.
+Sentry is still gated by `TelemetryManager.shouldEnableCollection()`, which forces collection off under XCTest, refuses a production build running on a simulator, and otherwise honours the debug toggles.
+Because Sentry initialises in production only, that simulator refusal means a production build on a simulator sends nothing here either - reproduce on staging instead.
+`.claude/skills/ascend-analytics/SKILL.md` owns that rule and why it sits above the launch-argument overrides.
 
 Events are tagged with:
 
