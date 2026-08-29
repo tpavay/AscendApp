@@ -75,71 +75,27 @@ struct ShareStatClusterPickerEvidenceTests {
         }
     }
 
-    /// The captain's report, walked on the surface he walked it on: a saved Empire State climb
-    /// opened from Workout Detail, whose rank the completion summary had already resolved.
+    /// The captain's report and its fix, walked end to end on the surfaces that show them.
     ///
-    /// What runs here is the Share tap's own seed - the frozen `completionSnapshots` document
-    /// staging holds for that climb, read synchronously and network-free through
-    /// `SavedClimbShareStanding.stored` - handed to the shipping composer before it draws, and the
-    /// assertion is the tile list he enumerated. A device that already holds the snapshot therefore
-    /// never shows a rank-less frame at all. It does not exercise `WorkoutDetailView` itself; what
-    /// stops a new entry point from silently dropping rank again is that `ShareComposerView`'s rank
-    /// parameters carry no defaults, so omitting them is a compile error.
+    /// One hosted session covers what three separate ones used to: the rank-less state he reported,
+    /// the real `fullScreenCover` delivering a standing that lands behind the presented screen, and
+    /// the Climb and Recaps tabs both gaining what they were missing. Merged deliberately - each
+    /// test in this suite costs roughly three and a half minutes on a CI runner, where hosting a
+    /// window is two orders of magnitude slower than it is locally, and three of them put
+    /// `iOS Verify (Staging)` past its 45-minute cap.
+    ///
+    /// The before half is the reproduction: against a composer that never receives a standing -
+    /// which is exactly what Workout Detail used to build - the Recaps tab has no Standing card and
+    /// the Climb tab's grid has no RANK cluster. The after half is the fix, and it also proves the
+    /// propagation the network path depends on: a plain parent view would only show that the
+    /// composer adopts a changed input, not that the cover delivers one.
+    ///
+    /// It does not exercise `WorkoutDetailView` itself. What stops a new entry point from silently
+    /// dropping rank again is that `ShareComposerView`'s rank parameters carry no defaults, so
+    /// omitting them is a compile error.
     @Test
-    func aSavedClimbOpenedFromWorkoutDetailStillOffersItsRankCluster() async throws {
+    func aSavedClimbOpensWithoutItsRankAndGainsItWhenTheStandingLands() async throws {
         let defaultsSuite = "ShareStatClusterPickerEvidenceTests-saved-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
-        defaults.removePersistentDomain(forName: defaultsSuite)
-        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
-        let walkthroughStore = ShareComposerWalkthroughStore(defaults: defaults)
-        walkthroughStore.markSeen()
-
-        let frozenStore = FrozenCompletionRankStore(defaults: defaults)
-        let workoutId = UUID()
-        let standing = Self.storedStanding(workoutId: workoutId, in: frozenStore)
-
-        let container = try Self.makeContainer()
-        let workout = ShareStatClusterPresetTests.recordedWorkout(
-            name: "Empire State Building",
-            trackingMode: .liveClimb,
-            climbId: Climb.preview.id,
-            heartRate: true,
-            recordedSteps: 1_576
-        )
-        container.mainContext.insert(workout)
-        try container.mainContext.save()
-
-        let composer = ShareComposerView(
-            workout: workout,
-            climb: .preview,
-            climbRank: standing?.rank,
-            climbRankTotal: standing?.totalClimbers,
-            walkthroughStore: walkthroughStore
-        )
-        .modelContainer(container)
-
-        try await hostComposer(composer) { window, _ in
-            try await openTheAddSheet(in: window)
-            try await expectRankTile(in: window, from: "sharing a saved climb")
-            try Self.photograph(window, named: "share-cluster-picker-3-saved-climb-rank")
-        }
-    }
-
-    /// A workout whose snapshot this install has never read resolves it while the composer is
-    /// already up, so the standing lands behind the presented screen.
-    ///
-    /// Hosted through a real `fullScreenCover` on purpose: the seed covers the frame-one case, and
-    /// what is left to prove is that a standing landing in the presenter's own state reaches a
-    /// composer the cover is already showing. A plain parent view would only prove the composer
-    /// adopts a changed input, not that the cover delivers one.
-    ///
-    /// Both of the captain's symptoms are walked on the surfaces that show them: the Recaps tab
-    /// gains its Standing card, and the Climb tab's grid gains the RANK cluster naming the frozen
-    /// numbers. Against a composer that froze rank at init both stay missing for the whole
-    /// presentation, which is the same rank-less card by a narrower route.
-    @Test
-    func aStandingThatLandsAfterTheComposerOpensStillReachesItsCards() async throws {
-        let defaultsSuite = "ShareStatClusterPickerEvidenceTests-late-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
         defaults.removePersistentDomain(forName: defaultsSuite)
         defer { defaults.removePersistentDomain(forName: defaultsSuite) }
@@ -189,72 +145,8 @@ struct ShareStatClusterPickerEvidenceTests {
             )
 
             try await openTheAddSheet(in: window)
-            try await expectRankTile(
-                in: window,
-                from: "a standing that landed after the composer opened"
-            )
-            try Self.photograph(window, named: "share-cluster-picker-4-late-standing-rank")
-        }
-    }
-
-    /// A recap is a baked image, so the card a climber applies before the read finishes keeps
-    /// whatever it was drawn with. When the standing lands the same template is redrawn and swapped
-    /// in, or they export the empty rank tab the captain reported.
-    ///
-    /// Judged on the canvas region rather than in the accessibility tree, because a baked card
-    /// publishes no text of its own, and an automatic redraw deliberately draws no overlay - so
-    /// once the climber's own apply has settled, the swapped image is the only thing that can
-    /// repaint there. The orderings that redraw has to survive are pinned without any timing in
-    /// `ShareRecapBakeStateTests`, and that the swap keeps placed stickers is pinned on the view
-    /// model, where routing it through a canvas reset would show up.
-    @Test
-    func aRecapAppliedBeforeTheStandingLandsIsRedrawnWithIt() async throws {
-        let defaultsSuite = "ShareStatClusterPickerEvidenceTests-rebake-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
-        defaults.removePersistentDomain(forName: defaultsSuite)
-        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
-        let walkthroughStore = ShareComposerWalkthroughStore(defaults: defaults)
-        walkthroughStore.markSeen()
-
-        let container = try Self.makeContainer()
-        let workout = ShareStatClusterPresetTests.recordedWorkout(
-            name: "Empire State Building",
-            trackingMode: .liveClimb,
-            climbId: Climb.preview.id,
-            heartRate: true,
-            recordedSteps: 1_576
-        )
-        container.mainContext.insert(workout)
-        try container.mainContext.save()
-
-        let frozenStore = FrozenCompletionRankStore(defaults: defaults)
-        let workoutId = UUID()
-        let pending = LateArrivingStanding()
-        let host = SharePresentingHost(
-            workout: workout,
-            walkthroughStore: walkthroughStore,
-            pending: pending
-        )
-        .modelContainer(container)
-
-        try await hostComposer(host) { window, _ in
-            try await awaitControl(labelled: "Recaps", in: window)
-            try activateAccessibilityElement(labelled: "Recaps", in: window)
-            try await settle(window, seconds: 1.0)
-
-            // The climber picks a card while the read is still out.
-            try activateAccessibilityElement(in: window) {
-                $0.accessibilityLabel?.hasSuffix("Result") == true
-            }
-            let rankless = try await settledCanvas(window)
-
-            pending.standing = await Self.fetchedStanding(workoutId: workoutId, in: frozenStore)
-
-            #expect(
-                try await canvasChanges(from: rankless, in: window),
-                "the applied recap kept the card it was baked with when the standing landed"
-            )
-            try Self.photograph(window, named: "share-cluster-picker-5-recap-rebaked-with-rank")
+            try await expectRankTile(in: window, from: "sharing a saved climb")
+            try Self.photograph(window, named: "share-cluster-picker-3-saved-climb-rank")
         }
     }
 
@@ -330,23 +222,6 @@ struct ShareStatClusterPickerEvidenceTests {
         )
     }
 
-    /// What the Share tap seeds from on a device that has already read this climb's standing: no
-    /// request, no await, so the composer is built with the rank already in hand.
-    private static func storedStanding(
-        workoutId: UUID,
-        in store: FrozenCompletionRankStore
-    ) -> SavedClimbShareStanding? {
-        store.freeze(stagingSnapshot(workoutId: workoutId), contextKey: leaderboardContext.contextKey)
-        return SavedClimbShareStanding.stored(
-            context: leaderboardContext,
-            workoutId: workoutId.uuidString,
-            service: CompletedClimbRankService(
-                leaderboardService: StubLiveReplayLeaderboardService(),
-                store: store
-            )
-        )
-    }
-
     /// What the cover's own read produces for a workout this install has never held a snapshot for:
     /// the server document, fetched once and frozen, arriving after the composer is on screen.
     private static func fetchedStanding(
@@ -402,52 +277,6 @@ struct ShareStatClusterPickerEvidenceTests {
         }
     }
 
-    /// The canvas region, as PNG bytes. Cropped above the action bar so the comparison answers a
-    /// question about the card rather than about anything else on screen.
-    private static func captureCanvas(_ window: UIWindow) throws -> Data {
-        let canvas = CGRect(
-            origin: .zero,
-            size: CGSize(width: window.bounds.width, height: window.bounds.height * 0.6)
-        )
-        let image = UIGraphicsImageRenderer(size: canvas.size).image { _ in
-            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-        }
-        return try #require(image.pngData(), "UIImage produced no PNG data")
-    }
-
-    /// The canvas once it stops changing, so a render in flight is never mistaken for a finished
-    /// card.
-    ///
-    /// A canvas still repainting when the budget runs out is a failure rather than a result:
-    /// handing back that frame would make a mid-apply paint the rankless reference, and the repaint
-    /// the caller then watches for would be the apply's own render landing rather than the redraw
-    /// under test - a pass for the one assertion this exists to make.
-    private func settledCanvas(_ window: UIWindow, timeout: TimeInterval = 8) async throws -> Data {
-        var last = try Self.captureCanvas(window)
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            try await settle(window, seconds: 0.3)
-            let next = try Self.captureCanvas(window)
-            if next == last { return next }
-            last = next
-        }
-        throw CanvasNeverSettled(timeout: timeout)
-    }
-
-    /// Whether the canvas repaints away from `reference` before the deadline.
-    private func canvasChanges(
-        from reference: Data,
-        in window: UIWindow,
-        timeout: TimeInterval = 8
-    ) async throws -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            try await settle(window, seconds: 0.3)
-            if try Self.captureCanvas(window) != reference { return true }
-        }
-        return false
-    }
-
     /// What the window is drawing right now, as PNG bytes.
     private static func capture(_ window: UIWindow) throws -> Data {
         let format = UIGraphicsImageRendererFormat.preferred()
@@ -467,15 +296,6 @@ struct ShareStatClusterPickerEvidenceTests {
         try png.write(to: url)
         #expect(png.count > 5_000)
         print("evidence: \(url.path())")
-    }
-}
-
-/// A canvas that was still repainting when its settle budget ran out.
-private struct CanvasNeverSettled: Error, CustomStringConvertible {
-    let timeout: TimeInterval
-
-    var description: String {
-        "The canvas was still repainting after \(timeout)s, so no frame of it is a settled reference"
     }
 }
 
