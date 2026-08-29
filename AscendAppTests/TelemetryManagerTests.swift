@@ -140,25 +140,30 @@ struct TelemetryManagerTests {
     /// sits above the launch-argument overrides on purpose - production is measured, never
     /// rehearsed, and no flag may re-open it.
     @Test
-    func aProductionBuildOnASimulatorCollectsNothingAtAll() {
+    func aProductionBuildOnASimulatorCollectsNothingAtAll() throws {
+        let suiteName = "TelemetryManagerTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.removePersistentDomain(forName: suiteName)
+
         let suppressed = TelemetryManager.shouldEnableCollection(
             arguments: ["AscendApp", "-TelemetryEnabled"],
             environment: [:],
-            userDefaults: .standard,
+            userDefaults: defaults,
             buildMetadata: Self.productionBuildMetadata,
             runtime: TelemetryRuntimeEnvironment(isSimulator: true)
         )
         let onACustomersPhone = TelemetryManager.shouldEnableCollection(
-            arguments: ["AscendApp"],
+            arguments: ["AscendApp", "-TelemetryEnabled"],
             environment: [:],
-            userDefaults: .standard,
+            userDefaults: defaults,
             buildMetadata: Self.productionBuildMetadata,
             runtime: TelemetryRuntimeEnvironment(isSimulator: false)
         )
         let stagingOnASimulator = TelemetryManager.shouldEnableCollection(
-            arguments: ["AscendApp"],
+            arguments: ["AscendApp", "-TelemetryEnabled"],
             environment: [:],
-            userDefaults: .standard,
+            userDefaults: defaults,
             buildMetadata: Self.stagingBuildMetadata,
             runtime: TelemetryRuntimeEnvironment(isSimulator: true)
         )

@@ -199,8 +199,6 @@ final class TelemetryManager: @unchecked Sendable {
     /// "did somebody actually sign out", so anything else reporting a sign-out hangs off it.
     @discardableResult
     func clearUserId() -> Bool {
-        guard isCollectionEnabled else { return false }
-
         let hadIdentity = lock.withLock { state -> Bool in
             guard state.identifiedUserID != nil else { return false }
             state.identifiedUserID = nil
@@ -209,7 +207,13 @@ final class TelemetryManager: @unchecked Sendable {
 
         guard hadIdentity else { return false }
 
+        // The persisted mirror is cleared whether or not the sinks are listening: an identity left
+        // banked by a suppressed run would be restored by the next enabled launch, whose first
+        // signed-out report would then look like the sign-out that already happened.
         identityStore.clear()
+
+        guard isCollectionEnabled else { return false }
+
         forwardClearedIdentity()
         return true
     }

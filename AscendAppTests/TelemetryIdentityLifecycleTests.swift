@@ -98,6 +98,33 @@ struct TelemetryIdentityLifecycleTests {
         #expect(store.identifiedUserID == nil)
         #expect(telemetry.clearUserId() == false)
     }
+
+    /// The mirror is only honest if a suppressed run can retire an identity as well as refuse to
+    /// bank one. Leaving `climber-a` behind would hand the next enabled launch a restored identity
+    /// whose first signed-out report reads as the sign-out that already happened - the reset and
+    /// the `auth:sign_out` breadcrumb this whole state machine exists to stop firing.
+    @Test("Signing out while collection is off leaves nothing for the next enabled launch to clear")
+    func signOutUnderDisabledCollectionRetiresTheStoredIdentity() {
+        let store = makeTestIdentityStore()
+        makeTestTelemetry(sink: InMemoryTelemetrySink(destination: .analytics), identityStore: store)
+            .setUserId("climber-a")
+
+        let suppressed = makeTestTelemetry(
+            sink: InMemoryTelemetrySink(destination: .analytics),
+            collectionEnabled: false,
+            identityStore: store
+        )
+        let reportedSignOut = suppressed.clearUserId()
+
+        let relaunchSink = InMemoryTelemetrySink(destination: .analytics)
+        let relaunched = makeTestTelemetry(sink: relaunchSink, identityStore: store)
+        let didClearOnRelaunch = relaunched.clearUserId()
+
+        #expect(reportedSignOut == false)
+        #expect(store.identifiedUserID == nil)
+        #expect(didClearOnRelaunch == false)
+        #expect(relaunchSink.userIDs.isEmpty)
+    }
 }
 
 /// The shipped store is the half of the contract the in-memory double cannot prove: the record has
