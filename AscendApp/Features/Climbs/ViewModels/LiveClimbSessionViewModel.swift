@@ -456,7 +456,7 @@ final class LiveClimbSessionViewModel {
     }
 
     var currentLeaderboardRank: Int? {
-        leaderboardRows.first(where: \.isCurrentUser)?.rank ?? leaderboardWindow?.currentUserRank
+        leaderboardRows.first(where: \.isLiveAttempt)?.rank ?? leaderboardWindow?.currentUserRank
     }
 
     var currentRankDisplay: String {
@@ -464,7 +464,7 @@ final class LiveClimbSessionViewModel {
     }
 
     var completionLeaderboardRank: Int? {
-        leaderboardWindow?.currentUserRank ?? leaderboardRows.first(where: \.isCurrentUser)?.rank
+        leaderboardWindow?.currentUserRank ?? leaderboardRows.first(where: \.isLiveAttempt)?.rank
     }
 
     var completionLeaderboardTotal: Int? {

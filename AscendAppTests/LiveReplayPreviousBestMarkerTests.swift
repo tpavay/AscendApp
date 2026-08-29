@@ -201,7 +201,7 @@ struct LiveReplayPreviousBestMarkerTests {
         #expect(steps == 900)
         #expect(window.opponentRows.count == 8)
         #expect(window.locallyRankedRows(currentSteps: 347, currentElapsedSeconds: 300)
-            .contains { $0.isOwnPreviousCompletion } == false)
+            .contains { $0.isCurrentUser && !$0.isLiveAttempt } == false)
     }
 
     /// The rank the window renders and the rank it was fetched with are the same
@@ -278,8 +278,8 @@ struct LiveReplayPreviousBestMarkerTests {
             stepsAtBucket: stepsAtBucket,
             finalSteps: finalSteps ?? stepsAtBucket,
             deltaFromUser: 0,
-            isCurrentUser: false,
-            isOwnPreviousCompletion: true,
+            isCurrentUser: true,
+            isLiveAttempt: false,
             isPersonalBest: true,
             completionDurationSeconds: completionDurationSeconds,
             userId: "climber-self"

@@ -1242,10 +1242,8 @@ async function publishReplayEntries(
         payload.contextType === LIVE_CLIMB_CONTEXT_TYPE;
       const standing = freezesCompletionSnapshot || publishesLiveClimbStatus ?
         frozenCompletionStanding({
-          payload,
           reading: completionField,
-          completedCount,
-          existingFinisherData,
+          contextKey: payload.contextKey,
         }) :
         null;
       const summaryWrite = replaySummaryWrite({
@@ -1443,24 +1441,26 @@ function tiePolicy(contextType: string): string {
 /**
  * Reads the field a completed attempt is about to freeze its standing against.
  *
- * The stamp counts whatever the board it sits beside counts, so this read is
- * shaped by `collapsesRepeatFinishers` and nothing else. A collapsing context
- * races one row per climber, and the finishers subcollection already holds
- * exactly one document per climber - the same population `completedCount`
- * counts, written in the same transaction as the row it stands for - so the
- * numerator counts finishers whose stored best leads this attempt. Counting
- * entries flagged `isBestForUser` instead only ever agreed eventually: a rival
- * caught between an improved row committing and the old one being cleared
- * counted as two climbers and inflated a permanent rank by one.
+ * One population on every board: completed attempts, one row each, exactly the
+ * rows the static per-climb board ranks. The summary is a snapshot of where
+ * *this attempt* landed, and the climber will read it against a board that
+ * keeps every completion, so counting anything else makes the two disagree by
+ * construction.
  *
- * Every other context races each attempt as its own opponent, so it counts
- * attempts on both sides - including the one publishing now, which the write
- * that follows has not committed yet.
+ * Ranking climbers here instead is what let a repeat climber be told they came
+ * first with a slower time: their own faster completion was counted ahead of
+ * them and then subtracted back out again, on the reasoning that a board
+ * showing one row per climber must not seat someone behind themselves. The
+ * frozen summary is not that board.
  *
- * Ranks stay competition-style either way: only strictly better rows count, so
- * everything tied on the metric shares a rank. Steps are coarse integers, so
- * routine ties are common and that strict comparison is what keeps a recompute
- * from reshuffling tied climbers.
+ * The live race still collapses a climber's repeat runs to their best - that is
+ * a different question, asked of a different surface, and `isBestForUser` still
+ * answers it.
+ *
+ * Ranks stay competition-style: only strictly better rows count, so everything
+ * tied on the metric shares a rank. Steps are coarse integers, so routine ties
+ * are common and that strict comparison is what keeps a recompute from
+ * reshuffling tied climbers.
  * @param {LiveReplayIndexPayload} payload Replay payload.
  * @param {string} entryId Public row document ID.
  * @return {Promise<CompletionFieldReading>} Counts for the frozen standing.
@@ -1470,21 +1470,6 @@ async function readCompletionField(
   entryId: string
 ): Promise<CompletionFieldReading> {
   const rankingValue = attemptRankingValue(payload);
-
-  if (collapsesRepeatFinishers(payload)) {
-    const leadingFinishers = leadingRows(
-      finishersCollectionReference(payload),
-      payload.contextType,
-      finisherBestMetric(payload.contextType),
-      rankingValue
-    );
-
-    return {
-      betterRowCount: (await leadingFinishers.count().get()).data().count,
-      attemptCount: null,
-    };
-  }
-
   const entries = entriesCollectionReference(payload, 0);
   const [better, published, ownRow] = await Promise.all([
     leadingRows(
@@ -1530,77 +1515,38 @@ function leadingRows(
 /**
  * Resolves the permanent standing a finished attempt freezes.
  *
- * Both halves count one population: climbers where the board collapses repeat
- * finishers, attempts where it races every one of them. Nothing clamps the
- * result - a rank outside its own denominator means the two halves counted
- * different things, and rewriting it downward would only hide that with a
- * number that was never true either. It throws instead, so the publish retries
- * rather than freezing a lie into a value that never moves again.
+ * Both halves count one population: completed attempts, the climber's own
+ * earlier ones included. A faster attempt stands ahead of this one whoever ran
+ * it - being told you came first with a slower time than your own record is
+ * what a leaderboard exists not to say.
  *
- * A climber already holding a better standing best is one of the finishers the
- * numerator counted, and a board showing one row per climber must never seat
- * someone behind themselves, so their own leading row comes back out. Their
- * stored best arrives from the transaction that is about to overwrite it, so
- * removing it costs no read of its own.
+ * Nothing clamps the result - a rank outside its own denominator means the two
+ * halves counted different things, and rewriting it downward would only hide
+ * that with a number that was never true either. It throws instead, so the
+ * publish retries rather than freezing a lie into a value that never moves
+ * again.
  * @param {object} input Standing inputs.
- * @param {LiveReplayIndexPayload} input.payload Replay payload.
  * @param {CompletionFieldReading} input.reading Field counts.
- * @param {number} input.completedCount Distinct finishers, this one included.
- * @param {Record<string, unknown> | undefined} input.existingFinisherData This
- *   climber's finisher document as it stands before this publish.
+ * @param {string} input.contextKey Board this standing belongs to.
  * @return {FrozenCompletionStanding} Rank and the population it was measured
  *   against.
  */
 function frozenCompletionStanding(input: {
-  payload: LiveReplayIndexPayload;
   reading: CompletionFieldReading;
-  completedCount: number;
-  existingFinisherData: Record<string, unknown> | undefined;
+  contextKey: string;
 }): FrozenCompletionStanding {
-  const rank = input.reading.betterRowCount -
-    ownLeadingFinisherCount(input.payload, input.existingFinisherData) + 1;
-  const population = collapsesRepeatFinishers(input.payload) ?
-    input.completedCount :
-    input.reading.attemptCount ?? 0;
+  const rank = input.reading.betterRowCount + 1;
+  const population = input.reading.attemptCount ?? 0;
 
   if (rank < 1 || rank > population) {
     throw new Error(
       `Refusing to freeze rank ${rank} of ${population} for ` +
-      `${input.payload.contextKey}: the rank and its population disagree ` +
+      `${input.contextKey}: the rank and its population disagree ` +
       "about what they are counting."
     );
   }
 
   return {rank, population};
-}
-
-/**
- * Whether this climber's own finisher row is one of the leading rows counted.
- *
- * Only a collapsing board counts finisher rows at all, and only a stored best
- * that beats the attempt publishing now stands ahead of it. Read exactly as
- * the count filtered, so the subtraction can only ever remove a row that count
- * really did include.
- * @param {LiveReplayIndexPayload} payload Replay payload.
- * @param {Record<string, unknown> | undefined} finisherData Finisher document.
- * @return {number} 1 when this climber already leads this attempt, else 0.
- */
-function ownLeadingFinisherCount(
-  payload: LiveReplayIndexPayload,
-  finisherData: Record<string, unknown> | undefined
-): number {
-  if (!collapsesRepeatFinishers(payload)) {
-    return 0;
-  }
-
-  const storedBest = finisherStoredBest(payload, finisherData);
-  const leads = storedBest !== null && beatsOnMetric(
-    payload.contextType,
-    storedBest,
-    attemptRankingValue(payload)
-  );
-
-  return leads ? 1 : 0;
 }
 
 /**
