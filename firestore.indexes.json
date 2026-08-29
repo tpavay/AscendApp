@@ -315,6 +315,20 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "isBestForUser",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "completionDurationSeconds",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [
