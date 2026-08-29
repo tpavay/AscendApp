@@ -617,6 +617,9 @@ struct ShareComposerView: View {
                 circleButton(systemName: "chevron.left", accessibilityLabel: "Choose another background") {
                     viewModel.deselect()
                     viewModel.background = nil
+                    // Leaving the canvas retires the applied card too, or a standing that lands
+                    // afterwards redraws one the climber is no longer on.
+                    recapBake.backgroundReplaced()
                 }
                 Spacer()
                 circleButton(systemName: "camera.filters", accessibilityLabel: "Background filters") {

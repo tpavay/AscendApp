@@ -22,12 +22,21 @@ struct ShareRecapBakeState: Equatable {
         case redraw(ShareCardTemplate)
     }
 
+    /// How many times a silent redraw may run for one standing before it gives up.
+    ///
+    /// A redraw nobody asked for cannot report its failure, so stopping at the first one strands the
+    /// card on the rank-less image that was the reported bug - the standing lands once per
+    /// presentation, and nothing else can trigger a redraw. Retrying without a bound would spin a
+    /// renderer that is failing for good, so the budget is small and only a new standing refills it.
+    private static let redrawAttemptBudget = 3
+
     private(set) var appliedTemplate: ShareCardTemplate?
     private(set) var appliedRank: ShareComposerRank?
 
     private var applying: ShareCardTemplate?
     private var redrawing: ShareCardTemplate?
     private var queuedApply: ShareCardTemplate?
+    private var redrawFailures = 0
     private var rank: ShareComposerRank
 
     init(rank: ShareComposerRank) {
@@ -62,6 +71,7 @@ struct ShareRecapBakeState: Equatable {
         if succeeded {
             appliedTemplate = template
             appliedRank = rank
+            redrawFailures = 0
         }
         return next(retryRedraw: true)
     }
@@ -74,13 +84,17 @@ struct ShareRecapBakeState: Equatable {
         redrawing = nil
         if succeeded {
             appliedRank = rank
+            redrawFailures = 0
+        } else {
+            redrawFailures += 1
         }
-        return next(retryRedraw: succeeded)
+        return next(retryRedraw: succeeded || redrawFailures < Self.redrawAttemptBudget)
     }
 
     /// A standing landed.
     mutating func standingChanged(to rank: ShareComposerRank) -> Next {
         self.rank = rank
+        redrawFailures = 0
         return next(retryRedraw: true)
     }
 
@@ -88,6 +102,7 @@ struct ShareRecapBakeState: Equatable {
     mutating func backgroundReplaced() {
         appliedTemplate = nil
         appliedRank = nil
+        redrawFailures = 0
     }
 
     private mutating func next(retryRedraw: Bool) -> Next {

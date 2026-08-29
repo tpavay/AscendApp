@@ -126,19 +126,27 @@ struct ShareStatClusterPickerEvidenceTests {
         try await hostComposer(host) { window, _ in
             try await awaitControl(labelled: "Recaps", in: window)
             try activateAccessibilityElement(labelled: "Recaps", in: window)
-            try await settle(window, seconds: 1.0)
-            let beforeLabels = try await settledAccessibilityElements(under: window)
-                .compactMap(\.accessibilityLabel)
+
+            // Waited for by content rather than by a clock: a read that lands before the grid has
+            // drawn would pass the assertion below having pinned nothing, and that half is the
+            // captain's reported symptom. The always-offered cards are what say the grid is up.
+            let beforeLabels = try await settledAccessibilityElements(under: window) {
+                Self.recapGridIsPopulated($0)
+            }.compactMap(\.accessibilityLabel)
+            #expect(
+                Self.namesEveryAlwaysOfferedRecap(beforeLabels),
+                "the Recaps grid never drew, so nothing was pinned. Saw: \(beforeLabels)"
+            )
             #expect(
                 beforeLabels.allSatisfy { !$0.contains("Standing") },
                 "a climb with no resolved standing was offered a Standing card. Saw: \(beforeLabels)"
             )
 
             pending.standing = await Self.fetchedStanding(workoutId: workoutId, in: frozenStore)
-            try await settle(window, seconds: 1.2)
 
-            let afterLabels = try await settledAccessibilityElements(under: window)
-                .compactMap(\.accessibilityLabel)
+            let afterLabels = try await settledAccessibilityElements(under: window) {
+                $0.contains { $0.accessibilityLabel?.contains("Standing") == true }
+            }.compactMap(\.accessibilityLabel)
             #expect(
                 afterLabels.contains { $0.contains("Standing") },
                 "the standing landed and the Recaps tab still had no Standing card. Saw: \(afterLabels)"
@@ -235,6 +243,21 @@ struct ShareStatClusterPickerEvidenceTests {
             workoutId: workoutId.uuidString,
             service: CompletedClimbRankService(leaderboardService: leaderboard, store: store)
         )
+    }
+
+    /// The recap cards in the grid's first row, offered whatever the climb's standing is. Waiting
+    /// on them says the grid has drawn, where waiting on a non-empty tree says only that something
+    /// somewhere has.
+    private static let alwaysOfferedRecapTitles = ["Result", "Poster"]
+
+    private static func recapGridIsPopulated(_ elements: [NSObject]) -> Bool {
+        namesEveryAlwaysOfferedRecap(elements.compactMap(\.accessibilityLabel))
+    }
+
+    private static func namesEveryAlwaysOfferedRecap(_ labels: [String]) -> Bool {
+        alwaysOfferedRecapTitles.allSatisfy { title in
+            labels.contains { $0.contains(title) }
+        }
     }
 
     /// The tile reads out what it draws, so the frozen numbers have to be in it.
