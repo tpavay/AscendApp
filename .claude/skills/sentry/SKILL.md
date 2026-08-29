@@ -18,7 +18,7 @@ This is harness-neutral. If the current AI tool does not support skills, paste o
 - Web UI: `https://ascend-uk.sentry.io`
 - Issue short IDs look like `ASCEND-IOS-B`; numeric issue IDs look like `7582495782`. Both appear in alert emails.
 - **Only `production` reports.** Dev and staging no longer initialise the SDK at all (`SentryReportingPolicy`; `docs/sentry-setup.md`), so `environment:dev` and `environment:staging` hold history, not live traffic. `SentryOptionsFactory` owns every option the app starts with.
-- Useful custom tags set by the app: `ascend_error_code`, `ascend_error_context`, `build_config`, `app_environment`, `has_app_access`, `holds_sandbox_entitlement`, `storekit_receipt_name`, `last_diagnostic_event`, `release` (format `com.TylerPavay.AscendApp@1.0+<build>`; the `.staging` and `.dev` bundle IDs only appear on issues that predate the production-only gate).
+- Useful custom tags set by the app: `ascend_error_code`, `ascend_error_context`, `build_config`, `app_environment`, `has_app_access`, `holds_sandbox_entitlement`, `storekit_receipt_name`, `last_diagnostic_event`, `release` (format `com.TylerPavay.AscendApp@<marketing version>+<build>`, so the version moves with each release - `1.0` shipped first, `1.0.1` after it; the `.staging` and `.dev` bundle IDs only appear on issues that predate the production-only gate).
   The two StoreKit tags are set only once RevenueCat has answered, and only for reports that exist - a monetization symptom that raises an alert instead of an error carries them on the analytics events instead (`ascend-analytics`).
 
 ## Authentication
