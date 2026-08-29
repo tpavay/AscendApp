@@ -23,6 +23,9 @@
  *   gcloud auth application-default login
  */
 
+import {realpathSync} from "node:fs";
+import {fileURLToPath} from "node:url";
+
 import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {FieldValue, Timestamp, getFirestore} from "firebase-admin/firestore";
 
@@ -30,6 +33,13 @@ const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
 const PROD_PROJECT_ID = "ascend-prod-9c8f2";
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
+const LIVE_CLIMB_CONTEXT_TYPE = "live_climb";
+const ROUTINE_TEMPLATE_CONTEXT_TYPE = "routine_template";
+const ROUTINE_CONTEXT_TYPE = "routine";
+const DURATION_RANKING_METRIC = "completionDurationSeconds";
+const STEPS_RANKING_METRIC = "finalSteps";
+const DURATION_TIE_POLICY = "competition_rank_equal_durations_share_rank";
+const STEPS_TIE_POLICY = "competition_rank_equal_steps_share_rank";
 const SNAPSHOTS_COLLECTION = "completionSnapshots";
 const BUCKET_ZERO_DOC_ID = "0";
 const MAX_BATCH_WRITES = 450;
@@ -40,33 +50,60 @@ const PROJECT_ALIASES = new Map([
   ["production", PROD_PROJECT_ID],
 ]);
 
-const args = parseArgs(process.argv);
-const projectId = resolveProjectId(args.project);
-
-if (projectId === PROD_PROJECT_ID && !args.dryRun && !args.confirmProduction) {
-  throw new Error("Production backfill requires --confirm-production.");
+// Node leaves argv[1] unresolved through symlinks while the ESM loader
+// realpaths the module URL, so a plain compare makes this whole tool a silent
+// no-op that exits 0 whenever it is invoked through a linked path.
+if (isEntrypoint()) {
+  await main();
 }
 
-initializeApp({
-  credential: applicationDefault(),
-  projectId,
-});
+/**
+ * Resolves whether this module was invoked as the command, not imported.
+ * @return {boolean} True when this file is the process entrypoint.
+ */
+function isEntrypoint() {
+  const invoked = process.argv[1];
+  if (!invoked) {
+    return false;
+  }
+  try {
+    return realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
 
-const db = getFirestore();
-const result = await backfillCompletionSnapshots(db, args);
+/**
+ * Runs the backfill and prints its report.
+ */
+async function main() {
+  const args = parseArgs(process.argv);
+  const projectId = resolveProjectId(args.project);
 
-console.log(
-  [
-    `Project: ${projectId}`,
-    `Mode: ${args.dryRun ? "dry run" : "write"}`,
-    `Contexts scanned: ${result.contextsScanned}`,
-    `Entries scanned: ${result.entriesScanned}`,
-    `Snapshots existing: ${result.existingSnapshots}`,
-    `Snapshots planned: ${result.snapshotsPlanned}`,
-    `Snapshots written: ${result.snapshotsWritten}`,
-    `Entries skipped: ${result.entriesSkipped}`,
-  ].join("\n")
-);
+  if (projectId === PROD_PROJECT_ID && !args.dryRun && !args.confirmProduction) {
+    throw new Error("Production backfill requires --confirm-production.");
+  }
+
+  initializeApp({
+    credential: applicationDefault(),
+    projectId,
+  });
+
+  const result = await backfillCompletionSnapshots(getFirestore(), args);
+
+  console.log(
+    [
+      `Project: ${projectId}`,
+      `Mode: ${args.dryRun ? "dry run" : "write"}`,
+      `Contexts scanned: ${result.contextsScanned}`,
+      `Entries scanned: ${result.entriesScanned}`,
+      `Snapshots existing: ${result.existingSnapshots}`,
+      `Snapshots planned: ${result.snapshotsPlanned}`,
+      `Snapshots written: ${result.snapshotsWritten}`,
+      `Entries skipped: ${result.entriesSkipped}`,
+    ].join("\n")
+  );
+}
 
 /**
  * Parses command-line arguments.
@@ -326,7 +363,7 @@ async function completionMillisForEntry(
  * @param {object[]} entries Enriched entries.
  * @return {object[]} Snapshot write payloads.
  */
-function buildCompletionSnapshots(entries) {
+export function buildCompletionSnapshots(entries) {
   const sorted = [...entries].sort((lhs, rhs) => {
     if (lhs.completionMillis !== rhs.completionMillis) {
       return lhs.completionMillis - rhs.completionMillis;
@@ -340,6 +377,10 @@ function buildCompletionSnapshots(entries) {
     // everywhere else. Two halves counting different populations is what needed
     // a `Math.min` clamp to stay possible at all, and that clamp is what made a
     // repeat climber's slower run read "1st of 1".
+    //
+    // Ordered on the metric the board itself ranks on, never on the clock by
+    // default: a routine fixes the clock and ranks on steps, so a repair that
+    // assumed duration would freeze a permanent order the board contradicts.
     const completedSoFar = entries.filter(
       (candidate) => candidate.completionMillis <= entry.completionMillis
     );
@@ -355,10 +396,10 @@ function buildCompletionSnapshots(entries) {
       finalSteps: entry.finalSteps,
       rank,
       rankedAt: entry.rankedAt,
-      rankingMetric: "completionDurationSeconds",
+      rankingMetric: rankingMetricFor(entry.contextType),
       schemaVersion: 1,
       targetStepCount: entry.targetStepCount,
-      tiePolicy: "competition_rank_equal_durations_share_rank",
+      tiePolicy: tiePolicyFor(entry.contextType),
       userId: entry.userId,
       workoutId: entry.workoutId,
       backfilledAt: FieldValue.serverTimestamp(),
@@ -375,8 +416,70 @@ function buildCompletionSnapshots(entries) {
  * @param {string} contextType Replay context type.
  * @return {boolean} True when the context collapses repeat finishers.
  */
-function collapsesRepeatFinishers(contextType) {
-  return contextType === "live_climb" || contextType === "routine_template";
+export function collapsesRepeatFinishers(contextType) {
+  return contextType === LIVE_CLIMB_CONTEXT_TYPE ||
+    contextType === ROUTINE_TEMPLATE_CONTEXT_TYPE;
+}
+
+/**
+ * Whether a context ranks on steps rather than on the clock.
+ *
+ * Mirrors `ranksOnSteps` in functions/src/liveReplayLeaderboard.ts. A routine
+ * fixes the clock, so its field is ordered by steps and higher wins; every
+ * other board reaches the same target, so the fastest run wins.
+ * @param {string} contextType Replay context type.
+ * @return {boolean} True when the context ranks on steps.
+ */
+function ranksOnSteps(contextType) {
+  return contextType === ROUTINE_TEMPLATE_CONTEXT_TYPE ||
+    contextType === ROUTINE_CONTEXT_TYPE;
+}
+
+/**
+ * Whether one ranking value stands strictly ahead of another.
+ *
+ * The one place this file expresses "ahead", mirroring `beatsOnMetric` on the
+ * server, so a repaired snapshot can never be ordered by a metric the board
+ * does not rank on.
+ * @param {string} contextType Replay context type.
+ * @param {number} value Candidate ranking value.
+ * @param {number} other Ranking value to beat.
+ * @return {boolean} True when value is strictly better than other.
+ */
+function beatsOnMetric(contextType, value, other) {
+  return ranksOnSteps(contextType) ? value > other : value < other;
+}
+
+/**
+ * The value one completion is ranked on, in its context's own metric.
+ * @param {string} contextType Replay context type.
+ * @param {object} entry Enriched entry.
+ * @return {number} Ranking value.
+ */
+function rankingValueFor(contextType, entry) {
+  return ranksOnSteps(contextType) ?
+    entry.finalSteps :
+    entry.completionDurationSeconds;
+}
+
+/**
+ * The field name a context's snapshots record their ordering against.
+ * @param {string} contextType Replay context type.
+ * @return {string} Ranking metric field name.
+ */
+function rankingMetricFor(contextType) {
+  return ranksOnSteps(contextType) ?
+    STEPS_RANKING_METRIC :
+    DURATION_RANKING_METRIC;
+}
+
+/**
+ * How a context resolves completions that tie on its ranking metric.
+ * @param {string} contextType Replay context type.
+ * @return {string} Tie policy identifier.
+ */
+function tiePolicyFor(contextType) {
+  return ranksOnSteps(contextType) ? STEPS_TIE_POLICY : DURATION_TIE_POLICY;
 }
 
 /**
@@ -390,20 +493,22 @@ function collapsesRepeatFinishers(contextType) {
  * @param {object} entry Attempt being stamped.
  * @return {{completedCount: number, rank: number}} Standing.
  */
-function climberStanding(completedSoFar, entry) {
+export function climberStanding(completedSoFar, entry) {
+  const contextType = entry.contextType;
   const bestByUser = new Map();
 
   for (const candidate of completedSoFar) {
+    const value = rankingValueFor(contextType, candidate);
     const best = bestByUser.get(candidate.userId);
-    if (best === undefined || candidate.completionDurationSeconds < best) {
-      bestByUser.set(candidate.userId, candidate.completionDurationSeconds);
+    if (best === undefined || beatsOnMetric(contextType, value, best)) {
+      bestByUser.set(candidate.userId, value);
     }
   }
 
   const ownBest = bestByUser.get(entry.userId) ??
-    entry.completionDurationSeconds;
+    rankingValueFor(contextType, entry);
   const rank = [...bestByUser.values()]
-    .filter((best) => best < ownBest)
+    .filter((best) => beatsOnMetric(contextType, best, ownBest))
     .length + 1;
 
   return {completedCount: Math.max(bestByUser.size, 1), rank};
@@ -419,10 +524,15 @@ function climberStanding(completedSoFar, entry) {
  * @param {object} entry Attempt being stamped.
  * @return {{completedCount: number, rank: number}} Standing.
  */
-function attemptStanding(completedSoFar, entry) {
+export function attemptStanding(completedSoFar, entry) {
+  const contextType = entry.contextType;
+  const entryValue = rankingValueFor(contextType, entry);
   const rank = completedSoFar.filter(
-    (candidate) =>
-      candidate.completionDurationSeconds < entry.completionDurationSeconds
+    (candidate) => beatsOnMetric(
+      contextType,
+      rankingValueFor(contextType, candidate),
+      entryValue
+    )
   ).length + 1;
 
   return {completedCount: Math.max(completedSoFar.length, 1), rank};

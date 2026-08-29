@@ -1,6 +1,6 @@
 import Foundation
 
-enum LiveReplayLeaderboardContextType: String, Codable, Sendable {
+enum LiveReplayLeaderboardContextType: String, CaseIterable, Codable, Sendable {
     case liveClimb = "live_climb"
     case justClimb = "just_climb"
     case routineTemplate = "routine_template"
