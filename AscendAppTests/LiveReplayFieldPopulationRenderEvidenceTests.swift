@@ -11,9 +11,8 @@ import Vision
 ///
 /// The three answer different questions about one climb on purpose - the live
 /// race collapses a rival's repeat runs to their best, the static board keeps
-/// every completion, the completion hero freezes one attempt's placement among
-/// those completions - and before this change none of them said which
-/// population it counted.
+/// every completion, the completion hero freezes a placement - and before this
+/// change none of them said which population it counted.
 ///
 /// Two of the three are the shipping views themselves: `LiveReplayLeaderboardPanel`
 /// as `LiveClimbSessionView` configures it, and `LiveClimbCompletionSummaryView`
@@ -82,29 +81,24 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
         try writeEvidence(image: image, named: "field-population-3-climb-detail-all-times.png")
     }
 
-    /// Screen 3, rendered by the shipping completion summary: the hero ranks the
-    /// attempt that just finished among completed attempts, so its field line
-    /// names completions even on a landmark board whose live race collapses
-    /// repeat runs.
-    ///
-    /// Borrowing the live race's noun here is what let a climber be told they
-    /// were "1st of 1 climbers" on a run slower than their own record, while
-    /// Climb Detail listed that run second of two.
+    /// Screen 3, rendered by the shipping completion summary: a landmark climb's
+    /// context collapses repeat finishers, so the hero's field line names climbers.
     @Test
-    func theCompletionHeroNamesTheCompletionFieldItWasRankedAgainst() async throws {
+    func theCompletionHeroNamesTheClimberFieldItWasRankedAgainst() async throws {
         let image = try renderCompletionSummary(
             context: .liveClimb(climbId: "cn-tower", targetSteps: 2_579)
         )
         let text = try await recognizedText(in: image)
 
-        #expect(text.contains("fastest of 27 completions"))
-        #expect(!text.contains("fastest of 27 climbers"))
+        #expect(text.contains("fastest of 27 climbers"))
+        #expect(!text.contains("fastest of 27 completions"))
 
         try writeEvidence(image: image, named: "field-population-4-completion-hero-climbers.png")
     }
 
-    /// The same noun on a board that never collapsed anything, so the hero's
-    /// population cannot be read as an accident of which context it was handed.
+    /// The noun follows the replay context rather than being hardcoded. An open
+    /// Just Climb has no step target to collapse on and races every completed
+    /// attempt, so the same hero, same rank, same total says completions.
     @Test
     func theSameHeroSaysCompletionsWhereTheContextRacesAttempts() async throws {
         let image = try renderCompletionSummary(context: .justClimbGlobal(targetSteps: 2_579))
@@ -134,7 +128,7 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
             ),
             (
                 "Completion summary - the rank you just froze",
-                "FASTEST OF 27 COMPLETIONS. It ranks the attempt that just finished, against the same rows ALL TIMES lists.",
+                "FASTEST OF 27 CLIMBERS. The noun comes from the replay context, so an open Just Climb says COMPLETIONS instead.",
                 try crop(
                     try renderCompletionSummary(
                         context: .liveClimb(climbId: "cn-tower", targetSteps: 2_579)

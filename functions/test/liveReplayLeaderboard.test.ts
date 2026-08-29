@@ -1563,65 +1563,88 @@ function makePublicUser(): PublicUserSnapshot {
 
 /**
  * The frozen standing stamped on a finished attempt is permanent, so its two
- * halves have to count one population by construction. That population is
- * completed attempts - the rows the static per-climb board ranks - because the
- * summary is where *this attempt* landed and the climber reads it against that
- * board.
+ * halves have to count one population by construction. They used to disagree -
+ * the rank counted every strictly better entry while the denominator counted
+ * distinct finishers - and a `Math.min` clamp rewrote the rank downward until
+ * the pair looked plausible.
  *
- * Ranking climbers here instead is what told a repeat climber they came first
- * with a slower time than their own record: their own faster completion was
- * counted ahead of them and then subtracted straight back out.
+ * Settled by the captain on 2026-08-29: "1st of 5" on a board that collapses
+ * repeat finishers names five *people*, so both halves there count distinct
+ * climbers and the denominator is the transaction's `completedCount`. An open
+ * Just Climb races every attempt as its own opponent, so both halves count
+ * attempts.
  *
- * An impossible pairing still throws rather than being clamped into a plausible
- * lie.
+ * The numerator that reaches this function already compared against the
+ * climber's *resulting* best (`readCompletionField`), so their own finisher row
+ * can never be one of the rows it counted. Nothing is subtracted here and
+ * nothing is clamped: an impossible pairing throws instead.
  */
-test("seats a slower repeat attempt behind the climber's own faster one", () => {
-  // The captain's St Peter's Basilica pair: one climber, two completions, the
-  // second slower. It is second of two, exactly as climb detail shows it.
-  const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-    reading: {betterRowCount: 1, attemptCount: 2},
-    contextKey: "live_climb__st-peters-basilica",
-  });
-
-  assert.deepEqual(standing, {rank: 2, population: 2});
-});
-
 test("keeps a first finisher at first of one", () => {
   const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-    reading: {betterRowCount: 0, attemptCount: 1},
+    reading: {betterRowCount: 0, attemptCount: null},
+    completedCount: 1,
     contextKey: "live_climb__st-peters-basilica",
   });
 
   assert.deepEqual(standing, {rank: 1, population: 1});
 });
 
-test("puts a faster repeat attempt back in front", () => {
-  // Beating your own record takes first and leaves the older, slower row
-  // behind it - three completions on the board, this one leading them all.
+test("counts a repeat rival once on a board that races climbers", () => {
+  // One rival holding five faster attempts is one finisher document ahead,
+  // because the board carries one row per climber.
   const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-    reading: {betterRowCount: 0, attemptCount: 3},
+    reading: {betterRowCount: 1, attemptCount: null},
+    completedCount: 2,
     contextKey: "live_climb__st-peters-basilica",
   });
 
-  assert.deepEqual(standing, {rank: 1, population: 3});
+  assert.deepEqual(standing, {rank: 2, population: 2});
 });
 
-test("shares a rank with every attempt tied on the metric", () => {
-  // Competition rank: only strictly better rows count, so two attempts on the
-  // same time both read second of three.
+test("beating your own earlier attempt leaves the climber count alone", () => {
+  // Improving on a collapsing board adds no climber: the same four people
+  // stand on it, and the numerator measured this climber's improved best.
   const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-    reading: {betterRowCount: 1, attemptCount: 3},
+    reading: {betterRowCount: 0, attemptCount: null},
+    completedCount: 4,
+    contextKey: "live_climb__st-peters-basilica",
+  });
+
+  assert.deepEqual(standing, {rank: 1, population: 4});
+});
+
+test("leaves a slower repeat standing where the climber already stood", () => {
+  // The captain's St Peter's pair. Their record still leads the field, so the
+  // resulting best is unchanged and so is the standing - reached without a
+  // subtraction, which is what used to produce "1st of 1" from "2nd of 1".
+  const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
+    reading: {betterRowCount: 1, attemptCount: null},
+    completedCount: 3,
     contextKey: "live_climb__st-peters-basilica",
   });
 
   assert.deepEqual(standing, {rank: 2, population: 3});
 });
 
+test("shares a rank with every climber tied on the metric", () => {
+  // Competition rank: only strictly better rows count, so two climbers on a
+  // dead heat at the front both read first of three.
+  const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
+    reading: {betterRowCount: 0, attemptCount: null},
+    completedCount: 3,
+    contextKey: "live_climb__st-peters-basilica",
+  });
+
+  assert.deepEqual(standing, {rank: 1, population: 3});
+});
+
 test("counts every repeat attempt on a board that races attempts", () => {
   // No target, so a climber's shortest attempt is the one they quit earliest.
-  // All five of a rival's faster attempts are real opponents.
+  // All five of a rival's faster attempts are real opponents, and the
+  // denominator has to count attempts for the pair to mean anything.
   const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
     reading: {betterRowCount: 5, attemptCount: 6},
+    completedCount: 1,
     contextKey: "just_climb__global",
   });
 
@@ -1629,21 +1652,24 @@ test("counts every repeat attempt on a board that races attempts", () => {
 });
 
 test("refuses to freeze a rank its population cannot hold", () => {
-  // Two halves counting different things. Freezing any number from that is
-  // worse than failing the publish, so nothing is clamped.
+  // Exactly the pairing the clamp used to swallow: five better rows against
+  // three climbers. It is not "3rd of 3" - it is two halves counting different
+  // things, and freezing any number from it is worse than failing the publish.
   assert.throws(
     () => liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-      reading: {betterRowCount: 5, attemptCount: 3},
+      reading: {betterRowCount: 5, attemptCount: null},
+      completedCount: 3,
       contextKey: "live_climb__st-peters-basilica",
     }),
     /rank 6 of 3/
   );
 });
 
-test("refuses to freeze an attempt rank with no attempt count", () => {
+test("refuses to freeze an attempt rank with no attempts counted", () => {
   assert.throws(
     () => liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-      reading: {betterRowCount: 0, attemptCount: null},
+      reading: {betterRowCount: 0, attemptCount: 0},
+      completedCount: 9,
       contextKey: "just_climb__global",
     }),
     /rank 1 of 0/
