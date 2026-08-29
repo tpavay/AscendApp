@@ -394,6 +394,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             context: context,
             bucketIndex: bucketIndex,
             currentSteps: currentSteps,
+            direction: .ahead,
             limit: rowsAhead,
             currentUserId: currentUserId
         )
@@ -422,6 +423,14 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             bucketIndex: bucketIndex,
             currentSteps: currentSteps
         )
+        async let finishedBehindRows = optionalFetchFinishedRows(
+            context: context,
+            bucketIndex: bucketIndex,
+            currentSteps: currentSteps,
+            direction: .behind,
+            limit: rowsBehind,
+            currentUserId: currentUserId
+        )
 
         let resolvedSummary = try await summary
         let fetchedRunningAheadRows = try await runningAheadRows
@@ -431,8 +440,14 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             finished: fetchedFinishedAheadRows,
             limit: rowsAhead
         )
-        let rowsBehind = try await behindRows
         let ownPreviousCompletionRow = await ownPreviousCompletion
+        let fetchedRunningBehindRows = try await behindRows
+        let fetchedFinishedBehindRows = await finishedBehindRows
+        let rowsBehind = Self.mergedBehindRows(
+            running: fetchedRunningBehindRows,
+            finished: fetchedFinishedBehindRows,
+            limit: rowsBehind
+        )
         let currentUserRank = await Self.aheadCount(
             running: runningAheadCount,
             finished: finishedAheadCount,
@@ -609,26 +624,45 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     /// who had already finished - the climber's own earlier completion first of
     /// all - and promoted the attempt still running to first place. A finisher
     /// does not leave the race; it holds its final steps for the rest of it.
+    ///
+    /// Both sides of the window need it. A landmark climb hides the behind half
+    /// of the defect, because every completion is at or past the target and so
+    /// stands ahead until the climber overshoots; an open Just Climb has no
+    /// target at all, so a rival who stopped at 200 steps vanishes the moment
+    /// the climber passes 200 - the same disappearance, below the row instead of
+    /// above it.
     private func finishedRowsQuery(
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int,
-        currentSteps: Int
+        currentSteps: Int,
+        direction: WindowDirection
     ) -> Query {
         // `splitBucketCount` is the exact count of buckets an entry was written
         // to, so this predicate is the precise complement of "present in this
         // bucket": no attempt can be read as both running and finished, and none
         // can fall between the two.
-        liveRaceEntries(context: context, bucketIndex: 0)
+        let finished = liveRaceEntries(context: context, bucketIndex: 0)
             .whereField("splitBucketCount", isLessThanOrEqualTo: bucketIndex)
-            .whereField("finalSteps", isGreaterThanOrEqualTo: currentSteps)
-            .order(by: "finalSteps")
-            .order(by: "splitBucketCount")
+
+        switch direction {
+        case .ahead:
+            return finished
+                .whereField("finalSteps", isGreaterThanOrEqualTo: currentSteps)
+                .order(by: "finalSteps", descending: false)
+                .order(by: "splitBucketCount", descending: false)
+        case .behind:
+            return finished
+                .whereField("finalSteps", isLessThan: currentSteps)
+                .order(by: "finalSteps", descending: true)
+                .order(by: "splitBucketCount", descending: true)
+        }
     }
 
     private func fetchFinishedRows(
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int,
         currentSteps: Int,
+        direction: WindowDirection,
         limit: Int,
         currentUserId: String?
     ) async throws -> [LiveReplayLeaderboardRow] {
@@ -637,7 +671,8 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         let snapshot = try await finishedRowsQuery(
             context: context,
             bucketIndex: bucketIndex,
-            currentSteps: currentSteps
+            currentSteps: currentSteps,
+            direction: direction
         )
         .limit(to: limit)
         .getDocuments(source: .server)
@@ -662,7 +697,8 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         let snapshot = try await finishedRowsQuery(
             context: context,
             bucketIndex: bucketIndex,
-            currentSteps: currentSteps
+            currentSteps: currentSteps,
+            direction: .ahead
         )
         .count
         .getAggregation(source: .server)
@@ -689,6 +725,29 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
                 lhs.stepsAtBucket == rhs.stepsAtBucket ?
                     lhs.id < rhs.id :
                     lhs.stepsAtBucket < rhs.stepsAtBucket
+            }
+        return Array(merged.prefix(limit))
+    }
+
+    /// The rows standing behind the live attempt, nearest first.
+    ///
+    /// The twin of `mergedAheadRows`, sorted the other way: both halves arrive
+    /// descending by steps, and the window keeps the `limit` nearest, which is
+    /// again the head. Rank never consults this side - it is `aheadCount + 1` -
+    /// so the finished rows below cost a fetch and no count.
+    static func mergedBehindRows(
+        running: [LiveReplayLeaderboardRow],
+        finished: [LiveReplayLeaderboardRow],
+        limit: Int
+    ) -> [LiveReplayLeaderboardRow] {
+        guard limit > 0 else { return [] }
+        guard !finished.isEmpty else { return Array(running.prefix(limit)) }
+
+        let merged = (running + finished)
+            .sorted { lhs, rhs in
+                lhs.stepsAtBucket == rhs.stepsAtBucket ?
+                    lhs.id < rhs.id :
+                    lhs.stepsAtBucket > rhs.stepsAtBucket
             }
         return Array(merged.prefix(limit))
     }
@@ -822,10 +881,16 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         }
     }
 
+    /// Swallowing the error is the point - the board keeps racing without the
+    /// rivals already home - but a swallowed error and an empty finished field
+    /// look identical, and the likeliest cause is the composite index this read
+    /// needs not being deployed yet, which degrades straight back into the
+    /// vanishing-rows defect. Say which it was.
     private func optionalFetchFinishedRows(
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int,
         currentSteps: Int,
+        direction: WindowDirection,
         limit: Int,
         currentUserId: String?
     ) async -> [LiveReplayLeaderboardRow] {
@@ -834,10 +899,15 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
                 context: context,
                 bucketIndex: bucketIndex,
                 currentSteps: currentSteps,
+                direction: direction,
                 limit: limit,
                 currentUserId: currentUserId
             )
         } catch {
+            debugLog(
+                "Live replay finished-row fetch failed for \(context.contextKey) " +
+                "bucket \(bucketIndex): \(error.localizedDescription)"
+            )
             return []
         }
     }
@@ -854,6 +924,10 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
                 currentSteps: currentSteps
             )
         } catch {
+            debugLog(
+                "Live replay finished-row count failed for \(context.contextKey) " +
+                "bucket \(bucketIndex): \(error.localizedDescription)"
+            )
             return nil
         }
     }

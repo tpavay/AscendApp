@@ -9,9 +9,8 @@ import Testing
 ///
 /// The three answer different questions about one climb on purpose - the live
 /// race collapses a rival's repeat runs to their best, the static board keeps
-/// every completion, the completion hero freezes one attempt's placement among
-/// those completions - and before this change none of them said which
-/// population it counted.
+/// every completion, the completion hero freezes a placement - and before this
+/// change none of them said which population it counted.
 ///
 /// Two of the three are the shipping views themselves: `LiveReplayLeaderboardPanel`
 /// as `LiveClimbSessionView` configures it, and `LiveClimbCompletionSummaryView`
@@ -87,14 +86,8 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
         }
     }
 
-    /// Screen 3, rendered by the shipping completion summary: the hero ranks the
-    /// attempt that just finished among completed attempts, so its field line
-    /// names completions even on a landmark board whose live race collapses
-    /// repeat runs.
-    ///
-    /// Borrowing the live race's noun here is what let a climber be told they
-    /// were "1st of 1 climbers" on a run slower than their own record, while
-    /// Climb Detail listed that run second of two.
+    /// Screen 3, rendered by the shipping completion summary: a landmark climb's
+    /// context collapses repeat finishers, so the hero's field line names climbers.
     @Test
     func theCompletionHeroNamesTheClimberFieldItWasRankedAgainst() async throws {
         try await RenderedScreen.host(
@@ -110,8 +103,9 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
         }
     }
 
-    /// The same noun on a board that never collapsed anything, so the hero's
-    /// population cannot be read as an accident of which context it was handed.
+    /// The noun follows the replay context rather than being hardcoded. An open
+    /// Just Climb has no step target to collapse on and races every completed
+    /// attempt, so the same hero, same rank, same total says completions.
     @Test
     func theSameHeroSaysCompletionsWhereTheContextRacesAttempts() async throws {
         try await RenderedScreen.host(

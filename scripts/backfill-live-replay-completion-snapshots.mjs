@@ -7,8 +7,9 @@
  * existing leaderboard rows by reconstructing attempt completion time from the
  * private workout backup when available.
  *
- * It is also the repair path for snapshots frozen before the standing counted
- * completions: run it with `--force` over one context to rewrite them.
+ * It is also the repair path for snapshots frozen while the numerator counted a
+ * climber's own leading row and then subtracted it back out: run it with
+ * `--force` over one context to rewrite them.
  *
  * Usage:
  *   node scripts/backfill-live-replay-completion-snapshots.mjs --project dev --dry-run
@@ -334,22 +335,17 @@ function buildCompletionSnapshots(entries) {
   });
 
   return sorted.map((entry) => {
-    // One population on both halves, the same one the live publish path counts
-    // and the same one Climb Detail lists: completed attempts, this climber's
-    // own earlier ones included. Counting distinct climbers here needed a
-    // `Math.min` clamp to stay possible at all, and clamping is what made a
+    // One population on both halves, the same one the live publish path counts:
+    // distinct climbers where the board collapses repeat finishers, attempts
+    // everywhere else. Two halves counting different populations is what needed
+    // a `Math.min` clamp to stay possible at all, and that clamp is what made a
     // repeat climber's slower run read "1st of 1".
-    const completedAttempts = entries.filter(
+    const completedSoFar = entries.filter(
       (candidate) => candidate.completionMillis <= entry.completionMillis
     );
-    const completedCount = Math.max(completedAttempts.length, 1);
-    // Strictly faster only, so attempts tied on the clock share a rank. Every
-    // row counted here is one of the rows `completedCount` counted, so the pair
-    // is coherent by construction and needs no clamp.
-    const rank = completedAttempts.filter(
-      (candidate) =>
-        candidate.completionDurationSeconds < entry.completionDurationSeconds
-    ).length + 1;
+    const {completedCount, rank} = collapsesRepeatFinishers(entry.contextType) ?
+      climberStanding(completedSoFar, entry) :
+      attemptStanding(completedSoFar, entry);
 
     return {
       completedCount,
@@ -369,6 +365,67 @@ function buildCompletionSnapshots(entries) {
       backfillSource: "private_workout_completion_time_v1",
     };
   });
+}
+
+/**
+ * Whether a context races one row per climber rather than one per attempt.
+ *
+ * Mirrors `collapsesRepeatFinishers` in functions/src/liveReplayLeaderboard.ts,
+ * so a repaired snapshot and a freshly frozen one count the same population.
+ * @param {string} contextType Replay context type.
+ * @return {boolean} True when the context collapses repeat finishers.
+ */
+function collapsesRepeatFinishers(contextType) {
+  return contextType === "live_climb" || contextType === "routine_template";
+}
+
+/**
+ * Standing on a board that collapses a climber's repeat runs to their best.
+ *
+ * Both halves count distinct climbers, and the numerator compares against this
+ * climber's own best at that moment - which already includes the attempt being
+ * stamped - so their own row can never satisfy a strictly-faster filter and
+ * nothing has to be subtracted back out.
+ * @param {object[]} completedSoFar Attempts completed by this moment.
+ * @param {object} entry Attempt being stamped.
+ * @return {{completedCount: number, rank: number}} Standing.
+ */
+function climberStanding(completedSoFar, entry) {
+  const bestByUser = new Map();
+
+  for (const candidate of completedSoFar) {
+    const best = bestByUser.get(candidate.userId);
+    if (best === undefined || candidate.completionDurationSeconds < best) {
+      bestByUser.set(candidate.userId, candidate.completionDurationSeconds);
+    }
+  }
+
+  const ownBest = bestByUser.get(entry.userId) ??
+    entry.completionDurationSeconds;
+  const rank = [...bestByUser.values()]
+    .filter((best) => best < ownBest)
+    .length + 1;
+
+  return {completedCount: Math.max(bestByUser.size, 1), rank};
+}
+
+/**
+ * Standing on a board that races every attempt as its own opponent.
+ *
+ * Strictly faster only, so attempts tied on the clock share a rank. Every row
+ * counted here is one of the rows `completedCount` counted, so the pair is
+ * coherent by construction and needs no clamp.
+ * @param {object[]} completedSoFar Attempts completed by this moment.
+ * @param {object} entry Attempt being stamped.
+ * @return {{completedCount: number, rank: number}} Standing.
+ */
+function attemptStanding(completedSoFar, entry) {
+  const rank = completedSoFar.filter(
+    (candidate) =>
+      candidate.completionDurationSeconds < entry.completionDurationSeconds
+  ).length + 1;
+
+  return {completedCount: Math.max(completedSoFar.length, 1), rank};
 }
 
 /**

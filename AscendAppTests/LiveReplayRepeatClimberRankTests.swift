@@ -94,6 +94,50 @@ struct LiveReplayRepeatClimberRankTests {
     }
 
     @Test
+    func aFinishedAttemptBelowTheLiveClimberStaysOnTheBoard() {
+        // The same vanishing, on the other side of the row. A landmark climb
+        // hides it - every completion is at or past the target, so a finisher
+        // is always ahead - but an open Just Climb has no target, so a rival who
+        // stopped at 200 steps has no entry in any bucket past their own and
+        // disappears entirely the moment the climber passes 200.
+        let stopped = stoppedRival(id: "stopped-at-200", finalSteps: 200)
+            .holdingFinalSteps(currentSteps: 260)
+
+        let rows = FirestoreLiveReplayLeaderboardRepository.mergedBehindRows(
+            running: [],
+            finished: [stopped],
+            limit: 8
+        )
+
+        #expect(rows.map(\.id) == ["stopped-at-200"])
+        #expect(rows.first?.stepsAtBucket == 200)
+        #expect(rows.first?.deltaFromUser == -60)
+    }
+
+    @Test
+    func mergingBehindKeepsTheRowsNearestBelowRatherThanTheSlowest() {
+        // Two rivals still climbing just below, three already stopped further
+        // down. The window holds three rows, so it keeps the three closest
+        // behind - the twin of the ahead merge, sorted the other way.
+        let running = [
+            stoppedRival(id: "running-240", finalSteps: 240),
+            stoppedRival(id: "running-210", finalSteps: 210)
+        ]
+        let finished = [200, 120, 60].map { steps in
+            stoppedRival(id: "finished-\(steps)", finalSteps: steps)
+        }
+
+        let rows = FirestoreLiveReplayLeaderboardRepository.mergedBehindRows(
+            running: running,
+            finished: finished,
+            limit: 3
+        )
+
+        #expect(rows.map(\.stepsAtBucket) == [240, 210, 200])
+        #expect(rows.map(\.id) == ["running-240", "running-210", "finished-200"])
+    }
+
+    @Test
     func aFailedCountFallsBackToTheRowsOnScreenRatherThanHalfAField() {
         // Summing a real count with a fallback would report a rank measured
         // against a population nothing counted.
@@ -257,6 +301,24 @@ struct LiveReplayRepeatClimberRankTests {
             gender: "man",
             age: 27,
             locationCity: "Chicago"
+        )
+    }
+
+    /// A rival who stopped short of any target, held at the steps they stopped
+    /// on - the shape the finished half of an open Just Climb read returns.
+    private func stoppedRival(id: String, finalSteps: Int) -> LiveReplayLeaderboardRow {
+        LiveReplayLeaderboardRow(
+            id: id,
+            rank: nil,
+            displayName: "Rival",
+            avatarToken: "RV",
+            photoURL: nil,
+            stepsAtBucket: finalSteps,
+            finalSteps: finalSteps,
+            deltaFromUser: 0,
+            isCurrentUser: false,
+            isPersonalBest: false,
+            completionDurationSeconds: 320
         )
     }
 
