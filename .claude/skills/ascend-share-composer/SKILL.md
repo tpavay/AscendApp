@@ -72,7 +72,8 @@ All three come off the one missing pair - `ShareStatResolver` returns nil, so `a
   The rank cluster and stickers are simply not offered and the Standing template is withheld; the other recap cards still draw, minus their rank tab.
 
 Anchors: `SavedClimbShareRankTests`, `ShareRecapBakeStateTests`, and `ShareStatClusterPickerEvidenceTests.aSavedClimbOpensWithoutItsRankAndGainsItWhenTheStandingLands`, which walks the saved path through the shipping view in a phone-sized window, from the rank-less card the captain reported to the standing landing behind the presented cover.
-Keep that suite small on purpose: it is `.hostsAWindow`, and hosting a window costs roughly three and a half minutes per test on a CI runner against a 45-minute job cap, so new coverage belongs in the two cheap suites beside it unless it genuinely needs a live screen.
+Keep that suite small on purpose: it is `.hostsAWindow`, which is the one test cost that can push `iOS Verify (Staging)` past its cap, and taking it from one test to four is what did (`ascend-deploy`).
+New coverage belongs in the two cheap suites beside it unless it genuinely needs a live screen.
 
 ## Label placement and policy - the rule that keeps getting rewritten wrong
 - **Where a label sits is a property of the element** (`ShareCardLabelPlacement`), not of the arrangement and not of which renderer ran. Changing the arrangement, or adding a metric, must leave it alone.

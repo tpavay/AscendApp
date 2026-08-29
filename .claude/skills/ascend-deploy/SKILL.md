@@ -121,6 +121,12 @@ Do not express the allowlist as `dorny/paths-filter` negation rules: dorny ORs i
 
 `ios-verify` is the **only** job anywhere that compiles `AscendAppTests`. `ios-verify-release` builds the shipping app, the widget extension embedded in it, and the retained `AscendWatch` dependency no IPA before 1.1 embeds - but no test target, and both deploy pipelines only build the IPA. So a test target that stops compiling shows up on exactly one check, and "Release passed" or "Deploy Staging on develop passed" is not evidence that the tree is healthy. That asymmetry is what made the 2026-07-20 `develop` breakage read as CI infrastructure flake.
 
+Both iOS jobs carry a 45-minute `timeout-minutes`, and the only test cost that threatens it is window hosting.
+A `.hostsAWindow` test costs 190-227 seconds on the runner against sub-second locally, because a headless macOS runner software-renders every `drawHierarchy`; nothing else in the suite amplifies that way.
+So a local measurement cannot see the risk: the three extra hosted tests that pushed PR 549 past the cap read as +9 seconds locally and roughly ten minutes on the runner, over a 26-29 minute baseline.
+It failed twice on the identical commit (45m31s, then 45m42s on a clean re-run) and neither run looked like a timeout - a `timeout-minutes` kill reports as `cancelled`, and the uploaded log showed 2,048 tests started against 1,697 finished, so read the counts rather than the check's colour.
+Budget hosted coverage per suite and put new tests in a non-hosting suite unless they genuinely need a live screen; raising the cap hides a repo-level trend rather than fixing the branch that moved it.
+
 Two PRs that are each green on their own base can still break `develop` together: #248 added a call site and #251 added a parameter to the callee, merging 13 seconds apart. Nothing in CI re-verifies the merged result, so the next PR to rebase inherits the break. When a job starts failing on several unrelated branches at once, suspect the shared base before suspecting the runner.
 
 Both iOS jobs pipe `xcodebuild` through `tee`, then run `scripts/ci/summarize-xcodebuild-failure.sh` and upload `build-logs/` as an artifact. Only `ios-verify` passes `-resultBundlePath`, so only its artifact carries an `.xcresult` bundle alongside the raw log - `ios-verify-release` is a build with no test results to bundle.
