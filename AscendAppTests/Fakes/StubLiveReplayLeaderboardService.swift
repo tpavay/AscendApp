@@ -17,18 +17,24 @@ final class StubLiveReplayLeaderboardService: LiveReplayLeaderboardServicing, @u
     /// What `refreshIfNeeded` hands back, so a test can prove the race rows land even
     /// when the count beside them does not.
     var window: LiveReplayLeaderboardWindow?
+    /// The board `fetchCompletionLeaderboard` answers with. `nil` refuses, the way an
+    /// unreachable board does; a surface that renders the board rather than racing it
+    /// supplies one so it settles instead of showing "Leaderboard unavailable".
+    var completionLeaderboard: LiveReplayCompletionLeaderboard?
     private(set) var summaryFetchCount = 0
 
     init(
         summary: LiveReplayLeaderboardSummary = .empty,
         summaryFetchFailureCount: Int = 0,
         summaryFetchDelaySeconds: Double? = nil,
-        window: LiveReplayLeaderboardWindow? = nil
+        window: LiveReplayLeaderboardWindow? = nil,
+        completionLeaderboard: LiveReplayCompletionLeaderboard? = nil
     ) {
         self.summary = summary
         self.summaryFetchFailureCount = summaryFetchFailureCount
         self.summaryFetchDelaySeconds = summaryFetchDelaySeconds
         self.window = window
+        self.completionLeaderboard = completionLeaderboard
     }
 
     func fetchSummary(
@@ -84,7 +90,9 @@ final class StubLiveReplayLeaderboardService: LiveReplayLeaderboardServicing, @u
         cursor: LiveReplayCompletionLeaderboardCursor?,
         forceRefresh: Bool
     ) async throws -> LiveReplayCompletionLeaderboard {
-        throw CancellationError()
+        guard let completionLeaderboard else { throw CancellationError() }
+
+        return completionLeaderboard
     }
 
     func refreshIfNeeded(
