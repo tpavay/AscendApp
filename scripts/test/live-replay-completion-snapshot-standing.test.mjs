@@ -169,14 +169,21 @@ test("a snapshot records the metric and tie policy its board ranks on", () => {
 /**
  * Reads the context types one `ranksOnSteps` body returns true for.
  *
- * Fails closed on anything it cannot account for. Recognising only
- * `contextType === SOME_CONTEXT_TYPE` and ignoring the rest would let a
- * condition in any other shape - an inline `contextType === "challenge_template"`,
- * a `contextType.startsWith(...)`, a constant named without the suffix - pass
- * silently while leaving the extracted set unchanged, which is precisely the
- * divergence this guard exists to catch. So every `contextType` occurrence in
- * the body has to be claimed by a recognised comparison, and an unparseable
- * predicate is a failure rather than an empty answer.
+ * This models exactly one predicate shape and refuses every other: a `return`
+ * of `contextType === SOME_CONTEXT_TYPE` comparisons joined by `||`. It claims
+ * each comparison, then requires what is left to be nothing but whitespace,
+ * `return`, `||` and `;` - so a condition the parser does not recognise
+ * (`contextType === "challenge_template"`, `contextType.startsWith(...)`, a
+ * constant without the suffix) and scaffolding it does not model (a `!(...)`
+ * negation, an `ENABLE_STEPS &&` guard) both fail rather than reading as no
+ * change. The negation is the one that matters: stripped of its comparison it
+ * carries no `contextType` at all, and would otherwise report the exact inverse
+ * of what the server means.
+ *
+ * It is a cheap bounded check, not a parser: a shape outside that whitelist is
+ * a test failure asking to be modelled deliberately, and the `deepEqual` on the
+ * compared constants remains the real backstop for any edit that changes which
+ * context types are steps-ranked.
  * @param {string} predicateBody Body of the server's ranksOnSteps.
  * @param {Map<string, string>} constants Context-type constants by name.
  * @return {Set<string>} Context types that body ranks on steps.
@@ -199,6 +206,13 @@ function stepsRankedContextTypesIn(predicateBody, constants) {
     !remainder.includes("contextType"),
     "The server's ranksOnSteps carries an unaccounted contextType condition; " +
     "teach this guard its shape rather than letting it pass unread."
+  );
+  assert.equal(
+    remainder.replace(/\breturn\b|\|\||;|\s+/g, ""),
+    "",
+    "The server's ranksOnSteps is built from something this guard does not " +
+    "model - it reads only equality comparisons joined by `||`. Teach it the " +
+    "new shape rather than letting the leftover operators pass unread."
   );
 
   return new Set(resolved);
@@ -280,6 +294,21 @@ test("the mirror guard refuses a server predicate it cannot account for", () => 
       ),
       /unaccounted contextType condition/,
       `An added condition was read as no change: ${added}`
+    );
+  }
+
+  // Scaffolding around a comparison the guard does recognise. Both strip clean
+  // of every `contextType` token, so only the whitelist on what is left catches
+  // them - and the negation would otherwise report the exact inverse of the
+  // server's meaning while looking untouched.
+  for (const rewritten of [
+    "\n  return !(contextType === ROUTINE_TEMPLATE_CONTEXT_TYPE);",
+    "\n  return ENABLE_STEPS && contextType === ROUTINE_TEMPLATE_CONTEXT_TYPE;",
+  ]) {
+    assert.throws(
+      () => stepsRankedContextTypesIn(rewritten, constants),
+      /does not\s+model/,
+      `Scaffolding was read as no change: ${rewritten.trim()}`
     );
   }
 
