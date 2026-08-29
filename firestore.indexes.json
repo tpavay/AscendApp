@@ -329,6 +329,20 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "isBestForUser",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "finalSteps",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [

@@ -35,7 +35,6 @@ const PROD_PROJECT_ID = "ascend-prod-9c8f2";
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
 const LIVE_CLIMB_CONTEXT_TYPE = "live_climb";
 const ROUTINE_TEMPLATE_CONTEXT_TYPE = "routine_template";
-const ROUTINE_CONTEXT_TYPE = "routine";
 const DURATION_RANKING_METRIC = "completionDurationSeconds";
 const STEPS_RANKING_METRIC = "finalSteps";
 const DURATION_TIE_POLICY = "competition_rank_equal_durations_share_rank";
@@ -378,9 +377,11 @@ export function buildCompletionSnapshots(entries) {
     // a `Math.min` clamp to stay possible at all, and that clamp is what made a
     // repeat climber's slower run read "1st of 1".
     //
-    // Ordered on the metric the board itself ranks on, never on the clock by
-    // default: a routine fixes the clock and ranks on steps, so a repair that
-    // assumed duration would freeze a permanent order the board contradicts.
+    // Ordered on the metric the publish path ranks that board on, taken from
+    // one predicate that mirrors the server: a routine template fixes the clock
+    // and ranks on steps, everything else ranks on the clock. A repair that
+    // picked either answer on its own would freeze a permanent order the board
+    // contradicts.
     const completedSoFar = entries.filter(
       (candidate) => candidate.completionMillis <= entry.completionMillis
     );
@@ -424,15 +425,21 @@ export function collapsesRepeatFinishers(contextType) {
 /**
  * Whether a context ranks on steps rather than on the clock.
  *
- * Mirrors `ranksOnSteps` in functions/src/liveReplayLeaderboard.ts. A routine
- * fixes the clock, so its field is ordered by steps and higher wins; every
- * other board reaches the same target, so the fastest run wins.
+ * Mirrors `ranksOnSteps` in functions/src/liveReplayLeaderboard.ts exactly:
+ * `routine_template` and nothing else. A routine template fixes the clock, so
+ * its field is ordered by steps and higher wins; every other board - a plain
+ * `routine` included - is ordered on the clock by the publish path.
+ *
+ * This script is the repair path and runs over every board unless
+ * `--context-key` scopes it, so disagreeing with the publish path here does not
+ * merely fail to fix a board, it reorders a correct one on a metric it does not
+ * rank on and freezes that permanently. `scripts/test/` pins the two predicates
+ * against each other for exactly that reason.
  * @param {string} contextType Replay context type.
  * @return {boolean} True when the context ranks on steps.
  */
-function ranksOnSteps(contextType) {
-  return contextType === ROUTINE_TEMPLATE_CONTEXT_TYPE ||
-    contextType === ROUTINE_CONTEXT_TYPE;
+export function ranksOnSteps(contextType) {
+  return contextType === ROUTINE_TEMPLATE_CONTEXT_TYPE;
 }
 
 /**
@@ -464,10 +471,13 @@ function rankingValueFor(contextType, entry) {
 
 /**
  * The field name a context's snapshots record their ordering against.
+ *
+ * Stamped from the same predicate the ordering used, so the recorded metric can
+ * never name a field the rank was not computed on.
  * @param {string} contextType Replay context type.
  * @return {string} Ranking metric field name.
  */
-function rankingMetricFor(contextType) {
+export function rankingMetricFor(contextType) {
   return ranksOnSteps(contextType) ?
     STEPS_RANKING_METRIC :
     DURATION_RANKING_METRIC;
@@ -478,7 +488,7 @@ function rankingMetricFor(contextType) {
  * @param {string} contextType Replay context type.
  * @return {string} Tie policy identifier.
  */
-function tiePolicyFor(contextType) {
+export function tiePolicyFor(contextType) {
   return ranksOnSteps(contextType) ? STEPS_TIE_POLICY : DURATION_TIE_POLICY;
 }
 
