@@ -47,6 +47,40 @@ final class RecordingCrashlyticsReporter: CrashlyticsReporting, @unchecked Senda
     }
 }
 
+/// The identity record a relaunch would find, without touching the installation suite the shipped
+/// app writes to. Hold one across two `TelemetryManager`s to stand in for a cold launch;
+/// `TelemetryIdentityStoreTests` covers the persistence the shipped store actually provides.
+final class InMemoryTelemetryIdentityStore: TelemetryIdentityStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedUserID: String?
+
+    init(identifiedUserID: String? = nil) {
+        storedUserID = identifiedUserID
+    }
+
+    var identifiedUserID: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedUserID
+    }
+
+    func store(_ userID: String) {
+        lock.lock()
+        storedUserID = userID
+        lock.unlock()
+    }
+
+    func clear() {
+        lock.lock()
+        storedUserID = nil
+        lock.unlock()
+    }
+}
+
+func makeTestIdentityStore() -> any TelemetryIdentityStoring {
+    InMemoryTelemetryIdentityStore()
+}
+
 func makeTestTelemetry(
     reporter: any CrashlyticsReporting,
     collectionEnabled: Bool = true
@@ -54,7 +88,8 @@ func makeTestTelemetry(
     let telemetry = TelemetryManager(
         sinks: [],
         crashlyticsReporter: reporter,
-        collectionEnabledOverride: collectionEnabled
+        collectionEnabledOverride: collectionEnabled,
+        identityStore: makeTestIdentityStore()
     )
     telemetry.configure()
     return telemetry
@@ -84,12 +119,14 @@ func makeEnvelopedTestScreen(_ screen: TelemetryScreen) throws -> EnvelopedTelem
 /// emission assertion would pass vacuously against an empty sink.
 func makeTestTelemetry(
     sinks: [InMemoryTelemetrySink],
-    collectionEnabled: Bool = true
+    collectionEnabled: Bool = true,
+    identityStore: any TelemetryIdentityStoring = makeTestIdentityStore()
 ) -> TelemetryManager {
     let telemetry = TelemetryManager(
         sinks: sinks,
         crashlyticsReporter: NoopCrashlyticsReporter(),
-        collectionEnabledOverride: collectionEnabled
+        collectionEnabledOverride: collectionEnabled,
+        identityStore: identityStore
     )
     telemetry.configure()
     return telemetry
@@ -97,7 +134,12 @@ func makeTestTelemetry(
 
 func makeTestTelemetry(
     sink: InMemoryTelemetrySink,
-    collectionEnabled: Bool = true
+    collectionEnabled: Bool = true,
+    identityStore: any TelemetryIdentityStoring = makeTestIdentityStore()
 ) -> TelemetryManager {
-    makeTestTelemetry(sinks: [sink], collectionEnabled: collectionEnabled)
+    makeTestTelemetry(
+        sinks: [sink],
+        collectionEnabled: collectionEnabled,
+        identityStore: identityStore
+    )
 }

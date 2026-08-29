@@ -58,6 +58,30 @@ Destination drift traps under `DEBUG` only - a shipping build degrades analytics
 Events recorded before this tagging shipped carry none of these properties, and that history cannot be separated retroactively.
 Treat historical untagged events in Development as unattributable rather than as clean production data.
 
+**The build configuration cannot tell a customer from a simulator, so the runtime is asked as well.**
+A Release binary compiled for the simulator SDK reports `production` / `release` exactly like a phone in someone's pocket, and the environment-to-project guard passed it straight through: 34 simulator identities and 167 events reached production `4051100` in one 4.7-hour afternoon, and `$model == "arm64"` with `$app_build_number == "2"` was the only thing that could separate them afterwards.
+`TelemetryRuntimeEnvironment` answers the question the envelope cannot - `#if targetEnvironment(simulator)` OR the `SIMULATOR_*` process variables, so neither a device-SDK binary launched by simulator tooling nor a build launched outside Xcode can slip past one half alone.
+Production refuses a simulator at two independent layers: `TelemetryManager.shouldEnableCollection` declines to collect for *any* sink (Mixpanel, Firebase Analytics, Crashlytics, Sentry alike), above the launch-argument overrides so no flag can re-open it, and `AnalyticsConfiguration.validatedMixpanelToken` declines to resolve the destination.
+Staging is deliberately untouched: it is where a session is reproduced and a bug is recreated.
+There is no escape hatch, by design - smoke-testing production telemetry from a simulator was traded away for numbers that describe only real customers.
+TestFlight is a Release binary on a real device and stays in production, because those are people the captain handed builds to; no property distinguishes TestFlight from the App Store, and `build_number` cross-referenced against App Store Connect is the only proxy.
+
+## Analytics identity has one owner, and clearing it is not free
+
+`TelemetryManager` owns the identity state machine; nothing else may decide when an identity begins or ends.
+
+**Firebase's auth listener reports "no user" on every signed-out cold launch, not only on a sign-out**, and answering that report by clearing the identity is pure loss.
+`MixpanelInstance.reset()` mints a **brand new random device id** (`useUniqueDistinctId` is not set, so `defaultDeviceId()` returns `UUID().uuidString`), and the discarded id never identifies, so Mixpanel's ID merge can never rejoin the two halves.
+`app_first_opened`, `onboarding_flow_started` and the welcome screen belonged to one Mixpanel person and everything after belonged to another: **19 of 37 climbers in the 30 days to 2026-08-28 were cut in half this way, which was the whole of the 37 -> 9 cliff** on the onboarding board.
+This is the same distinction `MonetizationManager` already draws for the onboarding pass - "Losing the authenticated identity is not a sign-out", above - which telemetry had simply not been told.
+
+- `TelemetryIdentityStore` remembers the identity the app last handed its sinks, in the installation-scoped suite. It has to survive relaunch: a session revoked while the app was closed reports its `nil` on the next cold launch with nothing in memory to compare against, and that one *is* a sign-out whose events must stop being attributed to the departed account. The suite is the one account deletion's persistent-domain wipe cannot reach, because Mixpanel keeps its own identity in a suite (`Mixpanel`) that the wipe cannot reach either.
+- `clearUserId()` returns whether it reported the sign-out onward. That return value is the app's only answer to "did somebody sign out", so anything else reporting a sign-out - the `auth:sign_out` breadcrumb included - hangs off it rather than off the listener's `nil`. It empties the persisted mirror on the way past whether or not collection is on, because an identity left banked by a suppressed run would be restored by the next enabled launch, whose first signed-out report would then look like a second sign-out.
+- **An account switch clears before it identifies.** `identify(B)` over a live `A` sends `$identify` carrying A's id as `$anon_distinct_id`, which merges two climbers into one profile.
+- Historical data from before this shipped **cannot be repaired**. Never imply a backfill.
+
+Enforced by `AscendAppTests/TelemetryIdentityLifecycleTests.swift` (the four launches the listener can produce, plus the revoked-session relaunch) and `AscendAppTests/AnalyticsConfigurationTests.swift`.
+
 ## Server-owned subscription lifecycle events
 
 Subscription transitions mostly happen while the app is closed - renewal, cancellation, uncancellation, billing issue, expiration, refund, product change - so the client cannot observe them.
