@@ -167,6 +167,44 @@ test("a snapshot records the metric and tie policy its board ranks on", () => {
 });
 
 /**
+ * Reads the context types one `ranksOnSteps` body returns true for.
+ *
+ * Fails closed on anything it cannot account for. Recognising only
+ * `contextType === SOME_CONTEXT_TYPE` and ignoring the rest would let a
+ * condition in any other shape - an inline `contextType === "challenge_template"`,
+ * a `contextType.startsWith(...)`, a constant named without the suffix - pass
+ * silently while leaving the extracted set unchanged, which is precisely the
+ * divergence this guard exists to catch. So every `contextType` occurrence in
+ * the body has to be claimed by a recognised comparison, and an unparseable
+ * predicate is a failure rather than an empty answer.
+ * @param {string} predicateBody Body of the server's ranksOnSteps.
+ * @param {Map<string, string>} constants Context-type constants by name.
+ * @return {Set<string>} Context types that body ranks on steps.
+ */
+function stepsRankedContextTypesIn(predicateBody, constants) {
+  const comparisons = [
+    ...predicateBody.matchAll(/contextType === ([A-Z_]+_CONTEXT_TYPE)/g),
+  ];
+  const resolved = comparisons.map(([, name]) => constants.get(name));
+  assert.ok(
+    resolved.length > 0 && resolved.every((value) => value !== undefined),
+    "Could not resolve the context types the server ranks on steps."
+  );
+
+  const remainder = comparisons.reduce(
+    (body, [match]) => body.replace(match, ""),
+    predicateBody
+  );
+  assert.ok(
+    !remainder.includes("contextType"),
+    "The server's ranksOnSteps carries an unaccounted contextType condition; " +
+    "teach this guard its shape rather than letting it pass unread."
+  );
+
+  return new Set(resolved);
+}
+
+/**
  * Reads the context types the server's own `ranksOnSteps` returns true for.
  *
  * Parsed from the source rather than restated, so this guard cannot go stale by
@@ -184,14 +222,8 @@ function serverStepsRankedContextTypes() {
     [...source.matchAll(/^const ([A-Z_]+_CONTEXT_TYPE) = "([a-z_]+)";$/gm)]
       .map(([, name, value]) => [name, value])
   );
-  const named = [...body[1].matchAll(/contextType === ([A-Z_]+_CONTEXT_TYPE)/g)]
-    .map(([, name]) => constants.get(name));
-  assert.ok(
-    named.length > 0 && named.every((value) => value !== undefined),
-    "Could not resolve the context types the server ranks on steps."
-  );
 
-  return new Set(named);
+  return stepsRankedContextTypesIn(body[1], constants);
 }
 
 // This script is the repair path and rewrites permanent snapshots over every
@@ -211,4 +243,57 @@ test("the repair path ranks on exactly the metric the server ranks on", () => {
       `${contextType} ranks on a different metric than the publish path.`
     );
   }
+});
+
+// The guard's own failure mode, covered rather than assumed. Each of these is a
+// real way the server's predicate could grow a condition, and every one of them
+// left the extracted set reading {routine_template} before the remainder check.
+test("the mirror guard refuses a server predicate it cannot account for", () => {
+  const constants = new Map([
+    ["ROUTINE_TEMPLATE_CONTEXT_TYPE", "routine_template"],
+    ["LIVE_CLIMB_CONTEXT_TYPE", "live_climb"],
+  ]);
+  const today = "\n  return contextType === ROUTINE_TEMPLATE_CONTEXT_TYPE;";
+
+  assert.deepEqual(
+    stepsRankedContextTypesIn(today, constants),
+    new Set(["routine_template"])
+  );
+  assert.deepEqual(
+    stepsRankedContextTypesIn(
+      "\n  return contextType === ROUTINE_TEMPLATE_CONTEXT_TYPE ||\n" +
+      "    contextType === LIVE_CLIMB_CONTEXT_TYPE;",
+      constants
+    ),
+    new Set(["routine_template", "live_climb"])
+  );
+
+  for (const added of [
+    '    contextType === "challenge_template";',
+    "    contextType.startsWith(\"challenge\");",
+    "    contextType === CHALLENGE_KIND;",
+  ]) {
+    assert.throws(
+      () => stepsRankedContextTypesIn(
+        `\n  return contextType === ROUTINE_TEMPLATE_CONTEXT_TYPE ||\n${added}`,
+        constants
+      ),
+      /unaccounted contextType condition/,
+      `An added condition was read as no change: ${added}`
+    );
+  }
+
+  // A recognised shape naming a constant this guard cannot resolve, and a body
+  // carrying no comparison at all, both fail rather than answering empty.
+  assert.throws(
+    () => stepsRankedContextTypesIn(
+      "\n  return contextType === MYSTERY_CONTEXT_TYPE;",
+      constants
+    ),
+    /Could not resolve/
+  );
+  assert.throws(
+    () => stepsRankedContextTypesIn("\n  return false;", constants),
+    /Could not resolve/
+  );
 });
