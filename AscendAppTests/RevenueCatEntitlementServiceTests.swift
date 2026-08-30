@@ -65,8 +65,9 @@ struct RevenueCatEntitlementServiceTests {
         provider.sendCustomerInfoUpdate(with: state)
         await settle(until: { service.entitlementState == .active(["app_access"]) })
 
-        #expect(expirationDate < customerInfo.requestDate)
+        #expect(expirationDate > customerInfo.requestDate)
         #expect(entitlement.billingIssueDetectedAt != nil)
+        #expect(entitlement.isActive)
         #expect(entitlement.willRenew == false)
         #expect(service.entitlementState == .active(["app_access"]))
         #expect(provider.customerInfoCallCount == 0)
@@ -80,6 +81,7 @@ struct RevenueCatEntitlementServiceTests {
     func inactiveBillingRetryPayloadRoutesToThePaywallWithoutRefetching() async throws {
         let customerInfo = makeBillingCustomerInfo(isActive: false)
         let entitlement = try #require(customerInfo.entitlements["app_access"])
+        let expirationDate = try #require(entitlement.expirationDate)
         let state = RevenueCatPurchasesProvider.entitlementState(from: customerInfo)
         let provider = ControlledRevenueCatEntitlementProvider()
         var invocations = provider.invocations.makeAsyncIterator()
@@ -93,8 +95,10 @@ struct RevenueCatEntitlementServiceTests {
         provider.completeLogIn(with: state)
         await identifyTask.value
 
+        #expect(expirationDate < customerInfo.requestDate)
         #expect(entitlement.billingIssueDetectedAt != nil)
         #expect(entitlement.isActive == false)
+        #expect(entitlement.willRenew == false)
         #expect(service.entitlementState == .inactive)
         #expect(provider.customerInfoCallCount == 0)
         #expect(route(for: service.entitlementState) == .paywall)
@@ -828,7 +832,8 @@ struct RevenueCatEntitlementServiceTests {
 
 private func makeBillingCustomerInfo(isActive: Bool) -> CustomerInfo {
     let requestDate = Date(timeIntervalSince1970: 1_800_000_000)
-    let expirationDate = requestDate.addingTimeInterval(-3_600)
+    let billingIssueDate = requestDate.addingTimeInterval(-3_600)
+    let expirationDate = requestDate.addingTimeInterval(isActive ? 604_800 : -3_600)
     let entitlement = EntitlementInfo(
         identifier: "app_access",
         isActive: isActive,
@@ -840,7 +845,7 @@ private func makeBillingCustomerInfo(isActive: Bool) -> CustomerInfo {
         store: .appStore,
         productIdentifier: "ascend_staging_monthly",
         isSandbox: true,
-        billingIssueDetectedAt: expirationDate,
+        billingIssueDetectedAt: billingIssueDate,
         ownershipType: .purchased
     )
 
