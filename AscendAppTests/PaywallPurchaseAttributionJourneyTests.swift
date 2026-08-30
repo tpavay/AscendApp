@@ -64,8 +64,8 @@ struct PaywallPurchaseAttributionJourneyTests {
             )
         }
 
-        // A failure raised before RevenueCat is ever called cannot claim a purchase happened, so it
-        // ships alone and carries no attribution to join on.
+        // A failure raised before RevenueCat is ever called cannot claim a purchase started, but its
+        // one terminal still belongs to the exact gate presentation that attempted the handoff.
         let preCallProductID = "ascend_yearly_pre_call"
         let preCallSink = InMemoryTelemetrySink(destination: .analytics)
         let preCallExecutor = Self.makeSharedStoreExecutor(
@@ -86,8 +86,8 @@ struct PaywallPurchaseAttributionJourneyTests {
 
         let preCallRecords = preCallSink.records
         #expect(preCallRecords.map(\.name) == ["revenuecat_purchase_failed"])
-        #expect(preCallRecords[0].parameters["placement"] == nil)
-        #expect(preCallRecords[0].parameters["presentation_id"] == nil)
+        #expect(preCallRecords[0].parameters["placement"] == .string(Self.placement))
+        #expect(preCallRecords[0].parameters["presentation_id"] == .string(Self.presentationID))
         #expect(preCallRecords[0].parameters["error_type"] == .string("missing_store_product"))
         rows.append(
             JoinRow(

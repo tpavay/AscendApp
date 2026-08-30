@@ -26,6 +26,29 @@ private struct OnboardingLifecycleFixture {
 
 @MainActor
 struct MonetizationManagerPaywallTests {
+    #if DEBUG
+    @Test
+    func debugGateOverrideCanBeClearedFromTheLockedRecoverySurface() {
+        let defaults = UserDefaults(suiteName: "DebugGateOverride-\(UUID().uuidString)")!
+        let manager = MonetizationManager(
+            configuration: MonetizationConfiguration(infoDictionary: [
+                MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "YES"
+            ]),
+            entitlementService: EntitlementServiceStub(entitlementState: .inactive),
+            paywallPresenter: PaywallPresenterSpy(),
+            userDefaults: defaults
+        )
+
+        manager.setDebugForcesAppAccessPaywall(true)
+        #expect(manager.debugForcesAppAccessPaywall)
+        #expect(!manager.allowsUnentitledAppAccessForRouting)
+
+        manager.setDebugForcesAppAccessPaywall(false)
+        #expect(!manager.debugForcesAppAccessPaywall)
+        #expect(manager.allowsUnentitledAppAccessForRouting)
+    }
+    #endif
+
     @Test
     func gatesAccessWithoutAnEntitlementWhenBuildSettingIsDisabled() {
         let manager = MonetizationManager(
@@ -580,6 +603,7 @@ final class PaywallPresenterSpy: PaywallPresenting {
     private(set) var registeredPlacement: SuperwallPlacement?
     private(set) var registeredSource: String?
     private(set) var registrations: [SuperwallPlacement] = []
+    private(set) var subscriptionStatuses: [Set<String>] = []
     private var outcomeHandler: (@MainActor (PaywallPresentationOutcome) -> Void)?
 
     init(isConfigured: Bool = true) {
@@ -594,6 +618,10 @@ final class PaywallPresenterSpy: PaywallPresenting {
     func identify(userId: String) {}
 
     func resetIdentity() {}
+
+    func updateSubscriptionStatus(entitlementIDs: Set<String>) {
+        subscriptionStatuses.append(entitlementIDs)
+    }
 
     func register(
         placement: SuperwallPlacement,
@@ -615,7 +643,9 @@ final class PaywallPresenterSpy: PaywallPresenting {
 final class EntitlementServiceStub: EntitlementServicing {
     private(set) var entitlementState: MonetizationEntitlementState
     private(set) var hasFailedIdentityResolution = false
-    var identityGeneration: MonetizationIdentityTransition? { currentTransition }
+    var identityGeneration: MonetizationIdentityTransition? {
+        pendingTransition == nil ? settledTransition : nil
+    }
     var isConfigured = true
     var identityResolution = MonetizationEntitlementState.inactive
     /// Every customer handed to `prepareIdentity`, in order.
@@ -627,11 +657,16 @@ final class EntitlementServiceStub: EntitlementServicing {
     /// Runs inside the restore, so a test can flip the entitlement while the call is still in
     /// flight and assert what the manager reports at that moment.
     var onRestoreStarted: (@MainActor () -> Void)?
-    private var revision: UInt = 0
-    private var currentTransition: MonetizationIdentityTransition?
+    private var revision: UInt = 1
+    private var pendingTransition: MonetizationIdentityTransition?
+    private var settledTransition: MonetizationIdentityTransition?
+    private var entitlementStateObserver: (@MainActor (MonetizationEntitlementState) -> Void)?
 
     init(initialState: MonetizationEntitlementState) {
         entitlementState = initialState
+        if initialState != .unknown {
+            settledTransition = MonetizationIdentityTransition(revision: revision, userID: "test-user")
+        }
     }
 
     init(
@@ -640,6 +675,9 @@ final class EntitlementServiceStub: EntitlementServicing {
     ) {
         self.entitlementState = entitlementState
         self.restoreError = restoreError
+        if entitlementState != .unknown {
+            settledTransition = MonetizationIdentityTransition(revision: revision, userID: "test-user")
+        }
     }
 
     /// Mirrors `RevenueCatEntitlementService.configure`, which needs a usable key.
@@ -678,6 +716,12 @@ final class EntitlementServiceStub: EntitlementServicing {
 
     func retryIdentityResolution() async {}
 
+    func setEntitlementStateObserver(
+        _ observer: (@MainActor (MonetizationEntitlementState) -> Void)?
+    ) {
+        entitlementStateObserver = observer
+    }
+
     @discardableResult
     func restorePurchases() async throws -> MonetizationEntitlementState {
         onRestoreStarted?()
@@ -689,8 +733,20 @@ final class EntitlementServiceStub: EntitlementServicing {
         return restoredState ?? entitlementState
     }
 
+    @discardableResult
+    func adoptTransactionState(
+        _ state: MonetizationEntitlementState,
+        for identity: MonetizationIdentityTransition
+    ) -> Bool {
+        guard identityGeneration == identity else { return false }
+        entitlementState = state
+        entitlementStateObserver?(state)
+        return true
+    }
+
     func setEntitlementState(_ state: MonetizationEntitlementState) {
         entitlementState = state
+        entitlementStateObserver?(state)
     }
 
     private func prepare(userID: String?) -> MonetizationIdentityTransition {
@@ -701,7 +757,7 @@ final class EntitlementServiceStub: EntitlementServicing {
             revision: revision,
             userID: userID
         )
-        currentTransition = transition
+        pendingTransition = transition
         return transition
     }
 
@@ -709,14 +765,16 @@ final class EntitlementServiceStub: EntitlementServicing {
         _ state: MonetizationEntitlementState,
         for transition: MonetizationIdentityTransition
     ) {
-        guard currentTransition == transition else { return }
+        guard pendingTransition == transition else { return }
         entitlementState = state
+        entitlementStateObserver?(state)
 
         guard state != .unknown else {
             hasFailedIdentityResolution = true
             return
         }
 
-        currentTransition = nil
+        settledTransition = transition
+        pendingTransition = nil
     }
 }

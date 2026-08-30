@@ -24,16 +24,18 @@ struct LockedOutSubscriberRecoveryContractTests {
         #expect(gate.contains(".accessibilityIdentifier(\"appAccessDeleteAccount\")"))
     }
 
-    /// Signing back in with the same Apple ID returns to this same screen, so a sign-out control
-    /// solves nothing and only offers an escape that is not one.
+    /// A wrong-account subscriber must be able to leave the gate and authenticate as the Apple ID
+    /// that owns the subscription.
     @Test
-    func theAppAccessGateOffersNoSignOut() throws {
+    func theAppAccessGateOffersSignOutForWrongAccountRecovery() throws {
         let gate = try source(
             at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
         )
 
-        #expect(!gate.localizedCaseInsensitiveContains("signOut"))
-        #expect(!gate.localizedCaseInsensitiveContains("sign out"))
+        #expect(gate.contains("onSignOut: @escaping () -> Void"))
+        #expect(gate.contains("Button(action: onSignOut)"))
+        #expect(gate.contains("Text(\"Sign Out\")"))
+        #expect(gate.contains(".accessibilityIdentifier(\"appAccessSignOut\")"))
     }
 
     /// The deletion link stays subordinate to subscribe and restore: it is the way out, not the
@@ -44,7 +46,7 @@ struct LockedOutSubscriberRecoveryContractTests {
             at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
         )
 
-        let restoreIndex = try #require(gate.range(of: "Button(action: restorePurchases)")).lowerBound
+        let restoreIndex = try #require(gate.range(of: "coordinator.restore()")).lowerBound
         let deleteIndex = try #require(gate.range(of: "Button(action: onDeleteAccount)")).lowerBound
         #expect(restoreIndex < deleteIndex, "Deletion must sit beneath Restore Purchases")
 
@@ -53,7 +55,7 @@ struct LockedOutSubscriberRecoveryContractTests {
         #expect(linkBlock.contains("montserratMedium(size: 13)"))
         #expect(!linkBlock.contains("Color.ascendAccent"))
         // A 44pt row keeps the quiet type from shrinking the tap target below the HIG minimum.
-        #expect(linkBlock.contains(".frame(height: 44)"))
+        #expect(linkBlock.contains("minHeight: 44"))
     }
 
     /// The lockout resolves above the entitlement gate and absorbs the whole app, so the same

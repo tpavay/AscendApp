@@ -71,7 +71,10 @@ struct AppReviewSandboxEntitlementEvidenceTests {
         let shipped = await Self.restore(resolving: entitlements.appAccessEntitlementState)
 
         #expect(rejected.state == .noPurchasesFound)
-        #expect(rejected.state.statusMessage == "No purchases found to restore.")
+        #expect(
+            rejected.state.statusMessage
+                == "No active Ascend subscription was found for this Apple ID."
+        )
         #expect(rejected.events.contains("revenuecat_restore_not_found"))
 
         #expect(shipped.state == .restored)
@@ -304,7 +307,11 @@ private extension AppReviewSandboxEntitlementEvidenceTests {
                 errorType: .noActiveEntitlement,
                 attribution: .purchaseStarted(context)
             ),
-            .revenueCatRestoreNotFound(entitlementID: entitlementID)
+            .revenueCatRestoreNotFound(
+                entitlementID: entitlementID,
+                context: .appAccessGate(gateAttemptID: "review-gate"),
+                identityMatches: true
+            )
         ]
     }
 
@@ -555,7 +562,7 @@ private struct GateRestoreProof: View {
     private func column(_ column: Column) -> some View {
         ProofColumn(caption: column.caption, detail: column.detail, events: column.events) {
             AppAccessPaywallPlaceholderView(
-                initialPresentationState: .readyToRetry,
+                initialPhase: .failed,
                 initialRestoreState: column.state,
                 onDeleteAccount: {}
             )
@@ -569,6 +576,10 @@ private struct GateRestoreProof: View {
 @MainActor
 private final class RestorerStub: PurchaseRestoring {
     let isRevenueCatConfigured = true
+    let identityGeneration: MonetizationIdentityTransition? = MonetizationIdentityTransition(
+        revision: 1,
+        userID: "sandbox-evidence-user"
+    )
     private let state: MonetizationEntitlementState
 
     init(state: MonetizationEntitlementState) {

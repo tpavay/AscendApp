@@ -23,6 +23,13 @@ final class MonetizationManager: MonetizationIdentityManaging {
     private var identifiedUserID: String?
     @ObservationIgnored
     private var preparedIdentityTransition: MonetizationIdentityTransition?
+    @ObservationIgnored
+    private var paywallAttemptRevision: UInt = 0
+    @ObservationIgnored
+    private var activePaywallAttempt: (
+        revision: UInt,
+        identity: MonetizationIdentityTransition
+    )?
     private(set) var configuration: MonetizationConfiguration
     #if DEBUG
     private(set) var debugForcesAppAccessPaywall: Bool
@@ -65,6 +72,10 @@ final class MonetizationManager: MonetizationIdentityManaging {
 
     var isSuperwallConfigured: Bool {
         paywallPresenter.isConfigured
+    }
+
+    var identityGeneration: MonetizationIdentityTransition? {
+        entitlementService.identityGeneration
     }
 
     var onboardingCompletionReasonForActiveAccess: OnboardingFlowCompletionReason? {
@@ -117,14 +128,31 @@ final class MonetizationManager: MonetizationIdentityManaging {
 
     func configure(configuration: MonetizationConfiguration = .live) {
         self.configuration = configuration
+        entitlementService.setEntitlementStateObserver { [weak paywallPresenter] state in
+            let entitlementIDs: Set<String>
+            if case .active(let activeIDs) = state {
+                entitlementIDs = activeIDs
+            } else {
+                entitlementIDs = []
+            }
+            paywallPresenter?.updateSubscriptionStatus(entitlementIDs: entitlementIDs)
+        }
         entitlementService.configure(configuration: configuration)
         paywallPresenter.configure(configuration: configuration)
+        let activeIDs: Set<String>
+        if case .active(let entitlementIDs) = entitlementService.entitlementState {
+            activeIDs = entitlementIDs
+        } else {
+            activeIDs = []
+        }
+        paywallPresenter.updateSubscriptionStatus(entitlementIDs: activeIDs)
     }
 
     @discardableResult
     func prepareIdentity(
         _ customer: MonetizationCustomerIdentity
     ) -> MonetizationIdentityTransition {
+        invalidatePaywallAttempt()
         if identifiedUserID != customer.userID {
             identifiedUserID = customer.userID
             onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
@@ -156,6 +184,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
 
     @discardableResult
     func prepareIdentityReset() -> MonetizationIdentityTransition {
+        invalidatePaywallAttempt()
         // The paywall screen view dedupes per pass through the onboarding funnel, and an identity
         // change starts a new pass, so the recorder cannot outlive the identity it was filled for.
         identifiedUserID = nil
@@ -187,15 +216,21 @@ final class MonetizationManager: MonetizationIdentityManaging {
         // Only a caller waiting on a verdict is holding a climber behind a spinner, so only that
         // caller spends the budget. The background pass never blocks on identity work anyway.
         guard waitsForPendingIdentity else {
-            return await refreshAndReconcile(waitsForPendingIdentity: false, force: force)
+            return await refreshAndScheduleReconciliation(
+                waitsForPendingIdentity: false,
+                force: force
+            )
         }
 
         return await verdictBudget.resolve {
-            await self.refreshAndReconcile(waitsForPendingIdentity: true, force: force)
+            await self.refreshAndScheduleReconciliation(
+                waitsForPendingIdentity: true,
+                force: force
+            )
         }
     }
 
-    private func refreshAndReconcile(
+    private func refreshAndScheduleReconciliation(
         waitsForPendingIdentity: Bool,
         force: Bool
     ) async -> MonetizationEntitlementRefresh {
@@ -203,20 +238,8 @@ final class MonetizationManager: MonetizationIdentityManaging {
             waitsForPendingIdentity: waitsForPendingIdentity
         )
 
-        guard case .refreshed(let state) = refresh else {
-            await reconcileServerAppAccess(force: force)
-            return refresh
-        }
-
-        // Reconciling suspends, and a sign-in, sign-out or account switch landing inside it leaves
-        // this answer describing an identity the app no longer holds. The service validated its own
-        // token when it accepted the state; this re-checks that nothing moved on since.
-        let acceptedIdentity = entitlementService.identityGeneration
-        await reconcileServerAppAccess(for: state, force: force)
-
-        guard entitlementService.identityGeneration == acceptedIdentity,
-              entitlementService.entitlementState == state else {
-            return .unavailable(.identityUnresolved)
+        if case .refreshed(let state) = refresh {
+            scheduleServerAppAccessReconciliation(for: state, force: force)
         }
 
         return refresh
@@ -243,17 +266,35 @@ final class MonetizationManager: MonetizationIdentityManaging {
         await appAccessReconciler.reconcileAppAccess(force: force)
     }
 
+    private func scheduleServerAppAccessReconciliation(
+        for state: MonetizationEntitlementState,
+        force: Bool
+    ) {
+        guard state.hasActiveEntitlement(configuration.revenueCatEntitlementID) else { return }
+        Task { @MainActor [appAccessReconciler] in
+            await appAccessReconciler.reconcileAppAccess(force: force)
+        }
+    }
+
     func retryIdentityResolution() async {
         await entitlementService.retryIdentityResolution()
     }
 
     @discardableResult
-    func restorePurchases() async throws -> MonetizationEntitlementState {
+    func restorePurchases(
+        for identity: MonetizationIdentityTransition
+    ) async throws -> MonetizationEntitlementState {
         beginOnboardingAccessGrantRequest()
 
         do {
-            let state = try await entitlementService.restorePurchases()
-            await reconcileServerAppAccess(for: state, force: true)
+            guard entitlementService.identityGeneration == identity else {
+                return .unknown
+            }
+            let state = try await entitlementService.restorePurchases(for: identity)
+            guard entitlementService.identityGeneration == identity else {
+                return .unknown
+            }
+            scheduleServerAppAccessReconciliation(for: state, force: true)
 
             if state.hasActiveEntitlement(configuration.revenueCatEntitlementID) {
                 recordOnboardingAccessGranted(.restore)
@@ -266,6 +307,24 @@ final class MonetizationManager: MonetizationIdentityManaging {
             recordOnboardingAccessGrantRequestReportedNothing()
             throw error
         }
+    }
+
+    @discardableResult
+    func restorePurchases() async throws -> MonetizationEntitlementState {
+        guard let identity = identityGeneration else { return .unknown }
+        return try await restorePurchases(for: identity)
+    }
+
+    @discardableResult
+    func adoptPurchaseEntitlementState(
+        _ state: MonetizationEntitlementState,
+        for identity: MonetizationIdentityTransition
+    ) -> Bool {
+        guard entitlementService.adoptTransactionState(state, for: identity) else {
+            return false
+        }
+        scheduleServerAppAccessReconciliation(for: state, force: true)
+        return true
     }
 
     func presentPaywall(
@@ -283,6 +342,18 @@ final class MonetizationManager: MonetizationIdentityManaging {
             beginOnboardingAccessGrantRequest()
         }
 
+        guard let presentationIdentity = identityGeneration else {
+            if tracksOnboardingAccess {
+                recordOnboardingAccessGrantRequestReportedNothing()
+            }
+            onOutcome(.failed(message: "Ascend is still confirming your account. Try again."))
+            return
+        }
+
+        paywallAttemptRevision &+= 1
+        let attemptRevision = paywallAttemptRevision
+        activePaywallAttempt = (attemptRevision, presentationIdentity)
+
         guard paywallPresenter.isConfigured else {
             if tracksOnboardingAccess {
                 recordOnboardingAccessGrantRequestReportedNothing()
@@ -294,13 +365,33 @@ final class MonetizationManager: MonetizationIdentityManaging {
         paywallPresenter.register(
             placement: placement,
             params: params,
+            identity: presentationIdentity,
             onOutcome: { [weak self] outcome in
+                guard let self,
+                      self.activePaywallAttempt?.revision == attemptRevision,
+                      self.activePaywallAttempt?.identity == presentationIdentity,
+                      self.identityGeneration == presentationIdentity else {
+                    return
+                }
                 if tracksOnboardingAccess {
-                    self?.recordOnboardingPaywallOutcome(outcome)
+                    self.recordOnboardingPaywallOutcome(outcome)
                 }
                 onOutcome(outcome)
+                if outcome.isTerminal {
+                    self.activePaywallAttempt = nil
+                }
             }
         )
+    }
+
+    private func invalidatePaywallAttempt() {
+        paywallAttemptRevision &+= 1
+        activePaywallAttempt = nil
+    }
+
+    func cancelPaywallPresentation() {
+        invalidatePaywallAttempt()
+        paywallPresenter.cancelPresentation()
     }
 
     #if DEBUG
@@ -321,7 +412,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
         }
 
         telemetry.track(
-            TelemetryRecord(
+            PaywallAnalyticsEvent.diagnosticRecord(
                 name: "paywall_reached",
                 parameters: parameters
             )
@@ -370,8 +461,9 @@ final class MonetizationManager: MonetizationIdentityManaging {
             recordOnboardingAccessGranted(.restore)
         case .dismissedWithoutPurchase, .skipped, .failed:
             recordOnboardingAccessGrantRequestReportedNothing()
-        case .presented:
-            // The paywall being on screen is not a result; the request stays pending.
+        case .presented, .pendingApproval, .verificationUnavailable:
+            // Presentation and recoverable transaction states are not access-grant results.
+            // The entitlement stream remains authoritative and may still grant access later.
             break
         }
     }

@@ -7,6 +7,14 @@ import Foundation
 /// single coordinator keeps the two restore surfaces from drifting apart again.
 @MainActor
 protocol PaywallPurchaseCoordinating: PurchaseRestoring {
+    var identityGeneration: MonetizationIdentityTransition? { get }
+
+    @discardableResult
+    func adoptPurchaseEntitlementState(
+        _ state: MonetizationEntitlementState,
+        for identity: MonetizationIdentityTransition
+    ) -> Bool
+
     /// - Returns: Whether the refresh established a current RevenueCat answer, and what it was. A
     ///   purchase verdict reads this and nothing else, so the terminal it reports and the access the
     ///   app grants can never come from two disagreeing snapshots - and an unavailable refresh is
@@ -19,3 +27,14 @@ protocol PaywallPurchaseCoordinating: PurchaseRestoring {
 }
 
 extension MonetizationManager: PaywallPurchaseCoordinating { }
+
+extension PaywallPurchaseCoordinating {
+    var identityGeneration: MonetizationIdentityTransition? { nil }
+
+    func adoptPurchaseEntitlementState(
+        _ state: MonetizationEntitlementState,
+        for identity: MonetizationIdentityTransition
+    ) -> Bool {
+        false
+    }
+}

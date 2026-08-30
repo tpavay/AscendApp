@@ -214,6 +214,12 @@ jobs:
         shell: bash
         run: node scripts/ci/assert-monetization-keys-configured.mjs Staging
 
+      # Read-only provider preflight. It intentionally blocks the archive when the published
+      # purchase action, state references, products, or app_access entitlement drift.
+      - name: Validate live staging Superwall purchase artifact
+        shell: bash
+        run: node scripts/validate-superwall-live-artifact.mjs staging
+
       # The kill switches are the only undo a shipped binary has, and a build
       # whose parameters were never published to the backend behaves completely
       # normally until the moment someone needs the lever. CI previously compared

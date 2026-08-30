@@ -12,6 +12,35 @@ private let anonymousLogOutRefusal = NSError(
 @MainActor
 struct RevenueCatEntitlementServiceTests {
     @Test
+    func transactionStateRequiresTheExactSettledIdentityRevision() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(provider: provider, startsConfigured: true)
+
+        let exact = service.prepareIdentity(.climber("subscriber"))
+        let identifyTask = Task {
+            await service.identify(.climber("subscriber"), transition: exact)
+        }
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
+        provider.completeLogIn(with: .inactive)
+        await identifyTask.value
+
+        #expect(service.adoptTransactionState(.active(["app_access"]), for: exact))
+        #expect(service.entitlementState == .active(["app_access"]))
+
+        let staleSameUser = MonetizationIdentityTransition(
+            revision: exact.revision &- 1,
+            userID: exact.userID
+        )
+        #expect(!service.adoptTransactionState(.inactive, for: staleSameUser))
+        #expect(!service.adoptTransactionState(
+            .inactive,
+            for: MonetizationIdentityTransition(revision: exact.revision, userID: "other-user")
+        ))
+        #expect(service.entitlementState == .active(["app_access"]))
+    }
+
+    @Test
     func refreshDuringIdentifyCannotReadOrPublishThePriorIdentity() async throws {
         let provider = ControlledRevenueCatEntitlementProvider()
         var invocations = provider.invocations.makeAsyncIterator()

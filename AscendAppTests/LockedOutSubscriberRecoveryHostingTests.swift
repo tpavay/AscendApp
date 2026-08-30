@@ -16,10 +16,11 @@ import UIKit
 struct LockedOutSubscriberRecoveryHostingTests {
     private static let iPhone16ProSize = CGSize(width: 402, height: 874)
 
-    @Test("The gate publishes a pressable deletion control and no sign-out escape")
-    func theGateOffersDeletionAndNothingElseNew() async throws {
+    @Test("The gate publishes pressable deletion and sign-out recovery controls")
+    func theGateOffersDeletionAndSignOut() async throws {
         try await withAccessibilityAutomation {
             let recorder = DeletionPresentationRecorder()
+            let signOutRecorder = SignOutPresentationRecorder()
             let manager = MonetizationManager(
                 entitlementService: EntitlementServiceStub(),
                 paywallPresenter: PaywallPresenterSpy(),
@@ -27,8 +28,9 @@ struct LockedOutSubscriberRecoveryHostingTests {
             )
             let controller = UIHostingController(
                 rootView: AppAccessPaywallPlaceholderView(
-                    initialPresentationState: .readyToRetry,
-                    onDeleteAccount: { recorder.didRequestDeletion = true }
+                    initialPhase: .failed,
+                    onDeleteAccount: { recorder.didRequestDeletion = true },
+                    onSignOut: { signOutRecorder.didRequestSignOut = true }
                 )
                 .environment(manager)
             )
@@ -40,13 +42,12 @@ struct LockedOutSubscriberRecoveryHostingTests {
                 let labels = elements.compactMap(\.accessibilityLabel)
 
                 #expect(labels.contains("Delete account"))
-                #expect(
-                    !labels.contains { $0.localizedCaseInsensitiveContains("sign out") },
-                    "Signing back in returns to this same screen, so the gate offers no sign-out"
-                )
+                #expect(labels.contains("Sign Out"))
 
                 try activateAccessibilityElement(labelled: "Delete account", in: root)
                 #expect(recorder.didRequestDeletion)
+                try activateAccessibilityElement(labelled: "Sign Out", in: root)
+                #expect(signOutRecorder.didRequestSignOut)
             }
         }
     }
@@ -331,6 +332,11 @@ struct LockedOutSubscriberRecoveryHostingTests {
 @MainActor
 private final class DeletionPresentationRecorder {
     var didRequestDeletion = false
+}
+
+@MainActor
+private final class SignOutPresentationRecorder {
+    var didRequestSignOut = false
 }
 
 /// Presents the real dialog the way `RootView` and Settings both do - as a sheet, so the detent it

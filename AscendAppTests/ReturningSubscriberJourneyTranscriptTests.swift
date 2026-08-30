@@ -128,7 +128,7 @@ struct ReturningSubscriberJourneyTranscriptTests {
         case .signedOut: "signedOut (welcome screen, with Already have an account? Sign in)"
         case .signingIn: "signingIn"
         case .restoringSession: "restoringSession"
-        case .resolving: "resolving (neutral Checking your access... surface)"
+        case .resolving: "resolving (neutral Checking your subscription access surface)"
         case .onboarding(let stage): "onboarding(\(stage))"
         case .paywall: "paywall (app-access gate)"
         case .mainApp: "mainApp"

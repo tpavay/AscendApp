@@ -11,11 +11,15 @@ final class PaywallTransactionContextStore {
     func record(
         placement: String?,
         presentationID: String?,
+        gateAttemptID: String? = nil,
+        recoveryPath: AppAccessGateRecoveryPath? = nil,
         productID: String
     ) {
         contextsByProductID[productID] = Context(
             placement: placement,
-            presentationID: presentationID
+            presentationID: presentationID,
+            gateAttemptID: gateAttemptID,
+            recoveryPath: recoveryPath
         )
     }
 

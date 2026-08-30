@@ -69,7 +69,7 @@ struct AppReviewSandboxEntitlementTests {
     }
 
     /// Restore read the same discarded line, so a reviewer's own workaround produced a second
-    /// error: `.notFound` -> "No purchases found to restore." Both readings run through the one
+    /// error: `.notFound` -> the exact no-active-subscription copy. Both readings run through the one
     /// service here, so the old one is shown failing beside the new one succeeding.
     @Test
     func restoreFindsTheEntitlementTheOldFilterDropped() async throws {
@@ -127,7 +127,9 @@ struct AppReviewSandboxEntitlementTests {
     /// mistake that started this.
     @Test
     func theSandboxFlagIsAbsentUntilRevenueCatAnswers() {
-        let parameters = PaywallAnalyticsEvent.revenueCatRestoreStarted
+        let parameters = PaywallAnalyticsEvent.revenueCatRestoreStarted(
+            context: .accountSettings()
+        )
             .record(diagnostics: Self.diagnostics(receiptName: "none").diagnostics)
             .parameters
 
@@ -142,7 +144,9 @@ struct AppReviewSandboxEntitlementTests {
     /// until RevenueCat answers, and the shared instance's answer depends on what else has run.
     @Test
     func theShippedEventPathCarriesTheEnvironmentPair() {
-        let parameters = PaywallAnalyticsEvent.revenueCatRestoreStarted.record.parameters
+        let parameters = PaywallAnalyticsEvent.revenueCatRestoreStarted(
+            context: .accountSettings()
+        ).record.parameters
 
         #expect(
             parameters["storekit_receipt_name"] == .string(StoreKitReceiptEnvironment.receiptName)
@@ -196,7 +200,7 @@ struct AppReviewSandboxEntitlementTests {
     }
 
     /// Restore reads the same rule, so a reviewer who taps Restore instead of buying again is told
-    /// the truth rather than "No purchases found to restore."
+    /// the truth rather than a generic restore failure.
     @Test(arguments: [true, false])
     func aRestoreFindsTheEntitlementInEitherEnvironment(isSandbox: Bool) async {
         let restorer = StubRestorer(
@@ -256,7 +260,11 @@ private extension AppReviewSandboxEntitlementTests {
                 errorType: .noActiveEntitlement,
                 attribution: .purchaseStarted(context)
             ),
-            .revenueCatRestoreNotFound(entitlementID: entitlementID)
+            .revenueCatRestoreNotFound(
+                entitlementID: entitlementID,
+                context: .appAccessGate(gateAttemptID: "review-gate"),
+                identityMatches: true
+            )
         ]
     }
 
@@ -357,6 +365,10 @@ private final class PurchaseVerdictHarness {
 @MainActor
 private final class StubRestorer: PurchaseRestoring {
     let isRevenueCatConfigured = true
+    let identityGeneration: MonetizationIdentityTransition? = MonetizationIdentityTransition(
+        revision: 1,
+        userID: "sandbox-evidence-user"
+    )
     private let state: MonetizationEntitlementState
 
     init(state: MonetizationEntitlementState) {

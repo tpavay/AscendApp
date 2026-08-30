@@ -1,0 +1,11 @@
+"subscription.plan.annual" = "Annual";
+"subscription.plan.monthly" = "Monthly";
+"subscription.renewal.every" = "Renews every %@";
+"subscription.renewal.annual" = "Renews annually";
+"subscription.renewal.monthly" = "Renews monthly";
+"subscription.renewal.automatic" = "Renews automatically";
+"subscription.trial.free" = "%@ free";
+"subscription.trial.action" = "Start %@ free trial";
+"subscription.trial.action.seven_day" = "Start 7-day free trial";
+"subscription.action.subscribe" = "Subscribe with Apple";
+"subscription.period.generic" = "billing period";

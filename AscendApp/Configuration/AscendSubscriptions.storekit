@@ -1,0 +1,90 @@
+{
+  "identifier" : "5C9B31E2-A7D6-4D90-9DA6-554A5CC0A554",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_applicationInternalID" : "",
+    "_developerTeamID" : "",
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_renewalBillingIssuesEnabled" : false,
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+
+    ],
+    "_timeRate" : 0
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "B0D9B819-5540-4A52-8874-75D479355401",
+      "localizations" : [
+
+      ],
+      "name" : "Ascend Access",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "49.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "7E33E763-4663-48F2-B0CB-554000000001",
+          "introductoryOffer" : {
+            "internalID" : "0F6EC9A8-A75E-43EF-9C9E-554000000001",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1W"
+          },
+          "localizations" : [
+            {
+              "description" : "Full access to Ascend.",
+              "displayName" : "Ascend Annual",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "ascend_staging_yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Ascend Annual",
+          "subscriptionGroupID" : "B0D9B819-5540-4A52-8874-75D479355401",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "9.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "7E33E763-4663-48F2-B0CB-554000000002",
+          "localizations" : [
+            {
+              "description" : "Full access to Ascend.",
+              "displayName" : "Ascend Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "ascend_staging_monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Ascend Monthly",
+          "subscriptionGroupID" : "B0D9B819-5540-4A52-8874-75D479355401",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

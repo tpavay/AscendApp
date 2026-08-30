@@ -25,7 +25,7 @@ enum RevenueCatPurchaseControllerError: LocalizedError {
         case .entitlementUnconfirmed:
             return "Ascend couldn't confirm your subscription. Check your connection and try again."
         case .noPurchasesFound:
-            return "No purchases found to restore."
+            return "No active Ascend subscription was found for this Apple ID."
         }
     }
 }
@@ -34,9 +34,15 @@ enum RevenueCatPurchaseControllerError: LocalizedError {
 final class RevenueCatPurchaseController: PurchaseController {
     private let applySuperwallStatus: @MainActor (SuperwallKit.SubscriptionStatus) -> Void
 
-    private var subscriptionStatusTask: Task<Void, Never>?
     private let executor: RevenueCatPurchaseExecutor
     private let restoreService: AppAccessRestoreService
+    private let restoreAnalyticsContext: @MainActor () -> AppAccessRestoreAnalyticsContext
+    private let isPurchasesConfigured: @MainActor () -> Bool
+    private let recoveryRouter: @MainActor (
+        HostedPurchaseRecovery,
+        RevenueCatPurchaseAnalyticsContext,
+        MonetizationIdentityTransition
+    ) async -> Bool
 
     init(
         // Resolved on use, not at init: `MonetizationManager.shared` owns the Superwall presenter
@@ -48,7 +54,24 @@ final class RevenueCatPurchaseController: PurchaseController {
             Superwall.shared.subscriptionStatus = $0
         },
         executor: RevenueCatPurchaseExecutor? = nil,
-        restoreService: AppAccessRestoreService? = nil
+        restoreService: AppAccessRestoreService? = nil,
+        restoreAnalyticsContext: @escaping @MainActor () -> AppAccessRestoreAnalyticsContext = {
+            SuperwallPaywallPresenter.shared.makeHostedRestoreAnalyticsContext()
+        },
+        isPurchasesConfigured: @escaping @MainActor () -> Bool = {
+            Purchases.isConfigured
+        },
+        recoveryRouter: @escaping @MainActor (
+            HostedPurchaseRecovery,
+            RevenueCatPurchaseAnalyticsContext,
+            MonetizationIdentityTransition
+        ) async -> Bool = { recovery, context, identity in
+            await SuperwallPaywallPresenter.shared.recoverHostedPurchase(
+                recovery,
+                context: context,
+                identity: identity
+            )
+        }
     ) {
         self.applySuperwallStatus = applySuperwallStatus
         self.executor = executor ?? RevenueCatPurchaseExecutor(
@@ -63,30 +86,18 @@ final class RevenueCatPurchaseController: PurchaseController {
                     force: true,
                     waitsForPendingIdentity: true
                 )
+            },
+            currentIdentityGeneration: {
+                coordinator().identityGeneration
+            },
+            adoptEntitlementState: { state, identity in
+                coordinator().adoptPurchaseEntitlementState(state, for: identity)
             }
         )
-        self.restoreService = restoreService ?? AppAccessRestoreService(
-            restorer: { coordinator() }
-        )
-    }
-
-    func syncSubscriptionStatus() {
-        guard Purchases.isConfigured else { return }
-
-        subscriptionStatusTask?.cancel()
-        subscriptionStatusTask = Task { [weak self] in
-            if let customerInfo = try? await Purchases.shared.customerInfo() {
-                await MainActor.run {
-                    self?.applySubscriptionStatus(from: customerInfo)
-                }
-            }
-
-            for await customerInfo in Purchases.shared.customerInfoStream {
-                await MainActor.run {
-                    self?.applySubscriptionStatus(from: customerInfo)
-                }
-            }
-        }
+        self.restoreService = restoreService ?? .shared
+        self.restoreAnalyticsContext = restoreAnalyticsContext
+        self.isPurchasesConfigured = isPurchasesConfigured
+        self.recoveryRouter = recoveryRouter
     }
 
     func purchase(product: SuperwallKit.StoreProduct) async -> PurchaseResult {
@@ -99,17 +110,65 @@ final class RevenueCatPurchaseController: PurchaseController {
             )
         }
 
-        let storeProduct = RevenueCat.StoreProduct(sk2Product: sk2Product)
-        return await executor.executePurchase(productID: product.productIdentifier) {
-            let result = try await Purchases.shared.purchase(product: storeProduct)
-            return RevenueCatPurchaseExecutor.PurchaseResponse(
-                userCancelled: result.userCancelled
+        guard isPurchasesConfigured() else {
+            return executor.failPurchaseBeforeRevenueCatCall(
+                productID: product.productIdentifier,
+                error: RevenueCatPurchaseControllerError.monetizationUnavailable,
+                errorType: .configuration
             )
         }
+
+        let storeProduct = RevenueCat.StoreProduct(sk2Product: sk2Product)
+        let execution = await executor.executePurchaseWithContext(
+            productID: product.productIdentifier
+        ) {
+            let result = try await Purchases.shared.purchase(product: storeProduct)
+            return RevenueCatPurchaseExecutor.PurchaseResponse(
+                userCancelled: result.userCancelled,
+                entitlementState: RevenueCatPurchasesProvider.entitlementState(
+                    from: result.customerInfo
+                )
+            )
+        }
+
+        return await resolveHostedExecution(execution)
+    }
+
+    /// Resolves the app-owned hosted-paywall recovery before Superwall receives the transaction
+    /// terminal. Pending and unconfirmed purchases must dismiss into Ascend's non-repurchase state
+    /// first so Superwall cannot leave a reusable CTA or show the wrong generic alert.
+    func resolveHostedExecution(
+        _ execution: RevenueCatPurchaseExecutor.Execution
+    ) async -> PurchaseResult {
+        switch execution.result {
+        case .pending:
+            if let identity = execution.purchaseIdentity {
+                _ = await recoveryRouter(
+                    .pendingApproval,
+                    execution.analyticsContext,
+                    identity
+                )
+            }
+        case .failed(let error):
+            if let controllerError = error as? RevenueCatPurchaseControllerError,
+               case .entitlementUnconfirmed = controllerError,
+               let identity = execution.purchaseIdentity {
+                _ = await recoveryRouter(
+                    .verificationUnavailable,
+                    execution.analyticsContext,
+                    identity
+                )
+            }
+        case .purchased, .cancelled:
+            break
+        @unknown default:
+            break
+        }
+        return execution.result
     }
 
     func restorePurchases() async -> RestorationResult {
-        switch await restoreService.restore() {
+        switch await restoreService.restore(context: restoreAnalyticsContext()) {
         case .restored(let entitlementIDs):
             applySuperwallStatus(Self.subscriptionStatus(for: entitlementIDs))
             return .restored
@@ -124,13 +183,7 @@ final class RevenueCatPurchaseController: PurchaseController {
         }
     }
 
-    private func applySubscriptionStatus(from customerInfo: RevenueCat.CustomerInfo) {
-        let entitlementIDs = customerInfo.entitlements.appAccessEntitlementIDs
-
-        applySuperwallStatus(Self.subscriptionStatus(for: entitlementIDs))
-    }
-
-    private static func subscriptionStatus(for entitlementIDs: Set<String>)
+    static func subscriptionStatus(for entitlementIDs: Set<String>)
         -> SuperwallKit.SubscriptionStatus {
         let entitlements = entitlementIDs.map { SuperwallKit.Entitlement(id: $0) }
 
