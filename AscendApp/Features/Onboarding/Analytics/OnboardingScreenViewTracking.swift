@@ -53,12 +53,16 @@ struct OnboardingScreenViewRecorder {
     mutating func recordIfNeeded(
         _ context: OnboardingAnalyticsContext?,
         resume: Bool = false,
-        telemetry: TelemetryManager = .shared
+        telemetry: TelemetryManager = .shared,
+        expectedUserID: String? = nil
     ) {
         guard let context, viewedStepIDs.insert(context.stepID).inserted else { return }
 
-        telemetry.track(
-            OnboardingAnalyticsEvent.screenViewed(context: context, resume: resume)
-        )
+        let event = OnboardingAnalyticsEvent.screenViewed(context: context, resume: resume)
+        if let expectedUserID {
+            telemetry.track(event, ifIdentifiedAs: expectedUserID)
+        } else {
+            telemetry.track(event)
+        }
     }
 }

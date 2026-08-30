@@ -8,11 +8,34 @@
 import Foundation
 import os.lock
 
+protocol TelemetryDeliveryLaning: Sendable {
+    func withLock<Result: Sendable>(
+        _ operation: @Sendable () throws -> Result
+    ) rethrows -> Result
+}
+
+final class LockedTelemetryDeliveryLane: TelemetryDeliveryLaning, @unchecked Sendable {
+    private let lock = OSAllocatedUnfairLock(initialState: ())
+
+    func withLock<Result: Sendable>(
+        _ operation: @Sendable () throws -> Result
+    ) rethrows -> Result {
+        try lock.withLock(operation)
+    }
+}
+
 /// Thread-safe telemetry manager for shared app events and error reporting.
 /// Call `configure()` once at app launch, after Firebase is configured.
 final class TelemetryManager: @unchecked Sendable {
     static let shared = TelemetryManager()
 
+    /// Serializes every identity-sensitive sink call.
+    ///
+    /// The state lock alone cannot protect attribution: checking account A under that lock and
+    /// then releasing it before `record` lets another thread identify account B in between. This
+    /// lane keeps the check and the synchronous sink delivery indivisible, without making callers
+    /// await telemetry or delaying authentication on provider work.
+    private let deliveryLane: any TelemetryDeliveryLaning
     private let lock = OSAllocatedUnfairLock(initialState: State())
     private let sinks: [any TelemetrySink]
     private let crashlyticsReporter: any CrashlyticsReporting
@@ -30,7 +53,8 @@ final class TelemetryManager: @unchecked Sendable {
         crashlyticsReporter: (any CrashlyticsReporting)? = nil,
         collectionEnabledOverride: Bool? = nil,
         buildMetadata: TelemetryBuildMetadata = .current,
-        identityStore: any TelemetryIdentityStoring = TelemetryIdentityStore.live
+        identityStore: any TelemetryIdentityStoring = TelemetryIdentityStore.live,
+        deliveryLane: any TelemetryDeliveryLaning = LockedTelemetryDeliveryLane()
     ) {
         let reporter = crashlyticsReporter ?? CompositeCrashlyticsReporter(
             reporters: [
@@ -43,6 +67,7 @@ final class TelemetryManager: @unchecked Sendable {
         self.buildMetadata = buildMetadata
         self.envelope = TelemetryEnvelope(resolving: buildMetadata)
         self.identityStore = identityStore
+        self.deliveryLane = deliveryLane
         if let sinks {
             self.sinks = sinks
         } else {
@@ -68,25 +93,25 @@ final class TelemetryManager: @unchecked Sendable {
 
     /// Call once at app launch, after FirebaseApp.configure(). Safe to call multiple times.
     func configure() {
-        // Read before the lock: the identity the last launch left behind is what tells a genuine
-        // sign-out apart from a cold launch that merely has no session.
-        let restoredUserID = identityStore.identifiedUserID
-        let shouldConfigure = lock.withLock { state -> Bool in
-            guard !state.didConfigure else { return false }
-            state.didConfigure = true
-            state.identifiedUserID = restoredUserID
-            return true
-        }
-
-        guard shouldConfigure else { return }
-
         let enabled = collectionEnabledOverride ?? Self.shouldEnableCollection(
             buildMetadata: buildMetadata
         )
-        lock.withLock { $0.isCollectionEnabled = enabled }
+        deliveryLane.withLock {
+            // The identity the last launch left behind is what tells a genuine sign-out apart from
+            // a cold launch that merely has no session.
+            let restoredUserID = identityStore.identifiedUserID
+            let shouldConfigure = lock.withLock { state -> Bool in
+                guard !state.didConfigure else { return false }
+                state.didConfigure = true
+                state.identifiedUserID = restoredUserID
+                state.isCollectionEnabled = enabled
+                return true
+            }
 
-        crashlyticsReporter.setCollectionEnabled(enabled)
-        sinks.forEach { $0.setCollectionEnabled(enabled) }
+            guard shouldConfigure else { return }
+            crashlyticsReporter.setCollectionEnabled(enabled)
+            sinks.forEach { $0.setCollectionEnabled(enabled) }
+        }
     }
 
     static func shouldEnableCollection(
@@ -158,9 +183,11 @@ final class TelemetryManager: @unchecked Sendable {
     }
 
     func debugEnableCollectionForSession() {
-        lock.withLock { $0.isCollectionEnabled = true }
-        crashlyticsReporter.setCollectionEnabled(true)
-        sinks.forEach { $0.setCollectionEnabled(true) }
+        deliveryLane.withLock {
+            lock.withLock { $0.isCollectionEnabled = true }
+            crashlyticsReporter.setCollectionEnabled(true)
+            sinks.forEach { $0.setCollectionEnabled(true) }
+        }
         setAppMetadata()
     }
     #endif
@@ -168,24 +195,26 @@ final class TelemetryManager: @unchecked Sendable {
     // MARK: - User Identity
 
     func setUserId(_ userId: String) {
-        guard isCollectionEnabled else { return }
+        deliveryLane.withLock {
+            let previousUserID = lock.withLock { state -> String? in
+                guard state.isCollectionEnabled else { return nil }
+                let previous = state.identifiedUserID
+                state.identifiedUserID = userId
+                return previous
+            }
+            guard lock.withLock(\.isCollectionEnabled) else { return }
 
-        let previousUserID = lock.withLock { state -> String? in
-            let previous = state.identifiedUserID
-            state.identifiedUserID = userId
-            return previous
+            // Mixpanel links whatever anonymous id is in play to whoever identifies next, so
+            // identifying a second account over a live one merges two climbers into one profile.
+            // Clearing first is what keeps an account switch two people.
+            if let previousUserID, previousUserID != userId {
+                forwardClearedIdentity()
+            }
+
+            identityStore.store(userId)
+            crashlyticsReporter.setUserID(userId)
+            sinks.forEach { $0.setUserID(userId) }
         }
-
-        // Mixpanel links whatever anonymous id is in play to whoever identifies next, so
-        // identifying a second account over a live one merges two climbers into one profile.
-        // Clearing first is what keeps an account switch two people.
-        if let previousUserID, previousUserID != userId {
-            forwardClearedIdentity()
-        }
-
-        identityStore.store(userId)
-        crashlyticsReporter.setUserID(userId)
-        sinks.forEach { $0.setUserID(userId) }
     }
 
     /// Clears the identity only when there is one to clear, and reports whether it did.
@@ -199,23 +228,26 @@ final class TelemetryManager: @unchecked Sendable {
     /// "did somebody actually sign out", so anything else reporting a sign-out hangs off it.
     @discardableResult
     func clearUserId() -> Bool {
-        let hadIdentity = lock.withLock { state -> Bool in
-            guard state.identifiedUserID != nil else { return false }
-            state.identifiedUserID = nil
+        deliveryLane.withLock {
+            let result = lock.withLock { state -> (hadIdentity: Bool, enabled: Bool) in
+                guard state.identifiedUserID != nil else {
+                    return (false, state.isCollectionEnabled)
+                }
+                state.identifiedUserID = nil
+                return (true, state.isCollectionEnabled)
+            }
+
+            guard result.hadIdentity else { return false }
+
+            // The persisted mirror is cleared whether or not the sinks are listening: an identity
+            // left banked by a suppressed run would be restored by the next enabled launch, whose
+            // first signed-out report would then look like the sign-out that already happened.
+            identityStore.clear()
+
+            guard result.enabled else { return false }
+            forwardClearedIdentity()
             return true
         }
-
-        guard hadIdentity else { return false }
-
-        // The persisted mirror is cleared whether or not the sinks are listening: an identity left
-        // banked by a suppressed run would be restored by the next enabled launch, whose first
-        // signed-out report would then look like the sign-out that already happened.
-        identityStore.clear()
-
-        guard isCollectionEnabled else { return false }
-
-        forwardClearedIdentity()
-        return true
     }
 
     private func forwardClearedIdentity() {
@@ -224,10 +256,12 @@ final class TelemetryManager: @unchecked Sendable {
     }
 
     func setUserProperty(_ name: String, value: String?) {
-        guard isCollectionEnabled else { return }
-        sinks
-            .filter { $0.supportedDestinations.contains(.analytics) }
-            .forEach { $0.setUserProperty(name, value: value) }
+        deliveryLane.withLock {
+            guard lock.withLock(\.isCollectionEnabled) else { return }
+            sinks
+                .filter { $0.supportedDestinations.contains(.analytics) }
+                .forEach { $0.setUserProperty(name, value: value) }
+        }
     }
 
     // MARK: - Event Tracking
@@ -237,21 +271,48 @@ final class TelemetryManager: @unchecked Sendable {
     }
 
     func track(_ record: TelemetryRecord) {
-        guard isCollectionEnabled else { return }
+        deliveryLane.withLock {
+            guard lock.withLock(\.isCollectionEnabled) else { return }
+            deliver(record)
+        }
+    }
 
-        let envelopedRecord = EnvelopedTelemetryRecord(record: record, envelope: envelope)
-        sinks
-            .filter { $0.supportedDestinations.isDisjoint(with: envelopedRecord.destinations) == false }
-            .forEach { $0.record(envelopedRecord) }
+    /// Delivers an account-owned event only while that exact account owns the telemetry sinks.
+    ///
+    /// `expectedUserID` is delivery metadata. It is deliberately never added to the event record,
+    /// keeping Firebase/Mixpanel parameters free of raw account identifiers. A stale async payment
+    /// attempt is considered to have produced its terminal even when delivery is privacy-refused.
+    @discardableResult
+    func track(
+        _ event: any TelemetryEvent,
+        ifIdentifiedAs expectedUserID: String
+    ) -> Bool {
+        track(event.record, ifIdentifiedAs: expectedUserID)
+    }
+
+    @discardableResult
+    func track(
+        _ record: TelemetryRecord,
+        ifIdentifiedAs expectedUserID: String
+    ) -> Bool {
+        deliveryLane.withLock {
+            let mayDeliver = lock.withLock { state in
+                state.isCollectionEnabled && state.identifiedUserID == expectedUserID
+            }
+            guard mayDeliver else { return false }
+            deliver(record)
+            return true
+        }
     }
 
     func track(screen: TelemetryScreen) {
-        guard isCollectionEnabled else { return }
-
-        let envelopedScreen = EnvelopedTelemetryScreen(screen: screen, envelope: envelope)
-        sinks
-            .filter { $0.supportedDestinations.contains(.analytics) }
-            .forEach { $0.record(screen: envelopedScreen) }
+        deliveryLane.withLock {
+            guard lock.withLock(\.isCollectionEnabled) else { return }
+            let envelopedScreen = EnvelopedTelemetryScreen(screen: screen, envelope: envelope)
+            sinks
+                .filter { $0.supportedDestinations.contains(.analytics) }
+                .forEach { $0.record(screen: envelopedScreen) }
+        }
     }
 
     // MARK: - Custom Keys (Native Types)
@@ -332,7 +393,48 @@ final class TelemetryManager: @unchecked Sendable {
         code: String,
         additionalInfo: [String: String]? = nil
     ) {
-        guard isCollectionEnabled else { return }
+        deliveryLane.withLock {
+            guard lock.withLock(\.isCollectionEnabled) else { return }
+            deliverError(
+                error,
+                context: context,
+                code: code,
+                additionalInfo: additionalInfo
+            )
+        }
+    }
+
+    @discardableResult
+    func recordError(
+        _ error: Error,
+        context: ErrorContext,
+        code: String,
+        additionalInfo: [String: String]? = nil,
+        ifIdentifiedAs expectedUserID: String
+    ) -> Bool {
+        deliveryLane.withLock {
+            let mayDeliver = lock.withLock { state in
+                state.isCollectionEnabled && state.identifiedUserID == expectedUserID
+            }
+            guard mayDeliver else { return false }
+            deliverError(
+                error,
+                context: context,
+                code: code,
+                additionalInfo: additionalInfo
+            )
+            return true
+        }
+    }
+}
+
+private extension TelemetryManager {
+    func deliverError(
+        _ error: Error,
+        context: ErrorContext,
+        code: String,
+        additionalInfo: [String: String]?
+    ) {
         crashlyticsReporter.record(
             error: error,
             context: context.rawValue,
@@ -340,9 +442,16 @@ final class TelemetryManager: @unchecked Sendable {
             additionalInfo: additionalInfo
         )
     }
-}
 
-private extension TelemetryManager {
+    func deliver(_ record: TelemetryRecord) {
+        let envelopedRecord = EnvelopedTelemetryRecord(record: record, envelope: envelope)
+        sinks
+            .filter {
+                $0.supportedDestinations.isDisjoint(with: envelopedRecord.destinations) == false
+            }
+            .forEach { $0.record(envelopedRecord) }
+    }
+
     struct State {
         var isCollectionEnabled = false
         var didConfigure = false

@@ -66,20 +66,15 @@ struct PaywallPurchaseAnalyticsTranscriptTests {
                 Issue.record("\(situation.title) shipped no terminal event")
                 continue
             }
-            if situation.preCallFailure == nil {
-                #expect(
-                    terminal.parameters["placement"] == .string(situation.expectedPlacement),
-                    "\(situation.title) lost its paywall placement"
-                )
-                #expect(
-                    terminal.parameters["presentation_id"]
-                        == situation.expectedPresentationID.map(TelemetryValue.string),
-                    "\(situation.title) lost its presentation ID"
-                )
-            } else {
-                #expect(terminal.parameters["placement"] == nil, "\(situation.title)")
-                #expect(terminal.parameters["presentation_id"] == nil, "\(situation.title)")
-            }
+            #expect(
+                terminal.parameters["placement"] == .string(situation.expectedPlacement),
+                "\(situation.title) lost its paywall placement"
+            )
+            #expect(
+                terminal.parameters["presentation_id"]
+                    == situation.expectedPresentationID.map(TelemetryValue.string),
+                "\(situation.title) lost its presentation ID"
+            )
             Self.expectNoRawErrorText(in: records, situation: situation.title)
             completedNames.append(contentsOf: terminals.filter { $0 == "revenuecat_purchase_completed" })
         }
@@ -91,8 +86,10 @@ struct PaywallPurchaseAnalyticsTranscriptTests {
                 restoreError: situation.restoreError,
                 isRevenueCatConfigured: situation.isConfigured
             )
+            let telemetry = makeTestTelemetry(sink: sink)
+            telemetry.setUserId("analytics-transcript-user")
             let service = AppAccessRestoreService(
-                telemetry: makeTestTelemetry(sink: sink),
+                telemetry: telemetry,
                 entitlementID: Self.entitlementID,
                 restorer: { restorer }
             )
@@ -256,13 +253,13 @@ private extension PaywallPurchaseAnalyticsTranscriptTests {
             ),
             RestoreSituation(
                 title: "taps Restore with nothing ever purchased",
-                climberSees: "\"No purchases found to restore.\" Still locked.",
+                climberSees: "\"No active Ascend subscription was found for this Apple ID.\" Still locked.",
                 restoredState: .inactive,
                 expectedStream: ["revenuecat_restore_started", "revenuecat_restore_not_found"]
             ),
             RestoreSituation(
                 title: "restore resolves some other entitlement, not app_access",
-                climberSees: "\"No purchases found to restore.\" Still locked.",
+                climberSees: "\"No active Ascend subscription was found for this Apple ID.\" Still locked.",
                 restoredState: .active(["legacy_beta"]),
                 expectedStream: ["revenuecat_restore_started", "revenuecat_restore_not_found"]
             ),
@@ -282,7 +279,7 @@ private extension PaywallPurchaseAnalyticsTranscriptTests {
                 title: "RevenueCat is not configured on this build",
                 climberSees: "\"Ascend could not reach the App Store.\" No restore call happened.",
                 isConfigured: false,
-                expectedStream: ["revenuecat_restore_failed"]
+                expectedStream: ["revenuecat_restore_started", "revenuecat_restore_failed"]
             )
         ]
     }
@@ -344,6 +341,10 @@ private struct TranscriptRenderer {
 @MainActor
 private final class RestorerStub: PaywallPurchaseCoordinating {
     var isRevenueCatConfigured: Bool
+    let identityGeneration: MonetizationIdentityTransition? = MonetizationIdentityTransition(
+        revision: 1,
+        userID: "analytics-transcript-user"
+    )
     private(set) var restoreCount = 0
     private let restoredState: MonetizationEntitlementState
     private let restoreError: (any Error)?
@@ -383,12 +384,17 @@ private final class PurchaseHarness {
     private(set) var executor: RevenueCatPurchaseExecutor!
 
     init(entitlementID: String, refresh: MonetizationEntitlementRefresh) {
+        let identity = MonetizationIdentityTransition(revision: 1, userID: "test-user")
+        let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("test-user")
         executor = RevenueCatPurchaseExecutor(
-            telemetry: makeTestTelemetry(sink: sink),
+            telemetry: telemetry,
             transactionContextStore: contextStore,
             entitlementID: entitlementID,
             applySubscriptionStatus: { _ in },
-            refreshEntitlementState: { refresh }
+            refreshEntitlementState: { refresh },
+            currentIdentityGeneration: { identity },
+            adoptEntitlementState: { _, candidate in candidate == identity }
         )
     }
 }
@@ -429,7 +435,7 @@ private extension PaywallPurchaseAnalyticsTranscriptTests {
         case .restored:
             return "restored - Ascend unlocked"
         case .notFound:
-            return "notFound - shown: \"No purchases found to restore.\""
+            return "notFound - shown: \"No active Ascend subscription was found for this Apple ID.\""
         case .failed(let error):
             return "failed - shown: \"\(error.localizedDescription)\""
         }

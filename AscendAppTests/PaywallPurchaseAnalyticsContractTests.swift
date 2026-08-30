@@ -48,17 +48,123 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(harness.published == [[Self.entitlementID]])
     }
 
-    /// The purchase response is a pre-refresh snapshot. Only the refreshed RevenueCat entitlement
-    /// state decides the verdict, so a slow projection can no longer be reported as a verified
-    /// purchase.
     @Test
-    func theRefreshedEntitlementStateAloneDecidesTheVerdict() async {
-        let harness = Self.makePurchaseHarness(refreshedState: .active([Self.entitlementID]))
+    func accountSwitchDuringPurchaseSuppressesTheOldTerminalInsteadOfAttributingItToTheNewAccount() async {
+        await assertAccountSwitchDuringPurchaseSuppressesTerminal(
+            response: .init(
+                userCancelled: false,
+                entitlementState: .active([Self.entitlementID])
+            )
+        )
+    }
+
+    @Test
+    func accountSwitchDuringPurchaseCancellationSuppressesTheOldTerminal() async {
+        await assertAccountSwitchDuringPurchaseSuppressesTerminal(
+            response: .init(userCancelled: true)
+        )
+    }
+
+    private func assertAccountSwitchDuringPurchaseSuppressesTerminal(
+        response: RevenueCatPurchaseExecutor.PurchaseResponse
+    ) async {
+        let sink = IdentityAttributingTelemetrySink()
+        let telemetry = TelemetryManager(
+            sinks: [sink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            identityStore: makeTestIdentityStore()
+        )
+        telemetry.configure()
+        telemetry.setUserId("user-a")
+        let identityA = MonetizationIdentityTransition(revision: 1, userID: "user-a")
+        let identityB = MonetizationIdentityTransition(revision: 2, userID: "user-b")
+        let currentIdentity = MutableMonetizationIdentity(identityA)
+        var published: [Set<String>] = []
+        let operation = ControlledPurchaseOperation()
+        let contextStore = PaywallTransactionContextStore()
+        contextStore.record(
+            placement: SuperwallPlacement.appAccessGate.rawValue,
+            presentationID: "presentation-a",
+            identity: identityA,
+            productID: Self.productID
+        )
+        let executor = RevenueCatPurchaseExecutor(
+            telemetry: telemetry,
+            transactionContextStore: contextStore,
+            entitlementID: Self.entitlementID,
+            applySubscriptionStatus: { published.append($0) },
+            refreshEntitlementState: { .refreshed(.unknown) },
+            currentIdentityGeneration: { currentIdentity.value },
+            adoptEntitlementState: { state, identity in
+                guard currentIdentity.value == identity else { return false }
+                if case .active(let entitlementIDs) = state {
+                    published.append(entitlementIDs)
+                }
+                return true
+            }
+        )
+
+        let purchaseTask = Task { @MainActor in
+            await executor.executePurchase(productID: Self.productID) {
+                await operation.run()
+            }
+        }
+        await operation.waitUntilStarted()
+        telemetry.setUserId("user-b")
+        currentIdentity.value = identityB
+        operation.complete(response)
+        _ = await purchaseTask.value
+
+        #expect(sink.attributions.map(\.name) == ["revenuecat_purchase_started"])
+        #expect(sink.attributions.map(\.userID) == ["user-a"])
+        #expect(published.isEmpty)
+        #expect(sink.attributions.allSatisfy {
+            $0.parameters["user_id"] == nil &&
+                $0.parameters["identity_revision"] == nil
+        })
+    }
+
+    /// RevenueCat's completed transaction response is already identity-scoped CustomerInfo.
+    /// An active entitlement in that response must unlock without a redundant request that can
+    /// fail after Apple has charged the climber.
+    @Test
+    func activePurchaseResponseDecidesTheVerdictWithoutAnotherCustomerInfoRequest() async {
+        let harness = PurchaseHarness(
+            entitlementID: Self.entitlementID,
+            refresh: .unavailable(.providerFailed),
+            usesIdentity: true
+        )
 
         let result = await harness.executor.executePurchase(productID: Self.productID) {
-            RevenueCatPurchaseExecutor.PurchaseResponse(userCancelled: false)
+            RevenueCatPurchaseExecutor.PurchaseResponse(
+                userCancelled: false,
+                entitlementState: .active([Self.entitlementID])
+            )
         }
 
+        #expect(harness.refreshCount == 0)
+        #expect(harness.adoptionCount == 1)
+        #expect(harness.published == [[Self.entitlementID]])
+        #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_completed")
+    }
+
+    @Test
+    func inactivePurchaseResponseUsesTheBoundedRevenueCatVerificationPath() async {
+        let harness = PurchaseHarness(
+            entitlementID: Self.entitlementID,
+            refresh: .refreshed(.active([Self.entitlementID])),
+            usesIdentity: true
+        )
+
+        let result = await harness.executor.executePurchase(productID: Self.productID) {
+            RevenueCatPurchaseExecutor.PurchaseResponse(
+                userCancelled: false,
+                entitlementState: .inactive
+            )
+        }
+
+        #expect(harness.adoptionCount == 1)
         #expect(harness.refreshCount == 1)
         #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_completed")
     }
@@ -233,8 +339,8 @@ struct PaywallPurchaseAnalyticsContractTests {
         Self.expectOnePurchaseTerminal(in: records)
         #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_failed")
         #expect(records[0].parameters["error_type"] == TelemetryValue.string("missing_store_product"))
-        #expect(records[0].parameters["placement"] == nil)
-        #expect(records[0].parameters["presentation_id"] == nil)
+        #expect(records[0].parameters["placement"] == .string("onboarding_paywall"))
+        #expect(records[0].parameters["presentation_id"] == .string("presentation-1"))
     }
 
     @Test
@@ -333,7 +439,7 @@ struct PaywallPurchaseAnalyticsContractTests {
         }
         #expect(
             RevenueCatPurchaseControllerError.noPurchasesFound.localizedDescription
-                == "No purchases found to restore."
+                == "No active Ascend subscription was found for this Apple ID."
         )
     }
 
@@ -355,6 +461,123 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(records[1].parameters["outcome"] == TelemetryValue.string("success"))
         #expect(records[1].parameters["entitlement_id"] == TelemetryValue.string(Self.entitlementID))
         #expect(records[1].parameters["entitlement_active"] == TelemetryValue.bool(true))
+        Self.expectAccountRestoreContext(on: records)
+        #expect(records[1].parameters["identity_match"] == .bool(true))
+    }
+
+    @Test
+    func accountSwitchDuringRestoreSuppressesTheOldTerminalInsteadOfAttributingItToTheNewAccount() async {
+        let sink = IdentityAttributingTelemetrySink()
+        let telemetry = TelemetryManager(
+            sinks: [sink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            identityStore: makeTestIdentityStore()
+        )
+        telemetry.configure()
+        telemetry.setUserId("user-a")
+        let identityA = MonetizationIdentityTransition(revision: 1, userID: "user-a")
+        let identityB = MonetizationIdentityTransition(revision: 2, userID: "user-b")
+        let restorer = ControlledRestoreProvider(identityGeneration: identityA)
+        let service = AppAccessRestoreService(
+            telemetry: telemetry,
+            entitlementID: Self.entitlementID,
+            restorer: { restorer }
+        )
+
+        let restoreTask = Task { @MainActor in
+            await service.restore()
+        }
+        await restorer.waitUntilStarted()
+        telemetry.setUserId("user-b")
+        restorer.identityGeneration = identityB
+        restorer.complete(.active([Self.entitlementID]))
+        _ = await restoreTask.value
+
+        #expect(sink.attributions.map(\.name) == ["revenuecat_restore_started"])
+        #expect(sink.attributions.map(\.userID) == ["user-a"])
+        #expect(sink.attributions.allSatisfy {
+            $0.parameters["user_id"] == nil &&
+                $0.parameters["identity_revision"] == nil
+        })
+    }
+
+    @Test
+    func accountSwitchDuringRestoreCancellationSuppressesTheOldTerminal() async {
+        let sink = IdentityAttributingTelemetrySink()
+        let telemetry = TelemetryManager(
+            sinks: [sink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            identityStore: makeTestIdentityStore()
+        )
+        telemetry.configure()
+        telemetry.setUserId("user-a")
+        let identityA = MonetizationIdentityTransition(revision: 1, userID: "user-a")
+        let identityB = MonetizationIdentityTransition(revision: 2, userID: "user-b")
+        let restorer = ControlledRestoreProvider(identityGeneration: identityA)
+        let service = AppAccessRestoreService(
+            telemetry: telemetry,
+            entitlementID: Self.entitlementID,
+            restorer: { restorer }
+        )
+
+        let restoreTask = Task { @MainActor in
+            await service.restore()
+        }
+        await restorer.waitUntilStarted()
+        telemetry.setUserId("user-b")
+        restorer.identityGeneration = identityB
+        restoreTask.cancel()
+        let outcome = await restoreTask.value
+        restorer.complete(.inactive)
+        await Task.yield()
+
+        #expect(Self.isFailed(outcome))
+        #expect(sink.attributions.map(\.name) == ["revenuecat_restore_started"])
+        #expect(sink.attributions.map(\.userID) == ["user-a"])
+        #expect(sink.attributions.allSatisfy {
+            $0.parameters["user_id"] == nil &&
+                $0.parameters["identity_revision"] == nil
+        })
+    }
+
+    @Test
+    func staleHostedAndGateRestoreContextsCannotStartProviderWorkForTheNewAccount() async {
+        let sink = IdentityAttributingTelemetrySink()
+        let telemetry = TelemetryManager(
+            sinks: [sink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            identityStore: makeTestIdentityStore()
+        )
+        telemetry.configure()
+        telemetry.setUserId("user-b")
+        let identityA = MonetizationIdentityTransition(revision: 1, userID: "user-a")
+        let identityB = MonetizationIdentityTransition(revision: 2, userID: "user-b")
+        let restorer = ControlledRestoreProvider(identityGeneration: identityB)
+        let service = AppAccessRestoreService(
+            telemetry: telemetry,
+            entitlementID: Self.entitlementID,
+            restorer: { restorer }
+        )
+        let contexts = [
+            AppAccessRestoreAnalyticsContext.hostedPaywall(
+                placement: SuperwallPlacement.appAccessGate.rawValue,
+                presentationID: "presentation-a",
+                gateAttemptID: "gate-a",
+                identity: identityA
+            ),
+            .appAccessGate(gateAttemptID: "gate-a", identity: identityA)
+        ]
+
+        for context in contexts {
+            let outcome = await service.restore(context: context)
+            #expect(Self.isFailed(outcome))
+        }
+
+        #expect(restorer.restoreCount == 0)
+        #expect(sink.attributions.isEmpty)
     }
 
     @Test
@@ -373,6 +596,8 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(records[1].parameters["outcome"] == TelemetryValue.string("no_entitlement"))
         #expect(records[1].parameters["entitlement_id"] == TelemetryValue.string(Self.entitlementID))
         #expect(records[1].parameters["entitlement_active"] == TelemetryValue.bool(false))
+        Self.expectAccountRestoreContext(on: records)
+        #expect(records[1].parameters["identity_match"] == .bool(true))
     }
 
     @Test
@@ -425,11 +650,13 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(records[1].parameters["outcome"] == TelemetryValue.string("failed"))
         #expect(records[1].parameters["error_type"] == TelemetryValue.string("network"))
         #expect(records[1].parameters["entitlement_active"] == nil)
+        Self.expectAccountRestoreContext(on: records)
+        #expect(records[1].parameters["identity_match"] == .bool(true))
         Self.expectNoRawErrorText(in: records)
     }
 
     @Test
-    func anUnconfiguredRestoreEmitsOneFailureWithoutClaimingARevenueCatStart() async {
+    func anUnconfiguredRestoreEmitsOneStartedAttemptAndOneConfigurationFailure() async {
         let harness = Self.makeRestoreHarness(
             restoredState: .inactive,
             isRevenueCatConfigured: false
@@ -438,10 +665,13 @@ struct PaywallPurchaseAnalyticsContractTests {
         let outcome = await harness.service.restore()
 
         let records = harness.sink.records
-        #expect(records.map(\.name) == ["revenuecat_restore_failed"])
+        #expect(records.map(\.name) == [
+            "revenuecat_restore_started",
+            "revenuecat_restore_failed"
+        ])
         Self.expectOneRestoreTerminal(in: records)
         #expect(Self.isFailed(outcome))
-        #expect(records[0].parameters["error_type"] == TelemetryValue.string("configuration"))
+        #expect(records[1].parameters["error_type"] == TelemetryValue.string("configuration"))
         #expect(harness.restorer.restoreCount == 0)
     }
 
@@ -482,7 +712,10 @@ struct PaywallPurchaseAnalyticsContractTests {
 
         #expect(result != .restored)
         #expect(published.isEmpty)
-        #expect(Self.restoreResultErrorMessage(for: result) == "No purchases found to restore.")
+        #expect(
+            Self.restoreResultErrorMessage(for: result)
+                == "No active Ascend subscription was found for this Apple ID."
+        )
         #expect(harness.sink.records.map(\.name).contains("revenuecat_restore_completed") == false)
         #expect(harness.sink.records.map(\.name).contains("paywall_restore_completed") == false)
     }
@@ -491,7 +724,11 @@ struct PaywallPurchaseAnalyticsContractTests {
     func theAccountRestoreEntryPointEmitsExactlyOneTerminalPerOutcome() async {
         let expectations: [(MonetizationEntitlementState, String, String)] = [
             (.active([Self.entitlementID]), "revenuecat_restore_completed", "Restore Complete"),
-            (.inactive, "revenuecat_restore_not_found", "No purchases found to restore."),
+            (
+                .inactive,
+                "revenuecat_restore_not_found",
+                "No active Ascend subscription was found for this Apple ID."
+            ),
             (.unknown, "revenuecat_restore_failed", "Restore Failed")
         ]
 
@@ -581,9 +818,9 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(AppAccessRestoreState.failed != .noPurchasesFound)
         #expect(
             AppAccessRestoreState.failed.statusMessage
-                == "Ascend couldn't restore your purchases. Check your connection and try again."
+                == "Apple could not finish the restore. Try again or contact support."
         )
-        #expect(AppAccessRestoreState.failed.buttonTitle(isRevenueCatConfigured: true) == "Restore Failed")
+        #expect(AppAccessRestoreState.failed.buttonTitle(isRevenueCatConfigured: true) == "Try Restore Again")
         Self.expectClaimsNothingAboutOwnership(AppAccessRestoreState.failed.statusMessage)
         Self.expectClaimsNothingAboutOwnership(
             AppAccessRestoreState.failed.buttonTitle(isRevenueCatConfigured: true)
@@ -604,7 +841,43 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(Set(visibleNoPurchasesCopy) == [Self.noPurchasesCopy])
     }
 
-    private static let noPurchasesCopy = "No purchases found to restore."
+    @Test
+    func nativeGatePurchaseTerminalCarriesExactPrivacySafeAttemptCorrelation() async {
+        let harness = PurchaseHarness(
+            entitlementID: Self.entitlementID,
+            refresh: .refreshed(.active([Self.entitlementID])),
+            usesIdentity: true
+        )
+        harness.contextStore.record(
+            placement: SuperwallPlacement.appAccessGate.rawValue,
+            presentationID: nil,
+            gateAttemptID: "gate-attempt-17",
+            recoveryPath: .native,
+            productID: Self.productID
+        )
+
+        _ = await harness.executor.executePurchase(productID: Self.productID) {
+            RevenueCatPurchaseExecutor.PurchaseResponse(
+                userCancelled: false,
+                entitlementState: .active([Self.entitlementID])
+            )
+        }
+
+        let terminal = harness.sink.records.last
+        #expect(terminal?.name == "revenuecat_purchase_completed")
+        #expect(terminal?.parameters["gate_attempt_id"] == .string("gate-attempt-17"))
+        #expect(terminal?.parameters["placement"] == .string("app_access_gate"))
+        #expect(terminal?.parameters["recovery_path"] == .string("native"))
+        #expect(terminal?.parameters["provider_outcome"] == .string("purchased"))
+        #expect(terminal?.parameters["identity_match"] == .bool(true))
+        #expect(terminal?.parameters["entitlement_active"] == .bool(true))
+        #expect(terminal?.parameters["user_id"] == nil)
+        #expect(terminal?.parameters["identity_revision"] == nil)
+        #expect(terminal?.parameters["error"] == nil)
+        #expect(terminal?.parameters["price"] == nil)
+    }
+
+    private static let noPurchasesCopy = "No active Ascend subscription was found for this Apple ID."
 
     /// Failure copy is about the operation, never about what the climber owns - an unresolved
     /// restore is not evidence of a lapsed or absent subscription.
@@ -630,8 +903,80 @@ struct PaywallPurchaseAnalyticsContractTests {
 // MARK: - Harness
 
 @MainActor
+private final class MutableMonetizationIdentity {
+    var value: MonetizationIdentityTransition
+
+    init(_ value: MonetizationIdentityTransition) {
+        self.value = value
+    }
+}
+
+@MainActor
+private final class ControlledPurchaseOperation {
+    private var continuation: CheckedContinuation<RevenueCatPurchaseExecutor.PurchaseResponse, Never>?
+    private var startObservers: [CheckedContinuation<Void, Never>] = []
+
+    func run() async -> RevenueCatPurchaseExecutor.PurchaseResponse {
+        startObservers.forEach { $0.resume() }
+        startObservers = []
+        return await withCheckedContinuation { continuation = $0 }
+    }
+
+    func waitUntilStarted() async {
+        guard continuation == nil else { return }
+        await withCheckedContinuation { startObservers.append($0) }
+    }
+
+    func complete(_ response: RevenueCatPurchaseExecutor.PurchaseResponse) {
+        continuation?.resume(returning: response)
+        continuation = nil
+    }
+}
+
+@MainActor
+private final class ControlledRestoreProvider: PurchaseRestoring {
+    let isRevenueCatConfigured = true
+    var identityGeneration: MonetizationIdentityTransition?
+    private(set) var restoreCount = 0
+    private var continuation: CheckedContinuation<MonetizationEntitlementState, Never>?
+    private var startObservers: [CheckedContinuation<Void, Never>] = []
+
+    init(identityGeneration: MonetizationIdentityTransition?) {
+        self.identityGeneration = identityGeneration
+    }
+
+    func restorePurchases(
+        for identity: MonetizationIdentityTransition
+    ) async throws -> MonetizationEntitlementState {
+        restoreCount += 1
+        startObservers.forEach { $0.resume() }
+        startObservers = []
+        return await withCheckedContinuation { continuation = $0 }
+    }
+
+    func restorePurchases() async throws -> MonetizationEntitlementState {
+        guard let identityGeneration else { return .unknown }
+        return try await restorePurchases(for: identityGeneration)
+    }
+
+    func waitUntilStarted() async {
+        guard continuation == nil else { return }
+        await withCheckedContinuation { startObservers.append($0) }
+    }
+
+    func complete(_ state: MonetizationEntitlementState) {
+        continuation?.resume(returning: state)
+        continuation = nil
+    }
+}
+
+@MainActor
 private final class RestorerStub: PaywallPurchaseCoordinating {
     var isRevenueCatConfigured: Bool
+    let identityGeneration: MonetizationIdentityTransition? = MonetizationIdentityTransition(
+        revision: 1,
+        userID: "test-user"
+    )
     private(set) var restoreCount = 0
     private let restoredState: MonetizationEntitlementState
     private let restoreError: (any Error)?
@@ -670,11 +1015,19 @@ private final class PurchaseHarness {
     let contextStore = PaywallTransactionContextStore()
     private(set) var published: [Set<String>] = []
     private(set) var refreshCount = 0
+    private(set) var adoptionCount = 0
     private(set) var executor: RevenueCatPurchaseExecutor!
 
-    init(entitlementID: String, refresh: MonetizationEntitlementRefresh) {
+    init(
+        entitlementID: String,
+        refresh: MonetizationEntitlementRefresh,
+        usesIdentity: Bool = true
+    ) {
+        let identity = MonetizationIdentityTransition(revision: 7, userID: "test-user")
+        let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("test-user")
         executor = RevenueCatPurchaseExecutor(
-            telemetry: makeTestTelemetry(sink: sink),
+            telemetry: telemetry,
             transactionContextStore: contextStore,
             entitlementID: entitlementID,
             applySubscriptionStatus: { [weak self] entitlementIDs in
@@ -683,6 +1036,13 @@ private final class PurchaseHarness {
             refreshEntitlementState: { [weak self] in
                 self?.refreshCount += 1
                 return refresh
+            },
+            currentIdentityGeneration: {
+                usesIdentity ? identity : nil
+            },
+            adoptEntitlementState: { [weak self] _, adoptedIdentity in
+                self?.adoptionCount += 1
+                return usesIdentity && adoptedIdentity == identity
             }
         )
     }
@@ -719,8 +1079,10 @@ private extension PaywallPurchaseAnalyticsContractTests {
             restoreError: restoreError,
             isRevenueCatConfigured: isRevenueCatConfigured
         )
+        let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("test-user")
         let service = AppAccessRestoreService(
-            telemetry: makeTestTelemetry(sink: sink),
+            telemetry: telemetry,
             entitlementID: entitlementID,
             restorer: { restorer }
         )
@@ -759,6 +1121,27 @@ private extension PaywallPurchaseAnalyticsContractTests {
 
     static func expectOneRestoreTerminal(in records: [EnvelopedTelemetryRecord]) {
         #expect(records.filter { restoreTerminalNames.contains($0.name) }.count == 1)
+    }
+
+    static func expectAccountRestoreContext(
+        on records: [EnvelopedTelemetryRecord],
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        #expect(records.count == 2, sourceLocation: sourceLocation)
+        guard records.count == 2 else { return }
+        guard case .string(let startedAttemptID)? = records[0].parameters["restore_attempt_id"],
+              case .string(let terminalAttemptID)? = records[1].parameters["restore_attempt_id"] else {
+            Issue.record("Restore records need one shared attempt identifier", sourceLocation: sourceLocation)
+            return
+        }
+        #expect(startedAttemptID == terminalAttemptID, sourceLocation: sourceLocation)
+        for record in records {
+            #expect(record.parameters["placement"] == .string("unknown"), sourceLocation: sourceLocation)
+            #expect(record.parameters["restore_source"] == .string("account_settings"), sourceLocation: sourceLocation)
+            #expect(record.parameters["recovery_path"] == .string("account"), sourceLocation: sourceLocation)
+            #expect(record.parameters["presentation_id"] == nil, sourceLocation: sourceLocation)
+            #expect(record.parameters["gate_attempt_id"] == nil, sourceLocation: sourceLocation)
+        }
     }
 
     /// `error_type` is the only error surface a terminal carries, and it is always one of the

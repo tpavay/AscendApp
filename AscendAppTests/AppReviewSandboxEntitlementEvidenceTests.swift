@@ -71,7 +71,10 @@ struct AppReviewSandboxEntitlementEvidenceTests {
         let shipped = await Self.restore(resolving: entitlements.appAccessEntitlementState)
 
         #expect(rejected.state == .noPurchasesFound)
-        #expect(rejected.state.statusMessage == "No purchases found to restore.")
+        #expect(
+            rejected.state.statusMessage
+                == "No active Ascend subscription was found for this Apple ID."
+        )
         #expect(rejected.events.contains("revenuecat_restore_not_found"))
 
         #expect(shipped.state == .restored)
@@ -205,12 +208,20 @@ private extension AppReviewSandboxEntitlementEvidenceTests {
 
     static func purchase(resolving state: MonetizationEntitlementState) async -> PurchaseRun {
         let sink = InMemoryTelemetrySink(destination: .analytics)
+        let identity = MonetizationIdentityTransition(
+            revision: 1,
+            userID: "sandbox-evidence-user"
+        )
+        let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("sandbox-evidence-user")
         let executor = RevenueCatPurchaseExecutor(
-            telemetry: makeTestTelemetry(sink: sink),
+            telemetry: telemetry,
             transactionContextStore: PaywallTransactionContextStore(),
             entitlementID: entitlementID,
             applySubscriptionStatus: { _ in },
-            refreshEntitlementState: { .refreshed(state) }
+            refreshEntitlementState: { .refreshed(state) },
+            currentIdentityGeneration: { identity },
+            adoptEntitlementState: { _, candidate in candidate == identity }
         )
 
         let result = await executor.executePurchase(productID: productID) {
@@ -222,8 +233,10 @@ private extension AppReviewSandboxEntitlementEvidenceTests {
 
     static func restore(resolving state: MonetizationEntitlementState) async -> RestoreRun {
         let sink = InMemoryTelemetrySink(destination: .analytics)
+        let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("sandbox-evidence-user")
         let service = AppAccessRestoreService(
-            telemetry: makeTestTelemetry(sink: sink),
+            telemetry: telemetry,
             entitlementID: entitlementID,
             restorer: { RestorerStub(state: state) }
         )
@@ -304,7 +317,11 @@ private extension AppReviewSandboxEntitlementEvidenceTests {
                 errorType: .noActiveEntitlement,
                 attribution: .purchaseStarted(context)
             ),
-            .revenueCatRestoreNotFound(entitlementID: entitlementID)
+            .revenueCatRestoreNotFound(
+                entitlementID: entitlementID,
+                context: .appAccessGate(gateAttemptID: "review-gate"),
+                identityMatches: true
+            )
         ]
     }
 
@@ -555,7 +572,7 @@ private struct GateRestoreProof: View {
     private func column(_ column: Column) -> some View {
         ProofColumn(caption: column.caption, detail: column.detail, events: column.events) {
             AppAccessPaywallPlaceholderView(
-                initialPresentationState: .readyToRetry,
+                initialPhase: .failed,
                 initialRestoreState: column.state,
                 onDeleteAccount: {}
             )
@@ -569,6 +586,10 @@ private struct GateRestoreProof: View {
 @MainActor
 private final class RestorerStub: PurchaseRestoring {
     let isRevenueCatConfigured = true
+    let identityGeneration: MonetizationIdentityTransition? = MonetizationIdentityTransition(
+        revision: 1,
+        userID: "sandbox-evidence-user"
+    )
     private let state: MonetizationEntitlementState
 
     init(state: MonetizationEntitlementState) {

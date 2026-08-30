@@ -241,9 +241,32 @@ Before the first review submission:
 
 1. Verify the configured Staging and Release keys still reach their own vendor projects.
 2. Run `node --test scripts/test/*.test.mjs` (needs `npm --prefix scripts ci` first).
-3. Run the Staging iOS test suite.
-4. Build the unsigned Release configuration.
-5. Build the website and confirm the retired discount page returns 404.
-6. Complete sandbox purchase and restore tests on a device.
-7. Verify the enabled Superwall campaign targets `app_access_gate` and contains no weekly or separate discount variant.
-8. Complete the required App Store submission step for both subscriptions, verify Superwall no longer reports them as `Incomplete`, and publish the verified paywall `232372` revision.
+3. Run `node scripts/validate-superwall-live-artifact.mjs staging` and `node scripts/validate-superwall-live-artifact.mjs production`.
+4. Do not reconstruct the runtime URL.
+   The validator selects the 100 percent `TREATMENT` for `app_access_gate` from the public `.me` static config, then fetches the selected response's complete runtime URL unchanged.
+5. Treat a validator failure as a provider publication gate.
+   Do not convert it to a warning or validate an unused paywall response instead.
+6. Run the Staging iOS test suite.
+7. Build the unsigned Release configuration.
+8. Build the website and confirm the retired discount page returns 404.
+9. Complete the real-device canary in `docs/quality/evidence/issue-554-release-canary.md`.
+10. Verify the enabled Superwall campaign targets `app_access_gate` and contains no weekly or separate discount variant.
+11. Complete the required App Store submission step for both subscriptions, verify Superwall no longer reports them as `Incomplete`, and publish the verified paywall `232372` revision.
+
+### Published artifact status on August 29, 2026
+
+The versioned captures under `scripts/test/fixtures/superwall` contain no SDK keys or user data.
+They record only the selected placement, response, product and entitlement mapping, runtime document, action graph, and state references needed for deterministic validation.
+
+Staging currently selects response `249435` and runtime document `pj6GhBq8K0IxskBJ7ui6z`.
+Its annual and monthly products grant `app_access`, but the purchase abandon action references missing state `state:`.
+
+Production currently selects response `232372` and runtime document `odpvyL4GHznbb1E4cghT4`.
+Its annual and monthly products grant `ascend_membership` instead of the app contract's exact `app_access`, and its purchase abandon action also references missing state `state:`.
+
+Both live checks intentionally fail until a human approves and publishes corrected Editor artifacts.
+This repository change does not mutate either dashboard.
+
+The static Editor store can prove that purchase and Close are not sibling actions on one click behavior.
+It cannot prove rendered hit-region geometry because final frames depend on the runtime layout engine, device viewport, safe areas, and dynamic product copy.
+The signed real-device canary is therefore the required evidence that a distinct rendered Close control does not cover the purchase CTA and that tapping the CTA reaches Apple's transaction sheet.

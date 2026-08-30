@@ -37,6 +37,26 @@ function record(type: string, payload: Record<string, unknown>) {
 }
 
 /**
+ * Invokes the owner-bound delivery contract used by current iOS clients.
+ * @param {string} type Lifecycle event type.
+ * @param {Record<string, unknown>} payload Raw client payload.
+ * @return {Promise<unknown>} Whatever the callable returned.
+ */
+function recordV2(type: string, payload: Record<string, unknown>) {
+  return (recordLifecycleEvent as unknown as {
+    run: (request: unknown) => Promise<unknown>;
+  }).run({
+    auth: {uid},
+    data: {
+      deliverySchemaVersion: 2,
+      expectedUserID: uid,
+      payload,
+      type,
+    },
+  });
+}
+
+/**
  * Reads a stored lifecycle event document.
  * @param {string} eventDocId Event document id.
  * @return {Promise<admin.firestore.DocumentSnapshot>} The snapshot.
@@ -125,6 +145,20 @@ test("a paywall dismissal printing a Swift enum is stored, not discarded",
     assert.equal(placement.status, "dismissed");
     assert.equal(placement.reason, "manual_close");
   });
+
+test("owner-bound V2 lands without persisting delivery metadata", async () => {
+  await recordV2("paywall_shown", {
+    placement: "app_access_gate",
+  });
+
+  const stored = (await readEvent("paywall_shown_app_access_gate_v1"))
+    .data() as Record<string, unknown>;
+  const payload = stored.payload as Record<string, unknown>;
+  assert.equal(stored.expectedUserID, undefined);
+  assert.equal(stored.deliverySchemaVersion, undefined);
+  assert.equal(payload.expectedUserID, undefined);
+  assert.equal(payload.deliverySchemaVersion, undefined);
+});
 
 test("a clean repeat of the same event clears the earlier repair note",
   async () => {

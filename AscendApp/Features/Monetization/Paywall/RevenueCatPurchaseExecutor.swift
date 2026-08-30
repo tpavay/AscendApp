@@ -4,8 +4,23 @@ import SuperwallKit
 
 @MainActor
 final class RevenueCatPurchaseExecutor {
+    struct Execution: Sendable {
+        let result: PurchaseResult
+        let analyticsContext: RevenueCatPurchaseAnalyticsContext
+        let purchaseIdentity: MonetizationIdentityTransition?
+    }
+
     struct PurchaseResponse: Equatable, Sendable {
         let userCancelled: Bool
+        let entitlementState: MonetizationEntitlementState
+
+        init(
+            userCancelled: Bool,
+            entitlementState: MonetizationEntitlementState = .unknown
+        ) {
+            self.userCancelled = userCancelled
+            self.entitlementState = entitlementState
+        }
     }
 
     private enum PurchaseFailure {
@@ -19,90 +34,181 @@ final class RevenueCatPurchaseExecutor {
     private let entitlementID: String
     private let applySubscriptionStatus: @MainActor (Set<String>) -> Void
     private let refreshEntitlementState: @MainActor () async -> MonetizationEntitlementRefresh
+    private let currentIdentityGeneration: @MainActor () -> MonetizationIdentityTransition?
+    private let adoptEntitlementState: @MainActor (
+        MonetizationEntitlementState,
+        MonetizationIdentityTransition
+    ) -> Bool
 
     init(
         telemetry: TelemetryManager = .shared,
         transactionContextStore: PaywallTransactionContextStore = .shared,
         entitlementID: String = MonetizationConfiguration.live.revenueCatEntitlementID,
         applySubscriptionStatus: @escaping @MainActor (Set<String>) -> Void,
-        refreshEntitlementState: @escaping @MainActor () async -> MonetizationEntitlementRefresh
+        refreshEntitlementState: @escaping @MainActor () async -> MonetizationEntitlementRefresh,
+        currentIdentityGeneration: @escaping @MainActor () -> MonetizationIdentityTransition? = {
+            nil
+        },
+        adoptEntitlementState: @escaping @MainActor (
+            MonetizationEntitlementState,
+            MonetizationIdentityTransition
+        ) -> Bool = { _, _ in false }
     ) {
         self.telemetry = telemetry
         self.transactionContextStore = transactionContextStore
         self.entitlementID = entitlementID
         self.applySubscriptionStatus = applySubscriptionStatus
         self.refreshEntitlementState = refreshEntitlementState
+        self.currentIdentityGeneration = currentIdentityGeneration
+        self.adoptEntitlementState = adoptEntitlementState
     }
 
     func executePurchase(
         productID: String,
         operation: @MainActor () async throws -> PurchaseResponse
     ) async -> PurchaseResult {
-        let context = transactionContextStore.takeContext(for: productID)
+        await executePurchaseWithContext(productID: productID, operation: operation).result
+    }
+
+    func executePurchaseWithContext(
+        productID: String,
+        operation: @MainActor () async throws -> PurchaseResponse
+    ) async -> Execution {
+        let storedContext = transactionContextStore.takeContext(for: productID)
+        let context = storedContext?.analytics
             ?? RevenueCatPurchaseAnalyticsContext(placement: nil, presentationID: nil)
-        telemetry.track(
+        // A hosted/native CTA owns the attempt before RevenueCat is invoked. Falling back to the
+        // current generation is only for call sites that did not carry presentation context.
+        let purchaseIdentity = storedContext?.identity ?? currentIdentityGeneration()
+        func finish(_ result: PurchaseResult) -> Execution {
+            Execution(
+                result: result,
+                analyticsContext: context,
+                purchaseIdentity: purchaseIdentity
+            )
+        }
+        guard let purchaseIdentity,
+              purchaseIdentity.userID != nil,
+              currentIdentityGeneration() == purchaseIdentity else {
+            return finish(failVerifiedPurchase(
+                productID: productID,
+                errorType: .entitlementUnresolved,
+                context: context,
+                purchaseIdentity: purchaseIdentity
+            ))
+        }
+        track(
             PaywallAnalyticsEvent.revenueCatPurchaseStarted(
                 productID: productID,
                 context: context
-            )
+            ),
+            for: purchaseIdentity
         )
+        func terminalContext(
+            _ providerOutcome: String,
+            entitlementActive: Bool?
+        ) -> RevenueCatPurchaseAnalyticsContext {
+            context.terminal(
+                providerOutcome: providerOutcome,
+                identityMatches: currentIdentityGeneration() == purchaseIdentity,
+                entitlementActive: entitlementActive
+            )
+        }
 
         do {
             let response = try await operation()
 
             if response.userCancelled {
-                telemetry.track(
+                track(
                     PaywallAnalyticsEvent.revenueCatPurchaseCancelled(
                         productID: productID,
-                        context: context
-                    )
+                        context: terminalContext("cancelled", entitlementActive: nil)
+                    ),
+                    for: purchaseIdentity
                 )
-                return .cancelled
+                return finish(.cancelled)
             }
 
-            // The refreshed RevenueCat entitlement state - the device answer, whose refresh also
-            // triggers server reconciliation but is not itself server-derived - is the single
-            // source the verdict and the terminal both read. The `CustomerInfo` the purchase call
-            // returned is a pre-refresh snapshot, so consulting it too would let two sources
-            // disagree about one purchase. A refresh that established nothing says so, and never
-            // stands in for a current answer.
+            guard currentIdentityGeneration() == purchaseIdentity,
+                  adoptEntitlementState(response.entitlementState, purchaseIdentity) else {
+                return finish(failVerifiedPurchase(
+                    productID: productID,
+                    errorType: .entitlementUnresolved,
+                    context: context,
+                    purchaseIdentity: purchaseIdentity
+                ))
+            }
+
+            if response.entitlementState.hasActiveEntitlement(entitlementID) {
+                return finish(verdict(
+                    forRefreshedState: response.entitlementState,
+                    productID: productID,
+                    context: context,
+                    purchaseIdentity: purchaseIdentity
+                ))
+            }
+
+            // RevenueCat can finish Apple's transaction before its entitlement projection reaches
+            // the returned CustomerInfo. Only this propagation-delay path performs a bounded,
+            // RevenueCat-only verification refresh. The user remains non-repurchasable meanwhile.
             switch await refreshEntitlementState() {
             case .refreshed(let state):
-                return verdict(forRefreshedState: state, productID: productID, context: context)
+                if currentIdentityGeneration() != purchaseIdentity {
+                    return finish(failVerifiedPurchase(
+                        productID: productID,
+                        errorType: .entitlementUnresolved,
+                        context: context,
+                        purchaseIdentity: purchaseIdentity
+                    ))
+                }
+                return finish(
+                    verdict(
+                        forRefreshedState: state,
+                        productID: productID,
+                        context: context,
+                        purchaseIdentity: purchaseIdentity
+                    )
+                )
             case .unavailable(let failure):
-                return failVerifiedPurchase(
+                return finish(failVerifiedPurchase(
                     productID: productID,
                     errorType: RevenueCatAnalyticsErrorType(refreshFailure: failure),
-                    context: context
-                )
+                    context: context,
+                    purchaseIdentity: purchaseIdentity
+                ))
             }
         } catch {
             switch Self.purchaseFailure(for: error) {
             case .cancelled:
-                telemetry.track(
+                track(
                     PaywallAnalyticsEvent.revenueCatPurchaseCancelled(
                         productID: productID,
-                        context: context
-                    )
+                        context: terminalContext("cancelled", entitlementActive: nil)
+                    ),
+                    for: purchaseIdentity
                 )
-                return .cancelled
+                return finish(.cancelled)
             case .pending:
-                telemetry.track(
+                track(
                     PaywallAnalyticsEvent.revenueCatPurchasePending(
                         productID: productID,
-                        context: context
-                    )
+                        context: terminalContext("pending_approval", entitlementActive: nil)
+                    ),
+                    for: purchaseIdentity
                 )
-                return .pending
+                return finish(.pending)
             case .failed(let errorType):
-                telemetry.track(
+                track(
                     PaywallAnalyticsEvent.revenueCatPurchaseFailed(
                         productID: productID,
                         errorType: errorType,
-                        attribution: .purchaseStarted(context)
-                    )
+                        attribution: .purchaseStarted(
+                            terminalContext("provider_failure", entitlementActive: nil)
+                        )
+                    ),
+                    for: purchaseIdentity
                 )
-                return .failed(error)
+                return finish(.failed(error))
             }
         }
     }
@@ -112,13 +218,25 @@ final class RevenueCatPurchaseExecutor {
         error: any Error,
         errorType: RevenueCatAnalyticsErrorType
     ) -> PurchaseResult {
-        _ = transactionContextStore.takeContext(for: productID)
-        telemetry.track(
+        let storedContext = transactionContextStore.takeContext(for: productID)
+        let context = storedContext?.analytics
+        let identity = storedContext?.identity ?? currentIdentityGeneration()
+        let attribution: RevenueCatPurchaseAttribution = context.map {
+            .purchaseStarted(
+                $0.terminal(
+                    providerOutcome: "configuration_failure",
+                    identityMatches: identity != nil,
+                    entitlementActive: nil
+                )
+            )
+        } ?? .unavailableBeforeRevenueCatCall
+        track(
             PaywallAnalyticsEvent.revenueCatPurchaseFailed(
                 productID: productID,
                 errorType: errorType,
-                attribution: .unavailableBeforeRevenueCatCall
-            )
+                attribution: attribution
+            ),
+            for: identity
         )
         return .failed(error)
     }
@@ -126,17 +244,25 @@ final class RevenueCatPurchaseExecutor {
     private func verdict(
         forRefreshedState state: MonetizationEntitlementState,
         productID: String,
-        context: RevenueCatPurchaseAnalyticsContext
+        context: RevenueCatPurchaseAnalyticsContext,
+        purchaseIdentity: MonetizationIdentityTransition?
     ) -> PurchaseResult {
         switch state {
         case .active(let entitlementIDs) where entitlementIDs.contains(entitlementID):
             applySubscriptionStatus(entitlementIDs)
-            telemetry.track(
+            track(
                 PaywallAnalyticsEvent.revenueCatPurchaseCompleted(
                     productID: productID,
                     entitlementID: entitlementID,
-                    context: context
-                )
+                    context: context.terminal(
+                        providerOutcome: "purchased",
+                        identityMatches: purchaseIdentity.map {
+                            currentIdentityGeneration() == $0
+                        } ?? false,
+                        entitlementActive: true
+                    )
+                ),
+                for: purchaseIdentity
             )
             return .purchased
 
@@ -145,7 +271,9 @@ final class RevenueCatPurchaseExecutor {
             return failVerifiedPurchase(
                 productID: productID,
                 errorType: .noActiveEntitlement,
-                context: context
+                context: context,
+                purchaseIdentity: purchaseIdentity,
+                entitlementActive: false
             )
 
         case .inactive:
@@ -153,7 +281,9 @@ final class RevenueCatPurchaseExecutor {
             return failVerifiedPurchase(
                 productID: productID,
                 errorType: .noActiveEntitlement,
-                context: context
+                context: context,
+                purchaseIdentity: purchaseIdentity,
+                entitlementActive: false
             )
 
         case .unknown:
@@ -162,7 +292,8 @@ final class RevenueCatPurchaseExecutor {
             return failVerifiedPurchase(
                 productID: productID,
                 errorType: .entitlementUnresolved,
-                context: context
+                context: context,
+                purchaseIdentity: purchaseIdentity
             )
         }
     }
@@ -170,14 +301,27 @@ final class RevenueCatPurchaseExecutor {
     private func failVerifiedPurchase(
         productID: String,
         errorType: RevenueCatAnalyticsErrorType,
-        context: RevenueCatPurchaseAnalyticsContext
+        context: RevenueCatPurchaseAnalyticsContext,
+        purchaseIdentity: MonetizationIdentityTransition?,
+        entitlementActive: Bool? = nil
     ) -> PurchaseResult {
-        telemetry.track(
+        track(
             PaywallAnalyticsEvent.revenueCatPurchaseFailed(
                 productID: productID,
                 errorType: errorType,
-                attribution: .purchaseStarted(context)
-            )
+                attribution: .purchaseStarted(
+                    context.terminal(
+                        providerOutcome: errorType == .noActiveEntitlement
+                            ? "no_entitlement"
+                            : "verification_unavailable",
+                        identityMatches: purchaseIdentity.map {
+                            currentIdentityGeneration() == $0
+                        } ?? false,
+                        entitlementActive: entitlementActive
+                    )
+                )
+            ),
+            for: purchaseIdentity
         )
         return .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed)
     }
@@ -191,5 +335,13 @@ final class RevenueCatPurchaseExecutor {
         default:
             return .failed(RevenueCatAnalyticsErrorType(error: error))
         }
+    }
+
+    private func track(
+        _ event: PaywallAnalyticsEvent,
+        for identity: MonetizationIdentityTransition?
+    ) {
+        guard let userID = identity?.userID else { return }
+        telemetry.track(event, ifIdentifiedAs: userID)
     }
 }

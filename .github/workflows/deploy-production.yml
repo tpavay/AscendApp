@@ -211,6 +211,12 @@ jobs:
         shell: bash
         run: node scripts/ci/assert-monetization-keys-configured.mjs Release
 
+      # Production currently remains blocked until the separately approved Superwall publication
+      # aligns every active product to app_access and repairs the runtime action graph.
+      - name: Validate live production Superwall purchase artifact
+        shell: bash
+        run: node scripts/validate-superwall-live-artifact.mjs production
+
       # An App Store binary cannot be rolled back, so these switches are the only
       # thing that can stop a shipped data-corrupting write. A build whose
       # parameters were never published to the backend carries no such lever, and

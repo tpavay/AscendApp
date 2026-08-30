@@ -43,7 +43,10 @@ struct AccountRestoreAlertEvidenceTests {
     @Test
     func theAlertProofReadsItsCopyFromProduction() {
         #expect(Self.outcomes.map(\.result) == [.restored, .noPurchasesFound, .failed])
-        #expect(RestorePurchasesViewModel.Result.noPurchasesFound.title == "No purchases found to restore.")
+        #expect(
+            RestorePurchasesViewModel.Result.noPurchasesFound.title
+                == "No active Ascend subscription was found for this Apple ID."
+        )
         #expect(RestorePurchasesViewModel.Result.noPurchasesFound.message == nil)
         #expect(RestorePurchasesViewModel.Result.failed.title == "Restore Failed")
         #expect(

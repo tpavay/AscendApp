@@ -5,6 +5,49 @@ import Testing
 @MainActor
 struct MonetizationManagerServerReconciliationTests {
     @Test
+    func purchaseAdoptionPublishesAndReconcilesOnlyForTheExactIdentityRevision() async throws {
+        let service = EntitlementServiceStub(entitlementState: .inactive)
+        let presenter = PaywallPresenterSpy()
+        let reconciler = AppAccessReconcilerSpy()
+        let configuration = MonetizationConfiguration(infoDictionary: [
+            MonetizationConfiguration.revenueCatAPIKeyInfoKey: "appl_test",
+            MonetizationConfiguration.superwallAPIKeyInfoKey: "pk_test",
+            MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "NO"
+        ])
+        let manager = MonetizationManager(
+            configuration: configuration,
+            entitlementService: service,
+            paywallPresenter: presenter,
+            appAccessReconciler: reconciler
+        )
+        manager.configure(configuration: configuration)
+        let exact = try #require(service.identityGeneration)
+        let baselineStatuses = presenter.subscriptionStatuses.count
+
+        #expect(manager.adoptPurchaseEntitlementState(.active(["app_access"]), for: exact))
+        await reconciler.waitForCallCount(1)
+        #expect(manager.hasAppAccess)
+        #expect(presenter.subscriptionStatuses.count == baselineStatuses + 1)
+        #expect(presenter.subscriptionStatuses.last == ["app_access"])
+        #expect(reconciler.forcedCalls == [true])
+
+        let staleSameUser = MonetizationIdentityTransition(
+            revision: exact.revision &- 1,
+            userID: exact.userID
+        )
+        let differentUser = MonetizationIdentityTransition(
+            revision: exact.revision,
+            userID: "different-user"
+        )
+        #expect(!manager.adoptPurchaseEntitlementState(.inactive, for: staleSameUser))
+        #expect(!manager.adoptPurchaseEntitlementState(.inactive, for: differentUser))
+        await Task.yield()
+        #expect(manager.hasAppAccess)
+        #expect(presenter.subscriptionStatuses.count == baselineStatuses + 1)
+        #expect(reconciler.forcedCalls == [true])
+    }
+
+    @Test
     func refreshingWithAnActiveEntitlementAsksTheServerToReconcile() async {
         let reconciler = AppAccessReconcilerSpy()
         let manager = makeManager(
@@ -13,6 +56,7 @@ struct MonetizationManagerServerReconciliationTests {
         )
 
         await manager.refreshEntitlements()
+        await reconciler.waitForCallCount(1)
 
         #expect(reconciler.forcedCalls == [false])
     }
@@ -46,6 +90,7 @@ struct MonetizationManagerServerReconciliationTests {
         )
 
         try await manager.restorePurchases()
+        await reconciler.waitForCallCount(1)
 
         #expect(reconciler.forcedCalls == [true])
     }
@@ -65,10 +110,10 @@ struct MonetizationManagerServerReconciliationTests {
         #expect(reconciler.forcedCalls.isEmpty)
     }
 
-    /// A pending identity transition holds `entitlementState` at `.unknown`, but the restore still
-    /// resolved a real answer, and that answer is what must drive server reconciliation.
+    /// A pending identity transition has no settled owner, so restore must not adopt or reconcile
+    /// an answer that could belong to the account being replaced.
     @Test
-    func aRestoreDuringAPendingIdentityTransitionStillReconciles() async throws {
+    func aRestoreDuringAPendingIdentityTransitionIsRefused() async throws {
         let reconciler = AppAccessReconcilerSpy()
         let entitlementService = EntitlementServiceStub(entitlementState: .unknown)
         entitlementService.restoredState = .active(["app_access"])
@@ -85,14 +130,14 @@ struct MonetizationManagerServerReconciliationTests {
 
         let restored = try await manager.restorePurchases()
 
-        #expect(restored == .active(["app_access"]))
-        #expect(reconciler.forcedCalls == [true])
+        #expect(restored == .unknown)
+        #expect(reconciler.forcedCalls.isEmpty)
     }
 
-    /// The one budget spans the whole verdict chain, so a reconcile that outlasts it collapses the
-    /// attempt rather than letting the spinner run past the deadline the refresh already respected.
+    /// Firebase is repair work after the device verdict, so a server request that never returns
+    /// cannot hold a verified RevenueCat subscriber behind the gate.
     @Test
-    func aReconcileThatOutlastsTheBudgetCollapsesTheWholeVerdict() async {
+    func aReconcileThatOutlastsTheBudgetCannotDelayOrDowngradeTheVerdict() async {
         let sleeper = ControlledBudgetSleeper()
         let reconciler = SuspendingAppAccessReconciler()
         let manager = MonetizationManager(
@@ -107,30 +152,22 @@ struct MonetizationManagerServerReconciliationTests {
             verdictBudget: MonetizationVerdictBudget(total: .seconds(10), sleeper: sleeper.sleep)
         )
 
-        let refresh = Task {
-            await manager.refreshEntitlements(force: true, waitsForPendingIdentity: true)
-        }
+        let refresh = await manager.refreshEntitlements(force: true, waitsForPendingIdentity: true)
         await sleeper.waitUntilSleeping()
         await reconciler.waitUntilReconciling()
-        sleeper.expireBudget()
 
-        #expect(await refresh.value == .unavailable(.refreshTimedOut))
+        #expect(refresh == .refreshed(.active(["app_access"])))
         #expect(sleeper.requestedTotals == [.seconds(10)])
 
         reconciler.finishReconciling()
     }
 
-    /// The reconcile suspends, and an account switch landing inside it leaves the pre-reconcile
-    /// answer describing an identity the app no longer holds. Returning it would emit
-    /// `revenuecat_purchase_completed` while the gate grants nothing.
+    /// Once the exact RevenueCat verdict has returned, an account switch can invalidate routing,
+    /// but background Firebase repair cannot retroactively rewrite the transaction terminal.
     @Test
-    func anIdentityChangeDuringReconciliationRefusesThePreReconcileAnswer() async {
+    func anIdentityChangeDuringReconciliationCannotRewriteTheReturnedVerdict() async {
         let reconciler = SuspendingAppAccessReconciler()
         let entitlementService = EntitlementServiceStub(entitlementState: .active(["app_access"]))
-        // The budget is held open rather than left on the wall clock. What the identity change
-        // produces is the assertion; a parallel test run that starves this refresh past ten real
-        // seconds would collapse it to `.refreshTimedOut` and prove nothing either way.
-        let budget = ControlledBudgetSleeper()
         let manager = MonetizationManager(
             configuration: MonetizationConfiguration(
                 infoDictionary: [
@@ -139,18 +176,16 @@ struct MonetizationManagerServerReconciliationTests {
             ),
             entitlementService: entitlementService,
             paywallPresenter: PaywallPresenterSpy(),
-            appAccessReconciler: reconciler,
-            verdictBudget: MonetizationVerdictBudget(sleeper: budget.sleep)
+            appAccessReconciler: reconciler
         )
 
-        let refresh = Task {
-            await manager.refreshEntitlements(force: true, waitsForPendingIdentity: true)
-        }
+        let refresh = await manager.refreshEntitlements(force: true, waitsForPendingIdentity: true)
         await reconciler.waitUntilReconciling()
         _ = entitlementService.prepareIdentity(.climber("switched-user"))
         reconciler.finishReconciling()
 
-        #expect(await refresh.value == .unavailable(.identityUnresolved))
+        #expect(refresh == .refreshed(.active(["app_access"])))
+        #expect(manager.entitlementState == .unknown)
     }
 
     /// A verdict that lands inside the budget is reported as the refresh resolved it, and the
@@ -175,6 +210,7 @@ struct MonetizationManagerServerReconciliationTests {
             force: true,
             waitsForPendingIdentity: true
         )
+        await reconciler.waitForCallCount(1)
 
         #expect(refresh == .refreshed(.active(["app_access"])))
         #expect(reconciler.forcedCalls == [true])
@@ -227,9 +263,20 @@ private struct RestoreFailure: Error { }
 @MainActor
 private final class AppAccessReconcilerSpy: AppAccessReconciling {
     private(set) var forcedCalls: [Bool] = []
+    private var callObservers: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     func reconcileAppAccess(force: Bool) async {
         forcedCalls.append(force)
+        let ready = callObservers.filter { forcedCalls.count >= $0.count }
+        callObservers.removeAll { forcedCalls.count >= $0.count }
+        ready.forEach { $0.continuation.resume() }
+    }
+
+    func waitForCallCount(_ count: Int) async {
+        guard forcedCalls.count < count else { return }
+        await withCheckedContinuation { continuation in
+            callObservers.append((count, continuation))
+        }
     }
 }
 

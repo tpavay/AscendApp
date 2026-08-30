@@ -16,7 +16,8 @@ struct RevenueCatPurchaseControllerRestoreTests {
         var published: [SuperwallKit.SubscriptionStatus] = []
         let controller = RevenueCatPurchaseController(
             coordinator: { coordinator },
-            applySuperwallStatus: { published.append($0) }
+            applySuperwallStatus: { published.append($0) },
+            restoreService: restoreService(for: coordinator)
         )
 
         let result = await controller.restorePurchases()
@@ -26,25 +27,25 @@ struct RevenueCatPurchaseControllerRestoreTests {
         #expect(published.count == 1)
     }
 
-    /// A pending identity transition holds `entitlementState` at `.unknown`, so publishing from the
-    /// stored state would silently drop a restore that genuinely succeeded against RevenueCat.
     @Test
-    func aRestoreDuringAPendingIdentityTransitionStillPublishesTruth() async {
+    func aRestoreDuringAPendingIdentityTransitionIsRefused() async {
         let coordinator = PaywallPurchaseCoordinatorSpy(
             restoredState: .active(["app_access"])
         )
         coordinator.entitlementState = .unknown
+        coordinator.identityGeneration = nil
         var published: [SuperwallKit.SubscriptionStatus] = []
         let controller = RevenueCatPurchaseController(
             coordinator: { coordinator },
-            applySuperwallStatus: { published.append($0) }
+            applySuperwallStatus: { published.append($0) },
+            restoreService: restoreService(for: coordinator)
         )
 
         let result = await controller.restorePurchases()
 
-        #expect(isRestored(result))
-        #expect(published.count == 1)
-        #expect(isActive(published.first))
+        #expect(!isRestored(result))
+        #expect(coordinator.restoreCount == 0)
+        #expect(published.isEmpty)
     }
 
     @Test
@@ -53,7 +54,8 @@ struct RevenueCatPurchaseControllerRestoreTests {
         coordinator.restoreError = RestoreFailure()
         let controller = RevenueCatPurchaseController(
             coordinator: { coordinator },
-            applySuperwallStatus: { _ in }
+            applySuperwallStatus: { _ in },
+            restoreService: restoreService(for: coordinator)
         )
 
         let result = await controller.restorePurchases()
@@ -68,7 +70,8 @@ struct RevenueCatPurchaseControllerRestoreTests {
         coordinator.isRevenueCatConfigured = false
         let controller = RevenueCatPurchaseController(
             coordinator: { coordinator },
-            applySuperwallStatus: { _ in }
+            applySuperwallStatus: { _ in },
+            restoreService: restoreService(for: coordinator)
         )
 
         let result = await controller.restorePurchases()
@@ -86,7 +89,8 @@ struct RevenueCatPurchaseControllerRestoreTests {
         )
         let controller = RevenueCatPurchaseController(
             coordinator: { coordinator },
-            applySuperwallStatus: { _ in }
+            applySuperwallStatus: { _ in },
+            restoreService: restoreService(for: coordinator)
         )
 
         _ = await controller.restorePurchases()
@@ -101,7 +105,8 @@ struct RevenueCatPurchaseControllerRestoreTests {
         var published: [SuperwallKit.SubscriptionStatus] = []
         let controller = RevenueCatPurchaseController(
             coordinator: { coordinator },
-            applySuperwallStatus: { published.append($0) }
+            applySuperwallStatus: { published.append($0) },
+            restoreService: restoreService(for: coordinator)
         )
 
         _ = await controller.restorePurchases()
@@ -124,6 +129,18 @@ struct RevenueCatPurchaseControllerRestoreTests {
 
         return false
     }
+
+    private func restoreService(
+        for coordinator: PaywallPurchaseCoordinatorSpy
+    ) -> AppAccessRestoreService {
+        AppAccessRestoreService(
+            telemetry: makeTestTelemetry(
+                sink: InMemoryTelemetrySink(destination: .analytics)
+            ),
+            entitlementID: "app_access",
+            restorer: { coordinator }
+        )
+    }
 }
 
 private struct RestoreFailure: Error { }
@@ -132,6 +149,10 @@ private struct RestoreFailure: Error { }
 private final class PaywallPurchaseCoordinatorSpy: PaywallPurchaseCoordinating {
     var isRevenueCatConfigured = true
     var entitlementState: MonetizationEntitlementState = .unknown
+    var identityGeneration: MonetizationIdentityTransition? = MonetizationIdentityTransition(
+        revision: 1,
+        userID: "restore-test-user"
+    )
     var restoreError: (any Error)?
     private(set) var restoreCount = 0
     private(set) var forcedRefreshCount = 0

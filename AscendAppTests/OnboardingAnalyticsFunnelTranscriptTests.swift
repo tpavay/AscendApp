@@ -11,7 +11,14 @@ struct OnboardingAnalyticsFunnelTranscriptTests {
     @Test
     func everyVisibleScreenShipsAViewAndEveryInteractiveScreenShipsItsDecision() {
         let sink = InMemoryTelemetrySink(destination: .analytics)
-        let telemetry = makeTestTelemetry(sink: sink)
+        let attributionSink = IdentityAttributingTelemetrySink()
+        let telemetry = TelemetryManager(
+            sinks: [sink, attributionSink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            identityStore: makeTestIdentityStore()
+        )
+        telemetry.configure()
         let defaults = makeOnboardingDefaults()
         let lifecycle = OnboardingFlowAnalyticsCoordinator(
             userDefaults: defaults,
@@ -30,6 +37,7 @@ struct OnboardingAnalyticsFunnelTranscriptTests {
         }
 
         // The routed app-access gate joins the same funnel, and owns the paywall screen view.
+        telemetry.setUserId("test-user")
         let monetization = MonetizationManager(
             entitlementService: EntitlementServiceStub(),
             paywallPresenter: PaywallPresenterSpy(),
@@ -67,6 +75,18 @@ struct OnboardingAnalyticsFunnelTranscriptTests {
         #expect(records.filter { $0.name == "onboarding_auth_completed" }.count == 1)
         #expect(records.filter { $0.name == "onboarding_auth_failed" }.isEmpty)
         #expect(records.filter { $0.name == "onboarding_paywall_reached" }.count == 1)
+
+        let paywallAttributions = attributionSink.attributions.filter {
+            $0.name == "onboarding_paywall_reached"
+                || $0.parameters["step_id"] == .string("paywall")
+                || $0.name == "revenuecat_purchase_completed"
+        }
+        #expect(paywallAttributions.isEmpty == false)
+        #expect(paywallAttributions.allSatisfy { $0.userID == "test-user" })
+        #expect(paywallAttributions.allSatisfy {
+            $0.parameters["user_id"] == nil
+                && $0.parameters["identity_revision"] == nil
+        })
 
         let onboardingRecords = records.filter { $0.name.hasPrefix("onboarding_") }
         #expect(onboardingRecords.allSatisfy { $0.parameters["flow_id"] == .string("onboarding") })

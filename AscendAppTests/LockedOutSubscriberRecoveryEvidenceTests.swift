@@ -40,9 +40,9 @@ struct LockedOutSubscriberRecoveryEvidenceTests {
 
                 let gate = try await capture(window, named: "locked-out-gate-deletion-link")
                 let gateText = try await recognizedText(in: gate).lowercased()
-                #expect(gateText.contains("access is still locked"))
+                #expect(gateText.contains("choose your ascend plan"))
                 #expect(gateText.contains("delete account"))
-                #expect(!gateText.contains("sign out"))
+                #expect(gateText.contains("sign out"))
 
                 try activateAccessibilityElement(labelled: "Delete account", in: controller.view)
 
@@ -196,8 +196,9 @@ private struct LockedOutGateJourneyHarness: View {
 
     var body: some View {
         AppAccessPaywallPlaceholderView(
-            initialPresentationState: .readyToRetry,
-            onDeleteAccount: { isShowingDeletion = true }
+            initialPhase: .failed,
+            onDeleteAccount: { isShowingDeletion = true },
+            onSignOut: {}
         )
         .environment(monetizationManager)
         .sheet(isPresented: $isShowingDeletion) {

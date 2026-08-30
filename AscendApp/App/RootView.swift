@@ -23,6 +23,7 @@ struct RootView: View {
     @State private var isShowingGateAccountDeletion = false
     @State private var isGateDeletionUnresolved = false
     @State private var isGateDeletionDismissPending = false
+    @State private var gateAccountDeletionDismissalRevision: UInt = 0
     @State private var profileCompletionCheckTask: Task<Void, Never>?
     private let authenticatedBootstrapCoordinator = AuthenticatedBootstrapCoordinator.shared
     private let appSessionTelemetryCoordinator = AppSessionTelemetryCoordinator.shared
@@ -198,6 +199,7 @@ struct RootView: View {
     private func resetGateAccountDeletionState() {
         isGateDeletionUnresolved = false
         isGateDeletionDismissPending = false
+        gateAccountDeletionDismissalRevision &+= 1
     }
 
     private func openAscendInAppStore() {
@@ -326,7 +328,9 @@ struct RootView: View {
         case .paywall:
             routeScreen(route) {
                 AppAccessPaywallPlaceholderView(
-                    onDeleteAccount: { isShowingGateAccountDeletion = true }
+                    accountDeletionDismissalRevision: gateAccountDeletionDismissalRevision,
+                    onDeleteAccount: { isShowingGateAccountDeletion = true },
+                    onSignOut: authVM.signOut
                 )
             }
 

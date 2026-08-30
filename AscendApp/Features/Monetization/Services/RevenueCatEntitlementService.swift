@@ -36,6 +36,7 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         transition: MonetizationIdentityTransition,
         mutation: RevenueCatIdentityMutation
     )?
+    private var entitlementStateObserver: (@MainActor (MonetizationEntitlementState) -> Void)?
 
     init(
         provider: any RevenueCatEntitlementProviding = RevenueCatPurchasesProvider(),
@@ -223,20 +224,53 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         await mutationTask.value
     }
 
-    /// A pending or superseded identity transition refuses the stored state, but it does not make
-    /// the restore's own answer wrong. The resolved state is returned either way so a caller that
-    /// asked for the restore can act on what RevenueCat actually said.
+    @discardableResult
+    func adoptTransactionState(
+        _ state: MonetizationEntitlementState,
+        for identity: MonetizationIdentityTransition
+    ) -> Bool {
+        applyRefreshState(state, for: identity)
+    }
+
+    @discardableResult
+    func restorePurchases(
+        for identity: MonetizationIdentityTransition
+    ) async throws -> MonetizationEntitlementState {
+        guard isConfigured else { return .unknown }
+        guard identityTransitionState.refreshToken() == identity else {
+            return .unknown
+        }
+        let priorProviderOperation = identityMutationTail
+        let restoreTask = Task<MonetizationEntitlementState, Error> { @MainActor [weak self] in
+            await priorProviderOperation?.value
+            guard let self,
+                  self.identityTransitionState.refreshToken() == identity else {
+                return .unknown
+            }
+            let state = try await self.provider.restorePurchasesState()
+            guard self.applyRefreshState(state, for: identity) else {
+                return .unknown
+            }
+            return state
+        }
+        identityMutationTail = Task { @MainActor in
+            _ = try? await restoreTask.value
+        }
+        return try await restoreTask.value
+    }
+
     @discardableResult
     func restorePurchases() async throws -> MonetizationEntitlementState {
-        guard isConfigured else { return .unknown }
-        let refreshToken = identityTransitionState.refreshToken()
-        let state = try await provider.restorePurchasesState()
+        guard let identity = identityGeneration else { return .unknown }
+        return try await restorePurchases(for: identity)
+    }
 
-        if let refreshToken {
-            applyRefreshState(state, for: refreshToken)
-        }
-
-        return state
+    func setEntitlementStateObserver(
+        _ observer: (@MainActor (MonetizationEntitlementState) -> Void)?
+    ) {
+        entitlementStateObserver = observer
+        guard identityTransitionState.refreshToken() != nil else { return }
+        observer?(entitlementState)
     }
 
     private func prepareIdentityMutation(
@@ -331,6 +365,7 @@ final class RevenueCatEntitlementService: EntitlementServicing {
             pendingIdentityMutation = nil
         }
         updateTelemetry(for: state)
+        entitlementStateObserver?(state)
         observeCustomerInfoUpdates()
     }
 
@@ -368,6 +403,7 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         }
 
         updateTelemetry(for: state)
+        entitlementStateObserver?(state)
         return true
     }
 

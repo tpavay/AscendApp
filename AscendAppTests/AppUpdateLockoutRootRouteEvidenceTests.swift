@@ -51,7 +51,7 @@ struct AppUpdateLockoutRootRouteEvidenceTests {
             try await settle(window)
             let paywall = try await capture(window, named: "root-route-unentitled-01-paywall-gate")
             let paywallText = try await recognizedText(in: paywall).lowercased()
-            #expect(paywallText.contains("open subscription options"))
+            #expect(paywallText.contains("choose your ascend plan"))
             #expect(!paywallText.contains("update required"))
 
             // The operator retires this build. No relaunch, no foreground - the listener lands it.
@@ -72,7 +72,7 @@ struct AppUpdateLockoutRootRouteEvidenceTests {
             #expect(lockoutText.contains("update required"))
             #expect(lockoutText.contains("update on the app store"))
             // The paywall gate is gone from the screen, not merely covered by something over it.
-            #expect(!lockoutText.contains("open subscription options"))
+            #expect(!lockoutText.contains("choose your ascend plan"))
             #expect(!lockoutText.contains("restore purchases"))
             #expect(
                 controller.presentedViewController == nil,
@@ -181,7 +181,7 @@ struct AppUpdateLockoutRootRouteEvidenceTests {
             #expect(text.contains("a newer version is ready"))
             #expect(text.contains("later"))
             // Still a sheet: the gate it opened over is visible behind it.
-            #expect(text.contains("open subscription options"))
+            #expect(text.contains("choose your ascend plan"))
 
             let sheet = try #require(controller.presentedViewController)
             #expect(sheet.isModalInPresentation == false)
@@ -297,7 +297,7 @@ private struct RootRouteEvidenceHarness: View {
                 AppUpdateRequiredView(onOpenAppStore: {}, onDeleteAccount: {})
             case .paywall:
                 AppAccessPaywallPlaceholderView(
-                    initialPresentationState: .readyToRetry,
+                    initialPhase: .failed,
                     onDeleteAccount: {}
                 )
             default:

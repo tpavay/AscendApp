@@ -1,213 +1,478 @@
+import StoreKit
 import SwiftUI
 
 struct AppAccessPaywallPlaceholderView: View {
     @Environment(MonetizationManager.self) private var monetizationManager
 
-    @State private var hasAttemptedAutomaticPresentation = false
-    @State private var presentationState: AppAccessPaywallPresentationState
-    @State private var restoreState: AppAccessRestoreState
-
-    /// Guideline 5.1.1(v) admits no paid-status exception, and this gate is the only screen an
-    /// authenticated-but-unentitled climber can reach - so deletion has to be reachable from here.
-    /// The presentation is required, not defaulted: a gate that cannot route to deletion is the
-    /// violation this parameter exists to prevent.
+    private let initialPhase: AppAccessGatePhase
+    private let initialRestoreState: AppAccessRestoreState
+    private let initialPlans: [NativeSubscriptionPlan]
+    private let initialStatusMessage: String?
+    private let automaticallyStarts: Bool
+    private let accountDeletionDismissalRevision: UInt
+    private let onAccountDeletionFocusRestored: (() -> Void)?
     private let onDeleteAccount: () -> Void
+    private let onSignOut: () -> Void
 
     init(
-        initialPresentationState: AppAccessPaywallPresentationState = .presenting,
+        initialPhase: AppAccessGatePhase = .openingHosted,
         initialRestoreState: AppAccessRestoreState = .idle,
-        onDeleteAccount: @escaping () -> Void
+        initialPlans: [NativeSubscriptionPlan] = [],
+        initialStatusMessage: String? = nil,
+        automaticallyStarts: Bool = true,
+        accountDeletionDismissalRevision: UInt = 0,
+        onAccountDeletionFocusRestored: (() -> Void)? = nil,
+        onDeleteAccount: @escaping () -> Void,
+        onSignOut: @escaping () -> Void = {}
     ) {
-        _presentationState = State(initialValue: initialPresentationState)
-        _restoreState = State(initialValue: initialRestoreState)
+        self.initialPhase = initialPhase
+        self.initialRestoreState = initialRestoreState
+        self.initialPlans = initialPlans
+        self.initialStatusMessage = initialStatusMessage
+        self.automaticallyStarts = automaticallyStarts
+        self.accountDeletionDismissalRevision = accountDeletionDismissalRevision
+        self.onAccountDeletionFocusRestored = onAccountDeletionFocusRestored
         self.onDeleteAccount = onDeleteAccount
+        self.onSignOut = onSignOut
     }
 
     var body: some View {
-        Group {
-            if presentationState.showsRecoveryActions {
-                recoveryContent
-            } else {
-                loadingContent
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .themedBackground()
-        .onAppear {
-            presentPaywallAutomaticallyIfNeeded()
-        }
+        AppAccessPaywallContentView(
+            manager: monetizationManager,
+            initialPhase: initialPhase,
+            initialRestoreState: initialRestoreState,
+            initialPlans: initialPlans,
+            initialStatusMessage: initialStatusMessage,
+            automaticallyStarts: automaticallyStarts,
+            accountDeletionDismissalRevision: accountDeletionDismissalRevision,
+            onAccountDeletionFocusRestored: onAccountDeletionFocusRestored,
+            onDeleteAccount: onDeleteAccount,
+            onSignOut: onSignOut
+        )
+    }
+}
+
+private struct AppAccessPaywallContentView: View {
+    @State private var coordinator: AppAccessPaywallCoordinator
+    @State private var isShowingManageSubscriptions = false
+    @AccessibilityFocusState private var focusedControl: FocusTarget?
+
+    private let manager: MonetizationManager
+    private let onDeleteAccount: () -> Void
+    private let onSignOut: () -> Void
+    private let automaticallyStarts: Bool
+    private let accountDeletionDismissalRevision: UInt
+    private let onAccountDeletionFocusRestored: (() -> Void)?
+
+    private enum FocusTarget: Hashable {
+        case status
+        case manageSubscription
+        case deleteAccount
     }
 
-    /// The cold-start hand-off to Superwall. It is a wait, not a wall - no lock, no access-denied
-    /// headline, and no visible control the user cannot press.
-    private var loadingContent: some View {
-        VStack(spacing: 20) {
+    init(
+        manager: MonetizationManager,
+        initialPhase: AppAccessGatePhase,
+        initialRestoreState: AppAccessRestoreState,
+        initialPlans: [NativeSubscriptionPlan],
+        initialStatusMessage: String?,
+        automaticallyStarts: Bool,
+        accountDeletionDismissalRevision: UInt,
+        onAccountDeletionFocusRestored: (() -> Void)?,
+        onDeleteAccount: @escaping () -> Void,
+        onSignOut: @escaping () -> Void
+    ) {
+        self.manager = manager
+        self.automaticallyStarts = automaticallyStarts
+        self.accountDeletionDismissalRevision = accountDeletionDismissalRevision
+        self.onAccountDeletionFocusRestored = onAccountDeletionFocusRestored
+        _coordinator = State(
+            initialValue: AppAccessPaywallCoordinator(
+                monetizationManager: manager,
+                initialPhase: initialPhase,
+                initialRestoreState: initialRestoreState,
+                initialPlans: initialPlans,
+                initialStatusMessage: initialStatusMessage
+            )
+        )
+        self.onDeleteAccount = onDeleteAccount
+        self.onSignOut = onSignOut
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                hero
+
+                if coordinator.phase == .accessConfirmed {
+                    successContent
+                } else if coordinator.phase == .openingHosted || coordinator.phase == .hostedPresented {
+                    openingContent
+                } else {
+                    nativeAndRecoveryContent
+                }
+            }
+            .frame(maxWidth: 560)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 32)
+            .frame(maxWidth: .infinity, minHeight: 600, alignment: .center)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .themedBackground()
+        .task {
+            guard automaticallyStarts else { return }
+            coordinator.start()
+        }
+        .onDisappear { coordinator.cancelOwnedWork() }
+        .onChange(of: manager.identityGeneration) { _, _ in
+            coordinator.identityDidChange()
+        }
+        .onChange(of: manager.entitlementState) { _, state in
+            coordinator.entitlementDidChange(state)
+        }
+        .onChange(of: coordinator.phase) { _, phase in
+            announcePhase(phase)
+        }
+        .onChange(of: coordinator.restoreState) { _, state in
+            if let message = state.statusMessage {
+                AccessibilityNotification.Announcement(message).post()
+                focusedControl = .status
+            }
+        }
+        .onChange(of: isShowingManageSubscriptions) { _, isPresented in
+            if !isPresented { focusedControl = .manageSubscription }
+        }
+        .onChange(of: accountDeletionDismissalRevision) { _, _ in
+            focusedControl = .deleteAccount
+            onAccountDeletionFocusRestored?()
+        }
+        .manageSubscriptionsSheet(isPresented: $isShowingManageSubscriptions)
+    }
+
+    private var hero: some View {
+        VStack(alignment: .leading, spacing: 12) {
             Image("AppIconInternalAccent")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 68, height: 68)
+                .frame(width: 54, height: 54)
                 .accessibilityHidden(true)
 
-            VStack(spacing: 8) {
-                Text("Preparing your climb field")
-                    .font(.montserratBold(size: 24))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
+            Text(title)
+                .font(.montserratBold(size: 30))
+                .foregroundStyle(.white)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
 
-                Text("Checking your access...")
-                    .font(.montserratMedium(size: 15))
-                    .foregroundStyle(.white.opacity(0.68))
-                    .multilineTextAlignment(.center)
+            if let message = heroMessage {
+                Text(message)
+                    .font(.montserratMedium(size: 16))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .lineSpacing(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("appAccessPaywallStatus")
+                    .accessibilityFocused($focusedControl, equals: .status)
             }
-
-            AscendLoadingIndicator(isPaused: presentationState.pausesLoadingAnimation)
         }
-        .padding(.horizontal, 28)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Preparing your climb field. Checking your access.")
+    }
+
+    private var openingContent: some View {
+        VStack(spacing: 16) {
+            AscendLoadingIndicator(isPaused: coordinator.phase == .hostedPresented)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 28)
+        .accessibilityHidden(true)
         .accessibilityIdentifier("appAccessPaywallLoading")
     }
 
-    private var recoveryContent: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            Spacer()
+    private var successContent: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 48, weight: .semibold))
+                .foregroundStyle(Color.ascendAccent)
+                .accessibilityHidden(true)
+            Text("Opening Ascend")
+                .font(.montserratSemiBold(size: 16))
+                .foregroundStyle(.white.opacity(0.75))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 28)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Access confirmed. Opening Ascend.")
+    }
 
-            VStack(alignment: .leading, spacing: 14) {
-                Image("AppIconInternalAccent")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 52, height: 52)
+    private var nativeAndRecoveryContent: some View {
+        VStack(spacing: 16) {
+            if coordinator.phase == .loadingNative
+                || coordinator.phase == .purchasing
+                || coordinator.phase == .verifying {
+                AscendLoadingIndicator()
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
                     .accessibilityHidden(true)
-
-                Text("Open subscription options")
-                    .font(.montserratBold(size: 32))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.82)
-
-                Text(
-                    presentationState.statusMessage
-                        ?? "Choose a plan or restore your subscription to keep climbing."
-                )
-                .font(.montserratMedium(size: 16))
-                .foregroundStyle(.white.opacity(0.7))
-                .lineSpacing(4)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("appAccessPaywallStatus")
             }
 
-            VStack(spacing: 12) {
-                Button(action: presentPaywall) {
-                    Text(presentationState.primaryButtonTitle)
+            if coordinator.showsPurchaseControls, !coordinator.plans.isEmpty {
+                VStack(spacing: 12) {
+                    ForEach(coordinator.plans) { plan in
+                        planButton(plan)
+                    }
+                }
+
+                Button {
+                    coordinator.purchaseSelectedPlan()
+                } label: {
+                    Text(coordinator.selectedPlan?.purchaseActionTitle ?? String(
+                        localized: "subscription.action.subscribe",
+                        defaultValue: "Subscribe with Apple"
+                    ))
                         .font(.montserratBold(size: 16))
                         .foregroundStyle(.black.opacity(0.9))
                         .frame(maxWidth: .infinity)
-                        .frame(height: 54)
+                        .frame(minHeight: 54)
                         .background(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .fill(Color.ascendAccent)
                         )
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("Presents the Ascend subscription paywall.")
-
-                Button(action: restorePurchases) {
-                    Text(restoreState.buttonTitle(isRevenueCatConfigured: monetizationManager.isRevenueCatConfigured))
-                        .font(.montserratSemiBold(size: 15))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(.white.opacity(0.24), lineWidth: 1)
-                        )
+                .disabled(coordinator.disablesPurchase || coordinator.selectedPlanID == nil)
+                .accessibilityHint("Starts checkout through Apple for the selected Ascend plan.")
+            } else if coordinator.phase == .verificationUnavailable
+                        || coordinator.phase == .pendingApproval {
+                Button("Check Access") {
+                    coordinator.checkAccess()
                 }
-                .buttonStyle(.plain)
-                .disabled(!restoreState.isButtonEnabled(isRevenueCatConfigured: monetizationManager.isRevenueCatConfigured))
-
-                if let restoreMessage = restoreState.statusMessage {
-                    Text(restoreMessage)
-                        .font(.montserratMedium(size: 13))
-                        .foregroundStyle(.white.opacity(0.7))
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity)
-                        .accessibilityIdentifier("appAccessRestoreStatus")
+                .font(.montserratBold(size: 16))
+                .foregroundStyle(.black.opacity(0.9))
+                .frame(maxWidth: .infinity, minHeight: 54)
+                .background(Color.ascendAccent, in: .rect(cornerRadius: 10))
+                .accessibilityHint("Checks your subscription access without starting another purchase.")
+            } else if coordinator.phase == .failed {
+                Button("Try Subscription Options Again") {
+                    coordinator.retryHosted()
                 }
-
-                Button(action: onDeleteAccount) {
-                    Text("Delete account")
-                        .font(.montserratMedium(size: 13))
-                        .foregroundStyle(.white.opacity(0.55))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint("Permanently deletes your Ascend account and all of its data.")
-                .accessibilityIdentifier("appAccessDeleteAccount")
-
-                #if DEBUG
-                if monetizationManager.debugForcesAppAccessPaywall {
-                    Button(action: clearDebugGateOverride) {
-                        Text("Clear Debug Gate Override")
-                            .font(.montserratSemiBold(size: 14))
-                            .foregroundStyle(.white.opacity(0.72))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 44)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Returns the debug app to normal unentitled access.")
-                }
-                #endif
+                .font(.montserratBold(size: 16))
+                .foregroundStyle(.black.opacity(0.9))
+                .frame(maxWidth: .infinity, minHeight: 54)
+                .background(Color.ascendAccent, in: .rect(cornerRadius: 10))
             }
 
-            Spacer()
-        }
-        .padding(.horizontal, 28)
-    }
-
-    /// Only the cold-start hand-off opens the paywall by itself. A gate that is already sitting on a
-    /// presentation outcome has nothing to hand off, so it waits for the user's Try Again.
-    private func presentPaywallAutomaticallyIfNeeded() {
-        guard !hasAttemptedAutomaticPresentation else { return }
-        hasAttemptedAutomaticPresentation = true
-
-        guard presentationState == .presenting else { return }
-        presentPaywall()
-    }
-
-    private func presentPaywall() {
-        let source = hasAttemptedAutomaticPresentation && presentationState != .presenting
-            ? "paywall_placeholder_retry"
-            : "app_access_gate"
-        presentationState.beginPresentation()
-        monetizationManager.presentPaywall(
-            .appAccessGate,
-            params: ["source": source]
-        ) { outcome in
-            presentationState.handle(outcome)
+            recoveryActions
         }
     }
 
-    private func restorePurchases() {
-        guard restoreState != .restoring else { return }
-        restoreState = .restoring
+    private func planButton(_ plan: NativeSubscriptionPlan) -> some View {
+        let isSelected = coordinator.selectedPlanID == plan.id
+        return Button {
+            coordinator.selectPlan(plan.id)
+        } label: {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? Color.ascendAccent : .white.opacity(0.5))
+                    .font(.system(size: 21, weight: .semibold))
 
-        let restorer = monetizationManager
-        let restoreService = AppAccessRestoreService(restorer: { restorer })
-        Task {
-            restoreState = AppAccessRestoreState(outcome: await restoreService.restore())
+                VStack(alignment: .leading, spacing: 5) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack {
+                            Text(plan.title)
+                                .font(.montserratBold(size: 17))
+                            Spacer()
+                            Text(plan.localizedPrice)
+                                .font(.montserratSemiBold(size: 16))
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(plan.title)
+                                .font(.montserratBold(size: 17))
+                            Text(plan.localizedPrice)
+                                .font(.montserratSemiBold(size: 16))
+                        }
+                    }
+                    if let trialDescription = plan.trialDescription {
+                        Text(trialDescription)
+                            .font(.montserratSemiBold(size: 14))
+                            .foregroundStyle(Color.ascendAccent)
+                    }
+                    Text(plan.renewalDescription)
+                        .font(.montserratMedium(size: 13))
+                        .foregroundStyle(.white.opacity(0.66))
+                }
+                .foregroundStyle(.white)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.white.opacity(isSelected ? 0.1 : 0.055), in: .rect(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isSelected ? Color.ascendAccent : .white.opacity(0.15), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(coordinator.disablesPurchase)
+        .accessibilityLabel(
+            [plan.title, plan.localizedPrice, plan.trialDescription, plan.renewalDescription]
+                .compactMap { $0 }
+                .joined(separator: ", ")
+        )
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+    }
+
+    private var recoveryActions: some View {
+        VStack(spacing: 4) {
+            Button {
+                coordinator.restore()
+            } label: {
+                Text(coordinator.restoreState.buttonTitle(
+                    isRevenueCatConfigured: manager.isRevenueCatConfigured
+                ))
+                    .frame(maxWidth: .infinity, minHeight: 48)
+            }
+            .buttonStyle(.plain)
+            .font(.montserratSemiBold(size: 15))
+            .foregroundStyle(.white)
+            .disabled(
+                !coordinator.restoreState.isButtonEnabled(
+                    isRevenueCatConfigured: manager.isRevenueCatConfigured
+                ) || coordinator.disablesRestore
+            )
+
+            if let restoreMessage = coordinator.restoreState.statusMessage {
+                Text(restoreMessage)
+                    .font(.montserratMedium(size: 13))
+                    .foregroundStyle(.white.opacity(0.68))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("appAccessRestoreStatus")
+            }
+
+            Button("Manage Subscription") {
+                isShowingManageSubscriptions = true
+            }
+            .recoveryLinkStyle()
+            .accessibilityFocused($focusedControl, equals: .manageSubscription)
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    legalAndSupportLinks
+                }
+                VStack(spacing: 0) {
+                    legalAndSupportLinks
+                }
+            }
+            .font(.montserratMedium(size: 13))
+            .foregroundStyle(.white.opacity(0.7))
+            .frame(maxWidth: .infinity, minHeight: 44)
+
+            Button(action: onDeleteAccount) {
+                Text("Delete account")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .font(.montserratMedium(size: 13))
+            .foregroundStyle(.white.opacity(0.55))
+            .accessibilityHint("Permanently deletes your Ascend account and all of its data.")
+            .accessibilityIdentifier("appAccessDeleteAccount")
+            .accessibilityFocused($focusedControl, equals: .deleteAccount)
+
+            Button(action: onSignOut) {
+                Text("Sign Out")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .font(.montserratMedium(size: 13))
+            .foregroundStyle(.white.opacity(0.72))
+            .accessibilityHint("Signs out so you can use a different Ascend account.")
+            .accessibilityIdentifier("appAccessSignOut")
+
+            #if DEBUG
+            if manager.debugForcesAppAccessPaywall {
+                Button("Clear Debug Gate Override") {
+                    manager.setDebugForcesAppAccessPaywall(false)
+                }
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .buttonStyle(.plain)
+                .font(.montserratSemiBold(size: 13))
+                .foregroundStyle(Color.ascendAccent)
+                .accessibilityIdentifier("appAccessClearDebugGateOverride")
+            }
+            #endif
         }
     }
 
-    #if DEBUG
-    private func clearDebugGateOverride() {
-        monetizationManager.setDebugForcesAppAccessPaywall(false)
+    @ViewBuilder
+    private var legalAndSupportLinks: some View {
+        Link("Terms", destination: URL(string: "https://ascendstepper.com/terms")!)
+            .frame(minWidth: 44, minHeight: 44)
+        Link("Privacy", destination: URL(string: "https://ascendstepper.com/privacy")!)
+            .frame(minWidth: 44, minHeight: 44)
+        Link("Support", destination: URL(string: "https://ascendstepper.com/support")!)
+            .frame(minWidth: 44, minHeight: 44)
     }
-    #endif
+
+    private var title: String {
+        switch coordinator.phase {
+        case .openingHosted, .hostedPresented:
+            return "Loading subscription options"
+        case .loadingNative:
+            return "Loading subscription options"
+        case .nativeReady, .failed:
+            return "Choose your Ascend plan"
+        case .purchasing:
+            return "Opening Apple checkout"
+        case .verifying, .verificationUnavailable:
+            return "Checking your subscription access"
+        case .pendingApproval:
+            return "Approval is pending"
+        case .accessConfirmed:
+            return "Access confirmed"
+        }
+    }
+
+    private var heroMessage: String? {
+        switch coordinator.phase {
+        case .openingHosted, .hostedPresented, .loadingNative, .verifying, .accessConfirmed:
+            nil
+        case .nativeReady, .purchasing, .verificationUnavailable, .pendingApproval, .failed:
+            coordinator.statusMessage
+        }
+    }
+
+    private func announcePhase(_ phase: AppAccessGatePhase) {
+        let announcement: String? = switch phase {
+        case .loadingNative:
+            "Loading subscription options."
+        case .purchasing:
+            "Apple checkout is opening."
+        case .pendingApproval:
+            "Apple approval is pending. Do not purchase again."
+        case .verifying:
+            "Checking your subscription access."
+        case .verificationUnavailable:
+            "Payment may still be processing. Do not purchase again."
+        case .accessConfirmed:
+            "Access confirmed. Opening Ascend."
+        case .failed:
+            coordinator.statusMessage ?? "Subscription options are unavailable."
+        case .openingHosted, .hostedPresented, .nativeReady:
+            nil
+        }
+        if let announcement {
+            AccessibilityNotification.Announcement(announcement).post()
+            focusedControl = .status
+        }
+    }
+}
+
+private extension View {
+    func recoveryLinkStyle() -> some View {
+        buttonStyle(.plain)
+            .font(.montserratMedium(size: 13))
+            .foregroundStyle(.white.opacity(0.72))
+            .frame(maxWidth: .infinity, minHeight: 44)
+    }
 }
 
 #Preview {
-    AppAccessPaywallPlaceholderView(onDeleteAccount: {})
+    AppAccessPaywallPlaceholderView(onDeleteAccount: {}, onSignOut: {})
         .environment(MonetizationManager())
 }
