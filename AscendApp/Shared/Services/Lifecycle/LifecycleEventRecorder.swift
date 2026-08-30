@@ -177,33 +177,59 @@ final class LifecycleEventRecorder {
         payload: sending [String: Any],
         expectedUserID: String? = nil
     ) async throws {
-        // Lifecycle events are per-user server state; the callable rejects
-        // unauthenticated requests, so don't send them while signed out.
-        try Self.validateIdentity(
+        let eventData = try Self.makeCallableEnvelope(
+            type: type,
+            payload: payload,
             currentUserID: Auth.auth().currentUser?.uid,
             expectedUserID: expectedUserID
         )
-
-        let eventData: [String: Any] = [
-            "type": type,
-            "payload": payload
-        ]
 
         _ = try await functions
             .httpsCallable("recordLifecycleEvent")
             .call(eventData)
     }
 
+    nonisolated static func makeCallableEnvelope(
+        type: String,
+        payload: [String: Any],
+        currentUserID: String?,
+        expectedUserID: String?
+    ) throws -> [String: Any] {
+        // The callable independently compares this delivery-only owner with
+        // its authenticated token after token acquisition. Keeping it outside
+        // payload prevents it from becoming lifecycle or analytics data.
+        let ownerUserID = try validatedUserID(
+            currentUserID: currentUserID,
+            expectedUserID: expectedUserID
+        )
+        return [
+            "expectedUserID": ownerUserID,
+            "type": type,
+            "payload": payload
+        ]
+    }
+
     nonisolated static func validateIdentity(
         currentUserID: String?,
         expectedUserID: String?
     ) throws {
+        _ = try validatedUserID(
+            currentUserID: currentUserID,
+            expectedUserID: expectedUserID
+        )
+    }
+
+    private nonisolated static func validatedUserID(
+        currentUserID: String?,
+        expectedUserID: String?
+    ) throws -> String {
         guard let currentUserID else {
             throw LifecycleEventRecorderError.signedOut
         }
         if let expectedUserID, currentUserID != expectedUserID {
             throw LifecycleEventRecorderError.identityChanged
         }
+        return currentUserID
     }
 
     /// Errors that are part of normal operation — a request cancelled by the

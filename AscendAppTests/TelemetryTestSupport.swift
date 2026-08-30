@@ -100,6 +100,54 @@ final class BlockingIdentityAttributingTelemetrySink: TelemetrySink, @unchecked 
     }
 }
 
+final class ControlledTelemetryDeliveryLane: TelemetryDeliveryLaning, @unchecked Sendable {
+    private let condition = NSCondition()
+    private let armedEntryObserved = DispatchSemaphore(value: 0)
+    private var isHeld = false
+    private var observesNextEntry = false
+    private var observedEntryWasContended: Bool?
+
+    func armNextEntryObservation() {
+        condition.withLock {
+            precondition(observesNextEntry == false)
+            observesNextEntry = true
+            observedEntryWasContended = nil
+        }
+    }
+
+    func waitForObservedEntry() -> Bool {
+        armedEntryObserved.wait()
+        return condition.withLock {
+            precondition(observedEntryWasContended != nil)
+            return observedEntryWasContended == true
+        }
+    }
+
+    func withLock<Result: Sendable>(
+        _ operation: @Sendable () throws -> Result
+    ) rethrows -> Result {
+        condition.lock()
+        if observesNextEntry {
+            observesNextEntry = false
+            observedEntryWasContended = isHeld
+            armedEntryObserved.signal()
+        }
+        while isHeld {
+            condition.wait()
+        }
+        isHeld = true
+        condition.unlock()
+
+        defer {
+            condition.withLock {
+                isHeld = false
+                condition.broadcast()
+            }
+        }
+        return try operation()
+    }
+}
+
 struct NoopCrashlyticsReporter: CrashlyticsReporting {
     func setCollectionEnabled(_ enabled: Bool) {}
     func setUserID(_ userID: String?) {}

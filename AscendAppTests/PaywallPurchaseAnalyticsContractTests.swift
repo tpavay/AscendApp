@@ -119,7 +119,10 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(sink.attributions.map(\.name) == ["revenuecat_purchase_started"])
         #expect(sink.attributions.map(\.userID) == ["user-a"])
         #expect(published.isEmpty)
-        #expect(sink.attributions.allSatisfy { $0.parameters["user_id"] == nil })
+        #expect(sink.attributions.allSatisfy {
+            $0.parameters["user_id"] == nil &&
+                $0.parameters["identity_revision"] == nil
+        })
     }
 
     /// RevenueCat's completed transaction response is already identity-scoped CustomerInfo.
@@ -493,7 +496,10 @@ struct PaywallPurchaseAnalyticsContractTests {
 
         #expect(sink.attributions.map(\.name) == ["revenuecat_restore_started"])
         #expect(sink.attributions.map(\.userID) == ["user-a"])
-        #expect(sink.attributions.allSatisfy { $0.parameters["user_id"] == nil })
+        #expect(sink.attributions.allSatisfy {
+            $0.parameters["user_id"] == nil &&
+                $0.parameters["identity_revision"] == nil
+        })
     }
 
     @Test
@@ -530,7 +536,10 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(Self.isFailed(outcome))
         #expect(sink.attributions.map(\.name) == ["revenuecat_restore_started"])
         #expect(sink.attributions.map(\.userID) == ["user-a"])
-        #expect(sink.attributions.allSatisfy { $0.parameters["user_id"] == nil })
+        #expect(sink.attributions.allSatisfy {
+            $0.parameters["user_id"] == nil &&
+                $0.parameters["identity_revision"] == nil
+        })
     }
 
     @Test
@@ -863,6 +872,7 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(terminal?.parameters["identity_match"] == .bool(true))
         #expect(terminal?.parameters["entitlement_active"] == .bool(true))
         #expect(terminal?.parameters["user_id"] == nil)
+        #expect(terminal?.parameters["identity_revision"] == nil)
         #expect(terminal?.parameters["error"] == nil)
         #expect(terminal?.parameters["price"] == nil)
     }

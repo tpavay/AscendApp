@@ -8,6 +8,22 @@
 import Foundation
 import os.lock
 
+protocol TelemetryDeliveryLaning: Sendable {
+    func withLock<Result: Sendable>(
+        _ operation: @Sendable () throws -> Result
+    ) rethrows -> Result
+}
+
+final class LockedTelemetryDeliveryLane: TelemetryDeliveryLaning, @unchecked Sendable {
+    private let lock = OSAllocatedUnfairLock(initialState: ())
+
+    func withLock<Result: Sendable>(
+        _ operation: @Sendable () throws -> Result
+    ) rethrows -> Result {
+        try lock.withLock(operation)
+    }
+}
+
 /// Thread-safe telemetry manager for shared app events and error reporting.
 /// Call `configure()` once at app launch, after Firebase is configured.
 final class TelemetryManager: @unchecked Sendable {
@@ -19,7 +35,7 @@ final class TelemetryManager: @unchecked Sendable {
     /// then releasing it before `record` lets another thread identify account B in between. This
     /// lane keeps the check and the synchronous sink delivery indivisible, without making callers
     /// await telemetry or delaying authentication on provider work.
-    private let deliveryLock = OSAllocatedUnfairLock(initialState: ())
+    private let deliveryLane: any TelemetryDeliveryLaning
     private let lock = OSAllocatedUnfairLock(initialState: State())
     private let sinks: [any TelemetrySink]
     private let crashlyticsReporter: any CrashlyticsReporting
@@ -37,7 +53,8 @@ final class TelemetryManager: @unchecked Sendable {
         crashlyticsReporter: (any CrashlyticsReporting)? = nil,
         collectionEnabledOverride: Bool? = nil,
         buildMetadata: TelemetryBuildMetadata = .current,
-        identityStore: any TelemetryIdentityStoring = TelemetryIdentityStore.live
+        identityStore: any TelemetryIdentityStoring = TelemetryIdentityStore.live,
+        deliveryLane: any TelemetryDeliveryLaning = LockedTelemetryDeliveryLane()
     ) {
         let reporter = crashlyticsReporter ?? CompositeCrashlyticsReporter(
             reporters: [
@@ -50,6 +67,7 @@ final class TelemetryManager: @unchecked Sendable {
         self.buildMetadata = buildMetadata
         self.envelope = TelemetryEnvelope(resolving: buildMetadata)
         self.identityStore = identityStore
+        self.deliveryLane = deliveryLane
         if let sinks {
             self.sinks = sinks
         } else {
@@ -78,7 +96,7 @@ final class TelemetryManager: @unchecked Sendable {
         let enabled = collectionEnabledOverride ?? Self.shouldEnableCollection(
             buildMetadata: buildMetadata
         )
-        deliveryLock.withLock {
+        deliveryLane.withLock {
             // The identity the last launch left behind is what tells a genuine sign-out apart from
             // a cold launch that merely has no session.
             let restoredUserID = identityStore.identifiedUserID
@@ -165,7 +183,7 @@ final class TelemetryManager: @unchecked Sendable {
     }
 
     func debugEnableCollectionForSession() {
-        deliveryLock.withLock {
+        deliveryLane.withLock {
             lock.withLock { $0.isCollectionEnabled = true }
             crashlyticsReporter.setCollectionEnabled(true)
             sinks.forEach { $0.setCollectionEnabled(true) }
@@ -177,7 +195,7 @@ final class TelemetryManager: @unchecked Sendable {
     // MARK: - User Identity
 
     func setUserId(_ userId: String) {
-        deliveryLock.withLock {
+        deliveryLane.withLock {
             let previousUserID = lock.withLock { state -> String? in
                 guard state.isCollectionEnabled else { return nil }
                 let previous = state.identifiedUserID
@@ -210,7 +228,7 @@ final class TelemetryManager: @unchecked Sendable {
     /// "did somebody actually sign out", so anything else reporting a sign-out hangs off it.
     @discardableResult
     func clearUserId() -> Bool {
-        deliveryLock.withLock {
+        deliveryLane.withLock {
             let result = lock.withLock { state -> (hadIdentity: Bool, enabled: Bool) in
                 guard state.identifiedUserID != nil else {
                     return (false, state.isCollectionEnabled)
@@ -238,7 +256,7 @@ final class TelemetryManager: @unchecked Sendable {
     }
 
     func setUserProperty(_ name: String, value: String?) {
-        deliveryLock.withLock {
+        deliveryLane.withLock {
             guard lock.withLock(\.isCollectionEnabled) else { return }
             sinks
                 .filter { $0.supportedDestinations.contains(.analytics) }
@@ -253,7 +271,7 @@ final class TelemetryManager: @unchecked Sendable {
     }
 
     func track(_ record: TelemetryRecord) {
-        deliveryLock.withLock {
+        deliveryLane.withLock {
             guard lock.withLock(\.isCollectionEnabled) else { return }
             deliver(record)
         }
@@ -277,7 +295,7 @@ final class TelemetryManager: @unchecked Sendable {
         _ record: TelemetryRecord,
         ifIdentifiedAs expectedUserID: String
     ) -> Bool {
-        deliveryLock.withLock {
+        deliveryLane.withLock {
             let mayDeliver = lock.withLock { state in
                 state.isCollectionEnabled && state.identifiedUserID == expectedUserID
             }
@@ -288,7 +306,7 @@ final class TelemetryManager: @unchecked Sendable {
     }
 
     func track(screen: TelemetryScreen) {
-        deliveryLock.withLock {
+        deliveryLane.withLock {
             guard lock.withLock(\.isCollectionEnabled) else { return }
             let envelopedScreen = EnvelopedTelemetryScreen(screen: screen, envelope: envelope)
             sinks

@@ -129,6 +129,7 @@ export const recordLifecycleEvent = onCall(async (request) => {
     );
   }
 
+  validateExpectedOwner(request.data, uid);
   const event = normalizeRequestData(request.data);
   if (event.fieldNotes.length > 0) {
     // A malformed optional field no longer rejects the call, so this warning
@@ -226,6 +227,32 @@ export const recordLifecycleEvent = onCall(async (request) => {
     ok: true,
   };
 });
+
+/**
+ * Refuses a lifecycle delivery whose client-captured owner differs from the
+ * authenticated token used by the callable.
+ *
+ * The owner is request metadata only. It is deliberately not copied into the
+ * normalized payload, Firestore documents, or logs.
+ * @param {unknown} data Callable request data.
+ * @param {string} authenticatedUID UID verified by Firebase callable auth.
+ */
+function validateExpectedOwner(
+  data: unknown,
+  authenticatedUID: string
+): void {
+  const expectedUserID = isPlainObject(data) ? data.expectedUserID : undefined;
+  if (
+    typeof expectedUserID !== "string" ||
+    expectedUserID.length === 0 ||
+    expectedUserID !== authenticatedUID
+  ) {
+    throw new HttpsError(
+      "permission-denied",
+      "Lifecycle event owner does not match the authenticated user."
+    );
+  }
+}
 
 /**
  * Normalizes untrusted callable input into a server-owned event document.
@@ -952,4 +979,5 @@ function invalidArgument(message: string): HttpsError {
 export const lifecycleTestHooks = {
   normalizeRequestData,
   statePatchForEvent,
+  validateExpectedOwner,
 };

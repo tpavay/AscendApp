@@ -42,6 +42,7 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
     private var presentedToken: PresentedToken?
     private var telemetryOwnersByPresentationID: [String: PresentationTelemetryOwner] = [:]
     private var telemetryPresentationOrder: [String] = []
+    private var shownPresentationIDs: Set<String> = []
     private var presentationOperationTail: Task<Void, Never>?
     private var registrationTask: Task<Void, Never>?
 
@@ -206,10 +207,10 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
         let handler = PaywallPresentationHandler()
 
         handler.onPresent { paywallInfo in
-            let presentationID = PaywallAnalyticsContext(paywallInfo: paywallInfo).presentationID
-            guard self.handlePresentationBegan(
+            let context = PaywallAnalyticsContext(paywallInfo: paywallInfo)
+            guard self.handlePresentationFromHandler(
                 revision: revision,
-                presentationID: presentationID
+                context: context
             ) else { return }
             onOutcome(.presented)
         }
@@ -299,6 +300,21 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
         return true
     }
 
+    @discardableResult
+    func handlePresentationFromHandler(
+        revision: UInt,
+        context: PaywallAnalyticsContext
+    ) -> Bool {
+        guard handlePresentationBegan(
+            revision: revision,
+            presentationID: context.presentationID
+        ) else {
+            return false
+        }
+        handlePaywallShown(context: context)
+        return true
+    }
+
     func beginPresentationAttemptForTesting() -> UInt {
         attemptRegistry.begin()
     }
@@ -383,6 +399,7 @@ private extension SuperwallPaywallPresenter {
         while telemetryPresentationOrder.count > 32 {
             let retiredID = telemetryPresentationOrder.removeFirst()
             telemetryOwnersByPresentationID[retiredID] = nil
+            shownPresentationIDs.remove(retiredID)
         }
     }
 
@@ -497,7 +514,9 @@ private extension SuperwallPaywallPresenter {
 
 extension SuperwallPaywallPresenter: SuperwallDelegate {
     func didPresentPaywall(withInfo paywallInfo: PaywallInfo) {
-        handlePaywallShown(context: PaywallAnalyticsContext(paywallInfo: paywallInfo))
+        handlePaywallDidPresentFromDelegate(
+            context: PaywallAnalyticsContext(paywallInfo: paywallInfo)
+        )
     }
 
     func didDismissPaywall(withInfo paywallInfo: PaywallInfo) {
@@ -555,13 +574,24 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
         }
     }
 
+    func handlePaywallDidPresentFromDelegate(context _: PaywallAnalyticsContext) {
+        // Superwall invokes this delegate before its onPresent handler. The
+        // handler owns shown recording because it also carries the attempt
+        // revision needed to bind the captured account first.
+    }
+
     func handlePaywallShown(context: PaywallAnalyticsContext) {
+        guard let presentationID = context.presentationID,
+              let owner = telemetryOwner(for: presentationID),
+              shownPresentationIDs.insert(presentationID).inserted else {
+            return
+        }
         track(
             PaywallAnalyticsEvent.shown(context: context),
-            presentationID: context.presentationID
+            owner: owner
         )
         guard SuperwallPlacement(rawValue: context.placement) != nil,
-              let userID = telemetryOwner(for: context.presentationID)?.identity?.userID else {
+              let userID = owner.identity?.userID else {
             return
         }
         recordLifecyclePaywallShown(context.placement, userID)

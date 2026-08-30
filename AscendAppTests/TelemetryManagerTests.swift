@@ -59,7 +59,11 @@ struct TelemetryManagerTests {
     @Test
     func guardedDeliveryAndIdentityMutationAreAtomicInBothWinnerOrders() async {
         let deliveryFirstSink = BlockingIdentityAttributingTelemetrySink(blockPoint: .record)
-        let deliveryFirstTelemetry = Self.makeTelemetry(sink: deliveryFirstSink)
+        let deliveryLane = ControlledTelemetryDeliveryLane()
+        let deliveryFirstTelemetry = Self.makeTelemetry(
+            sink: deliveryFirstSink,
+            deliveryLane: deliveryLane
+        )
         deliveryFirstTelemetry.setUserId("climber-a")
 
         let deliveryTask = Task.detached {
@@ -69,9 +73,14 @@ struct TelemetryManagerTests {
             )
         }
         await Task.detached { deliveryFirstSink.waitUntilBlocked() }.value
+        deliveryLane.armNextEntryObservation()
         let mutationTask = Task.detached {
             deliveryFirstTelemetry.setUserId("climber-b")
         }
+        let mutationWaitedOnTheOccupiedLane = await Task.detached {
+            deliveryLane.waitForObservedEntry()
+        }.value
+        #expect(mutationWaitedOnTheOccupiedLane)
         deliveryFirstSink.releaseBlockedCall()
 
         #expect(await deliveryTask.value)
@@ -102,19 +111,31 @@ struct TelemetryManagerTests {
     }
 
     @Test
-    func lifecycleRecorderEnforcesTheExpectedUserBeforeNetworkDelivery() throws {
-        try LifecycleEventRecorder.validateIdentity(
+    func lifecycleRecorderBuildsAnOwnerBoundEnvelopeAndRejectsStalePreflight() throws {
+        let envelope = try LifecycleEventRecorder.makeCallableEnvelope(
+            type: "paywall_shown",
+            payload: ["placement": "app_access_gate"],
             currentUserID: "climber-a",
             expectedUserID: "climber-a"
         )
+        #expect(envelope["expectedUserID"] as? String == "climber-a")
+        #expect(envelope["type"] as? String == "paywall_shown")
+        let payload = try #require(envelope["payload"] as? [String: Any])
+        #expect(payload["placement"] as? String == "app_access_gate")
+        #expect(payload["expectedUserID"] == nil)
+
         #expect(throws: LifecycleEventRecorderError.identityChanged) {
-            try LifecycleEventRecorder.validateIdentity(
+            try LifecycleEventRecorder.makeCallableEnvelope(
+                type: "paywall_shown",
+                payload: ["placement": "app_access_gate"],
                 currentUserID: "climber-b",
                 expectedUserID: "climber-a"
             )
         }
         #expect(throws: LifecycleEventRecorderError.signedOut) {
-            try LifecycleEventRecorder.validateIdentity(
+            try LifecycleEventRecorder.makeCallableEnvelope(
+                type: "paywall_shown",
+                payload: ["placement": "app_access_gate"],
                 currentUserID: nil,
                 expectedUserID: "climber-a"
             )
@@ -414,13 +435,17 @@ struct TelemetryManagerTests {
 }
 
 private extension TelemetryManagerTests {
-    static func makeTelemetry(sink: any TelemetrySink) -> TelemetryManager {
+    static func makeTelemetry(
+        sink: any TelemetrySink,
+        deliveryLane: any TelemetryDeliveryLaning = LockedTelemetryDeliveryLane()
+    ) -> TelemetryManager {
         let telemetry = TelemetryManager(
             sinks: [sink],
             crashlyticsReporter: NoopCrashlyticsReporter(),
             collectionEnabledOverride: true,
             buildMetadata: stagingBuildMetadata,
-            identityStore: makeTestIdentityStore()
+            identityStore: makeTestIdentityStore(),
+            deliveryLane: deliveryLane
         )
         telemetry.configure()
         return telemetry

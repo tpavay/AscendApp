@@ -344,6 +344,7 @@ struct AppAccessPaywallCoordinatorTests {
         #expect(terminals.first?.parameters["provider_outcome"] == .string("native_ready"))
         #expect(terminals.first?.parameters["identity_match"] == .bool(true))
         #expect(terminals.first?.parameters["user_id"] == nil)
+        #expect(terminals.first?.parameters["identity_revision"] == nil)
     }
 
     @Test

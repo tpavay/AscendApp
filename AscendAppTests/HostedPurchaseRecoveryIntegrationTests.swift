@@ -226,7 +226,7 @@ struct HostedPurchaseRecoveryIntegrationTests {
     }
 
     @Test
-    func lateSuperwallLifecycleAndTransactionCallbacksCannotAttachAccountAToAccountB() {
+    func sdkDidPresentBeforeHandlerRecordsShownOnceForTheCapturedAccountOnly() {
         let sink = IdentityAttributingTelemetrySink()
         let telemetry = TelemetryManager(
             sinks: [sink],
@@ -274,27 +274,45 @@ struct HostedPurchaseRecoveryIntegrationTests {
             presentationID: "presentation-a",
             dismissReason: "close_button"
         )
-        #expect(presenter.handlePresentationBegan(
+        presenter.handlePaywallDidPresentFromDelegate(context: context)
+        #expect(sink.attributions.isEmpty)
+        #expect(attemptedLifecycleUserIDs.isEmpty)
+
+        #expect(presenter.handlePresentationFromHandler(
             revision: revision,
-            presentationID: context.presentationID
+            context: context
+        ))
+        #expect(presenter.handlePresentationFromHandler(
+            revision: revision,
+            context: context
         ))
 
-        presenter.handlePaywallShown(context: context)
         telemetry.setUserId("user-b")
         currentLifecycleUserID.value = "user-b"
-        presenter.handlePaywallShown(context: context)
+        _ = presenter.beginPresentationAttemptForTesting(
+            identity: MonetizationIdentityTransition(revision: 2, userID: "user-b"),
+            onOutcome: { _ in }
+        )
+        presenter.handlePaywallDidPresentFromDelegate(context: context)
+        #expect(presenter.handlePresentationFromHandler(
+            revision: revision,
+            context: context
+        ) == false)
         presenter.handlePaywallDismissed(context: context)
         presenter.handleTransactionStarted(context: context, productID: "ascend_yearly")
         presenter.handleTransactionAbandoned(context: context, productID: "ascend_yearly")
 
         #expect(sink.attributions.map(\.name) == ["paywall_shown"])
         #expect(sink.attributions.map(\.userID) == ["user-a"])
-        #expect(attemptedLifecycleUserIDs == ["user-a", "user-a", "user-a"])
+        #expect(attemptedLifecycleUserIDs == ["user-a", "user-a"])
         #expect(deliveredLifecycleTypes == ["shown"])
         let storedContext = contextStore.takeContext(for: "ascend_yearly")
         #expect(storedContext?.identity == identityA)
         #expect(storedContext?.analytics.presentationID == "presentation-a")
-        #expect(sink.attributions.allSatisfy { $0.parameters["user_id"] == nil })
+        #expect(sink.attributions.allSatisfy {
+            $0.parameters["user_id"] == nil &&
+                $0.parameters["identity_revision"] == nil
+        })
     }
 
     private func makeHarness() -> HostedHarness {

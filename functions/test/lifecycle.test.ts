@@ -67,6 +67,56 @@ function mirrorFor(payload: Record<string, unknown>) {
   return integrations.appleHealth as Record<string, unknown>;
 }
 
+test("lifecycle delivery accepts the authenticated expected owner", () => {
+  const requestData = {
+    expectedUserID: "climber-a",
+    payload: {placement: "app_access_gate"},
+    type: "paywall_shown",
+  };
+  assert.doesNotThrow(() => lifecycleTestHooks.validateExpectedOwner(
+    requestData,
+    "climber-a"
+  ));
+
+  const event = lifecycleTestHooks.normalizeRequestData(
+    requestData
+  ) as unknown as NormalizedEvent;
+  assert.equal(Object.keys(event.payload).includes("expectedUserID"), false);
+});
+
+test("lifecycle delivery rejects a different authenticated owner", () => {
+  assert.throws(
+    () => lifecycleTestHooks.validateExpectedOwner(
+      {
+        expectedUserID: "climber-a",
+        payload: {placement: "app_access_gate"},
+        type: "paywall_shown",
+      },
+      "climber-b"
+    ),
+    (error: unknown) => {
+      const callableError = error as {code?: string};
+      return callableError.code === "permission-denied";
+    }
+  );
+});
+
+test("lifecycle delivery rejects a missing expected owner", () => {
+  assert.throws(
+    () => lifecycleTestHooks.validateExpectedOwner(
+      {
+        payload: {placement: "app_access_gate"},
+        type: "paywall_shown",
+      },
+      "climber-a"
+    ),
+    (error: unknown) => {
+      const callableError = error as {code?: string};
+      return callableError.code === "permission-denied";
+    }
+  );
+});
+
 test("Apple Health event from an older client keeps mirroring auto import", () => {
   const mirror = mirrorFor({autoImportEnabled: true, status: "connected"});
 
