@@ -148,6 +148,7 @@ final class AppAccessPaywallCoordinator {
                 presentationID: nil,
                 gateAttemptID: self.presentationAttemptID,
                 recoveryPath: .native,
+                identity: identity,
                 productID: selectedPlanID
             )
             let result = await nativeProvider.purchase(planID: selectedPlanID)
@@ -169,7 +170,10 @@ final class AppAccessPaywallCoordinator {
         restoreState = .restoring
         restoreTask = Task { @MainActor [weak self, restoreService] in
             let outcome = await restoreService.restore(
-                context: .appAccessGate(gateAttemptID: self?.presentationAttemptID)
+                context: .appAccessGate(
+                    gateAttemptID: self?.presentationAttemptID,
+                    identity: identity
+                )
             )
             guard let self, !Task.isCancelled,
                   self.restoreRevision == revision,
@@ -595,6 +599,7 @@ final class AppAccessPaywallCoordinator {
         guard lastTerminalPresentationRevision != presentationRevision else { return }
         guard let presentationAttemptID else { return }
         lastTerminalPresentationRevision = presentationRevision
+        guard let userID = presentationIdentity.userID else { return }
         telemetry.track(
             PaywallAnalyticsEvent.appAccessGateAttemptTerminal(
                 context: AppAccessGateAnalyticsContext(
@@ -607,7 +612,8 @@ final class AppAccessPaywallCoordinator {
                         == presentationIdentity,
                     entitlementActive: entitlementActive
                 )
-            )
+            ),
+            ifIdentifiedAs: userID
         )
     }
 }

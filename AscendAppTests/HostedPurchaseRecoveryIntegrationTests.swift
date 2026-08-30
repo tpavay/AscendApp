@@ -14,6 +14,7 @@ struct HostedPurchaseRecoveryIntegrationTests {
         harness.contextStore.record(
             placement: "app_access_gate",
             presentationID: harness.presentationID,
+            identity: harness.identity,
             productID: harness.productID
         )
 
@@ -53,6 +54,7 @@ struct HostedPurchaseRecoveryIntegrationTests {
         harness.contextStore.record(
             placement: "app_access_gate",
             presentationID: harness.presentationID,
+            identity: harness.identity,
             productID: harness.productID
         )
 
@@ -223,11 +225,84 @@ struct HostedPurchaseRecoveryIntegrationTests {
         #expect(outcomes == [.pendingApproval])
     }
 
+    @Test
+    func lateSuperwallLifecycleAndTransactionCallbacksCannotAttachAccountAToAccountB() {
+        let sink = IdentityAttributingTelemetrySink()
+        let telemetry = TelemetryManager(
+            sinks: [sink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            identityStore: makeTestIdentityStore()
+        )
+        telemetry.configure()
+        telemetry.setUserId("user-a")
+        let contextStore = PaywallTransactionContextStore()
+        let currentLifecycleUserID = CurrentLifecycleUserID("user-a")
+        var attemptedLifecycleUserIDs: [String] = []
+        var deliveredLifecycleTypes: [String] = []
+        let presenter = SuperwallPaywallPresenter(
+            purchaseController: RevenueCatPurchaseController(isPurchasesConfigured: { false }),
+            telemetry: telemetry,
+            transactionContextStore: contextStore,
+            startsConfigured: true,
+            registerPlacement: { _, _, _ in },
+            dismissPresentation: {},
+            recordLifecyclePaywallShown: { _, expectedUserID in
+                attemptedLifecycleUserIDs.append(expectedUserID)
+                if expectedUserID == currentLifecycleUserID.value {
+                    deliveredLifecycleTypes.append("shown")
+                }
+            },
+            recordLifecyclePaywallDismissed: { _, _, expectedUserID in
+                attemptedLifecycleUserIDs.append(expectedUserID)
+                if expectedUserID == currentLifecycleUserID.value {
+                    deliveredLifecycleTypes.append("dismissed")
+                }
+            }
+        )
+        let identityA = MonetizationIdentityTransition(revision: 1, userID: "user-a")
+        let revision = presenter.beginPresentationAttemptForTesting(
+            identity: identityA,
+            onOutcome: { _ in }
+        )
+        let context = PaywallAnalyticsContext(
+            placement: SuperwallPlacement.appAccessGate.rawValue,
+            paywallIdentifier: "gate-paywall",
+            paywallName: "Gate",
+            presentedBy: "placement",
+            isFreeTrialAvailable: true,
+            presentationID: "presentation-a",
+            dismissReason: "close_button"
+        )
+        #expect(presenter.handlePresentationBegan(
+            revision: revision,
+            presentationID: context.presentationID
+        ))
+
+        presenter.handlePaywallShown(context: context)
+        telemetry.setUserId("user-b")
+        currentLifecycleUserID.value = "user-b"
+        presenter.handlePaywallShown(context: context)
+        presenter.handlePaywallDismissed(context: context)
+        presenter.handleTransactionStarted(context: context, productID: "ascend_yearly")
+        presenter.handleTransactionAbandoned(context: context, productID: "ascend_yearly")
+
+        #expect(sink.attributions.map(\.name) == ["paywall_shown"])
+        #expect(sink.attributions.map(\.userID) == ["user-a"])
+        #expect(attemptedLifecycleUserIDs == ["user-a", "user-a", "user-a"])
+        #expect(deliveredLifecycleTypes == ["shown"])
+        let storedContext = contextStore.takeContext(for: "ascend_yearly")
+        #expect(storedContext?.identity == identityA)
+        #expect(storedContext?.analytics.presentationID == "presentation-a")
+        #expect(sink.attributions.allSatisfy { $0.parameters["user_id"] == nil })
+    }
+
     private func makeHarness() -> HostedHarness {
         let identity = MonetizationIdentityTransition(revision: 41, userID: "hosted-user")
         let contextStore = PaywallTransactionContextStore()
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("hosted-user")
         let executor = RevenueCatPurchaseExecutor(
             telemetry: telemetry,
             transactionContextStore: contextStore,
@@ -280,6 +355,15 @@ struct HostedPurchaseRecoveryIntegrationTests {
             dismissal: dismissal,
             sink: sink
         )
+    }
+}
+
+@MainActor
+private final class CurrentLifecycleUserID {
+    var value: String
+
+    init(_ value: String) {
+        self.value = value
     }
 }
 

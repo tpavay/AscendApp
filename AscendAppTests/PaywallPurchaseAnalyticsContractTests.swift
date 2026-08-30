@@ -48,6 +48,80 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(harness.published == [[Self.entitlementID]])
     }
 
+    @Test
+    func accountSwitchDuringPurchaseSuppressesTheOldTerminalInsteadOfAttributingItToTheNewAccount() async {
+        await assertAccountSwitchDuringPurchaseSuppressesTerminal(
+            response: .init(
+                userCancelled: false,
+                entitlementState: .active([Self.entitlementID])
+            )
+        )
+    }
+
+    @Test
+    func accountSwitchDuringPurchaseCancellationSuppressesTheOldTerminal() async {
+        await assertAccountSwitchDuringPurchaseSuppressesTerminal(
+            response: .init(userCancelled: true)
+        )
+    }
+
+    private func assertAccountSwitchDuringPurchaseSuppressesTerminal(
+        response: RevenueCatPurchaseExecutor.PurchaseResponse
+    ) async {
+        let sink = IdentityAttributingTelemetrySink()
+        let telemetry = TelemetryManager(
+            sinks: [sink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            identityStore: makeTestIdentityStore()
+        )
+        telemetry.configure()
+        telemetry.setUserId("user-a")
+        let identityA = MonetizationIdentityTransition(revision: 1, userID: "user-a")
+        let identityB = MonetizationIdentityTransition(revision: 2, userID: "user-b")
+        let currentIdentity = MutableMonetizationIdentity(identityA)
+        var published: [Set<String>] = []
+        let operation = ControlledPurchaseOperation()
+        let contextStore = PaywallTransactionContextStore()
+        contextStore.record(
+            placement: SuperwallPlacement.appAccessGate.rawValue,
+            presentationID: "presentation-a",
+            identity: identityA,
+            productID: Self.productID
+        )
+        let executor = RevenueCatPurchaseExecutor(
+            telemetry: telemetry,
+            transactionContextStore: contextStore,
+            entitlementID: Self.entitlementID,
+            applySubscriptionStatus: { published.append($0) },
+            refreshEntitlementState: { .refreshed(.unknown) },
+            currentIdentityGeneration: { currentIdentity.value },
+            adoptEntitlementState: { state, identity in
+                guard currentIdentity.value == identity else { return false }
+                if case .active(let entitlementIDs) = state {
+                    published.append(entitlementIDs)
+                }
+                return true
+            }
+        )
+
+        let purchaseTask = Task { @MainActor in
+            await executor.executePurchase(productID: Self.productID) {
+                await operation.run()
+            }
+        }
+        await operation.waitUntilStarted()
+        telemetry.setUserId("user-b")
+        currentIdentity.value = identityB
+        operation.complete(response)
+        _ = await purchaseTask.value
+
+        #expect(sink.attributions.map(\.name) == ["revenuecat_purchase_started"])
+        #expect(sink.attributions.map(\.userID) == ["user-a"])
+        #expect(published.isEmpty)
+        #expect(sink.attributions.allSatisfy { $0.parameters["user_id"] == nil })
+    }
+
     /// RevenueCat's completed transaction response is already identity-scoped CustomerInfo.
     /// An active entitlement in that response must unlock without a redundant request that can
     /// fail after Apple has charged the climber.
@@ -389,6 +463,115 @@ struct PaywallPurchaseAnalyticsContractTests {
     }
 
     @Test
+    func accountSwitchDuringRestoreSuppressesTheOldTerminalInsteadOfAttributingItToTheNewAccount() async {
+        let sink = IdentityAttributingTelemetrySink()
+        let telemetry = TelemetryManager(
+            sinks: [sink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            identityStore: makeTestIdentityStore()
+        )
+        telemetry.configure()
+        telemetry.setUserId("user-a")
+        let identityA = MonetizationIdentityTransition(revision: 1, userID: "user-a")
+        let identityB = MonetizationIdentityTransition(revision: 2, userID: "user-b")
+        let restorer = ControlledRestoreProvider(identityGeneration: identityA)
+        let service = AppAccessRestoreService(
+            telemetry: telemetry,
+            entitlementID: Self.entitlementID,
+            restorer: { restorer }
+        )
+
+        let restoreTask = Task { @MainActor in
+            await service.restore()
+        }
+        await restorer.waitUntilStarted()
+        telemetry.setUserId("user-b")
+        restorer.identityGeneration = identityB
+        restorer.complete(.active([Self.entitlementID]))
+        _ = await restoreTask.value
+
+        #expect(sink.attributions.map(\.name) == ["revenuecat_restore_started"])
+        #expect(sink.attributions.map(\.userID) == ["user-a"])
+        #expect(sink.attributions.allSatisfy { $0.parameters["user_id"] == nil })
+    }
+
+    @Test
+    func accountSwitchDuringRestoreCancellationSuppressesTheOldTerminal() async {
+        let sink = IdentityAttributingTelemetrySink()
+        let telemetry = TelemetryManager(
+            sinks: [sink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            identityStore: makeTestIdentityStore()
+        )
+        telemetry.configure()
+        telemetry.setUserId("user-a")
+        let identityA = MonetizationIdentityTransition(revision: 1, userID: "user-a")
+        let identityB = MonetizationIdentityTransition(revision: 2, userID: "user-b")
+        let restorer = ControlledRestoreProvider(identityGeneration: identityA)
+        let service = AppAccessRestoreService(
+            telemetry: telemetry,
+            entitlementID: Self.entitlementID,
+            restorer: { restorer }
+        )
+
+        let restoreTask = Task { @MainActor in
+            await service.restore()
+        }
+        await restorer.waitUntilStarted()
+        telemetry.setUserId("user-b")
+        restorer.identityGeneration = identityB
+        restoreTask.cancel()
+        let outcome = await restoreTask.value
+        restorer.complete(.inactive)
+        await Task.yield()
+
+        #expect(Self.isFailed(outcome))
+        #expect(sink.attributions.map(\.name) == ["revenuecat_restore_started"])
+        #expect(sink.attributions.map(\.userID) == ["user-a"])
+        #expect(sink.attributions.allSatisfy { $0.parameters["user_id"] == nil })
+    }
+
+    @Test
+    func staleHostedAndGateRestoreContextsCannotStartProviderWorkForTheNewAccount() async {
+        let sink = IdentityAttributingTelemetrySink()
+        let telemetry = TelemetryManager(
+            sinks: [sink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            identityStore: makeTestIdentityStore()
+        )
+        telemetry.configure()
+        telemetry.setUserId("user-b")
+        let identityA = MonetizationIdentityTransition(revision: 1, userID: "user-a")
+        let identityB = MonetizationIdentityTransition(revision: 2, userID: "user-b")
+        let restorer = ControlledRestoreProvider(identityGeneration: identityB)
+        let service = AppAccessRestoreService(
+            telemetry: telemetry,
+            entitlementID: Self.entitlementID,
+            restorer: { restorer }
+        )
+        let contexts = [
+            AppAccessRestoreAnalyticsContext.hostedPaywall(
+                placement: SuperwallPlacement.appAccessGate.rawValue,
+                presentationID: "presentation-a",
+                gateAttemptID: "gate-a",
+                identity: identityA
+            ),
+            .appAccessGate(gateAttemptID: "gate-a", identity: identityA)
+        ]
+
+        for context in contexts {
+            let outcome = await service.restore(context: context)
+            #expect(Self.isFailed(outcome))
+        }
+
+        #expect(restorer.restoreCount == 0)
+        #expect(sink.attributions.isEmpty)
+    }
+
+    @Test
     func restoreWithoutAnyPurchaseEmitsOneNotFoundTerminal() async {
         let harness = Self.makeRestoreHarness(restoredState: .inactive)
 
@@ -710,6 +893,74 @@ struct PaywallPurchaseAnalyticsContractTests {
 // MARK: - Harness
 
 @MainActor
+private final class MutableMonetizationIdentity {
+    var value: MonetizationIdentityTransition
+
+    init(_ value: MonetizationIdentityTransition) {
+        self.value = value
+    }
+}
+
+@MainActor
+private final class ControlledPurchaseOperation {
+    private var continuation: CheckedContinuation<RevenueCatPurchaseExecutor.PurchaseResponse, Never>?
+    private var startObservers: [CheckedContinuation<Void, Never>] = []
+
+    func run() async -> RevenueCatPurchaseExecutor.PurchaseResponse {
+        startObservers.forEach { $0.resume() }
+        startObservers = []
+        return await withCheckedContinuation { continuation = $0 }
+    }
+
+    func waitUntilStarted() async {
+        guard continuation == nil else { return }
+        await withCheckedContinuation { startObservers.append($0) }
+    }
+
+    func complete(_ response: RevenueCatPurchaseExecutor.PurchaseResponse) {
+        continuation?.resume(returning: response)
+        continuation = nil
+    }
+}
+
+@MainActor
+private final class ControlledRestoreProvider: PurchaseRestoring {
+    let isRevenueCatConfigured = true
+    var identityGeneration: MonetizationIdentityTransition?
+    private(set) var restoreCount = 0
+    private var continuation: CheckedContinuation<MonetizationEntitlementState, Never>?
+    private var startObservers: [CheckedContinuation<Void, Never>] = []
+
+    init(identityGeneration: MonetizationIdentityTransition?) {
+        self.identityGeneration = identityGeneration
+    }
+
+    func restorePurchases(
+        for identity: MonetizationIdentityTransition
+    ) async throws -> MonetizationEntitlementState {
+        restoreCount += 1
+        startObservers.forEach { $0.resume() }
+        startObservers = []
+        return await withCheckedContinuation { continuation = $0 }
+    }
+
+    func restorePurchases() async throws -> MonetizationEntitlementState {
+        guard let identityGeneration else { return .unknown }
+        return try await restorePurchases(for: identityGeneration)
+    }
+
+    func waitUntilStarted() async {
+        guard continuation == nil else { return }
+        await withCheckedContinuation { startObservers.append($0) }
+    }
+
+    func complete(_ state: MonetizationEntitlementState) {
+        continuation?.resume(returning: state)
+        continuation = nil
+    }
+}
+
+@MainActor
 private final class RestorerStub: PaywallPurchaseCoordinating {
     var isRevenueCatConfigured: Bool
     let identityGeneration: MonetizationIdentityTransition? = MonetizationIdentityTransition(
@@ -760,11 +1011,13 @@ private final class PurchaseHarness {
     init(
         entitlementID: String,
         refresh: MonetizationEntitlementRefresh,
-        usesIdentity: Bool = false
+        usesIdentity: Bool = true
     ) {
         let identity = MonetizationIdentityTransition(revision: 7, userID: "test-user")
+        let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("test-user")
         executor = RevenueCatPurchaseExecutor(
-            telemetry: makeTestTelemetry(sink: sink),
+            telemetry: telemetry,
             transactionContextStore: contextStore,
             entitlementID: entitlementID,
             applySubscriptionStatus: { [weak self] entitlementIDs in
@@ -816,8 +1069,10 @@ private extension PaywallPurchaseAnalyticsContractTests {
             restoreError: restoreError,
             isRevenueCatConfigured: isRevenueCatConfigured
         )
+        let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("test-user")
         let service = AppAccessRestoreService(
-            telemetry: makeTestTelemetry(sink: sink),
+            telemetry: telemetry,
             entitlementID: entitlementID,
             restorer: { restorer }
         )

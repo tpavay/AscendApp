@@ -15,6 +15,10 @@ struct PaywallPurchaseAttributionJourneyTests {
     private static let entitlementID = "app_access"
     private static let placement = "winback_lapsed_yearly"
     private static let presentationID = "pres_3d81c4"
+    private static let identity = MonetizationIdentityTransition(
+        revision: 1,
+        userID: "attribution-user"
+    )
 
     @Test
     func theSharedStoreTheSuperwallDelegateWritesToAttributesEveryTerminal() async {
@@ -30,6 +34,7 @@ struct PaywallPurchaseAttributionJourneyTests {
             PaywallTransactionContextStore.shared.record(
                 placement: Self.placement,
                 presentationID: Self.presentationID,
+                identity: Self.identity,
                 productID: productID
             )
 
@@ -75,6 +80,7 @@ struct PaywallPurchaseAttributionJourneyTests {
         PaywallTransactionContextStore.shared.record(
             placement: Self.placement,
             presentationID: Self.presentationID,
+            identity: Self.identity,
             productID: preCallProductID
         )
 
@@ -197,11 +203,15 @@ private extension PaywallPurchaseAttributionJourneyTests {
         sink: InMemoryTelemetrySink,
         refresh: MonetizationEntitlementRefresh
     ) -> RevenueCatPurchaseExecutor {
-        RevenueCatPurchaseExecutor(
-            telemetry: makeTestTelemetry(sink: sink),
+        let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId(identity.userID!)
+        return RevenueCatPurchaseExecutor(
+            telemetry: telemetry,
             entitlementID: entitlementID,
             applySubscriptionStatus: { _ in },
-            refreshEntitlementState: { refresh }
+            refreshEntitlementState: { refresh },
+            currentIdentityGeneration: { identity },
+            adoptEntitlementState: { _, candidate in candidate == identity }
         )
     }
 

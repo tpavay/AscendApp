@@ -86,9 +86,13 @@ final class AppAccessRestoreService {
     func restore(
         context: AppAccessRestoreAnalyticsContext = .accountSettings()
     ) async -> AppAccessRestoreOutcome {
-        telemetry.track(PaywallAnalyticsEvent.revenueCatRestoreStarted(context: context))
-
         let restorer = self.restorer()
+        let currentIdentity = restorer.identityGeneration
+        let identity = context.identity ?? currentIdentity
+        track(
+            PaywallAnalyticsEvent.revenueCatRestoreStarted(context: context),
+            for: identity
+        )
         guard restorer.isRevenueCatConfigured else {
             let outcome = AppAccessRestoreOutcome.failed(
                 RevenueCatPurchaseControllerError.monetizationUnavailable
@@ -96,18 +100,33 @@ final class AppAccessRestoreService {
             trackTerminal(
                 outcome,
                 context: context,
+                identity: identity,
                 identityMatches: false,
                 errorType: .configuration
             )
             return outcome
         }
-        guard let identity = restorer.identityGeneration else {
+        guard currentIdentity == identity else {
             let outcome = AppAccessRestoreOutcome.failed(
                 RevenueCatPurchaseControllerError.entitlementUnconfirmed
             )
             trackTerminal(
                 outcome,
                 context: context,
+                identity: identity,
+                identityMatches: false,
+                errorType: .entitlementUnresolved
+            )
+            return outcome
+        }
+        guard let identity else {
+            let outcome = AppAccessRestoreOutcome.failed(
+                RevenueCatPurchaseControllerError.entitlementUnconfirmed
+            )
+            trackTerminal(
+                outcome,
+                context: context,
+                identity: nil,
                 identityMatches: false,
                 errorType: .entitlementUnresolved
             )
@@ -118,6 +137,7 @@ final class AppAccessRestoreService {
         trackTerminal(
             outcome,
             context: context,
+            identity: identity,
             identityMatches: restorer.identityGeneration == identity
         )
         return outcome
@@ -280,37 +300,49 @@ final class AppAccessRestoreService {
     private func trackTerminal(
         _ outcome: AppAccessRestoreOutcome,
         context: AppAccessRestoreAnalyticsContext,
+        identity: MonetizationIdentityTransition?,
         identityMatches: Bool,
         errorType explicitErrorType: RevenueCatAnalyticsErrorType? = nil
     ) {
         switch outcome {
         case .restored:
-            telemetry.track(
+            track(
                 PaywallAnalyticsEvent.revenueCatRestoreCompleted(
                     entitlementID: entitlementID,
                     context: context,
                     identityMatches: identityMatches
-                )
+                ),
+                for: identity
             )
         case .notFound:
-            telemetry.track(
+            track(
                 PaywallAnalyticsEvent.revenueCatRestoreNotFound(
                     entitlementID: entitlementID,
                     context: context,
                     identityMatches: identityMatches
-                )
+                ),
+                for: identity
             )
         case .failed(let error):
             let errorType = explicitErrorType ?? Self.analyticsErrorType(for: error)
-            telemetry.track(
+            track(
                 PaywallAnalyticsEvent.revenueCatRestoreFailed(
                     entitlementID: entitlementID,
                     errorType: errorType,
                     context: context,
                     identityMatches: identityMatches
-                )
+                ),
+                for: identity
             )
         }
+    }
+
+    private func track(
+        _ event: PaywallAnalyticsEvent,
+        for identity: MonetizationIdentityTransition?
+    ) {
+        guard let userID = identity?.userID else { return }
+        telemetry.track(event, ifIdentifiedAs: userID)
     }
 
     private static func analyticsErrorType(for error: any Error) -> RevenueCatAnalyticsErrorType {

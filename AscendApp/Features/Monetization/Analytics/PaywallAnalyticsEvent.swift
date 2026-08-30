@@ -12,6 +12,28 @@ struct PaywallAnalyticsContext: Sendable, Hashable {
     let primaryProductID: String?
     let dismissReason: String?
 
+    init(
+        placement: String,
+        paywallIdentifier: String,
+        paywallName: String,
+        presentedBy: String,
+        isFreeTrialAvailable: Bool,
+        presentationID: String?,
+        presentationSourceType: String? = nil,
+        primaryProductID: String? = nil,
+        dismissReason: String? = nil
+    ) {
+        self.placement = placement
+        self.paywallIdentifier = paywallIdentifier
+        self.paywallName = paywallName
+        self.presentedBy = presentedBy
+        self.isFreeTrialAvailable = isFreeTrialAvailable
+        self.presentationID = presentationID
+        self.presentationSourceType = presentationSourceType
+        self.primaryProductID = primaryProductID
+        self.dismissReason = dismissReason
+    }
+
     init(paywallInfo: PaywallInfo) {
         self.placement = paywallInfo.analyticsPlacement
         self.paywallIdentifier = paywallInfo.identifier

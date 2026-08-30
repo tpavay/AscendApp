@@ -13,22 +13,29 @@ struct AppAccessRestoreAnalyticsContext: Equatable, Sendable {
     let presentationID: String?
     let source: AppAccessRestoreSource
     let recoveryPath: AppAccessGateRecoveryPath
+    /// Internal delivery owner. Never included in `parameters`.
+    let identity: MonetizationIdentityTransition?
 
-    static func appAccessGate(gateAttemptID: String?) -> Self {
+    static func appAccessGate(
+        gateAttemptID: String?,
+        identity: MonetizationIdentityTransition? = nil
+    ) -> Self {
         Self(
             restoreAttemptID: makeAttemptID(),
             gateAttemptID: boundedIdentifier(gateAttemptID),
             placement: RevenueCatPurchasePlacement(SuperwallPlacement.appAccessGate.rawValue),
             presentationID: nil,
             source: .appAccessGate,
-            recoveryPath: .restore
+            recoveryPath: .restore,
+            identity: identity
         )
     }
 
     static func hostedPaywall(
         placement: String?,
         presentationID: String?,
-        gateAttemptID: String?
+        gateAttemptID: String?,
+        identity: MonetizationIdentityTransition? = nil
     ) -> Self {
         Self(
             restoreAttemptID: makeAttemptID(),
@@ -36,7 +43,8 @@ struct AppAccessRestoreAnalyticsContext: Equatable, Sendable {
             placement: RevenueCatPurchasePlacement(placement),
             presentationID: boundedIdentifier(presentationID),
             source: .hostedPaywall,
-            recoveryPath: .hosted
+            recoveryPath: .hosted,
+            identity: identity
         )
     }
 
@@ -47,7 +55,8 @@ struct AppAccessRestoreAnalyticsContext: Equatable, Sendable {
             placement: RevenueCatPurchasePlacement(nil),
             presentationID: nil,
             source: .accountSettings,
-            recoveryPath: .account
+            recoveryPath: .account,
+            identity: nil
         )
     }
 

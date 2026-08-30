@@ -45,6 +45,7 @@ Event parameters are not scanned, which is why they are inventoried here.
 ## Restore event contract
 
 Every caller creates one `restore_attempt_id` and emits one `revenuecat_restore_started` plus exactly one of `revenuecat_restore_completed`, `revenuecat_restore_not_found`, or `revenuecat_restore_failed` with the same identifier.
+An account switch can privacy-refuse delivery of the old attempt's terminal after the feature settles it, because dropping that stale terminal is safer than attaching it to the new account.
 The common fields are `restore_attempt_id`, `placement`, `restore_source`, and `recovery_path`, with optional `gate_attempt_id` and `presentation_id` when the attempt belongs to those surfaces.
 Terminals add `identity_match` and `outcome`.
 Completed and not-found terminals add `entitlement_id` and the resolved `entitlement_active` boolean.
@@ -55,3 +56,4 @@ Failed terminals add the bounded `error_type` and deliberately omit `entitlement
 `AppDiagnosticsRecorder` mirrors `diagnostic:*` events with `destinations: [.crashlytics]` only, so their `error`, `reason`, `diagnostic_id`, and `diagnostic_level` details are Crash Data and Performance Data, not Analytics.
 The telemetry console probe in `TelemetryConsoleView` (`probe_id`, `sent_at_unix`) is DEBUG-only and never ships.
 Raw user input, email, birth dates, exact body measurements, and exact locations are never logged as a property or a parameter; bucket a continuous value before it becomes either.
+Firebase UID is used only as internal account-ownership metadata for synchronous telemetry delivery and is never added to event or screen parameters.

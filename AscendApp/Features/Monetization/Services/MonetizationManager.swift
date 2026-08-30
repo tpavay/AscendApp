@@ -332,22 +332,23 @@ final class MonetizationManager: MonetizationIdentityManaging {
         params: [String: Any]? = nil,
         onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void = { _ in }
     ) {
-        LifecycleEventRecorder.shared.recordPaywallReached(
-            placement: placement.rawValue
-        )
-        trackPaywallReached(placement, params: params)
-
         let tracksOnboardingAccess = placement == .onboardingPaywall || placement == .appAccessGate
-        if tracksOnboardingAccess {
-            beginOnboardingAccessGrantRequest()
-        }
-
         guard let presentationIdentity = identityGeneration else {
             if tracksOnboardingAccess {
                 recordOnboardingAccessGrantRequestReportedNothing()
             }
             onOutcome(.failed(message: "Ascend is still confirming your account. Try again."))
             return
+        }
+
+        LifecycleEventRecorder.shared.recordPaywallReached(
+            placement: placement.rawValue,
+            expectedUserID: presentationIdentity.userID
+        )
+        trackPaywallReached(placement, params: params, identity: presentationIdentity)
+
+        if tracksOnboardingAccess {
+            beginOnboardingAccessGrantRequest()
         }
 
         paywallAttemptRevision &+= 1
@@ -401,7 +402,12 @@ final class MonetizationManager: MonetizationIdentityManaging {
     }
     #endif
 
-    private func trackPaywallReached(_ placement: SuperwallPlacement, params: [String: Any]?) {
+    private func trackPaywallReached(
+        _ placement: SuperwallPlacement,
+        params: [String: Any]?,
+        identity: MonetizationIdentityTransition
+    ) {
+        guard let userID = identity.userID else { return }
         let source = params?["source"] as? String
         var parameters: [String: TelemetryValue] = [
             "placement": .string(placement.rawValue)
@@ -415,7 +421,8 @@ final class MonetizationManager: MonetizationIdentityManaging {
             PaywallAnalyticsEvent.diagnosticRecord(
                 name: "paywall_reached",
                 parameters: parameters
-            )
+            ),
+            ifIdentifiedAs: userID
         )
 
         guard placement == .onboardingPaywall || placement == .appAccessGate else { return }
@@ -424,12 +431,14 @@ final class MonetizationManager: MonetizationIdentityManaging {
             OnboardingAnalyticsEvent.paywallReached(
                 placement: placement.rawValue,
                 source: source
-            )
+            ),
+            ifIdentifiedAs: userID
         )
         onboardingScreenViewRecorder.recordIfNeeded(
             OnboardingAnalyticsEvent.paywallContext,
             resume: onboardingLifecycle.consumeScreenResumeFlag(),
-            telemetry: telemetry
+            telemetry: telemetry,
+            expectedUserID: userID
         )
     }
 

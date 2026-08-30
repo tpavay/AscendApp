@@ -86,8 +86,10 @@ struct PaywallPurchaseAnalyticsTranscriptTests {
                 restoreError: situation.restoreError,
                 isRevenueCatConfigured: situation.isConfigured
             )
+            let telemetry = makeTestTelemetry(sink: sink)
+            telemetry.setUserId("analytics-transcript-user")
             let service = AppAccessRestoreService(
-                telemetry: makeTestTelemetry(sink: sink),
+                telemetry: telemetry,
                 entitlementID: Self.entitlementID,
                 restorer: { restorer }
             )
@@ -382,12 +384,17 @@ private final class PurchaseHarness {
     private(set) var executor: RevenueCatPurchaseExecutor!
 
     init(entitlementID: String, refresh: MonetizationEntitlementRefresh) {
+        let identity = MonetizationIdentityTransition(revision: 1, userID: "test-user")
+        let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("test-user")
         executor = RevenueCatPurchaseExecutor(
-            telemetry: makeTestTelemetry(sink: sink),
+            telemetry: telemetry,
             transactionContextStore: contextStore,
             entitlementID: entitlementID,
             applySubscriptionStatus: { _ in },
-            refreshEntitlementState: { refresh }
+            refreshEntitlementState: { refresh },
+            currentIdentityGeneration: { identity },
+            adoptEntitlementState: { _, candidate in candidate == identity }
         )
     }
 }

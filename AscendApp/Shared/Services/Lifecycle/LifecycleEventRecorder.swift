@@ -51,19 +51,32 @@ final class LifecycleEventRecorder {
         )
     }
 
-    func recordPaywallReached(placement: String) {
-        recordPaywallEvent(type: "paywall_reached", placement: placement)
+    func recordPaywallReached(placement: String, expectedUserID: String? = nil) {
+        recordPaywallEvent(
+            type: "paywall_reached",
+            placement: placement,
+            expectedUserID: expectedUserID
+        )
     }
 
-    func recordPaywallShown(placement: String) {
-        recordPaywallEvent(type: "paywall_shown", placement: placement)
+    func recordPaywallShown(placement: String, expectedUserID: String? = nil) {
+        recordPaywallEvent(
+            type: "paywall_shown",
+            placement: placement,
+            expectedUserID: expectedUserID
+        )
     }
 
-    func recordPaywallDismissed(placement: String, reason: String? = nil) {
+    func recordPaywallDismissed(
+        placement: String,
+        reason: String? = nil,
+        expectedUserID: String? = nil
+    ) {
         recordPaywallEvent(
             type: "paywall_dismissed",
             placement: placement,
-            reason: reason
+            reason: reason,
+            expectedUserID: expectedUserID
         )
     }
 
@@ -122,21 +135,30 @@ final class LifecycleEventRecorder {
     private func recordPaywallEvent(
         type: String,
         placement: String,
-        reason: String? = nil
+        reason: String? = nil,
+        expectedUserID: String?
     ) {
         var payload: [String: Any] = ["placement": placement]
         if let reason {
             payload["reason"] = reason
         }
-        record(type: type, payload: payload)
+        record(type: type, payload: payload, expectedUserID: expectedUserID)
     }
 
     /// Fire-and-forget recording for observational events, where a failed send
     /// is not worth interrupting the user over.
-    private func record(type: String, payload: sending [String: Any]) {
+    private func record(
+        type: String,
+        payload: sending [String: Any],
+        expectedUserID: String? = nil
+    ) {
         Task {
             do {
-                try await sendLifecycleEvent(type: type, payload: payload)
+                try await sendLifecycleEvent(
+                    type: type,
+                    payload: payload,
+                    expectedUserID: expectedUserID
+                )
             } catch {
                 guard !Self.isExpectedTransportNoise(error) else { return }
 
@@ -152,13 +174,15 @@ final class LifecycleEventRecorder {
 
     private func sendLifecycleEvent(
         type: String,
-        payload: sending [String: Any]
+        payload: sending [String: Any],
+        expectedUserID: String? = nil
     ) async throws {
         // Lifecycle events are per-user server state; the callable rejects
         // unauthenticated requests, so don't send them while signed out.
-        guard Auth.auth().currentUser != nil else {
-            throw LifecycleEventRecorderError.signedOut
-        }
+        try Self.validateIdentity(
+            currentUserID: Auth.auth().currentUser?.uid,
+            expectedUserID: expectedUserID
+        )
 
         let eventData: [String: Any] = [
             "type": type,
@@ -170,6 +194,18 @@ final class LifecycleEventRecorder {
             .call(eventData)
     }
 
+    nonisolated static func validateIdentity(
+        currentUserID: String?,
+        expectedUserID: String?
+    ) throws {
+        guard let currentUserID else {
+            throw LifecycleEventRecorderError.signedOut
+        }
+        if let expectedUserID, currentUserID != expectedUserID {
+            throw LifecycleEventRecorderError.identityChanged
+        }
+    }
+
     /// Errors that are part of normal operation — a request cancelled by the
     /// system mid-flight, or auth racing sign-out — not defects worth alerting on.
     private nonisolated static func isExpectedTransportNoise(_ error: Error) -> Bool {
@@ -177,7 +213,7 @@ final class LifecycleEventRecorder {
             // Exhaustive on purpose: a new case must decide for itself whether
             // it is noise rather than inheriting silence.
             switch recorderError {
-            case .signedOut:
+            case .signedOut, .identityChanged:
                 return true
             }
         }

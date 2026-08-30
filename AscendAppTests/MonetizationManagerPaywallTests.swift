@@ -320,6 +320,7 @@ struct MonetizationManagerPaywallTests {
 
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("test-user")
         let lifecycle = OnboardingFlowAnalyticsCoordinator(
             userDefaults: defaults,
             telemetry: telemetry
@@ -365,6 +366,7 @@ struct MonetizationManagerPaywallTests {
         let paywallPresenter = PaywallPresenterSpy()
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("test-user")
         let manager = MonetizationManager(
             entitlementService: EntitlementServiceStub(),
             paywallPresenter: paywallPresenter,
@@ -394,20 +396,23 @@ struct MonetizationManagerPaywallTests {
     @Test
     func aNewIdentityStartsAFreshPaywallScreenViewPass() async {
         let sink = InMemoryTelemetrySink(destination: .analytics)
+        let telemetry = makeTestTelemetry(sink: sink)
         let manager = MonetizationManager(
             entitlementService: EntitlementServiceStub(),
             paywallPresenter: PaywallPresenterSpy(),
-            telemetry: makeTestTelemetry(sink: sink)
+            telemetry: telemetry
         )
 
         let firstIdentity = manager.prepareIdentity(.climber("user-a"))
         await manager.identify(.climber("user-a"), transition: firstIdentity)
+        telemetry.setUserId("user-a")
         manager.presentPaywall(.onboardingPaywall)
         manager.presentPaywall(.onboardingPaywall)
         let reset = manager.prepareIdentityReset()
         await manager.resetIdentity(transition: reset)
         let secondIdentity = manager.prepareIdentity(.climber("user-b"))
         await manager.identify(.climber("user-b"), transition: secondIdentity)
+        telemetry.setUserId("user-b")
         manager.presentPaywall(.onboardingPaywall)
 
         let onboardingViews = sink.records.filter { $0.name == "onboarding_screen_viewed" }
@@ -419,14 +424,16 @@ struct MonetizationManagerPaywallTests {
     @Test
     func repeatIdentifyForTheSameUserKeepsThePaywallScreenViewDeduped() async {
         let sink = InMemoryTelemetrySink(destination: .analytics)
+        let telemetry = makeTestTelemetry(sink: sink)
         let manager = MonetizationManager(
             entitlementService: EntitlementServiceStub(),
             paywallPresenter: PaywallPresenterSpy(),
-            telemetry: makeTestTelemetry(sink: sink)
+            telemetry: telemetry
         )
 
         let firstIdentity = manager.prepareIdentity(.climber("user-a"))
         await manager.identify(.climber("user-a"), transition: firstIdentity)
+        telemetry.setUserId("user-a")
         manager.presentPaywall(.onboardingPaywall)
         let repeatedIdentity = manager.prepareIdentity(.climber("user-a"))
         await manager.identify(.climber("user-a"), transition: repeatedIdentity)

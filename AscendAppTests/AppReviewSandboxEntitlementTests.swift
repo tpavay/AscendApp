@@ -207,8 +207,10 @@ struct AppReviewSandboxEntitlementTests {
             state: Self.entitlements(isActive: true, isSandbox: isSandbox).appAccessEntitlementState
         )
         let sink = InMemoryTelemetrySink(destination: .analytics)
+        let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("sandbox-evidence-user")
         let service = AppAccessRestoreService(
-            telemetry: makeTestTelemetry(sink: sink),
+            telemetry: telemetry,
             entitlementID: Self.entitlementID,
             restorer: { restorer }
         )
@@ -350,14 +352,22 @@ private final class PurchaseVerdictHarness {
     private(set) var executor: RevenueCatPurchaseExecutor!
 
     init(entitlementID: String, refresh: MonetizationEntitlementRefresh) {
+        let identity = MonetizationIdentityTransition(
+            revision: 1,
+            userID: "sandbox-evidence-user"
+        )
+        let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("sandbox-evidence-user")
         executor = RevenueCatPurchaseExecutor(
-            telemetry: makeTestTelemetry(sink: sink),
+            telemetry: telemetry,
             transactionContextStore: PaywallTransactionContextStore(),
             entitlementID: entitlementID,
             applySubscriptionStatus: { [weak self] entitlementIDs in
                 self?.published.append(entitlementIDs)
             },
-            refreshEntitlementState: { refresh }
+            refreshEntitlementState: { refresh },
+            currentIdentityGeneration: { identity },
+            adoptEntitlementState: { _, candidate in candidate == identity }
         )
     }
 }

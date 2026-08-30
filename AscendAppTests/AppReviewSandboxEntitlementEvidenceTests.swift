@@ -208,12 +208,20 @@ private extension AppReviewSandboxEntitlementEvidenceTests {
 
     static func purchase(resolving state: MonetizationEntitlementState) async -> PurchaseRun {
         let sink = InMemoryTelemetrySink(destination: .analytics)
+        let identity = MonetizationIdentityTransition(
+            revision: 1,
+            userID: "sandbox-evidence-user"
+        )
+        let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("sandbox-evidence-user")
         let executor = RevenueCatPurchaseExecutor(
-            telemetry: makeTestTelemetry(sink: sink),
+            telemetry: telemetry,
             transactionContextStore: PaywallTransactionContextStore(),
             entitlementID: entitlementID,
             applySubscriptionStatus: { _ in },
-            refreshEntitlementState: { .refreshed(state) }
+            refreshEntitlementState: { .refreshed(state) },
+            currentIdentityGeneration: { identity },
+            adoptEntitlementState: { _, candidate in candidate == identity }
         )
 
         let result = await executor.executePurchase(productID: productID) {
@@ -225,8 +233,10 @@ private extension AppReviewSandboxEntitlementEvidenceTests {
 
     static func restore(resolving state: MonetizationEntitlementState) async -> RestoreRun {
         let sink = InMemoryTelemetrySink(destination: .analytics)
+        let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("sandbox-evidence-user")
         let service = AppAccessRestoreService(
-            telemetry: makeTestTelemetry(sink: sink),
+            telemetry: telemetry,
             entitlementID: entitlementID,
             restorer: { RestorerStub(state: state) }
         )

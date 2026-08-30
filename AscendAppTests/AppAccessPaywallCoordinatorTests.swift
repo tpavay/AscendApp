@@ -317,6 +317,36 @@ struct AppAccessPaywallCoordinatorTests {
     }
 
     @Test
+    func switchingTelemetryIdentityFirstSuppressesTheOldGateTerminalAndAttributesTheNewAttempt() async {
+        let attributionSink = IdentityAttributingTelemetrySink()
+        let harness = makeHarness(attributionSink: attributionSink)
+        harness.coordinator.start()
+
+        harness.telemetry.setUserId("user-b")
+        harness.entitlements.identityGeneration = MonetizationIdentityTransition(
+            revision: 2,
+            userID: "user-b"
+        )
+        harness.coordinator.identityDidChange()
+        harness.presenter.send(.skipped(reason: "new-account"), registration: 1)
+        await harness.provider.waitUntilLoadCount(1)
+        await waitUntil { harness.coordinator.phase == .nativeReady }
+
+        let terminals = attributionSink.attributions.filter {
+            $0.name == "app_access_gate_attempt_terminal"
+        }
+        let reached = attributionSink.attributions.filter {
+            $0.name == "paywall_reached"
+        }
+        #expect(reached.map(\.userID) == ["user-a", "user-b"])
+        #expect(terminals.count == 1)
+        #expect(terminals.first?.userID == "user-b")
+        #expect(terminals.first?.parameters["provider_outcome"] == .string("native_ready"))
+        #expect(terminals.first?.parameters["identity_match"] == .bool(true))
+        #expect(terminals.first?.parameters["user_id"] == nil)
+    }
+
+    @Test
     func rawPaywallLifecycleRecordsCarryStoreKitDiagnosticsWithoutRawErrors() {
         let diagnostics = StoreKitEnvironmentDiagnostics(
             receiptName: { "sandboxReceipt" },
@@ -344,6 +374,7 @@ struct AppAccessPaywallCoordinatorTests {
         provider: CoordinatorNativeProvider = CoordinatorNativeProvider(),
         restoreService: AppAccessRestoreService? = nil,
         presenter: CoordinatorPaywallPresenter = CoordinatorPaywallPresenter(),
+        attributionSink: IdentityAttributingTelemetrySink? = nil,
         sleep: @escaping AppAccessPaywallCoordinator.Sleep = {
             try await Task.sleep(for: $0)
         },
@@ -352,7 +383,20 @@ struct AppAccessPaywallCoordinatorTests {
         }
     ) -> CoordinatorHarness {
         let sink = InMemoryTelemetrySink(destination: .analytics)
-        let telemetry = makeTestTelemetry(sink: sink)
+        var sinks: [any TelemetrySink] = [sink]
+        if let attributionSink {
+            sinks.append(attributionSink)
+        }
+        let telemetry = TelemetryManager(
+            sinks: sinks,
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            identityStore: makeTestIdentityStore()
+        )
+        telemetry.configure()
+        if let userID = identity.userID {
+            telemetry.setUserId(userID)
+        }
         let entitlements = CoordinatorEntitlementService(identity: identity)
         let manager = MonetizationManager(
             configuration: testConfiguration,
@@ -382,7 +426,8 @@ struct AppAccessPaywallCoordinatorTests {
             entitlements: entitlements,
             presenter: presenter,
             provider: provider,
-            sink: sink
+            sink: sink,
+            telemetry: telemetry
         )
     }
 
@@ -425,6 +470,7 @@ private struct CoordinatorHarness {
     let presenter: CoordinatorPaywallPresenter
     let provider: CoordinatorNativeProvider
     let sink: InMemoryTelemetrySink
+    let telemetry: TelemetryManager
 }
 
 @MainActor

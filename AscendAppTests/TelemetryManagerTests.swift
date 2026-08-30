@@ -11,6 +11,117 @@ import Testing
 
 struct TelemetryManagerTests {
     @Test
+    func accountBoundDeliveryNeverCrossesTheSinkIdentity() {
+        let sink = IdentityAttributingTelemetrySink()
+        let telemetry = TelemetryManager(
+            sinks: [sink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            buildMetadata: Self.stagingBuildMetadata,
+            identityStore: makeTestIdentityStore()
+        )
+        telemetry.configure()
+        telemetry.setUserId("climber-a")
+
+        let deliveredForA = telemetry.track(
+            TelemetryRecord(name: "purchase_started"),
+            ifIdentifiedAs: "climber-a"
+        )
+        telemetry.setUserId("climber-b")
+        let staleADeliveredToB = telemetry.track(
+            TelemetryRecord(
+                name: "purchase_completed",
+                parameters: ["identity_match": .bool(false)]
+            ),
+            ifIdentifiedAs: "climber-a"
+        )
+        let deliveredForB = telemetry.track(
+            TelemetryRecord(name: "restore_started"),
+            ifIdentifiedAs: "climber-b"
+        )
+        _ = telemetry.clearUserId()
+        let signedOutDelivery = telemetry.track(
+            TelemetryRecord(name: "restore_completed"),
+            ifIdentifiedAs: "climber-b"
+        )
+
+        #expect(deliveredForA)
+        #expect(staleADeliveredToB == false)
+        #expect(deliveredForB)
+        #expect(signedOutDelivery == false)
+        #expect(sink.attributions.map(\.name) == ["purchase_started", "restore_started"])
+        #expect(sink.attributions.map(\.userID) == ["climber-a", "climber-b"])
+        for attribution in sink.attributions {
+            #expect(attribution.parameters["user_id"] == nil)
+        }
+    }
+
+    @Test
+    func guardedDeliveryAndIdentityMutationAreAtomicInBothWinnerOrders() async {
+        let deliveryFirstSink = BlockingIdentityAttributingTelemetrySink(blockPoint: .record)
+        let deliveryFirstTelemetry = Self.makeTelemetry(sink: deliveryFirstSink)
+        deliveryFirstTelemetry.setUserId("climber-a")
+
+        let deliveryTask = Task.detached {
+            deliveryFirstTelemetry.track(
+                TelemetryRecord(name: "purchase_completed"),
+                ifIdentifiedAs: "climber-a"
+            )
+        }
+        await Task.detached { deliveryFirstSink.waitUntilBlocked() }.value
+        let mutationTask = Task.detached {
+            deliveryFirstTelemetry.setUserId("climber-b")
+        }
+        deliveryFirstSink.releaseBlockedCall()
+
+        #expect(await deliveryTask.value)
+        await mutationTask.value
+        #expect(deliveryFirstSink.attributions.map(\.userID) == ["climber-a"])
+
+        let identityFirstSink = BlockingIdentityAttributingTelemetrySink(
+            blockPoint: .identify(userID: "climber-b")
+        )
+        let identityFirstTelemetry = Self.makeTelemetry(sink: identityFirstSink)
+        identityFirstTelemetry.setUserId("climber-a")
+
+        let identityTask = Task.detached {
+            identityFirstTelemetry.setUserId("climber-b")
+        }
+        await Task.detached { identityFirstSink.waitUntilBlocked() }.value
+        let staleDeliveryTask = Task.detached {
+            identityFirstTelemetry.track(
+                TelemetryRecord(name: "restore_completed"),
+                ifIdentifiedAs: "climber-a"
+            )
+        }
+        identityFirstSink.releaseBlockedCall()
+
+        await identityTask.value
+        #expect(await staleDeliveryTask.value == false)
+        #expect(identityFirstSink.attributions.isEmpty)
+    }
+
+    @Test
+    func lifecycleRecorderEnforcesTheExpectedUserBeforeNetworkDelivery() throws {
+        try LifecycleEventRecorder.validateIdentity(
+            currentUserID: "climber-a",
+            expectedUserID: "climber-a"
+        )
+        #expect(throws: LifecycleEventRecorderError.identityChanged) {
+            try LifecycleEventRecorder.validateIdentity(
+                currentUserID: "climber-b",
+                expectedUserID: "climber-a"
+            )
+        }
+        #expect(throws: LifecycleEventRecorderError.signedOut) {
+            try LifecycleEventRecorder.validateIdentity(
+                currentUserID: nil,
+                expectedUserID: "climber-a"
+            )
+        }
+    }
+
+    @Test
     func trackRoutesRecordsToMatchingDestinations() {
         let analyticsSink = InMemoryTelemetrySink(destination: .analytics)
         let crashlyticsSink = InMemoryTelemetrySink(destination: .crashlytics)
@@ -300,4 +411,18 @@ struct TelemetryManagerTests {
         buildNumber: "2026082101",
         bundleIdentifier: "com.tylerpavay.AscendApp"
     )
+}
+
+private extension TelemetryManagerTests {
+    static func makeTelemetry(sink: any TelemetrySink) -> TelemetryManager {
+        let telemetry = TelemetryManager(
+            sinks: [sink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            buildMetadata: stagingBuildMetadata,
+            identityStore: makeTestIdentityStore()
+        )
+        telemetry.configure()
+        return telemetry
+    }
 }
