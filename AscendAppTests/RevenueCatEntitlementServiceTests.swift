@@ -40,6 +40,66 @@ struct RevenueCatEntitlementServiceTests {
         #expect(service.entitlementState == .active(["app_access"]))
     }
 
+    @Test(
+        "RevenueCat billing grace keeps access without a second customer-info fetch",
+        .bug(id: 554)
+    )
+    func activeBillingGracePayloadRoutesToTheMainAppWithoutRefetching() async throws {
+        let customerInfo = makeBillingCustomerInfo(isActive: true)
+        let entitlement = try #require(customerInfo.entitlements["app_access"])
+        let expirationDate = try #require(entitlement.expirationDate)
+        let state = RevenueCatPurchasesProvider.entitlementState(from: customerInfo)
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(provider: provider, startsConfigured: true)
+
+        let identity = service.prepareIdentity(.climber("billing-grace-subscriber"))
+        let identifyTask = Task {
+            await service.identify(.climber("billing-grace-subscriber"), transition: identity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "billing-grace-subscriber"))
+        provider.completeLogIn(with: .inactive)
+        await identifyTask.value
+        #expect(service.entitlementState == .inactive)
+
+        provider.sendCustomerInfoUpdate(with: state)
+        await settle(until: { service.entitlementState == .active(["app_access"]) })
+
+        #expect(expirationDate < customerInfo.requestDate)
+        #expect(entitlement.billingIssueDetectedAt != nil)
+        #expect(entitlement.willRenew == false)
+        #expect(service.entitlementState == .active(["app_access"]))
+        #expect(provider.customerInfoCallCount == 0)
+        #expect(route(for: service.entitlementState) == .mainApp)
+    }
+
+    @Test(
+        "RevenueCat billing retry without grace stays gated",
+        .bug(id: 554)
+    )
+    func inactiveBillingRetryPayloadRoutesToThePaywallWithoutRefetching() async throws {
+        let customerInfo = makeBillingCustomerInfo(isActive: false)
+        let entitlement = try #require(customerInfo.entitlements["app_access"])
+        let state = RevenueCatPurchasesProvider.entitlementState(from: customerInfo)
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(provider: provider, startsConfigured: true)
+
+        let identity = service.prepareIdentity(.climber("billing-retry-subscriber"))
+        let identifyTask = Task {
+            await service.identify(.climber("billing-retry-subscriber"), transition: identity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "billing-retry-subscriber"))
+        provider.completeLogIn(with: state)
+        await identifyTask.value
+
+        #expect(entitlement.billingIssueDetectedAt != nil)
+        #expect(entitlement.isActive == false)
+        #expect(service.entitlementState == .inactive)
+        #expect(provider.customerInfoCallCount == 0)
+        #expect(route(for: service.entitlementState) == .paywall)
+    }
+
     @Test
     func refreshDuringIdentifyCannotReadOrPublishThePriorIdentity() async throws {
         let provider = ControlledRevenueCatEntitlementProvider()
@@ -764,6 +824,43 @@ struct RevenueCatEntitlementServiceTests {
         #expect(await refreshTask.value == .refreshed(.inactive))
         #expect(service.entitlementState == .inactive)
     }
+}
+
+private func makeBillingCustomerInfo(isActive: Bool) -> CustomerInfo {
+    let requestDate = Date(timeIntervalSince1970: 1_800_000_000)
+    let expirationDate = requestDate.addingTimeInterval(-3_600)
+    let entitlement = EntitlementInfo(
+        identifier: "app_access",
+        isActive: isActive,
+        willRenew: false,
+        periodType: .normal,
+        latestPurchaseDate: expirationDate.addingTimeInterval(-2_592_000),
+        originalPurchaseDate: expirationDate.addingTimeInterval(-2_592_000),
+        expirationDate: expirationDate,
+        store: .appStore,
+        productIdentifier: "ascend_staging_monthly",
+        isSandbox: true,
+        billingIssueDetectedAt: expirationDate,
+        ownershipType: .purchased
+    )
+
+    return CustomerInfo(
+        entitlements: EntitlementInfos(entitlements: ["app_access": entitlement]),
+        requestDate: requestDate,
+        firstSeen: expirationDate.addingTimeInterval(-5_184_000),
+        originalAppUserId: "billing-state-climber"
+    )
+}
+
+private func route(for entitlementState: MonetizationEntitlementState) -> AppRootRoute {
+    AppRootRouteResolver.resolve(
+        updatePresentation: nil,
+        authenticationState: .authenticated,
+        userId: "billing-state-climber",
+        postAuthOnboardingPhase: .complete,
+        entitlementState: entitlementState,
+        requiredEntitlementID: "app_access"
+    )
 }
 
 /// Hands the cooperative pool enough turns for the service's stream consumer to run. Bounded, so a

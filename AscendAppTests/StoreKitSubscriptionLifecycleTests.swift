@@ -1,5 +1,4 @@
 import Foundation
-import StoreKit
 import StoreKitTest
 import Testing
 
@@ -59,74 +58,6 @@ struct StoreKitSubscriptionLifecycleTests {
         #expect(refunded.cancelDate != nil)
     }
 
-    @Test
-    func billingRetryWithGraceCanBeResolvedDeterministically() async throws {
-        let session = try makeSession()
-        defer { cleanUp(session) }
-        // A two-second renewal can move through grace before StoreKit's public status catches up.
-        // Ten seconds keeps the billing-retry window observable while remaining fast and bounded.
-        session.timeRate = .oneRenewalEveryTenSeconds
-        session.shouldEnterBillingRetryOnRenewal = true
-        session.billingGracePeriodIsEnabled = true
-        _ = try await session.buyProduct(identifier: monthlyProductID)
-
-        let retrying = try await waitForTestTransaction(session: session) {
-            $0.productIdentifier == monthlyProductID && $0.hasPurchaseIssue
-        }
-        #expect(retrying.expirationDate != nil)
-        let retryingStatus = try await waitForSubscriptionStatus(productID: monthlyProductID) { status in
-            let renewal = status.renewalInfo.unsafePayloadValue
-            return status.state == .inGracePeriod
-                && renewal.isInBillingRetry
-                && renewal.gracePeriodExpirationDate != nil
-        }
-        #expect(retryingStatus.state == .inGracePeriod)
-
-        session.shouldEnterBillingRetryOnRenewal = false
-        try session.resolveIssueForTransaction(identifier: retrying.identifier)
-        let resolvedStatus = try await waitForSubscriptionStatus(productID: monthlyProductID) { status in
-            status.state == .subscribed
-                && !status.renewalInfo.unsafePayloadValue.isInBillingRetry
-        }
-        #expect(resolvedStatus.state == .subscribed)
-        let resolved = try await waitForTestTransaction(session: session) {
-            $0.identifier == retrying.identifier && !$0.hasPurchaseIssue
-        }
-        #expect(!resolved.hasPurchaseIssue)
-    }
-
-    private func waitForSubscriptionStatus(
-        productID: String,
-        matching predicate: (Product.SubscriptionInfo.Status) -> Bool
-    ) async throws -> Product.SubscriptionInfo.Status {
-        let clock = ContinuousClock()
-        let deadline = clock.now + .seconds(20)
-        while clock.now < deadline {
-            if let product = try await Product.products(for: [productID]).first,
-               let subscription = product.subscription,
-               let status = try await subscription.status.first(where: predicate) {
-                return status
-            }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        throw StoreKitLifecycleTestError.timedOutWaitingForSubscriptionStatus
-    }
-
-    private func waitForTestTransaction(
-        session: SKTestSession,
-        matching predicate: (SKTestTransaction) -> Bool
-    ) async throws -> SKTestTransaction {
-        let clock = ContinuousClock()
-        let deadline = clock.now + .seconds(20)
-        while clock.now < deadline {
-            if let transaction = session.allTransactions().first(where: predicate) {
-                return transaction
-            }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        throw StoreKitLifecycleTestError.timedOutWaitingForTestTransaction
-    }
-
     private func makeSession() throws -> SKTestSession {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -146,9 +77,4 @@ struct StoreKitSubscriptionLifecycleTests {
         session.resetToDefaultState()
         session.clearTransactions()
     }
-}
-
-private enum StoreKitLifecycleTestError: Error {
-    case timedOutWaitingForSubscriptionStatus
-    case timedOutWaitingForTestTransaction
 }

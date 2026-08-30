@@ -3,6 +3,13 @@
 Promotion to production remains blocked until this document is completed with real-device evidence from the exact candidate build.
 Simulator tests and public provider manifests cannot prove Apple's authentication sheet, receipt delivery, rendered Superwall hit regions, or the complete provider bridge.
 
+## Automation boundary
+
+The ordinary suite directly purchases, disables renewal, forces renewal, expires, and refunds transactions through `SKTestSession`.
+It deliberately does not wait for StoreKit's accelerated auto-renewal clock because that clock can fail to publish a billing-retry transaction when the complete test target is under load.
+Deterministic RevenueCat fixtures prove that an active billing-issue entitlement routes into Ascend and that an inactive billing-retry entitlement stays gated.
+This canary owns the remaining receipt-backed observation: Apple renewal failure, RevenueCat's resulting entitlement state, and Ascend matching that state.
+
 ## Candidate
 
 - Build version: Pending human canary
@@ -27,14 +34,20 @@ Simulator tests and public provider manifests cannot prove Apple's authenticatio
 11. Exercise no-subscription restore, offline restore, and delayed or pending approval copy and recovery controls.
     The app-hosted `SKTestSession` runner cannot drive Apple's user-interactive Ask to Buy or interrupted purchase sheet: `Product.purchase()` remains suspended waiting for that interaction.
     The automated suite therefore owns the RevenueCat pending result, disabled repurchase, and later entitlement-stream unlock, while this canary owns the real Apple sheet and transaction continuation.
-12. Confirm Terms, Privacy, Support, Manage Subscription, Restore Purchases, and Delete Account remain reachable while locked.
-13. With VoiceOver enabled, verify the title is announced as a heading and focus follows loading, purchase, restore, pending approval, verification failure, and access confirmation in that order.
-14. Dismiss Manage Subscription and Delete Account sheets and verify focus returns to the control that opened each sheet.
-15. Repeat the locked-gate recovery path at the largest accessibility Dynamic Type size and verify no action, localized price, trial term, or renewal term is clipped or hidden.
-16. Enable Reduce Motion and confirm progress remains understandable without relying on animation.
-17. Enable Increase Contrast and confirm selected plans, focus indicators, status text, and destructive account controls remain distinguishable.
-18. On compact and large iPhones, confirm every individual plan, Terms, Privacy, Support, Restore, Manage, Sign Out, and Delete Account control has an independently tappable target at least 44 by 44 points.
-19. Confirm the complete recovery surface remains reachable in loading, timeout, offline, restore-not-found, pending, verification, and failed states.
+12. Exercise a sandbox renewal failure with the release candidate and record RevenueCat's resulting `app_access` entitlement without recording account or receipt data.
+    The committed StoreKit test catalog sets `_renewalBillingIssuesEnabled` to false, and the locked-subscriber recovery contract models billing grace as disabled.
+    Those repository facts do not prove the live App Store Connect setting, so record the live setting before running this step.
+    If live billing grace is disabled, expect an inactive RevenueCat entitlement and the recoverable access gate.
+    If live billing grace is separately approved and enabled, expect an active RevenueCat entitlement and uninterrupted access to Ascend.
+    Resolve the sandbox billing issue, then confirm RevenueCat returns `app_access` to active and Ascend unlocks without another purchase.
+13. Confirm Terms, Privacy, Support, Manage Subscription, Restore Purchases, and Delete Account remain reachable while locked.
+14. With VoiceOver enabled, verify the title is announced as a heading and focus follows loading, purchase, restore, pending approval, verification failure, and access confirmation in that order.
+15. Dismiss Manage Subscription and Delete Account sheets and verify focus returns to the control that opened each sheet.
+16. Repeat the locked-gate recovery path at the largest accessibility Dynamic Type size and verify no action, localized price, trial term, or renewal term is clipped or hidden.
+17. Enable Reduce Motion and confirm progress remains understandable without relying on animation.
+18. Enable Increase Contrast and confirm selected plans, focus indicators, status text, and destructive account controls remain distinguishable.
+19. On compact and large iPhones, confirm every individual plan, Terms, Privacy, Support, Restore, Manage, Sign Out, and Delete Account control has an independently tappable target at least 44 by 44 points.
+20. Confirm the complete recovery surface remains reachable in loading, timeout, offline, restore-not-found, pending, verification, and failed states.
 
 ## Evidence references
 

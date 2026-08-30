@@ -14,6 +14,10 @@ const lifecycleTestsURL = new URL(
   "../../AscendAppTests/StoreKitSubscriptionLifecycleTests.swift",
   import.meta.url
 );
+const billingAccessTestsURL = new URL(
+  "../../AscendAppTests/RevenueCatEntitlementServiceTests.swift",
+  import.meta.url
+);
 
 test("StoreKit catalog keeps the annual trial and monthly plan truthful", async () => {
   const catalog = JSON.parse(await readFile(configurationURL, "utf8"));
@@ -53,14 +57,27 @@ test("shared Staging Test action uses Staging and the committed StoreKit catalog
   );
 });
 
-test("StoreKitTest suite names every simulator-owned lifecycle contract", async () => {
+test("StoreKitTest suite uses direct session mutations instead of timed renewals", async () => {
   const source = await readFile(lifecycleTestsURL, "utf8");
   for (const testName of [
     "annualAndMonthlyProductsCanCompleteTransactions",
     "cancellationDisablesRenewalWithoutRevokingCurrentTransaction",
-    "renewalExpirationAndRefundProduceDistinctLifecycleEvidence",
-    "billingRetryWithGraceCanBeResolvedDeterministically"
+    "renewalExpirationAndRefundProduceDistinctLifecycleEvidence"
   ]) {
     assert.match(source, new RegExp(`func ${testName}\\(`));
   }
+  assert.doesNotMatch(source, /timeRate|Task\.sleep|hasPurchaseIssue|SubscriptionInfo\.Status/);
+});
+
+test("RevenueCat billing fixtures own deterministic grace access behavior", async () => {
+  const source = await readFile(billingAccessTestsURL, "utf8");
+  for (const testName of [
+    "activeBillingGracePayloadRoutesToTheMainAppWithoutRefetching",
+    "inactiveBillingRetryPayloadRoutesToThePaywallWithoutRefetching"
+  ]) {
+    assert.match(source, new RegExp(`func ${testName}\\(`));
+  }
+  assert.match(source, /billingIssueDetectedAt:/);
+  assert.match(source, /isActive: isActive/);
+  assert.match(source, /customerInfoCallCount == 0/);
 });
