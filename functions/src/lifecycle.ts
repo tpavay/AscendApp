@@ -113,6 +113,8 @@ const maxCoercionInputLength = 512;
 // can inflate the event document.
 const maxNoteValueLength = 120;
 const noteTruncationMarker = "...";
+const ownerBoundDeliverySchemaVersion = 2;
+const lifecycleOwnerMismatchReason = "lifecycle_owner_mismatch";
 
 /**
  * Records low-volume, client-observed lifecycle state for email automation.
@@ -129,7 +131,7 @@ export const recordLifecycleEvent = onCall(async (request) => {
     );
   }
 
-  validateExpectedOwner(request.data, uid);
+  validateDeliveryContract(request.data, uid);
   const event = normalizeRequestData(request.data);
   if (event.fieldNotes.length > 0) {
     // A malformed optional field no longer rejects the call, so this warning
@@ -229,27 +231,58 @@ export const recordLifecycleEvent = onCall(async (request) => {
 });
 
 /**
- * Refuses a lifecycle delivery whose client-captured owner differs from the
- * authenticated token used by the callable.
+ * Preserves the unversioned request used by already-installed clients and
+ * validates the owner-bound contract sent by current clients.
  *
- * The owner is request metadata only. It is deliberately not copied into the
- * normalized payload, Firestore documents, or logs.
+ * Version 2 owner metadata is deliberately not copied into the normalized
+ * payload, Firestore documents, or logs. Legacy compatibility is a rollout
+ * contract, not an authorization boundary: authenticated callers can still
+ * choose the legacy shape until that compatibility path is retired.
  * @param {unknown} data Callable request data.
  * @param {string} authenticatedUID UID verified by Firebase callable auth.
  */
-function validateExpectedOwner(
+function validateDeliveryContract(
   data: unknown,
   authenticatedUID: string
 ): void {
-  const expectedUserID = isPlainObject(data) ? data.expectedUserID : undefined;
-  if (
-    typeof expectedUserID !== "string" ||
-    expectedUserID.length === 0 ||
-    expectedUserID !== authenticatedUID
-  ) {
+  if (!isPlainObject(data)) {
+    return;
+  }
+
+  const deliverySchemaVersion = data.deliverySchemaVersion;
+  if (deliverySchemaVersion === undefined) {
+    if (data.expectedUserID !== undefined) {
+      throw invalidArgument(
+        "Lifecycle expected owner requires a delivery schema version."
+      );
+    }
+    return;
+  }
+
+  if (deliverySchemaVersion !== ownerBoundDeliverySchemaVersion) {
+    throw invalidArgument("Unsupported lifecycle delivery schema version.");
+  }
+
+  const expectedUserID = data.expectedUserID;
+  if (typeof expectedUserID !== "string" || expectedUserID.length === 0) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Owner-bound lifecycle delivery requires an expected owner.",
+      {
+        deliverySchemaVersion: ownerBoundDeliverySchemaVersion,
+        reason: "lifecycle_expected_owner_missing",
+      }
+    );
+  }
+
+  if (expectedUserID !== authenticatedUID) {
     throw new HttpsError(
       "permission-denied",
-      "Lifecycle event owner does not match the authenticated user."
+      "Lifecycle event owner does not match the authenticated user.",
+      {
+        deliverySchemaVersion: ownerBoundDeliverySchemaVersion,
+        reason: lifecycleOwnerMismatchReason,
+      }
     );
   }
 }
@@ -977,7 +1010,8 @@ function invalidArgument(message: string): HttpsError {
 }
 
 export const lifecycleTestHooks = {
+  lifecycleOwnerMismatchReason,
   normalizeRequestData,
   statePatchForEvent,
-  validateExpectedOwner,
+  validateDeliveryContract,
 };

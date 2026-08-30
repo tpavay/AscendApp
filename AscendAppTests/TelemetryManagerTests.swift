@@ -6,6 +6,7 @@
 //
 
 import Foundation
+@preconcurrency import FirebaseFunctions
 import Testing
 @testable import AscendApp
 
@@ -118,10 +119,15 @@ struct TelemetryManagerTests {
             currentUserID: "climber-a",
             expectedUserID: "climber-a"
         )
+        #expect(
+            envelope["deliverySchemaVersion"] as? Int
+                == LifecycleEventRecorder.ownerBoundDeliverySchemaVersion
+        )
         #expect(envelope["expectedUserID"] as? String == "climber-a")
         #expect(envelope["type"] as? String == "paywall_shown")
         let payload = try #require(envelope["payload"] as? [String: Any])
         #expect(payload["placement"] as? String == "app_access_gate")
+        #expect(payload["deliverySchemaVersion"] == nil)
         #expect(payload["expectedUserID"] == nil)
 
         #expect(throws: LifecycleEventRecorderError.identityChanged) {
@@ -140,6 +146,56 @@ struct TelemetryManagerTests {
                 expectedUserID: "climber-a"
             )
         }
+    }
+
+    @Test
+    func staleLifecycleOwnerRefusalNeverReportsUnderTheNextAccount() {
+        let reporter = RecordingCrashlyticsReporter()
+        let telemetry = TelemetryManager(
+            sinks: [],
+            crashlyticsReporter: reporter,
+            collectionEnabledOverride: true,
+            buildMetadata: Self.stagingBuildMetadata,
+            identityStore: makeTestIdentityStore()
+        )
+        telemetry.configure()
+        telemetry.setUserId("climber-a")
+        telemetry.setUserId("climber-b")
+
+        let staleOwnerRefusal = NSError(
+            domain: FunctionsErrorDomain,
+            code: FunctionsErrorCode.permissionDenied.rawValue,
+            userInfo: [
+                FunctionsErrorDetailsKey: [
+                    "deliverySchemaVersion": 2,
+                    "reason": LifecycleEventRecorder.ownerMismatchReason
+                ]
+            ]
+        )
+        LifecycleEventRecorder.handleRecordFailure(
+            staleOwnerRefusal,
+            type: "paywall_shown",
+            expectedUserID: "climber-a",
+            telemetry: telemetry
+        )
+        #expect(reporter.recordedErrors.isEmpty)
+
+        let unrelatedPermissionError = NSError(
+            domain: FunctionsErrorDomain,
+            code: FunctionsErrorCode.permissionDenied.rawValue,
+            userInfo: [
+                FunctionsErrorDetailsKey: ["reason": "firestore_rule_rejected"]
+            ]
+        )
+        LifecycleEventRecorder.handleRecordFailure(
+            unrelatedPermissionError,
+            type: "paywall_shown",
+            expectedUserID: "climber-b",
+            telemetry: telemetry
+        )
+
+        #expect(reporter.recordedErrors.count == 1)
+        #expect(reporter.recordedErrors.first?.code == "lifecycle_event_record_failed")
     }
 
     @Test

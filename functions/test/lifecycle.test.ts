@@ -67,13 +67,24 @@ function mirrorFor(payload: Record<string, unknown>) {
   return integrations.appleHealth as Record<string, unknown>;
 }
 
-test("lifecycle delivery accepts the authenticated expected owner", () => {
+test("legacy lifecycle delivery remains accepted during rollout", () => {
+  assert.doesNotThrow(() => lifecycleTestHooks.validateDeliveryContract(
+    {
+      payload: {placement: "app_access_gate"},
+      type: "paywall_shown",
+    },
+    "climber-a"
+  ));
+});
+
+test("V2 lifecycle delivery accepts the authenticated expected owner", () => {
   const requestData = {
+    deliverySchemaVersion: 2,
     expectedUserID: "climber-a",
     payload: {placement: "app_access_gate"},
     type: "paywall_shown",
   };
-  assert.doesNotThrow(() => lifecycleTestHooks.validateExpectedOwner(
+  assert.doesNotThrow(() => lifecycleTestHooks.validateDeliveryContract(
     requestData,
     "climber-a"
   ));
@@ -82,12 +93,17 @@ test("lifecycle delivery accepts the authenticated expected owner", () => {
     requestData
   ) as unknown as NormalizedEvent;
   assert.equal(Object.keys(event.payload).includes("expectedUserID"), false);
+  assert.equal(
+    Object.keys(event.payload).includes("deliverySchemaVersion"),
+    false
+  );
 });
 
-test("lifecycle delivery rejects a different authenticated owner", () => {
+test("V2 lifecycle delivery rejects a different authenticated owner", () => {
   assert.throws(
-    () => lifecycleTestHooks.validateExpectedOwner(
+    () => lifecycleTestHooks.validateDeliveryContract(
       {
+        deliverySchemaVersion: 2,
         expectedUserID: "climber-a",
         payload: {placement: "app_access_gate"},
         type: "paywall_shown",
@@ -95,24 +111,34 @@ test("lifecycle delivery rejects a different authenticated owner", () => {
       "climber-b"
     ),
     (error: unknown) => {
-      const callableError = error as {code?: string};
-      return callableError.code === "permission-denied";
+      const callableError = error as {
+        code?: string;
+        details?: {reason?: string};
+      };
+      return callableError.code === "permission-denied" &&
+        callableError.details?.reason ===
+          lifecycleTestHooks.lifecycleOwnerMismatchReason;
     }
   );
 });
 
-test("lifecycle delivery rejects a missing expected owner", () => {
+test("V2 lifecycle delivery rejects a missing expected owner", () => {
   assert.throws(
-    () => lifecycleTestHooks.validateExpectedOwner(
+    () => lifecycleTestHooks.validateDeliveryContract(
       {
+        deliverySchemaVersion: 2,
         payload: {placement: "app_access_gate"},
         type: "paywall_shown",
       },
       "climber-a"
     ),
     (error: unknown) => {
-      const callableError = error as {code?: string};
-      return callableError.code === "permission-denied";
+      const callableError = error as {
+        code?: string;
+        details?: {reason?: string};
+      };
+      return callableError.code === "invalid-argument" &&
+        callableError.details?.reason === "lifecycle_expected_owner_missing";
     }
   );
 });

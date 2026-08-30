@@ -6,6 +6,8 @@ import UserNotifications
 @MainActor
 final class LifecycleEventRecorder {
     static let shared = LifecycleEventRecorder()
+    nonisolated static let ownerBoundDeliverySchemaVersion = 2
+    nonisolated static let ownerMismatchReason = "lifecycle_owner_mismatch"
 
     private let functions = Functions.functions(region: "us-central1")
 
@@ -152,21 +154,20 @@ final class LifecycleEventRecorder {
         payload: sending [String: Any],
         expectedUserID: String? = nil
     ) {
+        let deliveryOwnerUserID = expectedUserID ?? Auth.auth().currentUser?.uid
         Task {
             do {
                 try await sendLifecycleEvent(
                     type: type,
                     payload: payload,
-                    expectedUserID: expectedUserID
+                    expectedUserID: deliveryOwnerUserID
                 )
             } catch {
-                guard !Self.isExpectedTransportNoise(error) else { return }
-
-                TelemetryManager.shared.recordError(
+                Self.handleRecordFailure(
                     error,
-                    context: .network,
-                    code: "lifecycle_event_record_failed",
-                    additionalInfo: ["type": type]
+                    type: type,
+                    expectedUserID: deliveryOwnerUserID,
+                    telemetry: .shared
                 )
             }
         }
@@ -203,6 +204,7 @@ final class LifecycleEventRecorder {
             expectedUserID: expectedUserID
         )
         return [
+            "deliverySchemaVersion": ownerBoundDeliverySchemaVersion,
             "expectedUserID": ownerUserID,
             "type": type,
             "payload": payload
@@ -232,8 +234,34 @@ final class LifecycleEventRecorder {
         return currentUserID
     }
 
-    /// Errors that are part of normal operation — a request cancelled by the
-    /// system mid-flight, or auth racing sign-out — not defects worth alerting on.
+    nonisolated static func handleRecordFailure(
+        _ error: Error,
+        type: String,
+        expectedUserID: String?,
+        telemetry: TelemetryManager
+    ) {
+        guard !isExpectedTransportNoise(error) else { return }
+
+        if let expectedUserID {
+            telemetry.recordError(
+                error,
+                context: .network,
+                code: "lifecycle_event_record_failed",
+                additionalInfo: ["type": type],
+                ifIdentifiedAs: expectedUserID
+            )
+        } else {
+            telemetry.recordError(
+                error,
+                context: .network,
+                code: "lifecycle_event_record_failed",
+                additionalInfo: ["type": type]
+            )
+        }
+    }
+
+    /// Errors that are part of normal operation - a request cancelled by the
+    /// system mid-flight, or auth racing sign-out - not defects worth alerting on.
     private nonisolated static func isExpectedTransportNoise(_ error: Error) -> Bool {
         if let recorderError = error as? LifecycleEventRecorderError {
             // Exhaustive on purpose: a new case must decide for itself whether
@@ -250,6 +278,12 @@ final class LifecycleEventRecorder {
         }
         if nsError.domain == FunctionsErrorDomain,
            nsError.code == FunctionsErrorCode.unauthenticated.rawValue {
+            return true
+        }
+        if nsError.domain == FunctionsErrorDomain,
+           nsError.code == FunctionsErrorCode.permissionDenied.rawValue,
+           let details = nsError.userInfo[FunctionsErrorDetailsKey] as? [String: Any],
+           details["reason"] as? String == ownerMismatchReason {
             return true
         }
         return false

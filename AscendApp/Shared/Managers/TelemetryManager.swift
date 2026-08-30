@@ -393,7 +393,48 @@ final class TelemetryManager: @unchecked Sendable {
         code: String,
         additionalInfo: [String: String]? = nil
     ) {
-        guard isCollectionEnabled else { return }
+        deliveryLane.withLock {
+            guard lock.withLock(\.isCollectionEnabled) else { return }
+            deliverError(
+                error,
+                context: context,
+                code: code,
+                additionalInfo: additionalInfo
+            )
+        }
+    }
+
+    @discardableResult
+    func recordError(
+        _ error: Error,
+        context: ErrorContext,
+        code: String,
+        additionalInfo: [String: String]? = nil,
+        ifIdentifiedAs expectedUserID: String
+    ) -> Bool {
+        deliveryLane.withLock {
+            let mayDeliver = lock.withLock { state in
+                state.isCollectionEnabled && state.identifiedUserID == expectedUserID
+            }
+            guard mayDeliver else { return false }
+            deliverError(
+                error,
+                context: context,
+                code: code,
+                additionalInfo: additionalInfo
+            )
+            return true
+        }
+    }
+}
+
+private extension TelemetryManager {
+    func deliverError(
+        _ error: Error,
+        context: ErrorContext,
+        code: String,
+        additionalInfo: [String: String]?
+    ) {
         crashlyticsReporter.record(
             error: error,
             context: context.rawValue,
@@ -401,9 +442,7 @@ final class TelemetryManager: @unchecked Sendable {
             additionalInfo: additionalInfo
         )
     }
-}
 
-private extension TelemetryManager {
     func deliver(_ record: TelemetryRecord) {
         let envelopedRecord = EnvelopedTelemetryRecord(record: record, envelope: envelope)
         sinks
