@@ -4,7 +4,11 @@ import Testing
 
 @MainActor
 struct AppAccessRestoreServiceTests {
-    private let identity = MonetizationIdentityTransition(revision: 11, userID: "restore-user")
+    private static let identityUserID = "restore-user"
+    private let identity = MonetizationIdentityTransition(
+        revision: 11,
+        userID: Self.identityUserID
+    )
 
     @Test
     func cancellingOneWaiterDoesNotCancelTheSharedProviderOrAnotherWaiter() async {
@@ -70,10 +74,11 @@ struct AppAccessRestoreServiceTests {
     @Test
     func aNewIdentityWaitsForTheOldProviderLaneThenStartsOnlyIfStillExact() async {
         let restorer = IdentitySwitchingRestoreProvider(identity: identity)
-        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let sink = IdentityAttributingTelemetrySink()
+        let telemetry = makeAttributingTelemetry(sink: sink, userID: Self.identityUserID)
         let sleeps = ControlledRestoreSleep()
         let service = AppAccessRestoreService(
-            telemetry: makeTestTelemetry(sink: sink),
+            telemetry: telemetry,
             entitlementID: "app_access",
             restorer: { restorer },
             sleep: sleeps.sleep
@@ -82,7 +87,9 @@ struct AppAccessRestoreServiceTests {
         let oldAccount = Task { await service.restore() }
         await restorer.waitUntilCallCount(1)
 
-        let newIdentity = MonetizationIdentityTransition(revision: 12, userID: "new-user")
+        let newUserID = "new-user"
+        let newIdentity = MonetizationIdentityTransition(revision: 12, userID: newUserID)
+        telemetry.setUserId(newUserID)
         restorer.identityGeneration = newIdentity
         let newAccount = Task { await service.restore() }
         await sleeps.waitUntilCallCount(2)
@@ -99,21 +106,35 @@ struct AppAccessRestoreServiceTests {
         #expect(await newAccount.value.entitlementIDs == ["app_access"])
         #expect(service.activeRestoreWaiterCount == 0)
         #expect(sleeps.activeContinuationCount == 0)
-        let terminals = sink.records.filter { $0.name != "revenuecat_restore_started" }
-        #expect(terminals.count == 2)
-        #expect(terminals[0].parameters["error_type"] == .string("entitlement_unresolved"))
-        #expect(terminals[0].parameters["identity_match"] == .bool(false))
-        #expect(terminals[1].parameters["outcome"] == .string("success"))
-        #expect(terminals[1].parameters["identity_match"] == .bool(true))
+        let attributions = sink.attributions
+        #expect(attributions.map(\.name) == [
+            "revenuecat_restore_started",
+            "revenuecat_restore_started",
+            "revenuecat_restore_completed"
+        ])
+        #expect(attributions.map(\.userID) == [
+            Self.identityUserID,
+            newUserID,
+            newUserID
+        ])
+        let terminals = attributions.filter { $0.name != "revenuecat_restore_started" }
+        #expect(terminals.count == 1)
+        #expect(terminals[0].parameters["outcome"] == .string("success"))
+        #expect(terminals[0].parameters["identity_match"] == .bool(true))
+        #expect(attributions.allSatisfy {
+            $0.parameters["user_id"] == nil &&
+                $0.parameters["identity_revision"] == nil
+        })
     }
 
     @Test
     func coalescedWaitersEachEmitOneStartAndOneTerminalWhileSharingProviderWork() async {
         let restorer = SuspendingRestoreProvider(identity: identity)
-        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let sink = IdentityAttributingTelemetrySink()
+        let telemetry = makeAttributingTelemetry(sink: sink, userID: Self.identityUserID)
         let sleeps = ControlledRestoreSleep()
         let service = AppAccessRestoreService(
-            telemetry: makeTestTelemetry(sink: sink),
+            telemetry: telemetry,
             entitlementID: "app_access",
             restorer: { restorer },
             sleep: sleeps.sleep
@@ -127,10 +148,16 @@ struct AppAccessRestoreServiceTests {
         _ = await (first.value, second.value)
 
         #expect(restorer.restoreCount == 1)
-        #expect(sink.records.filter { $0.name == "revenuecat_restore_started" }.count == 2)
-        #expect(sink.records.filter { $0.name == "revenuecat_restore_completed" }.count == 2)
-        let attemptIDs = sink.records.compactMap { record -> String? in
-            guard case .string(let value) = record.parameters["restore_attempt_id"] else {
+        let attributions = sink.attributions
+        #expect(attributions.filter { $0.name == "revenuecat_restore_started" }.count == 2)
+        #expect(attributions.filter { $0.name == "revenuecat_restore_completed" }.count == 2)
+        #expect(attributions.allSatisfy { $0.userID == Self.identityUserID })
+        #expect(attributions.allSatisfy {
+            $0.parameters["user_id"] == nil &&
+                $0.parameters["identity_revision"] == nil
+        })
+        let attemptIDs = attributions.compactMap { attribution -> String? in
+            guard case .string(let value) = attribution.parameters["restore_attempt_id"] else {
                 return nil
             }
             return value
@@ -146,10 +173,11 @@ struct AppAccessRestoreServiceTests {
     @Test
     func neverReturningProviderLeavesNoWaiterObserversAfterRepeatedTimeoutsAndCancellations() async {
         let restorer = SuspendingRestoreProvider(identity: identity)
-        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let sink = IdentityAttributingTelemetrySink()
+        let telemetry = makeAttributingTelemetry(sink: sink, userID: Self.identityUserID)
         let sleeps = ControlledRestoreSleep()
         let service = AppAccessRestoreService(
-            telemetry: makeTestTelemetry(sink: sink),
+            telemetry: telemetry,
             entitlementID: "app_access",
             restorer: { restorer },
             timeout: .seconds(15),
@@ -181,10 +209,16 @@ struct AppAccessRestoreServiceTests {
         }
 
         #expect(restorer.restoreCount == 1)
-        let starts = sink.records.filter { $0.name == "revenuecat_restore_started" }
-        let terminals = sink.records.filter { $0.name == "revenuecat_restore_failed" }
+        let attributions = sink.attributions
+        let starts = attributions.filter { $0.name == "revenuecat_restore_started" }
+        let terminals = attributions.filter { $0.name == "revenuecat_restore_failed" }
         #expect(starts.count == 6)
         #expect(terminals.count == 6)
+        #expect(attributions.allSatisfy { $0.userID == Self.identityUserID })
+        #expect(attributions.allSatisfy {
+            $0.parameters["user_id"] == nil &&
+                $0.parameters["identity_revision"] == nil
+        })
         #expect(terminals.prefix(3).allSatisfy {
             $0.parameters["error_type"] == .string("restore_timed_out")
         })
@@ -218,6 +252,21 @@ struct AppAccessRestoreServiceTests {
             timeout: .seconds(15),
             sleep: sleep
         )
+    }
+
+    private func makeAttributingTelemetry(
+        sink: IdentityAttributingTelemetrySink,
+        userID: String
+    ) -> TelemetryManager {
+        let telemetry = TelemetryManager(
+            sinks: [sink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            identityStore: makeTestIdentityStore()
+        )
+        telemetry.configure()
+        telemetry.setUserId(userID)
+        return telemetry
     }
 }
 
