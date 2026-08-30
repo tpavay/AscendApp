@@ -192,8 +192,13 @@ class AuthenticationViewModel {
                     let monetizationTransition = self.monetizationIdentityManager.prepareIdentityReset()
 
                     // User signed out - reset all state
-                    TelemetryManager.shared.log(.authSignOut)
-                    TelemetryManager.shared.clearUserId()
+                    // Firebase reports this same `nil` on every signed-out cold launch, so only an
+                    // identity that was actually there makes it a sign-out. Clearing unconditionally
+                    // is what severed 19 of 37 climbers from their own first-open event: it rotates
+                    // the Mixpanel device id whether or not anyone was signed in.
+                    if TelemetryManager.shared.clearUserId() {
+                        TelemetryManager.shared.log(.authSignOut)
+                    }
                     Task {
                         await self.monetizationIdentityManager.resetIdentity(
                             transition: monetizationTransition
