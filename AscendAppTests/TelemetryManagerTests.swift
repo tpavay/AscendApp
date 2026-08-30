@@ -148,21 +148,13 @@ struct TelemetryManagerTests {
         }
     }
 
-    @Test
-    func staleLifecycleOwnerRefusalNeverReportsUnderTheNextAccount() {
+    @Test(.bug(id: 554))
+    func structuredLifecycleOwnerMismatchIsSuppressedForTheCurrentAccount() {
         let reporter = RecordingCrashlyticsReporter()
-        let telemetry = TelemetryManager(
-            sinks: [],
-            crashlyticsReporter: reporter,
-            collectionEnabledOverride: true,
-            buildMetadata: Self.stagingBuildMetadata,
-            identityStore: makeTestIdentityStore()
-        )
-        telemetry.configure()
+        let telemetry = Self.makeTelemetry(reporter: reporter)
         telemetry.setUserId("climber-a")
-        telemetry.setUserId("climber-b")
 
-        let staleOwnerRefusal = NSError(
+        let ownerRefusal = NSError(
             domain: FunctionsErrorDomain,
             code: FunctionsErrorCode.permissionDenied.rawValue,
             userInfo: [
@@ -173,22 +165,40 @@ struct TelemetryManagerTests {
             ]
         )
         LifecycleEventRecorder.handleRecordFailure(
-            staleOwnerRefusal,
+            ownerRefusal,
             type: "paywall_shown",
             expectedUserID: "climber-a",
             telemetry: telemetry
         )
-        #expect(reporter.recordedErrors.isEmpty)
 
-        let unrelatedPermissionError = NSError(
-            domain: FunctionsErrorDomain,
-            code: FunctionsErrorCode.permissionDenied.rawValue,
-            userInfo: [
-                FunctionsErrorDetailsKey: ["reason": "firestore_rule_rejected"]
-            ]
-        )
+        #expect(reporter.recordedErrors.isEmpty)
+    }
+
+    @Test(.bug(id: 554))
+    func unrelatedLifecycleFailureForThePreviousAccountIsNotReportedUnderTheNextAccount() {
+        let reporter = RecordingCrashlyticsReporter()
+        let telemetry = Self.makeTelemetry(reporter: reporter)
+        telemetry.setUserId("climber-a")
+        telemetry.setUserId("climber-b")
+
         LifecycleEventRecorder.handleRecordFailure(
-            unrelatedPermissionError,
+            Self.makeUnrelatedLifecyclePermissionError(),
+            type: "paywall_shown",
+            expectedUserID: "climber-a",
+            telemetry: telemetry
+        )
+
+        #expect(reporter.recordedErrors.isEmpty)
+    }
+
+    @Test(.bug(id: 554))
+    func unrelatedLifecycleFailureReportsOnceForTheCurrentAccount() {
+        let reporter = RecordingCrashlyticsReporter()
+        let telemetry = Self.makeTelemetry(reporter: reporter)
+        telemetry.setUserId("climber-b")
+
+        LifecycleEventRecorder.handleRecordFailure(
+            Self.makeUnrelatedLifecyclePermissionError(),
             type: "paywall_shown",
             expectedUserID: "climber-b",
             telemetry: telemetry
@@ -491,6 +501,16 @@ struct TelemetryManagerTests {
 }
 
 private extension TelemetryManagerTests {
+    static func makeUnrelatedLifecyclePermissionError() -> NSError {
+        NSError(
+            domain: FunctionsErrorDomain,
+            code: FunctionsErrorCode.permissionDenied.rawValue,
+            userInfo: [
+                FunctionsErrorDetailsKey: ["reason": "firestore_rule_rejected"]
+            ]
+        )
+    }
+
     static func makeTelemetry(
         sink: any TelemetrySink,
         deliveryLane: any TelemetryDeliveryLaning = LockedTelemetryDeliveryLane()
@@ -502,6 +522,20 @@ private extension TelemetryManagerTests {
             buildMetadata: stagingBuildMetadata,
             identityStore: makeTestIdentityStore(),
             deliveryLane: deliveryLane
+        )
+        telemetry.configure()
+        return telemetry
+    }
+
+    static func makeTelemetry(
+        reporter: any CrashlyticsReporting
+    ) -> TelemetryManager {
+        let telemetry = TelemetryManager(
+            sinks: [],
+            crashlyticsReporter: reporter,
+            collectionEnabledOverride: true,
+            buildMetadata: stagingBuildMetadata,
+            identityStore: makeTestIdentityStore()
         )
         telemetry.configure()
         return telemetry
