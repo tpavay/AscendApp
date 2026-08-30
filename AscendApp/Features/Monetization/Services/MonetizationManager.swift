@@ -18,8 +18,6 @@ final class MonetizationManager: MonetizationIdentityManaging {
     @ObservationIgnored
     private let onboardingLifecycle: OnboardingFlowAnalyticsCoordinator
     @ObservationIgnored
-    private var onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
-    @ObservationIgnored
     private var identifiedUserID: String?
     @ObservationIgnored
     private var preparedIdentityTransition: MonetizationIdentityTransition?
@@ -153,10 +151,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
         _ customer: MonetizationCustomerIdentity
     ) -> MonetizationIdentityTransition {
         invalidatePaywallAttempt()
-        if identifiedUserID != customer.userID {
-            identifiedUserID = customer.userID
-            onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
-        }
+        identifiedUserID = customer.userID
 
         // The pass that opened before auth belongs to whoever just claimed it; a different account
         // retires it, and the grant provenance it was carrying, rather than inheriting either.
@@ -185,10 +180,9 @@ final class MonetizationManager: MonetizationIdentityManaging {
     @discardableResult
     func prepareIdentityReset() -> MonetizationIdentityTransition {
         invalidatePaywallAttempt()
-        // The paywall screen view dedupes per pass through the onboarding funnel, and an identity
-        // change starts a new pass, so the recorder cannot outlive the identity it was filled for.
+        // The paywall screen view dedupes per pass, and retiring the pass is what makes every step
+        // reportable again - including this one.
         identifiedUserID = nil
-        onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
         onboardingLifecycle.retireAdoptedPass()
 
         let transition = entitlementService.prepareIdentityReset()
@@ -434,9 +428,8 @@ final class MonetizationManager: MonetizationIdentityManaging {
             ),
             ifIdentifiedAs: userID
         )
-        onboardingScreenViewRecorder.recordIfNeeded(
+        OnboardingScreenViewRecorder(lifecycle: onboardingLifecycle).recordIfNeeded(
             OnboardingAnalyticsEvent.paywallContext,
-            resume: onboardingLifecycle.consumeScreenResumeFlag(),
             telemetry: telemetry,
             expectedUserID: userID
         )
@@ -468,7 +461,9 @@ final class MonetizationManager: MonetizationIdentityManaging {
             recordOnboardingAccessGranted(.purchase)
         case .restored:
             recordOnboardingAccessGranted(.restore)
-        case .dismissedWithoutPurchase, .skipped, .failed:
+        case .dismissedWithoutPurchase, .backRequested, .skipped, .failed:
+            // Back is a navigation, not a grant: like a dismissal it closes the request without
+            // naming how access was given, so a later webhook-delayed purchase still attributes.
             recordOnboardingAccessGrantRequestReportedNothing()
         case .presented, .pendingApproval, .verificationUnavailable:
             // Presentation and recoverable transaction states are not access-grant results.

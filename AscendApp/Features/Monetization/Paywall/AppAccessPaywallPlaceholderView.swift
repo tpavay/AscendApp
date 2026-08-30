@@ -13,6 +13,7 @@ struct AppAccessPaywallPlaceholderView: View {
     private let onAccountDeletionFocusRestored: (() -> Void)?
     private let onDeleteAccount: () -> Void
     private let onSignOut: () -> Void
+    private let onRequestOnboardingBack: (@MainActor () -> Void)?
 
     init(
         initialPhase: AppAccessGatePhase = .openingHosted,
@@ -22,6 +23,7 @@ struct AppAccessPaywallPlaceholderView: View {
         automaticallyStarts: Bool = true,
         accountDeletionDismissalRevision: UInt = 0,
         onAccountDeletionFocusRestored: (() -> Void)? = nil,
+        onRequestOnboardingBack: (@MainActor () -> Void)? = nil,
         onDeleteAccount: @escaping () -> Void,
         onSignOut: @escaping () -> Void = {}
     ) {
@@ -32,6 +34,7 @@ struct AppAccessPaywallPlaceholderView: View {
         self.automaticallyStarts = automaticallyStarts
         self.accountDeletionDismissalRevision = accountDeletionDismissalRevision
         self.onAccountDeletionFocusRestored = onAccountDeletionFocusRestored
+        self.onRequestOnboardingBack = onRequestOnboardingBack
         self.onDeleteAccount = onDeleteAccount
         self.onSignOut = onSignOut
     }
@@ -46,6 +49,7 @@ struct AppAccessPaywallPlaceholderView: View {
             automaticallyStarts: automaticallyStarts,
             accountDeletionDismissalRevision: accountDeletionDismissalRevision,
             onAccountDeletionFocusRestored: onAccountDeletionFocusRestored,
+            onRequestOnboardingBack: onRequestOnboardingBack,
             onDeleteAccount: onDeleteAccount,
             onSignOut: onSignOut
         )
@@ -79,6 +83,7 @@ private struct AppAccessPaywallContentView: View {
         automaticallyStarts: Bool,
         accountDeletionDismissalRevision: UInt,
         onAccountDeletionFocusRestored: (() -> Void)?,
+        onRequestOnboardingBack: (@MainActor () -> Void)?,
         onDeleteAccount: @escaping () -> Void,
         onSignOut: @escaping () -> Void
     ) {
@@ -92,7 +97,8 @@ private struct AppAccessPaywallContentView: View {
                 initialPhase: initialPhase,
                 initialRestoreState: initialRestoreState,
                 initialPlans: initialPlans,
-                initialStatusMessage: initialStatusMessage
+                initialStatusMessage: initialStatusMessage,
+                onRequestOnboardingBack: onRequestOnboardingBack
             )
         )
         self.onDeleteAccount = onDeleteAccount

@@ -7,6 +7,8 @@ enum PaywallPresentationOutcome: Equatable, Sendable {
     case pendingApproval
     case verificationUnavailable
     case dismissedWithoutPurchase
+    /// The climber tapped the paywall's back control, which is a custom action rather than a close.
+    case backRequested
     case skipped(reason: String)
     case failed(message: String)
 }
@@ -17,7 +19,7 @@ extension PaywallPresentationOutcome {
         case .presented:
             return false
         case .purchased, .restored, .pendingApproval, .verificationUnavailable,
-             .dismissedWithoutPurchase, .skipped, .failed:
+             .dismissedWithoutPurchase, .backRequested, .skipped, .failed:
             return true
         }
     }

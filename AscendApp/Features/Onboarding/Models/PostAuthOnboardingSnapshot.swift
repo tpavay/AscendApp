@@ -6,19 +6,28 @@ struct PostAuthOnboardingSnapshot: Codable, Equatable {
     var isComplete: Bool
     var startedAt: Date
     var completedAt: Date?
+    /// Set when the climber deliberately walked back out of a finished flow - today, by tapping the
+    /// paywall's back control.
+    ///
+    /// It exists because the remote profile of anyone who reached the paywall is already complete,
+    /// so `RootView`'s profile check would re-complete onboarding underneath them the next time the
+    /// profile loads and silently undo the back tap. It is cleared the moment they finish again.
+    var isReopenedByClimber: Bool
 
     init(
         currentStage: PostAuthOnboardingStage = .first,
         completedStages: Set<PostAuthOnboardingStage> = [],
         isComplete: Bool = false,
         startedAt: Date = Date(),
-        completedAt: Date? = nil
+        completedAt: Date? = nil,
+        isReopenedByClimber: Bool = false
     ) {
         self.currentStage = currentStage
         self.completedStages = completedStages
         self.isComplete = isComplete
         self.startedAt = startedAt
         self.completedAt = completedAt
+        self.isReopenedByClimber = isReopenedByClimber
     }
 
     /// Decodes a snapshot written by a build whose stage list differed from this
@@ -49,5 +58,7 @@ struct PostAuthOnboardingSnapshot: Codable, Equatable {
         isComplete = try container.decode(Bool.self, forKey: .isComplete)
         startedAt = try container.decode(Date.self, forKey: .startedAt)
         completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
+        // Decoded leniently: a snapshot written before this field existed is not a reopened one.
+        isReopenedByClimber = try container.decodeIfPresent(Bool.self, forKey: .isReopenedByClimber) ?? false
     }
 }

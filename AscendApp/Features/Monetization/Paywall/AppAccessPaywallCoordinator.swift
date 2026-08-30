@@ -29,6 +29,7 @@ final class AppAccessPaywallCoordinator {
     private let monetizationManager: MonetizationManager
     private let nativeProvider: any NativeSubscriptionProviding
     private let restoreService: AppAccessRestoreService
+    private let onRequestOnboardingBack: (@MainActor () -> Void)?
     private let telemetry: TelemetryManager
     private let hostedOpeningDeadline: Duration
     private let nativeLoadingDeadline: Duration
@@ -58,6 +59,7 @@ final class AppAccessPaywallCoordinator {
         initialRestoreState: AppAccessRestoreState = .idle,
         initialPlans: [NativeSubscriptionPlan] = [],
         initialStatusMessage: String? = nil,
+        onRequestOnboardingBack: (@MainActor () -> Void)? = nil,
         hostedOpeningDeadline: Duration = .seconds(8),
         nativeLoadingDeadline: Duration = .seconds(12),
         sleep: @escaping Sleep = { try await Task.sleep(for: $0) },
@@ -69,6 +71,7 @@ final class AppAccessPaywallCoordinator {
             coordinator: { monetizationManager }
         )
         self.restoreService = restoreService ?? .shared
+        self.onRequestOnboardingBack = onRequestOnboardingBack
         self.telemetry = telemetry
         self.phase = initialPhase
         restoreState = initialRestoreState
@@ -382,6 +385,21 @@ final class AppAccessPaywallCoordinator {
             statusMessage = outcome == .pendingApproval
                 ? "Apple is still waiting for approval or confirmation. Do not purchase again."
                 : "Payment may still be processing. Do not purchase again while Ascend confirms access."
+        case .backRequested:
+            // The climber asked for the onboarding step behind the paywall, not for a second one.
+            // Deliberately never falls through to the native plan list.
+            watchdogTask?.cancel()
+            recordGateTerminal(
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity,
+                providerOutcome: .backRequested,
+                recoveryPath: .hosted,
+                recoveryReason: .hostedBackRequested,
+                entitlementActive: entitlementPresence
+            )
+            self.presentationRevision &+= 1
+            self.presentationIdentity = nil
+            onRequestOnboardingBack?()
         case .dismissedWithoutPurchase:
             watchdogTask?.cancel()
             beginNativeFallback(

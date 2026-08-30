@@ -15,6 +15,7 @@ enum AppAccessGateProviderOutcome: String, Sendable {
     case nativeUnavailable = "native_unavailable"
     case entitlementActive = "entitlement_active"
     case cancelled
+    case backRequested = "back_requested"
     case staleIdentity = "stale_identity"
     case pendingApproval = "pending_approval"
     case verificationUnavailable = "verification_unavailable"
@@ -23,6 +24,7 @@ enum AppAccessGateProviderOutcome: String, Sendable {
 enum AppAccessGateRecoveryReason: String, Sendable {
     case watchdogTimeout = "watchdog_timeout"
     case hostedDismissed = "hosted_dismissed"
+    case hostedBackRequested = "hosted_back_requested"
     case hostedSkipped = "hosted_skipped"
     case hostedError = "hosted_error"
 }
