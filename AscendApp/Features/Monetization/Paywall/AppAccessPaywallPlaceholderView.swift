@@ -254,7 +254,7 @@ private struct AppAccessPaywallContentView: View {
                 .frame(maxWidth: .infinity, minHeight: 54)
                 .background(Color.ascendAccent, in: .rect(cornerRadius: 10))
                 .accessibilityHint("Checks your subscription access without starting another purchase.")
-            } else if coordinator.phase == .failed {
+            } else if coordinator.phase == .failed || coordinator.phase == .backUnavailable {
                 Button("Try Subscription Options Again") {
                     coordinator.retryHosted()
                 }
@@ -423,6 +423,8 @@ private struct AppAccessPaywallContentView: View {
             return "Loading subscription options"
         case .nativeReady, .failed:
             return "Choose your Ascend plan"
+        case .backUnavailable:
+            return "Couldn't go back"
         case .purchasing:
             return "Opening Apple checkout"
         case .verifying, .verificationUnavailable:
@@ -438,7 +440,8 @@ private struct AppAccessPaywallContentView: View {
         switch coordinator.phase {
         case .openingHosted, .hostedPresented, .loadingNative, .verifying, .accessConfirmed:
             nil
-        case .nativeReady, .purchasing, .verificationUnavailable, .pendingApproval, .failed:
+        case .nativeReady, .purchasing, .verificationUnavailable, .pendingApproval, .failed,
+             .backUnavailable:
             coordinator.statusMessage
         }
     }
@@ -459,6 +462,8 @@ private struct AppAccessPaywallContentView: View {
             "Access confirmed. Opening Ascend."
         case .failed:
             coordinator.statusMessage ?? "Subscription options are unavailable."
+        case .backUnavailable:
+            coordinator.statusMessage ?? "Ascend couldn't reopen the previous step."
         case .openingHosted, .hostedPresented, .nativeReady:
             nil
         }

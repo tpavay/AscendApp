@@ -349,7 +349,8 @@ private let gateScenarios: [GateScenario] = [
     .init(id: "verification", phase: .verificationUnavailable, status: "Payment may still be processing. Do not purchase again.", expectedHeadline: "Checking your subscription access", reachableLabels: ["Check Access", "Restore Purchases"], forbiddenLabels: ["Subscribe with Apple", "RevenueCat"], includesRecovery: true),
     .init(id: "pending", phase: .pendingApproval, status: "Apple approval is pending. Do not purchase again.", expectedHeadline: "Approval is pending", reachableLabels: ["Check Access", "Restore Purchases"], forbiddenLabels: ["Subscribe with Apple"], includesRecovery: true),
     .init(id: "confirmed", phase: .accessConfirmed, status: nil, expectedHeadline: "Access confirmed", reachableLabels: ["Access confirmed", "Opening Ascend"], forbiddenLabels: ["Subscribe", "Restore", "Delete account", "Sign Out"], includesRecovery: false),
-    .init(id: "failed", phase: .failed, status: "Subscription options took too long to load. Try again.", expectedHeadline: "Choose your Ascend plan", reachableLabels: ["Try Subscription Options Again", "Restore Purchases"], forbiddenLabels: ["Subscribe with Apple"], includesRecovery: true)
+    .init(id: "failed", phase: .failed, status: "Subscription options took too long to load. Try again.", expectedHeadline: "Choose your Ascend plan", reachableLabels: ["Try Subscription Options Again", "Restore Purchases"], forbiddenLabels: ["Subscribe with Apple"], includesRecovery: true),
+    .init(id: "back-unavailable", phase: .backUnavailable, status: "Ascend couldn't reopen the previous step. Try subscription options again, restore, manage your subscription, or contact support.", expectedHeadline: "Couldn't go back", reachableLabels: ["Try Subscription Options Again", "Restore Purchases", "Delete account"], forbiddenLabels: ["Choose your Ascend plan", "Subscribe with Apple"], includesRecovery: true)
 ]
 
 private struct RestoreScenario {

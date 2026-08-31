@@ -65,8 +65,6 @@ struct PaywallBackToOnboardingTests {
         #expect(outcomes.isEmpty)
     }
 
-    /// Back must never fall through to `beginNativeFallback`. The captain's rule is that the native
-    /// plan list is a failure fallback and nothing else.
     @MainActor
     @Test
     func reopeningTheLastStageWalksAFinishedClimberBackAndSurvivesAProfileRecheck() {
@@ -116,4 +114,114 @@ struct PaywallBackToOnboardingTests {
         #expect(coordinator.phase == .onboarding(.stairStepperBaseline))
         #expect(!coordinator.isReopenedByClimber)
     }
+
+    /// Back must never fall through to `beginNativeFallback`. The captain's rule is that the native
+    /// plan list is a failure fallback and nothing else.
+    @MainActor
+    @Test
+    func backLeavesTheGateForOnboardingWithoutLoadingTheNativePlanList() {
+        let harness = GateBackHarness(reopensOnboarding: true)
+
+        harness.openHostedPaywall()
+        harness.coordinator.handleHostedOutcomeForTesting(.backRequested)
+
+        #expect(harness.reopenCount == 1)
+        #expect(harness.nativeProvider.loadCount == 0)
+        #expect(harness.coordinator.phase == .hostedPresented)
+        #expect(harness.backTapped.count == 1)
+        #expect(harness.backTapped[0].parameters["from_step"] == .string("paywall"))
+        #expect(harness.backTapped[0].parameters["input_type"] == .string("button"))
+    }
+
+    /// A back that cannot land must still leave the climber a gate with controls - including the
+    /// account-deletion route Guideline 5.1.1(v) requires - and must not report a back that did
+    /// not happen.
+    @MainActor
+    @Test
+    func aBackThatCannotReopenOnboardingLandsOnRecoveryRatherThanADeadEnd() {
+        let harness = GateBackHarness(reopensOnboarding: false)
+
+        harness.openHostedPaywall()
+        harness.coordinator.handleHostedOutcomeForTesting(.backRequested)
+
+        #expect(harness.reopenCount == 1)
+        #expect(harness.nativeProvider.loadCount == 0)
+        #expect(harness.coordinator.phase == .backUnavailable)
+        #expect(harness.coordinator.showsPurchaseControls == false)
+        #expect(harness.coordinator.statusMessage?.isEmpty == false)
+        #expect(harness.backTapped.isEmpty)
+    }
+}
+
+@MainActor
+private final class GateBackHarness {
+    let coordinator: AppAccessPaywallCoordinator
+    let nativeProvider = BackNativeProviderSpy()
+    private let sink = InMemoryTelemetrySink(destination: .analytics)
+    private let reopenSpy: OnboardingReopenSpy
+
+    var reopenCount: Int { reopenSpy.count }
+
+    init(reopensOnboarding: Bool) {
+        let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("test-user")
+        let manager = MonetizationManager(
+            configuration: MonetizationConfiguration(infoDictionary: [
+                MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "NO"
+            ]),
+            entitlementService: EntitlementServiceStub(entitlementState: .inactive),
+            paywallPresenter: PaywallPresenterSpy(),
+            telemetry: telemetry,
+            onboardingLifecycle: makeScratchOnboardingLifecycle(telemetry: telemetry),
+            userDefaults: UserDefaults(
+                suiteName: "PaywallBackToOnboardingTests.\(UUID().uuidString)"
+            )!
+        )
+        let reopen = OnboardingReopenSpy(reopens: reopensOnboarding)
+        reopenSpy = reopen
+        coordinator = AppAccessPaywallCoordinator(
+            monetizationManager: manager,
+            nativeProvider: nativeProvider,
+            telemetry: telemetry,
+            onRequestOnboardingBack: { reopen.reopen() },
+            sleep: { _ in try await Task.sleep(for: .seconds(3_600)) }
+        )
+    }
+
+    var backTapped: [EnvelopedTelemetryRecord] {
+        sink.records.filter { $0.name == "onboarding_back_tapped" }
+    }
+
+    func openHostedPaywall() {
+        coordinator.start()
+        coordinator.handleHostedOutcomeForTesting(.presented)
+        #expect(coordinator.phase == .hostedPresented)
+    }
+}
+
+@MainActor
+private final class OnboardingReopenSpy {
+    private(set) var count = 0
+    private let reopens: Bool
+
+    init(reopens: Bool) {
+        self.reopens = reopens
+    }
+
+    func reopen() -> Bool {
+        count += 1
+        return reopens
+    }
+}
+
+@MainActor
+private final class BackNativeProviderSpy: NativeSubscriptionProviding {
+    private(set) var loadCount = 0
+
+    func loadPlans() async throws -> [NativeSubscriptionPlan] {
+        loadCount += 1
+        return []
+    }
+
+    func purchase(planID: String) async -> PurchaseResult { .cancelled }
 }

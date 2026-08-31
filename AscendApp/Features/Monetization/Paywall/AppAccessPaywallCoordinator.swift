@@ -13,6 +13,8 @@ enum AppAccessGatePhase: CaseIterable, Equatable, Sendable {
     case pendingApproval
     case accessConfirmed
     case failed
+    /// The climber asked for the onboarding step behind the paywall and it could not be reopened.
+    case backUnavailable
 }
 
 @MainActor
@@ -90,7 +92,8 @@ final class AppAccessPaywallCoordinator {
         switch phase {
         case .openingHosted, .hostedPresented, .loadingNative, .purchasing, .verifying:
             return true
-        case .nativeReady, .verificationUnavailable, .pendingApproval, .accessConfirmed, .failed:
+        case .nativeReady, .verificationUnavailable, .pendingApproval, .accessConfirmed, .failed,
+             .backUnavailable:
             return false
         }
     }
@@ -99,7 +102,7 @@ final class AppAccessPaywallCoordinator {
         if restoreState == .restoring { return true }
         switch phase {
         case .openingHosted, .hostedPresented, .loadingNative, .purchasing, .verifying,
-             .verificationUnavailable, .pendingApproval, .accessConfirmed:
+             .verificationUnavailable, .pendingApproval, .accessConfirmed, .backUnavailable:
             return true
         case .nativeReady, .failed:
             return false
@@ -399,17 +402,17 @@ final class AppAccessPaywallCoordinator {
                 recoveryReason: .hostedBackRequested,
                 entitlementActive: entitlementPresence
             )
-            recordOnboardingBackTapped(presentationIdentity: presentationIdentity)
             self.presentationRevision &+= 1
             self.presentationIdentity = nil
             guard onRequestOnboardingBack?() == true else {
                 // The hosted paywall is already dismissed, so a back that could not land would
                 // leave the gate with no controls at all - not even the account-deletion route
                 // Guideline 5.1.1(v) requires. Recovery, never the native plan list.
-                phase = .failed
+                phase = .backUnavailable
                 statusMessage = "Ascend couldn't reopen the previous step. Try subscription options again, restore, manage your subscription, or contact support."
                 return
             }
+            recordOnboardingBackTapped(presentationIdentity: presentationIdentity)
         case .dismissedWithoutPurchase:
             watchdogTask?.cancel()
             beginNativeFallback(
@@ -596,6 +599,8 @@ final class AppAccessPaywallCoordinator {
         case .loadingNative, .nativeReady, .purchasing, .verifying,
              .verificationUnavailable, .pendingApproval, .failed:
             .native
+        case .backUnavailable:
+            .hosted
         case .accessConfirmed:
             .entitlementStream
         }
