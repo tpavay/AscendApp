@@ -107,6 +107,57 @@ test("upload passes the archive dSYMs to Sentry and waits for processing", () =>
   assert.doesNotMatch(argumentsText, /test-token/);
 });
 
+// Run 33434685667 failed twice with nothing but sentry-cli's fallback text,
+// "An unknown error occurred", against a file Sentry had merely left queued.
+// The distinction the release engineer needs - upload rejected vs. Sentry not
+// finished in time - is not in that text, so the script has to add it.
+function fakeSentryCLI({exitCode, sleepSeconds = 0}) {
+  const root = makeDSYMDirectory();
+  const cliPath = join(root, "sentry-cli");
+  writeFileSync(cliPath, `#!/bin/sh\nsleep ${sleepSeconds}\nexit ${exitCode}\n`);
+  chmodSync(cliPath, 0o755);
+  return {root, cliPath};
+}
+
+test("a wait budget that expires is reported as a Sentry-side delay, not a rejection", () => {
+  const {root, cliPath} = fakeSentryCLI({exitCode: 1, sleepSeconds: 2});
+
+  const result = runUpload({
+    CI: "true",
+    SENTRY_AUTH_TOKEN: "test-token",
+    SENTRY_CLI_PATH: cliPath,
+    SENTRY_WAIT_TIMEOUT: "1",
+  }, root);
+
+  assert.equal(result.status, 1, "the fail-or-warn behaviour is unchanged");
+  assert.match(result.stderr, /had not finished processing them/);
+  assert.match(result.stderr, /still queued", not "rejected/);
+  assert.match(result.stderr, /status\.sentry\.io/);
+  assert.match(result.stderr, /sentry-cli debug-files upload --org ascend-uk --project ascend-ios/);
+});
+
+test("a failure inside the wait budget is reported as a real rejection", () => {
+  const {root, cliPath} = fakeSentryCLI({exitCode: 1});
+
+  const result = runUpload({
+    CI: "true",
+    SENTRY_AUTH_TOKEN: "test-token",
+    SENTRY_CLI_PATH: cliPath,
+    SENTRY_WAIT_TIMEOUT: "300",
+  }, root);
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /a real\nerror: upload or processing rejection/);
+  assert.doesNotMatch(result.stderr, /status\.sentry\.io/);
+});
+
+// --log-level=debug is the only way to make sentry-cli name the server-side
+// state, and it logs request headers whose Authorization redaction keeps the
+// token's first 8 characters. This repository is public.
+test("the upload never turns on the verbosity that would log part of the auth token", () => {
+  assert.ok(!uploadCommandOptions().includes("--log-level"));
+});
+
 test("every option the script passes exists in the real sentry-cli", () => {
   const help = realSentryCLIHelp();
 
@@ -140,6 +191,20 @@ test("every workflow pins the same Sentry CLI version the guard validates agains
 
     assert.deepEqual(pins, [`@sentry/cli@${SENTRY_CLI_VERSION}`], `${name} must pin @sentry/cli@${SENTRY_CLI_VERSION}`);
   }
+});
+
+test("a non-numeric wait budget is rejected before anything is uploaded", () => {
+  const {root, cliPath} = fakeSentryCLI({exitCode: 0});
+
+  const result = runUpload({
+    CI: "true",
+    SENTRY_AUTH_TOKEN: "test-token",
+    SENTRY_CLI_PATH: cliPath,
+    SENTRY_WAIT_TIMEOUT: "5m",
+  }, root);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /SENTRY_WAIT_TIMEOUT must be a whole number of seconds/);
 });
 
 test("both signed Fastlane lanes upload archive dSYMs", () => {

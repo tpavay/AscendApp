@@ -123,8 +123,16 @@ Use `.claude/skills/sentry/SKILL.md` for the triage rubric.
 
 For production-quality stack traces, both signed Fastlane build lanes run `scripts/upload-sentry-dsyms.sh` immediately after the archive is created and before the IPA is exported.
 The staging and production workflows install a pinned Sentry CLI before invoking Fastlane.
-The upload waits for Sentry to process the files under an explicit bounded timeout, so a degraded Sentry queue fails fast with a Sentry-specific error instead of consuming the release job's timeout.
+The upload waits for Sentry to process the files under an explicit bounded timeout, so a degraded Sentry queue fails fast instead of consuming the release job's timeout.
 Any missing token, CLI, archive dSYM directory, or upload failure stops the CI build before an unreadable IPA can reach TestFlight.
+
+`sentry-cli` cannot tell those two failures apart on its own.
+When `--wait-for` expires it prints `ERROR <file>` followed by its fallback text `An unknown error occurred` for a file that was uploaded fine and is merely still queued, which is indistinguishable from a rejected symbol file - it cost staging run 33434685667 two identical failures during Sentry's US ingestion backlog on 2026-08-31.
+The script therefore times the invocation and says which of the two happened, because elapsed time separates them and does not move when the pinned CLI moves.
+A failure that reaches the full `SENTRY_WAIT_TIMEOUT` is a Sentry-side processing delay: the symbols are already uploaded, `https://status.sentry.io` will usually say so, and re-running the deploy once Sentry recovers is the whole fix.
+
+The server's own reason for a genuine rejection is only reachable with `sentry-cli --log-level=debug`, which logs response bodies and request headers.
+Its `Authorization` redaction keeps the token's first eight characters and this repository is public, so that flag stays out of CI and belongs in a local re-run.
 
 The script takes the dSYM directory to upload as its first argument; the lanes pass the archive's `dSYMs` folder.
 With no argument it falls back to `DWARF_DSYM_FOLDER_PATH`.
