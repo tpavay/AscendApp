@@ -13,6 +13,8 @@ enum AppAccessGatePhase: CaseIterable, Equatable, Sendable {
     case pendingApproval
     case accessConfirmed
     case failed
+    /// The climber asked for the onboarding step behind the paywall and it could not be reopened.
+    case backUnavailable
 }
 
 @MainActor
@@ -29,6 +31,9 @@ final class AppAccessPaywallCoordinator {
     private let monetizationManager: MonetizationManager
     private let nativeProvider: any NativeSubscriptionProviding
     private let restoreService: AppAccessRestoreService
+    /// Returns whether the onboarding step behind the paywall actually reopened, so the gate
+    /// never leaves a climber on a hosted paywall that is already gone.
+    private let onRequestOnboardingBack: (@MainActor () -> Bool)?
     private let telemetry: TelemetryManager
     private let hostedOpeningDeadline: Duration
     private let nativeLoadingDeadline: Duration
@@ -58,6 +63,7 @@ final class AppAccessPaywallCoordinator {
         initialRestoreState: AppAccessRestoreState = .idle,
         initialPlans: [NativeSubscriptionPlan] = [],
         initialStatusMessage: String? = nil,
+        onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
         hostedOpeningDeadline: Duration = .seconds(8),
         nativeLoadingDeadline: Duration = .seconds(12),
         sleep: @escaping Sleep = { try await Task.sleep(for: $0) },
@@ -69,6 +75,7 @@ final class AppAccessPaywallCoordinator {
             coordinator: { monetizationManager }
         )
         self.restoreService = restoreService ?? .shared
+        self.onRequestOnboardingBack = onRequestOnboardingBack
         self.telemetry = telemetry
         self.phase = initialPhase
         restoreState = initialRestoreState
@@ -85,7 +92,8 @@ final class AppAccessPaywallCoordinator {
         switch phase {
         case .openingHosted, .hostedPresented, .loadingNative, .purchasing, .verifying:
             return true
-        case .nativeReady, .verificationUnavailable, .pendingApproval, .accessConfirmed, .failed:
+        case .nativeReady, .verificationUnavailable, .pendingApproval, .accessConfirmed, .failed,
+             .backUnavailable:
             return false
         }
     }
@@ -94,7 +102,7 @@ final class AppAccessPaywallCoordinator {
         if restoreState == .restoring { return true }
         switch phase {
         case .openingHosted, .hostedPresented, .loadingNative, .purchasing, .verifying,
-             .verificationUnavailable, .pendingApproval, .accessConfirmed:
+             .verificationUnavailable, .pendingApproval, .accessConfirmed, .backUnavailable:
             return true
         case .nativeReady, .failed:
             return false
@@ -382,6 +390,29 @@ final class AppAccessPaywallCoordinator {
             statusMessage = outcome == .pendingApproval
                 ? "Apple is still waiting for approval or confirmation. Do not purchase again."
                 : "Payment may still be processing. Do not purchase again while Ascend confirms access."
+        case .backRequested:
+            // The climber asked for the onboarding step behind the paywall, not for a second one.
+            // Deliberately never falls through to the native plan list.
+            watchdogTask?.cancel()
+            recordGateTerminal(
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity,
+                providerOutcome: .backRequested,
+                recoveryPath: .hosted,
+                recoveryReason: .hostedBackRequested,
+                entitlementActive: entitlementPresence
+            )
+            self.presentationRevision &+= 1
+            self.presentationIdentity = nil
+            guard onRequestOnboardingBack?() == true else {
+                // The hosted paywall is already dismissed, so a back that could not land would
+                // leave the gate with no controls at all - not even the account-deletion route
+                // Guideline 5.1.1(v) requires. Recovery, never the native plan list.
+                phase = .backUnavailable
+                statusMessage = "Ascend couldn't reopen the previous step. Try subscription options again, restore, manage your subscription, or contact support."
+                return
+            }
+            recordOnboardingBackTapped(presentationIdentity: presentationIdentity)
         case .dismissedWithoutPurchase:
             watchdogTask?.cancel()
             beginNativeFallback(
@@ -568,6 +599,8 @@ final class AppAccessPaywallCoordinator {
         case .loadingNative, .nativeReady, .purchasing, .verifying,
              .verificationUnavailable, .pendingApproval, .failed:
             .native
+        case .backUnavailable:
+            .hosted
         case .accessConfirmed:
             .entitlementStream
         }
@@ -585,6 +618,17 @@ final class AppAccessPaywallCoordinator {
             providerOutcome: providerOutcome,
             recoveryPath: recoveryPath,
             entitlementActive: entitlementActive
+        )
+    }
+
+    private func recordOnboardingBackTapped(presentationIdentity: MonetizationIdentityTransition) {
+        guard let userID = presentationIdentity.userID else { return }
+        telemetry.track(
+            OnboardingAnalyticsEvent.backTapped(
+                context: OnboardingAnalyticsEvent.paywallContext,
+                inputType: "button"
+            ),
+            ifIdentifiedAs: userID
         )
     }
 

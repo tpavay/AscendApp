@@ -34,6 +34,13 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
         let gateAttemptID: String?
         let onOutcome: @MainActor (PaywallPresentationOutcome) -> Void
         var recoveryOwned: Bool
+        /// The last `Custom action` name this presentation reported, if any.
+        ///
+        /// A custom action does not dismiss the paywall, so the name is banked here and read when
+        /// the dismissal arrives. Deliberately not acted on at arrival: SuperwallKit re-dispatches
+        /// every web event through an unstructured `Task`, so the custom action landing before the
+        /// close is observed behaviour rather than a contract.
+        var latchedActionName: String?
     }
     private struct PresentationTelemetryOwner {
         let identity: MonetizationIdentityTransition?
@@ -294,7 +301,8 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
                 identity: identity,
                 gateAttemptID: registration.gateAttemptID,
                 onOutcome: registration.onOutcome,
-                recoveryOwned: false
+                recoveryOwned: false,
+                latchedActionName: nil
             )
         }
         return true
@@ -331,6 +339,10 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
             onOutcome: onOutcome
         )
         return revision
+    }
+
+    func latchedActionNameForTesting() -> String? {
+        presentedToken?.latchedActionName
     }
 
     func handleDismissForTesting(revision: UInt, result: PaywallResult) {
@@ -377,7 +389,12 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
         case .restored:
             onOutcome(.restored)
         case .declined:
-            onOutcome(.dismissedWithoutPurchase)
+            // Every user-driven close arrives here identically, so the latched custom action is the
+            // only thing that separates a deliberate back tap from any other dismissal.
+            let latchedActionName = presentedToken?.revision == revision
+                ? presentedToken?.latchedActionName
+                : nil
+            onOutcome(PaywallDismissIntent.resolve(latchedActionName: latchedActionName).outcome)
         }
         presentedToken = nil
         registrations[revision] = nil
@@ -521,6 +538,17 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
 
     func didDismissPaywall(withInfo paywallInfo: PaywallInfo) {
         handlePaywallDismissed(context: PaywallAnalyticsContext(paywallInfo: paywallInfo))
+    }
+
+    /// Banks the name of a `Custom action` tap so the dismissal that follows can be told apart from
+    /// an ordinary close. Superwall keeps the paywall presented across this call, so nothing is
+    /// routed here - see ``PaywallDismissIntent``.
+    func handleCustomPaywallAction(withName name: String) {
+        guard var token = presentedToken,
+              attemptRegistry.isAuthoritative(token.revision) else { return }
+
+        token.latchedActionName = name
+        presentedToken = token
     }
 
     func handleSuperwallEvent(withInfo eventInfo: SuperwallEventInfo) {

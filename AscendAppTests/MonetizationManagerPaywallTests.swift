@@ -312,7 +312,7 @@ struct MonetizationManagerPaywallTests {
     /// The paywall screen view is the one step the monetization layer owns, so it has to read the
     /// resume marker from the injected lifecycle rather than from device-wide state.
     @Test
-    func paywallScreenViewReadsTheResumeMarkerFromTheInjectedLifecycle() {
+    func paywallScreenViewIsClaimedOncePerInjectedPass() {
         let suiteName = "MonetizationManagerPaywallTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
@@ -337,11 +337,21 @@ struct MonetizationManagerPaywallTests {
         )
         manager.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
 
-        let paywallView = sink.records.first {
+        let paywallViews = sink.records.filter {
             $0.name == "onboarding_screen_viewed"
                 && $0.parameters["screen_id"] == .string("paywall")
         }
-        #expect(paywallView?.parameters["resume"] == .bool(true))
+        // The view is claimed from the injected pass, and a second presentation re-emits nothing.
+        #expect(paywallViews.count == 1)
+        #expect(paywallViews.first?.parameters["resume"] == nil)
+
+        manager.presentPaywall(.appAccessGate, params: ["source": "paywall_placeholder_retry"])
+        #expect(
+            sink.records.filter {
+                $0.name == "onboarding_screen_viewed"
+                    && $0.parameters["screen_id"] == .string("paywall")
+            }.count == 1
+        )
     }
 
     @Test
@@ -370,7 +380,8 @@ struct MonetizationManagerPaywallTests {
         let manager = MonetizationManager(
             entitlementService: EntitlementServiceStub(),
             paywallPresenter: paywallPresenter,
-            telemetry: telemetry
+            telemetry: telemetry,
+            onboardingLifecycle: makeScratchOnboardingLifecycle(telemetry: telemetry)
         )
 
         manager.presentPaywall(
@@ -400,7 +411,8 @@ struct MonetizationManagerPaywallTests {
         let manager = MonetizationManager(
             entitlementService: EntitlementServiceStub(),
             paywallPresenter: PaywallPresenterSpy(),
-            telemetry: telemetry
+            telemetry: telemetry,
+            onboardingLifecycle: makeScratchOnboardingLifecycle(telemetry: telemetry)
         )
 
         let firstIdentity = manager.prepareIdentity(.climber("user-a"))
@@ -428,7 +440,8 @@ struct MonetizationManagerPaywallTests {
         let manager = MonetizationManager(
             entitlementService: EntitlementServiceStub(),
             paywallPresenter: PaywallPresenterSpy(),
-            telemetry: telemetry
+            telemetry: telemetry,
+            onboardingLifecycle: makeScratchOnboardingLifecycle(telemetry: telemetry)
         )
 
         let firstIdentity = manager.prepareIdentity(.climber("user-a"))
@@ -784,4 +797,19 @@ final class EntitlementServiceStub: EntitlementServicing {
         settledTransition = transition
         pendingTransition = nil
     }
+}
+
+/// A pass on its own `UserDefaults` suite.
+///
+/// The screen-view dedupe lives on the persisted pass, so a test that lets `MonetizationManager`
+/// default to `OnboardingFlowAnalyticsCoordinator.shared` reads whatever `UserDefaults.standard`
+/// already banked - on this run or a previous one - and becomes order-dependent.
+@MainActor
+func makeScratchOnboardingLifecycle(
+    telemetry: TelemetryManager
+) -> OnboardingFlowAnalyticsCoordinator {
+    let suiteName = "OnboardingPassScratch.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defaults.removePersistentDomain(forName: suiteName)
+    return OnboardingFlowAnalyticsCoordinator(userDefaults: defaults, telemetry: telemetry)
 }

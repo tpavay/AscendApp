@@ -13,6 +13,7 @@ struct AppAccessPaywallPlaceholderView: View {
     private let onAccountDeletionFocusRestored: (() -> Void)?
     private let onDeleteAccount: () -> Void
     private let onSignOut: () -> Void
+    private let onRequestOnboardingBack: (@MainActor () -> Bool)?
 
     init(
         initialPhase: AppAccessGatePhase = .openingHosted,
@@ -22,6 +23,7 @@ struct AppAccessPaywallPlaceholderView: View {
         automaticallyStarts: Bool = true,
         accountDeletionDismissalRevision: UInt = 0,
         onAccountDeletionFocusRestored: (() -> Void)? = nil,
+        onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
         onDeleteAccount: @escaping () -> Void,
         onSignOut: @escaping () -> Void = {}
     ) {
@@ -32,6 +34,7 @@ struct AppAccessPaywallPlaceholderView: View {
         self.automaticallyStarts = automaticallyStarts
         self.accountDeletionDismissalRevision = accountDeletionDismissalRevision
         self.onAccountDeletionFocusRestored = onAccountDeletionFocusRestored
+        self.onRequestOnboardingBack = onRequestOnboardingBack
         self.onDeleteAccount = onDeleteAccount
         self.onSignOut = onSignOut
     }
@@ -46,6 +49,7 @@ struct AppAccessPaywallPlaceholderView: View {
             automaticallyStarts: automaticallyStarts,
             accountDeletionDismissalRevision: accountDeletionDismissalRevision,
             onAccountDeletionFocusRestored: onAccountDeletionFocusRestored,
+            onRequestOnboardingBack: onRequestOnboardingBack,
             onDeleteAccount: onDeleteAccount,
             onSignOut: onSignOut
         )
@@ -79,6 +83,7 @@ private struct AppAccessPaywallContentView: View {
         automaticallyStarts: Bool,
         accountDeletionDismissalRevision: UInt,
         onAccountDeletionFocusRestored: (() -> Void)?,
+        onRequestOnboardingBack: (@MainActor () -> Bool)?,
         onDeleteAccount: @escaping () -> Void,
         onSignOut: @escaping () -> Void
     ) {
@@ -92,7 +97,8 @@ private struct AppAccessPaywallContentView: View {
                 initialPhase: initialPhase,
                 initialRestoreState: initialRestoreState,
                 initialPlans: initialPlans,
-                initialStatusMessage: initialStatusMessage
+                initialStatusMessage: initialStatusMessage,
+                onRequestOnboardingBack: onRequestOnboardingBack
             )
         )
         self.onDeleteAccount = onDeleteAccount
@@ -248,7 +254,7 @@ private struct AppAccessPaywallContentView: View {
                 .frame(maxWidth: .infinity, minHeight: 54)
                 .background(Color.ascendAccent, in: .rect(cornerRadius: 10))
                 .accessibilityHint("Checks your subscription access without starting another purchase.")
-            } else if coordinator.phase == .failed {
+            } else if coordinator.phase == .failed || coordinator.phase == .backUnavailable {
                 Button("Try Subscription Options Again") {
                     coordinator.retryHosted()
                 }
@@ -417,6 +423,8 @@ private struct AppAccessPaywallContentView: View {
             return "Loading subscription options"
         case .nativeReady, .failed:
             return "Choose your Ascend plan"
+        case .backUnavailable:
+            return "Couldn't go back"
         case .purchasing:
             return "Opening Apple checkout"
         case .verifying, .verificationUnavailable:
@@ -432,7 +440,8 @@ private struct AppAccessPaywallContentView: View {
         switch coordinator.phase {
         case .openingHosted, .hostedPresented, .loadingNative, .verifying, .accessConfirmed:
             nil
-        case .nativeReady, .purchasing, .verificationUnavailable, .pendingApproval, .failed:
+        case .nativeReady, .purchasing, .verificationUnavailable, .pendingApproval, .failed,
+             .backUnavailable:
             coordinator.statusMessage
         }
     }
@@ -453,6 +462,8 @@ private struct AppAccessPaywallContentView: View {
             "Access confirmed. Opening Ascend."
         case .failed:
             coordinator.statusMessage ?? "Subscription options are unavailable."
+        case .backUnavailable:
+            coordinator.statusMessage ?? "Ascend couldn't reopen the previous step."
         case .openingHosted, .hostedPresented, .nativeReady:
             nil
         }

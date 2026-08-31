@@ -1,12 +1,10 @@
 import SwiftUI
 
 extension View {
-    /// Emits `onboarding_screen_viewed` once per distinct `step_id` for the lifetime of the view,
-    /// so navigating back to an already-viewed step re-emits nothing and the funnel counts a step
-    /// once per pass through the flow rather than once per visit. The dedupe is view-scoped rather
-    /// than persisted: a relaunch mid-flow starts a fresh set and re-emits the current step. A
-    /// `nil` context emits nothing, which lets callers whose step is index-derived pass an
-    /// out-of-bounds state through.
+    /// Emits `onboarding_screen_viewed` once per `step_id` for the lifetime of the onboarding pass,
+    /// so back-navigation, re-renders, relaunches and route changes all re-emit nothing. A `nil`
+    /// context emits nothing, which lets callers whose step is index-derived pass an out-of-bounds
+    /// state through.
     @MainActor
     func trackOnboardingScreenView(
         _ context: OnboardingAnalyticsContext?,
@@ -19,8 +17,6 @@ extension View {
 private struct OnboardingScreenViewTracker: ViewModifier {
     let context: OnboardingAnalyticsContext?
     let lifecycle: OnboardingFlowAnalyticsCoordinator
-
-    @State private var recorder = OnboardingScreenViewRecorder()
 
     func body(content: Content) -> some View {
         content
@@ -39,30 +35,42 @@ private struct OnboardingScreenViewTracker: ViewModifier {
         // session while `UserDefaults` starts empty, so a climber who signed in but never finished
         // resumes mid-flow and never sees welcome.
         lifecycle.recordFlowStartedIfNeeded(context: context)
+        lifecycle.reportResumeIfNeeded(context: context)
 
-        recorder.recordIfNeeded(
-            context,
-            resume: lifecycle.consumeScreenResumeFlag()
-        )
+        OnboardingScreenViewRecorder(lifecycle: lifecycle).recordIfNeeded(context)
     }
 }
 
+/// Records the one `onboarding_screen_viewed` a step is allowed per onboarding pass.
+///
+/// Stateless on purpose. The dedupe lives on the persisted pass
+/// (``OnboardingFlowAnalyticsCoordinator``) because the paywall is a different root route from
+/// onboarding, so a view-scoped guard is destroyed by exactly the navigation it needs to survive.
+@MainActor
 struct OnboardingScreenViewRecorder {
-    private var viewedStepIDs: Set<String> = []
+    private let lifecycle: OnboardingFlowAnalyticsCoordinator
 
-    mutating func recordIfNeeded(
+    init(lifecycle: OnboardingFlowAnalyticsCoordinator = .shared) {
+        self.lifecycle = lifecycle
+    }
+
+    func recordIfNeeded(
         _ context: OnboardingAnalyticsContext?,
-        resume: Bool = false,
         telemetry: TelemetryManager = .shared,
         expectedUserID: String? = nil
     ) {
-        guard let context, viewedStepIDs.insert(context.stepID).inserted else { return }
+        guard let context, lifecycle.claimScreenView(stepID: context.stepID) else { return }
 
-        let event = OnboardingAnalyticsEvent.screenViewed(context: context, resume: resume)
+        let event = OnboardingAnalyticsEvent.screenViewed(context: context)
+        let didDeliver: Bool
         if let expectedUserID {
-            telemetry.track(event, ifIdentifiedAs: expectedUserID)
+            didDeliver = telemetry.track(event, ifIdentifiedAs: expectedUserID)
         } else {
-            telemetry.track(event)
+            didDeliver = telemetry.track(event)
+        }
+
+        if !didDeliver {
+            lifecycle.releaseScreenViewClaim(stepID: context.stepID)
         }
     }
 }

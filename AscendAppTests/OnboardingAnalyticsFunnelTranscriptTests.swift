@@ -24,7 +24,7 @@ struct OnboardingAnalyticsFunnelTranscriptTests {
             userDefaults: defaults,
             telemetry: telemetry
         )
-        var recorder = OnboardingScreenViewRecorder()
+        let recorder = OnboardingScreenViewRecorder(lifecycle: lifecycle)
         let steps = Self.funnelSteps
 
         lifecycle.recordFlowStartedIfNeeded(context: OnboardingAnalyticsEvent.welcomeContext)
@@ -109,11 +109,11 @@ struct OnboardingAnalyticsFunnelTranscriptTests {
         }
     }
 
-    /// The interrupted pass reads as a transcript too: a relaunch mid-flow continues the same
-    /// pass, so the funnel sees one start, and the screen the climber comes back to is the only
-    /// one that says it is a resume.
+    /// The interrupted pass reads as a transcript too: a relaunch mid-flow continues the same pass,
+    /// the funnel sees one start, no screen reports itself twice, and the return is visible as one
+    /// `onboarding_flow_resumed` rather than as a re-emitted view.
     @Test
-    func aRelaunchMidPassContinuesTheSamePassAndMarksOnlyTheReshownScreen() {
+    func aRelaunchMidPassContinuesTheSamePassAndReportsOneResume() {
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let telemetry = makeTestTelemetry(sink: sink)
         let defaults = makeOnboardingDefaults()
@@ -122,33 +122,27 @@ struct OnboardingAnalyticsFunnelTranscriptTests {
             userDefaults: defaults,
             telemetry: telemetry
         )
-        var firstLaunchRecorder = OnboardingScreenViewRecorder()
         let beforeQuitting = Array(Self.funnelSteps.prefix(3))
 
         for step in beforeQuitting {
             firstLaunch.recordFlowStartedIfNeeded(context: step.context)
-            firstLaunchRecorder.recordIfNeeded(
-                step.context,
-                resume: firstLaunch.consumeScreenResumeFlag(),
-                telemetry: telemetry
-            )
+            firstLaunch.reportResumeIfNeeded(context: step.context)
+            OnboardingScreenViewRecorder(lifecycle: firstLaunch)
+                .recordIfNeeded(step.context, telemetry: telemetry)
         }
 
-        // The process dies here. A relaunch rebuilds the coordinator over the persisted pass and
-        // starts a fresh in-memory view set, exactly as the running app does.
+        // The process dies here. A relaunch rebuilds the coordinator over the persisted pass, which
+        // now carries the viewed set too, exactly as the running app does.
         let relaunch = OnboardingFlowAnalyticsCoordinator(
             userDefaults: defaults,
             telemetry: telemetry
         )
-        var relaunchRecorder = OnboardingScreenViewRecorder()
 
         for step in Self.funnelSteps[2...4] {
             relaunch.recordFlowStartedIfNeeded(context: step.context)
-            relaunchRecorder.recordIfNeeded(
-                step.context,
-                resume: relaunch.consumeScreenResumeFlag(),
-                telemetry: telemetry
-            )
+            relaunch.reportResumeIfNeeded(context: step.context)
+            OnboardingScreenViewRecorder(lifecycle: relaunch)
+                .recordIfNeeded(step.context, telemetry: telemetry)
         }
 
         let records = sink.records
@@ -163,14 +157,18 @@ struct OnboardingAnalyticsFunnelTranscriptTests {
         #expect(records.filter { $0.name == "onboarding_flow_started" }.count == 1)
         #expect(records.filter { $0.name == "onboarding_flow_completed" }.isEmpty)
 
-        let resumedScreenIDs = records
-            .filter { $0.name == "onboarding_screen_viewed" && $0.parameters["resume"] == .bool(true) }
+        let viewedScreenIDs = records
+            .filter { $0.name == "onboarding_screen_viewed" }
             .compactMap { record -> String? in
                 guard case .string(let screenID)? = record.parameters["screen_id"] else { return nil }
                 return screenID
             }
+        // The third step was banked before the relaunch, so only the two new ones report.
+        #expect(viewedScreenIDs == Self.funnelSteps.prefix(5).map(\.screenID))
 
-        #expect(resumedScreenIDs == ["reason_to_come_back"])
+        let resumed = records.filter { $0.name == "onboarding_flow_resumed" }
+        #expect(resumed.count == 1)
+        #expect(resumed.first?.parameters["screen_id"] == .string("reason_to_come_back"))
     }
 
     /// Back navigation is a user action, not a lifecycle: each deliberate back reports itself once,
@@ -184,16 +182,12 @@ struct OnboardingAnalyticsFunnelTranscriptTests {
             userDefaults: defaults,
             telemetry: telemetry
         )
-        var recorder = OnboardingScreenViewRecorder()
+        let recorder = OnboardingScreenViewRecorder(lifecycle: lifecycle)
         let walkedForward = Array(Self.funnelSteps.prefix(3))
 
         for step in walkedForward {
             lifecycle.recordFlowStartedIfNeeded(context: step.context)
-            recorder.recordIfNeeded(
-                step.context,
-                resume: lifecycle.consumeScreenResumeFlag(),
-                telemetry: telemetry
-            )
+            recorder.recordIfNeeded(step.context, telemetry: telemetry)
         }
 
         // Two deliberate back actions: the carousel's backward swipe, then the chrome back button.

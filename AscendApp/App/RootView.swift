@@ -329,6 +329,7 @@ struct RootView: View {
             routeScreen(route) {
                 AppAccessPaywallPlaceholderView(
                     accountDeletionDismissalRevision: gateAccountDeletionDismissalRevision,
+                    onRequestOnboardingBack: postAuthOnboardingCoordinator.reopenLastStage,
                     onDeleteAccount: { isShowingGateAccountDeletion = true },
                     onSignOut: authVM.signOut
                 )
@@ -537,6 +538,15 @@ struct RootView: View {
         }
         #endif
 
+        // A climber who reached the paywall already has a complete remote profile, so without this
+        // guard the next profile load would mark onboarding complete again and silently undo the
+        // back tap they just made.
+        guard !postAuthOnboardingCoordinator.isReopenedByClimber else {
+            profileCompletionCheckTask?.cancel()
+            profileCompletionCheckTask = nil
+            return
+        }
+
         guard let user = authVM.user,
               authVM.isProfileLoaded,
               authVM.hasRemoteDisplayName else {
@@ -549,6 +559,7 @@ struct RootView: View {
         profileCompletionCheckTask = Task { @MainActor in
             let userData = try? await UserDataRepository.shared.getUserFromFirestore(userId: user.uid)
             guard !Task.isCancelled,
+                  !postAuthOnboardingCoordinator.isReopenedByClimber,
                   let userData,
                   isCompletePostAuthProfile(userData) else {
                 return

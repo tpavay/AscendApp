@@ -56,6 +56,7 @@ final class PostAuthOnboardingCoordinator {
         } else {
             snapshot.isComplete = true
             snapshot.completedAt = Date()
+            snapshot.isReopenedByClimber = false
             store.save(snapshot, for: userId)
             #if DEBUG
             store.endDebugReplay(for: userId)
@@ -98,6 +99,37 @@ final class PostAuthOnboardingCoordinator {
         store.save(snapshot, for: userId)
         phase = .onboarding(previousStage)
         recordLifecycleSnapshot(snapshot)
+    }
+
+    /// Walks a finished climber back to the last onboarding screen, for the paywall's back control.
+    ///
+    /// The persisted snapshot is what routing reads, so this has to write through it rather than
+    /// only moving `phase` - a forced `resolve` would otherwise snap straight back to `.complete`.
+    @discardableResult
+    func reopenLastStage() -> Bool {
+        guard let userId = currentUserId else { return false }
+
+        var snapshot = store.snapshot(for: userId)
+        guard snapshot.isComplete else { return false }
+
+        let lastStage = PostAuthOnboardingStage.last
+        snapshot.isComplete = false
+        snapshot.completedAt = nil
+        snapshot.isReopenedByClimber = true
+        snapshot.currentStage = lastStage
+        snapshot.completedStages.remove(lastStage)
+        store.save(snapshot, for: userId)
+        phase = .onboarding(lastStage)
+        recordLifecycleSnapshot(snapshot)
+        return true
+    }
+
+    /// Whether the climber walked back out of a finished flow themselves.
+    ///
+    /// `RootView` consults this before letting a loaded remote profile mark onboarding complete.
+    var isReopenedByClimber: Bool {
+        guard let userId = currentUserId else { return false }
+        return store.snapshot(for: userId).isReopenedByClimber
     }
 
     func markCurrentUserComplete() {

@@ -15,7 +15,8 @@ struct AppAccessPaywallPresentationStateTests {
             .verificationUnavailable,
             .pendingApproval,
             .accessConfirmed,
-            .failed
+            .failed,
+            .backUnavailable
         ])
     }
 
@@ -27,7 +28,8 @@ struct AppAccessPaywallPresentationStateTests {
         .verifying,
         .verificationUnavailable,
         .pendingApproval,
-        .accessConfirmed
+        .accessConfirmed,
+        .backUnavailable
     ])
     func nonPurchaseReadyPhasesCannotEnablePurchase(phase: AppAccessGatePhase) {
         let coordinator = makeCoordinator(initialPhase: phase)

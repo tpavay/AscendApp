@@ -266,14 +266,19 @@ final class TelemetryManager: @unchecked Sendable {
 
     // MARK: - Event Tracking
 
-    func track(_ event: any TelemetryEvent) {
+    @discardableResult
+    func track(_ event: any TelemetryEvent) -> Bool {
         track(event.record)
     }
 
-    func track(_ record: TelemetryRecord) {
+    /// Reports whether the record was delivered, so a caller that persists a once-only claim for
+    /// an event can hand the claim back when collection is off and nothing was sent.
+    @discardableResult
+    func track(_ record: TelemetryRecord) -> Bool {
         deliveryLane.withLock {
-            guard lock.withLock(\.isCollectionEnabled) else { return }
+            guard lock.withLock(\.isCollectionEnabled) else { return false }
             deliver(record)
+            return true
         }
     }
 

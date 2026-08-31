@@ -38,20 +38,17 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
         relaunchedCoordinator.recordFlowStartedIfNeeded(
             context: PostAuthOnboardingStage.stairStepperBaseline.analyticsContext
         )
-        fixture.telemetry.track(
-            OnboardingAnalyticsEvent.screenViewed(
-                context: PostAuthOnboardingStage.stairStepperBaseline.analyticsContext,
-                resume: relaunchedCoordinator.consumeScreenResumeFlag()
-            )
+        relaunchedCoordinator.reportResumeIfNeeded(
+            context: PostAuthOnboardingStage.stairStepperBaseline.analyticsContext
         )
         relaunchedCoordinator.recordFlowCompletedIfNeeded(reason: .existingEntitlement)
 
         #expect(fixture.records(named: "onboarding_flow_started").count == 1)
         #expect(fixture.records(named: "onboarding_flow_completed").count == 1)
-        #expect(
-            fixture.records(named: "onboarding_screen_viewed").first?.parameters["resume"]
-                == .bool(true)
-        )
+        // The return is one event of its own now, not a re-emitted screen view.
+        let resumed = fixture.records(named: "onboarding_flow_resumed")
+        #expect(resumed.count == 1)
+        #expect(resumed.first?.parameters["step_id"] == .string("stair_stepper_baseline"))
     }
 
     /// Firebase Auth survives a reinstall in the Keychain while `UserDefaults` does not, so a
@@ -64,22 +61,14 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
 
         let resumedContext = PostAuthOnboardingStage.stairStepperBaseline.analyticsContext
         fixture.coordinator.recordFlowStartedIfNeeded(context: resumedContext)
-        fixture.telemetry.track(
-            OnboardingAnalyticsEvent.screenViewed(
-                context: resumedContext,
-                resume: fixture.coordinator.consumeScreenResumeFlag()
-            )
-        )
+        fixture.coordinator.reportResumeIfNeeded(context: resumedContext)
         fixture.coordinator.recordFlowCompletedIfNeeded(reason: .purchase)
 
         let started = fixture.records(named: "onboarding_flow_started")
         #expect(started.count == 1)
         #expect(started.first?.parameters["step_id"] == .string("stair_stepper_baseline"))
         #expect(started.first?.parameters["resume"] == .bool(true))
-        #expect(
-            fixture.records(named: "onboarding_screen_viewed").first?.parameters["resume"]
-                == .bool(true)
-        )
+        #expect(fixture.records(named: "onboarding_flow_resumed").count == 1)
         #expect(fixture.records(named: "onboarding_flow_completed").count == 1)
     }
 
@@ -177,18 +166,10 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
         relaunchedCoordinator.recordFlowStartedIfNeeded(
             context: OnboardingAnalyticsEvent.welcomeContext
         )
-        fixture.telemetry.track(
-            OnboardingAnalyticsEvent.screenViewed(
-                context: OnboardingAnalyticsEvent.welcomeContext,
-                resume: relaunchedCoordinator.consumeScreenResumeFlag()
-            )
-        )
+        relaunchedCoordinator.reportResumeIfNeeded(context: OnboardingAnalyticsEvent.welcomeContext)
 
         #expect(fixture.records(named: "onboarding_flow_started").count == 1)
-        #expect(
-            fixture.records(named: "onboarding_screen_viewed").first?.parameters["resume"]
-                == .bool(true)
-        )
+        #expect(fixture.records(named: "onboarding_flow_resumed").count == 1)
     }
 
     /// Signing out of an account that claimed a pass does abandon it.
