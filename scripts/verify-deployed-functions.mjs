@@ -25,9 +25,13 @@ import {execFileSync} from "node:child_process";
 import {readFileSync} from "node:fs";
 import process from "node:process";
 import {
+  FUNCTIONS_LIST_ATTEMPT_DELAYS_MS,
+  FUNCTIONS_LIST_ATTEMPT_TIMEOUT_MS,
+  describeFunctionsListFailure,
   diffDeployedFunctions,
   formatFunctionsDiff,
   inactiveDeployedFunctions,
+  listDeployedFunctionsWithRetry,
   parseDeployedFunctions,
   parseExportedFunctionNames,
 } from "./lib/deployed-functions.mjs";
@@ -76,6 +80,16 @@ function parseArgs(argv) {
 }
 
 /**
+ * Blocks the calling thread. `execFileSync` is synchronous, so the wait
+ * between attempts has to be too.
+ * @param {number} milliseconds How long to wait.
+ * @return {void}
+ */
+function sleepSync(milliseconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
+/**
  * Reads the deployed function list, from a file or from the Firebase CLI.
  * @param {object} options Parsed options.
  * @return {string} Raw `functions:list --json` output.
@@ -98,24 +112,33 @@ function readDeployedPayload(options) {
   // firebase-tools already reads, and never on argv: argv is world-readable
   // through the process table and is reproduced verbatim in the Error message
   // execFileSync throws on a non-zero exit. Outside Actions nothing masks it.
+  const attempts = FUNCTIONS_LIST_ATTEMPT_DELAYS_MS.length + 1;
   try {
-    // `maxBuffer` because the v2 payload carries full function configs.
-    return execFileSync("npx", args, {
-      encoding: "utf8",
-      maxBuffer: 32 * 1024 * 1024,
+    return listDeployedFunctionsWithRetry({
+      // `maxBuffer` because the v2 payload carries full function configs, and
+      // `timeout` so a read that hangs becomes a retryable failure rather than
+      // stalling the job until its own timeout-minutes kills the deploy.
+      listOnce: () =>
+        execFileSync("npx", args, {
+          encoding: "utf8",
+          maxBuffer: 32 * 1024 * 1024,
+          timeout: FUNCTIONS_LIST_ATTEMPT_TIMEOUT_MS,
+          killSignal: "SIGTERM",
+        }),
+      sleep: sleepSync,
+      onRetry: ({attempt, delayMs, error}) => {
+        console.log(
+          `::warning::${describeFunctionsListFailure({
+            projectId: options.projectId,
+            error,
+          })} Attempt ${attempt} of ${attempts}; retrying in ` +
+            `${Math.round(delayMs / 1000)}s.`
+        );
+      },
     });
   } catch (error) {
-    // On a spawn failure - npx missing, or a signal kill - `status` and
-    // `stderr` are both null and the only diagnostic left is `code`/`signal`.
-    // Neither carries the token, so naming them costs nothing.
-    const stderr = String(error.stderr ?? "").trim();
-    const cause =
-      stderr ||
-      [error.code, error.signal].filter(Boolean).join(" ") ||
-      "no diagnostic output";
     throw new Error(
-      `firebase functions:list failed for ${options.projectId} ` +
-        `(exit ${error.status ?? "unknown"}). ${cause.slice(0, 400)}`
+      describeFunctionsListFailure({projectId: options.projectId, error})
     );
   }
 }
