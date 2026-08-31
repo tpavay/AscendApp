@@ -26,6 +26,7 @@ import {readFileSync} from "node:fs";
 import process from "node:process";
 import {
   FUNCTIONS_LIST_ATTEMPT_DELAYS_MS,
+  FUNCTIONS_LIST_ATTEMPT_TIMEOUT_MS,
   describeFunctionsListFailure,
   diffDeployedFunctions,
   formatFunctionsDiff,
@@ -114,11 +115,15 @@ function readDeployedPayload(options) {
   const attempts = FUNCTIONS_LIST_ATTEMPT_DELAYS_MS.length + 1;
   try {
     return listDeployedFunctionsWithRetry({
-      // `maxBuffer` because the v2 payload carries full function configs.
+      // `maxBuffer` because the v2 payload carries full function configs, and
+      // `timeout` so a read that hangs becomes a retryable failure rather than
+      // stalling the job until its own timeout-minutes kills the deploy.
       listOnce: () =>
         execFileSync("npx", args, {
           encoding: "utf8",
           maxBuffer: 32 * 1024 * 1024,
+          timeout: FUNCTIONS_LIST_ATTEMPT_TIMEOUT_MS,
+          killSignal: "SIGTERM",
         }),
       sleep: sleepSync,
       onRetry: ({attempt, delayMs, error}) => {

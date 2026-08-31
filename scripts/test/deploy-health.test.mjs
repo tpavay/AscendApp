@@ -20,6 +20,7 @@ import {
 import {applyIssuePlan} from "../check-deploy-production-health.mjs";
 import {
   FUNCTIONS_LIST_ATTEMPT_DELAYS_MS,
+  FUNCTIONS_LIST_ATTEMPT_TIMEOUT_MS,
   describeFunctionsListFailure,
   diffDeployedFunctions,
   formatFunctionsDiff,
@@ -1060,6 +1061,21 @@ test("an unexpected functions:list payload is refused, not read as empty", () =>
   );
 });
 
+test("an error envelope that exits 0 still reports the CLI's own words", () => {
+  // execFileSync does not throw on exit 0, so `describeFunctionsListFailure`
+  // never runs and this is the only place the envelope can still be lost.
+  assert.throws(
+    () =>
+      parseDeployedFunctionNames(
+        JSON.stringify({
+          status: "error",
+          error: "Failed to list functions for ascend-staging-fa7d5",
+        })
+      ),
+    /Failed to list functions for ascend-staging-fa7d5/
+  );
+});
+
 /**
  * Builds the error `execFileSync` throws for a non-zero exit.
  * @param {object} overrides Fields to override.
@@ -1125,6 +1141,128 @@ test("only a failure with nothing at all reports no diagnostic output", () => {
   assert.match(
     describeFunctionsListFailure({projectId: "p", error: execFailure()}),
     /no diagnostic output/
+  );
+});
+
+test("a timed-out read is named as one, not as an empty failure", () => {
+  // execFileSync kills the child on `timeout` with a null status and the
+  // signal set, and the streams hold whatever it managed to write - nothing.
+  const message = describeFunctionsListFailure({
+    projectId: "ascend-staging-fa7d5",
+    error: execFailure({status: null, signal: "SIGTERM"}),
+  });
+
+  assert.match(message, /SIGTERM/);
+  assert.doesNotMatch(message, /no diagnostic output/);
+});
+
+test("a truncated payload never shadows the code that names the kill", () => {
+  // maxBuffer overflow: ENOBUFS, and a stdout cut mid-payload that parses as
+  // nothing. Reporting the blob alone would describe a killed child as a
+  // malformed response.
+  const message = describeFunctionsListFailure({
+    projectId: "p",
+    error: execFailure({
+      status: null,
+      stdout: '{"status":"success","result":[{"id":"onWork',
+      code: "ENOBUFS",
+    }),
+  });
+
+  assert.match(message, /ENOBUFS/);
+  assert.match(message, /onWork/, "the partial payload is still evidence");
+});
+
+test("the CI signature this exists to fix still yields the envelope", () => {
+  // Combining candidates must not cost the exit-1 / envelope-on-stdout /
+  // empty-stderr case its message, which is the whole reason for the change.
+  const message = describeFunctionsListFailure({
+    projectId: "ascend-staging-fa7d5",
+    error: execFailure({
+      stdout: JSON.stringify({
+        status: "error",
+        error: "Failed to list functions for ascend-staging-fa7d5",
+      }),
+    }),
+  });
+
+  assert.equal(
+    message,
+    "firebase functions:list failed for ascend-staging-fa7d5 (exit 1). " +
+      "Failed to list functions for ascend-staging-fa7d5"
+  );
+});
+
+test("the diagnostic is one line, so an annotation carries all of it", () => {
+  const message = describeFunctionsListFailure({
+    projectId: "p",
+    error: execFailure({stderr: "npm ERR! code E404\nnpm ERR! 404 Not Found"}),
+  });
+
+  assert.doesNotMatch(
+    message,
+    /[\r\n]/,
+    "Actions truncates an annotation at its first newline, orphaning the " +
+      "retry suffix the caller appends after this"
+  );
+  assert.match(message, /E404.*404 Not Found/);
+});
+
+test("a read that timed out is retried on the same budget as one that failed",
+  () => {
+    let calls = 0;
+
+    const payload = listDeployedFunctionsWithRetry({
+      listOnce: () => {
+        calls += 1;
+        if (calls < 3) {
+          throw execFailure({status: null, signal: "SIGTERM"});
+        }
+        return '{"status":"success","result":[]}';
+      },
+      sleep: () => {},
+      delaysMs: [1, 2],
+    });
+
+    assert.equal(calls, 3);
+    assert.equal(payload, '{"status":"success","result":[]}');
+  });
+
+test("a budget exhausted by timeouts still fails, never falls open", () => {
+  // A non-responding Firebase must not let a build through: the exhausted
+  // read throws, the step exits 1, and upload-testflight stays skipped.
+  assert.throws(
+    () =>
+      listDeployedFunctionsWithRetry({
+        listOnce: () => {
+          throw execFailure({status: null, signal: "SIGTERM"});
+        },
+        sleep: () => {},
+        delaysMs: [1, 2],
+      }),
+    (thrown) => {
+      assert.match(
+        describeFunctionsListFailure({projectId: "p", error: thrown}),
+        /SIGTERM/
+      );
+      return true;
+    }
+  );
+});
+
+test("the per-attempt timeout leaves the job's own budget room to spare", () => {
+  const attempts = FUNCTIONS_LIST_ATTEMPT_DELAYS_MS.length + 1;
+  const worstCase =
+    attempts * FUNCTIONS_LIST_ATTEMPT_TIMEOUT_MS +
+    FUNCTIONS_LIST_ATTEMPT_DELAYS_MS.reduce((a, b) => a + b, 0);
+
+  assert.ok(
+    FUNCTIONS_LIST_ATTEMPT_TIMEOUT_MS > 0,
+    "a read without a deadline is a read the retry budget cannot reach"
+  );
+  assert.ok(
+    worstCase <= 10 * 60_000,
+    "a verification read may not eat the deploy job's timeout-minutes: 45"
   );
 });
 
