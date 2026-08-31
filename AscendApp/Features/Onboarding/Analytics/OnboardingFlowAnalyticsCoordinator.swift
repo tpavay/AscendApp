@@ -197,7 +197,6 @@ final class OnboardingFlowAnalyticsCoordinator {
         )
     }
 
-
     func beginAccessGrantRequest() {
         guard passState.accessGrant != .pending else { return }
 

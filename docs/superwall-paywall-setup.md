@@ -215,6 +215,19 @@ Apple grants one introductory offer per subscription group per Apple account and
 Bind the annual trial surfaces to Superwall's free-trial-eligibility state so an account that already used the offer sees immediate-charge annual copy instead of the trial promise.
 `PaywallAnalyticsContext.isFreeTrialAvailable` records which state each presentation actually showed.
 
+### Paywall chrome and the back control
+
+The paywall carries one chrome control: a back arrow in the top-left that returns the climber to the last onboarding step.
+It carries no close or X control at all.
+Ascend has no free tier, so there is nothing behind the paywall for a close to dismiss to - close and back would land in the same place.
+
+That back control must fire a `Custom action` named `back`, chained ahead of its close action, and the editor's own `CLOSE` node must not remain alongside it.
+The custom action name is the only thing that can distinguish the back control from any other dismissal: SuperwallKit reports every user-driven close as the same `PaywallResult.declined` with `PaywallCloseReason.manualClose`, and the close message carries no payload, so two controls both wired to a close action are indistinguishable to the app.
+`SuperwallCustomAction.back` is the one place that string becomes an intent, and `PaywallDismissIntent` resolves it; any custom action name the app does not model degrades to an ordinary dismissal rather than being mistaken for back.
+
+Until the editor carries that control nothing emits the action, so the app's back route is inert and paywall behaviour is unchanged.
+Adding it, deleting the `CLOSE` node, adding `DELETE ACCOUNT` to the footer, and enlarging the footer tap target are editor edits this repository deliberately does not make.
+
 ## Superwall Verification Checklist
 
 Complete these steps in each authenticated Superwall project without bypassing product validation or publishing an unverified campaign.
@@ -231,9 +244,10 @@ Substitute that environment's own product identifiers throughout - `ascend_yearl
 9. Preview with an Apple account that already used the introductory offer and confirm no annual surface promises a free trial.
 10. Confirm Restore, Terms, and Privacy still work.
 11. Confirm a sandbox annual purchase and monthly purchase each grant `app_access`.
-12. Wire the verified paywall to `app_access_gate`.
-13. Keep onboarding experiments on `onboarding_paywall`.
-14. Publish only after Superwall accepts both product states and editor and device previews match the two states above.
+12. Confirm the only chrome control is the top-left back arrow, that it fires a `Custom action` named `back` ahead of its close action, and that no `CLOSE` node remains - see Paywall chrome and the back control above.
+13. Wire the verified paywall to `app_access_gate`.
+14. Keep onboarding experiments on `onboarding_paywall`.
+15. Publish only after Superwall accepts both product states and editor and device previews match the two states above.
 
 ## Release Gate
 
