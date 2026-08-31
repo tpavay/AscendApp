@@ -1,4 +1,5 @@
 import Foundation
+import enum SuperwallKit.PurchaseResult
 import Testing
 @testable import AscendApp
 

@@ -24,12 +24,17 @@ func withAccessibilityAutomation<Result>(
 @MainActor
 func accessibilityElements(under root: UIView) -> [NSObject] {
     var found: [NSObject] = []
+    // A hosted node is reachable both as its container's accessibility element and through that
+    // container's subviews, so an undeduped walk returns the very same objects twice and every
+    // count a caller takes is double what the screen actually publishes.
+    var visited: Set<ObjectIdentifier> = []
 
     func visit(_ node: NSObject) {
         let count = node.accessibilityElementCount()
         if count != NSNotFound {
             for index in 0..<count {
-                guard let child = node.accessibilityElement(at: index) as? NSObject else {
+                guard let child = node.accessibilityElement(at: index) as? NSObject,
+                      visited.insert(ObjectIdentifier(child)).inserted else {
                     continue
                 }
 
