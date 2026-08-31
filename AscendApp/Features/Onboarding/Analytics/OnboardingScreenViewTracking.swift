@@ -62,10 +62,13 @@ struct OnboardingScreenViewRecorder {
         guard let context, lifecycle.claimScreenView(stepID: context.stepID) else { return }
 
         let event = OnboardingAnalyticsEvent.screenViewed(context: context)
-        if let expectedUserID {
-            telemetry.track(event, ifIdentifiedAs: expectedUserID)
-        } else {
+        guard let expectedUserID else {
             telemetry.track(event)
+            return
+        }
+
+        if !telemetry.track(event, ifIdentifiedAs: expectedUserID) {
+            lifecycle.releaseScreenViewClaim(stepID: context.stepID)
         }
     }
 }

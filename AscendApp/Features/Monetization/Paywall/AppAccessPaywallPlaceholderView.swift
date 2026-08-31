@@ -13,7 +13,7 @@ struct AppAccessPaywallPlaceholderView: View {
     private let onAccountDeletionFocusRestored: (() -> Void)?
     private let onDeleteAccount: () -> Void
     private let onSignOut: () -> Void
-    private let onRequestOnboardingBack: (@MainActor () -> Void)?
+    private let onRequestOnboardingBack: (@MainActor () -> Bool)?
 
     init(
         initialPhase: AppAccessGatePhase = .openingHosted,
@@ -23,7 +23,7 @@ struct AppAccessPaywallPlaceholderView: View {
         automaticallyStarts: Bool = true,
         accountDeletionDismissalRevision: UInt = 0,
         onAccountDeletionFocusRestored: (() -> Void)? = nil,
-        onRequestOnboardingBack: (@MainActor () -> Void)? = nil,
+        onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
         onDeleteAccount: @escaping () -> Void,
         onSignOut: @escaping () -> Void = {}
     ) {
@@ -83,7 +83,7 @@ private struct AppAccessPaywallContentView: View {
         automaticallyStarts: Bool,
         accountDeletionDismissalRevision: UInt,
         onAccountDeletionFocusRestored: (() -> Void)?,
-        onRequestOnboardingBack: (@MainActor () -> Void)?,
+        onRequestOnboardingBack: (@MainActor () -> Bool)?,
         onDeleteAccount: @escaping () -> Void,
         onSignOut: @escaping () -> Void
     ) {

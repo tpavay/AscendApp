@@ -29,7 +29,9 @@ final class AppAccessPaywallCoordinator {
     private let monetizationManager: MonetizationManager
     private let nativeProvider: any NativeSubscriptionProviding
     private let restoreService: AppAccessRestoreService
-    private let onRequestOnboardingBack: (@MainActor () -> Void)?
+    /// Returns whether the onboarding step behind the paywall actually reopened, so the gate
+    /// never leaves a climber on a hosted paywall that is already gone.
+    private let onRequestOnboardingBack: (@MainActor () -> Bool)?
     private let telemetry: TelemetryManager
     private let hostedOpeningDeadline: Duration
     private let nativeLoadingDeadline: Duration
@@ -59,7 +61,7 @@ final class AppAccessPaywallCoordinator {
         initialRestoreState: AppAccessRestoreState = .idle,
         initialPlans: [NativeSubscriptionPlan] = [],
         initialStatusMessage: String? = nil,
-        onRequestOnboardingBack: (@MainActor () -> Void)? = nil,
+        onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
         hostedOpeningDeadline: Duration = .seconds(8),
         nativeLoadingDeadline: Duration = .seconds(12),
         sleep: @escaping Sleep = { try await Task.sleep(for: $0) },
@@ -397,9 +399,17 @@ final class AppAccessPaywallCoordinator {
                 recoveryReason: .hostedBackRequested,
                 entitlementActive: entitlementPresence
             )
+            recordOnboardingBackTapped(presentationIdentity: presentationIdentity)
             self.presentationRevision &+= 1
             self.presentationIdentity = nil
-            onRequestOnboardingBack?()
+            guard onRequestOnboardingBack?() == true else {
+                // The hosted paywall is already dismissed, so a back that could not land would
+                // leave the gate with no controls at all - not even the account-deletion route
+                // Guideline 5.1.1(v) requires. Recovery, never the native plan list.
+                phase = .failed
+                statusMessage = "Ascend couldn't reopen the previous step. Try subscription options again, restore, manage your subscription, or contact support."
+                return
+            }
         case .dismissedWithoutPurchase:
             watchdogTask?.cancel()
             beginNativeFallback(
@@ -603,6 +613,17 @@ final class AppAccessPaywallCoordinator {
             providerOutcome: providerOutcome,
             recoveryPath: recoveryPath,
             entitlementActive: entitlementActive
+        )
+    }
+
+    private func recordOnboardingBackTapped(presentationIdentity: MonetizationIdentityTransition) {
+        guard let userID = presentationIdentity.userID else { return }
+        telemetry.track(
+            OnboardingAnalyticsEvent.backTapped(
+                context: OnboardingAnalyticsEvent.paywallContext,
+                inputType: "button"
+            ),
+            ifIdentifiedAs: userID
         )
     }
 

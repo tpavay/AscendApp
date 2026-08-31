@@ -559,6 +559,7 @@ struct RootView: View {
         profileCompletionCheckTask = Task { @MainActor in
             let userData = try? await UserDataRepository.shared.getUserFromFirestore(userId: user.uid)
             guard !Task.isCancelled,
+                  !postAuthOnboardingCoordinator.isReopenedByClimber,
                   let userData,
                   isCompletePostAuthProfile(userData) else {
                 return

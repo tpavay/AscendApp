@@ -105,20 +105,23 @@ final class PostAuthOnboardingCoordinator {
     ///
     /// The persisted snapshot is what routing reads, so this has to write through it rather than
     /// only moving `phase` - a forced `resolve` would otherwise snap straight back to `.complete`.
-    func reopenLastStage() {
-        guard let userId = currentUserId else { return }
+    @discardableResult
+    func reopenLastStage() -> Bool {
+        guard let userId = currentUserId else { return false }
 
         var snapshot = store.snapshot(for: userId)
-        guard snapshot.isComplete else { return }
+        guard snapshot.isComplete else { return false }
 
+        let lastStage = PostAuthOnboardingStage.last
         snapshot.isComplete = false
         snapshot.completedAt = nil
         snapshot.isReopenedByClimber = true
-        snapshot.currentStage = .firstClimb
-        snapshot.completedStages.remove(.firstClimb)
+        snapshot.currentStage = lastStage
+        snapshot.completedStages.remove(lastStage)
         store.save(snapshot, for: userId)
-        phase = .onboarding(.firstClimb)
+        phase = .onboarding(lastStage)
         recordLifecycleSnapshot(snapshot)
+        return true
     }
 
     /// Whether the climber walked back out of a finished flow themselves.

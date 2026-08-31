@@ -143,6 +143,19 @@ final class OnboardingFlowAnalyticsCoordinator {
         return true
     }
 
+    /// Hands a claim back when the view it was claimed for was never delivered.
+    ///
+    /// Telemetry refuses an event outright when collection is off or the identified user is not
+    /// the one the caller expected, and the claim is persisted for the whole pass - so a claim kept
+    /// after a refusal is not a deduped view, it is a view this pass can never report.
+    func releaseScreenViewClaim(stepID: String) {
+        guard passState.viewedStepIDs.contains(stepID) else { return }
+
+        var state = passState
+        state.viewedStepIDs.remove(stepID)
+        save(state)
+    }
+
     /// Reports, once per launch, that this launch opened onboarding somewhere other than its start.
     ///
     /// The interrupted-position signal used to ride on a re-emitted `onboarding_screen_viewed`
