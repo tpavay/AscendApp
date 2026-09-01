@@ -241,8 +241,9 @@ The enum is `CaseIterable` and `AscendAppTests/PaywallDeleteAccountFromHostedPay
 `DELETE ACCOUNT` matters beyond convenience: with no close control on the paywall, it is the account-deletion route Guideline 5.1.1(v) requires for a climber who is locked out and cannot pay, and it opens the same confirmation dialog the native gate's own `Delete account` control opens - the identical closure, so the two can never diverge.
 Ascend owns that dismissal because the dialog cannot be shown while the paywall is up; see below.
 
-Until the editor carries a control nothing emits its action, so the matching app route is inert and paywall behaviour is unchanged.
-Adding these controls, deleting the `CLOSE` node, and enlarging the footer tap target are editor edits this repository deliberately does not make.
+The staging editor already carries `DELETE ACCOUNT` and already emits `delete_account` - a control firing with nothing answering it is exactly what #558 was - so that route is live rather than hypothetical, and step 13 below is how each environment's paywall is confirmed to carry it on the wiring above.
+For a control an editor does not yet carry, nothing emits its action, so the matching app route stays inert and paywall behaviour is unchanged.
+Adding the back control, deleting the `CLOSE` node, and enlarging the footer tap target are editor edits this repository deliberately does not make.
 
 ### Nothing the app presents can appear over a live paywall
 
