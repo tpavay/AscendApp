@@ -11,6 +11,7 @@ import {
   climberStanding,
   collapsesRepeatFinishers,
   ranksOnSteps,
+  resolveContextType,
 } from "../backfill-live-replay-completion-snapshots.mjs";
 
 const SERVER_SOURCE = join(
@@ -43,6 +44,39 @@ function entry(overrides) {
     ...overrides,
   };
 }
+
+// The context type is the switch behind every one of those answers, and it is
+// missing from bucket-zero entries written before the field existed. Defaulting
+// it to "" ranked a steps-ranked, climber-collapsing board by duration over an
+// attempt denominator and froze that permanently.
+test("an unstamped entry takes its context type from the context key", () => {
+  assert.equal(
+    resolveContextType([null, null], "live_climb__st-peters-basilica"),
+    "live_climb"
+  );
+  assert.equal(
+    resolveContextType([null, null], "routine_template__hill-repeats"),
+    "routine_template"
+  );
+  assert.equal(
+    resolveContextType([null, null], "routine__ABC-123"),
+    "routine"
+  );
+  assert.equal(resolveContextType([null, null], "just_climb__global"), "just_climb");
+});
+
+test("a context type nothing can resolve is refused rather than guessed", () => {
+  assert.equal(resolveContextType([null, null], "mystery__board"), null);
+  assert.equal(resolveContextType([""], "no-separator"), null);
+  assert.equal(resolveContextType(["not_a_type"], "__leading"), null);
+});
+
+test("a stored context type is preferred over the key it is filed under", () => {
+  assert.equal(
+    resolveContextType(["routine_template", null], "live_climb__mislabelled"),
+    "routine_template"
+  );
+});
 
 test("collapses repeats on the boards the server collapses them on", () => {
   assert.equal(collapsesRepeatFinishers("live_climb"), true);
