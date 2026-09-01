@@ -615,6 +615,7 @@ struct LiveClimbCompletionSummaryView: View {
         let finalSteps = workout.steps
         async let fetchedRank = LiveReplayLeaderboardService.shared.fetchCompletionRank(
             context: context,
+            workoutId: workoutId,
             completionDurationSeconds: completionDurationSeconds,
             finalSteps: finalSteps
         )

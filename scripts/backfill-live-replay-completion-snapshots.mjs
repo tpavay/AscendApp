@@ -34,7 +34,20 @@ const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
 const PROD_PROJECT_ID = "ascend-prod-9c8f2";
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
 const LIVE_CLIMB_CONTEXT_TYPE = "live_climb";
+const JUST_CLIMB_CONTEXT_TYPE = "just_climb";
 const ROUTINE_TEMPLATE_CONTEXT_TYPE = "routine_template";
+const ROUTINE_CONTEXT_TYPE = "routine";
+// Mirrors `LiveReplayLeaderboardContextType`. A type outside this set decides
+// nothing here: it is the switch behind the standing rule, the ranking metric,
+// the tie policy and the direction of "ahead", all of which get frozen into a
+// write-once snapshot.
+const KNOWN_CONTEXT_TYPES = new Set([
+  LIVE_CLIMB_CONTEXT_TYPE,
+  JUST_CLIMB_CONTEXT_TYPE,
+  ROUTINE_TEMPLATE_CONTEXT_TYPE,
+  ROUTINE_CONTEXT_TYPE,
+]);
+const CONTEXT_KEY_SEPARATOR = "__";
 const DURATION_RANKING_METRIC = "completionDurationSeconds";
 const STEPS_RANKING_METRIC = "finalSteps";
 const DURATION_TIE_POLICY = "competition_rank_equal_durations_share_rank";
@@ -220,12 +233,13 @@ async function backfillCompletionSnapshots(firestore, options) {
 
     counters.contextsScanned += 1;
     const summary = summarySnapshot.data() ?? {};
-    const entries = await completionEntriesForContext(
+    const {entries, skipped} = await completionEntriesForContext(
       firestore,
       leaderboardRef,
       summary
     );
     counters.entriesScanned += entries.length;
+    counters.entriesSkipped += skipped;
 
     if (entries.length === 0) {
       continue;
@@ -280,7 +294,8 @@ async function backfillCompletionSnapshots(firestore, options) {
  * @param {FirebaseFirestore.Firestore} firestore Firestore instance.
  * @param {FirebaseFirestore.DocumentReference} leaderboardRef Context ref.
  * @param {Record<string, unknown>} summary Leaderboard summary data.
- * @return {Promise<object[]>} Enriched completion entries.
+ * @return {Promise<{entries: object[], skipped: number}>} Enriched entries and
+ *   the count of rows this pass refused to rank.
  */
 async function completionEntriesForContext(firestore, leaderboardRef, summary) {
   const entriesSnapshot = await leaderboardRef
@@ -289,6 +304,7 @@ async function completionEntriesForContext(firestore, leaderboardRef, summary) {
     .collection("entries")
     .get();
   const entries = [];
+  let skipped = 0;
 
   for (const doc of entriesSnapshot.docs) {
     const data = doc.data();
@@ -300,6 +316,21 @@ async function completionEntriesForContext(firestore, leaderboardRef, summary) {
     const finalSteps = integerValue(data.finalSteps);
 
     if (!userId || !workoutId || !completionDurationSeconds || !finalSteps) {
+      skipped += 1;
+      continue;
+    }
+
+    const contextType = resolveContextType(
+      [stringValue(data.contextType), stringValue(summary.contextType)],
+      leaderboardRef.id
+    );
+
+    // A guessed context type is worse than no repair. It decides climbers
+    // against attempts, the ranking metric, the tie policy and which direction
+    // "ahead" runs, and the snapshot it lands in is written once and never
+    // moves - so an unresolvable row is left exactly as it stands.
+    if (!contextType) {
+      skipped += 1;
       continue;
     }
 
@@ -314,7 +345,7 @@ async function completionEntriesForContext(firestore, leaderboardRef, summary) {
       completionDurationSeconds,
       completionMillis,
       contextId: stringValue(data.contextId) ?? stringValue(summary.contextId) ?? "",
-      contextType: stringValue(data.contextType) ?? stringValue(summary.contextType) ?? "",
+      contextType,
       finalSteps,
       rankedAt: Timestamp.fromMillis(completionMillis),
       targetStepCount: integerValue(summary.targetStepCount) ?? 0,
@@ -323,7 +354,35 @@ async function completionEntriesForContext(firestore, leaderboardRef, summary) {
     });
   }
 
-  return entries;
+  return {entries, skipped};
+}
+
+/**
+ * Resolves a row's context type from its stored values, then from the context
+ * key, and refuses anything it cannot recognise.
+ *
+ * The stored field predates this repair path on some boards, and the key is the
+ * one place the type is structurally present: a leaderboard document ID is
+ * `<contextType>__<sanitizedId>` (`LiveReplayLeaderboardContext.contextKey`),
+ * and the sanitizer never emits a prefix that collides with a different type.
+ * @param {Array<string|null>} storedValues Stored context types, best first.
+ * @param {string} contextKey Leaderboard document ID.
+ * @return {string|null} A known context type, or null.
+ */
+export function resolveContextType(storedValues, contextKey) {
+  for (const candidate of storedValues) {
+    if (candidate && KNOWN_CONTEXT_TYPES.has(candidate)) {
+      return candidate;
+    }
+  }
+
+  const separatorIndex = String(contextKey ?? "").indexOf(CONTEXT_KEY_SEPARATOR);
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const derived = String(contextKey).slice(0, separatorIndex);
+  return KNOWN_CONTEXT_TYPES.has(derived) ? derived : null;
 }
 
 /**

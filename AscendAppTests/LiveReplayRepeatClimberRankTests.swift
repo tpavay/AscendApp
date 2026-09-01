@@ -43,7 +43,8 @@ struct LiveReplayRepeatClimberRankTests {
         let rows = FirestoreLiveReplayLeaderboardRepository.mergedAheadRows(
             running: [],
             finished: finished,
-            limit: 8
+            limit: 8,
+            metric: .fastestCompletion
         )
 
         #expect(rows.map(\.id) == ["first-attempt"])
@@ -86,11 +87,50 @@ struct LiveReplayRepeatClimberRankTests {
         let rows = FirestoreLiveReplayLeaderboardRepository.mergedAheadRows(
             running: running,
             finished: finished,
-            limit: 3
+            limit: 3,
+            metric: .fastestCompletion
         )
 
         #expect(rows.map(\.stepsAtBucket) == [500, 520, 551])
         #expect(rows.map(\.id) == ["running-low", "running-high", "finished-0"])
+    }
+
+    @Test
+    func finishersTiedAtTheTargetAreOrderedOnTheBoardsRankingMetric() {
+        // `LiveClimbSessionViewModel.totalRecordedSteps` clamps a recorded count
+        // to the target and the server publishes only a target-reached stop, so
+        // every finisher on a climb board holds exactly 551. The finished field
+        // is therefore one continuous tie on steps, and ordering it on document
+        // ID threw away the speed ordering the query had already produced.
+        let finished = [
+            finisher(id: "b-slower", durationSeconds: 500),
+            finisher(id: "a-faster", durationSeconds: 340)
+        ]
+        let running = [competitor(id: "c-running", steps: 551)]
+
+        let ahead = FirestoreLiveReplayLeaderboardRepository.mergedAheadRows(
+            running: running,
+            finished: finished,
+            limit: 8,
+            metric: .fastestCompletion
+        )
+
+        // `fetchWindow` reverses this half before handing out ranks, so the
+        // faster run has to come out last here to land nearest rank 1 - and the
+        // attempt still running never outranks one already home.
+        #expect(ahead.map(\.id) == ["c-running", "b-slower", "a-faster"])
+        #expect(Array(ahead.reversed()).map(\.id) == ["a-faster", "b-slower", "c-running"])
+
+        let behind = FirestoreLiveReplayLeaderboardRepository.mergedBehindRows(
+            running: running,
+            finished: finished,
+            limit: 8,
+            metric: .fastestCompletion
+        )
+
+        // The behind half is ranked in the order it comes out, so the same
+        // field has to be ordered the other way round.
+        #expect(behind.map(\.id) == ["a-faster", "b-slower", "c-running"])
     }
 
     @Test
@@ -106,7 +146,8 @@ struct LiveReplayRepeatClimberRankTests {
         let rows = FirestoreLiveReplayLeaderboardRepository.mergedBehindRows(
             running: [],
             finished: [stopped],
-            limit: 8
+            limit: 8,
+            metric: .fastestCompletion
         )
 
         #expect(rows.map(\.id) == ["stopped-at-200"])
@@ -130,7 +171,8 @@ struct LiveReplayRepeatClimberRankTests {
         let rows = FirestoreLiveReplayLeaderboardRepository.mergedBehindRows(
             running: running,
             finished: finished,
-            limit: 3
+            limit: 3,
+            metric: .fastestCompletion
         )
 
         #expect(rows.map(\.stepsAtBucket) == [240, 210, 200])
@@ -319,6 +361,23 @@ struct LiveReplayRepeatClimberRankTests {
             isCurrentUser: false,
             isPersonalBest: false,
             completionDurationSeconds: 320
+        )
+    }
+
+    /// A rival home at the step target, held there for the rest of the race.
+    private func finisher(id: String, durationSeconds: TimeInterval) -> LiveReplayLeaderboardRow {
+        LiveReplayLeaderboardRow(
+            id: id,
+            rank: nil,
+            displayName: "Rival",
+            avatarToken: "RV",
+            photoURL: nil,
+            stepsAtBucket: Self.targetSteps,
+            finalSteps: Self.targetSteps,
+            deltaFromUser: 0,
+            isCurrentUser: false,
+            isPersonalBest: false,
+            completionDurationSeconds: durationSeconds
         )
     }
 

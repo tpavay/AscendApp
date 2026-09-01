@@ -7,6 +7,7 @@ protocol LiveReplayLeaderboardRepository: Sendable {
 
     func fetchCompletionRank(
         context: LiveReplayLeaderboardContext,
+        workoutId: String,
         completionDurationSeconds: TimeInterval,
         finalSteps: Int
     ) async throws -> LiveReplayCompletionRank

@@ -289,6 +289,7 @@ private actor MockLiveReplayLeaderboardRepository: LiveReplayLeaderboardReposito
 
     func fetchCompletionRank(
         context: LiveReplayLeaderboardContext,
+        workoutId: String,
         completionDurationSeconds: TimeInterval,
         finalSteps: Int
     ) async throws -> LiveReplayCompletionRank {
