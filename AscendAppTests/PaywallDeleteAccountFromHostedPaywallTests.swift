@@ -283,15 +283,14 @@ private final class AccountDeletionRequestSpy {
 }
 
 @MainActor
-final class RegisteringPaywallPresenterSpy: PaywallPresenting {
+private final class RegisteringPaywallPresenterSpy: PaywallPresenting {
     let isConfigured = true
     private(set) var registrationCount = 0
-    private(set) var cancelCount = 0
 
     func configure(configuration: MonetizationConfiguration) {}
     func identify(userId: String) {}
     func resetIdentity() {}
-    func cancelPresentation() { cancelCount += 1 }
+    func cancelPresentation() {}
 
     func register(
         placement: SuperwallPlacement,

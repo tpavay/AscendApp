@@ -107,15 +107,33 @@ struct LockedOutSubscriberRecoveryContractTests {
         let presenter = try #require(
             root
                 .range(of: "private func presentGateAccountDeletion() {")
-                .map { String(root[$0.lowerBound...].prefix(320)) }
+                .map { String(root[$0.lowerBound...].prefix(480)) }
         )
         #expect(presenter.contains("appVersionGateState.dismissRecommended()"))
         #expect(presenter.contains("isGateAccountDeletionWaitingOnNudge = true"))
         #expect(presenter.contains("isShowingGateAccountDeletion = true"))
+        // A non-nil `nudgePresentation` is a request to present, not proof SwiftUI honoured it, so
+        // the yield is keyed to the sheet's own body reporting itself on screen. Waiting on a
+        // dismissal that can never arrive would swallow the request Guideline 5.1.1(v) requires.
+        #expect(
+            presenter.contains("guard isNudgeSheetPresented else {"),
+            "the nudge may only be waited on when it is actually presented"
+        )
+        #expect(!presenter.contains("appVersionGateState.nudgePresentation != nil"))
+        #expect(root.contains(".onAppear { isNudgeSheetPresented = true }"))
         #expect(
             root.contains("onDismiss: presentGateAccountDeletionWaitingOnNudge"),
             "the nudge must hand the deletion request on once it is actually gone"
         )
+        // The second continuation: a nudge cleared without ever being presented produces no
+        // dismissal, so the request is handed on from the item reaching nil instead.
+        let strandGuard = try #require(
+            root
+                .range(of: ".onChange(of: appVersionGateState.nudgePresentation)")
+                .map { String(root[$0.lowerBound...].prefix(240)) }
+        )
+        #expect(strandGuard.contains("guard presentation == nil, !isNudgeSheetPresented else { return }"))
+        #expect(strandGuard.contains("presentGateAccountDeletionWaitingOnNudge()"))
         // Nothing may report a refusal the gate would have nowhere to render.
         #expect(!root.contains("presentGateAccountDeletion() -> Bool"))
         #expect(root.contains(".sheet(isPresented: $isShowingGateAccountDeletion"))

@@ -266,6 +266,8 @@ Raising the app window's level or hosting Ascend UI on Superwall's window would 
 Once the paywall is gone, the sheet Ascend raises still has to win at its own modifier level.
 Two `.sheet` modifiers on the same view defer one another, which is the second half of the #429 mechanism, and `RootView` carries both the soft update nudge and the account-deletion dialog there.
 A climber asking to delete their account outranks a recommended update, so the nudge yields: `presentGateAccountDeletion()` calls `dismissRecommended()` and hands the request to the nudge sheet's own `onDismiss`, which raises the deletion dialog only once the nudge is provably gone.
+The yield is keyed to `isNudgeSheetPresented`, written by the nudge sheet's own body, never to `nudgePresentation != nil` - a non-nil item is a request to present, which is precisely the state #429 shows SwiftUI can leave unhonoured, and waiting on a dismissal that can never arrive would swallow the deletion request.
+A nudge that was never presented is cleared on the way past, and the item reaching `nil` hands the request on as a second, idempotent continuation.
 Detecting the clash and reporting a refusal instead is not an option - the gate has already dismissed its hosted paywall by the time it asks, so it has nowhere to render one.
 
 ## Superwall Verification Checklist
