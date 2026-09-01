@@ -13,8 +13,9 @@ struct PaywallBackToOnboardingTests {
         #expect(PaywallDismissIntent.resolve(latchedActionName: nil) == .undifferentiated)
         #expect(PaywallDismissIntent.resolve(latchedActionName: "") == .undifferentiated)
         // A control the dashboard adds that the app does not model yet must degrade to an ordinary
-        // dismissal rather than be mistaken for back.
-        #expect(PaywallDismissIntent.resolve(latchedActionName: "delete_account") == .undifferentiated)
+        // dismissal rather than be mistaken for back. The recognised set itself is derived from
+        // `SuperwallCustomAction.allCases` in `PaywallDeleteAccountFromHostedPaywallTests`.
+        #expect(PaywallDismissIntent.resolve(latchedActionName: "manage_subscription") == .undifferentiated)
 
         #expect(PaywallDismissIntent.back.outcome == .backRequested)
         #expect(PaywallDismissIntent.undifferentiated.outcome == .dismissedWithoutPurchase)

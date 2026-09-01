@@ -36,10 +36,13 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
         var recoveryOwned: Bool
         /// The last `Custom action` name this presentation reported, if any.
         ///
-        /// A custom action does not dismiss the paywall, so the name is banked here and read when
-        /// the dismissal arrives. Deliberately not acted on at arrival: SuperwallKit re-dispatches
-        /// every web event through an unstructured `Task`, so the custom action landing before the
-        /// close is observed behaviour rather than a contract.
+        /// A custom action does not dismiss the paywall, so a control whose paywall chains a close
+        /// after it banks its name here to be read when that dismissal arrives - deliberately not
+        /// acted on at arrival, because SuperwallKit re-dispatches every web event through an
+        /// unstructured `Task` and the custom action landing before the close is observed
+        /// behaviour rather than a contract. A control Ascend dismisses itself is recorded here
+        /// too, for diagnostics, but is answered on arrival instead
+        /// (``SuperwallCustomAction/isDismissedByAscend``).
         var latchedActionName: String?
     }
     private struct PresentationTelemetryOwner {
@@ -345,6 +348,15 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
         presentedToken?.latchedActionName
     }
 
+    /// Waits for every presentation operation already enqueued to finish.
+    ///
+    /// The queue is serial, so a no-op behind the work under test completes only once that work
+    /// has. A test that instead spun on `Task.yield()` was guessing at how many scheduler hops a
+    /// dismissal takes, which is not a contract and failed as one.
+    func drainPresentationOperationsForTesting() async {
+        await enqueuePresentationOperation {}.value
+    }
+
     func handleDismissForTesting(revision: UInt, result: PaywallResult) {
         guard let registration = registrations[revision] else { return }
         handleDismiss(
@@ -540,15 +552,38 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
         handlePaywallDismissed(context: PaywallAnalyticsContext(paywallInfo: paywallInfo))
     }
 
-    /// Banks the name of a `Custom action` tap so the dismissal that follows can be told apart from
-    /// an ordinary close. Superwall keeps the paywall presented across this call, so nothing is
-    /// routed here - see ``PaywallDismissIntent``.
+    /// Answers a `Custom action` tap.
+    ///
+    /// Superwall keeps the paywall presented across this call and the call carries no outcome, so
+    /// a control is only ever finished by a close - either one the paywall chains after the custom
+    /// action, or one Ascend makes itself. ``SuperwallCustomAction/isDismissedByAscend`` says
+    /// which arrangement a name uses, and the two are mutually exclusive.
+    ///
+    /// A latched control banks its name for the dismissal that follows, because SuperwallKit
+    /// re-dispatches every web event through an unstructured `Task` and the custom action landing
+    /// before the close is observed behaviour rather than a contract. An Ascend-dismissed control
+    /// does not depend on that ordering at all: it reports its outcome here and takes ownership of
+    /// the dismissal, so ``handleDismiss(revision:result:onOutcome:)`` swallows the close it causes
+    /// rather than reporting a second outcome.
     func handleCustomPaywallAction(withName name: String) {
         guard var token = presentedToken,
               attemptRegistry.isAuthoritative(token.revision) else { return }
 
+        guard let action = SuperwallCustomAction(rawValue: name),
+              action.isDismissedByAscend else {
+            token.latchedActionName = name
+            presentedToken = token
+            return
+        }
+
+        // A repeated tap while the dismissal is in flight must not report the outcome twice.
+        guard !token.recoveryOwned else { return }
+
         token.latchedActionName = name
+        token.recoveryOwned = true
         presentedToken = token
+        token.onOutcome(PaywallDismissIntent.resolve(action).outcome)
+        enqueueDismissal()
     }
 
     func handleSuperwallEvent(withInfo eventInfo: SuperwallEventInfo) {

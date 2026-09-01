@@ -215,18 +215,53 @@ Apple grants one introductory offer per subscription group per Apple account and
 Bind the annual trial surfaces to Superwall's free-trial-eligibility state so an account that already used the offer sees immediate-charge annual copy instead of the trial promise.
 `PaywallAnalyticsContext.isFreeTrialAvailable` records which state each presentation actually showed.
 
-### Paywall chrome and the back control
+### Paywall chrome, the back control, and DELETE ACCOUNT
 
 The paywall carries one chrome control: a back arrow in the top-left that returns the climber to the last onboarding step.
 It carries no close or X control at all.
 Ascend has no free tier, so there is nothing behind the paywall for a close to dismiss to - close and back would land in the same place.
 
-That back control must fire a `Custom action` named `back`, chained ahead of its close action, and the editor's own `CLOSE` node must not remain alongside it.
-The custom action name is the only thing that can distinguish the back control from any other dismissal: SuperwallKit reports every user-driven close as the same `PaywallResult.declined` with `PaywallCloseReason.manualClose`, and the close message carries no payload, so two controls both wired to a close action are indistinguishable to the app.
-`SuperwallCustomAction.back` is the one place that string becomes an intent, and `PaywallDismissIntent` resolves it; any custom action name the app does not model degrades to an ordinary dismissal rather than being mistaken for back.
+Two controls on the paywall are custom actions rather than plain closes: the back arrow (`back`) and the footer's `DELETE ACCOUNT` (`delete_account`).
+The custom action name is the only thing that can distinguish either control from any other dismissal: SuperwallKit reports every user-driven close as the same `PaywallResult.declined` with `PaywallCloseReason.manualClose`, and the close message carries no payload, so two controls both wired to a close action are indistinguishable to the app.
 
-Until the editor carries that control nothing emits the action, so the app's back route is inert and paywall behaviour is unchanged.
-Adding it, deleting the `CLOSE` node, adding `DELETE ACCOUNT` to the footer, and enlarging the footer tap target are editor edits this repository deliberately does not make.
+**A custom action never dismisses the paywall and carries no outcome of its own**, so every control has to be dismissed by *somebody*.
+There are exactly two arrangements and they are mutually exclusive - `SuperwallCustomAction.isDismissedByAscend` is the executable answer for which one a name uses:
+
+| Control | Editor wiring | Who dismisses |
+|---|---|---|
+| back arrow (`back`) | `Custom action` **chained ahead of a close action** | the paywall |
+| `DELETE ACCOUNT` (`delete_account`) | `Custom action` **only, with no close after it** | Ascend |
+
+A control Ascend dismisses must **not** also chain a close, and a control the paywall dismisses must chain one.
+Get it backwards in either direction and the control misbehaves: with no close and no app handling it does nothing at all, not even close the paywall (the shipped state of `DELETE ACCOUNT` in staging build 2026083101), and with both, the editor's close races Ascend's own dismissal and hands the app a dismissal it did not cause.
+
+`SuperwallCustomAction` is the one place those strings become intents and `PaywallDismissIntent` resolves them; any name the app does not model degrades to an ordinary dismissal rather than borrowing a modelled control's behaviour.
+The enum is `CaseIterable` and `AscendAppTests/PaywallDeleteAccountFromHostedPaywallTests.swift` derives the recognised set from it, so an editor control added without teaching the app its name fails there rather than in a climber's hands.
+
+`DELETE ACCOUNT` matters beyond convenience: with no close control on the paywall, it is the account-deletion route Guideline 5.1.1(v) requires for a climber who is locked out and cannot pay, and it opens the same confirmation dialog the native gate's own `Delete account` control opens - the identical closure, so the two can never diverge.
+Ascend owns that dismissal because the dialog cannot be shown while the paywall is up; see below.
+
+Until the editor carries a control nothing emits its action, so the matching app route is inert and paywall behaviour is unchanged.
+Adding these controls, deleting the `CLOSE` node, and enlarging the footer tap target are editor edits this repository deliberately does not make.
+
+### Nothing the app presents can appear over a live paywall
+
+**A presented Superwall paywall sits in its own `UIWindow`, above the app's, so any sheet, alert, or dialog the app raises while it is up renders underneath it and is invisible.**
+This has now cost two features, so it is written down rather than re-derived: it is why the hard-update lockout had to become a route instead of a sheet (#429), and why the paywall's `DELETE ACCOUNT` control is dismissed by Ascend rather than opening the deletion dialog over the paywall.
+
+The mechanism, verified in the pinned SuperwallKit source:
+
+- `getPresenterIfNecessary` calls `createPresentingWindowIfNeeded()`, which builds a **new `UIWindow`** in the active window scene whenever the presentation request carries no presenter of its own - which is every Ascend presentation, since `register(placement:params:handler:feature:)` supplies none.
+- `PaywallViewController.present(on:)` then calls `presentationItems.window?.makeKeyAndVisible()` before presenting itself on that window's root view controller.
+- Neither window sets `windowLevel`, so both sit at `.normal` and the later one - Superwall's - wins.
+
+So a surface that must be reachable *while* a paywall is up has exactly two honest shapes:
+
+1. **The paywall draws the control itself** and fires a `Custom action`; Ascend answers it, dismisses the paywall, and then presents its own UI. This is what `delete_account` does.
+2. **Ascend dismisses the paywall first**, then presents. Same thing, initiated from the app side.
+
+What does not work, and must not be attempted again: presenting a SwiftUI `.sheet` from `RootView` and expecting it to cover the paywall.
+Raising the app window's level or hosting Ascend UI on Superwall's window would technically layer, but both are a second presentation path for a surface that already has one, so neither is sanctioned.
 
 ## Superwall Verification Checklist
 
@@ -244,10 +279,11 @@ Substitute that environment's own product identifiers throughout - `ascend_yearl
 9. Preview with an Apple account that already used the introductory offer and confirm no annual surface promises a free trial.
 10. Confirm Restore, Terms, and Privacy still work.
 11. Confirm a sandbox annual purchase and monthly purchase each grant `app_access`.
-12. Confirm the only chrome control is the top-left back arrow, that it fires a `Custom action` named `back` ahead of its close action, and that no `CLOSE` node remains - see Paywall chrome and the back control above.
-13. Wire the verified paywall to `app_access_gate`.
-14. Keep onboarding experiments on `onboarding_paywall`.
-15. Publish only after Superwall accepts both product states and editor and device previews match the two states above.
+12. Confirm the only chrome control is the top-left back arrow, that it fires a `Custom action` named `back` ahead of its close action, and that no `CLOSE` node remains - see Paywall chrome, the back control, and DELETE ACCOUNT above.
+13. Confirm the footer's `DELETE ACCOUNT` control fires a `Custom action` named `delete_account` and that **no close action is chained after it** - Ascend dismisses the paywall itself for this control, and an editor close would race that dismissal.
+14. Wire the verified paywall to `app_access_gate`.
+15. Keep onboarding experiments on `onboarding_paywall`.
+16. Publish only after Superwall accepts both product states and editor and device previews match the two states above.
 
 ## Release Gate
 

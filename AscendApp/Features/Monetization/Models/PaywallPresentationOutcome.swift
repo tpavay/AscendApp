@@ -9,6 +9,8 @@ enum PaywallPresentationOutcome: Equatable, Sendable {
     case dismissedWithoutPurchase
     /// The climber tapped the paywall's back control, which is a custom action rather than a close.
     case backRequested
+    /// The climber tapped the paywall's delete-account control, also a custom action.
+    case deleteAccountRequested
     case skipped(reason: String)
     case failed(message: String)
 }
@@ -19,7 +21,7 @@ extension PaywallPresentationOutcome {
         case .presented:
             return false
         case .purchased, .restored, .pendingApproval, .verificationUnavailable,
-             .dismissedWithoutPurchase, .backRequested, .skipped, .failed:
+             .dismissedWithoutPurchase, .backRequested, .deleteAccountRequested, .skipped, .failed:
             return true
         }
     }

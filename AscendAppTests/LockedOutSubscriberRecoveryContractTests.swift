@@ -18,10 +18,14 @@ struct LockedOutSubscriberRecoveryContractTests {
             at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
         )
 
-        #expect(gate.contains("onDeleteAccount: @escaping () -> Void"))
+        #expect(gate.contains("onDeleteAccount: @escaping @MainActor () -> Void"))
         #expect(gate.contains("Button(action: onDeleteAccount)"))
         #expect(gate.contains("Text(\"Delete account\")"))
         #expect(gate.contains(".accessibilityIdentifier(\"appAccessDeleteAccount\")"))
+        // The hosted Superwall paywall covers this screen for most of a locked-out climber's
+        // session, and its own DELETE ACCOUNT control has to reach the same dialog. One closure
+        // serves both, so the two routes cannot drift to different destinations.
+        #expect(gate.contains("onRequestAccountDeletion: onDeleteAccount"))
     }
 
     /// A wrong-account subscriber must be able to leave the gate and authenticate as the Apple ID

@@ -34,6 +34,9 @@ final class AppAccessPaywallCoordinator {
     /// Returns whether the onboarding step behind the paywall actually reopened, so the gate
     /// never leaves a climber on a hosted paywall that is already gone.
     private let onRequestOnboardingBack: (@MainActor () -> Bool)?
+    /// Opens the same account-deletion dialog the gate's own `Delete account` control opens, so the
+    /// hosted and native routes can never reach two different destinations.
+    private let onRequestAccountDeletion: (@MainActor () -> Void)?
     private let telemetry: TelemetryManager
     private let hostedOpeningDeadline: Duration
     private let nativeLoadingDeadline: Duration
@@ -64,6 +67,7 @@ final class AppAccessPaywallCoordinator {
         initialPlans: [NativeSubscriptionPlan] = [],
         initialStatusMessage: String? = nil,
         onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
+        onRequestAccountDeletion: (@MainActor () -> Void)? = nil,
         hostedOpeningDeadline: Duration = .seconds(8),
         nativeLoadingDeadline: Duration = .seconds(12),
         sleep: @escaping Sleep = { try await Task.sleep(for: $0) },
@@ -76,6 +80,7 @@ final class AppAccessPaywallCoordinator {
         )
         self.restoreService = restoreService ?? .shared
         self.onRequestOnboardingBack = onRequestOnboardingBack
+        self.onRequestAccountDeletion = onRequestAccountDeletion
         self.telemetry = telemetry
         self.phase = initialPhase
         restoreState = initialRestoreState
@@ -129,6 +134,21 @@ final class AppAccessPaywallCoordinator {
 
     func retryHosted() {
         presentHosted(source: "paywall_placeholder_retry")
+    }
+
+    /// The account-deletion dialog closed and this gate is still on screen, so the deletion did not
+    /// happen - a completed one ends the session and routes away from here entirely.
+    ///
+    /// Ascend dismissed the hosted paywall itself to raise that dialog, so backing out of it would
+    /// otherwise leave the opening spinner with no controls at all: no plans, no restore, no
+    /// support links, and not even the account-deletion route Guideline 5.1.1(v) requires. Cancelling
+    /// a deletion means nothing happened, so the paywall the climber was reading comes back.
+    ///
+    /// Only from a hosted phase. A deletion raised from the gate's own control leaves the native
+    /// recovery surface exactly where it was.
+    func accountDeletionDialogDismissed() {
+        guard phase == .hostedPresented || phase == .openingHosted else { return }
+        presentHosted(source: "account_deletion_dismissed")
     }
 
     func selectPlan(_ planID: String) {
@@ -413,6 +433,22 @@ final class AppAccessPaywallCoordinator {
                 return
             }
             recordOnboardingBackTapped(presentationIdentity: presentationIdentity)
+        case .deleteAccountRequested:
+            // The climber asked to delete their account, not to shop. Deliberately never falls
+            // through to the native plan list, and deliberately does not move the phase: the
+            // deletion dialog covers the gate, and a phase change here would announce
+            // "Loading subscription options." over that dialog to a VoiceOver climber.
+            // `accountDeletionDialogDismissed()` answers what happens if they back out.
+            watchdogTask?.cancel()
+            recordGateTerminal(
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity,
+                providerOutcome: .deleteAccountRequested,
+                recoveryPath: .account,
+                recoveryReason: .hostedDeleteAccountRequested,
+                entitlementActive: entitlementPresence
+            )
+            onRequestAccountDeletion?()
         case .dismissedWithoutPurchase:
             watchdogTask?.cancel()
             beginNativeFallback(

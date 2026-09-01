@@ -461,9 +461,10 @@ final class MonetizationManager: MonetizationIdentityManaging {
             recordOnboardingAccessGranted(.purchase)
         case .restored:
             recordOnboardingAccessGranted(.restore)
-        case .dismissedWithoutPurchase, .backRequested, .skipped, .failed:
-            // Back is a navigation, not a grant: like a dismissal it closes the request without
-            // naming how access was given, so a later webhook-delayed purchase still attributes.
+        case .dismissedWithoutPurchase, .backRequested, .deleteAccountRequested, .skipped, .failed:
+            // Back and delete-account are navigations, not grants: like a dismissal each closes the
+            // request without naming how access was given, so a later webhook-delayed purchase
+            // still attributes.
             recordOnboardingAccessGrantRequestReportedNothing()
         case .presented, .pendingApproval, .verificationUnavailable:
             // Presentation and recoverable transaction states are not access-grant results.
