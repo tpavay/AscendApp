@@ -3,23 +3,30 @@
 # Builds the staging test bundle once, then runs the suite across several host
 # processes instead of one.
 #
-# WHY, measured 2026-09-01 against `iOS Verify (Staging)`: the test host's
-# memory grows with the number of tests it has already executed and is never
-# reclaimed - 850 tests peak at 2,020 MB RSS, the full 1,927 peak at 4,228 MB.
-# A `macos-15` runner holds ~7 GB with ~2.4 GB already wired, so one process
-# running the whole suite arrives at the tail of the run on a machine with
-# 65-83 MB free, ~2.7 GB in the compressor and ~50,000 swapouts. Past that the
-# job stops completing tests altogether: three killed runs each show 12-22
-# minutes of total output silence with the host still alive and still logging,
-# after reaching 1,700-1,814 completions of ~1,900. The cap then fires and
-# reports `cancelled`.
+# WHY, measured 2026-09-01 against `iOS Verify (Staging)`: one process cannot
+# hold this suite. Run whole, it peaks at 4,228 MB RSS on a `macos-15` runner
+# holding ~7 GB with ~2.4 GB already wired, and arrives at the tail of the run
+# with 65-83 MB free, ~2.7 GB in the compressor and ~50,000 swapouts. Past that
+# it stops completing tests at all - three killed runs each show 12-22 minutes
+# of total output silence with the host alive and still logging - and the cap
+# fires, reporting `cancelled` rather than a failure.
 #
-# This is a repo-level trend, not a property of any one branch: skipping the
-# three suites of the branch that first hit it moved peak RSS from 4,228 MB to
-# 4,343 MB, i.e. nowhere. Nor is it a shortage of minutes - the killed run
-# reached 1,814 completions in 6m44s against a green run's 1,846 in 8m30s. It
-# is faster, then it hits a wall. Raising `timeout-minutes` buys a longer crawl
-# on a thrashing machine, which is why the cap stays where it is.
+# The demand is concentrated, not spread. `ShareStatClusterPresetEvidenceTests`
+# alone peaks at 2,008 MB, and 2,008 of that is one test:
+# `addTimeLayoutScalesLinearlyAsHeaviestClustersPileUp` runs 108 full
+# `ImageRenderer` rasterizations - for each of four cluster counts, nine
+# interleaved pairs at 390x845 plus nine more at export size 1080x2340 - and
+# nothing is released between them. Measured across that suite: 1 test 729 MB,
+# 4 tests 805 MB, 9 tests 915 MB, then 2,341 MB once that one test is included.
+# Wrapping every render in `autoreleasepool` moved the peak by 0 MB, so the
+# retention is not autoreleased objects. That test's memory profile is a
+# standing repo defect, tracked separately; it is not this script's to fix.
+#
+# It is not any one branch's doing either: skipping the three suites of the
+# branch that first hit the cap moved peak RSS from 4,228 MB to 4,343 MB, i.e.
+# nowhere. And it is not a shortage of minutes - a killed run reached 1,814
+# completions in 6m44s against a green run's 1,846 in 8m30s. It is faster, then
+# it hits a wall.
 #
 # The tests, the build, the cache key and the runner are all unchanged. Only the
 # number of processes the suite is spread over changes, and each pass starts
@@ -32,7 +39,7 @@ if [ "$#" -lt 1 ]; then
 fi
 
 simulator_id="$1"
-pass_count="${2:-2}"
+pass_count="${2:-3}"
 log_dir="build-logs"
 log="$log_dir/xcodebuild-staging.log"
 
@@ -77,18 +84,17 @@ node scripts/ci/split-enumerated-tests.mjs \
     "$log_dir/test-pass-" \
     "$pass_count" | tee -a "$log"
 
-# Hand the VM system back what the previous phase is still holding.
+# Hand the VM system back what the previous phase is still holding, and record
+# what the pass actually starts with.
 #
-# The crash this exists to prevent is a system-wide allocation failure, not a
-# process-local one: the report says `EXC_BREAKPOINT` with `ktriageinfo` reading
-# "mach_vm_allocate_kernel failed within call to vm_map_enter". And it is
-# positional rather than compositional - across three CI runs of two halves
-# balanced to 964/963 tests and 23/22 hosted suites, the FIRST pass died every
-# time and the second passed every time. What separates them is that pass one
-# starts on a machine still carrying a 19-minute Swift compile and an
-# enumeration launch, while pass two starts on one that has just had a whole
-# test host exit. `purge` is the supported way to ask for those cached and
-# compressed pages back; it is advisory, so a failure here is not fatal.
+# This is diagnostic first. It was added on the theory that the failure was
+# positional - the first pass dying on a machine still carrying a 19-minute
+# Swift compile - and it disproved that theory: with `purge` in front of it the
+# first pass started with 4.0 GB free and 680 MB compressed, against the 65-83
+# MB free the unsplit runs showed, and still failed. So the printed counts are
+# the point. They are what turns "the runner ran out of memory" from an
+# inference into a reading, and they are what caught the wrong theory. `purge`
+# itself is advisory and costs seconds, so it stays.
 reclaim_memory() {
     sudo /usr/sbin/purge 2>/dev/null || /usr/sbin/purge 2>/dev/null || true
 }
