@@ -184,7 +184,6 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
             leaderboardTotal: 27,
             leaderboardRankBasis: .atCompletion,
             leaderboardContext: context,
-            moment: .retrospective,
             completedDetailOverride: "LIVE CLIMB COMPLETE",
             onDone: { _ in }
         )

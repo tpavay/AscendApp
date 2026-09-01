@@ -53,7 +53,6 @@ struct LiveClimbCompletionSummaryHealthPromptEvidenceTests {
             leaderboardTotal: 1,
             leaderboardRankBasis: .atCompletion,
             leaderboardContext: .justClimbGlobal(targetSteps: 2_579),
-            moment: .freshCompletion,
             onDone: { _ in }
         )
         .modelContainer(container)

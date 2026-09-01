@@ -70,7 +70,6 @@ struct LiveClimbSessionView: View {
                     leaderboardTotal: viewModel.completionLeaderboardTotal,
                     leaderboardRankBasis: .liveSession,
                     leaderboardContext: viewModel.replayContext,
-                    moment: .freshCompletion,
                     onDone: handleCompletionSummaryDismissed
                 )
             } else {

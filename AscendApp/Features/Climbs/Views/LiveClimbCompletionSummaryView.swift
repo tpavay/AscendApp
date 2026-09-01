@@ -8,7 +8,6 @@ struct LiveClimbCompletionSummaryView: View {
     let leaderboardTotal: Int?
     let leaderboardRankBasis: LiveClimbSummaryRankHero.Basis
     let leaderboardContext: LiveReplayLeaderboardContext?
-    let moment: LiveClimbSummaryRankHero.Moment
     let rankingLabelOverride: String?
     /// Only reaches the detail line under a `.liveSession` standing, whose race window the
     /// hero cannot characterise. See `LiveClimbSummaryRankHero.Copy`.
@@ -39,7 +38,6 @@ struct LiveClimbCompletionSummaryView: View {
         leaderboardTotal: Int?,
         leaderboardRankBasis: LiveClimbSummaryRankHero.Basis,
         leaderboardContext: LiveReplayLeaderboardContext? = nil,
-        moment: LiveClimbSummaryRankHero.Moment = .retrospective,
         rankingLabelOverride: String? = nil,
         completedDetailOverride: String? = nil,
         ranksOnLeaderboard: Bool = true,
@@ -53,7 +51,6 @@ struct LiveClimbCompletionSummaryView: View {
         self.leaderboardTotal = leaderboardTotal
         self.leaderboardRankBasis = leaderboardRankBasis
         self.leaderboardContext = leaderboardContext
-        self.moment = moment
         self.rankingLabelOverride = rankingLabelOverride
         self.completedDetailOverride = completedDetailOverride
         self.ranksOnLeaderboard = ranksOnLeaderboard
@@ -431,7 +428,6 @@ struct LiveClimbCompletionSummaryView: View {
     private var rankHero: LiveClimbSummaryRankHero? {
         LiveClimbSummaryRankHero.make(
             isClimbContext: climb != nil,
-            moment: moment,
             standings: LiveClimbSummaryRankHero.standings(
                 isClimbContext: climb != nil,
                 sources: rankSources

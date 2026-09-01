@@ -44,8 +44,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         let fixed = try render(
             basis: .atCompletion,
             rank: Self.frozenRank,
-            total: Self.frozenTotal,
-            moment: .retrospective
+            total: Self.frozenTotal
         )
 
         let fixedText = try await recognizedText(in: fixed)
@@ -71,8 +70,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         let reported = try render(
             basis: .liveSession,
             rank: Self.frozenRank,
-            total: Self.frozenTotal,
-            moment: .retrospective
+            total: Self.frozenTotal
         )
 
         let reportedText = try await recognizedText(in: reported)
@@ -87,31 +85,19 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
     /// The denominator is genuinely optional - a routine board with no window, a
     /// publish status that froze a rank without a count. A bare "FASTEST" under the
     /// ordinal would read as a claim to have won it, so the basis wording stands
-    /// instead, in the tense the moment calls for.
+    /// instead, naming when the standing was measured.
     @Test
     func aStandingWithNoFieldSizeFallsBackToTheBasisWording() async throws {
-        let fresh = try render(
-            basis: .atCompletion,
-            rank: 4,
-            total: nil,
-            moment: .freshCompletion
-        )
-        let saved = try render(
-            basis: .atCompletion,
-            rank: 4,
-            total: nil,
-            moment: .retrospective
-        )
+        let saved = try render(basis: .atCompletion, rank: 4, total: nil)
 
-        let freshText = try await recognizedText(in: fresh)
         let savedText = try await recognizedText(in: saved)
 
-        #expect(freshText.contains("rank you just earned"))
-        #expect(!freshText.contains("fastest"))
         #expect(savedText.contains("rank when you finished"))
+        // The frozen line reads the same the instant a climb ends, so a slower
+        // repeat is never told it just earned the position it is holding.
+        #expect(!savedText.contains("rank you just earned"))
         #expect(!savedText.contains("fastest"))
 
-        try writeEvidence(image: fresh, named: "live-climb-summary-rank-hero-fresh.png")
         try writeEvidence(image: saved, named: "live-climb-summary-rank-hero-no-field-size.png")
     }
 
@@ -123,7 +109,6 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             basis: .liveSession,
             rank: 3,
             total: 18,
-            moment: .freshCompletion,
             labelOverride: "ROUTINE RANK",
             completedDetailOverride: "ROUTINE COMPLETE"
         )
@@ -146,8 +131,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         let current = try render(
             basis: .current,
             rank: Self.currentRank,
-            total: Self.currentTotal,
-            moment: .retrospective
+            total: Self.currentTotal
         )
 
         let currentText = try await recognizedText(in: current)
@@ -179,22 +163,22 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
                 (
                     "Saved summary",
                     "The rank is the result, followed by one plain-language field line",
-                    try heroStrip(basis: .atCompletion, rank: Self.frozenRank, total: Self.frozenTotal, moment: .retrospective)
+                    try heroStrip(basis: .atCompletion, rank: Self.frozenRank, total: Self.frozenTotal)
                 ),
                 (
                     "Session standing",
                     "A live session cannot name its own field, so it never claims one",
-                    try heroStrip(basis: .liveSession, rank: Self.frozenRank, total: Self.frozenTotal, moment: .retrospective)
+                    try heroStrip(basis: .liveSession, rank: Self.frozenRank, total: Self.frozenTotal)
                 ),
                 (
                     "No field size",
                     "With no denominator the basis wording stands rather than a bare superlative",
-                    try heroStrip(basis: .atCompletion, rank: 4, total: nil, moment: .freshCompletion)
+                    try heroStrip(basis: .atCompletion, rank: 4, total: nil)
                 ),
                 (
                     "Current standing",
                     "A recomputed standing still states its field without jargon",
-                    try heroStrip(basis: .current, rank: Self.currentRank, total: Self.currentTotal, moment: .retrospective)
+                    try heroStrip(basis: .current, rank: Self.currentRank, total: Self.currentTotal)
                 )
             ]
         )
@@ -278,7 +262,6 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         basis: LiveClimbSummaryRankHero.Basis,
         rank: Int,
         total: Int?,
-        moment: LiveClimbSummaryRankHero.Moment,
         labelOverride: String? = nil,
         completedDetailOverride: String? = "LIVE CLIMB COMPLETE"
     ) throws -> UIImage {
@@ -294,7 +277,6 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             // The hero only renders where there is a population to rank against, so the
             // screen needs a context even though the standing is handed in directly.
             leaderboardContext: .justClimbGlobal(targetSteps: 2_579),
-            moment: moment,
             rankingLabelOverride: labelOverride,
             completedDetailOverride: completedDetailOverride,
             onDone: { _ in }
@@ -309,10 +291,9 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
     private func heroStrip(
         basis: LiveClimbSummaryRankHero.Basis,
         rank: Int,
-        total: Int?,
-        moment: LiveClimbSummaryRankHero.Moment
+        total: Int?
     ) throws -> UIImage {
-        let full = try render(basis: basis, rank: rank, total: total, moment: moment)
+        let full = try render(basis: basis, rank: rank, total: total)
         return try crop(full, to: CGRect(x: 0, y: 115, width: Self.screenSize.width, height: 135))
     }
 
