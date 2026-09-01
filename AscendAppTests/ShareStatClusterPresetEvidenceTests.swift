@@ -383,158 +383,39 @@ struct ShareStatClusterPresetEvidenceTests {
         )
     }
 
-    /// What it costs to *place* several of the heaviest cluster on one canvas.
+    /// Dragging a placed cluster must not rebuild what it draws.
     ///
-    /// Dropping on as many stickers as you like is accepted product behavior, so
-    /// one cluster measured alone is not the whole answer. The question this
-    /// measures has moved, though, and the record should say why.
+    /// The composer memoizes a sticker's card tree, so a transform-only mutation
+    /// is a lookup rather than a layout, and that memoization is the whole reason
+    /// a drag is not a layout.
     ///
-    /// **Dragging is settled and it was not the risk.** The composer's own
-    /// per-frame work with five clusters placed is ~0.002 ms, because
-    /// `content(for:)` is memoized on the content-bearing parts of a sticker and
-    /// a drag mutates only the transform. The original worry - that fifty
-    /// nested-shadow runs would stutter a drag - is disproved. That property is
-    /// protected below by counting builds rather than by timing a dictionary
-    /// lookup or comparing values: `ShareStickerContent` is a value type, so a
-    /// rebuilt tree compares equal to a cached one and equality alone cannot see
-    /// the cache being lost. `contentBuildCount` can.
+    /// This assertion used to ride along with an add-time *benchmark* -
+    /// `addTimeLayoutScalesLinearlyAsHeaviestClustersPileUp`, which timed 108
+    /// `ImageRenderer` passes across 0/1/3/5 clusters and printed a table. That
+    /// benchmark was deleted: it answered a question asked once when the feature
+    /// changes rather than on every commit, its timing bar was too noisy on a
+    /// shared runner to catch a real regression (it failed a run on nothing), and
+    /// its 108 renders alone peaked at 2,008 MB against 630 MB for a sibling,
+    /// which is what exhausted the CI runner. Its measured figures and its
+    /// linear-scaling conclusion are preserved in `ascend-share-composer`.
     ///
-    /// **The cost lives in layout, so add-time is what is measured here**: the
-    /// one-off hitch when a climber drops the third or fifth cluster on and it
-    /// lays out for the first time. Every figure is a full `ImageRenderer` pass
-    /// over the whole canvas, at both sizes:
-    ///
-    /// - **on-screen, 390×845** - the size a climber's canvas actually is, and
-    ///   the number that answers the add-time question.
-    /// - **export, 1080×2340** - what `ShareComposerExporter` renders at.
-    ///
-    /// The marginal cost of the placed clusters - the figure the scaling bar at
-    /// the bottom rests on - comes from `pairedRenderDurations`, which alternates
-    /// each loaded canvas with the background-only one render by render. See that
-    /// helper for why subtracting a separately-timed baseline is not good enough.
-    ///
-    /// The two come back within a few percent of each other, which is itself the
-    /// result: at ~7.7× the pixels the export canvas costs the same, so this work
-    /// is **layout and text shaping, not rasterization**. Do not expect a smaller
-    /// canvas to make it cheaper - that was the assumption going in and the
-    /// measurement refuted it. Anyone attacking this should attack the number of
-    /// laid-out runs or cache the placed sticker, not the resolution.
-    ///
-    /// Both figures remain upper bounds even for add-time: `ImageRenderer` lays
-    /// out and rasterizes the entire canvas from scratch, background included,
-    /// where placing a sticker in the live app re-lays out a subtree over an
-    /// already-realized background. A count of zero is measured so the assertions
-    /// work on the marginal cost of a cluster rather than on a total dominated by
-    /// that shared background.
-    ///
-    /// The figures this currently produces are over a 120 Hz frame from three
-    /// clusters up. That is recorded, not fixed here: it is a one-off placement
-    /// hitch, not a drag, and it is tracked as issue #489. The assertions below
-    /// are about *scaling* and about the drag path, deliberately - this test does
-    /// not claim add-time fits in a frame, because it does not.
-    ///
-    /// **The scaling bar is a slope, not a ratio against the single-cluster
-    /// marginal.** One cluster is the smallest thing this file measures - a few
-    /// milliseconds over a background that is itself a couple of milliseconds -
-    /// and every other figure here is four to twelve times larger. Resting the
-    /// bar on that one number handed the bar's position to the noisiest
-    /// measurement in the file. Five-against-one came back 4.5× and 4.6× on a
-    /// busy desk, 6.1× on a quiet one and 11.3× on a loaded CI runner, and a bar
-    /// at 10× duly failed a run that had nothing to say about the composer.
-    /// Across those same four runs the slope between the two counts that *are*
-    /// measured well - what the fourth and fifth clusters cost per cluster
-    /// against what the first three did - stayed inside 1.05×-1.61×, so that is
-    /// what the bar rests on. Do not reintroduce a denominator taken from
-    /// `marginals[1]`.
+    /// What stayed is this: deterministic, allocation-free, and the only part of
+    /// it that was ever a regression guard.
     @Test
-    func addTimeLayoutScalesLinearlyAsHeaviestClustersPileUp() throws {
-        let counts = [0, 1, 3, 5]
-        let onScreenSize = ShareCardFormat.designSize
-        var loaded: [Int: ShareComposerViewModel] = [:]
-        var onScreen: [Int: Double] = [:]
-        var export: [Int: Double] = [:]
-        var marginals: [Int: Double] = [:]
-
-        for count in counts {
-            let viewModel = try Self.liveClimbViewModel()
-            let splits = try #require(viewModel.availablePresets().first { $0.id == "splits" })
-            for index in 0..<count {
-                viewModel.addPresetSticker(splits)
-                var placed = try #require(viewModel.stickers.last)
-                placed.position = CGPoint(x: 0.5, y: 0.2 + Double(index) * 0.15)
-                viewModel.update(placed)
-            }
-            loaded[count] = viewModel
-        }
-
-        // Every canvas is timed alternating against the background-only one, so the
-        // marginal cost below is a median of per-pair differences rather than a gap
-        // between two blocks the runner loaded differently. Count zero pairs the
-        // baseline with itself, which is why its marginal reads as ~0.
-        let background = try #require(loaded[0])
-        for count in counts {
-            let viewModel = try #require(loaded[count])
-            let paired = Self.pairedRenderDurations(
-                { ShareExportCanvas(viewModel: viewModel, size: onScreenSize) },
-                { ShareExportCanvas(viewModel: background, size: onScreenSize) }
-            )
-            onScreen[count] = paired.first
-            marginals[count] = paired.excess
-            export[count] = Self.medianRenderDuration {
-                ShareExportCanvas(viewModel: viewModel, size: Self.exportSize)
-            }
-        }
-
-        let rows = counts.map { count in
-            let marginal = marginals[count] ?? 0
-            return """
-              \(count) Splits cluster\(count == 1 ? "" : "s")
-                add-time layout, on-screen 390×845      \(Self.milliseconds(onScreen[count] ?? 0)) ms \
-            (\(String(format: "%.0f", (onScreen[count] ?? 0) / 0.0083 * 100))% of an 8.3 ms frame)\
-            \(count == 0 ? "  ← background only, the shared baseline" : ", clusters alone \(Self.milliseconds(marginal)) ms")
-                add-time layout, export 1080×2340       \(Self.milliseconds(export[count] ?? 0)) ms
-            """
-        }.joined(separator: "\n")
-
-        let report = """
-        Add-time layout with several of the heaviest cluster - median of 9 ImageRenderer passes
-        Each on-screen canvas is timed alternating with the background-only one, so "clusters
-        alone" is the median of nine per-pair differences rather than a gap between two blocks
-        the runner may have loaded differently.
-
-        \(rows)
-
-          Every figure above is a one-off first layout when a cluster is placed, never a
-          per-frame or drag cost. Each is labelled with the canvas size it was measured at.
-          On-screen and export land within a few percent of each other despite export
-          being ~7.7× the pixels, so this cost is layout and text shaping, not
-          rasterization: a smaller canvas does not make it cheaper.
-          Both are upper bounds even for add-time - ImageRenderer lays out and rasterizes
-          the whole canvas from scratch, background included, where the live app re-lays
-          out a subtree over an already-realized background.
-
-          Dragging is not timed here and does not need to be: the composer's per-frame work
-          is a memoized lookup, and this test asserts that 120 frames of pan, pinch and
-          rotate across five clusters build zero card trees.
-
-          120 Hz frame budget: 8.3 ms · 60 Hz frame budget: 16.7 ms
-        """
-        print(report)
-        Self.write(report, "09-add-time-layout-cost")
-
-        let dragViewModel = try Self.liveClimbViewModel()
-        let splits = try #require(dragViewModel.availablePresets().first { $0.id == "splits" })
-        for _ in 0..<5 { dragViewModel.addPresetSticker(splits) }
-        let beforeDrag = dragViewModel.stickers.map { dragViewModel.content(for: $0) }
-        let buildsAfterPlacing = dragViewModel.contentBuildCount
+    func draggingPlacedClustersRebuildsNoCardTrees() throws {
+        let viewModel = try Self.liveClimbViewModel()
+        let splits = try #require(viewModel.availablePresets().first { $0.id == "splits" })
+        for _ in 0..<5 { viewModel.addPresetSticker(splits) }
+        let beforeDrag = viewModel.stickers.map { viewModel.content(for: $0) }
+        let buildsAfterPlacing = viewModel.contentBuildCount
 
         for frame in 0..<120 {
-            for index in dragViewModel.stickers.indices {
-                dragViewModel.stickers[index].position = CGPoint(x: 0.4, y: 0.2 + Double(frame) / 1_000)
-                dragViewModel.stickers[index].scale = 1 + Double(frame) / 100
-                dragViewModel.stickers[index].rotationRadians = Double(frame) / 500
+            for index in viewModel.stickers.indices {
+                viewModel.stickers[index].position = CGPoint(x: 0.4, y: 0.2 + Double(frame) / 1_000)
+                viewModel.stickers[index].scale = 1 + Double(frame) / 100
+                viewModel.stickers[index].rotationRadians = Double(frame) / 500
             }
-            for sticker in dragViewModel.stickers { _ = dragViewModel.content(for: sticker) }
+            for sticker in viewModel.stickers { _ = viewModel.content(for: sticker) }
         }
 
         #expect(
@@ -542,41 +423,16 @@ struct ShareStatClusterPresetEvidenceTests {
             "the build counter never moved while placing five clusters, so it cannot prove anything below"
         )
         #expect(
-            dragViewModel.contentBuildCount == buildsAfterPlacing,
+            viewModel.contentBuildCount == buildsAfterPlacing,
             """
             120 frames of pan, pinch and rotate across five clusters built \
-            \(dragViewModel.contentBuildCount - buildsAfterPlacing) card trees; it must build none. \
+            \(viewModel.contentBuildCount - buildsAfterPlacing) card trees; it must build none. \
             That memoization is the whole reason a drag is not a layout.
             """
         )
         #expect(
-            beforeDrag == dragViewModel.stickers.map { dragViewModel.content(for: $0) },
+            beforeDrag == viewModel.stickers.map { viewModel.content(for: $0) },
             "a transform-only mutation must not change what a cluster draws"
-        )
-
-        // The scaling bar rests on the slope between the two well-measured counts,
-        // never on the single-cluster marginal - see the doc comment above.
-        let marginalThree = marginals[3] ?? 0
-        let marginalFive = marginals[5] ?? 0
-        #expect(
-            marginalThree > 0,
-            """
-            the measurement cannot see three clusters above the background baseline, so \
-            the scaling bar below means nothing.
-            \(report)
-            """
-        )
-        let earlyPerCluster = marginalThree / 3
-        let latePerCluster = (marginalFive - marginalThree) / 2
-        #expect(
-            latePerCluster < earlyPerCluster * 2.5,
-            """
-            the fourth and fifth clusters cost \(String(format: "%.2f", latePerCluster / earlyPerCluster))× \
-            per cluster what the first three did; piling clusters on is not allowed to cost \
-            dramatically more per cluster than starting the pile. Quadratic growth would put \
-            that at 2.67× - (25-9)/2 against 9/3 - so the bar is set just under it.
-            \(report)
-            """
         )
     }
 
@@ -686,14 +542,6 @@ struct ShareStatClusterPresetEvidenceTests {
             glyphs.addFilter(.shadow(color: .black.opacity(0.85), radius: 2.5, x: 0, y: 1.6))
             for line in layout { glyphs.draw(line) }
         }
-    }
-
-    /// Median of nine renders. The first pays for font and formatter setup, and
-    /// quoting that as the per-frame cost would overstate both sides.
-    private static func medianRenderDuration<Content: View>(
-        of content: @escaping () -> Content
-    ) -> Double {
-        median((0..<9).map { _ in renderDuration(of: content) })
     }
 
     /// Two spellings of the same drawing, timed against each other in one

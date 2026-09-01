@@ -107,6 +107,25 @@ Never grow a parallel model, renderer or gesture path for one.
 - Heart-rate copy is standardized in `ShareStatResolver` once, in the form `docs/share-stat-clusters.md` fixes; every sticker and cluster reads it from there rather than spelling its own.
 - `ShareStatClusterPresetTests` and `ShareStatClusterPresetEvidenceTests` hold the rules a cluster cannot keep on its own, including that no cluster outgrows the add sheet's preview tile.
 
+## What placing a cluster costs (measured, not re-derived)
+
+Recorded here because the benchmark that produced it was deleted from CI on 2026-09-01: `addTimeLayoutScalesLinearlyAsHeaviestClustersPileUp` timed 108 `ImageRenderer` passes on every commit to answer a question that only changes when the feature does, and its 2,008 MB peak was the single largest memory consumer in the whole iOS suite (`ascend-deploy` has that story). Re-derive these by hand if the cluster renderer changes materially; do not put a timing assertion back on a shared runner.
+
+Placing Splits, the heaviest cluster, on one canvas - median of 9 `ImageRenderer` passes each, export canvas 1080x2340:
+
+| Clusters | Export-canvas layout |
+|---|---|
+| 0 (background only) | 0.56 ms |
+| 1 | 2.93 ms |
+| 3 | 6.77 ms |
+| 5 | 10.49 ms |
+
+- **Cost is linear in cluster count, not quadratic.** The first three clusters cost ~2.07 ms each; the fourth and fifth ~1.86 ms each. Piling clusters on does not cost dramatically more per cluster than starting the pile, which is the property that mattered.
+- **This is layout and text shaping, not rasterization.** The on-screen 390x845 canvas and the export 1080x2340 one land within a few percent of each other despite ~7.7x the pixels, so a smaller canvas does not make it cheaper. Anyone attacking this should attack the number of laid-out runs or cache the placed sticker, never the resolution.
+- **Every figure is a one-off first layout when a cluster is placed**, never a per-frame or drag cost, and every one is an upper bound: `ImageRenderer` lays out and rasterizes the whole canvas from scratch including the background, where the live app re-lays out a subtree over an already-realized one.
+- **Add-time is over a 120 Hz frame from three clusters up.** That is a known one-off placement hitch rather than a drag cost, tracked as issue #489.
+- The drag path is not timed and does not need to be: a transform-only mutation is a memoized lookup. `draggingPlacedClustersRebuildsNoCardTrees` still guards that on every commit - 120 frames of pan, pinch and rotate across five clusters must build zero card trees - because it is deterministic and allocates nothing. That half of the deleted benchmark was kept deliberately.
+
 ## Export pipeline
 - **Photo background**: composite background + rendered sticker views into a single image (`ImageRenderer` for the stickers, drawn onto the background) -> save to Photos / share.
 - **Video background**: the overlay is rendered once and burned onto every frame by Core Image, through `AVVideoComposition.videoComposition(with:applyingCIFiltersWithHandler:)`, and written out by `AVAssetExportSession`. This is the hard, isolated piece - it only runs at export, and the editing UI is shared with the photo path.

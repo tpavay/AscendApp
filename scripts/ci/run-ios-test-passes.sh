@@ -3,30 +3,32 @@
 # Builds the staging test bundle once, then runs the suite across several host
 # processes instead of one.
 #
-# WHY, measured 2026-09-01 against `iOS Verify (Staging)`: one process cannot
-# hold this suite. Run whole, it peaks at 4,228 MB RSS on a `macos-15` runner
-# holding ~7 GB with ~2.4 GB already wired, and arrives at the tail of the run
-# with 65-83 MB free, ~2.7 GB in the compressor and ~50,000 swapouts. Past that
-# it stops completing tests at all - three killed runs each show 12-22 minutes
-# of total output silence with the host alive and still logging - and the cap
-# fires, reporting `cancelled` rather than a failure.
+# WHY, measured 2026-09-01 against `iOS Verify (Staging)`: one process could not
+# hold this suite. Run whole it peaked at 4,228 MB RSS on a `macos-15` runner
+# holding ~7 GB with ~2.4 GB already wired, reached the tail of the run with
+# 65-83 MB free and ~2.7 GB compressed, and then stopped completing tests at
+# all - three killed runs each show 12-22 minutes of total output silence with
+# the host alive and still logging. Split two ways it still lost a pass to
+# `EXC_BREAKPOINT` / "mach_vm_allocate_kernel failed within call to
+# vm_map_enter", an allocation failure that lands on a different test each run
+# and names none of them.
 #
-# The demand is concentrated, not spread. `ShareStatClusterPresetEvidenceTests`
-# alone peaks at 2,008 MB, and 2,008 of that is one test:
-# `addTimeLayoutScalesLinearlyAsHeaviestClustersPileUp` runs 108 full
-# `ImageRenderer` rasterizations - for each of four cluster counts, nine
-# interleaved pairs at 390x845 plus nine more at export size 1080x2340 - and
-# nothing is released between them. Measured across that suite: 1 test 729 MB,
-# 4 tests 805 MB, 9 tests 915 MB, then 2,341 MB once that one test is included.
-# Wrapping every render in `autoreleasepool` moved the peak by 0 MB, so the
-# retention is not autoreleased objects. That test's memory profile is a
-# standing repo defect, tracked separately; it is not this script's to fix.
+# The bulk of that demand was one benchmark, since deleted:
+# `addTimeLayoutScalesLinearlyAsHeaviestClustersPileUp` ran 108 `ImageRenderer`
+# passes and peaked at 2,008 MB alone against 630 MB for a sibling. Removing it
+# took its suite from 2,311 MB to 1,026 MB and the whole suite from 4,228 MB to
+# 3,122 MB.
 #
-# It is not any one branch's doing either: skipping the three suites of the
-# branch that first hit the cap moved peak RSS from 4,228 MB to 4,343 MB, i.e.
-# nowhere. And it is not a shortage of minutes - a killed run reached 1,814
-# completions in 6m44s against a green run's 1,846 in 8m30s. It is faster, then
-# it hits a wall.
+# Two passes are kept because 3,122 MB in one host is still most of what the
+# runner has once the simulator and `xcodebuild` are resident, and because the
+# split costs one extra host launch rather than a permanent slowdown. Do not
+# raise the pass count as a memory fix without measuring first: memory is
+# concentrated in a few suites rather than spread across tests, so splitting
+# four ways measured a HIGHER peak than two (2,881 MB against 2,020 MB) by
+# collecting the heavy suites into one pass.
+#
+# Minutes were never the constraint and the cap is not the lever: a killed run
+# reached 1,814 completions in 6m44s where a green run took 8m30s for 1,846.
 #
 # The tests, the build, the cache key and the runner are all unchanged. Only the
 # number of processes the suite is spread over changes, and each pass starts
@@ -39,7 +41,7 @@ if [ "$#" -lt 1 ]; then
 fi
 
 simulator_id="$1"
-pass_count="${2:-3}"
+pass_count="${2:-2}"
 log_dir="build-logs"
 log="$log_dir/xcodebuild-staging.log"
 
