@@ -79,8 +79,12 @@ struct PaywallDeleteAccountFromHostedPaywallTests {
 
         presenter.handleCustomPaywallAction(withName: "delete_account")
 
-        #expect(outcomes == [.deleteAccountRequested])
+        // Superwall's window sits above the app's, so nothing Ascend raises in answer to this
+        // action is visible until the paywall is gone: the outcome is reported after the dismissal
+        // it owns, never before it.
+        #expect(outcomes.isEmpty, "the outcome must not be reported while the paywall is still up")
         await presenter.drainPresentationOperationsForTesting()
+        #expect(outcomes == [.deleteAccountRequested])
         #expect(await dismissals.count == 1)
     }
 
@@ -106,8 +110,8 @@ struct PaywallDeleteAccountFromHostedPaywallTests {
         presenter.handleCustomPaywallAction(withName: "delete_account")
         presenter.handleDismissForTesting(revision: revision, result: .declined)
 
-        #expect(outcomes == [.deleteAccountRequested])
         await presenter.drainPresentationOperationsForTesting()
+        #expect(outcomes == [.deleteAccountRequested])
         #expect(await dismissals.count == 1, "the second tap must not dismiss a second time")
     }
 
@@ -173,6 +177,49 @@ struct PaywallDeleteAccountFromHostedPaywallTests {
         #expect(harness.nativeProvider.loadCount == 0)
     }
 
+    /// Ascend dismissed the hosted paywall before asking for the dialog, so a dialog that never
+    /// opened - a second sheet at the same modifier level defers the first (#429) - would leave the
+    /// gate on a paused spinner with no controls and no dismissal ever coming to release it. The
+    /// refusal has to land on the recovery surface instead, and has to be visible in telemetry.
+    @MainActor
+    @Test
+    func aDeletionDialogThatCannotOpenFallsBackToTheRecoverySurface() async {
+        let harness = GateDeleteAccountHarness(dialogOpens: false)
+
+        harness.openHostedPaywall()
+        harness.coordinator.handleHostedOutcomeForTesting(.deleteAccountRequested)
+
+        #expect(harness.deletionRequestCount == 1)
+        await harness.waitUntil { $0.phase == .nativeReady }
+        #expect(harness.coordinator.phase == .nativeReady)
+
+        let terminals = harness.gateTerminals
+        #expect(terminals.count == 1)
+        #expect(terminals[0].parameters["provider_outcome"] == .string("delete_account_requested"))
+        #expect(terminals[0].parameters["recovery_path"] == .string("native"))
+        #expect(
+            terminals[0].parameters["recovery_reason"]
+                == .string("hosted_delete_account_unavailable")
+        )
+    }
+
+    /// Cancelling brings the paywall back, so the gate says so rather than restoring focus to a
+    /// `Delete account` control that is about to stop being rendered.
+    @MainActor
+    @Test
+    func theGateReportsWhetherCancellingReopensTheHostedPaywall() {
+        let harness = GateDeleteAccountHarness()
+
+        harness.openHostedPaywall()
+        harness.coordinator.handleHostedOutcomeForTesting(.deleteAccountRequested)
+        #expect(harness.coordinator.accountDeletionDialogDismissed())
+
+        // From the native recovery surface there is no paywall to bring back, so the gate keeps
+        // focus on the control the climber actually left from.
+        harness.coordinator.handleHostedOutcomeForTesting(.dismissedWithoutPurchase)
+        #expect(harness.coordinator.accountDeletionDialogDismissed() == false)
+    }
+
     /// A deletion raised from the gate's own control leaves the native recovery surface alone.
     @MainActor
     @Test
@@ -205,7 +252,7 @@ private final class GateDeleteAccountHarness {
     let nativeProvider = DeleteAccountNativeProviderSpy()
     let presenter = RegisteringPaywallPresenterSpy()
     private let sink = InMemoryTelemetrySink(destination: .analytics)
-    private let deletionSpy = AccountDeletionRequestSpy()
+    private let deletionSpy: AccountDeletionRequestSpy
 
     var deletionRequestCount: Int { deletionSpy.count }
 
@@ -213,7 +260,8 @@ private final class GateDeleteAccountHarness {
         sink.records.filter { $0.name == "app_access_gate_attempt_terminal" }
     }
 
-    init() {
+    init(dialogOpens: Bool = true) {
+        deletionSpy = AccountDeletionRequestSpy(opens: dialogOpens)
         let telemetry = makeTestTelemetry(sink: sink)
         telemetry.setUserId("test-user")
         let manager = MonetizationManager(
@@ -255,9 +303,16 @@ private final class GateDeleteAccountHarness {
 @MainActor
 private final class AccountDeletionRequestSpy {
     private(set) var count = 0
+    private let opens: Bool
 
-    func request() {
+    init(opens: Bool) {
+        self.opens = opens
+    }
+
+    /// Answers what `RootView` answers: whether the deletion sheet actually presented.
+    func request() -> Bool {
         count += 1
+        return opens
     }
 }
 

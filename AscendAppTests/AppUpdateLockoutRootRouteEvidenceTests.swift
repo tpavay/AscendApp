@@ -298,7 +298,7 @@ private struct RootRouteEvidenceHarness: View {
             case .paywall:
                 AppAccessPaywallPlaceholderView(
                     initialPhase: .failed,
-                    onDeleteAccount: {}
+                    onDeleteAccount: { true }
                 )
             default:
                 Color.black

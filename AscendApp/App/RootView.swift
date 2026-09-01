@@ -213,7 +213,21 @@ struct RootView: View {
     private var gateAccountDeletionAction: (() -> Void)? {
         guard authVM.user != nil else { return nil }
 
-        return { isShowingGateAccountDeletion = true }
+        return { presentGateAccountDeletion() }
+    }
+
+    /// Raises the one deletion sheet and answers whether it actually opened.
+    ///
+    /// A second sheet at this modifier level defers the first (#429), and the app-access gate has
+    /// already dismissed its hosted paywall by the time it asks - so a refusal has to be reported
+    /// rather than swallowed, or the gate waits forever on a dismissal that never comes.
+    @MainActor
+    @discardableResult
+    private func presentGateAccountDeletion() -> Bool {
+        guard appVersionGateState.nudgePresentation == nil else { return false }
+
+        isShowingGateAccountDeletion = true
+        return true
     }
 
     private var rootRoute: AppRootRoute {
@@ -330,7 +344,7 @@ struct RootView: View {
                 AppAccessPaywallPlaceholderView(
                     accountDeletionDismissalRevision: gateAccountDeletionDismissalRevision,
                     onRequestOnboardingBack: postAuthOnboardingCoordinator.reopenLastStage,
-                    onDeleteAccount: { isShowingGateAccountDeletion = true },
+                    onDeleteAccount: { presentGateAccountDeletion() },
                     onSignOut: authVM.signOut
                 )
             }

@@ -11,7 +11,7 @@ struct AppAccessPaywallPlaceholderView: View {
     private let automaticallyStarts: Bool
     private let accountDeletionDismissalRevision: UInt
     private let onAccountDeletionFocusRestored: (() -> Void)?
-    private let onDeleteAccount: @MainActor () -> Void
+    private let onDeleteAccount: @MainActor () -> Bool
     private let onSignOut: () -> Void
     private let onRequestOnboardingBack: (@MainActor () -> Bool)?
 
@@ -24,7 +24,7 @@ struct AppAccessPaywallPlaceholderView: View {
         accountDeletionDismissalRevision: UInt = 0,
         onAccountDeletionFocusRestored: (() -> Void)? = nil,
         onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
-        onDeleteAccount: @escaping @MainActor () -> Void,
+        onDeleteAccount: @escaping @MainActor () -> Bool,
         onSignOut: @escaping () -> Void = {}
     ) {
         self.initialPhase = initialPhase
@@ -62,7 +62,7 @@ private struct AppAccessPaywallContentView: View {
     @AccessibilityFocusState private var focusedControl: FocusTarget?
 
     private let manager: MonetizationManager
-    private let onDeleteAccount: @MainActor () -> Void
+    private let onDeleteAccount: @MainActor () -> Bool
     private let onSignOut: () -> Void
     private let automaticallyStarts: Bool
     private let accountDeletionDismissalRevision: UInt
@@ -84,7 +84,7 @@ private struct AppAccessPaywallContentView: View {
         accountDeletionDismissalRevision: UInt,
         onAccountDeletionFocusRestored: (() -> Void)?,
         onRequestOnboardingBack: (@MainActor () -> Bool)?,
-        onDeleteAccount: @escaping @MainActor () -> Void,
+        onDeleteAccount: @escaping @MainActor () -> Bool,
         onSignOut: @escaping () -> Void
     ) {
         self.manager = manager
@@ -152,10 +152,14 @@ private struct AppAccessPaywallContentView: View {
             if !isPresented { focusedControl = .manageSubscription }
         }
         .onChange(of: accountDeletionDismissalRevision) { _, _ in
-            focusedControl = .deleteAccount
             // A deletion raised from the hosted paywall dismissed that paywall to get here, so
-            // backing out of it has to put the climber back on it.
-            coordinator.accountDeletionDialogDismissed()
+            // backing out of it has to put the climber back on it. That unrenders the control the
+            // climber came from, so focus is only restored when the gate is staying put.
+            if coordinator.accountDeletionDialogDismissed() {
+                AccessibilityNotification.Announcement("Reopening subscription options.").post()
+            } else {
+                focusedControl = .deleteAccount
+            }
             onAccountDeletionFocusRestored?()
         }
         .manageSubscriptionsSheet(isPresented: $isShowingManageSubscriptions)
@@ -375,7 +379,7 @@ private struct AppAccessPaywallContentView: View {
             .foregroundStyle(.white.opacity(0.7))
             .frame(maxWidth: .infinity, minHeight: 44)
 
-            Button(action: onDeleteAccount) {
+            Button { _ = onDeleteAccount() } label: {
                 Text("Delete account")
                     .frame(maxWidth: .infinity, minHeight: 44)
             }
@@ -490,6 +494,6 @@ private extension View {
 }
 
 #Preview {
-    AppAccessPaywallPlaceholderView(onDeleteAccount: {}, onSignOut: {})
+    AppAccessPaywallPlaceholderView(onDeleteAccount: { true }, onSignOut: {})
         .environment(MonetizationManager())
 }

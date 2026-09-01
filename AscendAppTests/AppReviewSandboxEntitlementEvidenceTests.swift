@@ -574,7 +574,7 @@ private struct GateRestoreProof: View {
             AppAccessPaywallPlaceholderView(
                 initialPhase: .failed,
                 initialRestoreState: column.state,
-                onDeleteAccount: {}
+                onDeleteAccount: { true }
             )
             .environment(monetizationManager)
             .frame(width: 340, height: 520)

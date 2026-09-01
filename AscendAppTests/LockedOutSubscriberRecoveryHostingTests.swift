@@ -29,7 +29,7 @@ struct LockedOutSubscriberRecoveryHostingTests {
             let controller = UIHostingController(
                 rootView: AppAccessPaywallPlaceholderView(
                     initialPhase: .failed,
-                    onDeleteAccount: { recorder.didRequestDeletion = true },
+                    onDeleteAccount: { recorder.didRequestDeletion = true; return true },
                     onSignOut: { signOutRecorder.didRequestSignOut = true }
                 )
                 .environment(manager)

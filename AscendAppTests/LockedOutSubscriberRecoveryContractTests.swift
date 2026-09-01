@@ -18,8 +18,8 @@ struct LockedOutSubscriberRecoveryContractTests {
             at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
         )
 
-        #expect(gate.contains("onDeleteAccount: @escaping @MainActor () -> Void"))
-        #expect(gate.contains("Button(action: onDeleteAccount)"))
+        #expect(gate.contains("onDeleteAccount: @escaping @MainActor () -> Bool"))
+        #expect(gate.contains("Button { _ = onDeleteAccount() } label: {"))
         #expect(gate.contains("Text(\"Delete account\")"))
         #expect(gate.contains(".accessibilityIdentifier(\"appAccessDeleteAccount\")"))
         // The hosted Superwall paywall covers this screen for most of a locked-out climber's
@@ -51,10 +51,10 @@ struct LockedOutSubscriberRecoveryContractTests {
         )
 
         let restoreIndex = try #require(gate.range(of: "coordinator.restore()")).lowerBound
-        let deleteIndex = try #require(gate.range(of: "Button(action: onDeleteAccount)")).lowerBound
+        let deleteIndex = try #require(gate.range(of: "Button { _ = onDeleteAccount() }")).lowerBound
         #expect(restoreIndex < deleteIndex, "Deletion must sit beneath Restore Purchases")
 
-        let link = try #require(gate.range(of: "Button(action: onDeleteAccount)"))
+        let link = try #require(gate.range(of: "Button { _ = onDeleteAccount() }"))
         let linkBlock = String(gate[link.lowerBound...].prefix(400))
         #expect(linkBlock.contains("montserratMedium(size: 13)"))
         #expect(!linkBlock.contains("Color.ascendAccent"))
@@ -91,14 +91,24 @@ struct LockedOutSubscriberRecoveryContractTests {
                 .map { String(root[$0.lowerBound...].prefix(200)) }
         )
         #expect(action.contains("guard authVM.user != nil else { return nil }"))
-        #expect(action.contains("isShowingGateAccountDeletion = true"))
+        #expect(action.contains("presentGateAccountDeletion()"))
     }
 
     @Test
     func theRootRouteWiresTheGateToTheRealDeletionSheet() throws {
         let root = try source(at: "AscendApp/App/RootView.swift")
 
-        #expect(root.contains("onDeleteAccount: { isShowingGateAccountDeletion = true }"))
+        #expect(root.contains("onDeleteAccount: { presentGateAccountDeletion() }"))
+        // One presenter for both routes, and it answers whether the sheet actually opened: the
+        // gate has already dismissed its hosted paywall by the time it asks, so a deferred sheet
+        // that reported nothing would leave the climber on a spinner with no controls at all.
+        let presenter = try #require(
+            root
+                .range(of: "private func presentGateAccountDeletion() -> Bool")
+                .map { String(root[$0.lowerBound...].prefix(200)) }
+        )
+        #expect(presenter.contains("guard appVersionGateState.nudgePresentation == nil else { return false }"))
+        #expect(presenter.contains("isShowingGateAccountDeletion = true"))
         #expect(root.contains(".sheet(isPresented: $isShowingGateAccountDeletion"))
         #expect(root.contains("DeleteAccountConfirmationView("))
         #expect(root.contains("onAccountDeleted: {}"))

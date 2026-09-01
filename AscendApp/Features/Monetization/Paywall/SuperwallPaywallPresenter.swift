@@ -562,9 +562,9 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
     /// A latched control banks its name for the dismissal that follows, because SuperwallKit
     /// re-dispatches every web event through an unstructured `Task` and the custom action landing
     /// before the close is observed behaviour rather than a contract. An Ascend-dismissed control
-    /// does not depend on that ordering at all: it reports its outcome here and takes ownership of
-    /// the dismissal, so ``handleDismiss(revision:result:onOutcome:)`` swallows the close it causes
-    /// rather than reporting a second outcome.
+    /// does not depend on that ordering at all: it takes ownership of the dismissal and reports its
+    /// outcome once that dismissal has finished, so ``handleDismiss(revision:result:onOutcome:)``
+    /// swallows the close it causes rather than reporting a second outcome.
     func handleCustomPaywallAction(withName name: String) {
         guard var token = presentedToken,
               attemptRegistry.isAuthoritative(token.revision) else { return }
@@ -582,8 +582,15 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
         token.latchedActionName = name
         token.recoveryOwned = true
         presentedToken = token
-        token.onOutcome(PaywallDismissIntent.resolve(action).outcome)
-        enqueueDismissal()
+        // The dismissal completes before the outcome is reported, because Superwall's window sits
+        // above the app's: anything Ascend raises in answer to this action is invisible until the
+        // paywall is gone (`docs/superwall-paywall-setup.md`).
+        let outcome = PaywallDismissIntent.resolve(action).outcome
+        let report = token.onOutcome
+        enqueuePresentationOperation { [dismissPresentation] in
+            await dismissPresentation()
+            report(outcome)
+        }
     }
 
     func handleSuperwallEvent(withInfo eventInfo: SuperwallEventInfo) {

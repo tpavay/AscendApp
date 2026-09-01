@@ -36,7 +36,11 @@ final class AppAccessPaywallCoordinator {
     private let onRequestOnboardingBack: (@MainActor () -> Bool)?
     /// Opens the same account-deletion dialog the gate's own `Delete account` control opens, so the
     /// hosted and native routes can never reach two different destinations.
-    private let onRequestAccountDeletion: (@MainActor () -> Void)?
+    ///
+    /// Returns whether that dialog actually opened. Ascend has already dismissed the hosted paywall
+    /// by the time this is asked, so a dialog that cannot present is the only thing standing
+    /// between the climber and a gate with no controls at all.
+    private let onRequestAccountDeletion: (@MainActor () -> Bool)?
     private let telemetry: TelemetryManager
     private let hostedOpeningDeadline: Duration
     private let nativeLoadingDeadline: Duration
@@ -67,7 +71,7 @@ final class AppAccessPaywallCoordinator {
         initialPlans: [NativeSubscriptionPlan] = [],
         initialStatusMessage: String? = nil,
         onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
-        onRequestAccountDeletion: (@MainActor () -> Void)? = nil,
+        onRequestAccountDeletion: (@MainActor () -> Bool)? = nil,
         hostedOpeningDeadline: Duration = .seconds(8),
         nativeLoadingDeadline: Duration = .seconds(12),
         sleep: @escaping Sleep = { try await Task.sleep(for: $0) },
@@ -146,9 +150,14 @@ final class AppAccessPaywallCoordinator {
     ///
     /// Only from a hosted phase. A deletion raised from the gate's own control leaves the native
     /// recovery surface exactly where it was.
-    func accountDeletionDialogDismissed() {
-        guard phase == .hostedPresented || phase == .openingHosted else { return }
+    ///
+    /// Returns whether the hosted paywall is coming back, because the control the climber was
+    /// focused on is about to stop being rendered when it is.
+    @discardableResult
+    func accountDeletionDialogDismissed() -> Bool {
+        guard phase == .hostedPresented || phase == .openingHosted else { return false }
         presentHosted(source: "account_deletion_dismissed")
+        return phase == .openingHosted
     }
 
     func selectPlan(_ planID: String) {
@@ -440,6 +449,27 @@ final class AppAccessPaywallCoordinator {
             // "Loading subscription options." over that dialog to a VoiceOver climber.
             // `accountDeletionDialogDismissed()` answers what happens if they back out.
             watchdogTask?.cancel()
+            guard onRequestAccountDeletion?() == true else {
+                // Ascend already dismissed the hosted paywall to raise that dialog, so a deletion
+                // that never opened would leave the gate on a paused spinner with no controls at
+                // all - not even the account-deletion route Guideline 5.1.1(v) requires, and no
+                // dismissal ever coming to release it. Recovery, never a dead surface.
+                recordGateTerminal(
+                    presentationRevision: presentationRevision,
+                    presentationIdentity: presentationIdentity,
+                    providerOutcome: .deleteAccountRequested,
+                    recoveryPath: .native,
+                    recoveryReason: .hostedDeleteAccountUnavailable,
+                    entitlementActive: entitlementPresence
+                )
+                beginNativeFallback(
+                    message: "Ascend couldn't open account deletion. Try it again below, or choose a plan, restore, or contact support.",
+                    presentationRevision: presentationRevision,
+                    presentationIdentity: presentationIdentity,
+                    reason: .hostedDeleteAccountUnavailable
+                )
+                return
+            }
             recordGateTerminal(
                 presentationRevision: presentationRevision,
                 presentationIdentity: presentationIdentity,
@@ -448,7 +478,6 @@ final class AppAccessPaywallCoordinator {
                 recoveryReason: .hostedDeleteAccountRequested,
                 entitlementActive: entitlementPresence
             )
-            onRequestAccountDeletion?()
         case .dismissedWithoutPurchase:
             watchdogTask?.cancel()
             beginNativeFallback(
