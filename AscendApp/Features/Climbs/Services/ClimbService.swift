@@ -223,6 +223,38 @@ final class ClimbService {
         )
     }
 
+    /// Every *other* completion this climber has recorded on one climb, as
+    /// durations in seconds.
+    ///
+    /// The attempt that produced `workoutId` is excluded here so the caller owns
+    /// exactly one copy of the completion being placed: `PersonalClimbPlacing`
+    /// adds it back as the one it is ranking, which is what keeps it from
+    /// double-counting or dropping itself.
+    ///
+    /// Bounded by climb and status in the predicate rather than filtered after a
+    /// full fetch: a completion summary reads this from its `.task`, so the cost
+    /// has to track the climber's history on one tower and not their whole store.
+    func otherCompletionDurationsSeconds(
+        forClimbId climbId: String,
+        excludingWorkoutId workoutId: UUID,
+        modelContext: ModelContext
+    ) -> [Int] {
+        let completedRawValue = ClimbAttemptStatus.completed.rawValue
+        let descriptor = FetchDescriptor<ClimbAttempt>(
+            predicate: #Predicate { attempt in
+                attempt.climbId == climbId && attempt.statusRawValue == completedRawValue
+            }
+        )
+
+        guard let attempts = try? modelContext.fetch(descriptor) else { return [] }
+
+        let excludedWorkoutId = workoutId.uuidString
+        return attempts
+            .filter { !$0.appliedWorkoutIds.contains(excludedWorkoutId) }
+            .map { $0.bestCompletionDurationSeconds ?? $0.accumulatedDurationSeconds }
+            .filter { $0 > 0 }
+    }
+
     func mirrorFinisherStatus(
         _ status: LiveReplayFinisherStatus,
         for climb: Climb,

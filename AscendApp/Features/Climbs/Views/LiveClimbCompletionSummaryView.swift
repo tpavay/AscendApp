@@ -25,6 +25,10 @@ struct LiveClimbCompletionSummaryView: View {
     @State private var frozenCompletionRank: LiveReplayCompletionRankSnapshot?
     @State private var computedCompletionRank: LiveReplayCompletionRank?
     @State private var rankResolution: LiveClimbSummaryRankHero.RankResolution = .notStarted
+    /// Where this completion sits among the climber's own completions of the same
+    /// climb. Resolved in the view's `.task` rather than the body, because it is a
+    /// store read. See `PersonalClimbPlacing`.
+    @State private var personalClimbPlacing: PersonalClimbPlacing?
     @State private var didTrackSummaryViewed = false
     init(
         climb: Climb?,
@@ -84,7 +88,7 @@ struct LiveClimbCompletionSummaryView: View {
                 VStack(spacing: 18) {
                     rankingSection(hero: hero)
                     primaryStatsGrid
-                    achievementCard
+                    achievementCard(hero: hero)
                     paceSplitsCard
                     paceTrendCard
                 }
@@ -115,6 +119,10 @@ struct LiveClimbCompletionSummaryView: View {
             )
         }
         .task(id: workout.id) {
+            // Resolved before any await: the hero refuses to render a rank over a
+            // field of one until it knows the climber's own placing, so making it
+            // wait on the network would stall the whole solo hero behind it.
+            resolvePersonalClimbPlacing()
             await resolveCompletionRank()
             trackSummaryViewedIfNeeded()
         }
@@ -165,12 +173,12 @@ struct LiveClimbCompletionSummaryView: View {
         }
     }
 
-    private var achievementCard: some View {
+    private func achievementCard(hero: LiveClimbSummaryRankHero?) -> some View {
         HStack(spacing: 14) {
             achievementIcon
 
             VStack(alignment: .leading, spacing: 5) {
-                Text(achievementTitle)
+                Text(achievementTitle(hero: hero))
                     .font(.montserratBold(size: 12))
                     .foregroundStyle(.accent)
 
@@ -371,12 +379,28 @@ struct LiveClimbCompletionSummaryView: View {
 
     /// A Best Effort survives the override: it is derived from the steps the climber really took, so
     /// it stands on its own without asserting that the session counted.
-    private var achievementTitle: String {
+    ///
+    /// When a real field of climbers takes the hero, the climber's placing among
+    /// their own climbs drops here instead - two ordinals, two explicitly named
+    /// fields, no collision between them. When the hero already *is* that placing
+    /// there is nothing to drop, so this row keeps saying what it always said.
+    private func achievementTitle(hero: LiveClimbSummaryRankHero?) -> String {
         if primaryBestEffort != nil {
             return "BEST EFFORT"
         }
 
-        return achievementTitleOverride ?? "CLIMB COMPLETE"
+        if let achievementTitleOverride {
+            return achievementTitleOverride
+        }
+
+        if let personalClimbPlacing,
+           !personalClimbPlacing.isFirstCompletionHere,
+           let hero,
+           case .rank = hero.value {
+            return personalClimbPlacing.achievementTitle
+        }
+
+        return "CLIMB COMPLETE"
     }
 
     private var achievementSubtitle: String {
@@ -402,6 +426,7 @@ struct LiveClimbCompletionSummaryView: View {
                 isClimbContext: climb != nil,
                 sources: rankSources
             ),
+            personalPlacing: personalClimbPlacing,
             sync: LiveClimbSummaryRankHero.SyncState(
                 phase: publicResultStatus?.phase,
                 hasRankContext: hasCompletionRankContext,
@@ -587,6 +612,26 @@ struct LiveClimbCompletionSummaryView: View {
             debugLog("Live Climb summary current standing fetch failed: \(error.localizedDescription)")
 #endif
         }
+    }
+
+    /// Reads the climber's own completions of this climb so the hero can place
+    /// this one among them.
+    ///
+    /// Bounded to one climb by `ClimbService.otherCompletionDurationsSeconds`, and
+    /// only meaningful on a catalog climb: a routine or an open Just Climb has no
+    /// tower to have climbed twice.
+    @MainActor
+    private func resolvePersonalClimbPlacing() {
+        guard let climb else { return }
+
+        personalClimbPlacing = PersonalClimbPlacing(
+            durationSeconds: Int(workout.duration.rounded()),
+            otherCompletionDurationsSeconds: ClimbService.shared.otherCompletionDurationsSeconds(
+                forClimbId: climb.id,
+                excludingWorkoutId: workout.id,
+                modelContext: modelContext
+            )
+        )
     }
 
     /// Keeps the attempt's `globalCompletionOrder` current, which the First Ascent count and the

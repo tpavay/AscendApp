@@ -34,7 +34,7 @@ struct LiveClimbSummaryRankHeroView: View {
 
                 Text(detailText)
                     .font(.montserratBold(size: 12))
-                    .foregroundStyle(.white.opacity(0.66))
+                    .foregroundStyle(detailColor)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .minimumScaleFactor(0.74)
@@ -60,15 +60,28 @@ struct LiveClimbSummaryRankHeroView: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// The ordinal is the accent lime in every case, whether it counts a real
+    /// field of climbers or the climber's own climbs. The label beneath it
+    /// already names whose field it is, so a colour split would be saying the
+    /// same thing twice.
     @ViewBuilder
     private var rankingValue: some View {
         switch hero.value {
         case .rank(let rank):
-            Text(rank.rankOrdinalText)
-                .font(.montserratBold(size: 72))
-                .foregroundStyle(.accent)
-                .lineLimit(1)
-                .minimumScaleFactor(0.64)
+            ordinal(rank)
+
+        case .personalPlacing(let placing):
+            ordinal(placing.ordinal)
+
+        case .firstAscent:
+            // The permanent thing takes the hero. It is the one state with no
+            // number, because every number here expires and a First Ascent
+            // does not.
+            Image("FirstAscentBadgeDetailed")
+                .resizable()
+                .scaledToFit()
+                .frame(width: Self.firstAscentFlagSize, height: Self.firstAscentFlagSize)
+                .accessibilityHidden(true)
 
         case .loading:
             AscendSkeletonText(width: 144, height: 58)
@@ -78,8 +91,27 @@ struct LiveClimbSummaryRankHeroView: View {
         }
     }
 
+    private static let firstAscentFlagSize: CGFloat = 88
+
+    private func ordinal(_ value: Int) -> some View {
+        Text(value.rankOrdinalText)
+            .font(.montserratBold(size: 72))
+            .foregroundStyle(.accent)
+            .lineLimit(1)
+            .minimumScaleFactor(0.64)
+    }
+
     private var detailText: String {
         fieldLine ?? hero.detail
+    }
+
+    private var detailColor: Color {
+        switch hero.detailEmphasis {
+        case .neutral:
+            return .white.opacity(0.66)
+        case .prestige:
+            return .ascendMedalGold
+        }
     }
 
     /// The plain-language ordering, or nil wherever asserting one would outrun
@@ -105,6 +137,10 @@ struct LiveClimbSummaryRankHeroView: View {
         let position = switch hero.value {
         case .rank(let rank):
             "\(rank.rankOrdinalText), \(detailText.lowercased())"
+        case .personalPlacing(let placing):
+            "\(placing.ordinal.rankOrdinalText), \(detailText.lowercased())"
+        case .firstAscent:
+            hero.detail.lowercased()
         case .loading, .unranked:
             hero.detail.lowercased()
         }

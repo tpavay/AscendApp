@@ -123,12 +123,45 @@ struct LiveClimbSummaryRankHero: Equatable {
     }
 
     /// What occupies the big slot.
+    ///
+    /// One rule governs the choice, locked with the captain on 2026-09-01
+    /// (`rank-when-alone`, `solo-repeat-finish-card`, `rival-repeat-finish-card`):
+    ///
+    /// > The leaderboard rank takes the hero whenever a real field exists. When
+    /// > the climber is the only one on the tower, the hero states their placing
+    /// > among their own climbs. When both are true the leaderboard rank leads and
+    /// > the personal placing drops to the achievement row.
+    ///
+    /// `1st of 1 CLIMBER` is therefore unrepresentable. It was invariant across
+    /// every possible performance - 8:12, 9:40 and 14:00 all produced it - so on a
+    /// slower repeat it congratulated the climber for the run that had just beaten
+    /// them.
     enum Value: Equatable {
+        /// A standing over a real field of other climbers.
         case rank(Int)
+        /// Where this run placed among the climber's own climbs of this tower.
+        /// Only ever shown where no field of other climbers exists to rank
+        /// against - and it can fall, which is the entire point.
+        case personalPlacing(PersonalClimbPlacing)
+        /// This completion took the tower's First Ascent: the climber's first
+        /// finish here, with nobody else on the board. Permanent and
+        /// unreclaimable, which is why it outranks any ordinal.
+        case firstAscent
         /// The rank is genuinely in flight. The label stays; only the value loads.
         case loading
         /// No rank, and none is arriving. The detail line carries the reason.
         case unranked
+    }
+
+    /// How the detail line beneath the value is painted.
+    ///
+    /// The ordinal is the accent lime in every case; the label beneath it is the
+    /// neutral secondary white, because the label's own words already say whose
+    /// field is being counted. The one exception is the First Ascent claim, which
+    /// is the gold prestige token.
+    enum DetailEmphasis: Equatable {
+        case neutral
+        case prestige
     }
 
     /// How far the surface has got in resolving a rank for this session.
@@ -191,12 +224,16 @@ struct LiveClimbSummaryRankHero: Equatable {
     static let atCompletionDetail = "RANK WHEN YOU FINISHED"
     static let freshAtCompletionDetail = "RANK YOU JUST EARNED"
     static let currentDetail = "CURRENT LEADERBOARD RANK"
+    /// The whole First Ascent card. No sentence, no date, no dare, no rank -
+    /// the gold flag and this claim, and nothing else (`first-ascent-line-copy`).
+    static let firstAscentDetail = "FIRST ASCENT CLAIMED"
 
     /// Names the board this standing sits on, for the surfaces that rank on one
     /// of their own. Nil wherever the field line already says everything true.
     let label: String?
     let value: Value
     let detail: String
+    let detailEmphasis: DetailEmphasis
     let standing: Standing?
     let showsRetrySync: Bool
 
@@ -240,35 +277,75 @@ struct LiveClimbSummaryRankHero: Equatable {
     ///   - moment: Whether this summary is the post-session moment itself.
     ///   - standings: Candidates most-authoritative first; the first non-`nil`
     ///     entry supplies both the rank and its total.
+    ///   - personalPlacing: Where this completion sits among the climber's own
+    ///     completions of the same climb. Only consulted on a climb, and only
+    ///     where the standing counts a field of one.
     static func make(
         isClimbContext: Bool,
         moment: Moment = .retrospective,
         standings: [Standing?],
+        personalPlacing: PersonalClimbPlacing? = nil,
         sync: SyncState,
         copy: Copy
     ) -> Self? {
         guard sync.hasRankContext else { return nil }
 
         let standing = standings.compactMap { $0 }.first
+        let value = value(
+            standing: standing,
+            personalPlacing: personalPlacing,
+            isClimbContext: isClimbContext,
+            sync: sync
+        )
 
         return Self(
             label: copy.labelOverride,
-            value: value(standing: standing, sync: sync),
+            value: value,
             detail: detail(
+                value: value,
                 standing: standing,
                 isClimbContext: isClimbContext,
                 moment: moment,
                 sync: sync,
                 copy: copy
             ),
+            detailEmphasis: value == .firstAscent ? .prestige : .neutral,
             standing: standing,
             showsRetrySync: standing == nil && sync.phase == .syncFailedRetry
         )
     }
 
-    private static func value(standing: Standing?, sync: SyncState) -> Value {
+    /// Whether a standing counted a field the climber was alone in.
+    ///
+    /// Only a positively-known field of one qualifies. A standing with no
+    /// denominator says nothing about how many climbers finished, so it keeps its
+    /// rank rather than being demoted on a guess.
+    private static func countsAFieldOfOne(_ standing: Standing) -> Bool {
+        standing.total == 1
+    }
+
+    private static func value(
+        standing: Standing?,
+        personalPlacing: PersonalClimbPlacing?,
+        isClimbContext: Bool,
+        sync: SyncState
+    ) -> Value {
         if let standing {
-            return .rank(standing.rank)
+            guard isClimbContext, countsAFieldOfOne(standing) else {
+                return .rank(standing.rank)
+            }
+
+            // Alone on the tower. A rank over a field of one cannot fall, so it
+            // is never shown - not as "1st of 1 CLIMBER", not relabelled.
+            if let personalPlacing {
+                return personalPlacing.isFirstCompletionHere
+                    ? .firstAscent
+                    : .personalPlacing(personalPlacing)
+            }
+
+            // The climber's own history has not been read yet. Wait for it rather
+            // than falling back to the number this whole rule exists to remove.
+            return sync.rankResolution.isPending ? .loading : .unranked
         }
 
         if sync.rankResolution.isPending || sync.phase == .syncingRanking {
@@ -279,17 +356,30 @@ struct LiveClimbSummaryRankHero: Equatable {
     }
 
     private static func detail(
+        value: Value,
         standing: Standing?,
         isClimbContext: Bool,
         moment: Moment,
         sync: SyncState,
         copy: Copy
     ) -> String {
+        switch value {
+        case .firstAscent:
+            return firstAscentDetail
+        case .personalPlacing(let placing):
+            // Names whose field this ordinal counts, so it can never be read as a
+            // leaderboard rank. "Here" is dropped: the climb's name is already in
+            // the card header.
+            return placing.fieldLabel
+        case .rank, .loading, .unranked:
+            break
+        }
+
         // A standing whose population this type knows always names it. The
         // caller's completed copy ("LIVE CLIMB COMPLETE", "ROUTINE COMPLETE")
         // describes the session, not the population, so it only stands where the
         // population is the caller's own race window.
-        if let standing {
+        if let standing, case .rank = value {
             switch standing.basis {
             case .atCompletion:
                 return moment == .freshCompletion ? freshAtCompletionDetail : atCompletionDetail

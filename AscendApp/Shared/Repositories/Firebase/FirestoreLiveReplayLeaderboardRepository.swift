@@ -440,12 +440,14 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
                 .limit(to: limit)
         }
 
+        let currentUserId = Auth.auth().currentUser?.uid
         let snapshot = try await query.getDocuments(source: .server)
         return snapshot.documents.compactMap { document in
             parseRow(
                 id: document.documentID,
                 data: document.data(),
-                currentSteps: currentSteps
+                currentSteps: currentSteps,
+                currentUserId: currentUserId
             )
         }
     }
@@ -578,10 +580,19 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         }
     }
 
+    /// Parses one live-race entry.
+    ///
+    /// `currentUserId` is what lets an entry the signed-in climber published
+    /// earlier be told apart from a rival's. It is not drawn as a row: a
+    /// per-climb board collapses each climber to their best, so this is the
+    /// climber's previous best, and the board renders it as the `BEST` marker
+    /// inside their own row instead. Before that distinction existed the row
+    /// rendered as a stranger with the climber's own name on it.
     private func parseRow(
         id: String,
         data: [String: Any],
-        currentSteps: Int
+        currentSteps: Int,
+        currentUserId: String?
     ) -> LiveReplayLeaderboardRow? {
         guard let stepsAtBucket = intValue(for: "stepsAtBucket", in: data) else {
             return nil
@@ -609,6 +620,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             finalSteps: intValue(for: "finalSteps", in: data) ?? stepsAtBucket,
             deltaFromUser: stepsAtBucket - currentSteps,
             isCurrentUser: false,
+            isOwnPreviousCompletion: userId != nil && userId == currentUserId,
             isPersonalBest: (data["isPersonalBest"] as? Bool) ?? false,
             completionDurationSeconds: doubleValue(for: "completionDurationSeconds", in: data),
             userId: userId,

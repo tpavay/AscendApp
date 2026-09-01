@@ -399,6 +399,30 @@ final class LiveClimbSessionViewModel {
         return min(max(Double(totalRecordedSteps) / Double(scale), 0), 1)
     }
 
+    /// Where this climber's previous best on this climb had reached at this
+    /// moment, in steps, or nil when they have never finished it.
+    ///
+    /// The board withdrew that completion from the standings, so this is all that
+    /// is left of it: a position for the `BEST` marker. It is never ranked, never
+    /// counted in the field size, and never accompanied by a number.
+    var previousBestStepsAtBucket: Int? {
+        leaderboardWindow?.previousBestStepsAtBucket(
+            currentElapsedSeconds: Int(displayedDuration.rounded(.down))
+        )
+    }
+
+    /// The same position as a fraction of the summit, for the Just Me rail.
+    var previousBestProgressFraction: Double? {
+        guard let previousBestStepsAtBucket,
+              previousBestStepsAtBucket > 0,
+              let targetSteps = mode.targetStepCount,
+              targetSteps > 0 else {
+            return nil
+        }
+
+        return min(Double(previousBestStepsAtBucket) / Double(targetSteps), 1)
+    }
+
     var leaderboardTotalClimbers: Int {
         max(leaderboardWindow?.totalClimbers ?? 0, leaderboardSummary.totalClimbers)
     }
