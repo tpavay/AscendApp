@@ -37,10 +37,11 @@ final class AppAccessPaywallCoordinator {
     /// Opens the same account-deletion dialog the gate's own `Delete account` control opens, so the
     /// hosted and native routes can never reach two different destinations.
     ///
-    /// Returns whether that dialog actually opened. Ascend has already dismissed the hosted paywall
-    /// by the time this is asked, so a dialog that cannot present is the only thing standing
-    /// between the climber and a gate with no controls at all.
-    private let onRequestAccountDeletion: (@MainActor () -> Bool)?
+    /// Ascend has already dismissed the hosted paywall by the time this is asked, so the dialog has
+    /// to open. `RootView` guarantees that by making the only sheet that could defer it - the soft
+    /// update nudge - yield first, rather than reporting a refusal this gate would have nowhere to
+    /// render.
+    private let onRequestAccountDeletion: (@MainActor () -> Void)?
     private let telemetry: TelemetryManager
     private let hostedOpeningDeadline: Duration
     private let nativeLoadingDeadline: Duration
@@ -71,7 +72,7 @@ final class AppAccessPaywallCoordinator {
         initialPlans: [NativeSubscriptionPlan] = [],
         initialStatusMessage: String? = nil,
         onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
-        onRequestAccountDeletion: (@MainActor () -> Bool)? = nil,
+        onRequestAccountDeletion: (@MainActor () -> Void)? = nil,
         hostedOpeningDeadline: Duration = .seconds(8),
         nativeLoadingDeadline: Duration = .seconds(12),
         sleep: @escaping Sleep = { try await Task.sleep(for: $0) },
@@ -449,27 +450,6 @@ final class AppAccessPaywallCoordinator {
             // "Loading subscription options." over that dialog to a VoiceOver climber.
             // `accountDeletionDialogDismissed()` answers what happens if they back out.
             watchdogTask?.cancel()
-            guard onRequestAccountDeletion?() == true else {
-                // Ascend already dismissed the hosted paywall to raise that dialog, so a deletion
-                // that never opened would leave the gate on a paused spinner with no controls at
-                // all - not even the account-deletion route Guideline 5.1.1(v) requires, and no
-                // dismissal ever coming to release it. Recovery, never a dead surface.
-                recordGateTerminal(
-                    presentationRevision: presentationRevision,
-                    presentationIdentity: presentationIdentity,
-                    providerOutcome: .deleteAccountRequested,
-                    recoveryPath: .native,
-                    recoveryReason: .hostedDeleteAccountUnavailable,
-                    entitlementActive: entitlementPresence
-                )
-                beginNativeFallback(
-                    message: "Ascend couldn't open account deletion. Try it again below, or choose a plan, restore, or contact support.",
-                    presentationRevision: presentationRevision,
-                    presentationIdentity: presentationIdentity,
-                    reason: .hostedDeleteAccountUnavailable
-                )
-                return
-            }
             recordGateTerminal(
                 presentationRevision: presentationRevision,
                 presentationIdentity: presentationIdentity,
@@ -478,6 +458,7 @@ final class AppAccessPaywallCoordinator {
                 recoveryReason: .hostedDeleteAccountRequested,
                 entitlementActive: entitlementPresence
             )
+            onRequestAccountDeletion?()
         case .dismissedWithoutPurchase:
             watchdogTask?.cancel()
             beginNativeFallback(

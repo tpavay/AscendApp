@@ -11,7 +11,7 @@ struct AppAccessPaywallPlaceholderView: View {
     private let automaticallyStarts: Bool
     private let accountDeletionDismissalRevision: UInt
     private let onAccountDeletionFocusRestored: (() -> Void)?
-    private let onDeleteAccount: @MainActor () -> Bool
+    private let onDeleteAccount: @MainActor () -> Void
     private let onSignOut: () -> Void
     private let onRequestOnboardingBack: (@MainActor () -> Bool)?
 
@@ -24,7 +24,7 @@ struct AppAccessPaywallPlaceholderView: View {
         accountDeletionDismissalRevision: UInt = 0,
         onAccountDeletionFocusRestored: (() -> Void)? = nil,
         onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
-        onDeleteAccount: @escaping @MainActor () -> Bool,
+        onDeleteAccount: @escaping @MainActor () -> Void,
         onSignOut: @escaping () -> Void = {}
     ) {
         self.initialPhase = initialPhase
@@ -62,7 +62,7 @@ private struct AppAccessPaywallContentView: View {
     @AccessibilityFocusState private var focusedControl: FocusTarget?
 
     private let manager: MonetizationManager
-    private let onDeleteAccount: @MainActor () -> Bool
+    private let onDeleteAccount: @MainActor () -> Void
     private let onSignOut: () -> Void
     private let automaticallyStarts: Bool
     private let accountDeletionDismissalRevision: UInt
@@ -84,7 +84,7 @@ private struct AppAccessPaywallContentView: View {
         accountDeletionDismissalRevision: UInt,
         onAccountDeletionFocusRestored: (() -> Void)?,
         onRequestOnboardingBack: (@MainActor () -> Bool)?,
-        onDeleteAccount: @escaping @MainActor () -> Bool,
+        onDeleteAccount: @escaping @MainActor () -> Void,
         onSignOut: @escaping () -> Void
     ) {
         self.manager = manager
@@ -379,7 +379,7 @@ private struct AppAccessPaywallContentView: View {
             .foregroundStyle(.white.opacity(0.7))
             .frame(maxWidth: .infinity, minHeight: 44)
 
-            Button { _ = onDeleteAccount() } label: {
+            Button(action: onDeleteAccount) {
                 Text("Delete account")
                     .frame(maxWidth: .infinity, minHeight: 44)
             }
@@ -494,6 +494,6 @@ private extension View {
 }
 
 #Preview {
-    AppAccessPaywallPlaceholderView(onDeleteAccount: { true }, onSignOut: {})
+    AppAccessPaywallPlaceholderView(onDeleteAccount: {}, onSignOut: {})
         .environment(MonetizationManager())
 }

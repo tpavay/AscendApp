@@ -586,9 +586,13 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
         // above the app's: anything Ascend raises in answer to this action is invisible until the
         // paywall is gone (`docs/superwall-paywall-setup.md`).
         let outcome = PaywallDismissIntent.resolve(action).outcome
+        let revision = token.revision
         let report = token.onOutcome
-        enqueuePresentationOperation { [dismissPresentation] in
+        enqueuePresentationOperation { [weak self, dismissPresentation] in
             await dismissPresentation()
+            // The queue can outlive the attempt that filled it, so authority is re-checked here on
+            // the same terms `handleDismiss` applies rather than being left to downstream guards.
+            guard let self, self.attemptRegistry.isAuthoritative(revision) else { return }
             report(outcome)
         }
     }

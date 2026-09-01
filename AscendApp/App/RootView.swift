@@ -21,6 +21,7 @@ struct RootView: View {
     @State private var tabRouter = TabRouter()
     @State private var accountDataConflict: AccountDataOwnershipConflict?
     @State private var isShowingGateAccountDeletion = false
+    @State private var isGateAccountDeletionWaitingOnNudge = false
     @State private var isGateDeletionUnresolved = false
     @State private var isGateDeletionDismissPending = false
     @State private var gateAccountDeletionDismissalRevision: UInt = 0
@@ -54,7 +55,10 @@ struct RootView: View {
         .themeAware()
         // The soft nudge only. The lockout left this modifier when it became a route, so the two
         // can never stack and nothing presented outside this hierarchy can cover the refusal.
-        .sheet(item: $appVersionGateState.nudgePresentation) { presentation in
+        .sheet(
+            item: $appVersionGateState.nudgePresentation,
+            onDismiss: presentGateAccountDeletionWaitingOnNudge
+        ) { presentation in
             AppUpdateSheet(
                 presentation: presentation,
                 onOpenAppStore: openAscendInAppStore,
@@ -216,18 +220,34 @@ struct RootView: View {
         return { presentGateAccountDeletion() }
     }
 
-    /// Raises the one deletion sheet and answers whether it actually opened.
+    /// Raises the one deletion sheet.
     ///
-    /// A second sheet at this modifier level defers the first (#429), and the app-access gate has
-    /// already dismissed its hosted paywall by the time it asks - so a refusal has to be reported
-    /// rather than swallowed, or the gate waits forever on a dismissal that never comes.
+    /// A second sheet at this modifier level defers the first (#429), and the only other sheet
+    /// here is the soft update nudge. So the nudge yields: a climber asking to delete their
+    /// account outranks a recommended update, and the app-access gate has already dismissed its
+    /// hosted paywall by the time it asks. Handing the request to the nudge's own `onDismiss` is
+    /// what makes that deterministic - the sheet is provably gone before the next one is raised,
+    /// rather than both being set in one runloop turn and one of them being dropped.
+    ///
+    /// `nudgePresentation` is non-nil only for `.recommended`, which `dismissRecommended()` always
+    /// clears, so there is no state this can fail to leave.
     @MainActor
-    @discardableResult
-    private func presentGateAccountDeletion() -> Bool {
-        guard appVersionGateState.nudgePresentation == nil else { return false }
+    private func presentGateAccountDeletion() {
+        guard appVersionGateState.nudgePresentation != nil else {
+            isShowingGateAccountDeletion = true
+            return
+        }
 
+        isGateAccountDeletionWaitingOnNudge = true
+        appVersionGateState.dismissRecommended()
+    }
+
+    @MainActor
+    private func presentGateAccountDeletionWaitingOnNudge() {
+        guard isGateAccountDeletionWaitingOnNudge else { return }
+
+        isGateAccountDeletionWaitingOnNudge = false
         isShowingGateAccountDeletion = true
-        return true
     }
 
     private var rootRoute: AppRootRoute {

@@ -263,6 +263,11 @@ So a surface that must be reachable *while* a paywall is up has exactly two hone
 What does not work, and must not be attempted again: presenting a SwiftUI `.sheet` from `RootView` and expecting it to cover the paywall.
 Raising the app window's level or hosting Ascend UI on Superwall's window would technically layer, but both are a second presentation path for a surface that already has one, so neither is sanctioned.
 
+Once the paywall is gone, the sheet Ascend raises still has to win at its own modifier level.
+Two `.sheet` modifiers on the same view defer one another, which is the second half of the #429 mechanism, and `RootView` carries both the soft update nudge and the account-deletion dialog there.
+A climber asking to delete their account outranks a recommended update, so the nudge yields: `presentGateAccountDeletion()` calls `dismissRecommended()` and hands the request to the nudge sheet's own `onDismiss`, which raises the deletion dialog only once the nudge is provably gone.
+Detecting the clash and reporting a refusal instead is not an option - the gate has already dismissed its hosted paywall by the time it asks, so it has nowhere to render one.
+
 ## Superwall Verification Checklist
 
 Complete these steps in each authenticated Superwall project without bypassing product validation or publishing an unverified campaign.

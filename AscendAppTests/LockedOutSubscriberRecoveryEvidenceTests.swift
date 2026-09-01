@@ -197,7 +197,7 @@ private struct LockedOutGateJourneyHarness: View {
     var body: some View {
         AppAccessPaywallPlaceholderView(
             initialPhase: .failed,
-            onDeleteAccount: { isShowingDeletion = true; return true },
+            onDeleteAccount: { isShowingDeletion = true },
             onSignOut: {}
         )
         .environment(monetizationManager)

@@ -102,7 +102,7 @@ struct AppAccessPaywallPlaceholderSnapshotTests {
             initialPlans: plans,
             initialStatusMessage: scenario.status,
             automaticallyStarts: false,
-            onDeleteAccount: { true },
+            onDeleteAccount: {},
             onSignOut: {}
         )
         .environment(makeManager())
@@ -447,7 +447,7 @@ private struct AccountDeletionFocusHarness: View {
                 automaticallyStarts: false,
                 accountDeletionDismissalRevision: dismissalRevision,
                 onAccountDeletionFocusRestored: probe.record,
-                onDeleteAccount: { true },
+                onDeleteAccount: {},
                 onSignOut: {}
             )
         }

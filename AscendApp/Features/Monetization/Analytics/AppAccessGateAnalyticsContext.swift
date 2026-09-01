@@ -27,7 +27,6 @@ enum AppAccessGateRecoveryReason: String, Sendable {
     case hostedDismissed = "hosted_dismissed"
     case hostedBackRequested = "hosted_back_requested"
     case hostedDeleteAccountRequested = "hosted_delete_account_requested"
-    case hostedDeleteAccountUnavailable = "hosted_delete_account_unavailable"
     case hostedSkipped = "hosted_skipped"
     case hostedError = "hosted_error"
 }
