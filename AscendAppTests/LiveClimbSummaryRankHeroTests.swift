@@ -152,46 +152,14 @@ struct LiveClimbSummaryRankHeroTests {
         #expect(Hero.Standing(rank: nil, total: 50, basis: .current) == nil)
     }
 
-    // MARK: - Moment
+    // MARK: - The frozen basis
 
-    /// The frozen basis still names itself when the summary *is* the moment - it
-    /// just says so in the present tense.
+    /// The captain's second St Peter's climb: slower than his own record, yet
+    /// still holding the position that record won. The frozen standing is true -
+    /// he *is* first among the climbers on that board - but the run in front of
+    /// him did not earn it, so the card may not say a run just did.
     @Test
-    func freshCompletionUsesThePresentTenseFrozenCopy() throws {
-        let hero = try #require(Hero.make(
-            isClimbContext: true,
-            moment: .freshCompletion,
-            standings: [Hero.Standing(rank: 4, total: 12, basis: .atCompletion)],
-            sync: publishedSync(),
-            copy: Hero.Copy()
-        ))
-
-        #expect(hero.detail == "RANK YOU JUST EARNED")
-    }
-
-    @Test
-    func theMomentOnlyChangesTheFrozenBasis() throws {
-        let current = try #require(Hero.make(
-            isClimbContext: true,
-            moment: .freshCompletion,
-            standings: [Hero.Standing(rank: 9, total: 40, basis: .current)],
-            sync: publishedSync(),
-            copy: Hero.Copy()
-        ))
-        let session = try #require(Hero.make(
-            isClimbContext: false,
-            moment: .freshCompletion,
-            standings: [Hero.Standing(rank: 9, total: 40, basis: .liveSession)],
-            sync: publishedSync(),
-            copy: Hero.Copy(completedDetailOverride: "ROUTINE COMPLETE")
-        ))
-
-        #expect(current.detail == "CURRENT LEADERBOARD RANK")
-        #expect(session.detail == "ROUTINE COMPLETE")
-    }
-
-    @Test
-    func summariesAreRetrospectiveUnlessTheCallerSaysOtherwise() throws {
+    func aFrozenStandingIsNeverDescribedAsSomethingTheRunJustEarned() throws {
         let hero = try #require(Hero.make(
             isClimbContext: true,
             standings: [Hero.Standing(rank: 4, total: 12, basis: .atCompletion)],
@@ -200,6 +168,26 @@ struct LiveClimbSummaryRankHeroTests {
         ))
 
         #expect(hero.detail == "RANK WHEN YOU FINISHED")
+        #expect(hero.detail != "RANK YOU JUST EARNED")
+    }
+
+    @Test
+    func theOtherBasesNameTheirOwnPopulation() throws {
+        let current = try #require(Hero.make(
+            isClimbContext: true,
+            standings: [Hero.Standing(rank: 9, total: 40, basis: .current)],
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        ))
+        let session = try #require(Hero.make(
+            isClimbContext: false,
+            standings: [Hero.Standing(rank: 9, total: 40, basis: .liveSession)],
+            sync: publishedSync(),
+            copy: Hero.Copy(completedDetailOverride: "ROUTINE COMPLETE")
+        ))
+
+        #expect(current.detail == "CURRENT LEADERBOARD RANK")
+        #expect(session.detail == "ROUTINE COMPLETE")
     }
 
     // MARK: - In-session standings

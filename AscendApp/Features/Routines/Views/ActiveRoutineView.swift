@@ -359,7 +359,6 @@ struct ActiveRoutineView: View {
             leaderboardTotal: viewModel.completionLeaderboardTotal,
             leaderboardRankBasis: .liveSession,
             leaderboardContext: viewModel.completionLeaderboardContext,
-            moment: .freshCompletion,
             rankingLabelOverride: "ROUTINE RANK",
             completedDetailOverride: "ROUTINE COMPLETE",
             ranksOnLeaderboard: presentation.ranksOnLeaderboard,

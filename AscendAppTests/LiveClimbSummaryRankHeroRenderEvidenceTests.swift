@@ -43,7 +43,6 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             basis: .atCompletion,
             rank: Self.frozenRank,
             total: Self.frozenTotal,
-            moment: .retrospective,
             photographedAs: "live-climb-summary-rank-hero-fixed"
         )
 
@@ -67,7 +66,6 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             basis: .liveSession,
             rank: Self.frozenRank,
             total: Self.frozenTotal,
-            moment: .retrospective,
             photographedAs: "live-climb-summary-rank-hero-reported"
         )
 
@@ -79,27 +77,20 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
     /// The denominator is genuinely optional - a routine board with no window, a
     /// publish status that froze a rank without a count. A bare "FASTEST" under the
     /// ordinal would read as a claim to have won it, so the basis wording stands
-    /// instead, in the tense the moment calls for.
+    /// instead, naming when the standing was measured.
     @Test
     func aStandingWithNoFieldSizeFallsBackToTheBasisWording() async throws {
-        let freshText = try await summaryCopy(
-            basis: .atCompletion,
-            rank: 4,
-            total: nil,
-            moment: .freshCompletion,
-            photographedAs: "live-climb-summary-rank-hero-fresh"
-        )
         let savedText = try await summaryCopy(
             basis: .atCompletion,
             rank: 4,
             total: nil,
-            moment: .retrospective,
             photographedAs: "live-climb-summary-rank-hero-no-field-size"
         )
 
-        #expect(freshText.contains("rank you just earned"))
-        #expect(!freshText.contains("fastest"))
         #expect(savedText.contains("rank when you finished"))
+        // The frozen line reads the same the instant a climb ends, so a slower
+        // repeat is never told it just earned the position it is holding.
+        #expect(!savedText.contains("rank you just earned"))
         #expect(!savedText.contains("fastest"))
     }
 
@@ -111,7 +102,6 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             basis: .liveSession,
             rank: 3,
             total: 18,
-            moment: .freshCompletion,
             labelOverride: "ROUTINE RANK",
             completedDetailOverride: "ROUTINE COMPLETE",
             photographedAs: "routine-summary-rank-hero"
@@ -137,8 +127,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             summary(
                 basis: .current,
                 rank: Self.currentRank,
-                total: Self.currentTotal,
-                moment: .retrospective
+                total: Self.currentTotal
             ),
             size: Self.screenSize
         ) { screen in
@@ -170,15 +159,15 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
     /// reading side by side.
     @Test
     func proofSheetShowsEveryHeroBasisSideBySide() async throws {
-        let panels: [(name: String, basis: LiveClimbSummaryRankHero.Basis, rank: Int, total: Int?, moment: LiveClimbSummaryRankHero.Moment)] = [
-            ("live-climb-summary-rank-hero-proof-1-saved-summary", .atCompletion, Self.frozenRank, Self.frozenTotal, .retrospective),
-            ("live-climb-summary-rank-hero-proof-2-session-standing", .liveSession, Self.frozenRank, Self.frozenTotal, .retrospective),
-            ("live-climb-summary-rank-hero-proof-3-no-field-size", .atCompletion, 4, nil, .freshCompletion),
-            ("live-climb-summary-rank-hero-proof-4-current-standing", .current, Self.currentRank, Self.currentTotal, .retrospective)
+        let panels: [(name: String, basis: LiveClimbSummaryRankHero.Basis, rank: Int, total: Int?)] = [
+            ("live-climb-summary-rank-hero-proof-1-saved-summary", .atCompletion, Self.frozenRank, Self.frozenTotal),
+            ("live-climb-summary-rank-hero-proof-2-session-standing", .liveSession, Self.frozenRank, Self.frozenTotal),
+            ("live-climb-summary-rank-hero-proof-3-no-field-size", .atCompletion, 4, nil),
+            ("live-climb-summary-rank-hero-proof-4-current-standing", .current, Self.currentRank, Self.currentTotal)
         ]
 
         let heroes = panels.map { panel in
-            renderedHero(basis: panel.basis, rank: panel.rank, total: panel.total, moment: panel.moment)
+            renderedHero(basis: panel.basis, rank: panel.rank, total: panel.total)
         }
         let renderings = Set(heroes.map { hero in
             "\(hero?.label ?? "")|\(hero?.detail ?? "")|\(String(describing: hero?.value))"
@@ -188,7 +177,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         guard RenderedScreen.isPhotographing else { return }
         for panel in panels {
             try await RenderedScreen.host(
-                summary(basis: panel.basis, rank: panel.rank, total: panel.total, moment: panel.moment),
+                summary(basis: panel.basis, rank: panel.rank, total: panel.total),
                 size: Self.screenSize
             ) { screen in
                 try screen.photograph(named: panel.name)
@@ -276,7 +265,6 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         basis: LiveClimbSummaryRankHero.Basis,
         rank: Int,
         total: Int?,
-        moment: LiveClimbSummaryRankHero.Moment,
         labelOverride: String? = nil,
         completedDetailOverride: String? = "LIVE CLIMB COMPLETE"
     ) throws -> some View {
@@ -292,7 +280,6 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             // The hero only renders where there is a population to rank against, so the
             // screen needs a context even though the standing is handed in directly.
             leaderboardContext: .justClimbGlobal(targetSteps: 2_579),
-            moment: moment,
             rankingLabelOverride: labelOverride,
             completedDetailOverride: completedDetailOverride,
             onDone: { _ in }
@@ -306,7 +293,6 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         basis: LiveClimbSummaryRankHero.Basis,
         rank: Int,
         total: Int?,
-        moment: LiveClimbSummaryRankHero.Moment,
         labelOverride: String? = nil,
         completedDetailOverride: String? = "LIVE CLIMB COMPLETE",
         photographedAs name: String
@@ -316,7 +302,6 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
                 basis: basis,
                 rank: rank,
                 total: total,
-                moment: moment,
                 labelOverride: labelOverride,
                 completedDetailOverride: completedDetailOverride
             ),
@@ -335,8 +320,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
     private func renderedHero(
         basis: LiveClimbSummaryRankHero.Basis,
         rank: Int,
-        total: Int?,
-        moment: LiveClimbSummaryRankHero.Moment = .retrospective
+        total: Int?
     ) -> LiveClimbSummaryRankHero? {
         let sources = LiveClimbSummaryRankHero.Sources(
             callerSupplied: LiveClimbSummaryRankHero.Standing(rank: rank, total: total, basis: basis)
@@ -344,7 +328,6 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
 
         return LiveClimbSummaryRankHero.make(
             isClimbContext: false,
-            moment: moment,
             standings: LiveClimbSummaryRankHero.standings(isClimbContext: false, sources: sources),
             sync: LiveClimbSummaryRankHero.SyncState(
                 phase: nil,
