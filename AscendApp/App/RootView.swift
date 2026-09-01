@@ -21,6 +21,8 @@ struct RootView: View {
     @State private var tabRouter = TabRouter()
     @State private var accountDataConflict: AccountDataOwnershipConflict?
     @State private var isShowingGateAccountDeletion = false
+    @State private var isGateAccountDeletionWaitingOnNudge = false
+    @State private var isNudgeSheetPresented = false
     @State private var isGateDeletionUnresolved = false
     @State private var isGateDeletionDismissPending = false
     @State private var gateAccountDeletionDismissalRevision: UInt = 0
@@ -54,13 +56,17 @@ struct RootView: View {
         .themeAware()
         // The soft nudge only. The lockout left this modifier when it became a route, so the two
         // can never stack and nothing presented outside this hierarchy can cover the refusal.
-        .sheet(item: $appVersionGateState.nudgePresentation) { presentation in
+        .sheet(
+            item: $appVersionGateState.nudgePresentation,
+            onDismiss: presentGateAccountDeletionWaitingOnNudge
+        ) { presentation in
             AppUpdateSheet(
                 presentation: presentation,
                 onOpenAppStore: openAscendInAppStore,
                 onLater: appVersionGateState.dismissRecommended
             )
             .trackOnce(screen: .appUpdateNudge)
+            .onAppear { isNudgeSheetPresented = true }
         }
         // Deliberately outside the route switch: an entitlement refresh mid-deletion flips the
         // route, and unmounting this sheet would cancel the deletion partway through its sweep
@@ -157,6 +163,13 @@ struct RootView: View {
         // the foreground handler has already run and skipped. Without this, entitlement refresh,
         // pending uploads, hydration, both sync coordinators and profile publication stay skipped
         // until a further background/foreground cycle.
+        // `onDismiss` fires only for a sheet SwiftUI actually put on screen, so a nudge cleared
+        // while it was never presented has to hand the request on from here instead. No-ops once
+        // the dismissal already did it.
+        .onChange(of: appVersionGateState.nudgePresentation) { _, presentation in
+            guard presentation == nil, !isNudgeSheetPresented else { return }
+            presentGateAccountDeletionWaitingOnNudge()
+        }
         .onChange(of: appVersionGateState.isUpdateRequired) { _, isUpdateRequired in
             guard !isUpdateRequired else { return }
             scheduleAuthenticatedSessionWork()
@@ -213,7 +226,49 @@ struct RootView: View {
     private var gateAccountDeletionAction: (() -> Void)? {
         guard authVM.user != nil else { return nil }
 
-        return { isShowingGateAccountDeletion = true }
+        return { presentGateAccountDeletion() }
+    }
+
+    /// Raises the one deletion sheet.
+    ///
+    /// A second sheet at this modifier level defers the first (#429), and the only other sheet
+    /// here is the soft update nudge. So the nudge yields: a climber asking to delete their
+    /// account outranks a recommended update, and the app-access gate has already dismissed its
+    /// hosted paywall by the time it asks. Handing the request to the nudge's own `onDismiss` is
+    /// what makes that deterministic - the sheet is provably gone before the next one is raised,
+    /// rather than both being set in one runloop turn and one of them being dropped.
+    ///
+    /// The yield is keyed to whether the nudge is on screen - `isNudgeSheetPresented`, written by
+    /// the sheet's own body - and never to `nudgePresentation != nil`. A non-nil item is a request
+    /// to present, which is exactly the state #429 shows SwiftUI can leave unhonoured: waiting on a
+    /// dismissal for a sheet that was never presented would strand the climber on a gate that has
+    /// already dismissed its paywall. A pending nudge is cleared on the way past instead, so it
+    /// cannot surface over the deletion dialog afterwards.
+    ///
+    /// `nudgePresentation` is non-nil only for `.recommended`, which `dismissRecommended()` always
+    /// clears, so there is no state this can fail to leave.
+    @MainActor
+    private func presentGateAccountDeletion() {
+        guard isNudgeSheetPresented else {
+            appVersionGateState.dismissRecommended()
+            isShowingGateAccountDeletion = true
+            return
+        }
+
+        isGateAccountDeletionWaitingOnNudge = true
+        appVersionGateState.dismissRecommended()
+    }
+
+    /// The nudge is gone, so any request it was holding is raised now. Idempotent, because it is
+    /// the continuation for both ways the nudge can leave: its own dismissal, and the item being
+    /// cleared without SwiftUI ever having presented it.
+    @MainActor
+    private func presentGateAccountDeletionWaitingOnNudge() {
+        isNudgeSheetPresented = false
+        guard isGateAccountDeletionWaitingOnNudge else { return }
+
+        isGateAccountDeletionWaitingOnNudge = false
+        isShowingGateAccountDeletion = true
     }
 
     private var rootRoute: AppRootRoute {
@@ -330,7 +385,7 @@ struct RootView: View {
                 AppAccessPaywallPlaceholderView(
                     accountDeletionDismissalRevision: gateAccountDeletionDismissalRevision,
                     onRequestOnboardingBack: postAuthOnboardingCoordinator.reopenLastStage,
-                    onDeleteAccount: { isShowingGateAccountDeletion = true },
+                    onDeleteAccount: { presentGateAccountDeletion() },
                     onSignOut: authVM.signOut
                 )
             }

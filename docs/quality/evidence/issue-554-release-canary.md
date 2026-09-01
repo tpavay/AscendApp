@@ -48,6 +48,10 @@ This canary owns the remaining receipt-backed observation: Apple renewal failure
 18. Enable Increase Contrast and confirm selected plans, focus indicators, status text, and destructive account controls remain distinguishable.
 19. On compact and large iPhones, confirm every individual plan, Terms, Privacy, Support, Restore, Manage, Sign Out, and Delete Account control has an independently tappable target at least 44 by 44 points.
 20. Confirm the complete recovery surface remains reachable in loading, timeout, offline, restore-not-found, pending, verification, and failed states.
+21. On the hosted Superwall paywall itself, tap `DELETE ACCOUNT` and confirm the paywall dismisses and the account-deletion confirmation dialog appears.
+    The control fires a `Custom action` named `delete_account` with **no close chained after it**: Ascend dismisses the paywall itself, because nothing the app presents can appear over a live paywall - see `docs/superwall-paywall-setup.md`.
+    Then cancel the deletion and confirm the hosted paywall comes back rather than leaving a spinner or a plan list.
+    With VoiceOver enabled, confirm no gate status is announced over the deletion dialog.
 
 ## Evidence references
 

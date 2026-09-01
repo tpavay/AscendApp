@@ -209,7 +209,7 @@ struct PaywallBackToOnboardingJourneyEvidenceTests {
         /// The back control fires a `Custom action` and SuperwallKit then closes the paywall with
         /// the same `declined` every other user-driven close reports.
         func tapPaywallBackArrow() {
-            presenter.handleCustomPaywallAction(withName: SuperwallCustomAction.back)
+            presenter.handleCustomPaywallAction(withName: SuperwallCustomAction.back.rawValue)
             presenter.handleDismissForTesting(
                 revision: registry.currentRevision,
                 result: .declined
