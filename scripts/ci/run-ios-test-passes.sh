@@ -77,6 +77,22 @@ node scripts/ci/split-enumerated-tests.mjs \
     "$log_dir/test-pass-" \
     "$pass_count" | tee -a "$log"
 
+# Hand the VM system back what the previous phase is still holding.
+#
+# The crash this exists to prevent is a system-wide allocation failure, not a
+# process-local one: the report says `EXC_BREAKPOINT` with `ktriageinfo` reading
+# "mach_vm_allocate_kernel failed within call to vm_map_enter". And it is
+# positional rather than compositional - across three CI runs of two halves
+# balanced to 964/963 tests and 23/22 hosted suites, the FIRST pass died every
+# time and the second passed every time. What separates them is that pass one
+# starts on a machine still carrying a 19-minute Swift compile and an
+# enumeration launch, while pass two starts on one that has just had a whole
+# test host exit. `purge` is the supported way to ask for those cached and
+# compressed pages back; it is advisory, so a failure here is not fatal.
+reclaim_memory() {
+    sudo /usr/sbin/purge 2>/dev/null || /usr/sbin/purge 2>/dev/null || true
+}
+
 # Every pass runs even when an earlier one fails, so one broken suite reports
 # its own failure instead of hiding every later suite's result behind it.
 failed_passes=()
@@ -88,6 +104,8 @@ for pass in $(seq 1 "$pass_count"); do
     done < "$log_dir/test-pass-$pass.txt"
 
     echo "--- Test pass $pass of $pass_count (${#args[@]} suites) ---" | tee -a "$log"
+    reclaim_memory
+    vm_stat | awk '/Pages free|occupied by compressor/ {print "    " $0}' | tee -a "$log"
 
     # A separate result bundle per pass: `xcodebuild` refuses to write over an
     # existing one, and the upload step takes the whole directory anyway.
