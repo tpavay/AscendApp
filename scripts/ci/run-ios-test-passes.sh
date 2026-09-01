@@ -102,7 +102,41 @@ for pass in $(seq 1 "$pass_count"); do
     fi
 done
 
+# A host that traps takes every test queued on the hosted-window gate down with
+# it, and `xcodebuild` reports all of them as "Test crashed with signal trap"
+# with no file, no line and no stack - the same text for the one test that
+# actually trapped and for the dozen merely waiting on it. The trap frame is in
+# the simulator's crash report, which lives outside the workspace and is thrown
+# away with the runner, so collect it while it still exists.
 if [ "${#failed_passes[@]}" -gt 0 ]; then
+    reports="$log_dir/crash-reports"
+    mkdir -p "$reports"
+
+    # Simulator processes report into the host's DiagnosticReports, and the
+    # device's own CoreSimulator log carries what the host's does not.
+    find "$HOME/Library/Logs/DiagnosticReports" \
+        -name "AscendApp*" -newermt "-2 hours" -maxdepth 1 \
+        -exec cp {} "$reports/" \; 2>/dev/null || true
+    find "$HOME/Library/Logs/CoreSimulator" \
+        -name "*.crash" -o -name "*.ips" -newermt "-2 hours" \
+        -exec cp {} "$reports/" \; 2>/dev/null || true
+
+    collected="$(find "$reports" -type f | wc -l | tr -d ' ')"
+    echo "::group::Crash reports collected: $collected"
+    for report in "$reports"/*; do
+        [ -f "$report" ] || continue
+        echo "----- $(basename "$report") -----"
+        # The termination reason and the crashing thread's top frames are what
+        # name the trap; the rest of an .ips is register state and binary images.
+        head -c 4000 "$report"
+        echo
+    done
+    echo "::endgroup::"
+
+    if [ "$collected" = "0" ]; then
+        echo "::warning::No crash report found. A pass can fail on assertions alone, in which case there is nothing to collect."
+    fi
+
     echo "::error::Test passes failed: ${failed_passes[*]}"
     exit 1
 fi
