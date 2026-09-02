@@ -25,8 +25,11 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
 
         /// The compact value, and the caption that names what it counted.
         ///
-        /// The two travel together on purpose: an ordinal captioned `rank` on a
-        /// board with no field is the defect this pair exists to prevent.
+        /// The two travel together on purpose: an ordinal captioned `rank` names
+        /// no population, and a number with no population beside it is the whole
+        /// defect this pair exists to prevent. The compact slot holds one
+        /// number, so the leaderboard placing leads and the personal placing is
+        /// the one dropped - the finish card's own hierarchy.
         var standingValue: String {
             if let rank {
                 return "#\(rank)"
@@ -37,7 +40,11 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
         }
 
         var standingCaption: String {
-            rank == nil && ownClimbsPlacing != nil ? "climbs" : "rank"
+            if rank != nil {
+                return "of \(Self.climberField(rankTotal))"
+            }
+
+            return ownClimbsPlacing == nil ? "rank" : "of your climbs"
         }
 
         var standingTitle: String {
@@ -72,13 +79,28 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
 
         var standingDetailLabel: String {
             if let rank {
-                return rankTotal > 0 ? "#\(rank) of \(rankTotal)" : "#\(rank)"
+                return "#\(rank) of \(Self.climberField(max(rankTotal, rank)))"
             }
 
-            guard let ownClimbsPlacing else { return "Rank --" }
+            return ownClimbsDetailLabel ?? "--"
+        }
+
+        /// The climber's own history, stated beneath the leaderboard placing
+        /// where there is room for both - the Lock Screen and the expanded
+        /// Dynamic Island - and nil where there is nothing measured to state.
+        ///
+        /// Where the climber is alone on the board this is the whole statement
+        /// and `standingDetailLabel` carries it instead, so the two never appear
+        /// twice on one surface.
+        var standingSecondaryLabel: String? {
+            rank == nil ? nil : ownClimbsDetailLabel
+        }
+
+        private var ownClimbsDetailLabel: String? {
+            guard let ownClimbsPlacing else { return nil }
 
             let total = max(ownClimbsTotal, ownClimbsPlacing)
-            return "\(Self.ordinalText(ownClimbsPlacing)) of your \(total)"
+            return "\(Self.ordinalText(ownClimbsPlacing)) of your \(Self.climbField(total))"
         }
 
         /// Spelled here rather than through the app's shared helper because the
@@ -87,6 +109,14 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
             let formatter = NumberFormatter()
             formatter.numberStyle = .ordinal
             return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+        }
+
+        private static func climberField(_ count: Int) -> String {
+            "\(count) climber\(count == 1 ? "" : "s")"
+        }
+
+        private static func climbField(_ count: Int) -> String {
+            "\(count) climb\(count == 1 ? "" : "s")"
         }
 
         var durationLabel: String {

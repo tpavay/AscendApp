@@ -174,10 +174,17 @@ final class ActiveRoutineViewModel {
     /// where nobody else has finished it, the climber's own climbs are the only
     /// population there is and the panel states that rather than a bare ordinal.
     var leaderboardStanding: LiveReplayLiveStanding {
-        LiveReplayLiveStanding.resolve(
+        // A window that has not arrived, and a window that could not count this
+        // climber's own history, both state no placing. Neither is "first of
+        // one" - see `LiveClimbSessionViewModel.leaderboardStanding`.
+        guard let window = leaderboardWindow else {
+            return .racing(field: nil, ownClimbs: nil)
+        }
+
+        return LiveReplayLiveStanding.resolve(
             field: nil,
-            ownClimbs: leaderboardWindow?.ownClimbs ?? .firstClimb,
-            isSoleClimber: leaderboardWindow?.isSoleClimber ?? false
+            ownClimbs: window.ownClimbs,
+            isSoleClimber: window.isSoleClimber
         )
     }
 

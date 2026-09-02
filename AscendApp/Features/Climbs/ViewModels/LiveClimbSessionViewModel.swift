@@ -456,11 +456,23 @@ final class LiveClimbSessionViewModel {
     /// What the live panel and the Live Activity state about where this climber
     /// stands. One answer, so the Lock Screen can never disagree with the panel.
     var leaderboardStanding: LiveReplayLiveStanding {
-        LiveReplayLiveStanding.resolve(
+        // Three states, kept apart to the pixel: no window has answered yet, a
+        // window answered but could not count this climber's own history, and a
+        // window that counted it. Only the last may draw an ordinal.
+        //
+        // `??` would collapse the first two into "1st of your 1 climb" - a
+        // measurement invented out of not having measured - and the summary
+        // cannot stand in for the window either: it reads zero climbers until it
+        // first answers, which is not the same statement as nobody else being
+        // here.
+        guard let window = leaderboardWindow else {
+            return .racing(field: leaderboardField, ownClimbs: nil)
+        }
+
+        return LiveReplayLiveStanding.resolve(
             field: leaderboardField,
-            ownClimbs: leaderboardWindow?.ownClimbs ?? .firstClimb,
-            isSoleClimber: leaderboardWindow?.isSoleClimber
-                ?? (leaderboardSummary.totalClimbers <= 1)
+            ownClimbs: window.ownClimbs,
+            isSoleClimber: window.isSoleClimber
         )
     }
 
