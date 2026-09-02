@@ -175,7 +175,6 @@ private actor CountingCompletionSnapshotRepository: LiveReplayLeaderboardReposit
 
     func fetchCompletionRank(
         context: LiveReplayLeaderboardContext,
-        workoutId: String,
         completionDurationSeconds: TimeInterval,
         finalSteps: Int
     ) async throws -> LiveReplayCompletionRank {

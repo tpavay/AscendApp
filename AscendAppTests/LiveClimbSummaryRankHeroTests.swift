@@ -92,6 +92,48 @@ struct LiveClimbSummaryRankHeroTests {
         #expect(hero.detail == "CURRENT LEADERBOARD RANK")
     }
 
+    /// The noun follows the number that is on screen, not the board it sits on.
+    /// An open Just Climb freezes its stamp over completed attempts and
+    /// recomputes over climbers, so one context type answers with both nouns
+    /// depending on which standing won precedence.
+    @Test
+    func theFieldNounFollowsTheBasisOnShow() throws {
+        let frozen = try #require(Hero.make(
+            isClimbContext: false,
+            standings: [Hero.Standing(rank: 13, total: 41, basis: .atCompletion)],
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        ))
+        let recomputed = try #require(Hero.make(
+            isClimbContext: false,
+            standings: [Hero.Standing(rank: 6, total: 16, basis: .current)],
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        ))
+
+        #expect(frozen.fieldPopulation(on: .justClimb) == .completions)
+        #expect(recomputed.fieldPopulation(on: .justClimb) == .climbers)
+    }
+
+    @Test
+    func aCollapsingBoardNamesClimbersOnEitherBasis() throws {
+        let frozen = try #require(Hero.make(
+            isClimbContext: true,
+            standings: [Hero.Standing(rank: 2, total: 2, basis: .atCompletion)],
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        ))
+        let recomputed = try #require(Hero.make(
+            isClimbContext: true,
+            standings: [Hero.Standing(rank: 2, total: 2, basis: .current)],
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        ))
+
+        #expect(frozen.fieldPopulation(on: .liveClimb) == .climbers)
+        #expect(recomputed.fieldPopulation(on: .liveClimb) == .climbers)
+    }
+
     @Test
     func labelOverrideSurvivesButDetailStillNamesTheBasis() throws {
         let hero = try #require(Hero.make(
