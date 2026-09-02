@@ -26,8 +26,8 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         initialState: LiveReplayFinishedRowDiagnostics()
     )
     /// `"{uid}__{contextKey}"` for every board this climber is known to already
-    /// stand in. See `optionalCurrentUserHasPublishedCompletion`.
-    private let publishedCompletionClimbers = OSAllocatedUnfairLock(
+    /// stand in. See `optionalCurrentUserIsFinisher`.
+    private let knownFinisherClimbers = OSAllocatedUnfairLock(
         initialState: Set<String>()
     )
 
@@ -474,11 +474,6 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             limit: rowsAhead,
             currentUserId: currentUserId
         )
-        async let runningAheadCount = optionalCountRowsAhead(
-            context: context,
-            bucketIndex: bucketIndex,
-            currentSteps: currentSteps
-        )
         // Optional on purpose. The finished half needs a composite index the
         // running half does not, so if that index is ever missing the board
         // loses the rivals already home rather than failing mid-climb - which
@@ -491,20 +486,10 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             limit: rowsAhead,
             currentUserId: currentUserId
         )
-        async let finishedAheadCount = optionalCountFinishedRowsAhead(
+        async let standing = windowStanding(
             context: context,
             bucketIndex: bucketIndex,
             currentSteps: currentSteps
-        )
-        // The board's denominator is the summary's own distinct-climber count,
-        // already on its way here. Counting bucket-zero rows instead cost a
-        // whole-board aggregation on every window fetch of every session, and
-        // counted a repeat climber twice - their stored best row, plus the +1
-        // for the attempt on the machine. A climber joins the field only when
-        // they hold no completion on it yet, which is a question about the
-        // climber and never something to infer from a field count.
-        async let climberAlreadyInField = optionalCurrentUserHasPublishedCompletion(
-            context: context
         )
         async let behindRows = fetchRows(
             context: context,
@@ -546,11 +531,25 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             limit: rowsBehind,
             metric: context.type.rankingMetric
         )
-        let currentUserRank = await Self.aheadCount(
-            running: runningAheadCount,
-            finished: finishedAheadCount,
-            fetchedRows: rowsAhead
-        ) + 1
+        let currentUserRank: Int
+        let totalClimbers: Int
+
+        switch try await standing {
+        case let .raceField(runningAheadCount, finishedAheadCount, joiningClimber):
+            currentUserRank = Self.aheadCount(
+                running: runningAheadCount,
+                finished: finishedAheadCount,
+                fetchedRows: rowsAhead
+            ) + 1
+            totalClimbers = max(
+                resolvedSummary.totalClimbers + joiningClimber,
+                currentUserRank
+            )
+        case let .climbers(climberStanding):
+            currentUserRank = climberStanding.rank
+            totalClimbers = climberStanding.completedCount
+        }
+
         let rankedAheadRows = rankedAheadRows(
             Array(rowsAhead.reversed()),
             currentUserRank: currentUserRank
@@ -558,12 +557,6 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         let rankedBehindRows = rankedBehindRows(
             rowsBehind,
             currentUserRank: currentUserRank
-        )
-        let visibleWindowCount = currentUserRank + rowsBehind.count
-        let joiningClimber = (await climberAlreadyInField) ? 0 : 1
-        let totalClimbers = max(
-            resolvedSummary.totalClimbers + joiningClimber,
-            visibleWindowCount
         )
 
         return LiveReplayLeaderboardWindow(
@@ -575,6 +568,96 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             currentUserRank: currentUserRank,
             totalClimbers: totalClimbers,
             ownPreviousCompletionRow: ownPreviousCompletionRow
+        )
+    }
+
+    /// What a live window's rank and its denominator are measured against.
+    ///
+    /// Both cases keep the numerator and the denominator counting one
+    /// population. They differ because only one kind of board can answer the
+    /// race question in climbers: a collapsing context flags one entry per
+    /// climber, so counting the ghosts ahead already counts people.
+    private enum WindowStanding {
+        /// The ghost race. Rivals still running further up this bucket plus
+        /// every rival already home, over the summary's distinct-climber count -
+        /// one field, because every ghost on these boards carries
+        /// `isBestForUser` and so stands for one climber.
+        case raceField(runningAheadCount: Int?, finishedAheadCount: Int?, joiningClimber: Int)
+        /// One row per climber, from the finishers subcollection: the standing
+        /// this attempt would freeze if it stopped at this bucket.
+        case climbers(LiveReplayCompletionRank)
+    }
+
+    /// Resolves the rank and denominator a live window reports.
+    ///
+    /// A board that carries no `isBestForUser` flag - `just_climb`, `routine` -
+    /// has ghosts that stand for attempts, so counting them ahead of a
+    /// distinct-climber denominator paired "13th" with "of 16". Settled by the
+    /// captain on 2026-09-02: those boards rank against unique climbers at
+    /// their best on both halves, which is the same finishers read
+    /// `fetchCompletionRank` makes, taken against the value this attempt would
+    /// carry if it stopped now. The live rank therefore converges on the
+    /// standing the climber is about to freeze instead of predicting a
+    /// different one.
+    ///
+    /// The displayed rows stay the bucket entries either way. They are a race
+    /// view of who is where right now, and without `isBestForUser` they cannot
+    /// be collapsed to one per climber - so a repeat climber's earlier runs stay
+    /// on the board as separate ghosts, which is what a race looks like.
+    private func windowStanding(
+        context: LiveReplayLeaderboardContext,
+        bucketIndex: Int,
+        currentSteps: Int
+    ) async throws -> WindowStanding {
+        guard context.type.collapsesRepeatFinishers else {
+            return .climbers(
+                try await climberCompletionRank(
+                    context: context,
+                    attemptRankingValue: liveRankingValue(
+                        context: context,
+                        bucketIndex: bucketIndex,
+                        currentSteps: currentSteps
+                    )
+                )
+            )
+        }
+
+        async let runningAheadCount = optionalCountRowsAhead(
+            context: context,
+            bucketIndex: bucketIndex,
+            currentSteps: currentSteps
+        )
+        async let finishedAheadCount = optionalCountFinishedRowsAhead(
+            context: context,
+            bucketIndex: bucketIndex,
+            currentSteps: currentSteps
+        )
+        // A climber joins the field only when they hold no completion on it yet,
+        // which is a question about the climber and never something to infer
+        // from a field count.
+        async let alreadyInField = optionalCurrentUserIsFinisher(context: context)
+
+        return .raceField(
+            runningAheadCount: await runningAheadCount,
+            finishedAheadCount: await finishedAheadCount,
+            joiningClimber: (await alreadyInField) ? 0 : 1
+        )
+    }
+
+    /// The value this attempt would be ranked on if it stopped at this bucket,
+    /// in the board's own metric. A bucket is a fixed slice of the session
+    /// clock, so its index is the elapsed time the attempt has spent so far.
+    private func liveRankingValue(
+        context: LiveReplayLeaderboardContext,
+        bucketIndex: Int,
+        currentSteps: Int
+    ) -> Double {
+        rankingValue(
+            context: context,
+            completionDurationSeconds: TimeInterval(
+                max(bucketIndex, 0) * context.bucketIntervalSeconds
+            ),
+            finalSteps: currentSteps
         )
     }
 
@@ -1104,18 +1187,27 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         return snapshot.count.intValue
     }
 
-    private func currentUserHasPublishedCompletion(
+    /// Whether the climber already stands in the field this board's denominator
+    /// counts.
+    ///
+    /// Asked of `finishers`, because that is what the denominator counts: the
+    /// summary's `totalClimbers` is the server's `completedCount`, one per
+    /// finisher document. Asking `entries` instead could disagree with it -
+    /// `deleteReplayEntriesForId` takes a climber's rows back out when a workout
+    /// is deleted or becomes ineligible, while the finisher document is only
+    /// ever created or merged and `completedCount` never decreases - so a
+    /// climber who deleted the workout behind their only completion would be
+    /// added to a total that already counted them.
+    private func currentUserIsFinisher(
         context: LiveReplayLeaderboardContext
     ) async throws -> Bool {
         guard let uid = Auth.auth().currentUser?.uid else {
             return false
         }
 
-        let snapshot = try await entriesCollection(context: context, bucketIndex: 0)
-            .whereField("userId", isEqualTo: uid)
-            .limit(to: 1)
-            .getDocuments(source: .server)
-        return snapshot.documents.isEmpty == false
+        return try await finisherDocument(context: context, userId: uid)
+            .getDocument(source: .server)
+            .exists
     }
 
     private func optionalCountRowsAhead(
@@ -1218,34 +1310,31 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
 
     /// A read that could not answer reports the climber as already standing in
     /// the field, so the denominator never gains a climber nothing measured.
-    /// `visibleWindowCount` still floors it against the rows on screen.
     ///
     /// `fetchWindow` asks this on a ~10s bucket clock for the whole of a race
     /// and is forced more often than that, so a settled answer is remembered:
-    /// a climber cannot lose a published completion, which makes a positive
-    /// permanent for the life of the process. A negative is never cached,
-    /// because this climber's own attempt publishes at the end of the session
-    /// and a remembered "not in the field yet" would add a phantom climber to
-    /// the denominator of their next climb on the same board.
-    private func optionalCurrentUserHasPublishedCompletion(
+    /// a finisher document is only ever created or merged, which makes a
+    /// positive permanent for the life of the process. A negative is never
+    /// cached, because this climber's own attempt writes that document at the
+    /// end of the session and a remembered "not in the field yet" would add a
+    /// phantom climber to the denominator of their next climb on the same board.
+    private func optionalCurrentUserIsFinisher(
         context: LiveReplayLeaderboardContext
     ) async -> Bool {
         let key = Auth.auth().currentUser.map { "\($0.uid)__\(context.contextKey)" }
-        if let key, publishedCompletionClimbers.withLock({ $0.contains(key) }) {
+        if let key, knownFinisherClimbers.withLock({ $0.contains(key) }) {
             return true
         }
 
-        guard let hasPublished = try? await currentUserHasPublishedCompletion(
-            context: context
-        ) else {
+        guard let isFinisher = try? await currentUserIsFinisher(context: context) else {
             return true
         }
 
-        if hasPublished, let key {
-            publishedCompletionClimbers.withLock { $0.insert(key) }
+        if isFinisher, let key {
+            knownFinisherClimbers.withLock { $0.insert(key) }
         }
 
-        return hasPublished
+        return isFinisher
     }
 
     /// One live-race row.

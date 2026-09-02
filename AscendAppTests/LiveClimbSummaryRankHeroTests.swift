@@ -115,6 +115,31 @@ struct LiveClimbSummaryRankHeroTests {
         #expect(recomputed.fieldPopulation(on: .justClimb) == .climbers)
     }
 
+    /// Load-bearing, not cosmetic. The captain accepted a Just Climb summary
+    /// counting climbers while Climb Detail lists every completion *because* the
+    /// rank card says CLIMBERS out loud - that noun is what disambiguates the two
+    /// totals, so it may not change without reopening the decision. Fails if
+    /// `recomputedFieldPopulation` is ever tidied back into deriving from
+    /// `collapsesRepeatFinishers`, which would silently make these boards say
+    /// COMPLETIONS over a climber count.
+    @Test(arguments: [
+        LiveReplayLeaderboardContextType.justClimb,
+        LiveReplayLeaderboardContextType.routine
+    ])
+    func aRecomputedStandingOnAnAttemptBoardNamesClimbers(
+        type: LiveReplayLeaderboardContextType
+    ) throws {
+        let recomputed = try #require(Hero.make(
+            isClimbContext: false,
+            standings: [Hero.Standing(rank: 6, total: 16, basis: .current)],
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        ))
+
+        #expect(type.collapsesRepeatFinishers == false)
+        #expect(recomputed.fieldPopulation(on: type) == .climbers)
+    }
+
     @Test
     func aCollapsingBoardNamesClimbersOnEitherBasis() throws {
         let frozen = try #require(Hero.make(
