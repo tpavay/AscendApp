@@ -19,6 +19,7 @@ final class LiveClimbActivityManager {
         steps: Int,
         rank: Int?,
         rankTotal: Int,
+        ownClimbs: LiveReplayPersonalPlacing?,
         duration: TimeInterval,
         progress: Double
     ) async {
@@ -31,6 +32,7 @@ final class LiveClimbActivityManager {
             steps: steps,
             rank: rank,
             rankTotal: rankTotal,
+            ownClimbs: ownClimbs,
             duration: duration,
             progress: progress
         )
@@ -45,6 +47,7 @@ final class LiveClimbActivityManager {
         steps: Int,
         rank: Int?,
         rankTotal: Int,
+        ownClimbs: LiveReplayPersonalPlacing?,
         duration: TimeInterval,
         progress: Double
     ) async {
@@ -65,6 +68,7 @@ final class LiveClimbActivityManager {
             steps: steps,
             rank: rank,
             rankTotal: rankTotal,
+            ownClimbs: ownClimbs,
             duration: duration,
             progress: progress,
             status: .recording,
@@ -104,6 +108,7 @@ final class LiveClimbActivityManager {
         steps: Int,
         rank: Int?,
         rankTotal: Int,
+        ownClimbs: LiveReplayPersonalPlacing?,
         duration: TimeInterval,
         progress: Double,
         status: LiveClimbActivityStatus? = nil,
@@ -116,6 +121,7 @@ final class LiveClimbActivityManager {
             steps: steps,
             rank: rank,
             rankTotal: rankTotal,
+            ownClimbs: ownClimbs,
             duration: duration,
             progress: progress,
             status: resolvedStatus,
@@ -135,6 +141,8 @@ final class LiveClimbActivityManager {
                 steps: $0.steps,
                 rank: $0.rank,
                 rankTotal: $0.rankTotal,
+                ownClimbsPlacing: $0.ownClimbsPlacing,
+                ownClimbsTotal: $0.ownClimbsTotal,
                 durationSeconds: $0.durationSeconds,
                 progress: $0.progress,
                 status: status,
@@ -175,6 +183,8 @@ final class LiveClimbActivityManager {
             steps: state.steps,
             rank: state.rank,
             rankTotal: state.rankTotal,
+            ownClimbsPlacing: state.ownClimbsPlacing,
+            ownClimbsTotal: state.ownClimbsTotal,
             durationSeconds: state.durationSeconds,
             progress: state.progress,
             status: status,
@@ -199,6 +209,8 @@ final class LiveClimbActivityManager {
             steps: lastState.steps,
             rank: lastState.rank,
             rankTotal: lastState.rankTotal,
+            ownClimbsPlacing: lastState.ownClimbsPlacing,
+            ownClimbsTotal: lastState.ownClimbsTotal,
             durationSeconds: lastState.durationSeconds,
             progress: lastState.progress,
             status: lastState.status,
@@ -217,6 +229,8 @@ final class LiveClimbActivityManager {
         if state.steps != lastState.steps ||
             state.rank != lastState.rank ||
             state.rankTotal != lastState.rankTotal ||
+            state.ownClimbsPlacing != lastState.ownClimbsPlacing ||
+            state.ownClimbsTotal != lastState.ownClimbsTotal ||
             state.status != lastState.status ||
             state.climbPhotoURLString != lastState.climbPhotoURLString {
             return true
@@ -234,6 +248,7 @@ final class LiveClimbActivityManager {
         steps: Int,
         rank: Int?,
         rankTotal: Int,
+        ownClimbs: LiveReplayPersonalPlacing?,
         duration: TimeInterval,
         progress: Double,
         status: LiveClimbActivityStatus,
@@ -243,6 +258,8 @@ final class LiveClimbActivityManager {
             steps: max(steps, 0),
             rank: rank,
             rankTotal: max(rankTotal, 0),
+            ownClimbsPlacing: ownClimbs?.placing,
+            ownClimbsTotal: ownClimbs?.total ?? 0,
             durationSeconds: max(Int(duration.rounded(.down)), 0),
             progress: min(max(progress, 0), 1),
             status: status,

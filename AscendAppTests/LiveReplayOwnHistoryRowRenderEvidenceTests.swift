@@ -40,9 +40,11 @@ struct LiveReplayOwnHistoryRowRenderEvidenceTests {
         )
         let text = try await recognizedText(in: rows)
 
-        // Two rows, both his, both saying so.
+        // Two rows, both his, both saying so. The badge is counted apart from
+        // the footer's "OF YOUR N CLIMBS", which contains the same three letters
+        // and is a statement about the field rather than about a row.
         #expect(text.components(separatedBy: "tyler pavay").count - 1 == 2)
-        #expect(text.components(separatedBy: "you").count - 1 == 2)
+        #expect(youBadgeCount(in: text) == 2)
 
         // A stranger's demographic subtitle is what made his own record read as
         // somebody else's row.
@@ -53,6 +55,47 @@ struct LiveReplayOwnHistoryRowRenderEvidenceTests {
         #expect(appearsBefore("551", "497", in: text))
 
         try writeEvidence(image: image, named: "repeat-climber-live-board.png")
+    }
+
+    /// The captain's bucket 35, off the pixels. He is the only climber who has
+    /// ever finished this tower, so the board states no leaderboard placing at
+    /// all - not a `#1`, not a `1 CLIMBER` line beside one - and states where
+    /// this run sits among his own climbs instead.
+    @Test
+    func aClimberAloneOnTheTowerIsPlacedAmongTheirOwnClimbs() async throws {
+        let image = try screenshot(of: RepeatClimberBoardProof(), size: Self.panelSize)
+        let text = try await recognizedText(in: image)
+
+        #expect(text.contains("of your 2 climbs"))
+        #expect(text.contains(2.rankOrdinalText.lowercased()))
+
+        // The two things that must not be on this board: a field line naming a
+        // population of one, and any leaderboard ordinal.
+        #expect(!text.contains("1 climber"))
+        #expect(!text.contains("#"))
+
+        try writeEvidence(image: image, named: "repeat-climber-alone-live-board.png")
+    }
+
+    /// The same board once real rivals exist. Both numbers show and each names
+    /// its own population, so neither can be read as the other.
+    @Test
+    func aBoardWithRivalsNamesTheLeaderboardFieldAndHisOwnClimbsSeparately() async throws {
+        let image = try screenshot(
+            of: RepeatClimberBoardProof(
+                standing: .racing(
+                    field: LiveReplayFieldSize(population: .climbers, count: 27),
+                    ownClimbs: LiveReplayPersonalPlacing(placing: 2, total: 5)
+                )
+            ),
+            size: Self.panelSize
+        )
+        let text = try await recognizedText(in: image)
+
+        #expect(text.contains("27 climbers"))
+        #expect(text.contains("of your 5 climbs"))
+
+        try writeEvidence(image: image, named: "repeat-climber-rivals-live-board.png")
     }
 
     @Test
@@ -173,6 +216,13 @@ struct LiveReplayOwnHistoryRowRenderEvidenceTests {
             .lowercased()
     }
 
+    /// Occurrences of the `YOU` badge, excluding the `YOUR` the field line uses.
+    private func youBadgeCount(in text: String) -> Int {
+        let all = text.components(separatedBy: "you").count - 1
+        let possessive = text.components(separatedBy: "your").count - 1
+        return all - possessive
+    }
+
     private func appearsBefore(_ first: String, _ second: String, in text: String) -> Bool {
         guard let firstRange = text.range(of: first),
               let secondRange = text.range(of: second) else {
@@ -235,6 +285,10 @@ struct LiveReplayOwnHistoryRowRenderEvidenceTests {
 
 /// The live race panel exactly as `LiveClimbSessionView` configures it.
 private struct RepeatClimberBoardProof: View {
+    var standing: LiveReplayLiveStanding = .alone(
+        ownClimbs: LiveReplayPersonalPlacing(placing: 2, total: 2)
+    )
+
     var body: some View {
         NavigationStack {
             LiveReplayLeaderboardPanel(
@@ -244,7 +298,7 @@ private struct RepeatClimberBoardProof: View {
                 progress: 0.9,
                 currentUserPhotoURL: nil,
                 fetchFailed: false,
-                field: LiveReplayFieldSize(population: .climbers, count: 1),
+                standing: standing,
                 tint: .accent,
                 effectiveColorScheme: .dark,
                 showsFilter: false

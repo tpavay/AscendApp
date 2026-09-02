@@ -453,6 +453,17 @@ final class LiveClimbSessionViewModel {
         )
     }
 
+    /// What the live panel and the Live Activity state about where this climber
+    /// stands. One answer, so the Lock Screen can never disagree with the panel.
+    var leaderboardStanding: LiveReplayLiveStanding {
+        LiveReplayLiveStanding.resolve(
+            field: leaderboardField,
+            ownClimbs: leaderboardWindow?.ownClimbs ?? .firstClimb,
+            isSoleClimber: leaderboardWindow?.isSoleClimber
+                ?? (leaderboardSummary.totalClimbers <= 1)
+        )
+    }
+
     var leaderboardUpdatedElapsedSeconds: Int? {
         leaderboardWindow?.bucketElapsedSeconds
     }
@@ -1136,6 +1147,7 @@ final class LiveClimbSessionViewModel {
             steps: totalRecordedSteps,
             rank: liveActivityRank,
             rankTotal: leaderboardTotalClimbers,
+            ownClimbs: liveActivityOwnClimbs,
             duration: displayedDuration,
             progress: liveActivityProgress
         )
@@ -1151,6 +1163,7 @@ final class LiveClimbSessionViewModel {
             steps: totalRecordedSteps,
             rank: liveActivityRank,
             rankTotal: leaderboardTotalClimbers,
+            ownClimbs: liveActivityOwnClimbs,
             duration: displayedDuration,
             progress: liveActivityProgress,
             status: status,
@@ -1159,7 +1172,11 @@ final class LiveClimbSessionViewModel {
     }
 
     private var liveActivityRank: Int? {
-        currentLeaderboardRank
+        leaderboardStanding.showsLeaderboardRank ? currentLeaderboardRank : nil
+    }
+
+    private var liveActivityOwnClimbs: LiveReplayPersonalPlacing? {
+        leaderboardStanding.ownClimbs
     }
 
     private var liveActivityProgress: Double {

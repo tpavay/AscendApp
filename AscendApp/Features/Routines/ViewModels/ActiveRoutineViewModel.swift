@@ -168,6 +168,19 @@ final class ActiveRoutineViewModel {
         routine.source.isTemplate && countsAsCompletion
     }
 
+    /// What this session's board may state about where the climber stands.
+    ///
+    /// A routine board holds no count it can substantiate, so it names no field;
+    /// where nobody else has finished it, the climber's own climbs are the only
+    /// population there is and the panel states that rather than a bare ordinal.
+    var leaderboardStanding: LiveReplayLiveStanding {
+        LiveReplayLiveStanding.resolve(
+            field: nil,
+            ownClimbs: leaderboardWindow?.ownClimbs ?? .firstClimb,
+            isSoleClimber: leaderboardWindow?.isSoleClimber ?? false
+        )
+    }
+
     var completionLeaderboardContext: LiveReplayLeaderboardContext? {
         earnsRoutineStanding ? replayContext : nil
     }

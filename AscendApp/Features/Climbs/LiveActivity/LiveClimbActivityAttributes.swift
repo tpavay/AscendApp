@@ -4,8 +4,15 @@ import Foundation
 struct LiveClimbActivityAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable, Sendable {
         var steps: Int
+        /// The leaderboard placing, or nil where the board holds no other
+        /// climber and so has no leaderboard placing to state.
         var rank: Int?
         var rankTotal: Int
+        /// Where this run places among the climber's own climbs of this board.
+        /// The only thing a solo board can substantiate, and what it states
+        /// instead of an ordinal nothing measured.
+        var ownClimbsPlacing: Int?
+        var ownClimbsTotal: Int
         var durationSeconds: Int
         var progress: Double
         var status: LiveClimbActivityStatus
@@ -16,8 +23,25 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
             min(max(progress, 0), 1)
         }
 
-        var rankLabel: String {
-            rank.map { "#\($0)" } ?? "--"
+        /// The compact value, and the caption that names what it counted.
+        ///
+        /// The two travel together on purpose: an ordinal captioned `rank` on a
+        /// board with no field is the defect this pair exists to prevent.
+        var standingValue: String {
+            if let rank {
+                return "#\(rank)"
+            }
+
+            guard let ownClimbsPlacing else { return "--" }
+            return Self.ordinalText(ownClimbsPlacing)
+        }
+
+        var standingCaption: String {
+            rank == nil && ownClimbsPlacing != nil ? "climbs" : "rank"
+        }
+
+        var standingTitle: String {
+            rank == nil && ownClimbsPlacing != nil ? "Your climbs" : "Rank"
         }
 
         var compactStepsLabel: String {
@@ -46,14 +70,23 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
             return "\(wholeThousands).\(tenths)k"
         }
 
-        var rankDetailLabel: String {
-            guard let rank else { return "Rank --" }
-
-            if rankTotal > 0 {
-                return "#\(rank) of \(rankTotal)"
+        var standingDetailLabel: String {
+            if let rank {
+                return rankTotal > 0 ? "#\(rank) of \(rankTotal)" : "#\(rank)"
             }
 
-            return "#\(rank)"
+            guard let ownClimbsPlacing else { return "Rank --" }
+
+            let total = max(ownClimbsTotal, ownClimbsPlacing)
+            return "\(Self.ordinalText(ownClimbsPlacing)) of your \(total)"
+        }
+
+        /// Spelled here rather than through the app's shared helper because the
+        /// widget extension compiles this file and not that one.
+        private static func ordinalText(_ value: Int) -> String {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .ordinal
+            return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
         }
 
         var durationLabel: String {
