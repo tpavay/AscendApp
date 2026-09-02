@@ -359,12 +359,16 @@ struct LiveClimbSummaryRankHero: Equatable {
                 return .firstAscent
             }
 
-            if let personalPlacing {
+            // A placing over a field of the climber's own single climb is the
+            // slot the flag occupies, so the only two honest outcomes here are
+            // the claim and silence. `1st of your 1 climb` is neither.
+            if let personalPlacing, !personalPlacing.isFirstCompletionHere {
                 return .personalPlacing(personalPlacing)
             }
 
-            // The climber's own history has not been read yet. Wait for it rather
-            // than falling back to the number this whole rule exists to remove.
+            // The climber's own history has not been read, or it cannot prove the
+            // claim. Wait rather than falling back to a number this whole rule
+            // exists to remove.
             return sync.rankResolution.isPending ? .loading : .unranked
         }
 

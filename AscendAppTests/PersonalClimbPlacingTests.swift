@@ -139,22 +139,79 @@ struct PersonalClimbPlacingTests {
         #expect(placing.total == 2)
     }
 
-    /// A restored install rebuilds a whole history on a tower as one row and keeps
-    /// only its best duration, so the denominator has to come from the count. Six
-    /// finishes read as two when it came from the durations on hand.
+    // MARK: - A history this device cannot fully account for
+
+    /// The regression this rule exists to make impossible.
+    ///
+    /// A restored install that could not restore a tower's workouts holds one
+    /// collapsed row: the true count, and the climber's best duration, and
+    /// nothing else. Reading the count for the denominator while ordering only
+    /// that one duration announced a climber's SLOWEST run ever as
+    /// `2ND OF YOUR 6 CLIMBS` - the flattering ordinal that cannot fall, which is
+    /// exactly the defect this type was built to delete. Past the known best the
+    /// position is unknowable, so it takes last.
     @Test
-    func aDenominatorLargerThanTheDurationsOnHandIsHonoured() throws {
+    func aRunPastTheKnownBestTakesLastRatherThanAFlatteringMiddleOrdinal() throws {
         let placing = try #require(
             PersonalClimbPlacing(
                 durationSeconds: 580,
-                otherCompletionDurationsSeconds: [492],
-                otherCompletionsCount: 5
+                otherCompletions: collapsedHistory(
+                    otherCompletionsCount: 5,
+                    knownDurationsSeconds: [492]
+                )
             )
         )
 
         #expect(placing.total == 6)
-        #expect(placing.ordinal == 2)
-        #expect(placing.fieldLabel == "OF YOUR 6 CLIMBS")
+        #expect(placing.ordinal == 6)
+        #expect(placing.achievementTitle == "6TH OF YOUR 6 CLIMBS")
+    }
+
+    /// The opposite error, guarded: a run at or inside the known best is
+    /// *provably* the climber's fastest, and first of your own climbs IS the
+    /// personal-best state. Refusing to say so would be as wrong as flattering.
+    @Test
+    func aRunInsideTheKnownBestStillStatesTheProvableFirst() throws {
+        let faster = try #require(
+            PersonalClimbPlacing(
+                durationSeconds: 470,
+                otherCompletions: collapsedHistory(
+                    otherCompletionsCount: 5,
+                    knownDurationsSeconds: [492]
+                )
+            )
+        )
+        let tied = try #require(
+            PersonalClimbPlacing(
+                durationSeconds: 492,
+                otherCompletions: collapsedHistory(
+                    otherCompletionsCount: 5,
+                    knownDurationsSeconds: [492]
+                )
+            )
+        )
+
+        #expect(faster.ordinal == 1)
+        #expect(faster.total == 6)
+        #expect(tied.ordinal == 1)
+    }
+
+    /// A collapsed history with no duration at all proves nothing, least of all
+    /// first. It takes last rather than the number that flatters.
+    @Test
+    func aCollapsedHistoryWithNoDurationsNeverClaimsFirst() throws {
+        let placing = try #require(
+            PersonalClimbPlacing(
+                durationSeconds: 580,
+                otherCompletions: collapsedHistory(
+                    otherCompletionsCount: 3,
+                    knownDurationsSeconds: []
+                )
+            )
+        )
+
+        #expect(placing.total == 4)
+        #expect(placing.ordinal == 4)
     }
 
     /// A count that undersells the durations on hand cannot shrink the field
@@ -165,13 +222,49 @@ struct PersonalClimbPlacingTests {
         let placing = try #require(
             PersonalClimbPlacing(
                 durationSeconds: 580,
-                otherCompletionDurationsSeconds: [492, 599, 640],
-                otherCompletionsCount: 1
+                otherCompletions: collapsedHistory(
+                    otherCompletionsCount: 1,
+                    knownDurationsSeconds: [492, 599, 640]
+                )
             )
         )
 
         #expect(placing.total == 4)
+        #expect(placing.ordinal == 4)
+    }
+
+    /// Complete evidence keeps the exact arithmetic: the ordinal counts the runs
+    /// that really were faster, because every one of them is on hand.
+    @Test
+    func completeEvidenceStillPlacesExactly() throws {
+        let placing = try #require(
+            PersonalClimbPlacing(
+                durationSeconds: 580,
+                otherCompletions: PersonalClimbCompletionHistory(
+                    otherCompletionsCount: 4,
+                    otherCompletionDurationsSeconds: [492, 599, 640, 705],
+                    durationEvidence: .complete,
+                    isEarliestCompletionHere: false,
+                    globalCompletionOrder: nil
+                )
+            )
+        )
+
         #expect(placing.ordinal == 2)
+        #expect(placing.total == 5)
+    }
+
+    private func collapsedHistory(
+        otherCompletionsCount: Int,
+        knownDurationsSeconds: [Int]
+    ) -> PersonalClimbCompletionHistory {
+        PersonalClimbCompletionHistory(
+            otherCompletionsCount: otherCompletionsCount,
+            otherCompletionDurationsSeconds: knownDurationsSeconds,
+            durationEvidence: .partial,
+            isEarliestCompletionHere: false,
+            globalCompletionOrder: nil
+        )
     }
 
     /// The ordinal can never exceed its own field: this is the class of pairing -

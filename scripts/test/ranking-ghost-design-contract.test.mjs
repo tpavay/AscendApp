@@ -333,19 +333,41 @@ test("the First Ascent claim is resolved from a permanent fact", () => {
     "AscendApp/Features/Climbs/Models/PersonalClimbCompletionHistory.swift",
   );
 
-  assert.ok(
-    !hero.includes("isFirstCompletionHere"),
-    "the hero derives the First Ascent from \"this is my only climb here\" " +
-      "again. That stops being true the day the climber returns to the " +
-      "tower, and the gold flag is permanent.",
+  // "This is my only climb here" may withhold a placing, and may never grant a
+  // claim: it stops being true the day the climber returns to the tower, and
+  // the gold flag is permanent.
+  for (const use of hero.match(/[^\s(]*isFirstCompletionHere/g) ?? []) {
+    assert.ok(
+      use.startsWith("!"),
+      "the hero reads isFirstCompletionHere as a positive test again. It may " +
+        "only ever withhold.",
+    );
+  }
+  assert.equal(
+    [...hero.matchAll(/return \.firstAscent/g)].length,
+    1,
+    "the First Ascent state is produced from more than one branch",
   );
   assert.ok(
     /if claimsFirstAscent \{\s*\n\s*return \.firstAscent/.test(hero),
     "the First Ascent state is no longer taken from the caller's claim",
   );
   assert.ok(
-    history.includes("isEarliestCompletionHere") &&
-      history.includes("globalCompletionOrder"),
-    "the claim is no longer built from the two permanent signals",
+    /isEarliestCompletionHere && globalCompletionOrder == 1/.test(history),
+    "the claim is no longer built from both permanent signals demanding " +
+      "positive evidence. A finisher order this device was never told must " +
+      "withhold the claim, never default into granting it.",
+  );
+  assert.ok(
+    !/globalCompletionOrder \?\?/.test(history),
+    "the finisher order defaults to a value again, which grants the claim on " +
+      "a device that was never told one",
+  );
+  assert.ok(
+    history.includes("enum DurationEvidence"),
+    "the history no longer distinguishes a complete record of the climber's " +
+      "runs on a tower from a collapsed stand-in for it, which is what let " +
+      "both the gold card and a flattering ordinal assert on evidence that " +
+      "could not carry them.",
   );
 });

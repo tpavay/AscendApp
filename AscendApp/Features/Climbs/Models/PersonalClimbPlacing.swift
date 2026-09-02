@@ -53,24 +53,57 @@ struct PersonalClimbPlacing: Equatable, Sendable {
     ///
     /// - Parameters:
     ///   - durationSeconds: This completion's duration.
-    ///   - otherCompletionDurationsSeconds: The durations known for the climber's
-    ///     *other* completions of this climb.
-    ///   - otherCompletionsCount: How many other completions there are, when that
-    ///     is known to be more than the durations on hand. A restored install
-    ///     rebuilds a whole history on a tower from the server and keeps only its
-    ///     best duration, so the denominator has to come from the count rather
-    ///     than from the list, or six finishes read as two.
-    init?(
-        durationSeconds: Int,
-        otherCompletionDurationsSeconds: [Int],
-        otherCompletionsCount: Int? = nil
-    ) {
+    ///   - otherCompletionDurationsSeconds: Every *other* completion the climber
+    ///     has recorded on this climb. Passing a list is passing complete
+    ///     evidence: it is the whole history, so the count and the order both
+    ///     come from it. Unmeasured rows are dropped from both rather than
+    ///     counted as impossibly fast runs ahead of the climber.
+    init?(durationSeconds: Int, otherCompletionDurationsSeconds: [Int]) {
+        let measured = otherCompletionDurationsSeconds.filter { $0 > 0 }
+        self.init(
+            durationSeconds: durationSeconds,
+            otherCompletions: PersonalClimbCompletionHistory(
+                otherCompletionsCount: measured.count,
+                otherCompletionDurationsSeconds: measured,
+                durationEvidence: .complete,
+                isEarliestCompletionHere: false,
+                globalCompletionOrder: nil
+            )
+        )
+    }
+
+    /// Places one completion against the history this device can actually
+    /// account for.
+    ///
+    /// The denominator and the ordinal have to answer to the same evidence. When
+    /// they did not, a restored install stated the count the server projection
+    /// knew while ordering only the one duration it had kept, so a climber's
+    /// slowest run ever was announced as `2ND OF YOUR 7 CLIMBS` - the flattering
+    /// ordinal that cannot fall, which is the whole defect this type exists to
+    /// delete.
+    ///
+    /// Under `.partial` evidence only the two ends are decidable, and the
+    /// projection's best duration decides both. At or inside it, first is
+    /// *proven* and is stated - first of your own climbs is the personal-best
+    /// state, and withholding it would be the opposite error. Past it, at least
+    /// one completion is known to be faster and the position among the rest is
+    /// unknowable, so the placing takes last: the one number the evidence can
+    /// never contradict, and never a middle one it cannot support.
+    init?(durationSeconds: Int, otherCompletions: PersonalClimbCompletionHistory) {
         guard durationSeconds > 0 else { return nil }
 
-        let others = otherCompletionDurationsSeconds.filter { $0 > 0 }
-        self.init(
-            ordinal: 1 + others.filter { $0 < durationSeconds }.count,
-            total: max(otherCompletionsCount ?? others.count, others.count) + 1
-        )
+        let others = otherCompletions.otherCompletionDurationsSeconds.filter { $0 > 0 }
+        let total = max(otherCompletions.otherCompletionsCount, others.count) + 1
+
+        switch otherCompletions.durationEvidence {
+        case .complete:
+            self.init(
+                ordinal: 1 + others.filter { $0 < durationSeconds }.count,
+                total: total
+            )
+        case .partial:
+            let isProvablyFastest = !others.isEmpty && others.allSatisfy { $0 >= durationSeconds }
+            self.init(ordinal: isProvablyFastest ? 1 : total, total: total)
+        }
     }
 }

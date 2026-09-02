@@ -126,6 +126,10 @@ struct LiveClimbCompletionSummaryView: View {
             // wait on the network would stall the whole solo hero behind it.
             resolvePersonalClimbPlacing()
             await resolveCompletionRank()
+            // Read again: resolving the rank is also what mirrors this climb's
+            // finisher order onto the store, and the First Ascent claim will not
+            // be granted without it.
+            resolvePersonalClimbPlacing()
             trackSummaryViewedIfNeeded()
         }
         .trackOnce(screen: .liveClimbSummary)
@@ -622,22 +626,28 @@ struct LiveClimbCompletionSummaryView: View {
     ///
     /// Bounded to one climb by `ClimbService.personalCompletionHistory`, and only
     /// meaningful on a catalog climb: a routine or an open Just Climb has no
-    /// tower to have climbed twice.
+    /// tower to have climbed twice. A history the store could not produce leaves
+    /// both values nil so the hero waits, rather than reading a failed read as a
+    /// tower climbed exactly once.
     @MainActor
     private func resolvePersonalClimbPlacing() {
         guard let climb else { return }
 
-        let history = ClimbService.shared.personalCompletionHistory(
+        guard let history = ClimbService.shared.personalCompletionHistory(
             forClimbId: climb.id,
             workoutId: workout.id,
-            workoutDate: workout.date,
+            completedAt: workout.date.addingTimeInterval(workout.duration),
             modelContext: modelContext
-        )
+        ) else {
+            personalClimbHistory = nil
+            personalClimbPlacing = nil
+            return
+        }
+
         personalClimbHistory = history
         personalClimbPlacing = PersonalClimbPlacing(
             durationSeconds: Int(workout.duration.rounded()),
-            otherCompletionDurationsSeconds: history.otherCompletionDurationsSeconds,
-            otherCompletionsCount: history.otherCompletionsCount
+            otherCompletions: history
         )
     }
 

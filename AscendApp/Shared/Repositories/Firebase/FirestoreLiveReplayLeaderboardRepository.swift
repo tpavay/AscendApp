@@ -1,11 +1,23 @@
 import Foundation
+import os
 @preconcurrency import FirebaseAuth
 @preconcurrency import FirebaseFirestore
 
 final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepository, @unchecked Sendable {
     static let shared = FirestoreLiveReplayLeaderboardRepository()
 
+    /// The climber's own entry on one board at one bucket.
+    ///
+    /// Only the latest bucket is kept: a race walks forward and never asks for a
+    /// bucket it has left behind, so a dictionary would only grow.
+    private struct OwnPreviousCompletionCache: Sendable {
+        let key: String
+        let row: LiveReplayLeaderboardRow?
+    }
+
     private let db = Firestore.firestore()
+    private let ownPreviousCompletionCache =
+        OSAllocatedUnfairLock<OwnPreviousCompletionCache?>(initialState: nil)
 
     private init() {}
 
@@ -519,17 +531,34 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         }.first
     }
 
+    /// The same read, served from the last bucket's answer where it still applies.
+    ///
+    /// A completion published before this session started cannot move inside a
+    /// bucket, and the marker's motion between buckets is `projected(...)` on the
+    /// client rather than a re-read - so the periodic refresh, which runs more
+    /// often than the bucket advances, was paying for the same document twice.
+    /// Only the row's gap to the live climber is re-derived. A read that failed is
+    /// never cached, so the next refresh tries again.
     private func optionalOwnPreviousCompletionRow(
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int,
         currentSteps: Int
     ) async -> LiveReplayLeaderboardRow? {
+        let key = "\(context.contextKey)|\(max(bucketIndex, 0))"
+        if let cached = ownPreviousCompletionCache.withLock({ $0 }), cached.key == key {
+            return cached.row?.rebased(currentSteps: currentSteps)
+        }
+
         do {
-            return try await fetchOwnPreviousCompletionRow(
+            let row = try await fetchOwnPreviousCompletionRow(
                 context: context,
                 bucketIndex: bucketIndex,
                 currentSteps: currentSteps
             )
+            ownPreviousCompletionCache.withLock {
+                $0 = OwnPreviousCompletionCache(key: key, row: row)
+            }
+            return row
         } catch {
             return nil
         }
