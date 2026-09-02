@@ -225,6 +225,102 @@ struct LiveClimbSessionFieldSizeTests {
         await viewModel.discard(modelContext: context)
     }
 
+    // MARK: - A placing nothing measured is never stated
+
+    /// The state at t=0 of every climb, before any window has answered. The
+    /// session knows nothing about this climber's history yet, and "nothing
+    /// known" must not render as "1st of your 1 climb".
+    @Test
+    func aSessionWithNoWindowYetStatesNoPlacingOfItsOwn() {
+        let viewModel = makeLandmarkSession(
+            leaderboardService: StubLiveReplayLeaderboardService(
+                summary: Self.summary(totalClimbers: 27)
+            )
+        )
+
+        #expect(viewModel.leaderboardWindow == nil)
+        #expect(viewModel.leaderboardStanding.ownClimbs == nil)
+        // Nor may an empty summary be read as nobody else being on the tower.
+        #expect(viewModel.leaderboardStanding.showsLeaderboardRank)
+    }
+
+    /// The history read is non-fatal, so a window can arrive having counted the
+    /// field but not this climber's own climbs. That is still "not measured".
+    @Test
+    func aWindowThatCouldNotCountTheirClimbsStatesNoPlacing() async throws {
+        let viewModel = makeLandmarkSession(
+            leaderboardService: StubLiveReplayLeaderboardService(
+                summary: Self.summary(totalClimbers: 27),
+                window: Self.window
+            )
+        )
+        let container = try Self.makeContainer()
+        let context = container.mainContext
+
+        viewModel.start(modelContext: context)
+        await viewModel.refreshReplayLeaderboardIfNeeded(force: true)
+        await viewModel.leaderboardSummaryFetchTask?.value
+
+        #expect(viewModel.leaderboardWindow?.ownClimbs == nil)
+        #expect(viewModel.leaderboardStanding.ownClimbs == nil)
+
+        await viewModel.discard(modelContext: context)
+    }
+
+    @Test
+    func aWindowThatCountedTheirClimbsStatesThePlacingItMeasured() async throws {
+        let viewModel = makeLandmarkSession(
+            leaderboardService: StubLiveReplayLeaderboardService(
+                summary: Self.summary(totalClimbers: 27),
+                window: Self.window(
+                    totalClimbers: 27,
+                    ownClimbs: LiveReplayPersonalPlacing(placing: 2, total: 5)
+                )
+            )
+        )
+        let container = try Self.makeContainer()
+        let context = container.mainContext
+
+        viewModel.start(modelContext: context)
+        await viewModel.refreshReplayLeaderboardIfNeeded(force: true)
+        await viewModel.leaderboardSummaryFetchTask?.value
+
+        let standing = viewModel.leaderboardStanding
+        #expect(standing.showsLeaderboardRank)
+        #expect(standing.field?.label == "27 CLIMBERS")
+        #expect(standing.ownClimbs?.fieldLabel == "OF YOUR 5 CLIMBS")
+
+        await viewModel.discard(modelContext: context)
+    }
+
+    /// The captain's tower: he is the only climber who has ever finished it, so
+    /// no leaderboard placing is stated on either surface.
+    @Test
+    func aSoloBoardStatesOnlyTheClimbersOwnClimbs() async throws {
+        let viewModel = makeLandmarkSession(
+            leaderboardService: StubLiveReplayLeaderboardService(
+                summary: Self.summary(totalClimbers: 1),
+                window: Self.window(
+                    totalClimbers: 1,
+                    ownClimbs: LiveReplayPersonalPlacing(placing: 2, total: 2)
+                )
+            )
+        )
+        let container = try Self.makeContainer()
+        let context = container.mainContext
+
+        viewModel.start(modelContext: context)
+        await viewModel.refreshReplayLeaderboardIfNeeded(force: true)
+        await viewModel.leaderboardSummaryFetchTask?.value
+
+        let standing = viewModel.leaderboardStanding
+        #expect(!standing.showsLeaderboardRank)
+        #expect(standing.field == nil)
+        #expect(standing.ownClimbs?.fieldLabel == "OF YOUR 2 CLIMBS")
+
+        await viewModel.discard(modelContext: context)
+    }
+
     private func makeLandmarkSession(
         leaderboardService: StubLiveReplayLeaderboardService,
         clock: TestClock = TestClock()
@@ -240,30 +336,38 @@ struct LiveClimbSessionFieldSizeTests {
         )
     }
 
-    private static let window = LiveReplayLeaderboardWindow(
-        context: .liveClimb(climbId: climb.id, targetSteps: climb.referenceStepCount),
-        bucketIndex: 0,
-        currentSteps: 0,
-        fetchedAt: Date(timeIntervalSince1970: 1_777_777_700),
-        rows: [
-            LiveReplayLeaderboardRow(
-                id: "rival-1",
-                rank: 1,
-                displayName: "Rival",
-                avatarToken: "rival",
-                photoURL: nil,
-                stepsAtBucket: 400,
-                finalSteps: 2_579,
-                deltaFromUser: 400,
-                isCurrentUser: false,
-                isPersonalBest: false,
-                completionDurationSeconds: 900,
-                userId: "rival-1"
-            )
-        ],
-        currentUserRank: 2,
-        totalClimbers: 27
-    )
+    private static let window = window(totalClimbers: 27, ownClimbs: nil)
+
+    private static func window(
+        totalClimbers: Int,
+        ownClimbs: LiveReplayPersonalPlacing?
+    ) -> LiveReplayLeaderboardWindow {
+        LiveReplayLeaderboardWindow(
+            context: .liveClimb(climbId: climb.id, targetSteps: climb.referenceStepCount),
+            bucketIndex: 0,
+            currentSteps: 0,
+            fetchedAt: Date(timeIntervalSince1970: 1_777_777_700),
+            rows: [
+                LiveReplayLeaderboardRow(
+                    id: "rival-1",
+                    rank: 1,
+                    displayName: "Rival",
+                    avatarToken: "rival",
+                    photoURL: nil,
+                    stepsAtBucket: 400,
+                    finalSteps: 2_579,
+                    deltaFromUser: 400,
+                    isCurrentUser: false,
+                    isPersonalBest: false,
+                    completionDurationSeconds: 900,
+                    userId: "rival-1"
+                )
+            ],
+            currentUserRank: 2,
+            totalClimbers: totalClimbers,
+            ownClimbs: ownClimbs
+        )
+    }
 
     private static func summary(totalClimbers: Int) -> LiveReplayLeaderboardSummary {
         LiveReplayLeaderboardSummary(

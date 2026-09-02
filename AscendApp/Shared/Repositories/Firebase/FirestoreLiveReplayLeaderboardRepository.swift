@@ -803,21 +803,39 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         // to, so this predicate is the precise complement of "present in this
         // bucket": no attempt can be read as both running and finished, and none
         // can fall between the two.
-        let finished = liveRaceEntries(context: context, bucketIndex: 0)
-            .whereField("splitBucketCount", isLessThanOrEqualTo: bucketIndex)
+        let entries = liveRaceEntries(context: context, bucketIndex: 0)
 
         switch direction {
         case .ahead:
-            return finished
-                .whereField("finalSteps", isGreaterThanOrEqualTo: currentSteps)
-                .order(by: "finalSteps", descending: false)
-                .order(by: "splitBucketCount", descending: false)
+            return Self.finishedAhead(
+                entries,
+                bucketIndex: bucketIndex,
+                currentSteps: currentSteps
+            )
+            .order(by: "finalSteps", descending: false)
+            .order(by: "splitBucketCount", descending: false)
         case .behind:
-            return finished
+            return entries
+                .whereField("splitBucketCount", isLessThanOrEqualTo: bucketIndex)
                 .whereField("finalSteps", isLessThan: currentSteps)
                 .order(by: "finalSteps", descending: true)
                 .order(by: "splitBucketCount", descending: true)
         }
+    }
+
+    /// "Already home by this bucket, and standing at or beyond these steps."
+    ///
+    /// One owner, applied to whichever entries a caller is asking about - the
+    /// flagged race field, or one climber's own attempts. A second spelling of
+    /// this pair would let the climber's placing count rows the race never did.
+    private static func finishedAhead(
+        _ entries: Query,
+        bucketIndex: Int,
+        currentSteps: Int
+    ) -> Query {
+        entries
+            .whereField("splitBucketCount", isLessThanOrEqualTo: bucketIndex)
+            .whereField("finalSteps", isGreaterThanOrEqualTo: currentSteps)
     }
 
     private func fetchFinishedRows(
@@ -1194,37 +1212,8 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             .exists
     }
 
-    /// One published attempt of the signed-in climber's, as the window's own
-    /// reads would see it at this bucket.
-    private struct OwnAttempt {
-        let isBestForUser: Bool
-        let splitBucketCount: Int?
-        let finalSteps: Int?
-        /// The steps it had reached at the bucket being read, or nil when it had
-        /// already finished and holds no row there.
-        let stepsAtBucket: Int?
-
-        /// Mirrors the window's two ahead reads exactly rather than
-        /// approximating them. A row counted here that the aggregations never
-        /// counted would seat the climber a place too high.
-        func standsAhead(bucketIndex: Int, currentSteps: Int) -> Bool {
-            if let stepsAtBucket {
-                return stepsAtBucket >= currentSteps
-            }
-
-            guard bucketIndex > 0,
-                  let splitBucketCount,
-                  splitBucketCount <= bucketIndex,
-                  let finalSteps else {
-                return false
-            }
-
-            return finalSteps >= currentSteps
-        }
-    }
-
     /// Everything the window needs to know about the climber's own history on
-    /// this board, from one read of it.
+    /// this board.
     private struct OwnClimbHistory {
         /// 1 while the climber's own collapsed best stands ahead of them, 0
         /// otherwise. A climber races their own ghost; they never compete with
@@ -1238,17 +1227,21 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         static let unresolved = OwnClimbHistory(ghostAhead: 0, placing: nil)
     }
 
-    /// Reads the climber's own attempts on this board and answers both questions
-    /// the window asks about them.
+    /// Answers both questions the window asks about the climber's own history.
     ///
-    /// Deliberately unfiltered by `isBestForUser`. The race rows are collapsed to
-    /// one row per climber, so the climber's second-best run is not on the board
-    /// at all - a placing among their own climbs cannot be derived from the rows
-    /// beside them or from the ghost count, only from their own entries.
+    /// Every read here is bounded by construction rather than by how much the
+    /// climber has climbed. `just_climb__global` is one board every open session
+    /// in the app publishes to, so a list of "this climber's own entries" grows
+    /// without bound and would be paid for on every bucket of every race - the
+    /// hazard the project guide names as a query whose cost grows with the
+    /// user's history. The ghost is a single flagged document by construction,
+    /// and the placing needs two numbers rather than any documents, so it is
+    /// counted.
     ///
-    /// Two reads on `userId`, and the same two answer both questions: the flagged
-    /// row is the ghost to take back out of the leaderboard numerator, and every
-    /// row is a climb of theirs to place this run among.
+    /// One failure path for both. Losing the ghost correction and losing the
+    /// placing both fail closed - nothing is subtracted, and no ordinal is
+    /// stated - so a partial answer can never be assembled out of one real count
+    /// and one missing one.
     private func ownClimbHistory(
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int,
@@ -1257,21 +1250,22 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         guard let uid = Auth.auth().currentUser?.uid else { return .unresolved }
 
         do {
-            let attempts = try await currentUserAttempts(
+            async let ghostAhead = ownGhostAheadCount(
                 context: context,
                 userId: uid,
-                bucketIndex: bucketIndex
+                bucketIndex: bucketIndex,
+                currentSteps: currentSteps
             )
-            let ahead = attempts.filter {
-                $0.standsAhead(bucketIndex: bucketIndex, currentSteps: currentSteps)
-            }
+            async let placing = ownClimbPlacing(
+                context: context,
+                userId: uid,
+                bucketIndex: bucketIndex,
+                currentSteps: currentSteps
+            )
 
             return OwnClimbHistory(
-                ghostAhead: ahead.filter(\.isBestForUser).count,
-                placing: LiveReplayPersonalPlacing(
-                    placing: ahead.count + 1,
-                    total: attempts.count + 1
-                )
+                ghostAhead: try await ghostAhead,
+                placing: try await placing
             )
         } catch {
             // Non-fatal on the same terms as every other read this fetch
@@ -1288,43 +1282,112 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         }
     }
 
-    private func currentUserAttempts(
+    /// Where the run on the machine places among this climber's own climbs.
+    ///
+    /// Counted on the same two ahead predicates the race field is counted on, so
+    /// an attempt of theirs can never be placed ahead of them here while the
+    /// window reads it as behind. The race rows cannot answer this: they are
+    /// collapsed to one row per climber, so the climber's second-best run is not
+    /// on the board at all.
+    private func ownClimbPlacing(
         context: LiveReplayLeaderboardContext,
         userId: String,
-        bucketIndex: Int
-    ) async throws -> [OwnAttempt] {
-        let bucketZero = try await entriesCollection(context: context, bucketIndex: 0)
+        bucketIndex: Int,
+        currentSteps: Int
+    ) async throws -> LiveReplayPersonalPlacing {
+        async let published = countOf(ownEntries(context: context, bucketIndex: 0, userId: userId))
+        async let runningAhead = countOf(
+            ownEntries(context: context, bucketIndex: bucketIndex, userId: userId)
+                .whereField("stepsAtBucket", isGreaterThanOrEqualTo: currentSteps)
+        )
+        async let finishedAhead = ownFinishedAheadCount(
+            context: context,
+            userId: userId,
+            bucketIndex: bucketIndex,
+            currentSteps: currentSteps
+        )
+
+        let ahead = try await runningAhead + (try await finishedAhead)
+
+        return LiveReplayPersonalPlacing(
+            placing: ahead + 1,
+            total: try await published + 1
+        )
+    }
+
+    private func ownFinishedAheadCount(
+        context: LiveReplayLeaderboardContext,
+        userId: String,
+        bucketIndex: Int,
+        currentSteps: Int
+    ) async throws -> Int {
+        guard bucketIndex > 0 else { return 0 }
+
+        return try await countOf(
+            Self.finishedAhead(
+                ownEntries(context: context, bucketIndex: 0, userId: userId),
+                bucketIndex: bucketIndex,
+                currentSteps: currentSteps
+            )
+        )
+    }
+
+    /// Whether the climber's own collapsed best stands ahead of them right now.
+    ///
+    /// Bounded to one document: the server flags exactly one entry per climber,
+    /// so this is a lookup rather than a scan however long their history is.
+    /// Mirrors the two ahead reads exactly - a row subtracted here that the
+    /// aggregations never counted would seat the climber a place too high.
+    private func ownGhostAheadCount(
+        context: LiveReplayLeaderboardContext,
+        userId: String,
+        bucketIndex: Int,
+        currentSteps: Int
+    ) async throws -> Int {
+        let ghosts = try await liveRaceEntries(context: context, bucketIndex: 0)
             .whereField("userId", isEqualTo: userId)
             .getDocuments(source: .server)
+        guard let ghost = ghosts.documents.first else { return 0 }
 
-        var stepsByWorkout: [String: Int] = [:]
+        var atThisBucket: [String: Any]? = ghost.data()
         if bucketIndex > 0 {
-            let atThisBucket = try await entriesCollection(
+            atThisBucket = try await entriesCollection(
                 context: context,
                 bucketIndex: bucketIndex
             )
+            .document(ghost.documentID)
+            .getDocument(source: .server)
+            .data()
+        }
+
+        if let atThisBucket,
+           let stepsAtBucket = intValue(for: "stepsAtBucket", in: atThisBucket) {
+            return stepsAtBucket >= currentSteps ? 1 : 0
+        }
+
+        guard bucketIndex > 0,
+              let splitBucketCount = intValue(for: "splitBucketCount", in: ghost.data()),
+              splitBucketCount <= bucketIndex,
+              let finalSteps = intValue(for: "finalSteps", in: ghost.data()) else {
+            return 0
+        }
+
+        return finalSteps >= currentSteps ? 1 : 0
+    }
+
+    /// This climber's own entries in one bucket, deliberately unfiltered by
+    /// `isBestForUser` - a question about their history sees every run of it.
+    private func ownEntries(
+        context: LiveReplayLeaderboardContext,
+        bucketIndex: Int,
+        userId: String
+    ) -> Query {
+        entriesCollection(context: context, bucketIndex: bucketIndex)
             .whereField("userId", isEqualTo: userId)
-            .getDocuments(source: .server)
+    }
 
-            for document in atThisBucket.documents {
-                stepsByWorkout[document.documentID] = intValue(
-                    for: "stepsAtBucket",
-                    in: document.data()
-                )
-            }
-        }
-
-        return bucketZero.documents.map { document in
-            let data = document.data()
-            return OwnAttempt(
-                isBestForUser: (data["isBestForUser"] as? Bool) ?? false,
-                splitBucketCount: intValue(for: "splitBucketCount", in: data),
-                finalSteps: intValue(for: "finalSteps", in: data),
-                stepsAtBucket: bucketIndex == 0
-                    ? intValue(for: "stepsAtBucket", in: data)
-                    : stepsByWorkout[document.documentID]
-            )
-        }
+    private func countOf(_ query: Query) async throws -> Int {
+        try await query.count.getAggregation(source: .server).count.intValue
     }
 
     private func optionalCountRowsAhead(

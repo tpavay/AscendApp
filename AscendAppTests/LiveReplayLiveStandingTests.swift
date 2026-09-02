@@ -102,6 +102,74 @@ struct LiveReplayLiveStandingTests {
         #expect(LiveReplayPersonalPlacing(placing: 3, total: 4).fieldLabel == "OF YOUR 4 CLIMBS")
     }
 
+    // MARK: - The Live Activity states the same thing the panel does
+
+    @Test
+    func aRacingLockScreenStatesBothNumbersAndNamesBothPopulations() {
+        let state = activityState(rank: 2, rankTotal: 27, ownClimbs: (2, 5))
+
+        #expect(state.standingTitle == "Rank")
+        #expect(state.standingDetailLabel == "#2 of 27 climbers")
+        #expect(state.standingSecondaryLabel == "2nd of your 5 climbs")
+    }
+
+    @Test
+    func theCompactIslandNeverShowsAnOrdinalWithoutANoun() {
+        let racing = activityState(rank: 2, rankTotal: 27, ownClimbs: (2, 5))
+        #expect(racing.standingValue == "#2")
+        #expect(racing.standingCaption == "of 27 climbers")
+
+        let alone = activityState(rank: nil, rankTotal: 1, ownClimbs: (2, 2))
+        #expect(alone.standingValue == "2nd")
+        #expect(alone.standingCaption == "of your climbs")
+    }
+
+    @Test
+    func aLockScreenAloneOnTheTowerStatesOnlyTheClimbersOwnClimbs() {
+        let state = activityState(rank: nil, rankTotal: 1, ownClimbs: (2, 2))
+
+        #expect(state.standingTitle == "Your climbs")
+        #expect(state.standingDetailLabel == "2nd of your 2 climbs")
+        // The same statement must not appear twice on one surface.
+        #expect(state.standingSecondaryLabel == nil)
+    }
+
+    @Test
+    func aLockScreenWithNothingMeasuredStatesNoOrdinalAtAll() {
+        let state = activityState(rank: nil, rankTotal: 0, ownClimbs: nil)
+
+        #expect(state.standingValue == "--")
+        #expect(state.standingDetailLabel == "--")
+        #expect(state.standingSecondaryLabel == nil)
+    }
+
+    @Test
+    func aFieldOfOneIsNamedInTheSingular() {
+        let state = activityState(rank: 1, rankTotal: 1, ownClimbs: (1, 1))
+
+        #expect(state.standingDetailLabel == "#1 of 1 climber")
+        #expect(state.standingSecondaryLabel == "1st of your 1 climb")
+    }
+
+    private func activityState(
+        rank: Int?,
+        rankTotal: Int,
+        ownClimbs: (placing: Int, total: Int)?
+    ) -> LiveClimbActivityAttributes.ContentState {
+        LiveClimbActivityAttributes.ContentState(
+            steps: 497,
+            rank: rank,
+            rankTotal: rankTotal,
+            ownClimbsPlacing: ownClimbs?.placing,
+            ownClimbsTotal: ownClimbs?.total ?? 0,
+            durationSeconds: 350,
+            progress: 0.9,
+            status: .recording,
+            climbPhotoURLString: nil,
+            updatedAt: Date(timeIntervalSince1970: 1_787_957_195)
+        )
+    }
+
     private func window(totalClimbers: Int) -> LiveReplayLeaderboardWindow {
         LiveReplayLeaderboardWindow(
             context: .liveClimb(
