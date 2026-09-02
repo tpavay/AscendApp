@@ -321,6 +321,18 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     /// Whether at least one other row shares this rank.
     let isTied: Bool
 
+    /// The viewer's own already-published best, standing beside the run chasing
+    /// it - a ghost rather than an opponent.
+    ///
+    /// A live-window concept only. It is what a repeat climber's second kind of
+    /// row is *during a race*, so it decides which rows the rank column skips.
+    /// The static completion board draws every completion as a ranked row and
+    /// never asks this, which is why it stays correct while every row of the
+    /// viewer's satisfies the same two flags there.
+    var isViewerGhost: Bool {
+        isCurrentUser && !isLiveAttempt
+    }
+
     init(
         id: String,
         rank: Int?,
@@ -478,6 +490,84 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         )
     }
 
+    /// Assigns a rank outright, including clearing it.
+    ///
+    /// `updating(rank:)` cannot express "no rank" - it falls back to the
+    /// existing value - and a ghost's rank has to be absent rather than a number
+    /// somebody could read as a placing.
+    func settingRank(_ rank: Int?) -> LiveReplayLeaderboardRow {
+        LiveReplayLeaderboardRow(
+            id: id,
+            rank: rank,
+            unresolvedIdentity: unresolvedIdentity,
+            stepsAtBucket: stepsAtBucket,
+            finalSteps: finalSteps,
+            deltaFromUser: deltaFromUser,
+            isCurrentUser: isCurrentUser,
+            isLiveAttempt: isLiveAttempt,
+            isPersonalBest: isPersonalBest,
+            completionDurationSeconds: completionDurationSeconds,
+            userId: userId,
+            gender: gender,
+            age: age,
+            locationCity: locationCity,
+            isTied: isTied
+        )
+    }
+
+    /// Numbers a window's rows in board order around one anchor row.
+    ///
+    /// The viewer's own ghost takes no rank cell and is not counted in anybody
+    /// else's placing, so every other row is numbered as though it is not in the
+    /// list. Settled by the captain on 2026-09-01: a climber's previous best "is
+    /// not a leaderboard row, so it takes no rank cell, is never tappable, and
+    /// is never counted in the rank or the field size."
+    ///
+    /// One implementation for all three numbering sites. Assigning by list
+    /// offset instead is what drew a repeat climber's two rows as two number
+    /// ones and showed every rival above the ghost a place better than they
+    /// stood.
+    ///
+    /// `anchorIndex` may sit outside `rows` - the window's ahead and behind
+    /// halves are numbered separately, with the live attempt just past one end.
+    static func rankedSkippingGhosts(
+        _ rows: [LiveReplayLeaderboardRow],
+        anchorIndex: Int,
+        anchorRank: Int
+    ) -> [LiveReplayLeaderboardRow] {
+        var ranked = rows
+
+        var next = anchorRank - 1
+        var index = min(anchorIndex, rows.count) - 1
+        while index >= 0 {
+            if rows[index].isViewerGhost {
+                ranked[index] = rows[index].settingRank(nil)
+            } else {
+                ranked[index] = rows[index].settingRank(max(next, 1))
+                next -= 1
+            }
+            index -= 1
+        }
+
+        next = anchorRank + 1
+        index = max(anchorIndex, -1) + 1
+        while index < rows.count {
+            if rows[index].isViewerGhost {
+                ranked[index] = rows[index].settingRank(nil)
+            } else {
+                ranked[index] = rows[index].settingRank(max(next, 1))
+                next += 1
+            }
+            index += 1
+        }
+
+        if rows.indices.contains(anchorIndex) {
+            ranked[anchorIndex] = rows[anchorIndex].settingRank(max(anchorRank, 1))
+        }
+
+        return ranked
+    }
+
     func updating(
         rank: Int? = nil,
         stepsAtBucket: Int? = nil,
@@ -618,7 +708,7 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
     /// leaving it in the list would put the climber's name on the board twice
     /// and rank them behind themselves.
     var opponentRows: [LiveReplayLeaderboardRow] {
-        rows.filter { !($0.isCurrentUser && !$0.isLiveAttempt) }
+        rows.filter { !$0.isViewerGhost }
     }
 
     /// Where the climber's previous best had reached at this moment in the race,
@@ -629,7 +719,7 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
     /// the fill and the line is the message.
     func previousBestStepsAtBucket(currentElapsedSeconds: Int) -> Int? {
         let ownRows = ownPreviousCompletionRow.map { [$0] }
-            ?? rows.filter { $0.isCurrentUser && !$0.isLiveAttempt }
+            ?? rows.filter(\.isViewerGhost)
 
         return ownRows
             .map {
@@ -651,22 +741,27 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
         displayName: String? = nil
     ) -> [LiveReplayLeaderboardRow] {
         let clampedCurrentSteps = max(liveCurrentSteps, 0)
-        let opponentRows = self.opponentRows
-        let projectedCompetitorRows = opponentRows.map {
+        let projectedCompetitorRows = rows.map {
             $0.projected(
                 elapsedSeconds: currentElapsedSeconds,
                 bucketElapsedSeconds: bucketElapsedSeconds
             )
         }
-        let crossedFetchedAheadRows = zip(opponentRows, projectedCompetitorRows)
+        // Ghosts are excluded on both sides for the same reason the fetched
+        // numerator excludes them: a row that was never counted ahead cannot
+        // move the climber by falling behind, and crediting it would take a
+        // place off a rank it never contributed to.
+        let crossedFetchedAheadRows = zip(rows, projectedCompetitorRows)
             .filter { originalRow, projectedRow in
-                originalRow.stepsAtBucket >= currentSteps &&
+                !originalRow.isViewerGhost &&
+                    originalRow.stepsAtBucket >= currentSteps &&
                     projectedRow.stepsAtBucket < clampedCurrentSteps
             }
             .count
-        let passedByFetchedBehindRows = zip(opponentRows, projectedCompetitorRows)
+        let passedByFetchedBehindRows = zip(rows, projectedCompetitorRows)
             .filter { originalRow, projectedRow in
-                originalRow.stepsAtBucket < currentSteps &&
+                !originalRow.isViewerGhost &&
+                    originalRow.stepsAtBucket < currentSteps &&
                     projectedRow.stepsAtBucket >= clampedCurrentSteps
             }
             .count
@@ -689,11 +784,11 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
             return orderedRows
         }
 
-        return orderedRows.enumerated().map { offset, row in
-            row.updating(
-                rank: max(adjustedCurrentRank + offset - currentUserIndex, 1)
-            )
-        }
+        return LiveReplayLeaderboardRow.rankedSkippingGhosts(
+            orderedRows,
+            anchorIndex: currentUserIndex,
+            anchorRank: adjustedCurrentRank
+        )
     }
 
     private static func sortRowsByLivePosition(

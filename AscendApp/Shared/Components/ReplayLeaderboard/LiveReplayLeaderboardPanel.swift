@@ -262,11 +262,15 @@ private struct LiveReplayLeaderboardRowView: View {
             }
 
             HStack(spacing: 10) {
-                Text(rankLabel)
-                    .font(.montserratBold(size: 16))
-                    .foregroundStyle(row.isLiveAttempt ? tint : secondaryColor)
-                    .frame(width: 38, alignment: .center)
-                    .monospacedDigit()
+                Group {
+                    if let rankLabel {
+                        Text(rankLabel)
+                            .font(.montserratBold(size: 16))
+                            .foregroundStyle(row.isLiveAttempt ? tint : secondaryColor)
+                            .monospacedDigit()
+                    }
+                }
+                .frame(width: 38, alignment: .center)
 
                 avatarView
 
@@ -340,6 +344,12 @@ private struct LiveReplayLeaderboardRowView: View {
 
     private var rankLabel: String {
         row.rank.map(String.init) ?? "--"
+    /// The viewer's own earlier completion holds no placing, so its cell draws
+    /// nothing at all. `--` still stands for a rank that could not be resolved,
+    /// which is a different statement and has to keep reading as one.
+    private var rankLabel: String? {
+        guard !row.isViewerGhost else { return nil }
+        return row.rank.map(String.init) ?? "--"
     }
 
     private var rowProgress: Double {

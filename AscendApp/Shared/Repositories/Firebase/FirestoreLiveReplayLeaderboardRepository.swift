@@ -614,18 +614,25 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             bucketIndex: bucketIndex,
             currentSteps: currentSteps
         )
-        async let alreadyInField = optionalCurrentUserIsFinisher(context: context)
-        async let ownGhostAhead = ownGhostAheadCount(
-            context: context,
-            bucketIndex: bucketIndex,
-            currentSteps: currentSteps
-        )
+        // One question about one fact, asked once. A climber who holds no
+        // finisher document holds no published row either - the finisher is
+        // written in the same transaction as the rows - so the same answer
+        // decides whether they join the field and whether there is a ghost to
+        // take back out, and a first-time climber pays no read for either.
+        let alreadyInField = await optionalCurrentUserIsFinisher(context: context)
+        let ownGhostAhead = alreadyInField
+            ? await ownGhostAheadCount(
+                context: context,
+                bucketIndex: bucketIndex,
+                currentSteps: currentSteps
+            )
+            : 0
 
         return WindowStanding(
             runningAheadCount: await runningAheadCount,
             finishedAheadCount: await finishedAheadCount,
-            joiningClimber: (await alreadyInField) ? 0 : 1,
-            ownGhostAhead: await ownGhostAhead
+            joiningClimber: alreadyInField ? 0 : 1,
+            ownGhostAhead: ownGhostAhead
         )
     }
 
@@ -1234,6 +1241,16 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
 
             return finalSteps >= currentSteps ? 1 : 0
         } catch {
+            // Subtracting nothing is exactly the behaviour this read exists to
+            // replace, so a swallowed failure here restores the defect in
+            // silence. Reported on the same bounded budget as the other reads
+            // this fetch swallows.
+            reportFinishedRowFailure(
+                error,
+                read: .ownGhostAheadCount,
+                context: context,
+                bucketIndex: bucketIndex
+            )
             return 0
         }
     }
@@ -1467,32 +1484,21 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         _ rows: [LiveReplayLeaderboardRow],
         currentUserRank: Int
     ) -> [LiveReplayLeaderboardRow] {
-        rows.enumerated().map { offset, row in
-            rankedRow(
-                row,
-                rank: currentUserRank - rows.count + offset
-            )
-        }
+        LiveReplayLeaderboardRow.rankedSkippingGhosts(
+            rows,
+            anchorIndex: rows.count,
+            anchorRank: currentUserRank
+        )
     }
 
     private func rankedBehindRows(
         _ rows: [LiveReplayLeaderboardRow],
         currentUserRank: Int
     ) -> [LiveReplayLeaderboardRow] {
-        rows.enumerated().map { offset, row in
-            rankedRow(
-                row,
-                rank: currentUserRank + offset + 1
-            )
-        }
-    }
-
-    private func rankedRow(
-        _ row: LiveReplayLeaderboardRow,
-        rank: Int
-    ) -> LiveReplayLeaderboardRow {
-        row.updating(
-            rank: row.rank ?? max(rank, 1)
+        LiveReplayLeaderboardRow.rankedSkippingGhosts(
+            rows,
+            anchorIndex: -1,
+            anchorRank: currentUserRank
         )
     }
 

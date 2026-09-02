@@ -278,7 +278,11 @@ struct LiveReplayRepeatClimberRankTests {
     // MARK: - Ranking the live attempt against his own finished one
 
     @Test
-    func theSlowerRepeatAttemptSitsSecondBehindHisOwnRecord() {
+    func hisOwnRecordStaysAboveHimAndCarriesNoRank() {
+        // The captain's bucket 35, end to end. Both rows are on the board and
+        // his record is still the one in front, but it is his own ghost: it
+        // takes no rank cell, and he is first of the one climber the field
+        // holds rather than second of two.
         let window = windowChasingHisOwnRecord(currentSteps: 497)
 
         let rows = window.locallyRankedRows(
@@ -288,7 +292,65 @@ struct LiveReplayRepeatClimberRankTests {
         )
 
         #expect(rows.map(\.id) == ["first-attempt", "current-user"])
-        #expect(rows.map { $0.rank ?? -1 } == [1, 2])
+        #expect(rows.map(\.rank) == [nil, 1])
+        #expect(window.totalClimbers == 1)
+    }
+
+    @Test
+    func rivalsAreNumberedAsThoughHisGhostWereNotOnTheBoard() {
+        // Two real rivals home in front, his own record between them and him.
+        // Numbering by list position drew 1, 1, 2, 3 - the second rival
+        // duplicating the first, and both of them a place better than they
+        // stood. The ghost takes no cell and no rival's number moves.
+        let window = LiveReplayLeaderboardWindow(
+            context: Self.context,
+            bucketIndex: Self.firstAttemptBucketCount,
+            currentSteps: 497,
+            fetchedAt: Date(timeIntervalSince1970: 1_787_957_195),
+            rows: [
+                finisher(id: "rival-fast", durationSeconds: 300),
+                finisher(id: "rival-quick", durationSeconds: 320),
+                firstAttempt(atSteps: 551).holdingFinalSteps(currentSteps: 497)
+            ],
+            currentUserRank: 3,
+            totalClimbers: 3
+        )
+
+        let rows = window.locallyRankedRows(
+            currentSteps: 497,
+            currentElapsedSeconds: 350,
+            displayName: "Tyler Pavay"
+        )
+
+        #expect(
+            rows.map(\.id) == ["rival-fast", "rival-quick", "first-attempt", "current-user"]
+        )
+        #expect(rows.map(\.rank) == [1, 2, nil, 3])
+    }
+
+    @Test
+    func aGhostCarriesNoRankCellWhileAnUnresolvedRankStillReadsAsUnknown() {
+        // Two different statements that must not collapse into one another: a
+        // ghost has no placing, an unresolved row has one nobody could read.
+        let window = LiveReplayLeaderboardWindow(
+            context: Self.context,
+            bucketIndex: Self.firstAttemptBucketCount,
+            currentSteps: 497,
+            fetchedAt: Date(timeIntervalSince1970: 1_787_957_195),
+            rows: [firstAttempt(atSteps: 551).holdingFinalSteps(currentSteps: 497)],
+            currentUserRank: nil,
+            totalClimbers: 1
+        )
+
+        let rows = window.locallyRankedRows(
+            currentSteps: 497,
+            currentElapsedSeconds: 350,
+            displayName: "Tyler Pavay"
+        )
+
+        #expect(rows.allSatisfy { $0.rank == nil })
+        #expect(rows.first { $0.id == "first-attempt" }?.isViewerGhost == true)
+        #expect(rows.first { $0.isLiveAttempt }?.isViewerGhost == false)
     }
 
     @Test
@@ -330,7 +392,7 @@ struct LiveReplayRepeatClimberRankTests {
         )
 
         #expect(rows.map(\.id) == ["first-attempt", "current-user"])
-        #expect(rows.map { $0.rank ?? -1 } == [1, 2])
+        #expect(rows.map(\.rank) == [nil, 1])
     }
 
     @Test
@@ -354,7 +416,7 @@ struct LiveReplayRepeatClimberRankTests {
         )
 
         #expect(rows.map(\.id) == ["current-user", "first-attempt"])
-        #expect(rows.map { $0.rank ?? -1 } == [1, 2])
+        #expect(rows.map(\.rank) == [1, nil])
     }
 
     @Test
@@ -385,7 +447,13 @@ struct LiveReplayRepeatClimberRankTests {
     // MARK: - Fixtures
 
     /// The board as it stood from bucket 35 on: his first attempt home at the
-    /// target, read out of the finished half, with the run still going second.
+    /// target, read out of the finished half, with the run still going beneath
+    /// it.
+    ///
+    /// `currentUserRank: 1` is what `fetchWindow` now produces here - his own
+    /// record is the only row ahead and it is a ghost, so `ownGhostAhead`
+    /// removes it and leaves him first in a field of one climber. The fixture
+    /// carried 2 while the numerator still counted him against himself.
     private func windowChasingHisOwnRecord(
         currentSteps: Int
     ) -> LiveReplayLeaderboardWindow {
@@ -395,7 +463,7 @@ struct LiveReplayRepeatClimberRankTests {
             currentSteps: currentSteps,
             fetchedAt: Date(timeIntervalSince1970: 1_787_957_195),
             rows: [firstAttempt(atSteps: 551).holdingFinalSteps(currentSteps: currentSteps)],
-            currentUserRank: 2,
+            currentUserRank: 1,
             totalClimbers: 1
         )
     }
