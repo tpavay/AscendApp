@@ -146,6 +146,7 @@ Required CI/build environment:
 - `SENTRY_PROJECT`: optional; defaults to `ascend-ios`.
 - `SENTRY_CLI_PATH`: optional; use only when `sentry-cli` is not on `PATH`.
 - `SENTRY_WAIT_TIMEOUT`: optional; seconds to wait for server-side processing before failing. Defaults to `300`.
+  It must be a whole number of seconds greater than zero, and the script rejects anything else before it uploads: the failure diagnosis above compares elapsed time against this budget, so a non-numeric value would leave a queue delay unexplained again and a zero would report every instant rejection as a queue delay.
 
 GitHub Actions validates and passes `secrets.SENTRY_AUTH_TOKEN` into the Fastlane staging and production build steps.
 This does not belong in the private `match` repo; `match` should stay limited to certificates and provisioning profiles.
