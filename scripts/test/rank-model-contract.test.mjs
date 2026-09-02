@@ -26,6 +26,12 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const MODEL_SKILL = ".claude/skills/ascend-leaderboards/SKILL.md";
 const MODEL_HEADING = "## The rank model";
 
+const RANK_REPOSITORY =
+  "AscendApp/Shared/Repositories/Firebase/FirestoreLiveReplayLeaderboardRepository.swift";
+const LEADERBOARD_FUNCTION = "functions/src/liveReplayLeaderboard.ts";
+const CONTEXT_FILE =
+  "AscendApp/Shared/Services/LiveReplayLeaderboard/LiveReplayLeaderboardContext.swift";
+
 /** Skills and guides that reference the model instead of restating it. */
 const POINTER_FILES = [
   ".claude/skills/ascend-live-climbs/SKILL.md",
@@ -53,6 +59,35 @@ function read(relativePath, protecting) {
         "Repoint this contract at the file that replaced it rather than dropping the check."
     );
   }
+}
+
+/**
+ * The text of a declaration, from its own line down to the line that closes it.
+ *
+ * A character window is the wrong shape for this: it passes or fails on how much
+ * doc comment happens to sit inside it, so an unrelated edit fails the contract
+ * with a sentence about a defect that is not there.
+ *
+ * @param {string} source File contents.
+ * @param {string} declaration The declaration line's opening text.
+ * @param {string} closing The closing brace at the declaration's own indent.
+ * @param {string} describing The file, for the failure sentence.
+ * @return {string} The declaration and its body.
+ */
+function declarationBody(source, declaration, closing, describing) {
+  const start = source.indexOf(declaration);
+  assert.notEqual(
+    start,
+    -1,
+    `${describing} no longer declares \`${declaration}\`, which the rank model reads`
+  );
+  const end = source.indexOf(closing, start);
+  assert.notEqual(
+    end,
+    -1,
+    `${describing} declares \`${declaration}\` but the contract cannot find where it closes`
+  );
+  return source.slice(start, end + closing.length);
 }
 
 /** The `## The rank model` section, up to the next `## ` heading. */
@@ -135,6 +170,43 @@ const SUPERSEDED_ATTEMPT_COUNTING = [
   "both halves count attempts",
   "cannot claim to be counting climbers",
   "the denominator is the published attempt count",
+];
+
+/**
+ * Places where shipping code still counts attempts where the settled rule counts
+ * unique climbers, and the words the model uses to disclose each one.
+ *
+ * The disclosure is checked against the code rather than against itself, in both
+ * directions: while a gap is open the model must name it, and the day the
+ * leaderboard lane closes it the model must stop, so a note cannot outlive the
+ * defect it describes and leave the doc defending the wrong thing.
+ */
+const DISCLOSED_GAPS = [
+  {
+    what: "the server's frozen standing",
+    file: LEADERBOARD_FUNCTION,
+    declaration: "function frozenCompletionStanding(",
+    closing: "\n}\n",
+    countsAttempts: (body) => body.includes("reading.attemptCount"),
+    disclosure: [
+      "`frozenCompletionStanding`",
+      LEADERBOARD_FUNCTION,
+      "`reading.attemptCount`",
+    ],
+  },
+  {
+    what: "the summary's pre-freeze standing",
+    file: RANK_REPOSITORY,
+    declaration: "func fetchCompletionRank(",
+    closing: "\n    }\n",
+    countsAttempts: (body) =>
+      body.includes("countRowsBetterThan(") && body.includes("countRows("),
+    disclosure: [
+      "`FirestoreLiveReplayLeaderboardRepository.fetchCompletionRank`",
+      "`countRowsBetterThan`",
+      "`countRows`",
+    ],
+  },
 ];
 
 /** Statement, and the test that already holds it. */
@@ -233,21 +305,46 @@ test("the rank sentence counts unique climbers on both halves", () => {
   }
 });
 
-test("a statement the code does not yet keep says so", () => {
+test("a statement the code does not yet keep says so, and stops once the code keeps it", () => {
   const section = modelSection();
+  let anyGapIsOpen = false;
 
-  assert.ok(
+  for (const gap of DISCLOSED_GAPS) {
+    const body = declarationBody(
+      read(gap.file, gap.what),
+      gap.declaration,
+      gap.closing,
+      gap.file
+    );
+    const isOpen = gap.countsAttempts(body);
+    anyGapIsOpen = anyGapIsOpen || isOpen;
+
+    for (const phrase of gap.disclosure) {
+      assert.equal(
+        section.includes(phrase),
+        isOpen,
+        isOpen ?
+          `${gap.what} still counts attempts, so the model must name ${phrase} as a gap rather than reading as current behaviour` :
+          `${gap.what} no longer counts attempts, so drop ${phrase} from the model - the disclosure has outlived the defect it describes`
+      );
+    }
+  }
+
+  assert.equal(
     section.includes("Decided and being built, not yet shipping."),
-    "the row-versus-rank seam must mark itself as decided rather than shipping, or a reader takes 6TH OF 16 for current behaviour"
+    anyGapIsOpen,
+    anyGapIsOpen ?
+      "the row-versus-rank seam must mark itself as decided rather than shipping, or a reader takes 6TH OF 16 for current behaviour" :
+      "every disclosed gap has landed, so the model must stop marking the settled rule as not yet shipping"
   );
-  assert.ok(
-    section.includes("functions/src/liveReplayLeaderboard.ts:1562"),
-    "the seam must name the call site that still counts attempts"
-  );
-  assert.ok(
-    section.includes("`ascend-live-leaderboard-second-attempt`"),
-    "the seam must name the lane implementing the settled rule"
-  );
+
+  if (anyGapIsOpen) {
+    assert.ok(
+      section.includes("`ascend-live-leaderboard-second-attempt`"),
+      "the seam must name the lane implementing the settled rule"
+    );
+  }
+
   assert.ok(
     section.includes("The unfiltered all-attempts read itself has no anchor"),
     "statement 4's untested half must stay disclosed, the way the BEST marker's is"
@@ -318,8 +415,8 @@ test("climb detail is titled ALL TIMES in the shipping view", () => {
   );
 
   assert.ok(
-    view.includes('"ALL TIMES"'),
-    "Climb Detail's third page must be titled ALL TIMES"
+    /detailPageTitles[\s\S]{0,120}"ALL TIMES"/.test(view),
+    "Climb Detail's page titles must end in ALL TIMES - a doc comment saying so is not the title"
   );
   assert.ok(
     !/detailPageTitles[\s\S]{0,200}"LEADERBOARD"/.test(view),
@@ -328,17 +425,27 @@ test("climb detail is titled ALL TIMES in the shipping view", () => {
 });
 
 test("a field size is never carried without the population it counted", () => {
-  const context = read(
-    "AscendApp/Shared/Services/LiveReplayLeaderboard/LiveReplayLeaderboardContext.swift",
-    "statement 5's field size carrying its population"
-  );
+  const context = read(CONTEXT_FILE, "statement 5's field size carrying its population");
 
+  const fieldSize = declarationBody(
+    context,
+    "struct LiveReplayFieldSize",
+    "\n}\n",
+    CONTEXT_FILE
+  );
   assert.ok(
-    /struct LiveReplayFieldSize[\s\S]{0,400}let population: LiveReplayFieldPopulation/.test(context),
+    fieldSize.includes("let population: LiveReplayFieldPopulation"),
     "LiveReplayFieldSize must carry its population beside the count"
   );
+
+  const fieldSizeLabel = declarationBody(
+    context,
+    "func fieldSizeLabel(",
+    "\n    }\n",
+    CONTEXT_FILE
+  );
   assert.ok(
-    /enum LiveReplayFieldPopulation[\s\S]{0,600}"CLIMBER[\s\S]{0,200}"COMPLETION/.test(context),
+    fieldSizeLabel.includes('"CLIMBER') && fieldSizeLabel.includes('"COMPLETION'),
     "the field-size noun must be derived from the population, never written at a call site"
   );
 });

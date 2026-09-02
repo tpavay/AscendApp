@@ -42,6 +42,7 @@ Five of six means five of six, then.
 That standing is computed on **that climb's own time**, never on your all-time best.
 You finished in 9:40, so the summary ranks a 9:40 against the other climbers at their bests.
 Your 8:12 has its own summary, showing 8:12 and the rank an 8:12 earned when it landed.
+Until the server has ranked that attempt the summary falls back to today's standing, which still counts attempts on both halves, and that gap is named in the row-versus-rank seam below.
 
 ### 3. That same summary, reopened later
 
@@ -77,7 +78,7 @@ Never `13TH OF 16`, and never `13TH OF 41`.
 
 *Decided and being built, not yet shipping.*
 The captain settled unique climbers on both halves on 2026-09-02, and answered the follow-up decision `key=climbers-noun-vs-frozen-basis` with option (a): the frozen saved card is the same result viewed later and has to read identically to the live one, so it counts unique climbers on both halves too.
-`functions/src/liveReplayLeaderboard.ts:1562` still takes `reading.attemptCount` as the population for the contexts that do not collapse repeats.
+`frozenCompletionStanding` in `functions/src/liveReplayLeaderboard.ts` still takes `reading.attemptCount` as the population for the contexts that do not collapse repeats.
 The tests that pin the superseded form live in `functions/test/liveReplayLeaderboard.test.ts` and the two `LiveReplayFieldPopulation*` suites, and all of them are expected to change when the rule lands.
 The known ones, so the lane can find them rather than as a guarantee that the list is complete:
 
@@ -88,6 +89,11 @@ The known ones, so the lane can find them rather than as a guarantee that the li
 - `AscendAppTests/LiveReplayFieldPopulationRenderEvidenceTests.swift` `theSameHeroSaysCompletionsWhereTheContextRacesAttempts`, pinning a Just Climb hero that reads "fastest of 27 completions" where the settled rule says `CLIMBERS`.
 
 The leaderboard lane (`ascend-live-leaderboard-second-attempt`) is implementing it.
+
+`FirestoreLiveReplayLeaderboardRepository.fetchCompletionRank` counts attempts the same way, and not only where attempts race.
+The summary falls back to it until the server publishes a frozen standing, and both halves of that fallback run over the unfiltered bucket 0 entries: `countRowsBetterThan` for the numerator and `countRows` for the denominator.
+So a repeat climber's own earlier attempts count as rivals ahead of them and the denominator counts completions, on `live_climb` too.
+Decided and being built, and owned by the same lane.
 
 **The live number versus the frozen number.**
 A rank recomputed from today's rows is a *current* standing; the rank stamped when your attempt published is what you *were*.
