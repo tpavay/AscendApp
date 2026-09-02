@@ -19,13 +19,19 @@
 # took its suite from 2,311 MB to 1,026 MB and the whole suite from 4,228 MB to
 # 3,122 MB.
 #
-# Two passes are kept because 3,122 MB in one host is still most of what the
-# runner has once the simulator and `xcodebuild` are resident, and because the
-# split costs one extra host launch rather than a permanent slowdown. Do not
-# raise the pass count as a memory fix without measuring first: memory is
-# concentrated in a few suites rather than spread across tests, so splitting
-# four ways measured a HIGHER peak than two (2,881 MB against 2,020 MB) by
-# collecting the heavy suites into one pass.
+# Two balanced passes are kept because 3,122 MB in one host is still most of
+# what the runner has once the simulator and `xcodebuild` are resident, and
+# because the split costs one extra host launch rather than a permanent
+# slowdown. Do not raise the balanced pass count as a memory fix without
+# measuring: memory is concentrated in a few suites rather than spread across
+# tests, so splitting four ways measured a HIGHER peak than two (2,881 MB
+# against 2,020 MB) by collecting the heavy suites into one pass.
+#
+# The concentrated ones get a host to themselves instead - see `ISOLATED_SUITES`
+# in `split-enumerated-tests.mjs`, which is why this script runs however many
+# pass files the splitter wrote rather than `pass_count` of them. Isolating one
+# five-test suite costs ~90 seconds; a general three-way split costs every run
+# ~4 minutes.
 #
 # Minutes were never the constraint and the cap is not the lever: a killed run
 # reached 1,814 completions in 6m44s where a green run took 8m30s for 1,846.
@@ -86,6 +92,11 @@ node scripts/ci/split-enumerated-tests.mjs \
     "$log_dir/test-pass-" \
     "$pass_count" | tee -a "$log"
 
+# The splitter writes one file per pass and may write more than `pass_count` of
+# them: a suite too heavy to share a host gets one to itself. Count what it
+# actually produced rather than assuming, or an isolated pass never runs.
+total_passes="$(find "$log_dir" -name 'test-pass-*.txt' | wc -l | tr -d ' ')"
+
 # Hand the VM system back what the previous phase is still holding, and record
 # what the pass actually starts with.
 #
@@ -105,13 +116,13 @@ reclaim_memory() {
 # its own failure instead of hiding every later suite's result behind it.
 failed_passes=()
 
-for pass in $(seq 1 "$pass_count"); do
+for pass in $(seq 1 "$total_passes"); do
     args=()
     while IFS= read -r line; do
         [ -n "$line" ] && args+=("$line")
     done < "$log_dir/test-pass-$pass.txt"
 
-    echo "--- Test pass $pass of $pass_count (${#args[@]} suites) ---" | tee -a "$log"
+    echo "--- Test pass $pass of $total_passes (${#args[@]} suites) ---" | tee -a "$log"
     reclaim_memory
     vm_stat | awk '/Pages free|occupied by compressor/ {print "    " $0}' | tee -a "$log"
 
