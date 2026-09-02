@@ -19,9 +19,11 @@ struct PersonalClimbPlacing: Equatable, Sendable {
     /// Every completion the climber has recorded on this climb, this one included.
     let total: Int
 
-    /// A first ascent is not "1st of your 1 climbs" - it is the flag. This says
-    /// only whether the climber has any earlier completion here to be placed
-    /// against.
+    /// Whether the climber has any other completion here to be placed against.
+    ///
+    /// Deliberately NOT the First Ascent test: this stops being true the day the
+    /// climber comes back, and the gold flag is permanent.
+    /// `PersonalClimbCompletionHistory.claimsFirstAscent` owns that question.
     var isFirstCompletionHere: Bool { total == 1 }
 
     /// The label that sits beneath the finish-card ordinal, in neutral secondary
@@ -51,15 +53,24 @@ struct PersonalClimbPlacing: Equatable, Sendable {
     ///
     /// - Parameters:
     ///   - durationSeconds: This completion's duration.
-    ///   - otherCompletionDurationsSeconds: Every *other* completion the climber
-    ///     has recorded on this climb.
-    init?(durationSeconds: Int, otherCompletionDurationsSeconds: [Int]) {
+    ///   - otherCompletionDurationsSeconds: The durations known for the climber's
+    ///     *other* completions of this climb.
+    ///   - otherCompletionsCount: How many other completions there are, when that
+    ///     is known to be more than the durations on hand. A restored install
+    ///     rebuilds a whole history on a tower from the server and keeps only its
+    ///     best duration, so the denominator has to come from the count rather
+    ///     than from the list, or six finishes read as two.
+    init?(
+        durationSeconds: Int,
+        otherCompletionDurationsSeconds: [Int],
+        otherCompletionsCount: Int? = nil
+    ) {
         guard durationSeconds > 0 else { return nil }
 
         let others = otherCompletionDurationsSeconds.filter { $0 > 0 }
         self.init(
             ordinal: 1 + others.filter { $0 < durationSeconds }.count,
-            total: others.count + 1
+            total: max(otherCompletionsCount ?? others.count, others.count) + 1
         )
     }
 }

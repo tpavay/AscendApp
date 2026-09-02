@@ -223,22 +223,22 @@ final class ClimbService {
         )
     }
 
-    /// Every *other* completion this climber has recorded on one climb, as
-    /// durations in seconds.
+    /// This climber's completion history on one climb, with the completion that
+    /// produced `workoutId` taken out of it.
     ///
-    /// The attempt that produced `workoutId` is excluded here so the caller owns
-    /// exactly one copy of the completion being placed: `PersonalClimbPlacing`
-    /// adds it back as the one it is ranking, which is what keeps it from
-    /// double-counting or dropping itself.
+    /// The attempt being placed is excluded here so the caller owns exactly one
+    /// copy of it: `PersonalClimbPlacing` adds it back as the one it is ranking,
+    /// which is what keeps it from double-counting or dropping itself.
     ///
     /// Bounded by climb and status in the predicate rather than filtered after a
     /// full fetch: a completion summary reads this from its `.task`, so the cost
     /// has to track the climber's history on one tower and not their whole store.
-    func otherCompletionDurationsSeconds(
+    func personalCompletionHistory(
         forClimbId climbId: String,
-        excludingWorkoutId workoutId: UUID,
+        workoutId: UUID,
+        workoutDate: Date,
         modelContext: ModelContext
-    ) -> [Int] {
+    ) -> PersonalClimbCompletionHistory {
         let completedRawValue = ClimbAttemptStatus.completed.rawValue
         let descriptor = FetchDescriptor<ClimbAttempt>(
             predicate: #Predicate { attempt in
@@ -246,13 +246,59 @@ final class ClimbService {
             }
         )
 
-        guard let attempts = try? modelContext.fetch(descriptor) else { return [] }
+        guard let attempts = try? modelContext.fetch(descriptor) else { return .none }
 
-        let excludedWorkoutId = workoutId.uuidString
-        return attempts
-            .filter { !$0.appliedWorkoutIds.contains(excludedWorkoutId) }
-            .map { $0.bestCompletionDurationSeconds ?? $0.accumulatedDurationSeconds }
-            .filter { $0 > 0 }
+        let placedWorkoutId = workoutId.uuidString
+        var otherCompletionsCount = 0
+        var otherDurations: [Int] = []
+        var otherCompletionDates: [Date] = []
+        var namesPlacedWorkout = false
+        var rebuiltCompletions = 0
+
+        for attempt in attempts {
+            // A stored row stands for `sessionsCount` completions: exactly one
+            // for an attempt this device recorded, and every completion the
+            // server projection reported for a row rebuilt after a reinstall
+            // (`ClimbCompletionRepository.reconcile`).
+            let completions = max(attempt.sessionsCount, 1)
+            rebuiltCompletions += max(completions - attempt.appliedWorkoutIds.count, 0)
+
+            if attempt.appliedWorkoutIds.contains(placedWorkoutId) {
+                namesPlacedWorkout = true
+                otherCompletionsCount += completions - 1
+                continue
+            }
+
+            otherCompletionsCount += completions
+            let duration = attempt.bestCompletionDurationSeconds ?? attempt.accumulatedDurationSeconds
+            if duration > 0 {
+                otherDurations.append(duration)
+            }
+            otherCompletionDates.append(Self.firstCompletionDate(for: attempt))
+        }
+
+        // A rebuilt row names only the climber's best workout, so a completion it
+        // holds but cannot name would be counted twice - once inside the row and
+        // once as the attempt being placed. It is the only row that could be
+        // holding it, so it gives the completion up.
+        if !namesPlacedWorkout, rebuiltCompletions > 0 {
+            otherCompletionsCount = max(otherCompletionsCount - 1, 0)
+        }
+
+        return PersonalClimbCompletionHistory(
+            otherCompletionsCount: otherCompletionsCount,
+            otherCompletionDurationsSeconds: otherDurations,
+            isEarliestCompletionHere: otherCompletionDates.allSatisfy { $0 >= workoutDate },
+            globalCompletionOrder: attempts.compactMap(\.globalCompletionOrder).min()
+        )
+    }
+
+    /// When a row's *first* completion landed. Deliberately not
+    /// `attemptSortDate`, which prefers `endedAt` - a row rebuilt after a
+    /// reinstall anchors `endedAt` to the climber's LATEST completion, so sorting
+    /// by it would say their whole history on the tower happened last.
+    private static func firstCompletionDate(for attempt: ClimbAttempt) -> Date {
+        attempt.completedAt ?? attempt.endedAt ?? attempt.startedAt
     }
 
     func mirrorFinisherStatus(

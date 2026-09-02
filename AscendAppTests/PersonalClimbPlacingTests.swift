@@ -139,6 +139,41 @@ struct PersonalClimbPlacingTests {
         #expect(placing.total == 2)
     }
 
+    /// A restored install rebuilds a whole history on a tower as one row and keeps
+    /// only its best duration, so the denominator has to come from the count. Six
+    /// finishes read as two when it came from the durations on hand.
+    @Test
+    func aDenominatorLargerThanTheDurationsOnHandIsHonoured() throws {
+        let placing = try #require(
+            PersonalClimbPlacing(
+                durationSeconds: 580,
+                otherCompletionDurationsSeconds: [492],
+                otherCompletionsCount: 5
+            )
+        )
+
+        #expect(placing.total == 6)
+        #expect(placing.ordinal == 2)
+        #expect(placing.fieldLabel == "OF YOUR 6 CLIMBS")
+    }
+
+    /// A count that undersells the durations on hand cannot shrink the field
+    /// beneath what is provably in it - a placing over a field smaller than its
+    /// own evidence is the rank-outside-its-denominator defect again.
+    @Test
+    func aCountBelowTheDurationsOnHandNeverShrinksTheField() throws {
+        let placing = try #require(
+            PersonalClimbPlacing(
+                durationSeconds: 580,
+                otherCompletionDurationsSeconds: [492, 599, 640],
+                otherCompletionsCount: 1
+            )
+        )
+
+        #expect(placing.total == 4)
+        #expect(placing.ordinal == 2)
+    }
+
     /// The ordinal can never exceed its own field: this is the class of pairing -
     /// a rank outside its denominator - that produced the original defect on the
     /// server side, and it is made unrepresentable here rather than clamped later.

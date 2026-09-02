@@ -128,6 +128,7 @@ struct LiveClimbSummaryHeroGoverningRuleTests {
             moment: .freshCompletion,
             standings: [Hero.Standing(rank: 1, total: 1, basis: .atCompletion)],
             personalPlacing: PersonalClimbPlacing(ordinal: 1, total: 1),
+            claimsFirstAscent: true,
             sync: publishedSync(),
             copy: Hero.Copy()
         ))
@@ -146,12 +147,55 @@ struct LiveClimbSummaryHeroGoverningRuleTests {
             isClimbContext: true,
             standings: [Hero.Standing(rank: 12, total: 31, basis: .atCompletion)],
             personalPlacing: PersonalClimbPlacing(ordinal: 1, total: 1),
+            claimsFirstAscent: false,
             sync: publishedSync(),
             copy: Hero.Copy()
         ))
 
         #expect(hero.value == .rank(12))
         #expect(hero.value != .firstAscent)
+    }
+
+    /// A First Ascent does not expire.
+    ///
+    /// The claim used to be read off "this is my only climb here", so reopening
+    /// the very summary that earned the flag - `WorkoutDetailView` routes back to
+    /// it - retired the gold flag for `4TH OF YOUR 4 CLIMBS` the moment the
+    /// climber went back to the tower. The frozen standing never moves and the
+    /// claim is resolved from permanent facts, so it renders unchanged.
+    @Test
+    func aFirstAscentStillRendersAfterTheClimberReturnsToTheTower() throws {
+        let hero = try #require(Hero.make(
+            isClimbContext: true,
+            moment: .retrospective,
+            standings: [Hero.Standing(rank: 1, total: 1, basis: .atCompletion)],
+            personalPlacing: PersonalClimbPlacing(ordinal: 4, total: 4),
+            claimsFirstAscent: true,
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        ))
+
+        #expect(hero.value == .firstAscent)
+        #expect(hero.detail == "FIRST ASCENT CLAIMED")
+        #expect(hero.detailEmphasis == .prestige)
+    }
+
+    /// The other half of the same rule: a repeat that did *not* claim the tower
+    /// still reads as a placing among the climber's own climbs, so the flag
+    /// cannot start standing in for every solo finish.
+    @Test
+    func aSoloRepeatThatClaimedNothingIsStillAnOrdinal() throws {
+        let hero = try #require(Hero.make(
+            isClimbContext: true,
+            standings: [Hero.Standing(rank: 1, total: 1, basis: .atCompletion)],
+            personalPlacing: PersonalClimbPlacing(ordinal: 2, total: 5),
+            claimsFirstAscent: false,
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        ))
+
+        #expect(hero.value == .personalPlacing(PersonalClimbPlacing(ordinal: 2, total: 5)))
+        #expect(hero.detail == "OF YOUR 5 CLIMBS")
     }
 
     // MARK: - A real field of climbers

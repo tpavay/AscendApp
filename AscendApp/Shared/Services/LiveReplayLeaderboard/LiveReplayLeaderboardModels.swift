@@ -565,6 +565,35 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
     let rows: [LiveReplayLeaderboardRow]
     let currentUserRank: Int?
     let totalClimbers: Int
+    /// The climber's own entry on this board, read by owner rather than taken
+    /// from the fetched page.
+    ///
+    /// The page holds a bounded number of rows either side of the climber, so a
+    /// previous best further away than that is simply not in `rows`. The marker's
+    /// position is load-bearing, so it comes from here and never blinks out
+    /// because the window scrolled. `currentUserRank` and `totalClimbers` already
+    /// have this completion withdrawn from them.
+    let ownPreviousCompletionRow: LiveReplayLeaderboardRow?
+
+    init(
+        context: LiveReplayLeaderboardContext,
+        bucketIndex: Int,
+        currentSteps: Int,
+        fetchedAt: Date,
+        rows: [LiveReplayLeaderboardRow],
+        currentUserRank: Int?,
+        totalClimbers: Int,
+        ownPreviousCompletionRow: LiveReplayLeaderboardRow? = nil
+    ) {
+        self.context = context
+        self.bucketIndex = bucketIndex
+        self.currentSteps = currentSteps
+        self.fetchedAt = fetchedAt
+        self.rows = rows
+        self.currentUserRank = currentUserRank
+        self.totalClimbers = totalClimbers
+        self.ownPreviousCompletionRow = ownPreviousCompletionRow
+    }
 
     var bucketElapsedSeconds: Int {
         bucketIndex * context.bucketIntervalSeconds
@@ -587,8 +616,10 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
     /// standing. No step count, no time, no gap - the visible distance between
     /// the fill and the line is the message.
     func previousBestStepsAtBucket(currentElapsedSeconds: Int) -> Int? {
-        rows
-            .filter(\.isOwnPreviousCompletion)
+        let ownRows = ownPreviousCompletionRow.map { [$0] }
+            ?? rows.filter(\.isOwnPreviousCompletion)
+
+        return ownRows
             .map {
                 $0.projected(
                     elapsedSeconds: currentElapsedSeconds,
@@ -627,16 +658,8 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
                     projectedRow.stepsAtBucket >= clampedCurrentSteps
             }
             .count
-        // The server counts rows ahead over a board that still holds the
-        // climber's own earlier completion, so that row is one of the climbers
-        // it counted in front of them. Take it back out: your previous best is a
-        // pacer, not a rival, and this is what makes a solo repeat read `1st`
-        // instead of `#2` above a board with one climber on it.
-        let ownRowsCountedAhead = rows
-            .filter { $0.isOwnPreviousCompletion && $0.stepsAtBucket >= currentSteps }
-            .count
         let adjustedCurrentRank = currentUserRank.map {
-            max($0 - ownRowsCountedAhead - crossedFetchedAheadRows + passedByFetchedBehindRows, 1)
+            max($0 - crossedFetchedAheadRows + passedByFetchedBehindRows, 1)
         }
         let currentUserRow = LiveReplayLeaderboardRow.currentUser(
             rank: adjustedCurrentRank,

@@ -26,12 +26,16 @@ struct LiveReplayPreviousBestMarkerTests {
 
     /// The solo repeat that started the whole task: one climber, their own best
     /// ahead of them, and a board that used to read "rank 2" over "1 CLIMBER".
+    ///
+    /// The rank arrives with that completion already withdrawn - the repository
+    /// takes it out of the server's own count, so the number is exact rather than
+    /// a function of which rows the page happened to hold.
     @Test
     func aSoloRepeatRacesAloneWithTheirOwnBestWithdrawnFromTheBoard() {
         let window = makeWindow(
             currentSteps: 347,
             rows: [ownPreviousBest(stepsAtBucket: 414)],
-            currentUserRank: 2
+            currentUserRank: 1
         )
 
         let rows = window.locallyRankedRows(currentSteps: 347, currentElapsedSeconds: 300)
@@ -51,7 +55,7 @@ struct LiveReplayPreviousBestMarkerTests {
                 rivalRow(id: "rival", rank: 1, stepsAtBucket: 500),
                 ownPreviousBest(stepsAtBucket: 414)
             ],
-            currentUserRank: 3
+            currentUserRank: 2
         )
 
         let rows = window.locallyRankedRows(currentSteps: 347, currentElapsedSeconds: 300)
@@ -71,7 +75,7 @@ struct LiveReplayPreviousBestMarkerTests {
                 rivalRow(id: "rival", rank: 1, stepsAtBucket: 500),
                 ownPreviousBest(stepsAtBucket: 414)
             ],
-            currentUserRank: 3
+            currentUserRank: 2
         )
 
         let behind = window.locallyRankedRows(currentSteps: 347, currentElapsedSeconds: 300)
@@ -175,12 +179,78 @@ struct LiveReplayPreviousBestMarkerTests {
         #expect(late <= 551)
     }
 
+    /// The dropout this marker used to have: the fetched page holds eight rows
+    /// either side of the climber, so a previous best further away than that was
+    /// simply not in `rows`, and the line vanished mid-race and came back when the
+    /// window shifted. The entry is read by owner instead, so its position is
+    /// always on hand.
+    @Test
+    func theMarkerSurvivesAPreviousBestFurtherAwayThanTheFetchedPage() throws {
+        let window = makeWindow(
+            currentSteps: 347,
+            rows: (0..<8).map { offset in
+                rivalRow(id: "rival-\(offset)", rank: offset + 1, stepsAtBucket: 500 + offset)
+            },
+            currentUserRank: 9,
+            ownPreviousCompletionRow: ownPreviousBest(stepsAtBucket: 900),
+            totalClimbers: 40
+        )
+
+        let steps = try #require(window.previousBestStepsAtBucket(currentElapsedSeconds: 300))
+
+        #expect(steps == 900)
+        #expect(window.opponentRows.count == 8)
+        #expect(window.locallyRankedRows(currentSteps: 347, currentElapsedSeconds: 300)
+            .contains { $0.isOwnPreviousCompletion } == false)
+    }
+
+    /// The rank the window renders and the rank it was fetched with are the same
+    /// measurement again.
+    ///
+    /// They stopped being one when the withdrawal was a local subtraction: the
+    /// drift check compares them, so a repeat climber's board declared itself
+    /// stale on every tick and refetched the whole window for the whole session.
+    @Test
+    func aSoloRepeatDoesNotDeclareItsWindowStaleOnEveryTick() {
+        let window = makeWindow(
+            currentSteps: 347,
+            rows: [ownPreviousBest(stepsAtBucket: 414)],
+            currentUserRank: 1
+        )
+
+        #expect(window.needsFreshWindow(currentSteps: 347, currentElapsedSeconds: 300) == false)
+    }
+
+    /// The same, with rivals on the board: nothing has crossed, so the locally
+    /// ranked position still agrees with the one that was fetched.
+    @Test
+    func aRepeatWithRivalsDoesNotDeclareItsWindowStaleOnEveryTick() {
+        let window = makeWindow(
+            currentSteps: 347,
+            rows: [
+                rivalRow(id: "rival-a", rank: 1, stepsAtBucket: 520),
+                rivalRow(id: "rival-b", rank: 2, stepsAtBucket: 480),
+                rivalRow(id: "rival-c", rank: 3, stepsAtBucket: 420),
+                ownPreviousBest(stepsAtBucket: 414),
+                rivalRow(id: "rival-d", rank: 5, stepsAtBucket: 300),
+                rivalRow(id: "rival-e", rank: 6, stepsAtBucket: 250),
+                rivalRow(id: "rival-f", rank: 7, stepsAtBucket: 200)
+            ],
+            currentUserRank: 4,
+            totalClimbers: 7
+        )
+
+        #expect(window.needsFreshWindow(currentSteps: 347, currentElapsedSeconds: 300) == false)
+    }
+
     // MARK: - Helpers
 
     private func makeWindow(
         currentSteps: Int,
         rows: [LiveReplayLeaderboardRow],
-        currentUserRank: Int
+        currentUserRank: Int,
+        ownPreviousCompletionRow: LiveReplayLeaderboardRow? = nil,
+        totalClimbers: Int? = nil
     ) -> LiveReplayLeaderboardWindow {
         LiveReplayLeaderboardWindow(
             context: context,
@@ -189,7 +259,8 @@ struct LiveReplayPreviousBestMarkerTests {
             fetchedAt: Date(timeIntervalSince1970: 1_777_777_777),
             rows: rows,
             currentUserRank: currentUserRank,
-            totalClimbers: max(rows.count, 1)
+            totalClimbers: totalClimbers ?? max(rows.count, 1),
+            ownPreviousCompletionRow: ownPreviousCompletionRow
         )
     }
 

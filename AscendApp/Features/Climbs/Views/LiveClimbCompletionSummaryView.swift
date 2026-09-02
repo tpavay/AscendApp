@@ -25,9 +25,11 @@ struct LiveClimbCompletionSummaryView: View {
     @State private var frozenCompletionRank: LiveReplayCompletionRankSnapshot?
     @State private var computedCompletionRank: LiveReplayCompletionRank?
     @State private var rankResolution: LiveClimbSummaryRankHero.RankResolution = .notStarted
-    /// Where this completion sits among the climber's own completions of the same
-    /// climb. Resolved in the view's `.task` rather than the body, because it is a
-    /// store read. See `PersonalClimbPlacing`.
+    /// This climber's own completions of the same climb. Resolved in the view's
+    /// `.task` rather than the body, because it is a store read. See
+    /// `PersonalClimbCompletionHistory` and `PersonalClimbPlacing`.
+    @State private var personalClimbHistory: PersonalClimbCompletionHistory?
+    /// Where this completion sits among those. See `PersonalClimbPlacing`.
     @State private var personalClimbPlacing: PersonalClimbPlacing?
     @State private var didTrackSummaryViewed = false
     init(
@@ -427,6 +429,7 @@ struct LiveClimbCompletionSummaryView: View {
                 sources: rankSources
             ),
             personalPlacing: personalClimbPlacing,
+            claimsFirstAscent: personalClimbHistory?.claimsFirstAscent ?? false,
             sync: LiveClimbSummaryRankHero.SyncState(
                 phase: publicResultStatus?.phase,
                 hasRankContext: hasCompletionRankContext,
@@ -615,22 +618,26 @@ struct LiveClimbCompletionSummaryView: View {
     }
 
     /// Reads the climber's own completions of this climb so the hero can place
-    /// this one among them.
+    /// this one among them, and can tell a First Ascent claim from a repeat.
     ///
-    /// Bounded to one climb by `ClimbService.otherCompletionDurationsSeconds`, and
-    /// only meaningful on a catalog climb: a routine or an open Just Climb has no
+    /// Bounded to one climb by `ClimbService.personalCompletionHistory`, and only
+    /// meaningful on a catalog climb: a routine or an open Just Climb has no
     /// tower to have climbed twice.
     @MainActor
     private func resolvePersonalClimbPlacing() {
         guard let climb else { return }
 
+        let history = ClimbService.shared.personalCompletionHistory(
+            forClimbId: climb.id,
+            workoutId: workout.id,
+            workoutDate: workout.date,
+            modelContext: modelContext
+        )
+        personalClimbHistory = history
         personalClimbPlacing = PersonalClimbPlacing(
             durationSeconds: Int(workout.duration.rounded()),
-            otherCompletionDurationsSeconds: ClimbService.shared.otherCompletionDurationsSeconds(
-                forClimbId: climb.id,
-                excludingWorkoutId: workout.id,
-                modelContext: modelContext
-            )
+            otherCompletionDurationsSeconds: history.otherCompletionDurationsSeconds,
+            otherCompletionsCount: history.otherCompletionsCount
         )
     }
 

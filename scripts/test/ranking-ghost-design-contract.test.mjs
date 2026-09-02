@@ -251,3 +251,101 @@ test("the Climb Detail board still counts every completion", () => {
       "the live race panel and the finish-card denominator and stops there.",
   );
 });
+
+test("the previous best is withdrawn only where the board collapses repeat finishers", () => {
+  const repository = read(
+    "AscendApp/Shared/Repositories/Firebase/" +
+      "FirestoreLiveReplayLeaderboardRepository.swift",
+  );
+
+  // One gate, reading the client's single existing allowlist - not a second
+  // list of context types, and not an inverted denylist.
+  const gate = repository.match(
+    /private func collapsingBoardUserId\([\s\S]*?\n    \}/,
+  );
+  assert.ok(gate, "the withdrawal is no longer scoped to a board type");
+  assert.ok(
+    gate[0].includes("context.type.collapsesRepeatFinishers"),
+    "the withdrawal stopped reading collapsesRepeatFinishers, the client's " +
+      "one definition of which boards race one row per climber. Just Climb " +
+      "and a plain routine race every completed attempt as its own opponent, " +
+      "so withdrawing the climber's own rows there deletes real rivals.",
+  );
+  // Every live-race row is parsed with an id that passed through that gate,
+  // so no board can acquire the withdrawal by adding a call site.
+  const parseRowBindings = [
+    ...repository.matchAll(
+      /currentUserId = (collapsingBoardUserId\(context: context\)|[^\n]+?)( else \{)?\n[\s\S]{0,600}?parseRow\(/g,
+    ),
+  ].map((match) => match[1].trim());
+  assert.ok(parseRowBindings.length > 0, "no parseRow call site was found");
+  for (const binding of parseRowBindings) {
+    assert.equal(
+      binding,
+      "collapsingBoardUserId(context: context)",
+      "a live-race row resolves the signed-in climber without the " +
+        "collapsesRepeatFinishers gate",
+    );
+  }
+});
+
+test("the rank and the field size drop the previous best at the fetch, not off the page", () => {
+  const models = read(
+    "AscendApp/Shared/Services/LiveReplayLeaderboard/" +
+      "LiveReplayLeaderboardModels.swift",
+  );
+  const repository = read(
+    "AscendApp/Shared/Repositories/Firebase/" +
+      "FirestoreLiveReplayLeaderboardRepository.swift",
+  );
+
+  // Subtracting rows the window happens to hold made the rank a function of
+  // pagination, and made it disagree with the rank the drift check compares it
+  // against - which refetched the whole window on every tick.
+  assert.ok(
+    !models.includes("ownRowsCountedAhead"),
+    "the rank is adjusted again by counting the climber's own rows inside " +
+      "the fetched window",
+  );
+  assert.ok(
+    repository.includes("ownCompletionsAhead") &&
+      repository.includes("ownCompletionCount"),
+    "the fetch no longer withdraws the climber's own completion from the " +
+      "server's own ahead count and live-race count",
+  );
+
+  // Read by owner, so a previous best further away than the page still has a
+  // position for the marker.
+  assert.ok(
+    repository.includes("func fetchOwnPreviousCompletionRow"),
+    "the climber's own entry is no longer read directly, so the BEST marker " +
+      "blinks out whenever the window scrolls past it",
+  );
+  assert.ok(
+    models.includes("let ownPreviousCompletionRow: LiveReplayLeaderboardRow?"),
+    "the window no longer carries the directly-read previous best",
+  );
+});
+
+test("the First Ascent claim is resolved from a permanent fact", () => {
+  const hero = read("AscendApp/Features/Climbs/Models/LiveClimbSummaryRankHero.swift");
+  const history = read(
+    "AscendApp/Features/Climbs/Models/PersonalClimbCompletionHistory.swift",
+  );
+
+  assert.ok(
+    !hero.includes("isFirstCompletionHere"),
+    "the hero derives the First Ascent from \"this is my only climb here\" " +
+      "again. That stops being true the day the climber returns to the " +
+      "tower, and the gold flag is permanent.",
+  );
+  assert.ok(
+    /if claimsFirstAscent \{\s*\n\s*return \.firstAscent/.test(hero),
+    "the First Ascent state is no longer taken from the caller's claim",
+  );
+  assert.ok(
+    history.includes("isEarliestCompletionHere") &&
+      history.includes("globalCompletionOrder"),
+    "the claim is no longer built from the two permanent signals",
+  );
+});

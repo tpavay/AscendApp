@@ -145,7 +145,10 @@ struct LiveClimbSummaryRankHero: Equatable {
         case personalPlacing(PersonalClimbPlacing)
         /// This completion took the tower's First Ascent: the climber's first
         /// finish here, with nobody else on the board. Permanent and
-        /// unreclaimable, which is why it outranks any ordinal.
+        /// unreclaimable, which is why it outranks any ordinal - and why it is
+        /// resolved from facts that never move
+        /// (`PersonalClimbCompletionHistory.claimsFirstAscent`) rather than from
+        /// a count of the climber's climbs, which grows.
         case firstAscent
         /// The rank is genuinely in flight. The label stays; only the value loads.
         case loading
@@ -233,9 +236,15 @@ struct LiveClimbSummaryRankHero: Equatable {
     let label: String?
     let value: Value
     let detail: String
-    let detailEmphasis: DetailEmphasis
     let standing: Standing?
     let showsRetrySync: Bool
+
+    /// Derived from `value` rather than stored beside it, so the pair cannot be
+    /// set inconsistently: the gold prestige token belongs to the First Ascent
+    /// claim and to nothing else.
+    var detailEmphasis: DetailEmphasis {
+        value == .firstAscent ? .prestige : .neutral
+    }
 
     /// The denominator to render beside the value, or `nil` when there is none to
     /// show. Only ever the total belonging to the standing that produced `value`.
@@ -280,11 +289,14 @@ struct LiveClimbSummaryRankHero: Equatable {
     ///   - personalPlacing: Where this completion sits among the climber's own
     ///     completions of the same climb. Only consulted on a climb, and only
     ///     where the standing counts a field of one.
+    ///   - claimsFirstAscent: Whether this completion is the one that took the
+    ///     tower's First Ascent. See `Value.firstAscent`.
     static func make(
         isClimbContext: Bool,
         moment: Moment = .retrospective,
         standings: [Standing?],
         personalPlacing: PersonalClimbPlacing? = nil,
+        claimsFirstAscent: Bool = false,
         sync: SyncState,
         copy: Copy
     ) -> Self? {
@@ -294,6 +306,7 @@ struct LiveClimbSummaryRankHero: Equatable {
         let value = value(
             standing: standing,
             personalPlacing: personalPlacing,
+            claimsFirstAscent: claimsFirstAscent,
             isClimbContext: isClimbContext,
             sync: sync
         )
@@ -309,7 +322,6 @@ struct LiveClimbSummaryRankHero: Equatable {
                 sync: sync,
                 copy: copy
             ),
-            detailEmphasis: value == .firstAscent ? .prestige : .neutral,
             standing: standing,
             showsRetrySync: standing == nil && sync.phase == .syncFailedRetry
         )
@@ -327,6 +339,7 @@ struct LiveClimbSummaryRankHero: Equatable {
     private static func value(
         standing: Standing?,
         personalPlacing: PersonalClimbPlacing?,
+        claimsFirstAscent: Bool,
         isClimbContext: Bool,
         sync: SyncState
     ) -> Value {
@@ -337,10 +350,17 @@ struct LiveClimbSummaryRankHero: Equatable {
 
             // Alone on the tower. A rank over a field of one cannot fall, so it
             // is never shown - not as "1st of 1 CLIMBER", not relabelled.
+            //
+            // The claim is asked for first and never derived from the placing:
+            // a First Ascent is permanent, while "this is my only climb here"
+            // stops being true the day the climber comes back, which retired the
+            // gold flag from a summary that had already earned it.
+            if claimsFirstAscent {
+                return .firstAscent
+            }
+
             if let personalPlacing {
-                return personalPlacing.isFirstCompletionHere
-                    ? .firstAscent
-                    : .personalPlacing(personalPlacing)
+                return .personalPlacing(personalPlacing)
             }
 
             // The climber's own history has not been read yet. Wait for it rather

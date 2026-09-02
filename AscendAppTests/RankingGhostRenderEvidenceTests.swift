@@ -65,6 +65,7 @@ struct RankingGhostRenderEvidenceTests {
         let image = try screenshot(of: heroPanel(
             standing: Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
             personalPlacing: PersonalClimbPlacing(ordinal: 1, total: 1),
+            claimsFirstAscent: true,
             moment: .freshCompletion
         ))
         let text = try await recognizedText(in: image)
@@ -74,6 +75,25 @@ struct RankingGhostRenderEvidenceTests {
         #expect(!text.contains("of your"))
 
         try writeEvidence(image: image, named: "finish-card-first-ascent.png")
+    }
+
+    /// The same card reopened from Workout Detail after the climber has gone back
+    /// to the tower three more times. The claim is permanent, so the screen is
+    /// identical - it used to become `4TH OF YOUR 4 CLIMBS`.
+    @Test
+    func aFirstAscentCardStillRendersAfterTheClimberReturnsToTheTower() async throws {
+        let image = try screenshot(of: heroPanel(
+            standing: Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
+            personalPlacing: PersonalClimbPlacing(ordinal: 4, total: 4),
+            claimsFirstAscent: true,
+            moment: .retrospective
+        ))
+        let text = try await recognizedText(in: image)
+
+        #expect(text.contains("first ascent claimed"))
+        #expect(!text.contains("of your 4 climbs"))
+
+        try writeEvidence(image: image, named: "finish-card-first-ascent-reopened.png")
     }
 
     /// A real field of climbers keeps the leaderboard rank in the hero, with the
@@ -254,6 +274,7 @@ struct RankingGhostRenderEvidenceTests {
     private func heroPanel(
         standing: Hero.Standing?,
         personalPlacing: PersonalClimbPlacing?,
+        claimsFirstAscent: Bool = false,
         moment: Hero.Moment
     ) throws -> some View {
         let hero = try #require(Hero.make(
@@ -261,6 +282,7 @@ struct RankingGhostRenderEvidenceTests {
             moment: moment,
             standings: [standing],
             personalPlacing: personalPlacing,
+            claimsFirstAscent: claimsFirstAscent,
             sync: Hero.SyncState(
                 phase: .published,
                 hasRankContext: true,
