@@ -33,13 +33,31 @@ const POINTER_FILES = [
   "CLAUDE.md",
 ];
 
-function read(relativePath) {
-  return readFileSync(resolve(REPO_ROOT, relativePath), "utf8");
+/**
+ * A file this contract names has moved or gone. That is a failure, never a
+ * skip - but it fails with the contract's own sentence rather than an ENOENT
+ * stack, so whoever renamed it reads what the path was holding up.
+ *
+ * @param {string} relativePath Repo-relative path.
+ * @param {string} [protecting] What the contract reads this file for.
+ * @return {string} File contents.
+ */
+function read(relativePath, protecting) {
+  try {
+    return readFileSync(resolve(REPO_ROOT, relativePath), "utf8");
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    assert.fail(
+      `${relativePath} no longer exists, and the rank model names it` +
+        `${protecting ? ` for ${protecting}` : ""}. ` +
+        "Repoint this contract at the file that replaced it rather than dropping the check."
+    );
+  }
 }
 
 /** The `## The rank model` section, up to the next `## ` heading. */
 function modelSection() {
-  const skill = read(MODEL_SKILL);
+  const skill = read(MODEL_SKILL, "the one statement of the rank model");
   const start = skill.indexOf(MODEL_HEADING);
   assert.notEqual(start, -1, `${MODEL_SKILL} must carry a "${MODEL_HEADING}" section`);
   const rest = skill.slice(start + MODEL_HEADING.length);
@@ -148,8 +166,8 @@ const STATEMENT_ANCHORS = [
   },
   {
     statement: 4,
-    file: "AscendAppTests/ClimbLeaderboardPageContentTests.swift",
-    symbol: "presentRowsResolveToRows",
+    file: "AscendAppTests/LiveReplayFieldPopulationRenderEvidenceTests.swift",
+    symbol: "climbDetailsThirdTabReadsAllTimesAndCountsCompletions",
   },
   {
     statement: 5,
@@ -205,9 +223,30 @@ test("the rank sentence counts unique climbers on both halves", () => {
   }
 });
 
+test("a statement the code does not yet keep says so", () => {
+  const section = modelSection();
+
+  assert.ok(
+    section.includes("Decided and being built, not yet shipping."),
+    "the row-versus-rank seam must mark itself as decided rather than shipping, or a reader takes 6TH OF 16 for current behaviour"
+  );
+  assert.ok(
+    section.includes("functions/src/liveReplayLeaderboard.ts:1562"),
+    "the seam must name the call site that still counts attempts"
+  );
+  assert.ok(
+    section.includes("`ascend-live-leaderboard-second-attempt`"),
+    "the seam must name the lane implementing the settled rule"
+  );
+  assert.ok(
+    section.includes("The unfiltered all-attempts read itself has no anchor"),
+    "statement 4's untested half must stay disclosed, the way the BEST marker's is"
+  );
+});
+
 test("no skill or guide asserts the superseded attempt-counting form", () => {
   for (const file of [MODEL_SKILL, ...POINTER_FILES]) {
-    const contents = read(file);
+    const contents = read(file, "a pointer at the rank model");
     for (const phrase of SUPERSEDED_ATTEMPT_COUNTING) {
       assert.ok(
         !contents.includes(phrase),
@@ -219,7 +258,7 @@ test("no skill or guide asserts the superseded attempt-counting form", () => {
 
 test("every other surface points at the model instead of restating it", () => {
   for (const file of POINTER_FILES) {
-    const contents = read(file);
+    const contents = read(file, "a pointer at the rank model");
     assert.ok(
       contents.includes("The rank model"),
       `${file} must point at The rank model`
@@ -241,13 +280,13 @@ test("the model is loadable from every context its tripwire fires in", () => {
   // A skill with `paths:` globs stays out of the skill listing until a matching
   // file is touched. The tripwire fires while editing a Cloud Function, a share
   // card and a climb view, so the skill that answers it may not be conditional.
-  const frontMatter = read(MODEL_SKILL).split("---")[1] ?? "";
+  const frontMatter = read(MODEL_SKILL, "the tripwire's unconditional skill").split("---")[1] ?? "";
   assert.ok(
     !/^paths:/m.test(frontMatter),
     `${MODEL_SKILL} is named by a tripwire, so it must not declare \`paths:\``
   );
 
-  const guide = read("CLAUDE.md");
+  const guide = read("CLAUDE.md", "the rank-model tripwire");
   const tripwire = guide
     .split("\n")
     .find((line) => line.includes("A rank counts people"));
@@ -263,7 +302,10 @@ test("the model is loadable from every context its tripwire fires in", () => {
 });
 
 test("climb detail is titled ALL TIMES in the shipping view", () => {
-  const view = read("AscendApp/Features/Climbs/Views/ClimbDetailView.swift");
+  const view = read(
+    "AscendApp/Features/Climbs/Views/ClimbDetailView.swift",
+    "statement 4's ALL TIMES title"
+  );
 
   assert.ok(
     view.includes('"ALL TIMES"'),
@@ -277,7 +319,8 @@ test("climb detail is titled ALL TIMES in the shipping view", () => {
 
 test("a field size is never carried without the population it counted", () => {
   const context = read(
-    "AscendApp/Shared/Services/LiveReplayLeaderboard/LiveReplayLeaderboardContext.swift"
+    "AscendApp/Shared/Services/LiveReplayLeaderboard/LiveReplayLeaderboardContext.swift",
+    "statement 5's field size carrying its population"
   );
 
   assert.ok(
@@ -295,7 +338,7 @@ test("each statement's anchor test still exists", () => {
 
   for (const {statement, file, symbol} of STATEMENT_ANCHORS) {
     assert.ok(
-      read(file).includes(symbol),
+      read(file, `statement ${statement}'s anchor`).includes(symbol),
       `statement ${statement} names ${file} "${symbol}", which no longer exists`
     );
     assert.ok(

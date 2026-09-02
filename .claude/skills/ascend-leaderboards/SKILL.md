@@ -19,9 +19,10 @@ The failures all land on the seam between two surfaces rather than inside one, s
 
 ### 1. During a climb
 
-The board shows **one row per unique climber, at that climber's best time**.
+On a tower (`live_climb`) and on a routine template (`routine_template`), the board shows **one row per unique climber, at that climber's best time**.
 Never one row per attempt.
 You are one of those climbers, and your row is ranked like anyone else's.
+An open Just Climb and a plain routine draw every completed attempt as its own row instead, and their rank sentence still counts unique climbers - that is the row-versus-rank seam below.
 
 **Your row shows your current run** - the live time and the current steps of the climb happening right now.
 
@@ -74,6 +75,11 @@ An open Just Climb has no target and a plain routine ranks on steps, so both dra
 The rank sentence beside those rows still counts **unique climbers on both halves**: a tower with 41 finishes from 16 climbers, where 5 distinct climbers beat you, reads `6TH OF 16`.
 Never `13TH OF 16`, and never `13TH OF 41`.
 
+*Decided and being built, not yet shipping.*
+The captain settled unique climbers on both halves on 2026-09-02, and answered the follow-up decision `key=climbers-noun-vs-frozen-basis` with option (a): the frozen saved card is the same result viewed later and has to read identically to the live one, so it counts unique climbers on both halves too.
+`functions/src/liveReplayLeaderboard.ts:1562` still takes `reading.attemptCount` as the population for the contexts that do not collapse repeats, and two tests still pin that superseded form - `functions/test/liveReplayLeaderboard.test.ts` "counts every repeat attempt on a board that races attempts", and `AscendAppTests/LiveReplayFieldPopulationTests.swift`'s `justClimb.fieldPopulation == .completions`.
+Both are expected to change when the rule lands; the leaderboard lane (`ascend-live-leaderboard-second-attempt`) is implementing it.
+
 **The live number versus the frozen number.**
 A rank recomputed from today's rows is a *current* standing; the rank stamped when your attempt published is what you *were*.
 They are supposed to differ, and each says which it is.
@@ -91,13 +97,15 @@ When both are true, the leaderboard rank leads and the personal placing drops to
 
 ### Anchors
 
-Each statement has a test behind it. `scripts/test/rank-model-contract.test.mjs` keeps this section single-homed and checks that each anchor below still exists, so deleting one fails rather than ships.
+Each statement has a test behind it, or a gap named here. `scripts/test/rank-model-contract.test.mjs` keeps this section single-homed and checks that each anchor below still exists, so deleting one fails rather than ships.
 
 1. During a climb - `AscendAppTests/LiveReplayFieldPopulationTests.onlyPerClimbAndPerTemplateContextsCollapseRepeats`. The `BEST` marker has no anchor yet because it has no code yet; it is being built on issue #561.
 2. The summary right after you finish - `functions/test/liveReplayLeaderboard.test.ts`, "counts a repeat rival once on a board that races climbers" and "never seats a climber behind their own earlier best".
 3. Reopened later - `AscendAppTests/CompletedClimbRankFreezeTests.aLaterServerReadNeverMovesAnAlreadyFrozenRank`, and on the share card `AscendAppTests/SavedClimbShareRankTests.aStoredFrozenStandingReachesTheSavedClimbShareCardWithoutARequest`.
-4. Climb detail - `AscendAppTests/ClimbLeaderboardPageContentTests.presentRowsResolveToRows`, plus the `ALL TIMES` title, which the contract test reads out of `ClimbDetailView`.
+4. Climb detail - the `ALL TIMES` title, which the contract test reads out of the shipping `ClimbDetailView`, and `AscendAppTests/LiveReplayFieldPopulationRenderEvidenceTests.climbDetailsThirdTabReadsAllTimesAndCountsCompletions`, which reads that title and its `COMPLETIONS` noun back off rendered pixels. The unfiltered all-attempts read itself has no anchor: those rows come from an unfiltered Firestore query over `splitBuckets/0/entries` in `FirestoreLiveReplayLeaderboardRepository.fetchCompletionLeaderboard`, which no unit test reaches.
 5. Naming the population - `AscendAppTests/LiveReplayFieldPopulationTests.fieldSizeLabelNamesThePopulationAndGroupsTheNumber`.
+
+The rank sentence on an open Just Climb and a plain routine has no anchor either, and the tests that name it still pin the superseded attempt-counting form. What is decided, what still ships, and who is building it are stated in the row-versus-rank seam above.
 
 ## Week Start + Leaderboard Windowing
 
