@@ -199,6 +199,12 @@ const SUPERSEDED_ATTEMPT_COUNTING = [
  * never read as a fix: a rename says exactly as little as a repair does, and the
  * wrong answer here is not a relaxed check but an instruction to delete a true
  * disclosure.
+ *
+ * `alsoDisclosedIn` holds the sentences a pointer skill has to scope for the
+ * same gap, so a machinery bullet cannot go on describing the settled rule as
+ * current behaviour, and cannot be left behind still disclosing a defect the
+ * lane has closed. Those files state no second version of the rule; they say
+ * only what their own mechanism does today.
  */
 const DISCLOSED_GAPS = [
   {
@@ -211,6 +217,14 @@ const DISCLOSED_GAPS = [
       "`frozenCompletionStanding`",
       LEADERBOARD_FUNCTION,
       "`reading.attemptCount`",
+    ],
+    alsoDisclosedIn: [
+      {
+        file: ".claude/skills/ascend-live-climbs/SKILL.md",
+        phrases: [
+          "the numerator counts bucket-0 entries and the population is `reading.attemptCount`",
+        ],
+      },
     ],
   },
   {
@@ -382,6 +396,19 @@ test("a statement the code does not yet keep says so, and stops once the code ke
           `${gap.what} still counts attempts, so the model must name "${phrase}" as a gap rather than reading as current behaviour` :
           `${gap.what} is confirmed to have stopped counting attempts, so drop "${phrase}" from the model - the disclosure has outlived the defect it describes`
       );
+    }
+
+    for (const {file, phrases} of gap.alsoDisclosedIn ?? []) {
+      const contents = read(file, `the machinery half of ${gap.what}`);
+      for (const phrase of phrases) {
+        assert.equal(
+          contents.includes(phrase),
+          isOpen,
+          isOpen ?
+            `${file} describes ${gap.what}, so it must scope itself with "${phrase}" rather than reading as the settled rule` :
+            `${gap.what} is confirmed to have stopped counting attempts, so drop "${phrase}" from ${file} - the disclosure has outlived the defect it describes`
+        );
+      }
     }
   }
 
