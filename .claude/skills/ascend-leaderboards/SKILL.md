@@ -77,8 +77,17 @@ Never `13TH OF 16`, and never `13TH OF 41`.
 
 *Decided and being built, not yet shipping.*
 The captain settled unique climbers on both halves on 2026-09-02, and answered the follow-up decision `key=climbers-noun-vs-frozen-basis` with option (a): the frozen saved card is the same result viewed later and has to read identically to the live one, so it counts unique climbers on both halves too.
-`functions/src/liveReplayLeaderboard.ts:1562` still takes `reading.attemptCount` as the population for the contexts that do not collapse repeats, and two tests still pin that superseded form - `functions/test/liveReplayLeaderboard.test.ts` "counts every repeat attempt on a board that races attempts", and `AscendAppTests/LiveReplayFieldPopulationTests.swift`'s `justClimb.fieldPopulation == .completions`.
-Both are expected to change when the rule lands; the leaderboard lane (`ascend-live-leaderboard-second-attempt`) is implementing it.
+`functions/src/liveReplayLeaderboard.ts:1562` still takes `reading.attemptCount` as the population for the contexts that do not collapse repeats.
+The tests that pin the superseded form live in `functions/test/liveReplayLeaderboard.test.ts` and the two `LiveReplayFieldPopulation*` suites, and all of them are expected to change when the rule lands.
+The known ones, so the lane can find them rather than as a guarantee that the list is complete:
+
+- `functions/test/liveReplayLeaderboard.test.ts` "counts every repeat attempt on a board that races attempts".
+- `functions/test/liveReplayLeaderboard.test.ts` "a repeat attempt is not its own opponent where attempts race", which asserts rank 3 of 4 off `attemptCount` for a `justClimb` payload.
+- `functions/test/liveReplayLeaderboard.test.ts` "refuses to freeze an attempt rank with no attempt count", which only means anything while `attemptCount` is the population.
+- `AscendAppTests/LiveReplayFieldPopulationTests.swift`, pinning `justClimb.fieldPopulation == .completions`.
+- `AscendAppTests/LiveReplayFieldPopulationRenderEvidenceTests.swift` `theSameHeroSaysCompletionsWhereTheContextRacesAttempts`, pinning a Just Climb hero that reads "fastest of 27 completions" where the settled rule says `CLIMBERS`.
+
+The leaderboard lane (`ascend-live-leaderboard-second-attempt`) is implementing it.
 
 **The live number versus the frozen number.**
 A rank recomputed from today's rows is a *current* standing; the rank stamped when your attempt published is what you *were*.
@@ -102,7 +111,7 @@ Each statement has a test behind it, or a gap named here. `scripts/test/rank-mod
 1. During a climb - `AscendAppTests/LiveReplayFieldPopulationTests.onlyPerClimbAndPerTemplateContextsCollapseRepeats`. The `BEST` marker has no anchor yet because it has no code yet; it is being built on issue #561.
 2. The summary right after you finish - `functions/test/liveReplayLeaderboard.test.ts`, "counts a repeat rival once on a board that races climbers" and "never seats a climber behind their own earlier best".
 3. Reopened later - `AscendAppTests/CompletedClimbRankFreezeTests.aLaterServerReadNeverMovesAnAlreadyFrozenRank`, and on the share card `AscendAppTests/SavedClimbShareRankTests.aStoredFrozenStandingReachesTheSavedClimbShareCardWithoutARequest`.
-4. Climb detail - the `ALL TIMES` title, which the contract test reads out of the shipping `ClimbDetailView`, and `AscendAppTests/LiveReplayFieldPopulationRenderEvidenceTests.climbDetailsThirdTabReadsAllTimesAndCountsCompletions`, which reads that title and its `COMPLETIONS` noun back off rendered pixels. The unfiltered all-attempts read itself has no anchor: those rows come from an unfiltered Firestore query over `splitBuckets/0/entries` in `FirestoreLiveReplayLeaderboardRepository.fetchCompletionLeaderboard`, which no unit test reaches.
+4. Climb detail - two anchors that cover different things, and neither covers the whole statement. The only thing holding the shipping `ClimbDetailView`'s `ALL TIMES` title is the contract test's string check against that file. `AscendAppTests/LiveReplayFieldPopulationRenderEvidenceTests.climbDetailsThirdTabReadsAllTimesAndCountsCompletions` covers the rendered treatment - the tab strip and its `COMPLETIONS` noun read back off pixels - but it redraws that strip and page chrome, because `ClimbDetailView` is a Firebase-auth gated screen the suite cannot host, so it is not regression cover on the shipping view. The unfiltered all-attempts read itself has no anchor at all: those rows come from an unfiltered Firestore query over `splitBuckets/0/entries` in `FirestoreLiveReplayLeaderboardRepository.fetchCompletionLeaderboard`, which no unit test reaches.
 5. Naming the population - `AscendAppTests/LiveReplayFieldPopulationTests.fieldSizeLabelNamesThePopulationAndGroupsTheNumber`.
 
 The rank sentence on an open Just Climb and a plain routine has no anchor either, and the tests that name it still pin the superseded attempt-counting form. What is decided, what still ships, and who is building it are stated in the row-versus-rank seam above.
