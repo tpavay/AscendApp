@@ -1,17 +1,103 @@
 ---
 name: ascend-leaderboards
-description: Use when working on Ascend leaderboards - the global leaderboard tab, per-climb leaderboards, ranking, podium, rank subtitles, tie handling, achievement tiers (Top 1/3/10/100), week boundaries, leaderboard periods/windowing, or how a standing is derived, retained, and backfilled. Covers the Monday-week rule, the server-derived document model and its plausibility envelope, and standard competition ranking.
-paths:
-  - AscendApp/Features/Leaderboards/**
-  - functions/src/leaderboardStats.ts
-  - functions/src/leaderboardPeriod.ts
-  - functions/src/leaderboardAchievements.ts
-  - scripts/backfill-leaderboard-stats.mjs
+description: Use before touching ANY ranked surface - a live race board, a completion summary, a share card that carries a rank, Climb Detail's ALL TIMES board, the global leaderboard tab, a rank sentence, a field-size line, or any Cloud Function that derives or freezes a standing. Owns the one statement of what a rank means and which population each surface counts, plus the Monday-week rule, the server-derived document model and its plausibility envelope, tie handling, achievement tiers (Top 1/3/10/100), and how a standing is derived, retained, and backfilled.
 ---
 
 # Leaderboards
 
 Two distinct surfaces - the global tab (community-wide aggregate stats) and per-climb leaderboards (completion times for one specific climb). They share data-model conventions but use different layouts and emphasis.
+
+## The rank model
+
+This is what a rank means on every Ascend surface.
+It is stated once, here.
+`ascend-live-climbs` and `ascend-share-composer` point at this section; nothing restates it.
+
+Ascend counts different populations on different screens on purpose, and that is correct rather than a smell - a board that lists every time and a rank that counts people are answering two different questions.
+What breaks is a screen that counts one population and names another.
+The failures all land on the seam between two surfaces rather than inside one, so the seams are stated directly at the end instead of being left to infer from two rules sitting apart.
+
+### 1. During a climb
+
+The board shows **one row per unique climber, at that climber's best time**.
+Never one row per attempt.
+You are one of those climbers, and your row is ranked like anyone else's.
+
+**Your row shows your current run** - the live time and the current steps of the climb happening right now.
+
+**Your previous best is not a row.**
+It is the `BEST` marker drawn inside your own row's progress fill, at the position that best reached.
+It takes no rank cell, it is never tappable, and it is **never counted in the rank or in the field size**.
+You are counted once, as yourself.
+
+The marker's source is your **best** previous climb across all previous attempts, never your most recent.
+What you are chasing is your best, which is why the word on it is `BEST`.
+
+### 2. The summary right after you finish
+
+It shows **where you stood at that moment**.
+Five of six means five of six, then.
+
+That standing is computed on **that climb's own time**, never on your all-time best.
+You finished in 9:40, so the summary ranks a 9:40 against the other climbers at their bests.
+Your 8:12 has its own summary, showing 8:12 and the rank an 8:12 earned when it landed.
+
+### 3. That same summary, reopened later
+
+It **still says five of six**, because that is what you were at that time.
+It never re-computes.
+The share card for that climb carries the same time and the same number.
+
+### 4. Climb detail
+
+**This is where everything lives: all of your attempts and everybody else's.**
+Every completed attempt is its own row, so one climber can hold three rows and the whole podium.
+That board is titled `ALL TIMES`, not `LEADERBOARD`.
+
+### 5. Every surface names the population it counted
+
+So the words match the number.
+A figure counted over climbers says `CLIMBERS`; a figure counted over completed attempts says `COMPLETIONS`.
+The noun comes from what was counted, never from what the screen happens to be about.
+A surface holding a count it cannot characterise states no field size at all.
+
+### The seams
+
+**Your row versus your marker.**
+Both are you.
+The row is ranked and counted; the marker is neither.
+If a field size moves when your own previous best appears, it counted you twice.
+
+**A rank sentence versus the rows a board draws.**
+These are different questions, and the answers are allowed to differ on one screen.
+An open Just Climb has no target and a plain routine ranks on steps, so both draw every completed attempt as its own row and race it as its own opponent.
+The rank sentence beside those rows still counts **unique climbers on both halves**: a tower with 41 finishes from 16 climbers, where 5 distinct climbers beat you, reads `6TH OF 16`.
+Never `13TH OF 16`, and never `13TH OF 41`.
+
+**The live number versus the frozen number.**
+A rank recomputed from today's rows is a *current* standing; the rank stamped when your attempt published is what you *were*.
+They are supposed to differ, and each says which it is.
+They never mix: a frozen position over a live denominator is a number that was never true, so a rank and its denominator always resolve together from one source.
+
+**The summary versus climb detail.**
+A summary counts climbers; climb detail lists every time.
+The same tower shows two different totals and both are right, because each one names what it counted.
+
+**Solo versus a real field.**
+When a real field of climbers exists, the leaderboard rank is the hero.
+When you are the only finisher on the tower there is no leaderboard rank at all - the hero states your placing among your own climbs, an ordinal over `OF YOUR N CLIMBS`.
+When both are true, the leaderboard rank leads and the personal placing drops to the achievement row.
+`1ST OF 1 CLIMBER` never appears: a number you cannot lose is not a result, and being alone on a climb already has a permanent name, which is First Ascent.
+
+### Anchors
+
+Each statement has a test behind it. `scripts/test/rank-model-contract.test.mjs` keeps this section single-homed and checks that each anchor below still exists, so deleting one fails rather than ships.
+
+1. During a climb - `AscendAppTests/LiveReplayFieldPopulationTests.onlyPerClimbAndPerTemplateContextsCollapseRepeats`. The `BEST` marker has no anchor yet because it has no code yet; it is being built on issue #561.
+2. The summary right after you finish - `functions/test/liveReplayLeaderboard.test.ts`, "counts a repeat rival once on a board that races climbers" and "never seats a climber behind their own earlier best".
+3. Reopened later - `AscendAppTests/CompletedClimbRankFreezeTests.aLaterServerReadNeverMovesAnAlreadyFrozenRank`, and on the share card `AscendAppTests/SavedClimbShareRankTests.aStoredFrozenStandingReachesTheSavedClimbShareCardWithoutARequest`.
+4. Climb detail - `AscendAppTests/ClimbLeaderboardPageContentTests.presentRowsResolveToRows`, plus the `ALL TIMES` title, which the contract test reads out of `ClimbDetailView`.
+5. Naming the population - `AscendAppTests/LiveReplayFieldPopulationTests.fieldSizeLabelNamesThePopulationAndGroupsTheNumber`.
 
 ## Week Start + Leaderboard Windowing
 
@@ -82,14 +168,11 @@ Two distinct surfaces - the global tab (community-wide aggregate stats) and per-
   The counters live in `profile_stats` as `top_N_finishes` - they were once named `top_N_weeks`, which read like a weekly-only tally and got the frame-agnostic behavior mis-filed as a bug.
   Changing what a badge counts is a product decision, not a bug fix.
 - Per-climb leaderboards rank *completed attempts on one climb*, not aggregate community totals. They don't share a layout with the global aggregate leaderboards.
-- The static per-climb board shows **every completed attempt**, not best-per-user. A user appears as many times as they've completed the climb; this surface is the historical record of completions. Contrast with the in-session live race, which ranks against best-per-user (see the replay leaderboard architecture in `ascend-live-climbs`).
-- **That board is titled `ALL TIMES`, not `LEADERBOARD`, and it states the population it counts.**
-  Climb Detail's third page was renamed on 2026-08-19 (#504) because the live race panel keeps the title `LEADERBOARD` while counting a different field of the same climb, and one word over two totals read as a contradiction.
-  The board pins the shared field-size line (`60 COMPLETIONS`) beneath its rows; the rules for that line - which surfaces may state a field, and where the noun comes from - live with the replay leaderboard architecture in `ascend-live-climbs`.
+- What that board shows and what it is called are statements 4 and 5 of The rank model above: every completed attempt as its own row, titled `ALL TIMES`, with the shared field-size line (`60 COMPLETIONS`) pinned beneath the rows. The mechanics of that line - which surfaces may state a field at all, and where the noun comes from - live with the replay leaderboard architecture in `ascend-live-climbs`.
 - **The board states a climber's own time and rank once - on their own row, wearing the YOU pill - and carries no separate personal rank summary above it.**
-  Climb Detail's All Times page lost that duplicated card on 2026-08-12; History is the home for a climber's own results, and the hero card's finisher strip still carries the standing.
+  History is the home for a climber's own results, and the hero card's finisher strip already carries the standing.
   The accepted cost is that a climber ranked past the 25-row page must scroll to find themselves; reintroducing a pinned current-user row is a product decision, not a fix.
-  The predicate that survived the card, `ClimbDetailViewModel.hasPersonalCompletionStanding`, is not leftover gating: rank and rows arrive from two separate fetches, and it is the only thing stopping a climber who has just finished from being told nobody has (`ClimbLeaderboardPageContent`).
+  `ClimbDetailViewModel.hasPersonalCompletionStanding` is not leftover gating from that card: rank and rows arrive from two separate fetches, and it is the only thing stopping a climber who has just finished from being told nobody has (`ClimbLeaderboardPageContent`).
 
 ### Tie handling (applies to global and per-climb)
 - Ties are ranked using **standard competition ranking** ("1, 2, 2, 4"). Tied users share the same rank; the next rank is skipped by the count of tied users. This matches the sports convention and honors the honest outcome.

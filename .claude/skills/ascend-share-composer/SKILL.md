@@ -56,6 +56,8 @@ Any new card-content view under the composer needs the same `.dynamicTypeSize(.l
 
 ## The standing a card asserts
 
+**What a rank means is stated once in `ascend-leaderboards` under The rank model.** A share card is statement 3: a climb's summary, reopened, still says what it said, and the card carries that same time and that same number.
+
 Rank is what Ascend shares, so it is an input the entry point supplies - not something the composer looks up.
 `ShareComposerView(climbRank:climbRankTotal:)` deliberately carries **no default**: a call site that silently omitted it is exactly how the saved-climb path shipped with no rank cluster, no rank stickers and no recap rank tab.
 All three come off the one missing pair - `ShareStatResolver` returns nil, so `availablePresets()`, `climbStats()` and the `standing` requirement drop together - so a new entry point has to pass `nil` on purpose.
