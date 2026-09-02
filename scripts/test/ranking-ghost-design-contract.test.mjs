@@ -375,24 +375,37 @@ test("the First Ascent claim is resolved from a permanent fact", () => {
 test("a field of one never renders leaderboard wording", () => {
   const hero = read("AscendApp/Features/Climbs/Models/LiveClimbSummaryRankHero.swift");
 
-  // Whatever the hero withholds on a solo tower, it withholds in the vocabulary
-  // of the climber's own climbs. The sync-phase fallback below it says CHECK
-  // LEADERBOARD LATER, which sent a climber alone on a tower to a leaderboard
-  // holding only them.
+  // CHECK LEADERBOARD LATER is what the sync-phase fallback returns once a
+  // lookup has settled, and it sent a climber alone on a tower to a leaderboard
+  // holding only them. The settled field-of-one case returns before it.
   assert.ok(
-    /if let standing, isClimbContext, countsAFieldOfOne\(standing\) \{\s*\n\s*return sync\.rankResolution\.isPending \? soloResolvingDetail : soloUnverifiedDetail/.test(
+    /if let standing, isClimbContext, countsAFieldOfOne\(standing\),\s*\n\s*!sync\.rankResolution\.isPending \{\s*\n\s*return soloUnverifiedDetail/.test(
       hero,
     ),
-    "a field of one can reach the sync-phase copy again",
+    "a settled field of one can reach the sync-phase copy again",
   );
-  for (const name of ["soloResolvingDetail", "soloUnverifiedDetail"]) {
-    const copy = hero.match(new RegExp(`static let ${name} = "([^"]+)"`));
-    assert.ok(copy, `${name} is gone`);
-    assert.ok(
-      !/rank|leaderboard/i.test(copy[1]),
-      `${name} names a rank or a leaderboard, and a field of one has neither`,
-    );
-  }
+
+  // A lookup still running is the same wait every other card names, so it
+  // reaches the one existing line rather than a second string invented for it.
+  assert.ok(
+    !hero.includes("soloResolvingDetail"),
+    "a second loading string for the solo card is back. The phase fallback " +
+      "already says LOOKING FOR YOUR RANK for exactly this moment.",
+  );
+  assert.equal(
+    [...hero.matchAll(/"LOOKING FOR YOUR RANK"/g)].length,
+    1,
+    "the loading copy is stated in more than one place",
+  );
+
+  const copy = hero.match(/static let soloUnverifiedDetail = "([^"]+)"/);
+  assert.ok(copy, "soloUnverifiedDetail is gone");
+  assert.equal(copy[1], "NOBODY ELSE HAD FINISHED");
+  assert.ok(
+    !/rank|leaderboard/i.test(copy[1]),
+    "soloUnverifiedDetail names a rank or a leaderboard, and a field of one " +
+      "has neither",
+  );
 });
 
 test("a placing is only ever made from evidence that can support it", () => {

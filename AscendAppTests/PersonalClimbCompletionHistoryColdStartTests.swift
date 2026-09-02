@@ -298,10 +298,10 @@ struct PersonalClimbCompletionHistoryColdStartTests {
 
         // A blank slot is honest; sending a climber alone on a tower to check a
         // leaderboard containing only them is not.
-        #expect(pending.detail == Hero.soloResolvingDetail)
+        #expect(pending.detail == "LOOKING FOR YOUR RANK")
         #expect(settled.detail == Hero.soloUnverifiedDetail)
+        #expect(settled.detail == "NOBODY ELSE HAD FINISHED")
         #expect(settled.detail != "CHECK LEADERBOARD LATER")
-        #expect(pending.detail != "LOOKING FOR YOUR RANK")
     }
 
     /// The zero-evidence end of the same rule, all the way through: a rebuilt row

@@ -114,10 +114,52 @@ struct LiveClimbSummaryHeroGoverningRuleTests {
         #expect(settled.value == .unranked)
         #expect(settled.value != .rank(1))
         // What it waits *to* matters as much: a tower with one climber on it has
-        // no leaderboard to send them to.
-        #expect(pending.detail == Hero.soloResolvingDetail)
+        // no leaderboard to send them to. A lookup still running is the same wait
+        // every other card names, so it reaches that same line rather than one
+        // invented for it.
+        #expect(pending.detail == "LOOKING FOR YOUR RANK")
         #expect(settled.detail == Hero.soloUnverifiedDetail)
+        #expect(settled.detail == "NOBODY ELSE HAD FINISHED")
         #expect(settled.detail != "CHECK LEADERBOARD LATER")
+    }
+
+    /// The invariant the solo refusal exists to protect, checked over every state
+    /// that can reach it rather than the one that motivated it.
+    ///
+    /// `CHECK LEADERBOARD LATER` is the settled end of the sync-phase fallback,
+    /// and a climber alone on a tower has no leaderboard to check - the only
+    /// finisher on it is them. Narrowing the refusal to the settled case is what
+    /// keeps that fallback unreachable, so this walks every phase and resolution
+    /// to prove the narrowing did not open a way back to it.
+    @Test
+    func noFieldOfOneEverReachesTheLeaderboardFallback() throws {
+        let phases: [LiveClimbPublicResultPhase?] = [
+            nil, .pending, .published, .savedOnDevice, .syncFailedRetry, .syncingRanking
+        ]
+
+        for phase in phases {
+            for resolution in [Hero.RankResolution.notStarted, .resolving, .settled] {
+                for placing in [nil, PersonalClimbPlacing(ordinal: 1, total: 1)] {
+                    let hero = try #require(Hero.make(
+                        isClimbContext: true,
+                        standings: [Hero.Standing(rank: 1, total: 1, basis: .atCompletion)],
+                        personalPlacing: placing,
+                        claimsFirstAscent: false,
+                        sync: Hero.SyncState(
+                            phase: phase,
+                            hasRankContext: true,
+                            rankResolution: resolution
+                        ),
+                        copy: Hero.Copy()
+                    ))
+
+                    #expect(hero.detail != "CHECK LEADERBOARD LATER")
+                    if resolution == .settled {
+                        #expect(hero.detail == Hero.soloUnverifiedDetail)
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - First Ascent

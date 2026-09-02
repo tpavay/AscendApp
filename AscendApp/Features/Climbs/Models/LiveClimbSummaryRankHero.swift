@@ -230,13 +230,17 @@ struct LiveClimbSummaryRankHero: Equatable {
     /// The whole First Ascent card. No sentence, no date, no dare, no rank -
     /// the gold flag and this claim, and nothing else (`first-ascent-line-copy`).
     static let firstAscentDetail = "FIRST ASCENT CLAIMED"
-    /// The climber is alone on the tower and their own history is still being
-    /// read. Names what is actually being counted - their climbs, not a field.
-    static let soloResolvingDetail = "COUNTING YOUR CLIMBS"
-    /// The climber is alone on the tower and nothing on hand can place this run
-    /// among their own climbs or prove the First Ascent. States the one thing
-    /// that is certainly true rather than inventing a placing.
-    static let soloUnverifiedDetail = "ALONE ON THIS TOWER"
+    /// Nobody else had finished when this attempt published, and nothing on hand
+    /// can place this run among the climber's own climbs or prove the First
+    /// Ascent. States the one thing that is certainly true rather than inventing
+    /// a placing.
+    ///
+    /// Past tense on purpose. The condition that produces it reads the *frozen*
+    /// standing, whose count stays 1 forever while the climb keeps collecting
+    /// finishers, and this card is reopened months later on towers that have
+    /// since filled up - so a present-tense line becomes a lie the moment
+    /// somebody else finishes.
+    static let soloUnverifiedDetail = "NOBODY ELSE HAD FINISHED"
 
     /// Names the board this standing sits on, for the surfaces that rank on one
     /// of their own. Nil wherever the field line already says everything true.
@@ -423,11 +427,14 @@ struct LiveClimbSummaryRankHero: Equatable {
 
         // Every rank has already returned, so what is left on a field of one is
         // the hero withholding. It withholds in the vocabulary of the climber's
-        // own tower: there is no leaderboard to send somebody to when the only
-        // climber on it is them, and the fallback below would have told a genuine
-        // first ascentist to go and check one.
-        if let standing, isClimbContext, countsAFieldOfOne(standing) {
-            return sync.rankResolution.isPending ? soloResolvingDetail : soloUnverifiedDetail
+        // own tower, because the fallback below would otherwise have told a
+        // genuine first ascentist to go and check a leaderboard holding only
+        // them. Only the settled case is answered here: a lookup still running is
+        // the same wait every other card names, and it reaches that same line
+        // below rather than a second string invented for it.
+        if let standing, isClimbContext, countsAFieldOfOne(standing),
+           !sync.rankResolution.isPending {
+            return soloUnverifiedDetail
         }
 
         switch sync.phase {
