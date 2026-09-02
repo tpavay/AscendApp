@@ -39,12 +39,17 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
             return Self.ordinalText(ownClimbsPlacing)
         }
 
+        /// The noun alone, never the count: this renders in the Dynamic Island's
+        /// compact slot at 7pt in about 44 points of width, and `of 27 climbers`
+        /// only fits there by scaling to illegibility. The figure is already on
+        /// the value line directly above, so the caption naming the population
+        /// is what makes that ordinal a labelled number rather than a bare one.
         var standingCaption: String {
             if rank != nil {
-                return "of \(Self.climberField(rankTotal))"
+                return "climbers"
             }
 
-            return ownClimbsPlacing == nil ? "rank" : "of your climbs"
+            return ownClimbsPlacing == nil ? "rank" : "your climbs"
         }
 
         var standingTitle: String {

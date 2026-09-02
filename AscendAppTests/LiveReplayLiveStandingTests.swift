@@ -102,6 +102,60 @@ struct LiveReplayLiveStandingTests {
         #expect(LiveReplayPersonalPlacing(placing: 3, total: 4).fieldLabel == "OF YOUR 4 CLIMBS")
     }
 
+    // MARK: - One failed read never costs the other answer
+
+    /// The ghost correction and the placing are separate reads answering
+    /// separate numbers, so a placing that could not be counted must not drag
+    /// the corrected rank down with it. Sharing one failure path put the
+    /// captain's original contradiction back: his live row drawn `#2` over a
+    /// `1 CLIMBER` field line, off one failed count.
+    @Test
+    func aFailedPlacingReadStillLeavesTheCorrectedRankStanding() {
+        // The ghost was read and subtracted, so he is the whole field of one.
+        // The placing was not, so no ordinal is stated - but nothing on this
+        // board seats him behind himself either.
+        let window = window(totalClimbers: 1)
+        let standing = LiveReplayLiveStanding.resolve(
+            field: LiveReplayFieldSize(population: .climbers, count: 1),
+            ownClimbs: window.ownClimbs,
+            isSoleClimber: window.isSoleClimber
+        )
+
+        #expect(window.currentUserRank == 1)
+        #expect(!standing.showsLeaderboardRank)
+        #expect(standing.ownClimbs == nil)
+        #expect(standing.field == nil)
+    }
+
+    @Test
+    func aFailedGhostReadStillLeavesThePlacingStanding() {
+        let placing = LiveReplayPersonalPlacing(placing: 2, total: 5)
+        let standing = LiveReplayLiveStanding.resolve(
+            field: LiveReplayFieldSize(population: .climbers, count: 27),
+            ownClimbs: placing,
+            isSoleClimber: false
+        )
+
+        #expect(standing.ownClimbs == placing)
+        #expect(standing.field?.label == "27 CLIMBERS")
+    }
+
+    /// Each read reports under its own code and its own once-per-session budget,
+    /// so one failing can neither be mistaken for the other nor silence it.
+    @Test
+    func theGhostAndPlacingReadsReportSeparately() {
+        var diagnostics = LiveReplayFinishedRowDiagnostics()
+        let ghostReported = diagnostics.shouldReport(.ownGhost)
+        let placingReported = diagnostics.shouldReport(.ownClimbPlacing)
+        let ghostReportedTwice = diagnostics.shouldReport(.ownGhost)
+
+        #expect(ghostReported)
+        #expect(placingReported)
+        #expect(!ghostReportedTwice)
+        #expect(LiveReplayFinishedRowRead.ownGhost.rawValue
+            != LiveReplayFinishedRowRead.ownClimbPlacing.rawValue)
+    }
+
     // MARK: - The Live Activity states the same thing the panel does
 
     @Test
@@ -115,13 +169,20 @@ struct LiveReplayLiveStandingTests {
 
     @Test
     func theCompactIslandNeverShowsAnOrdinalWithoutANoun() {
+        // The caption carries the noun and not the count. It renders at 7pt in
+        // roughly 44 points of Dynamic Island, so a caption that only fits by
+        // scaling is not fitting - and the value line above already holds the
+        // figure, which is what leaves the ordinal labelled rather than bare.
         let racing = activityState(rank: 2, rankTotal: 27, ownClimbs: (2, 5))
         #expect(racing.standingValue == "#2")
-        #expect(racing.standingCaption == "of 27 climbers")
+        #expect(racing.standingCaption == "climbers")
 
         let alone = activityState(rank: nil, rankTotal: 1, ownClimbs: (2, 2))
         #expect(alone.standingValue == "2nd")
-        #expect(alone.standingCaption == "of your climbs")
+        #expect(alone.standingCaption == "your climbs")
+
+        #expect(racing.standingCaption.count <= "your climbs".count)
+        #expect(alone.standingCaption.count <= "your climbs".count)
     }
 
     @Test

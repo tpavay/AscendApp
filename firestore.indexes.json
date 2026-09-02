@@ -311,11 +311,11 @@
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "splitBucketCount",
+          "fieldPath": "finalSteps",
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "finalSteps",
+          "fieldPath": "splitBucketCount",
           "order": "ASCENDING"
         }
       ]
