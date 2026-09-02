@@ -46,15 +46,16 @@ The two missing Live Replay indexes are both collection-scoped `entries` indexes
 - `isBestForUser ASCENDING`, then `stepsAtBucket ASCENDING`.
 - `isBestForUser ASCENDING`, then `stepsAtBucket DESCENDING`.
 
-The current query filters per-climb and per-routine live races with `isBestForUser == true`, then reads the window ahead in ascending `stepsAtBucket` order and the window behind in descending order.
+The current query filters every live race with `isBestForUser == true`, then reads the window ahead in ascending `stepsAtBucket` order and the window behind in descending order.
 Both matching definitions already exist exactly once in `firestore.indexes.json` after rebasing onto current `develop`, so this preparation does not add duplicates.
 
-Current `develop` declares 16 composite indexes because later work also added the `workouts(source, climbId)` projection index, the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index, the two `_revenuecat_analytics_outbox` delivery-queue indexes (`status + readyAt` and `status + processingStartedAt`), and the climb-drop sweep's `climb_drop_dispatches(state, createdAt)` index.
+Current `develop` declares 20 composite indexes because later work also added the `workouts(source, climbId)` projection index, the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index, the two `_revenuecat_analytics_outbox` delivery-queue indexes (`status + readyAt` and `status + processingStartedAt`), the climb-drop sweep's `climb_drop_dispatches(state, createdAt)` index, and four more collection-scoped `entries` indexes for the live window's finished-attempt and own-history reads: `isBestForUser + finalSteps + splitBucketCount` in both directions, `userId + stepsAtBucket`, and `userId + finalSteps + splitBucketCount`.
 It also declares six field overrides, for `blocked.blockedUid`, `entries.userId`, `finishers.userId`, `entitlements.accessUntil`, `_revenuecat_webhook_events.retainUntil`, and `_revenuecat_analytics_outbox.retainUntil`.
 The first four carry a `COLLECTION_GROUP` scope, and `entries.userId` additionally restates its ascending and descending `COLLECTION`-scoped single-field indexes.
 The two `retainUntil` overrides declare no index at all: they exist to carry the TTL policies that expire the webhook dedupe ledger and the analytics outbox.
 That restatement is required because a field override replaces the field's entire index configuration, and the server's best-entry reconciliation still queries `entries` by `userId` inside a single leaderboard.
 The production workflow waits until every composite index and every scope inside every field override reports `READY` before Functions deploy.
+`ascend-live-climbs` owns why the live window's finished-attempt and own-history reads exist; `scripts/test/production-backend-rollout.test.mjs` holds each of those queries' stated `orderBy` against the index declared for it, so a wrong field order fails there rather than as `FAILED_PRECONDITION` in production.
 
 The `cleanupDeletedUserData` function is implemented in `functions/src/accountCleanup.ts` and exported from `functions/src/index.ts`.
 It is retry-enabled, discovers all `users/{uid}` subcollections, continues independent cleanup steps after a partial failure, and throws when any cleanup step fails so Cloud Functions retries it.
@@ -105,6 +106,7 @@ node scripts/backfill-live-replay-best-per-user.mjs --project prod --dry-run
 
 Do not use `--confirm-production` for this preflight.
 If the dry-run reports writes, stop and prepare a separate migration review before deploying the binary.
+The release that first ships the every-board `isBestForUser` collapse is that reviewed migration rather than an anomaly - its ordering (Functions, then this backfill in every environment, then the binary) is owned by `ascend-live-climbs`, and a binary shipped ahead of it renders every board whose rows predate the flag empty.
 
 ### Public identity backfill
 
@@ -149,7 +151,7 @@ The workflow performs the following order automatically:
 3. Build and retain the signed production IPA.
 4. Build the Functions and Hosting artifacts.
 5. Deploy Firestore indexes.
-6. Poll the Firestore Admin API until all 16 composite indexes and every declared query scope inside all six field overrides report `READY`.
+6. Poll the Firestore Admin API until all 20 composite indexes and every declared query scope inside all six field overrides report `READY`.
 7. Deploy Functions.
 8. Verify `cleanupDeletedUserData`, `expireRevenueCatEntitlements`, `onPublicIdentityPropagationJobWritten`, `onPublicProfileIdentityWritten`, `onWorkoutWritten`, `onWorkoutReplaySplitsWritten`, `processRevenueCatAnalyticsOutbox`, `reconcileAppAccess`, `revenueCatWebhook`, and `unsubscribeFromEmails` report `ACTIVE`.
 9. Reconcile the whole deployed function set against this ref's `functions/src/index.ts` exports, failing on any missing, orphaned, or non-`ACTIVE` function.
