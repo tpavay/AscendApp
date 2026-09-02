@@ -172,8 +172,13 @@ That instruction used to live here as prose, and prose lost. On 2026-08-10 #467 
    To seed the climb with an open First Ascent slot instead of synthetic traffic, use `FIRST_ASCENT_OPEN_CLIMBS` in the same file and follow the constraints documented on that list.
    Every seeded ID - there and in `scripts/seed/fixtures/profile-fixtures.mjs` - must be `available`, or it strands state no surface can reach; `scripts/test/live-replay-first-ascent.test.mjs` fails on one. The reverse is not required: an available climb with no fixture is just unseeded.
    Retiring or deleting a climb therefore means re-pointing any fixture that named it.
-9. Validate JSON and schema by decoding both catalog files.
-10. Build web before deploying hosted catalog content.
+9. If the change moves a climb's `releaseState`, update the ledgers that pin the catalogue's shape.
+   `AscendAppTests/ClimbCatalogCurationTests.swift` hardcodes the available/hidden/comingSoon distribution and the exact `comingSoon` id set.
+   `scripts/test/live-replay-climb-tiers.test.mjs` pins the profile's open First Ascent preview, which `ProfileFirstAscentService` fills in catalog order and caps at four, so a newly opened climb that sorts early pushes one out.
+   `docs/climb-real-stair-counts.md` carries the null-`realStairCount` tallies and `docs/staging-content-capture.md` the open-slot count.
+   These are ledgers of what the catalogue holds, so they move with it - never the other way round.
+10. Validate JSON and schema by decoding both catalog files.
+11. Build web before deploying hosted catalog content.
 
 ## Validation Commands
 

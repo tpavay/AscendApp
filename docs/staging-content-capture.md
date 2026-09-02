@@ -67,7 +67,7 @@ Run it after a capture session, after a real climb, or a week later, to find out
 | The world has | Why |
 |---|---|
 | 26 contested climb boards, 14 of them with 20+ finishers | A rank nobody had to earn is not worth capturing |
-| 31 climbs with an open First Ascent | The claimable state has to be showable, and claimable for real on camera |
+| 32 climbs with an open First Ascent | The claimable state has to be showable, and claimable for real on camera |
 | 894 seeded rows, every one with a face and a full human name | A leaderboard of lettered circles is not what anyone is photographing |
 | 2 routine templates and 12 profile personas with avatars | The routines, profile and global leaderboard surfaces are not empty |
 
@@ -124,7 +124,9 @@ The split is now explicit and lives in `scripts/seed/lib/live-replay-climb-tiers
 The account's own First Ascent therefore has to sit outside the contested set, or it renders as first-ever beside climbers who finished before it.
 `seed-demo-user.mjs` refuses a contested climb rather than writing that contradiction, and the default is 875 North Michigan Avenue - the John Hancock Center, home of the Hustle Up the Hancock.
 
-Which four climbs reach the profile's open preview is unchanged: it fills in catalog order and caps at four, and those four sort ahead of the newly opened ones.
+Which four climbs reach the profile's open preview is decided by the catalogue, not by this seed: `ProfileFirstAscentService` fills the list in catalog order and caps it at four, so opening a climb that sorts early replaces one of them.
+Opening Petronas Towers moved it into second place and pushed Sky Tower (Auckland) out.
+`scripts/test/live-replay-climb-tiers.test.mjs` pins the current four.
 
 ## Every row on screen has to read as a person
 

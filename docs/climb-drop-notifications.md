@@ -59,7 +59,7 @@ A climb belongs to exactly one dispatch, for good, and that is what the whole no
 The first sweep in a project finds no state document, records every currently-available climb as already announced, and sends nothing.
 That is deliberate: against an empty baseline the whole catalogue looks like a drop.
 
-The same is true if the state document is ever deleted - the sweep goes quiet rather than announcing 58 climbs.
+The same is true if the state document is ever deleted - the sweep goes quiet rather than announcing the whole available catalogue.
 Restoring a lost baseline by hand means writing `announcedClimbIds` with the ids that should *not* announce.
 
 ## How a drop is sent
