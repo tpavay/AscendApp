@@ -32,6 +32,9 @@ const LEADERBOARD_FUNCTION = "functions/src/liveReplayLeaderboard.ts";
 const CONTEXT_FILE =
   "AscendApp/Shared/Services/LiveReplayLeaderboard/LiveReplayLeaderboardContext.swift";
 
+/** Longer than any declaration this contract slices, and short enough to catch a runaway. */
+const LONGEST_DECLARATION = 4000;
+
 /** Skills and guides that reference the model instead of restating it. */
 const POINTER_FILES = [
   ".claude/skills/ascend-live-climbs/SKILL.md",
@@ -87,7 +90,16 @@ function declarationBody(source, declaration, closing, describing) {
     -1,
     `${describing} declares \`${declaration}\` but the contract cannot find where it closes`
   );
-  return source.slice(start, end + closing.length);
+
+  const body = source.slice(start, end + closing.length);
+  assert.ok(
+    body.length <= LONGEST_DECLARATION,
+    `${describing} declares \`${declaration}\` but the first brace at that indent is ` +
+      `${body.length} characters away, so this slice has run past the declaration into later ` +
+      "code. The closing literal encodes the declaration's indent, so repoint it at the nesting " +
+      "level the declaration now sits at rather than reading a superset of it."
+  );
+  return body;
 }
 
 /** The `## The rank model` section, up to the next `## ` heading. */
@@ -174,12 +186,19 @@ const SUPERSEDED_ATTEMPT_COUNTING = [
 
 /**
  * Places where shipping code still counts attempts where the settled rule counts
- * unique climbers, and the words the model uses to disclose each one.
+ * unique climbers, and every sentence the model uses to disclose each one.
  *
  * The disclosure is checked against the code rather than against itself, in both
  * directions: while a gap is open the model must name it, and the day the
  * leaderboard lane closes it the model must stop, so a note cannot outlive the
- * defect it describes and leave the doc defending the wrong thing.
+ * defect it describes and leave the doc defending the wrong thing. Every sentence
+ * asserting one gap is listed together, so they retire as one and none is left
+ * behind still claiming a defect that has landed.
+ *
+ * `probes` are the expressions that make the gap what it is. Absence of one is
+ * never read as a fix: a rename says exactly as little as a repair does, and the
+ * wrong answer here is not a relaxed check but an instruction to delete a true
+ * disclosure.
  */
 const DISCLOSED_GAPS = [
   {
@@ -187,7 +206,7 @@ const DISCLOSED_GAPS = [
     file: LEADERBOARD_FUNCTION,
     declaration: "function frozenCompletionStanding(",
     closing: "\n}\n",
-    countsAttempts: (body) => body.includes("reading.attemptCount"),
+    probes: ["reading.attemptCount"],
     disclosure: [
       "`frozenCompletionStanding`",
       LEADERBOARD_FUNCTION,
@@ -199,15 +218,57 @@ const DISCLOSED_GAPS = [
     file: RANK_REPOSITORY,
     declaration: "func fetchCompletionRank(",
     closing: "\n    }\n",
-    countsAttempts: (body) =>
-      body.includes("countRowsBetterThan(") && body.includes("countRows("),
+    probes: ["countRowsBetterThan(", "countRows("],
     disclosure: [
       "`FirestoreLiveReplayLeaderboardRepository.fetchCompletionRank`",
       "`countRowsBetterThan`",
       "`countRows`",
+      "falls back to today's standing",
     ],
   },
 ];
+
+const GAP_OPEN = "open";
+const GAP_CLOSED = "closed";
+
+/**
+ * Whether a gap is still open, closed, or no longer readable from here.
+ *
+ * A probe that has vanished from its file entirely is the ambiguous case, and it
+ * fails rather than resolving: the fix landing and the expression being renamed
+ * look identical from here, and only one of them means the model should stop
+ * disclosing. A probe still in the file but gone from the declaration is the one
+ * positive reading of a fix, because the expression is demonstrably still
+ * spellable and this code path stopped using it.
+ *
+ * @param {object} gap One entry of DISCLOSED_GAPS.
+ * @return {string} GAP_OPEN or GAP_CLOSED, or fails when it cannot tell.
+ */
+function gapState(gap) {
+  const source = read(gap.file, gap.what);
+  const body = declarationBody(source, gap.declaration, gap.closing, gap.file);
+
+  const cannotTell = (detail) =>
+    assert.fail(
+      `This contract can no longer tell whether ${gap.what} still counts attempts: ${detail}. ` +
+        "A rename and a fix read the same from here, so a human has to confirm which happened, " +
+        "then repoint these probes or retire the gap deliberately. " +
+        "Do NOT remove the model's disclosure on the strength of this failure."
+    );
+
+  const missingFromFile = gap.probes.filter((probe) => !source.includes(probe));
+  if (missingFromFile.length > 0) {
+    cannotTell(`${gap.file} no longer contains ${missingFromFile.join(" or ")}`);
+  }
+
+  const inDeclaration = gap.probes.filter((probe) => body.includes(probe));
+  if (inDeclaration.length === gap.probes.length) return GAP_OPEN;
+  if (inDeclaration.length === 0) return GAP_CLOSED;
+
+  return cannotTell(
+    `\`${gap.declaration}\` still has ${inDeclaration.join(" and ")} but has lost the rest`
+  );
+}
 
 /** Statement, and the test that already holds it. */
 const STATEMENT_ANCHORS = [
@@ -310,13 +371,7 @@ test("a statement the code does not yet keep says so, and stops once the code ke
   let anyGapIsOpen = false;
 
   for (const gap of DISCLOSED_GAPS) {
-    const body = declarationBody(
-      read(gap.file, gap.what),
-      gap.declaration,
-      gap.closing,
-      gap.file
-    );
-    const isOpen = gap.countsAttempts(body);
+    const isOpen = gapState(gap) === GAP_OPEN;
     anyGapIsOpen = anyGapIsOpen || isOpen;
 
     for (const phrase of gap.disclosure) {
@@ -324,8 +379,8 @@ test("a statement the code does not yet keep says so, and stops once the code ke
         section.includes(phrase),
         isOpen,
         isOpen ?
-          `${gap.what} still counts attempts, so the model must name ${phrase} as a gap rather than reading as current behaviour` :
-          `${gap.what} no longer counts attempts, so drop ${phrase} from the model - the disclosure has outlived the defect it describes`
+          `${gap.what} still counts attempts, so the model must name "${phrase}" as a gap rather than reading as current behaviour` :
+          `${gap.what} is confirmed to have stopped counting attempts, so drop "${phrase}" from the model - the disclosure has outlived the defect it describes`
       );
     }
   }
