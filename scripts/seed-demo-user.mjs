@@ -39,6 +39,7 @@ import {
   firstAscentSeedFields,
 } from "./seed/lib/live-replay-first-ascent.mjs";
 import {buildDemoReplayEntry} from "./seed/lib/demo-replay-entry.mjs";
+import {bestMetricField} from "./seed/lib/live-replay-finisher.mjs";
 import {
   REPLAY_SUMMARY_SOURCE_LIVE,
 } from "./seed/lib/live-replay-summary-source.mjs";
@@ -1170,7 +1171,6 @@ async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
       finisherRef,
       {
         avatarToken: user.avatarToken,
-        bestCompletionDurationSeconds: context.durationSeconds,
         bestWorkoutId: context.workoutId,
         displayName: user.displayName,
         firstCompletedAt: Timestamp.fromDate(context.completedAt),
@@ -1182,6 +1182,13 @@ async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
         schemaVersion: REPLAY_SCHEMA_VERSION,
         updatedAt: FieldValue.serverTimestamp(),
         userId: user.uid,
+        ...bestMetricField(
+          {
+            completionDurationSeconds: context.durationSeconds,
+            finalSteps: context.finalSteps,
+          },
+          context.contextType
+        ),
       },
     ]);
     writes.push([
