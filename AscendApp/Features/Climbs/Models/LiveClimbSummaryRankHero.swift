@@ -275,6 +275,29 @@ struct LiveClimbSummaryRankHero: Equatable {
         standing?.renderableTotal
     }
 
+    /// Who the field this hero's standing was measured against counts.
+    ///
+    /// The noun has to follow the number that is actually on screen, and the two
+    /// bases count different fields on a board that races attempts: the server
+    /// froze its stamp over completed attempts there, while a standing the
+    /// client recomputes counts climbers on every board. Reading one noun off
+    /// the context alone would name a population the figure beside it never
+    /// counted.
+    ///
+    /// A `.liveSession` standing has no field line at all - its population is
+    /// the caller's own race window - so the board's own noun stands in and is
+    /// never rendered.
+    func fieldPopulation(
+        on contextType: LiveReplayLeaderboardContextType
+    ) -> LiveReplayFieldPopulation {
+        switch standing?.basis {
+        case .current:
+            return contextType.recomputedFieldPopulation
+        case .atCompletion, .liveSession, nil:
+            return contextType.fieldPopulation
+        }
+    }
+
     /// The candidate standings a surface offers, most authoritative first.
     ///
     /// A landmark climb prefers the server's immutable frozen sources: that is the

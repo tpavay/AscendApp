@@ -36,8 +36,30 @@ enum LiveReplayLeaderboardContextType: String, CaseIterable, Codable, Sendable {
 
     /// What one row of this context's field stands for, so a surface can name the
     /// population it counts rather than guess a noun that happens to fit a climb.
+    ///
+    /// This is the board's own population, and so also the one the server's
+    /// frozen stamp counted: a stamp counts whatever the board it sits beside
+    /// counts. A standing the client recomputes counts `recomputedFieldPopulation`
+    /// instead, and the two deliberately differ where a board races attempts.
     var fieldPopulation: LiveReplayFieldPopulation {
         collapsesRepeatFinishers ? .climbers : .completions
+    }
+
+    /// What a standing the client recomputes counts on this board.
+    ///
+    /// Always climbers. A recomputed standing counts finisher documents - one
+    /// per climber, maintained on every context type - so an open Just Climb
+    /// ranks a climber against unique climbers at their best, never against the
+    /// same rival's four runs. Settled by the captain on 2026-09-02: a board
+    /// with 41 finishes from 16 climbers reads "6th of 16", never "13th of 16"
+    /// and never "13th of 41".
+    ///
+    /// Deliberately not derived from `collapsesRepeatFinishers`. That predicate
+    /// also mirrors the server's `isBestForUser` writes and its frozen-standing
+    /// branch, so folding this into it would change the server's meaning by
+    /// implication; what the client's own standing counts is stated separately.
+    var recomputedFieldPopulation: LiveReplayFieldPopulation {
+        .climbers
     }
 }
 
@@ -104,6 +126,21 @@ enum LiveReplayRankingMetric: Sendable {
     /// Whether a higher stored value ranks better.
     var ranksHighestFirst: Bool {
         self == .mostSteps
+    }
+
+    /// The finisher field holding a climber's standing best on this metric.
+    ///
+    /// Mirrors `finisherBestMetric` in `functions/src/liveReplayLeaderboard.ts`.
+    /// A finisher document carries only the metric its board ranks on, so a
+    /// routine finisher never holds a "best duration" that would read as a time
+    /// to beat on a board where every finisher spends the same time.
+    var finisherBestField: String {
+        switch self {
+        case .fastestCompletion:
+            return "bestCompletionDurationSeconds"
+        case .mostSteps:
+            return "bestFinalSteps"
+        }
     }
 
     /// The primary number a row leads with on a static completion board.

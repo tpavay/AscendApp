@@ -5,11 +5,12 @@ import Testing
 /// The `.current` recomputed standing, and the bound on the diagnostic that
 /// reports the finished-row reads it races beside.
 ///
-/// The completion hero takes its noun from `collapsesRepeatFinishers`, so a
-/// board that says CLIMBERS has to have counted climbers. The frozen `.atCompletion`
-/// basis has done that since the captain settled it on 2026-08-29; this pins the
-/// other basis to the same rule, because a summary preview that resolves before
-/// the server has ranked the attempt renders through this arithmetic instead.
+/// The completion hero takes its noun from the basis on show, so a board that
+/// says CLIMBERS has to have counted climbers. The frozen `.atCompletion` basis
+/// counts whatever the board it sits beside counts; a recomputed standing counts
+/// climbers on every board, because it counts finisher documents. This pins both
+/// halves, since a summary preview that resolves before the server has ranked the
+/// attempt renders through this arithmetic instead.
 struct LiveReplayRecomputedStandingTests {
     private typealias Repository = FirestoreLiveReplayLeaderboardRepository
 
@@ -25,23 +26,39 @@ struct LiveReplayRecomputedStandingTests {
         #expect(Repository.recomputedFieldPopulation(for: climb) == .climbers)
     }
 
+    /// Settled by the captain on 2026-09-02: a board with 41 finishes from 16
+    /// climbers renders "6th of 16" where five distinct climbers beat the run -
+    /// never "13th of 16", never "13th of 41". An open Just Climb carries no
+    /// `isBestForUser` flag on any entry, so the field it ranks against is the
+    /// finishers subcollection, which is one document per climber everywhere.
     @Test
-    func anOpenJustClimbRecomputesAStandingOverCompletions() {
+    func anOpenJustClimbRecomputesAStandingOverClimbers() {
         let justClimb = LiveReplayLeaderboardContext.justClimbGlobal(targetSteps: 551)
 
-        #expect(Repository.recomputedFieldPopulation(for: justClimb) == .completions)
+        #expect(Repository.recomputedFieldPopulation(for: justClimb) == .climbers)
     }
 
     @Test(arguments: LiveReplayLeaderboardContextType.allCases)
     func theRecomputedPopulationIsTheOneTheHeroNames(
         type: LiveReplayLeaderboardContextType
     ) {
-        // The invariant the field line asserts, held across both bases: the noun
-        // and the recomputed count resolve from one predicate, so neither can
-        // drift into naming a population nothing counted.
+        // The invariant the field line asserts: the noun a `.current` standing
+        // is labelled with and the population that standing counted resolve from
+        // one property, so neither can drift into naming a population nothing
+        // counted.
         let context = Self.context(for: type)
 
-        #expect(Repository.recomputedFieldPopulation(for: context) == type.fieldPopulation)
+        #expect(
+            Repository.recomputedFieldPopulation(for: context) ==
+                type.recomputedFieldPopulation
+        )
+    }
+
+    @Test(arguments: LiveReplayLeaderboardContextType.allCases)
+    func aRecomputedStandingAlwaysCountsClimbers(
+        type: LiveReplayLeaderboardContextType
+    ) {
+        #expect(type.recomputedFieldPopulation == .climbers)
     }
 
     // MARK: - The climbers arithmetic
@@ -173,30 +190,34 @@ struct LiveReplayRecomputedStandingTests {
         )
     }
 
-    // MARK: - The attempts arithmetic stays as it was
+    // MARK: - The open-board arithmetic counts climbers too
 
+    /// The captain's example: 41 finishes from 16 climbers, five of whom beat
+    /// this run. Both halves count the same people, so it reads "6th of 16".
     @Test
-    func anOpenBoardStillCountsEveryAttemptAsItsOwnOpponent() {
-        let standing = Repository.attemptStanding(
-            betterAttemptCount: 5,
-            publishedCount: 5,
-            attemptAlreadyPublished: false
+    func anOpenBoardRanksAgainstUniqueClimbersAtTheirBest() {
+        let standing = Repository.climberStanding(
+            betterClimberCount: 5,
+            raceFieldCount: 16,
+            climberAlreadyInField: true
         )
 
         #expect(standing.rank == 6)
-        #expect(standing.completedCount == 6)
+        #expect(standing.completedCount == 16)
     }
 
+    /// A count of rivals ahead has no negative value, so a standing built from
+    /// one can never render "#0" - the placement nobody holds.
     @Test
-    func aRepublishedAttemptIsAlreadyOneOfTheAttemptsCounted() {
-        let standing = Repository.attemptStanding(
-            betterAttemptCount: 5,
-            publishedCount: 6,
-            attemptAlreadyPublished: true
+    func aStandingNeverSeatsAClimberAheadOfFirst() {
+        let standing = Repository.climberStanding(
+            betterClimberCount: -1,
+            raceFieldCount: 3,
+            climberAlreadyInField: true
         )
 
-        #expect(standing.rank == 6)
-        #expect(standing.completedCount == 6)
+        #expect(standing.rank == 1)
+        #expect(standing.completedCount == 3)
     }
 
     // MARK: - The finished-row diagnostic bound

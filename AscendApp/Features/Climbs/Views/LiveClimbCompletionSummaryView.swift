@@ -167,7 +167,8 @@ struct LiveClimbCompletionSummaryView: View {
             LiveClimbSummaryRankHeroView(
                 hero: hero,
                 rankingMetric: effectiveLeaderboardContext?.type.rankingMetric ?? .fastestCompletion,
-                fieldPopulation: effectiveLeaderboardContext?.type.fieldPopulation ?? .climbers,
+                fieldPopulation: effectiveLeaderboardContext
+                    .map { hero.fieldPopulation(on: $0.type) } ?? .climbers,
                 onRetrySync: retryRankSync
             )
         }
@@ -615,7 +616,6 @@ struct LiveClimbCompletionSummaryView: View {
         let finalSteps = workout.steps
         async let fetchedRank = LiveReplayLeaderboardService.shared.fetchCompletionRank(
             context: context,
-            workoutId: workoutId,
             completionDurationSeconds: completionDurationSeconds,
             finalSteps: finalSteps
         )
