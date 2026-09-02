@@ -130,13 +130,13 @@ test("a wait budget that expires is reported as a Sentry-side delay, not a rejec
   }, root);
 
   assert.equal(result.status, 1, "the fail-or-warn behaviour is unchanged");
-  assert.match(result.stderr, /had not finished processing them/);
-  assert.match(result.stderr, /still queued", not "rejected/);
+  assert.match(result.stderr, /most likely uploaded and left queued rather than rejected/);
+  assert.match(result.stderr, /most likely reads as "still queued"/);
   assert.match(result.stderr, /status\.sentry\.io/);
   assert.match(result.stderr, /sentry-cli debug-files upload --org ascend-uk --project ascend-ios/);
 });
 
-test("a failure inside the wait budget is reported as a real rejection", () => {
+test("a failure inside the wait budget is reported as a likely rejection, with the same re-upload command", () => {
   const {root, cliPath} = fakeSentryCLI({exitCode: 1});
 
   const result = runUpload({
@@ -147,7 +147,9 @@ test("a failure inside the wait budget is reported as a real rejection", () => {
   }, root);
 
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /a real\nerror: upload or processing rejection/);
+  assert.match(result.stderr, /No SENTRY_WAIT_TIMEOUT=300s wait-budget expiry was reached/);
+  assert.match(result.stderr, /most likely a real upload or processing rejection/);
+  assert.match(result.stderr, /sentry-cli debug-files upload --org ascend-uk --project ascend-ios/);
   assert.doesNotMatch(result.stderr, /status\.sentry\.io/);
 });
 
@@ -193,19 +195,24 @@ test("every workflow pins the same Sentry CLI version the guard validates agains
   }
 });
 
-test("a non-numeric wait budget is rejected before anything is uploaded", () => {
-  const {root, cliPath} = fakeSentryCLI({exitCode: 0});
+// A zero budget passes a bare digits-only check and then makes the
+// elapsed-vs-budget comparison always true, which would report an instant auth
+// rejection as a Sentry-side queue delay.
+for (const waitTimeout of ["5m", "-1", "0"]) {
+  test(`a wait budget of '${waitTimeout}' is rejected before anything is uploaded`, () => {
+    const {root, cliPath} = fakeSentryCLI({exitCode: 0});
 
-  const result = runUpload({
-    CI: "true",
-    SENTRY_AUTH_TOKEN: "test-token",
-    SENTRY_CLI_PATH: cliPath,
-    SENTRY_WAIT_TIMEOUT: "5m",
-  }, root);
+    const result = runUpload({
+      CI: "true",
+      SENTRY_AUTH_TOKEN: "test-token",
+      SENTRY_CLI_PATH: cliPath,
+      SENTRY_WAIT_TIMEOUT: waitTimeout,
+    }, root);
 
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /SENTRY_WAIT_TIMEOUT must be a whole number of seconds/);
-});
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /SENTRY_WAIT_TIMEOUT must be a whole number of seconds greater than zero/);
+  });
+}
 
 test("both signed Fastlane lanes upload archive dSYMs", () => {
   const fastfile = readFileSync(join(repoRoot, "fastlane/Fastfile"), "utf8");

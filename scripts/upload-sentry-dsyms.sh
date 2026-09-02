@@ -29,13 +29,24 @@ SENTRY_WAIT_TIMEOUT="${SENTRY_WAIT_TIMEOUT:-300}"
 
 # The failure diagnosis below compares elapsed seconds against this budget, so a
 # non-numeric value would silently turn a queue delay back into an unexplained
-# failure. Reject it here rather than let sentry-cli reject it later.
+# failure, and zero would make the comparison always true and report an instant
+# rejection as a queue delay. Reject both here rather than let sentry-cli reject
+# them later.
+wait_timeout_is_valid=false
 case "${SENTRY_WAIT_TIMEOUT}" in
     ''|*[!0-9]*)
-        echo "error: Sentry dSYM upload failed: SENTRY_WAIT_TIMEOUT must be a whole number of seconds, got '${SENTRY_WAIT_TIMEOUT}'." >&2
-        exit 1
+        ;;
+    *)
+        if [ "${SENTRY_WAIT_TIMEOUT}" -gt 0 ]; then
+            wait_timeout_is_valid=true
+        fi
         ;;
 esac
+
+if [ "${wait_timeout_is_valid}" != "true" ]; then
+    echo "error: Sentry dSYM upload failed: SENTRY_WAIT_TIMEOUT must be a whole number of seconds greater than zero, got '${SENTRY_WAIT_TIMEOUT}'." >&2
+    exit 1
+fi
 
 if [ -n "${SENTRY_CLI_PATH:-}" ]; then
     if [ ! -x "${SENTRY_CLI_PATH}" ]; then
@@ -71,8 +82,10 @@ fi
 # which reads as a rejected symbol file and is why run 33434685667 could not be
 # told apart from a real upload failure. The upload itself had succeeded; Sentry
 # had a US ingestion backlog and left the assemble task in state "created" for
-# the whole wait. Elapsed time is the one signal that separates the two, and
-# unlike parsing the CLI's output it does not move when the pinned CLI moves.
+# the whole wait. Elapsed time is the best available signal separating the two -
+# it covers the whole process, so it supports a likelihood rather than a verdict
+# and both branches below say so - and unlike parsing the CLI's output it does
+# not move when the pinned CLI moves.
 #
 # The raw state is only obtainable from sentry-cli with --log-level=debug, which
 # logs response bodies AND request headers - and its Authorization redaction
@@ -83,19 +96,23 @@ echo "error: Sentry dSYM upload failed after ${elapsed}s (exit ${status})." >&2
 
 if [ "${elapsed}" -ge "${SENTRY_WAIT_TIMEOUT}" ]; then
     cat >&2 <<EOF
-error: The symbol files were uploaded; Sentry had not finished processing them
-error: within SENTRY_WAIT_TIMEOUT=${SENTRY_WAIT_TIMEOUT}s, so sentry-cli gave up waiting. Any
-error: "An unknown error occurred" above means "still queued", not "rejected".
+error: The whole SENTRY_WAIT_TIMEOUT=${SENTRY_WAIT_TIMEOUT}s budget elapsed, so the symbol files
+error: were most likely uploaded and left queued rather than rejected, and any
+error: "An unknown error occurred" above most likely reads as "still queued".
 error: Check https://status.sentry.io for a Sentry-side ingestion backlog.
-error: The dSYMs can be uploaded later from any copy of the archive with:
-error:   sentry-cli debug-files upload --org ${SENTRY_ORG} --project ${SENTRY_PROJECT} <archive>/dSYMs
 EOF
 else
     cat >&2 <<EOF
-error: Sentry finished before the ${SENTRY_WAIT_TIMEOUT}s wait budget, so this is a real
-error: upload or processing rejection rather than a queue delay. Re-run the
-error: command locally with --log-level=debug to get the server's own reason.
+error: No SENTRY_WAIT_TIMEOUT=${SENTRY_WAIT_TIMEOUT}s wait-budget expiry was reached, so this is
+error: most likely a real upload or processing rejection rather than a queue
+error: delay. Re-run the command locally with --log-level=debug to get the
+error: server's own reason.
 EOF
 fi
+
+cat >&2 <<EOF
+error: The dSYMs can be uploaded later from any copy of the archive with:
+error:   sentry-cli debug-files upload --org ${SENTRY_ORG} --project ${SENTRY_PROJECT} <archive>/dSYMs
+EOF
 
 exit "${status}"

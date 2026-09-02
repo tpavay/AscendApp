@@ -128,8 +128,10 @@ Any missing token, CLI, archive dSYM directory, or upload failure stops the CI b
 
 `sentry-cli` cannot tell those two failures apart on its own.
 When `--wait-for` expires it prints `ERROR <file>` followed by its fallback text `An unknown error occurred` for a file that was uploaded fine and is merely still queued, which is indistinguishable from a rejected symbol file - it cost staging run 33434685667 two identical failures during Sentry's US ingestion backlog on 2026-08-31.
-The script therefore times the invocation and says which of the two happened, because elapsed time separates them and does not move when the pinned CLI moves.
-A failure that reaches the full `SENTRY_WAIT_TIMEOUT` is a Sentry-side processing delay: the symbols are already uploaded, `https://status.sentry.io` will usually say so, and re-running the deploy once Sentry recovers is the whole fix.
+The script therefore times the invocation and names the likelier of the two, because elapsed time separates them and does not move when the pinned CLI moves.
+That timing covers the whole `sentry-cli` process, so it supports a likelihood rather than a verdict and both messages are worded that way.
+A failure that reaches the full `SENTRY_WAIT_TIMEOUT` is most likely a Sentry-side processing delay: the symbols are already uploaded, `https://status.sentry.io` will usually say so, and re-running the deploy once Sentry recovers is the whole fix.
+Either message prints the exact `sentry-cli debug-files upload` command that uploads the dSYMs later from any copy of the archive.
 
 The server's own reason for a genuine rejection is only reachable with `sentry-cli --log-level=debug`, which logs response bodies and request headers.
 Its `Authorization` redaction keeps the token's first eight characters and this repository is public, so that flag stays out of CI and belongs in a local re-run.
