@@ -15,8 +15,10 @@ final class ShareComposerViewModel {
     let stepHeight: Double
     let climb: Climb?
     let climbName: String?
-    let climbRank: Int?
-    let climbRankTotal: Int?
+    /// The standing the card asserts. Mutable because a saved climb whose snapshot this install has
+    /// never read resolves it while the composer is already on screen; see `setClimbRank`.
+    private(set) var climbRank: Int?
+    private(set) var climbRankTotal: Int?
 
     // Editing state
     var background: ShareBackgroundSource?
@@ -126,8 +128,9 @@ final class ShareComposerViewModel {
         return resolver
     }
 
-    /// Drops every derived value. Called when the inputs behind them change —
-    /// the climb rename and the injected stat lists — and nowhere else.
+    /// Drops every derived value. Called when the inputs behind them change -
+    /// the climb rename, the resolved standing and the injected stat lists - and
+    /// nowhere else.
     private func invalidateResolvedData() {
         cachedResolver = nil
         statCache.removeAll()
@@ -352,6 +355,20 @@ final class ShareComposerViewModel {
         invalidateResolvedData()
     }
 
+    // MARK: - Standing
+
+    /// Adopt the standing the presenting surface now knows.
+    ///
+    /// Every derived value is dropped, because the rank clusters, both rank stickers and the recap
+    /// card's rank tab are all filtered on whether the rank resolves - a standing that landed after
+    /// the composer opened would otherwise stay invisible for the whole presentation.
+    func setClimbRank(_ rank: Int?, total: Int?) {
+        guard rank != climbRank || total != climbRankTotal else { return }
+        climbRank = rank
+        climbRankTotal = total
+        invalidateResolvedData()
+    }
+
     // MARK: - Climb rename
 
     func setClimbName(_ name: String) {
@@ -427,6 +444,16 @@ final class ShareComposerViewModel {
         processedBackgroundImage = nil
         processedCache.removeAll()
         background = source
+    }
+
+    /// Swap the baked recap image for a freshly rendered one.
+    ///
+    /// Deliberately not `resetForNewBackground`: this is the same card the climber chose, redrawn
+    /// because its standing landed, so everything they placed on top of it has to survive. A
+    /// non-recap background is left alone, which is what makes a stale template harmless.
+    func replaceRecapBackground(_ image: UIImage) {
+        guard case .recap = background else { return }
+        background = .recap(image)
     }
 
     /// Filters available for the current background. Geometric (Core Image)

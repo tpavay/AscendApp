@@ -639,20 +639,15 @@ jobs:
       # The device (iphoneos) compile is covered by the ios-verify-release job;
       # this job proves the simulator build + test suite, so the app compiles
       # exactly once per job instead of twice.
+      #
+      # The suite runs across several host processes rather than one, because
+      # the host's memory grows with the tests it has executed and one process
+      # exhausts the runner before reaching the end. The script owns that
+      # reasoning and the measurements behind it.
       - name: Run tests
         id: tests
         shell: bash
-        run: |
-          set -o pipefail
-          mkdir -p build-logs
-          xcodebuild \
-            -project AscendApp.xcodeproj \
-            -scheme "AscendApp-Staging" \
-            -configuration Staging \
-            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.id }}" \
-            -resultBundlePath build-logs/AscendApp-Staging.xcresult \
-            ENABLE_TESTABILITY=YES \
-            test 2>&1 | tee build-logs/xcodebuild-staging.log
+        run: ./scripts/ci/run-ios-test-passes.sh "${{ steps.simulator.outputs.id }}"
 
       # A step killed by timeout-minutes reports `cancelled`, not `failure`, and
       # that is exactly the hung-runner case these logs exist to explain. An
