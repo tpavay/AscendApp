@@ -61,15 +61,23 @@ export function syntheticFinisherWrite(attempt, context) {
 /**
  * The single best field a context's board ranks its finishers on.
  *
- * A climb fixes the step target and lets the clock vary; a routine fixes the
- * clock and lets the steps vary. Storing both would leave a routine finisher
- * carrying a "best duration" that reads as a time to beat on a board where
- * every finisher spends the same time.
- * @param {object} attempt Generated attempt.
+ * Mirrors the server's `ranksOnSteps`, which is `routine_template` and nothing
+ * else. A climb fixes the step target and lets the clock vary; a routine
+ * template fixes the clock and lets the steps vary. Storing both would leave a
+ * routine finisher carrying a "best duration" that reads as a time to beat on a
+ * board where every finisher spends the same time.
+ *
+ * Every seeder writing a finisher goes through this. The client's recomputed
+ * rank counts finishers through `finisherBestField`, so a fixture that named
+ * the other metric would match zero documents and report first place to every
+ * climber on the board.
+ * @param {object} attempt Attempt values.
+ * @param {number} attempt.finalSteps Attempt steps.
+ * @param {number} attempt.completionDurationSeconds Attempt clock.
  * @param {string} contextType Replay context type.
  * @return {object} The one best-metric field for this context.
  */
-function bestMetricField(attempt, contextType) {
+export function bestMetricField(attempt, contextType) {
   return contextType === ROUTINE_TEMPLATE_CONTEXT_TYPE ?
     {[STEPS_BEST_METRIC]: attempt.finalSteps} :
     {[DURATION_BEST_METRIC]: attempt.completionDurationSeconds};

@@ -58,8 +58,55 @@ struct LiveReplayRepeatClimberRankTests {
             FirestoreLiveReplayLeaderboardRepository.aheadCount(
                 running: 0,
                 finished: 1,
+                ownGhostAhead: 0,
                 fetchedRows: rows
             ) == 1
+        )
+    }
+
+    @Test
+    func hisOwnRecordIsAGhostToChaseRatherThanARivalAheadOfHim() {
+        // The row is his own collapsed best, so the finished half counted it -
+        // and it comes straight back out of the numerator. He is alone on this
+        // board, so he is first of one and not second of a field of one.
+        #expect(
+            FirestoreLiveReplayLeaderboardRepository.aheadCount(
+                running: 0,
+                finished: 1,
+                ownGhostAhead: 1,
+                fetchedRows: [firstAttempt(atSteps: 551)]
+            ) == 0
+        )
+    }
+
+    @Test
+    func aRivalAheadStillOutranksHimWhileHisOwnGhostDoesNot() {
+        // One real rival home in front and his own record beside it. Only the
+        // rival is an opponent, so he is second rather than third.
+        #expect(
+            FirestoreLiveReplayLeaderboardRepository.aheadCount(
+                running: 0,
+                finished: 2,
+                ownGhostAhead: 1,
+                fetchedRows: [
+                    firstAttempt(atSteps: 551),
+                    finisher(id: "rival", durationSeconds: 300)
+                ]
+            ) == 1
+        )
+    }
+
+    @Test
+    func aGhostBehindHimIsNeverSubtractedFromTheRivalsAhead() {
+        // Once he passes his own record the ghost stops being counted ahead, so
+        // nothing is taken off the rivals who genuinely are.
+        #expect(
+            FirestoreLiveReplayLeaderboardRepository.aheadCount(
+                running: 2,
+                finished: 1,
+                ownGhostAhead: 0,
+                fetchedRows: []
+            ) == 3
         )
     }
 
@@ -194,6 +241,7 @@ struct LiveReplayRepeatClimberRankTests {
             FirestoreLiveReplayLeaderboardRepository.aheadCount(
                 running: nil,
                 finished: 4,
+                ownGhostAhead: 0,
                 fetchedRows: rows
             ) == 1
         )
@@ -201,6 +249,27 @@ struct LiveReplayRepeatClimberRankTests {
             FirestoreLiveReplayLeaderboardRepository.aheadCount(
                 running: 7,
                 finished: nil,
+                ownGhostAhead: 0,
+                fetchedRows: rows
+            ) == 1
+        )
+    }
+
+    @Test
+    func theFallbackCountsRivalsOnScreenRatherThanHisOwnRowsAmongThem() {
+        // The counted path is not the only one that must leave his ghost out:
+        // falling back to the rows on screen has to drop his own too, or a
+        // failed count re-seats him behind himself.
+        let rows = [
+            firstAttempt(atSteps: 551),
+            competitor(id: "finished-0", steps: 551)
+        ]
+
+        #expect(
+            FirestoreLiveReplayLeaderboardRepository.aheadCount(
+                running: nil,
+                finished: nil,
+                ownGhostAhead: 0,
                 fetchedRows: rows
             ) == 1
         )
