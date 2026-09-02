@@ -167,6 +167,7 @@ struct ModeratedReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     let finalSteps: Int
     let deltaFromUser: Int
     let isCurrentUser: Bool
+    let isOwnPreviousCompletion: Bool
     let isPersonalBest: Bool
     let completionDurationSeconds: TimeInterval?
     let userId: String?
@@ -186,6 +187,7 @@ struct ModeratedReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         finalSteps = source.finalSteps
         deltaFromUser = source.deltaFromUser
         isCurrentUser = source.isCurrentUser
+        isOwnPreviousCompletion = source.isOwnPreviousCompletion
         isPersonalBest = source.isPersonalBest
         completionDurationSeconds = source.completionDurationSeconds
         userId = source.userId

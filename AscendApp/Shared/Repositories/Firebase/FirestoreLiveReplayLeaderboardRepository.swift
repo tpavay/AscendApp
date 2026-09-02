@@ -1,11 +1,27 @@
 import Foundation
+import os
 @preconcurrency import FirebaseAuth
 @preconcurrency import FirebaseFirestore
 
 final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepository, @unchecked Sendable {
     static let shared = FirestoreLiveReplayLeaderboardRepository()
 
+    /// The climber's own entry on one board at one bucket.
+    ///
+    /// Only the latest bucket is kept: a race walks forward and never asks for a
+    /// bucket it has left behind, so a dictionary would only grow.
+    ///
+    /// Unlike this repository's public board reads, this holds one climber's own
+    /// data, so the key names the owner and `clearAccountScopedCaches()` empties
+    /// it the moment a session ends.
+    private struct OwnPreviousCompletionCache: Sendable {
+        let key: String
+        let row: LiveReplayLeaderboardRow?
+    }
+
     private let db = Firestore.firestore()
+    private let ownPreviousCompletionCache =
+        OSAllocatedUnfairLock<OwnPreviousCompletionCache?>(initialState: nil)
 
     private init() {}
 
@@ -379,23 +395,42 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             direction: .behind,
             limit: rowsBehind
         )
+        async let ownPreviousCompletion = optionalOwnPreviousCompletionRow(
+            context: context,
+            bucketIndex: bucketIndex,
+            currentSteps: currentSteps
+        )
 
         let resolvedSummary = try await summary
         let rowsAhead = try await aheadRows
         let rowsBehind = try await behindRows
-        let currentUserRank = (await aheadCount ?? rowsAhead.count) + 1
+        let ownPreviousCompletionRow = await ownPreviousCompletion
+        let ownCompletionCount = ownPreviousCompletionRow == nil ? 0 : 1
+        let ownCompletionsAhead = ownPreviousCompletionRow
+            .map { $0.stepsAtBucket >= currentSteps ? 1 : 0 } ?? 0
+        // The counts the server answers with still hold the climber's own earlier
+        // completion, because the board it counts is the board every other
+        // climber sees. Taking it out here rather than off the fetched page keeps
+        // the rank exact: a previous best sitting more than a page ahead is
+        // withdrawn just the same as one the window happens to hold.
+        let opponentRowsAhead = rowsAhead.filter { !$0.isOwnPreviousCompletion }
+        let opponentRowsBehind = rowsBehind.filter { !$0.isOwnPreviousCompletion }
+        let currentUserRank = max(
+            (await aheadCount).map { $0 - ownCompletionsAhead } ?? opponentRowsAhead.count,
+            0
+        ) + 1
         let rankedAheadRows = rankedAheadRows(
-            Array(rowsAhead.reversed()),
+            Array(opponentRowsAhead.reversed()),
             currentUserRank: currentUserRank
         )
         let rankedBehindRows = rankedBehindRows(
-            rowsBehind,
+            opponentRowsBehind,
             currentUserRank: currentUserRank
         )
-        let visibleWindowCount = currentUserRank + rowsBehind.count
+        let visibleWindowCount = currentUserRank + opponentRowsBehind.count
         let totalClimbers = max(
             resolvedSummary.totalClimbers,
-            (await totalBucketCount).map { $0 + 1 } ?? 0,
+            (await totalBucketCount).map { max($0 - ownCompletionCount, 0) + 1 } ?? 0,
             visibleWindowCount
         )
 
@@ -406,7 +441,8 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             fetchedAt: Date(),
             rows: rankedAheadRows + rankedBehindRows,
             currentUserRank: currentUserRank,
-            totalClimbers: totalClimbers
+            totalClimbers: totalClimbers,
+            ownPreviousCompletionRow: ownPreviousCompletionRow
         )
     }
 
@@ -440,14 +476,109 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
                 .limit(to: limit)
         }
 
+        let currentUserId = collapsingBoardUserId(context: context)
         let snapshot = try await query.getDocuments(source: .server)
         return snapshot.documents.compactMap { document in
             parseRow(
                 id: document.documentID,
                 data: document.data(),
-                currentSteps: currentSteps
+                currentSteps: currentSteps,
+                currentUserId: currentUserId
             )
         }
+    }
+
+    /// The signed-in climber's id, but only on a board that collapses repeat
+    /// finishers.
+    ///
+    /// That allowlist is the whole scope of the previous-best marker: a per-climb
+    /// or per-routine-template board races one row per climber, so a row of the
+    /// climber's own is their previous best. Just Climb and a plain routine race
+    /// every completed attempt as its own opponent, and withdrawing the climber's
+    /// own attempts there would delete rivals the board is meant to hold.
+    private func collapsingBoardUserId(
+        context: LiveReplayLeaderboardContext
+    ) -> String? {
+        guard context.type.collapsesRepeatFinishers else { return nil }
+        return Auth.auth().currentUser?.uid
+    }
+
+    /// The climber's own entry on this board, read straight by owner rather than
+    /// hoped for inside the fetched page.
+    ///
+    /// The window holds at most eight rows either side of the climber, so a
+    /// previous best further away than that used to vanish from the board and
+    /// take the `BEST` marker with it mid-race. A collapsing board stores exactly
+    /// one entry per climber, so this is a single-document read that always finds
+    /// it - and it is what the rank and the field size are corrected by.
+    private func fetchOwnPreviousCompletionRow(
+        context: LiveReplayLeaderboardContext,
+        bucketIndex: Int,
+        currentSteps: Int
+    ) async throws -> LiveReplayLeaderboardRow? {
+        guard let currentUserId = collapsingBoardUserId(context: context) else {
+            return nil
+        }
+
+        let snapshot = try await liveRaceEntries(context: context, bucketIndex: bucketIndex)
+            .whereField("userId", isEqualTo: currentUserId)
+            .limit(to: 1)
+            .getDocuments(source: .server)
+
+        return snapshot.documents.lazy.compactMap { document in
+            self.parseRow(
+                id: document.documentID,
+                data: document.data(),
+                currentSteps: currentSteps,
+                currentUserId: currentUserId
+            )
+        }.first
+    }
+
+    /// The same read, served from the last bucket's answer where it still applies.
+    ///
+    /// A completion published before this session started cannot move inside a
+    /// bucket, and the marker's motion between buckets is `projected(...)` on the
+    /// client rather than a re-read - so the periodic refresh, which runs more
+    /// often than the bucket advances, was paying for the same document twice.
+    /// Only the row's gap to the live climber is re-derived. A read that failed is
+    /// never cached, so the next refresh tries again.
+    private func optionalOwnPreviousCompletionRow(
+        context: LiveReplayLeaderboardContext,
+        bucketIndex: Int,
+        currentSteps: Int
+    ) async -> LiveReplayLeaderboardRow? {
+        guard let currentUserId = collapsingBoardUserId(context: context) else {
+            return nil
+        }
+
+        let key = "\(currentUserId)|\(context.contextKey)|\(max(bucketIndex, 0))"
+        if let cached = ownPreviousCompletionCache.withLock({ $0 }), cached.key == key {
+            return cached.row?.rebased(currentSteps: currentSteps)
+        }
+
+        do {
+            let row = try await fetchOwnPreviousCompletionRow(
+                context: context,
+                bucketIndex: bucketIndex,
+                currentSteps: currentSteps
+            )
+            ownPreviousCompletionCache.withLock {
+                $0 = OwnPreviousCompletionCache(key: key, row: row)
+            }
+            return row
+        } catch {
+            return nil
+        }
+    }
+
+    /// Drops everything this repository holds on behalf of one climber.
+    ///
+    /// A signed-in uid in the cache key stops the next account reading this one's
+    /// row, but it leaves it resident in a process-wide singleton that outlives
+    /// the store wipe - so the session's end empties it as well.
+    func clearAccountScopedCaches() {
+        ownPreviousCompletionCache.withLock { $0 = nil }
     }
 
     private func countRowsAhead(
@@ -578,10 +709,19 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         }
     }
 
+    /// Parses one live-race entry.
+    ///
+    /// `currentUserId` is what lets an entry the signed-in climber published
+    /// earlier be told apart from a rival's. It is not drawn as a row: a
+    /// per-climb board collapses each climber to their best, so this is the
+    /// climber's previous best, and the board renders it as the `BEST` marker
+    /// inside their own row instead. Before that distinction existed the row
+    /// rendered as a stranger with the climber's own name on it.
     private func parseRow(
         id: String,
         data: [String: Any],
-        currentSteps: Int
+        currentSteps: Int,
+        currentUserId: String?
     ) -> LiveReplayLeaderboardRow? {
         guard let stepsAtBucket = intValue(for: "stepsAtBucket", in: data) else {
             return nil
@@ -609,6 +749,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             finalSteps: intValue(for: "finalSteps", in: data) ?? stepsAtBucket,
             deltaFromUser: stepsAtBucket - currentSteps,
             isCurrentUser: false,
+            isOwnPreviousCompletion: userId != nil && userId == currentUserId,
             isPersonalBest: (data["isPersonalBest"] as? Bool) ?? false,
             completionDurationSeconds: doubleValue(for: "completionDurationSeconds", in: data),
             userId: userId,

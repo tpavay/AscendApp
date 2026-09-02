@@ -10,6 +10,7 @@ struct LiveClimbJustMeView: View {
         HStack(alignment: .top, spacing: 16) {
             LiveClimbProgressRail(
                 progress: viewModel.totalProgressFraction,
+                previousBestProgress: viewModel.previousBestProgressFraction,
                 summitSteps: viewModel.mode.targetStepCount
             )
             .frame(width: 64)
@@ -61,9 +62,18 @@ struct LiveClimbJustMeView: View {
 }
 
 /// Vertical progress rail running from START (bottom) to SUMMIT (top) with a
-/// halfway marker and a glowing dot at the climber's current progress.
-private struct LiveClimbProgressRail: View {
+/// halfway marker, a glowing dot at the climber's current progress, and - when
+/// the climber has finished this tower before - the same `BEST` marker the
+/// leaderboard row draws, turned on its side.
+///
+/// Internal rather than private so `RankingGhostRenderEvidenceTests` can
+/// screenshot the shipping rail itself instead of a redrawn copy of it.
+struct LiveClimbProgressRail: View {
     let progress: Double
+    /// The height the climber's previous best had reached at this moment, or nil
+    /// when they have none. No number is ever shown for it: the gap between the
+    /// fill and the line is the message. See `LiveReplayPreviousBestMarker`.
+    var previousBestProgress: Double?
     let summitSteps: Int?
     var tint: Color = .accent
 
@@ -127,9 +137,40 @@ private struct LiveClimbProgressRail: View {
                     .frame(width: 14, height: 14)
                     .shadow(color: tint.opacity(0.9), radius: 8)
                     .position(x: centerX, y: height - fillHeight)
+
+                previousBestMarker(centerX: centerX, height: height)
             }
         }
         .frame(maxWidth: .infinity)
         .animation(.easeOut(duration: 0.4), value: progress)
+    }
+
+    /// The leaderboard marker turned on its side: one horizontal line at the
+    /// height the previous best reached, with `BEST` above it.
+    ///
+    /// The line sits *below* the word because the climber rises, so the fill
+    /// comes up to meet it from underneath. It is narrowed to the track rather
+    /// than spanning the rail column - matching the `HALF` marker's own 14pt over
+    /// the 6pt bar, which is the idiom this rail already ships - and it carries
+    /// no step count and no delta.
+    @ViewBuilder
+    private func previousBestMarker(centerX: CGFloat, height: CGFloat) -> some View {
+        if let previousBestProgress {
+            let clamped = min(max(previousBestProgress, 0), 1)
+            let markerY = height - (height * clamped)
+
+            Text("BEST")
+                .font(.montserratBold(size: 7.5))
+                .tracking(0.5)
+                .foregroundStyle(.white.opacity(0.86))
+                .shadow(color: .black.opacity(0.55), radius: 2)
+                .position(x: centerX, y: markerY - 10)
+
+            Rectangle()
+                .fill(.white)
+                .frame(width: 14, height: 2)
+                .shadow(color: .black.opacity(0.55), radius: 2)
+                .position(x: centerX, y: markerY)
+        }
     }
 }

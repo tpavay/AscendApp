@@ -14,15 +14,19 @@ struct LiveClimbSummaryRankHeroTests {
     typealias Hero = LiveClimbSummaryRankHero
 
     /// Captain-reproduced on CN Tower, 2026-07-31: staging held a frozen snapshot
-    /// of rank 1 / completedCount 1 while the climb detail counted 50 published
-    /// completions. The hero read "1st of 1 / LIVE CLIMB COMPLETE", which invites
-    /// the reader to compare it with 50.
+    /// while the climb detail counted 50 published completions. The hero read
+    /// "1st of 12 / LIVE CLIMB COMPLETE", which invites the reader to compare it
+    /// with 50.
+    ///
+    /// The field here is deliberately a real one. A frozen standing over a field
+    /// of *one* no longer renders a rank at all - see
+    /// `LiveClimbSummaryHeroGoverningRuleTests`.
     @Test
     func frozenStandingNamesItselfInsteadOfClaimingTheSessionCompleted() throws {
         let hero = try #require(Hero.make(
             isClimbContext: true,
             standings: [
-                Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
+                Hero.Standing(rank: 1, total: 12, basis: .atCompletion),
                 Hero.Standing(rank: 37, total: 50, basis: .current)
             ],
             sync: publishedSync(),
@@ -30,7 +34,7 @@ struct LiveClimbSummaryRankHeroTests {
         ))
 
         #expect(hero.value == .rank(1))
-        #expect(hero.total == 1)
+        #expect(hero.total == 12)
         #expect(hero.detail == "RANK WHEN YOU FINISHED")
         #expect(hero.detail != "LIVE CLIMB COMPLETE")
         #expect(hero.detail != "CURRENT LEADERBOARD RANK")
@@ -41,7 +45,7 @@ struct LiveClimbSummaryRankHeroTests {
         let hero = try #require(Hero.make(
             isClimbContext: true,
             standings: [
-                Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
+                Hero.Standing(rank: 1, total: 12, basis: .atCompletion),
                 Hero.Standing(rank: 1, total: 50, basis: .current)
             ],
             sync: publishedSync(),
@@ -49,7 +53,7 @@ struct LiveClimbSummaryRankHeroTests {
         ))
 
         #expect(hero.standing?.basis == .atCompletion)
-        #expect(hero.total == 1)
+        #expect(hero.total == 12)
     }
 
     /// The captain's rule: 21st of 64 stays 21st of 64. However many climbers
@@ -157,7 +161,7 @@ struct LiveClimbSummaryRankHeroTests {
         let hero = try #require(Hero.make(
             isClimbContext: true,
             moment: .freshCompletion,
-            standings: [Hero.Standing(rank: 1, total: 1, basis: .atCompletion)],
+            standings: [Hero.Standing(rank: 4, total: 12, basis: .atCompletion)],
             sync: publishedSync(),
             copy: Hero.Copy()
         ))
@@ -190,7 +194,7 @@ struct LiveClimbSummaryRankHeroTests {
     func summariesAreRetrospectiveUnlessTheCallerSaysOtherwise() throws {
         let hero = try #require(Hero.make(
             isClimbContext: true,
-            standings: [Hero.Standing(rank: 1, total: 1, basis: .atCompletion)],
+            standings: [Hero.Standing(rank: 4, total: 12, basis: .atCompletion)],
             sync: publishedSync(),
             copy: Hero.Copy()
         ))

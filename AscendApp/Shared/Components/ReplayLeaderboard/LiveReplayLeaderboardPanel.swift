@@ -9,6 +9,11 @@ struct LiveReplayLeaderboardPanel: View {
     let targetStepGoal: Int?
     let progress: Double
     let currentUserPhotoURL: URL?
+    /// Where the climber's previous best on this climb had reached at this
+    /// moment, on the same step scale as `progressScaleSteps`, or nil when they
+    /// have none. Drawn as the `BEST` marker inside their own row - never as a
+    /// row of its own, and never counted. See `LiveReplayPreviousBestMarker`.
+    var previousBestStepsAtBucket: Int?
     let fetchFailed: Bool
     /// The whole field this board ranks, named and counted, or nil when the board
     /// holds nothing that measures it. The rows above are a slice of the field, so
@@ -216,10 +221,23 @@ struct LiveReplayLeaderboardPanel: View {
             row: row,
             progressScaleSteps: progressScaleSteps,
             progress: progress,
+            previousBestProgress: row.isCurrentUser ? previousBestProgress : nil,
             currentUserPhotoURL: currentUserPhotoURL,
             tint: tint,
             effectiveColorScheme: effectiveColorScheme
         )
+    }
+
+    /// The previous best's position on the row's own progress scale, or nil when
+    /// there is nothing to mark.
+    private var previousBestProgress: Double? {
+        guard let previousBestStepsAtBucket,
+              previousBestStepsAtBucket > 0,
+              progressScaleSteps > 0 else {
+            return nil
+        }
+
+        return min(Double(previousBestStepsAtBucket) / Double(progressScaleSteps), 1)
     }
 
 }
@@ -228,6 +246,7 @@ private struct LiveReplayLeaderboardRowView: View {
     let row: ModeratedReplayLeaderboardRow
     let progressScaleSteps: Int
     let progress: Double
+    let previousBestProgress: Double?
     let currentUserPhotoURL: URL?
     let tint: Color
     let effectiveColorScheme: ColorScheme
@@ -288,9 +307,24 @@ private struct LiveReplayLeaderboardRowView: View {
                     .minimumScaleFactor(0.84)
             }
             .padding(.trailing, 4)
+
+            previousBestMarker
         }
         .frame(height: row.isCurrentUser ? 74 : 70)
         .accessibilityElement(children: .combine)
+    }
+
+    /// The climber's previous best, drawn over their own row rather than beside
+    /// it. Drawn last so the line stays legible across the avatar and the name;
+    /// the word gets out of the trailing number's way on its own.
+    @ViewBuilder
+    private var previousBestMarker: some View {
+        if let previousBestProgress {
+            LiveReplayPreviousBestMarker(
+                progress: previousBestProgress,
+                lineColor: primaryColor
+            )
+        }
     }
 
     private var rankLabel: String {
