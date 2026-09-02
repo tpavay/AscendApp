@@ -33,8 +33,8 @@ struct LiveClimbActivityWidget: Widget {
                 }
             } compactLeading: {
                 LiveClimbCompactMetricView(
-                    value: context.state.rankLabel,
-                    label: "rank"
+                    value: context.state.standingValue,
+                    label: context.state.standingCaption
                 )
             } compactTrailing: {
                 LiveClimbCompactMetricView(
@@ -66,7 +66,10 @@ private struct LiveClimbLockScreenView: View {
 
                 HStack(spacing: 16) {
                     LiveClimbMetricColumn(title: "Steps", value: context.state.steps.formatted())
-                    LiveClimbMetricColumn(title: "Rank", value: context.state.rankDetailLabel)
+                    LiveClimbMetricColumn(
+                        title: context.state.standingTitle,
+                        value: context.state.standingDetailLabel
+                    )
                     LiveClimbMetricColumn(title: "Time", value: context.state.durationLabel)
                 }
             }
@@ -122,7 +125,10 @@ private struct LiveClimbExpandedBottomView: View {
             }
 
             HStack(spacing: 12) {
-                LiveClimbMetricColumn(title: "Rank", value: context.state.rankDetailLabel)
+                LiveClimbMetricColumn(
+                    title: context.state.standingTitle,
+                    value: context.state.standingDetailLabel
+                )
                 LiveClimbMetricColumn(title: "Time", value: context.state.durationLabel)
                 LiveClimbMetricColumn(title: "Steps", value: context.state.steps.formatted())
 

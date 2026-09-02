@@ -367,6 +367,7 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
 /// does: no filter control, accent tint, dark scheme. The panel itself is shipping code.
 private struct RaceHUDProof: View {
     let field: LiveReplayFieldSize?
+    var ownClimbs: LiveReplayPersonalPlacing?
 
     var body: some View {
         // A rival's row is a `NavigationLink` into their profile, so the board
@@ -380,7 +381,7 @@ private struct RaceHUDProof: View {
                 progress: 0.62,
                 currentUserPhotoURL: nil,
                 fetchFailed: false,
-                field: field,
+                standing: .racing(field: field, ownClimbs: ownClimbs),
                 tint: .accent,
                 effectiveColorScheme: .dark,
                 showsFilter: false

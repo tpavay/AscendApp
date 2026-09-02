@@ -344,7 +344,7 @@ struct LiveClimbSessionView: View {
             currentUserPhotoURL: currentUserPhotoURL,
             previousBestStepsAtBucket: viewModel.previousBestStepsAtBucket,
             fetchFailed: viewModel.leaderboardFetchFailed,
-            field: viewModel.leaderboardField,
+            standing: viewModel.leaderboardStanding,
             tint: .accent,
             effectiveColorScheme: .dark,
             showsFilter: false

@@ -676,6 +676,9 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
     /// because the window scrolled. `currentUserRank` and `totalClimbers` already
     /// have this completion withdrawn from them.
     let ownPreviousCompletionRow: LiveReplayLeaderboardRow?
+    /// Where this run places among the climber's own climbs of this board, or
+    /// nil when the read that counts them could not answer.
+    let ownClimbs: LiveReplayPersonalPlacing?
 
     init(
         context: LiveReplayLeaderboardContext,
@@ -685,7 +688,8 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
         rows: [LiveReplayLeaderboardRow],
         currentUserRank: Int?,
         totalClimbers: Int,
-        ownPreviousCompletionRow: LiveReplayLeaderboardRow? = nil
+        ownPreviousCompletionRow: LiveReplayLeaderboardRow? = nil,
+        ownClimbs: LiveReplayPersonalPlacing? = nil
     ) {
         self.context = context
         self.bucketIndex = bucketIndex
@@ -695,6 +699,17 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
         self.currentUserRank = currentUserRank
         self.totalClimbers = totalClimbers
         self.ownPreviousCompletionRow = ownPreviousCompletionRow
+        self.ownClimbs = ownClimbs
+    }
+
+    /// Whether the board can prove that nobody else has finished it.
+    ///
+    /// `totalClimbers` already counts distinct finishers plus this climber where
+    /// they hold no completion yet, so one is the whole field being the viewer:
+    /// a first-ever climb on an empty board and a repeat climber alone on a
+    /// tower are the same state and are stated the same way.
+    var isSoleClimber: Bool {
+        totalClimbers <= 1
     }
 
     var bucketElapsedSeconds: Int {

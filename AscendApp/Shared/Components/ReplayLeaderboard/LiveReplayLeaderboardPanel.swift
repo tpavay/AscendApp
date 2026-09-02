@@ -15,10 +15,10 @@ struct LiveReplayLeaderboardPanel: View {
     /// row of its own, and never counted. See `LiveReplayPreviousBestMarker`.
     var previousBestStepsAtBucket: Int?
     let fetchFailed: Bool
-    /// The whole field this board ranks, named and counted, or nil when the board
-    /// holds nothing that measures it. The rows above are a slice of the field, so
-    /// they never stand in for it.
-    var field: LiveReplayFieldSize?
+    /// What this board may state about where the climber stands - a leaderboard
+    /// placing over the field it was measured against, or, where nobody else has
+    /// finished, their placing among their own climbs. Never a bare ordinal.
+    var standing: LiveReplayLiveStanding = .racing(field: nil, ownClimbs: nil)
     let tint: Color
     let effectiveColorScheme: ColorScheme
     var showsFilter: Bool = true
@@ -87,7 +87,7 @@ struct LiveReplayLeaderboardPanel: View {
                     .padding(.top, 8)
             }
 
-            fieldSizeLine
+            standingFooter
         }
         .onChange(of: rows.map(\.id)) { _, _ in
             if selectedFilter == .currentUser, visibleRows.isEmpty {
@@ -96,7 +96,7 @@ struct LiveReplayLeaderboardPanel: View {
         }
     }
 
-    /// The field this board ranks, named and counted, pinned beneath the rows.
+    /// What the board states beneath its rows.
     ///
     /// A live race collapses a rival's repeat runs to their best while the static
     /// per-climb board keeps every completion, so the two boards show different
@@ -104,13 +104,40 @@ struct LiveReplayLeaderboardPanel: View {
     /// that from reading as a defect - and a board with no field it can
     /// substantiate states nothing, because the rows on screen are a window, not a
     /// count.
+    ///
+    /// Where nobody else has finished, there is no field to name and no
+    /// leaderboard placing to state, so the climber's own climbs take the whole
+    /// footer rather than a `1 CLIMBER` line sitting beside an unlabelled `#1`.
     @ViewBuilder
-    private var fieldSizeLine: some View {
-        if let field, field.count > 0 {
-            LiveReplayFieldSizeLine(
-                field: field,
-                effectiveColorScheme: effectiveColorScheme
-            )
+    private var standingFooter: some View {
+        switch standing {
+        case .racing(let field, let ownClimbs):
+            if let field, field.count > 0 {
+                LiveReplayFieldSizeLine(
+                    field: field,
+                    effectiveColorScheme: effectiveColorScheme
+                )
+            }
+
+            if let ownClimbs {
+                Text("\(ownClimbs.ordinalText.uppercased()) \(ownClimbs.fieldLabel)")
+                    .font(.montserratBold(size: 10))
+                    .tracking(1.1)
+                    .foregroundStyle(secondaryColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 4)
+                    .padding(.bottom, 2)
+            }
+
+        case .alone(let ownClimbs):
+            if let ownClimbs {
+                LiveReplayOwnClimbsStanding(
+                    placing: ownClimbs,
+                    effectiveColorScheme: effectiveColorScheme
+                )
+            }
         }
     }
 
@@ -227,6 +254,7 @@ struct LiveReplayLeaderboardPanel: View {
             progress: progress,
             previousBestProgress: row.isCurrentUser ? previousBestProgress : nil,
             currentUserPhotoURL: currentUserPhotoURL,
+            showsLeaderboardRank: standing.showsLeaderboardRank,
             tint: tint,
             effectiveColorScheme: effectiveColorScheme
         )
@@ -246,12 +274,60 @@ struct LiveReplayLeaderboardPanel: View {
 
 }
 
+/// The whole footer for a board nobody else has finished.
+///
+/// It states the one placing that board can substantiate - where this run sits
+/// among the climber's own climbs - in the finish card's idiom: the accent
+/// ordinal over the population it counted. No leaderboard ordinal is drawn
+/// anywhere on such a board, so this is never a second number beside one.
+private struct LiveReplayOwnClimbsStanding: View {
+    let placing: LiveReplayPersonalPlacing
+    let effectiveColorScheme: ColorScheme
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(placing.ordinalText.uppercased())
+                .font(.montserratBold(size: 22))
+                .foregroundStyle(Color.accent)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+
+            Text(placing.fieldLabel)
+                .font(.montserratBold(size: 10))
+                .tracking(1.1)
+                .foregroundStyle(secondaryColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(hairlineColor)
+                .frame(height: 1)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var secondaryColor: Color {
+        effectiveColorScheme == .dark ? .white.opacity(0.52) : .black.opacity(0.48)
+    }
+
+    private var hairlineColor: Color {
+        effectiveColorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.08)
+    }
+}
+
 private struct LiveReplayLeaderboardRowView: View {
     let row: ModeratedReplayLeaderboardRow
     let progressScaleSteps: Int
     let progress: Double
     let previousBestProgress: Double?
     let currentUserPhotoURL: URL?
+    /// False on a board nobody else has finished, where no leaderboard placing
+    /// exists to draw.
+    let showsLeaderboardRank: Bool
     let tint: Color
     let effectiveColorScheme: ColorScheme
 
@@ -345,10 +421,11 @@ private struct LiveReplayLeaderboardRowView: View {
     private var rankLabel: String {
         row.rank.map(String.init) ?? "--"
     /// The viewer's own earlier completion holds no placing, so its cell draws
-    /// nothing at all. `--` still stands for a rank that could not be resolved,
-    /// which is a different statement and has to keep reading as one.
+    /// nothing at all, and neither does any row on a board with no leaderboard
+    /// placing to state. `--` still stands for a rank that could not be
+    /// resolved, which is a different statement and has to keep reading as one.
     private var rankLabel: String? {
-        guard !row.isViewerGhost else { return nil }
+        guard showsLeaderboardRank, !row.isViewerGhost else { return nil }
         return row.rank.map(String.init) ?? "--"
     }
 
