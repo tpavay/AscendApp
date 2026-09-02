@@ -82,13 +82,18 @@ struct PersonalClimbPlacing: Equatable, Sendable {
     /// ordinal that cannot fall, which is the whole defect this type exists to
     /// delete.
     ///
-    /// Under `.partial` evidence only the two ends are decidable, and the
-    /// projection's best duration decides both. At or inside it, first is
-    /// *proven* and is stated - first of your own climbs is the personal-best
-    /// state, and withholding it would be the opposite error. Past it, at least
-    /// one completion is known to be faster and the position among the rest is
+    /// Under `.partial` evidence only the two ends are decidable, and the fastest
+    /// duration on hand decides both. At or inside it, first is *proven* and is
+    /// stated - first of your own climbs is the personal-best state, and
+    /// withholding it would be the opposite error. Past it, at least one
+    /// completion is known to be faster and the position among the rest is
     /// unknowable, so the placing takes last: the one number the evidence can
     /// never contradict, and never a middle one it cannot support.
+    ///
+    /// With no duration on hand at all, neither end is decidable and there is no
+    /// honest ordinal to emit. Taking last there would be the flattering claim's
+    /// mirror image - a climber's genuine personal best announced as `3RD OF YOUR
+    /// 3 CLIMBS` - so the placing withholds, the way the First Ascent claim does.
     init?(durationSeconds: Int, otherCompletions: PersonalClimbCompletionHistory) {
         guard durationSeconds > 0 else { return nil }
 
@@ -102,8 +107,8 @@ struct PersonalClimbPlacing: Equatable, Sendable {
                 total: total
             )
         case .partial:
-            let isProvablyFastest = !others.isEmpty && others.allSatisfy { $0 >= durationSeconds }
-            self.init(ordinal: isProvablyFastest ? 1 : total, total: total)
+            guard let fastestOnHand = others.min() else { return nil }
+            self.init(ordinal: durationSeconds <= fastestOnHand ? 1 : total, total: total)
         }
     }
 }

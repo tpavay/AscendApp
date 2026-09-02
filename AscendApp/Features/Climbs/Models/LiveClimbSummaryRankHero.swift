@@ -230,6 +230,13 @@ struct LiveClimbSummaryRankHero: Equatable {
     /// The whole First Ascent card. No sentence, no date, no dare, no rank -
     /// the gold flag and this claim, and nothing else (`first-ascent-line-copy`).
     static let firstAscentDetail = "FIRST ASCENT CLAIMED"
+    /// The climber is alone on the tower and their own history is still being
+    /// read. Names what is actually being counted - their climbs, not a field.
+    static let soloResolvingDetail = "COUNTING YOUR CLIMBS"
+    /// The climber is alone on the tower and nothing on hand can place this run
+    /// among their own climbs or prove the First Ascent. States the one thing
+    /// that is certainly true rather than inventing a placing.
+    static let soloUnverifiedDetail = "ALONE ON THIS TOWER"
 
     /// Names the board this standing sits on, for the surfaces that rank on one
     /// of their own. Nil wherever the field line already says everything true.
@@ -412,6 +419,15 @@ struct LiveClimbSummaryRankHero: Equatable {
             case .liveSession:
                 return completedDetail(isClimbContext: isClimbContext, copy: copy)
             }
+        }
+
+        // Every rank has already returned, so what is left on a field of one is
+        // the hero withholding. It withholds in the vocabulary of the climber's
+        // own tower: there is no leaderboard to send somebody to when the only
+        // climber on it is them, and the fallback below would have told a genuine
+        // first ascentist to go and check one.
+        if let standing, isClimbContext, countsAFieldOfOne(standing) {
+            return sync.rankResolution.isPending ? soloResolvingDetail : soloUnverifiedDetail
         }
 
         switch sync.phase {

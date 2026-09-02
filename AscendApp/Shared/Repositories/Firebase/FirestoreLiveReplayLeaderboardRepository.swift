@@ -10,6 +10,10 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     ///
     /// Only the latest bucket is kept: a race walks forward and never asks for a
     /// bucket it has left behind, so a dictionary would only grow.
+    ///
+    /// Unlike this repository's public board reads, this holds one climber's own
+    /// data, so the key names the owner and `clearAccountScopedCaches()` empties
+    /// it the moment a session ends.
     private struct OwnPreviousCompletionCache: Sendable {
         let key: String
         let row: LiveReplayLeaderboardRow?
@@ -544,7 +548,11 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         bucketIndex: Int,
         currentSteps: Int
     ) async -> LiveReplayLeaderboardRow? {
-        let key = "\(context.contextKey)|\(max(bucketIndex, 0))"
+        guard let currentUserId = collapsingBoardUserId(context: context) else {
+            return nil
+        }
+
+        let key = "\(currentUserId)|\(context.contextKey)|\(max(bucketIndex, 0))"
         if let cached = ownPreviousCompletionCache.withLock({ $0 }), cached.key == key {
             return cached.row?.rebased(currentSteps: currentSteps)
         }
@@ -562,6 +570,15 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         } catch {
             return nil
         }
+    }
+
+    /// Drops everything this repository holds on behalf of one climber.
+    ///
+    /// A signed-in uid in the cache key stops the next account reading this one's
+    /// row, but it leaves it resident in a process-wide singleton that outlives
+    /// the store wipe - so the session's end empties it as well.
+    func clearAccountScopedCaches() {
+        ownPreviousCompletionCache.withLock { $0 = nil }
     }
 
     private func countRowsAhead(

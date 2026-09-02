@@ -564,6 +564,15 @@ struct LiveClimbCompletionSummaryView: View {
 
         if let frozen = completedRankService.frozenRank(context: context, workoutId: workoutId) {
             frozenCompletionRank = frozen
+            // The reopened path is deliberately request-free, but a finisher order
+            // that never resolved during the original session would stay missing
+            // forever - and the First Ascent claim cannot be proven without it, so
+            // the card that earned the gold flag would keep withholding it. Asked
+            // for only when it is absent, so a summary that already holds one
+            // still touches nothing.
+            if personalClimbHistory?.globalCompletionOrder == nil {
+                await mirrorFinisherStatus(context: context)
+            }
             rankResolution = .settled
             return
         }

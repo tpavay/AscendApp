@@ -217,6 +217,12 @@ class AuthenticationViewModel {
                     // who just left, so it stops here rather than writing under the next one.
                     AuthenticatedBootstrapCoordinator.shared.endAuthenticatedSession()
 
+                    // In-memory board state scoped to the climber who just left.
+                    // Keyed by uid, so the next account cannot read it - but it is
+                    // held by a process-wide singleton that a store wipe never
+                    // reaches, so this is where it goes.
+                    FirestoreLiveReplayLeaderboardRepository.shared.clearAccountScopedCaches()
+
                     self.displayName = ""
                     self.customProfilePictureURL = nil
                     self.hasRemoteDisplayName = false

@@ -295,6 +295,46 @@ struct PersonalClimbCompletionHistoryColdStartTests {
         #expect(pending.value == .loading)
         #expect(settled.value == .unranked)
         #expect(settled.value != .rank(1))
+
+        // A blank slot is honest; sending a climber alone on a tower to check a
+        // leaderboard containing only them is not.
+        #expect(pending.detail == Hero.soloResolvingDetail)
+        #expect(settled.detail == Hero.soloUnverifiedDetail)
+        #expect(settled.detail != "CHECK LEADERBOARD LATER")
+        #expect(pending.detail != "LOOKING FOR YOUR RANK")
+    }
+
+    /// The zero-evidence end of the same rule, all the way through: a rebuilt row
+    /// whose duration the projection never carried places nobody, and the card it
+    /// produces says the one thing that is true rather than naming a leaderboard.
+    @Test
+    func aCollapsedTowerWithNoDurationWithholdsThePlacingAndTheLeaderboardCopy() throws {
+        let context = try makeModelContext()
+        context.insert(collapsedAttempt(completions: 3, bestDurationSeconds: 0))
+
+        let history = try #require(
+            ClimbService.shared.personalCompletionHistory(
+                forClimbId: climbId,
+                workoutId: UUID(),
+                completedAt: restoredAt.addingTimeInterval(90_000),
+                modelContext: context
+            )
+        )
+        let placing = PersonalClimbPlacing(durationSeconds: 580, otherCompletions: history)
+        let hero = try #require(Hero.make(
+            isClimbContext: true,
+            standings: [Hero.Standing(rank: 1, total: 1, basis: .atCompletion)],
+            personalPlacing: placing,
+            claimsFirstAscent: history.claimsFirstAscent,
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        ))
+
+        #expect(history.durationEvidence == .partial)
+        #expect(placing == nil)
+        #expect(hero.value == .unranked)
+        #expect(hero.detail == Hero.soloUnverifiedDetail)
+        #expect(hero.detail != "CHECK LEADERBOARD LATER")
     }
 
     /// The same refusal when a placing exists but counts only this one climb: a
@@ -313,6 +353,8 @@ struct PersonalClimbCompletionHistoryColdStartTests {
 
         #expect(hero.value == .unranked)
         #expect(hero.detail != "OF YOUR 1 CLIMB")
+        #expect(hero.detail == Hero.soloUnverifiedDetail)
+        #expect(hero.detail != "CHECK LEADERBOARD LATER")
     }
 
     // MARK: - Helpers

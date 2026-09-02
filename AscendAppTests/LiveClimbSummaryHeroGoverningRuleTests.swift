@@ -113,6 +113,11 @@ struct LiveClimbSummaryHeroGoverningRuleTests {
         #expect(pending.value == .loading)
         #expect(settled.value == .unranked)
         #expect(settled.value != .rank(1))
+        // What it waits *to* matters as much: a tower with one climber on it has
+        // no leaderboard to send them to.
+        #expect(pending.detail == Hero.soloResolvingDetail)
+        #expect(settled.detail == Hero.soloUnverifiedDetail)
+        #expect(settled.detail != "CHECK LEADERBOARD LATER")
     }
 
     // MARK: - First Ascent

@@ -196,22 +196,51 @@ struct PersonalClimbPlacingTests {
         #expect(tied.ordinal == 1)
     }
 
-    /// A collapsed history with no duration at all proves nothing, least of all
-    /// first. It takes last rather than the number that flatters.
+    /// A collapsed history with no duration at all proves nothing at either end,
+    /// so there is no honest ordinal and the placing withholds.
+    ///
+    /// Taking last here would be the flattering claim's mirror image: the same
+    /// climber's genuine personal best would be announced as `4TH OF YOUR 4
+    /// CLIMBS`, and neither number can be substantiated. Reachable because the
+    /// projection's best duration is nullable - a rebuilt row with no duration
+    /// leaves nothing to compare against at all.
     @Test
-    func aCollapsedHistoryWithNoDurationsNeverClaimsFirst() throws {
+    func aCollapsedHistoryWithNoDurationsWithholdsThePlacingEntirely() {
+        let slower = PersonalClimbPlacing(
+            durationSeconds: 580,
+            otherCompletions: collapsedHistory(
+                otherCompletionsCount: 3,
+                knownDurationsSeconds: []
+            )
+        )
+        let faster = PersonalClimbPlacing(
+            durationSeconds: 300,
+            otherCompletions: collapsedHistory(
+                otherCompletionsCount: 3,
+                knownDurationsSeconds: []
+            )
+        )
+
+        #expect(slower == nil)
+        #expect(faster == nil)
+    }
+
+    /// One duration on hand is enough to decide both ends, so the placing is
+    /// still made. The withhold above is about having none at all.
+    @Test
+    func oneKnownDurationIsStillEnoughToPlace() throws {
         let placing = try #require(
             PersonalClimbPlacing(
                 durationSeconds: 580,
                 otherCompletions: collapsedHistory(
                     otherCompletionsCount: 3,
-                    knownDurationsSeconds: []
+                    knownDurationsSeconds: [492]
                 )
             )
         )
 
-        #expect(placing.total == 4)
         #expect(placing.ordinal == 4)
+        #expect(placing.total == 4)
     }
 
     /// A count that undersells the durations on hand cannot shrink the field
