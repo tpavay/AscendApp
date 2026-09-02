@@ -96,9 +96,9 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
         try writeEvidence(image: image, named: "field-population-4-completion-hero-climbers.png")
     }
 
-    /// The noun follows the replay context rather than being hardcoded. An open
-    /// Just Climb has no step target to collapse on and races every completed
-    /// attempt, so the same hero, same rank, same total says completions.
+    /// The noun follows the standing on show rather than being hardcoded. An open
+    /// Just Climb froze its stamp over every completed attempt, so the same hero,
+    /// same rank, same total says completions on the frozen basis.
     @Test
     func theSameHeroSaysCompletionsWhereTheContextRacesAttempts() async throws {
         let image = try renderCompletionSummary(context: .justClimbGlobal(targetSteps: 2_579))
@@ -108,6 +108,29 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
         #expect(!text.contains("fastest of 27 climbers"))
 
         try writeEvidence(image: image, named: "field-population-5-completion-hero-completions.png")
+    }
+
+    /// Screen 3 again, on the other basis, and read off the pixels because the
+    /// captain made this noun load-bearing: he accepted a Just Climb summary
+    /// counting climbers while Climb Detail lists every completion *because* the
+    /// card says CLIMBERS out loud. A standing the client recomputes counts
+    /// finisher documents, one per climber, on every board - so the word has to
+    /// be there, on the screen, in the rank card.
+    @Test
+    func aRecomputedStandingOnAnOpenBoardSaysClimbers() async throws {
+        let image = try renderCompletionSummary(
+            context: .justClimbGlobal(targetSteps: 2_579),
+            basis: .current
+        )
+        let text = try await recognizedText(in: image)
+
+        #expect(text.contains("fastest of 27 climbers"))
+        #expect(!text.contains("fastest of 27 completions"))
+
+        try writeEvidence(
+            image: image,
+            named: "field-population-6-completion-hero-recomputed-climbers.png"
+        )
     }
 
     /// One sheet a reviewer can read end to end: the three approved screens as
@@ -168,7 +191,8 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
     // MARK: - Rendering the shipping completion summary
 
     private func renderCompletionSummary(
-        context: LiveReplayLeaderboardContext
+        context: LiveReplayLeaderboardContext,
+        basis: LiveClimbSummaryRankHero.Basis = .atCompletion
     ) throws -> UIImage {
         let screen = LiveClimbCompletionSummaryView(
             climb: nil,
@@ -182,7 +206,7 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
             ),
             leaderboardRank: 4,
             leaderboardTotal: 27,
-            leaderboardRankBasis: .atCompletion,
+            leaderboardRankBasis: basis,
             leaderboardContext: context,
             completedDetailOverride: "LIVE CLIMB COMPLETE",
             onDone: { _ in }

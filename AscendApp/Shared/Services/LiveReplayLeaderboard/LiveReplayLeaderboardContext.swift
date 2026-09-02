@@ -8,11 +8,19 @@ enum LiveReplayLeaderboardContextType: String, CaseIterable, Codable, Sendable {
 
     /// Mirrors `rankingMetric` in `functions/src/liveReplayLeaderboard.ts` so a
     /// client-displayed rank never contradicts the rank the server published.
+    ///
+    /// The server's `ranksOnSteps` is `contextType === "routine_template"` and
+    /// nothing else, so a plain `routine` board ranks on the clock there. This
+    /// once said steps for both routine cases, which was not a difference of
+    /// opinion but a query against a field nothing writes: a `routine` finisher
+    /// carries `bestCompletionDurationSeconds` and never `bestFinalSteps`, so
+    /// the client's numerator matched zero documents and every climber on the
+    /// board read first.
     var rankingMetric: LiveReplayRankingMetric {
         switch self {
-        case .liveClimb, .justClimb:
+        case .liveClimb, .justClimb, .routine:
             return .fastestCompletion
-        case .routineTemplate, .routine:
+        case .routineTemplate:
             return .mostSteps
         }
     }
