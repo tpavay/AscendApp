@@ -197,11 +197,12 @@ struct LiveReplayOwnHistoryRowRenderEvidenceTests {
     }
 
     /// The rows the repository now returns at bucket 35: his finished record,
-    /// held at the target, and the run still on the machine.
+    /// held at the target and carrying no rank because it is his own ghost, and
+    /// the run still on the machine, first in a field of one climber.
     fileprivate static func rows() -> [ModeratedReplayLeaderboardRow] {
         let history = LiveReplayLeaderboardRow(
             id: "first-attempt",
-            rank: 1,
+            rank: nil,
             displayName: "Tyler Pavay",
             avatarToken: "TP",
             photoURL: nil,
@@ -217,7 +218,7 @@ struct LiveReplayOwnHistoryRowRenderEvidenceTests {
             locationCity: "Chicago"
         )
         let live = LiveReplayLeaderboardRow.currentUser(
-            rank: 2,
+            rank: 1,
             steps: 497,
             displayName: "Tyler Pavay"
         )
