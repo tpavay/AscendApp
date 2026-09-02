@@ -446,7 +446,9 @@ final class LiveClimbSessionViewModel {
               leaderboardSummary.totalClimbers > 0 else { return nil }
 
         return LiveReplayFieldSize(
-            population: contextType.fieldPopulation,
+            // The race collapses to one row per climber on every board now, so
+            // the ghosts beside this number are people rather than attempts.
+            population: .climbers,
             count: leaderboardSummary.totalClimbers
         )
     }

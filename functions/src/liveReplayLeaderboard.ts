@@ -895,11 +895,7 @@ function seedBestForUser(
   payload: LiveReplayIndexPayload,
   entryId: string,
   finisherData: Record<string, unknown> | undefined
-): boolean | null {
-  if (!collapsesRepeatFinishers(payload)) {
-    return null;
-  }
-
+): boolean {
   const storedBest = finisherStoredBest(payload, finisherData);
 
   return storedBest === null ||
@@ -1038,10 +1034,19 @@ function userAttemptEntry(
 /**
  * Re-derives which of a user's attempts is their best in one replay context.
  *
- * A per-climb race ranks one row per opponent, so at most one of a user's
- * attempts may carry isBestForUser. Publishes, edits and deletes all funnel
- * through here so the flag heals itself from the entries rather than from flip
- * bookkeeping. Contexts that race every attempt return before any read.
+ * A live race ranks one row per opponent, so at most one of a user's attempts
+ * may carry isBestForUser. Publishes, edits and deletes all funnel through here
+ * so the flag heals itself from the entries rather than from flip bookkeeping.
+ *
+ * Every context type maintains it, including the ones that do not collapse
+ * repeat finishers in their frozen standing. Settled by the captain on
+ * 2026-09-02: all three board types race off one mechanism rather than one of
+ * them behaving differently because it is missing a piece of data. Without the
+ * flag an open Just Climb raced a rival's four runs as four opponents and
+ * showed a climber their own earlier attempts as racers.
+ *
+ * `collapsesRepeatFinishers` still decides what the SERVER's frozen standing
+ * counts, and that is all it decides now - do not re-gate this on it.
  * @param {LiveReplayIndexPayload} payload Replay payload.
  * @param {string} userId Owner user ID.
  */
@@ -1049,10 +1054,6 @@ async function reconcileUserBestEntries(
   payload: LiveReplayIndexPayload,
   userId: string
 ): Promise<void> {
-  if (!collapsesRepeatFinishers(payload)) {
-    return;
-  }
-
   const snapshot = await entriesCollectionReference(payload, 0)
     .where("userId", "==", userId)
     .get();

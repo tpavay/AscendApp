@@ -543,7 +543,7 @@ test("collapses repeat finishers in per-climb and template contexts", () => {
   assert.equal(collapsesFor("routine"), false);
 });
 
-test("races every Just Climb attempt as its own opponent", () => {
+test("collapses a Just Climb climber to one opponent like every other board", () => {
   const payload = liveReplayLeaderboardTestHooks.parseJustClimbReplayPayload(
     makeWorkoutDocument(),
     {requireEligibleParticipation: true}
@@ -551,23 +551,31 @@ test("races every Just Climb attempt as its own opponent", () => {
   assert.ok(payload);
   assert.equal(payload.contextType, "just_climb");
 
-  // An open Just Climb session has no step target, so its shortest attempt is
-  // the one the climber quit earliest. Flagging it would race their weakest
-  // curve and drop their stronger session out of the field entirely.
+  // Settled by the captain on 2026-09-02: all three board types race off one
+  // mechanism rather than one behaving differently for want of a field. Without
+  // the flag an open Just Climb raced a rival's four runs as four opponents and
+  // showed a climber their own earlier attempts as racers.
+  //
+  // Superseded reasoning, kept because it is a real cost of the decision rather
+  // than an argument that was wrong: an open Just Climb has no step target, so
+  // on a duration metric its shortest attempt is the one the climber quit
+  // earliest. The collapse therefore represents a climber by their quickest
+  // session. The board already ranked every attempt that way, so the collapse
+  // makes the field consistent with the metric rather than introducing it.
   assert.equal(
     liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {
       bestCompletionDurationSeconds: 900,
       bestWorkoutId: "workout-b",
     }),
-    null
+    true
   );
   assert.equal(
     liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {}),
-    null
+    true
   );
 });
 
-test("leaves the flag field off entries that race every attempt", () => {
+test("writes the flag on every context type", () => {
   const payload = liveReplayLeaderboardTestHooks.parseJustClimbReplayPayload(
     makeWorkoutDocument(),
     {requireEligibleParticipation: true}
@@ -593,9 +601,11 @@ test("leaves the flag field off entries that race every attempt", () => {
     updatedAt: "server-timestamp",
   });
 
-  // Absent rather than false: Firestore equality never matches a missing field,
-  // so an unflagged context cannot be filtered into a wrong winner.
-  assert.equal("isBestForUser" in write, false);
+  // Present on every board now. A client filters the live race on this field on
+  // all three context types, and Firestore equality never matches a missing
+  // field - a board whose rows lack it renders empty, which is why the backfill
+  // has to reach every existing row before a filtering build ships.
+  assert.equal(write.isBestForUser, true);
 });
 
 test("copies account-authored identity from the public profile mirror", () => {

@@ -531,24 +531,16 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             limit: rowsBehind,
             metric: context.type.rankingMetric
         )
-        let currentUserRank: Int
-        let totalClimbers: Int
-
-        switch try await standing {
-        case let .raceField(runningAheadCount, finishedAheadCount, joiningClimber):
-            currentUserRank = Self.aheadCount(
-                running: runningAheadCount,
-                finished: finishedAheadCount,
-                fetchedRows: rowsAhead
-            ) + 1
-            totalClimbers = max(
-                resolvedSummary.totalClimbers + joiningClimber,
-                currentUserRank
-            )
-        case let .climbers(climberStanding):
-            currentUserRank = climberStanding.rank
-            totalClimbers = climberStanding.completedCount
-        }
+        let resolvedStanding = await standing
+        let currentUserRank = Self.aheadCount(
+            running: resolvedStanding.runningAheadCount,
+            finished: resolvedStanding.finishedAheadCount,
+            fetchedRows: rowsAhead
+        ) + 1
+        let totalClimbers = max(
+            resolvedSummary.totalClimbers + resolvedStanding.joiningClimber,
+            currentUserRank
+        )
 
         let rankedAheadRows = rankedAheadRows(
             Array(rowsAhead.reversed()),
@@ -571,57 +563,37 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         )
     }
 
-    /// What a live window's rank and its denominator are measured against.
+    /// A live window's rank and the denominator it is measured against.
     ///
-    /// Both cases keep the numerator and the denominator counting one
-    /// population. They differ because only one kind of board can answer the
-    /// race question in climbers: a collapsing context flags one entry per
-    /// climber, so counting the ghosts ahead already counts people.
-    private enum WindowStanding {
-        /// The ghost race. Rivals still running further up this bucket plus
-        /// every rival already home, over the summary's distinct-climber count -
-        /// one field, because every ghost on these boards carries
-        /// `isBestForUser` and so stands for one climber.
-        case raceField(runningAheadCount: Int?, finishedAheadCount: Int?, joiningClimber: Int)
-        /// One row per climber, from the finishers subcollection: the standing
-        /// this attempt would freeze if it stopped at this bucket.
-        case climbers(LiveReplayCompletionRank)
+    /// One shape on every board. Each ghost carries `isBestForUser` and so
+    /// stands for exactly one climber, so counting the ghosts ahead at this
+    /// bucket already counts people, and the summary's distinct-climber count
+    /// is the field they were counted out of.
+    private struct WindowStanding {
+        let runningAheadCount: Int?
+        let finishedAheadCount: Int?
+        /// A climber joins the field only when they hold no completion on it
+        /// yet - a question about the climber, never inferred from a count.
+        let joiningClimber: Int
     }
 
     /// Resolves the rank and denominator a live window reports.
     ///
-    /// A board that carries no `isBestForUser` flag - `just_climb`, `routine` -
-    /// has ghosts that stand for attempts, so counting them ahead of a
-    /// distinct-climber denominator paired "13th" with "of 16". Settled by the
-    /// captain on 2026-09-02: those boards rank against unique climbers at
-    /// their best on both halves, which is the same finishers read
-    /// `fetchCompletionRank` makes, taken against the value this attempt would
-    /// carry if it stopped now. The live rank therefore converges on the
-    /// standing the climber is about to freeze instead of predicting a
-    /// different one.
+    /// Ranked on what the window itself measures at this bucket - position among
+    /// the rows beside it - and never on a finishers read. A finishers read
+    /// answers a question about a *finished* attempt, so mid-race it compares a
+    /// climber against the elapsed session clock: they would start first and
+    /// slide down as time passed, with performance playing no part.
     ///
-    /// The displayed rows stay the bucket entries either way. They are a race
-    /// view of who is where right now, and without `isBestForUser` they cannot
-    /// be collapsed to one per climber - so a repeat climber's earlier runs stay
-    /// on the board as separate ghosts, which is what a race looks like.
+    /// Settled by the captain on 2026-09-02: all three board types race off one
+    /// mechanism. The server writes `isBestForUser` on every context now, so the
+    /// ghosts are one row per climber at their best everywhere and both halves
+    /// of this pair count climbers without a second query shape.
     private func windowStanding(
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int,
         currentSteps: Int
-    ) async throws -> WindowStanding {
-        guard context.type.collapsesRepeatFinishers else {
-            return .climbers(
-                try await climberCompletionRank(
-                    context: context,
-                    attemptRankingValue: liveRankingValue(
-                        context: context,
-                        bucketIndex: bucketIndex,
-                        currentSteps: currentSteps
-                    )
-                )
-            )
-        }
-
+    ) async -> WindowStanding {
         async let runningAheadCount = optionalCountRowsAhead(
             context: context,
             bucketIndex: bucketIndex,
@@ -632,32 +604,12 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             bucketIndex: bucketIndex,
             currentSteps: currentSteps
         )
-        // A climber joins the field only when they hold no completion on it yet,
-        // which is a question about the climber and never something to infer
-        // from a field count.
         async let alreadyInField = optionalCurrentUserIsFinisher(context: context)
 
-        return .raceField(
+        return WindowStanding(
             runningAheadCount: await runningAheadCount,
             finishedAheadCount: await finishedAheadCount,
             joiningClimber: (await alreadyInField) ? 0 : 1
-        )
-    }
-
-    /// The value this attempt would be ranked on if it stopped at this bucket,
-    /// in the board's own metric. A bucket is a fixed slice of the session
-    /// clock, so its index is the elapsed time the attempt has spent so far.
-    private func liveRankingValue(
-        context: LiveReplayLeaderboardContext,
-        bucketIndex: Int,
-        currentSteps: Int
-    ) -> Double {
-        rankingValue(
-            context: context,
-            completionDurationSeconds: TimeInterval(
-                max(bucketIndex, 0) * context.bucketIntervalSeconds
-            ),
-            finalSteps: currentSteps
         )
     }
 
@@ -1526,11 +1478,12 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int
     ) -> Query {
-        let entries = entriesCollection(context: context, bucketIndex: bucketIndex)
-
-        guard context.type.collapsesRepeatFinishers else { return entries }
-
-        return entries.whereField("isBestForUser", isEqualTo: true)
+        // Every context type carries the flag now, so one mechanism collapses
+        // the race on all three board types rather than one of them behaving
+        // differently for want of a field. It also stops a repeat climber's own
+        // earlier attempts lining up against them as separate racers.
+        entriesCollection(context: context, bucketIndex: bucketIndex)
+            .whereField("isBestForUser", isEqualTo: true)
     }
 
     /// One document per climber who has completed on this board, on every
