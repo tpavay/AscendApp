@@ -159,7 +159,6 @@ private struct LiveClimbCompactMetricView: View {
                 .font(.system(size: 7, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white.opacity(0.58))
                 .lineLimit(1)
-                .minimumScaleFactor(0.6)
         }
         .foregroundStyle(.white)
     }

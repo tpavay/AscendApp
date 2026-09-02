@@ -812,8 +812,6 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
                 bucketIndex: bucketIndex,
                 currentSteps: currentSteps
             )
-            .order(by: "finalSteps", descending: false)
-            .order(by: "splitBucketCount", descending: false)
         case .behind:
             return entries
                 .whereField("splitBucketCount", isLessThanOrEqualTo: bucketIndex)
@@ -828,6 +826,16 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     /// One owner, applied to whichever entries a caller is asking about - the
     /// flagged race field, or one climber's own attempts. A second spelling of
     /// this pair would let the climber's placing count rows the race never did.
+    ///
+    /// The ordering is part of the predicate rather than left to each caller,
+    /// including the aggregations that do not need rows back. Two inequality
+    /// fields have to lead the `orderBy`, and the composite index has to list
+    /// them in that same order - so a caller that stated no order would leave
+    /// the required index to be inferred, and the Firestore emulator does not
+    /// enforce composite indexes, meaning a wrong guess passes every local and
+    /// CI check and fails first in production as `FAILED_PRECONDITION`. Stated
+    /// here once, every index this needs is `<equality field>, finalSteps ASC,
+    /// splitBucketCount ASC` and can be read off without running anything.
     private static func finishedAhead(
         _ entries: Query,
         bucketIndex: Int,
@@ -836,6 +844,8 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         entries
             .whereField("splitBucketCount", isLessThanOrEqualTo: bucketIndex)
             .whereField("finalSteps", isGreaterThanOrEqualTo: currentSteps)
+            .order(by: "finalSteps", descending: false)
+            .order(by: "splitBucketCount", descending: false)
     }
 
     private func fetchFinishedRows(
@@ -1238,10 +1248,16 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     /// and the placing needs two numbers rather than any documents, so it is
     /// counted.
     ///
-    /// One failure path for both. Losing the ghost correction and losing the
-    /// placing both fail closed - nothing is subtracted, and no ordinal is
-    /// stated - so a partial answer can never be assembled out of one real count
-    /// and one missing one.
+    /// Two answers, two failure paths, deliberately not shared. They feed
+    /// different numbers - the ghost comes out of the leaderboard rank, the
+    /// placing is its own ordinal - and are never mixed, so one failing must not
+    /// cost the other. Sharing a `catch` meant a failed placing count silently
+    /// zeroed the ghost subtraction, which is exactly the pre-fix behaviour:
+    /// the solo repeat climber goes back to being ranked behind their own best.
+    ///
+    /// "Never assemble a real count with a fallback" governs the placing's own
+    /// two halves, which are summed into one ordinal. It does not reach across
+    /// to the ghost.
     private func ownClimbHistory(
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int,
@@ -1249,36 +1265,75 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     ) async -> OwnClimbHistory {
         guard let uid = Auth.auth().currentUser?.uid else { return .unresolved }
 
-        do {
-            async let ghostAhead = ownGhostAheadCount(
-                context: context,
-                userId: uid,
-                bucketIndex: bucketIndex,
-                currentSteps: currentSteps
-            )
-            async let placing = ownClimbPlacing(
-                context: context,
-                userId: uid,
-                bucketIndex: bucketIndex,
-                currentSteps: currentSteps
-            )
+        async let ghostAhead = optionalOwnGhostAheadCount(
+            context: context,
+            userId: uid,
+            bucketIndex: bucketIndex,
+            currentSteps: currentSteps
+        )
+        async let placing = optionalOwnClimbPlacing(
+            context: context,
+            userId: uid,
+            bucketIndex: bucketIndex,
+            currentSteps: currentSteps
+        )
 
-            return OwnClimbHistory(
-                ghostAhead: try await ghostAhead,
-                placing: try await placing
+        return OwnClimbHistory(
+            ghostAhead: await ghostAhead,
+            placing: await placing
+        )
+    }
+
+    /// A ghost that could not be read subtracts nothing, which is the rank this
+    /// board reported before the correction existed - so the failure is reported
+    /// rather than swallowed.
+    private func optionalOwnGhostAheadCount(
+        context: LiveReplayLeaderboardContext,
+        userId: String,
+        bucketIndex: Int,
+        currentSteps: Int
+    ) async -> Int {
+        do {
+            return try await ownGhostAheadCount(
+                context: context,
+                userId: userId,
+                bucketIndex: bucketIndex,
+                currentSteps: currentSteps
             )
         } catch {
-            // Non-fatal on the same terms as every other read this fetch
-            // swallows: losing the placing is acceptable, losing the board is
-            // not. Reported because a swallowed failure and a climber with no
-            // history look identical from here.
             reportFinishedRowFailure(
                 error,
-                read: .ownClimbHistory,
+                read: .ownGhost,
                 context: context,
                 bucketIndex: bucketIndex
             )
-            return .unresolved
+            return 0
+        }
+    }
+
+    /// A placing that could not be counted states no ordinal at all, because an
+    /// ordinal nothing measured is the thing this must never show.
+    private func optionalOwnClimbPlacing(
+        context: LiveReplayLeaderboardContext,
+        userId: String,
+        bucketIndex: Int,
+        currentSteps: Int
+    ) async -> LiveReplayPersonalPlacing? {
+        do {
+            return try await ownClimbPlacing(
+                context: context,
+                userId: userId,
+                bucketIndex: bucketIndex,
+                currentSteps: currentSteps
+            )
+        } catch {
+            reportFinishedRowFailure(
+                error,
+                read: .ownClimbPlacing,
+                context: context,
+                bucketIndex: bucketIndex
+            )
+            return nil
         }
     }
 

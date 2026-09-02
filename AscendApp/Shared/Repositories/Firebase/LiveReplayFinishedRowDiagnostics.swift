@@ -9,7 +9,8 @@ enum LiveReplayFinishedRowRead: String, Sendable, CaseIterable {
     case aheadFetch = "live_replay_finished_rows_ahead_fetch_failed"
     case behindFetch = "live_replay_finished_rows_behind_fetch_failed"
     case aheadCount = "live_replay_finished_rows_ahead_count_failed"
-    case ownClimbHistory = "live_replay_own_climb_history_read_failed"
+    case ownGhost = "live_replay_own_ghost_read_failed"
+    case ownClimbPlacing = "live_replay_own_climb_placing_read_failed"
 }
 
 /// Bounds the finished-row failure report to once per read per session.
