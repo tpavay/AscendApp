@@ -148,6 +148,7 @@ jobs:
               # than failing later on an unrelated one. AscendAppTests/** holds
               # the Swift anchors (LiveReplayFieldPopulationTests,
               # LiveReplayFieldPopulationRenderEvidenceTests,
+              # LiveReplayPreviousBestMarkerTests,
               # CompletedClimbRankFreezeTests, SavedClimbShareRankTests).
               - "AscendAppTests/**"
               # functions/** is the whole tree on purpose, not functions/test/**:

@@ -145,6 +145,16 @@ const STATEMENT_ANCHORS = [
     symbol: "onlyPerClimbAndPerTemplateContextsCollapseRepeats",
   },
   {
+    statement: 1,
+    file: "AscendAppTests/LiveReplayPreviousBestMarkerTests.swift",
+    symbol: "theClimbersOwnBestIsNotCountedAsAClimberAheadOfThem",
+  },
+  {
+    statement: 1,
+    file: "AscendAppTests/LiveReplayPreviousBestMarkerTests.swift",
+    symbol: "theMarkerReportsAPositionAndNothingElse",
+  },
+  {
     statement: 2,
     file: "functions/test/liveReplayLeaderboard.test.ts",
     symbol: "counts a repeat rival once on a board that races climbers",
