@@ -252,7 +252,7 @@ test("the Climb Detail board still counts every completion", () => {
   );
 });
 
-test("the previous best is withdrawn only where the board collapses repeat finishers", () => {
+test("the previous best is read directly only where the board collapses repeat finishers", () => {
   const repository = read(
     "AscendApp/Shared/Repositories/Firebase/" +
       "FirestoreLiveReplayLeaderboardRepository.swift",
@@ -263,30 +263,27 @@ test("the previous best is withdrawn only where the board collapses repeat finis
   const gate = repository.match(
     /private func collapsingBoardUserId\([\s\S]*?\n    \}/,
   );
-  assert.ok(gate, "the withdrawal is no longer scoped to a board type");
+  assert.ok(gate, "the direct read is no longer scoped to a board type");
   assert.ok(
     gate[0].includes("context.type.collapsesRepeatFinishers"),
-    "the withdrawal stopped reading collapsesRepeatFinishers, the client's " +
-      "one definition of which boards race one row per climber. Just Climb " +
-      "and a plain routine race every completed attempt as its own opponent, " +
-      "so withdrawing the climber's own rows there deletes real rivals.",
+    "the direct read stopped reading collapsesRepeatFinishers, the client's " +
+      "one definition of which boards the server writes a per-climb best on. " +
+      "The BEST marker is a per-climb concept; a board without that single " +
+      "entry per climber has no one row to read it from.",
   );
-  // Every live-race row is parsed with an id that passed through that gate,
-  // so no board can acquire the withdrawal by adding a call site.
-  const parseRowBindings = [
-    ...repository.matchAll(
-      /currentUserId = (collapsingBoardUserId\(context: context\)|[^\n]+?)( else \{)?\n[\s\S]{0,600}?parseRow\(/g,
-    ),
-  ].map((match) => match[1].trim());
-  assert.ok(parseRowBindings.length > 0, "no parseRow call site was found");
-  for (const binding of parseRowBindings) {
-    assert.equal(
-      binding,
-      "collapsingBoardUserId(context: context)",
-      "a live-race row resolves the signed-in climber without the " +
-        "collapsesRepeatFinishers gate",
-    );
-  }
+  // The gate scopes the marker's own read and nothing else. Settled by the
+  // captain on 2026-09-02: every board type races one row per climber, so a
+  // live-race row belonging to the signed-in climber is drawn as theirs
+  // everywhere - `parseRow` takes the plain signed-in uid on every board.
+  const gatedCallSites = [
+    ...repository.matchAll(/collapsingBoardUserId\(context: context\)/g),
+  ];
+  assert.equal(
+    gatedCallSites.length,
+    2,
+    "the collapsesRepeatFinishers gate reaches past the previous-best read " +
+      "it scopes",
+  );
 });
 
 test("the rank and the field size drop the previous best at the fetch, not off the page", () => {
@@ -308,8 +305,8 @@ test("the rank and the field size drop the previous best at the fetch, not off t
       "the fetched window",
   );
   assert.ok(
-    repository.includes("ownCompletionsAhead") &&
-      repository.includes("ownCompletionCount"),
+    repository.includes("ownGhostAhead") &&
+      repository.includes("joiningClimber"),
     "the fetch no longer withdraws the climber's own completion from the " +
       "server's own ahead count and live-race count",
   );

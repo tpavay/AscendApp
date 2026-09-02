@@ -6,11 +6,16 @@ import Testing
 /// racing on right now.
 ///
 /// Locked with the captain on 2026-09-01 (`ghost-row-design-v2`,
-/// `ghost-marker-line-geometry`, `just-me-tab-design`): the previous best is
-/// **not a row**. It is a single marker inside the climber's own row, it holds no
-/// rank, it is never tappable, and it is never counted - not in the rank, not in
-/// the field size. Every comparison number that earlier drafts carried is
-/// deleted.
+/// `ghost-marker-line-geometry`, `just-me-tab-design`): the previous best is a
+/// single marker inside the climber's own row, it holds no rank, it is never
+/// tappable, and it is never counted - not in the rank, not in the field size.
+/// Every comparison number that earlier drafts carried is deleted.
+///
+/// He then settled on 2026-09-02 that the completion also keeps its own row, with
+/// `YOU` on it and no rank cell, matching the static board he called correct.
+/// What has never moved is the arithmetic pinned here: a climber is never seated
+/// behind themselves, and their own ghost is never one of the rivals the rank
+/// counts.
 ///
 /// Before this, `parseRow` marked nobody as the current user, so a repeat
 /// climber's own best rendered as a stranger wearing their name, was ranked as a
@@ -29,9 +34,10 @@ struct LiveReplayPreviousBestMarkerTests {
     ///
     /// The rank arrives with that completion already withdrawn - the repository
     /// takes it out of the server's own count, so the number is exact rather than
-    /// a function of which rows the page happened to hold.
+    /// a function of which rows the page happened to hold. The ghost still stands
+    /// beside the run chasing it; it just holds no placing.
     @Test
-    func aSoloRepeatRacesAloneWithTheirOwnBestWithdrawnFromTheBoard() {
+    func aSoloRepeatRacesTheirOwnBestWithoutBeingRankedBehindIt() {
         let window = makeWindow(
             currentSteps: 347,
             rows: [ownPreviousBest(stepsAtBucket: 414)],
@@ -40,9 +46,9 @@ struct LiveReplayPreviousBestMarkerTests {
 
         let rows = window.locallyRankedRows(currentSteps: 347, currentElapsedSeconds: 300)
 
-        #expect(rows.count == 1)
-        #expect(rows.map(\.id) == ["current-user"])
-        #expect(rows.first?.rank == 1)
+        #expect(rows.map(\.id) == ["own-best", "current-user"])
+        #expect(rows.first(where: \.isViewerGhost)?.rank == nil)
+        #expect(rows.first(where: \.isLiveAttempt)?.rank == 1)
     }
 
     /// The rank the Just Me tab's `CURRENT RANK` card reads. It used to say `#2`
@@ -60,8 +66,9 @@ struct LiveReplayPreviousBestMarkerTests {
 
         let rows = window.locallyRankedRows(currentSteps: 347, currentElapsedSeconds: 300)
 
-        #expect(rows.map(\.id) == ["rival", "current-user"])
-        #expect(rows.first(where: \.isCurrentUser)?.rank == 2)
+        #expect(rows.map(\.id) == ["rival", "own-best", "current-user"])
+        #expect(rows.first(where: \.isViewerGhost)?.rank == nil)
+        #expect(rows.first(where: \.isLiveAttempt)?.rank == 2)
     }
 
     /// Passing your own best changes nothing about the standings, because it never
@@ -81,8 +88,8 @@ struct LiveReplayPreviousBestMarkerTests {
         let behind = window.locallyRankedRows(currentSteps: 347, currentElapsedSeconds: 300)
         let ahead = window.locallyRankedRows(currentSteps: 430, currentElapsedSeconds: 300)
 
-        #expect(behind.first(where: \.isCurrentUser)?.rank == 2)
-        #expect(ahead.first(where: \.isCurrentUser)?.rank == 2)
+        #expect(behind.first(where: \.isLiveAttempt)?.rank == 2)
+        #expect(ahead.first(where: \.isLiveAttempt)?.rank == 2)
     }
 
     /// A previous best sitting *behind* the climber was never counted ahead of
@@ -100,8 +107,9 @@ struct LiveReplayPreviousBestMarkerTests {
 
         let rows = window.locallyRankedRows(currentSteps: 430, currentElapsedSeconds: 300)
 
-        #expect(rows.map(\.id) == ["rival", "current-user"])
-        #expect(rows.first(where: \.isCurrentUser)?.rank == 2)
+        #expect(rows.map(\.id) == ["rival", "current-user", "own-best"])
+        #expect(rows.first(where: \.isViewerGhost)?.rank == nil)
+        #expect(rows.first(where: \.isLiveAttempt)?.rank == 2)
     }
 
     /// A rival's rows are untouched by any of this. Only the viewer's own earlier
@@ -201,7 +209,7 @@ struct LiveReplayPreviousBestMarkerTests {
         #expect(steps == 900)
         #expect(window.opponentRows.count == 8)
         #expect(window.locallyRankedRows(currentSteps: 347, currentElapsedSeconds: 300)
-            .contains { $0.isCurrentUser && !$0.isLiveAttempt } == false)
+            .contains(where: \.isViewerGhost) == false)
     }
 
     /// The rank the window renders and the rank it was fetched with are the same
