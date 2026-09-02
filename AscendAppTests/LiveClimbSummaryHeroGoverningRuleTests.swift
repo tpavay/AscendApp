@@ -30,7 +30,6 @@ struct LiveClimbSummaryHeroGoverningRuleTests {
     func aSoloSlowerRepeatNeverRendersALeaderboardRank() throws {
         let hero = try #require(Hero.make(
             isClimbContext: true,
-            moment: .freshCompletion,
             standings: [Hero.Standing(rank: 1, total: 1, basis: .atCompletion)],
             personalPlacing: PersonalClimbPlacing(ordinal: 2, total: 5),
             sync: publishedSync(),
@@ -40,7 +39,6 @@ struct LiveClimbSummaryHeroGoverningRuleTests {
         #expect(hero.value == .personalPlacing(PersonalClimbPlacing(ordinal: 2, total: 5)))
         #expect(hero.value != .rank(1))
         #expect(hero.detail == "OF YOUR 5 CLIMBS")
-        #expect(hero.detail != Hero.freshAtCompletionDetail)
         #expect(hero.detail != Hero.atCompletionDetail)
     }
 
@@ -50,7 +48,6 @@ struct LiveClimbSummaryHeroGoverningRuleTests {
     func aSoloPersonalBestUsesTheSameOrdinalRatherThanASecondDesign() throws {
         let hero = try #require(Hero.make(
             isClimbContext: true,
-            moment: .freshCompletion,
             standings: [Hero.Standing(rank: 1, total: 1, basis: .atCompletion)],
             personalPlacing: PersonalClimbPlacing(ordinal: 1, total: 5),
             sync: publishedSync(),
@@ -61,26 +58,23 @@ struct LiveClimbSummaryHeroGoverningRuleTests {
         #expect(hero.detail == "OF YOUR 5 CLIMBS")
     }
 
-    /// No path through a field of one reaches a rank, whatever the basis, the
-    /// moment, or the placing. This is the assertion that would fail if the old
-    /// behaviour returned by any route.
+    /// No path through a field of one reaches a rank, whatever the basis or the
+    /// placing. This is the assertion that would fail if the old behaviour
+    /// returned by any route.
     @Test
     func noFieldOfOneOnAClimbCanEverProduceARank() throws {
         for basis in [Hero.Basis.atCompletion, .current] {
-            for moment in [Hero.Moment.freshCompletion, .retrospective] {
-                for ordinal in 1...4 {
-                    let hero = try #require(Hero.make(
-                        isClimbContext: true,
-                        moment: moment,
-                        standings: [Hero.Standing(rank: 1, total: 1, basis: basis)],
-                        personalPlacing: PersonalClimbPlacing(ordinal: ordinal, total: 4),
-                        sync: publishedSync(),
-                        copy: Hero.Copy()
-                    ))
+            for ordinal in 1...4 {
+                let hero = try #require(Hero.make(
+                    isClimbContext: true,
+                    standings: [Hero.Standing(rank: 1, total: 1, basis: basis)],
+                    personalPlacing: PersonalClimbPlacing(ordinal: ordinal, total: 4),
+                    sync: publishedSync(),
+                    copy: Hero.Copy()
+                ))
 
-                    if case .rank = hero.value {
-                        Issue.record("a field of one rendered a leaderboard rank")
-                    }
+                if case .rank = hero.value {
+                    Issue.record("a field of one rendered a leaderboard rank")
                 }
             }
         }
@@ -172,7 +166,6 @@ struct LiveClimbSummaryHeroGoverningRuleTests {
     func aFirstFinishWithNobodyElseOnTheBoardIsTheFlagAndTheClaimAlone() throws {
         let hero = try #require(Hero.make(
             isClimbContext: true,
-            moment: .freshCompletion,
             standings: [Hero.Standing(rank: 1, total: 1, basis: .atCompletion)],
             personalPlacing: PersonalClimbPlacing(ordinal: 1, total: 1),
             claimsFirstAscent: true,
@@ -214,7 +207,6 @@ struct LiveClimbSummaryHeroGoverningRuleTests {
     func aFirstAscentStillRendersAfterTheClimberReturnsToTheTower() throws {
         let hero = try #require(Hero.make(
             isClimbContext: true,
-            moment: .retrospective,
             standings: [Hero.Standing(rank: 1, total: 1, basis: .atCompletion)],
             personalPlacing: PersonalClimbPlacing(ordinal: 4, total: 4),
             claimsFirstAscent: true,

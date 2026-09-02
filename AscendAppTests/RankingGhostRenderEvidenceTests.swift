@@ -28,8 +28,7 @@ struct RankingGhostRenderEvidenceTests {
         try await RenderedScreen.host(
             heroPanel(
                 standing: Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
-                personalPlacing: PersonalClimbPlacing(ordinal: 2, total: 5),
-                moment: .freshCompletion
+                personalPlacing: PersonalClimbPlacing(ordinal: 2, total: 5)
             ),
             size: Self.screenSize
         ) { screen in
@@ -51,8 +50,7 @@ struct RankingGhostRenderEvidenceTests {
         try await RenderedScreen.host(
             heroPanel(
                 standing: Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
-                personalPlacing: PersonalClimbPlacing(ordinal: 1, total: 5),
-                moment: .freshCompletion
+                personalPlacing: PersonalClimbPlacing(ordinal: 1, total: 5)
             ),
             size: Self.screenSize
         ) { screen in
@@ -72,8 +70,7 @@ struct RankingGhostRenderEvidenceTests {
             heroPanel(
                 standing: Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
                 personalPlacing: PersonalClimbPlacing(ordinal: 1, total: 1),
-                claimsFirstAscent: true,
-                moment: .freshCompletion
+                claimsFirstAscent: true
             ),
             size: Self.screenSize
         ) { screen in
@@ -96,8 +93,7 @@ struct RankingGhostRenderEvidenceTests {
             heroPanel(
                 standing: Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
                 personalPlacing: PersonalClimbPlacing(ordinal: 4, total: 4),
-                claimsFirstAscent: true,
-                moment: .retrospective
+                claimsFirstAscent: true
             ),
             size: Self.screenSize
         ) { screen in
@@ -117,8 +113,7 @@ struct RankingGhostRenderEvidenceTests {
         try await RenderedScreen.host(
             heroPanel(
                 standing: Hero.Standing(rank: 2, total: 2, basis: .atCompletion),
-                personalPlacing: PersonalClimbPlacing(ordinal: 2, total: 5),
-                moment: .freshCompletion
+                personalPlacing: PersonalClimbPlacing(ordinal: 2, total: 5)
             ),
             size: Self.screenSize
         ) { screen in
@@ -310,12 +305,10 @@ struct RankingGhostRenderEvidenceTests {
     private func heroPanel(
         standing: Hero.Standing?,
         personalPlacing: PersonalClimbPlacing?,
-        claimsFirstAscent: Bool = false,
-        moment: Hero.Moment
+        claimsFirstAscent: Bool = false
     ) throws -> some View {
         let hero = try #require(Hero.make(
             isClimbContext: true,
-            moment: moment,
             standings: [standing],
             personalPlacing: personalPlacing,
             claimsFirstAscent: claimsFirstAscent,
@@ -359,7 +352,10 @@ struct RankingGhostRenderEvidenceTests {
             currentUserPhotoURL: nil,
             previousBestStepsAtBucket: markerSteps,
             fetchFailed: false,
-            field: LiveReplayFieldSize(population: .climbers, count: 1),
+            standing: .racing(
+                field: LiveReplayFieldSize(population: .climbers, count: 1),
+                ownClimbs: nil
+            ),
             tint: .accent,
             effectiveColorScheme: .dark,
             showsFilter: false

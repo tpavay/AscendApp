@@ -252,7 +252,7 @@ struct LiveReplayLeaderboardPanel: View {
             row: row,
             progressScaleSteps: progressScaleSteps,
             progress: progress,
-            previousBestProgress: row.isCurrentUser ? previousBestProgress : nil,
+            previousBestProgress: row.isLiveAttempt ? previousBestProgress : nil,
             currentUserPhotoURL: currentUserPhotoURL,
             showsLeaderboardRank: standing.showsLeaderboardRank,
             tint: tint,
@@ -418,8 +418,6 @@ private struct LiveReplayLeaderboardRowView: View {
         }
     }
 
-    private var rankLabel: String {
-        row.rank.map(String.init) ?? "--"
     /// The viewer's own earlier completion holds no placing, so its cell draws
     /// nothing at all, and neither does any row on a board with no leaderboard
     /// placing to state. `--` still stands for a rank that could not be
