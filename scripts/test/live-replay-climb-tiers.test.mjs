@@ -80,7 +80,7 @@ test("an open climb is seeded with no completions, so its slot is claimable", ()
 // four are the ones QA and content capture have been using. Opening Petronas
 // Towers moved it into second place and pushed Sky Tower (Auckland) out of the
 // preview.
-test("the profile's open preview still leads with the same four climbs", () => {
+test("the profile's open preview leads with the expected four climbs", () => {
   const open = firstAscentOpenConfigs(catalog(), contestedClimbIds());
 
   assert.deepEqual(open.slice(0, 4).map((config) => config.id), [

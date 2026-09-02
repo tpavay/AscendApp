@@ -161,7 +161,7 @@ node scripts/seed-content-ready.mjs clear --email you@example.com
 The order matters: clearing the world first would zero a board's completion count while the account's rows were still standing on it.
 
 **What it hands back.**
-Every seeded board is zeroed and its First Ascent fields deleted, so all 58 climb boards read as claimable again, including the ones the pack had contested.
+Every seeded board is zeroed and its First Ascent fields deleted, so all 59 climb boards read as claimable again, including the ones the pack had contested.
 That is the state to clear into when what you want to film is claiming a First Ascent.
 
 **What it cannot undo.**
