@@ -141,21 +141,29 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         )
     }
 
-    /// The value a climber ranks on once this attempt is in: their stored best,
-    /// or this attempt where it beats it.
+    /// Whether the climber's own best-per-user row stands ahead of this attempt.
     ///
-    /// A slower repeat therefore keeps the standing its climber already holds
-    /// rather than computing one worse than the board would show them.
-    static func resultingBest(
+    /// The client half of the server's `ownLeadingFinisherCount`, and it exists
+    /// for the same reason: a board that shows one row per climber must never
+    /// seat a climber behind themselves, so their own leading row is removed
+    /// from the count of climbers ahead of this attempt.
+    ///
+    /// The rank still belongs to *this climb's own time* - each completion
+    /// summary is a permanent record of the climb it sits on, so a 9:40 shows
+    /// the rank a 9:40 earned and an 8:12 shows the rank an 8:12 earned. Ranking
+    /// on the climber's all-time best instead would tell a climber their slower
+    /// run came first on a board somebody beat that run on.
+    static func ownLeadingRowCount(
         metric: LiveReplayRankingMetric,
         storedBest: Double?,
         attemptRankingValue: Double
-    ) -> Double {
-        guard let storedBest else { return attemptRankingValue }
+    ) -> Int {
+        guard let storedBest else { return 0 }
 
-        return metric.ranksHighestFirst
-            ? max(storedBest, attemptRankingValue)
-            : min(storedBest, attemptRankingValue)
+        let leads = metric.ranksHighestFirst
+            ? storedBest > attemptRankingValue
+            : storedBest < attemptRankingValue
+        return leads ? 1 : 0
     }
 
     /// One row per completed attempt, this one included even before it publishes.
@@ -200,7 +208,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         attemptRankingValue: Double
     ) async throws -> LiveReplayCompletionRank {
         let storedBest = try await currentUserBestRankingValue(context: context)
-        let resultingBest = Self.resultingBest(
+        let ownLeadingRows = Self.ownLeadingRowCount(
             metric: context.type.rankingMetric,
             storedBest: storedBest,
             attemptRankingValue: attemptRankingValue
@@ -208,7 +216,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
 
         async let betterClimberCount = countLiveRaceRowsBetterThan(
             context: context,
-            rankingValue: resultingBest
+            rankingValue: attemptRankingValue
         )
         async let raceFieldCount = countLiveRaceRows(
             context: context,
@@ -216,7 +224,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         )
 
         return Self.climberStanding(
-            betterClimberCount: try await betterClimberCount,
+            betterClimberCount: try await betterClimberCount - ownLeadingRows,
             raceFieldCount: try await raceFieldCount,
             climberAlreadyInField: storedBest != nil
         )
