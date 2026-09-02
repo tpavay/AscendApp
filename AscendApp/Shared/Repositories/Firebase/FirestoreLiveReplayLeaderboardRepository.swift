@@ -1467,13 +1467,11 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
 
     /// Entries as the live race ranks them.
     ///
-    /// A per-climb race is a field of climbers, not of attempts, so a repeat
-    /// finisher races as a single rival on their fastest completion. The server
-    /// owns the flag; the static completion board reads the same entries
-    /// unfiltered to keep showing every completion.
-    ///
-    /// Every other context races every completed attempt as its own opponent and
-    /// carries no flag, so filtering there would empty the field.
+    /// A race is a field of climbers, not of attempts, so a repeat finisher
+    /// races as a single rival on their best run against the board's own
+    /// ranking metric. The server owns the flag on every context type; the
+    /// static completion board reads the same entries unfiltered to keep
+    /// showing every completion.
     private func liveRaceEntries(
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int

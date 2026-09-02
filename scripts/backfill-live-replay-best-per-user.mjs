@@ -15,13 +15,10 @@
  * a client that filters on a flag the rows do not carry renders an empty board.
  * Run it after the Cloud Functions deploy and before the iOS build ships.
  *
- * Superseded note - every other context used to race each
- * completed attempt as its own opponent and carries no flag, so collapsing
- * their entries on fastest-wins would pick the wrong attempt.
- *
- * Only each climber's fastest attempt is written. Firestore's equality filter
- * never matches a document missing the field, so slower attempts are already
- * excluded from the live race and are left untouched.
+ * Only each climber's best attempt is flagged, on the board's own ranking
+ * metric - the most steps on a `routine_template` board, the fastest
+ * completion everywhere else (`ranksOnSteps`). Attempts already carrying the
+ * right flag are left untouched, so a second run writes nothing.
  *
  * The static completion leaderboard reads these same entries unfiltered and
  * still shows every completion. This script never adds or removes an entry.
@@ -90,7 +87,7 @@ console.log(
     `Project: ${projectId}`,
     `Mode: ${args.dryRun ? "dry run" : "write"}`,
     `Contexts scanned: ${result.contextsScanned}`,
-    `Contexts skipped (races every attempt): ${result.contextsSkipped}`,
+    `Contexts skipped (context type unreadable): ${result.contextsSkipped}`,
     `Attempts scanned: ${result.attemptsScanned}`,
     `Climbers scanned: ${result.climbersScanned}`,
     `Repeat climbers collapsed: ${result.repeatClimbersCollapsed}`,
@@ -297,7 +294,7 @@ async function backfillContext(
   const attemptsByUserId = new Map();
 
   for (const doc of entriesSnapshot.docs) {
-    const attempt = userAttemptEntry(doc.data() ?? {}, doc.id);
+    const attempt = userAttemptEntry(doc.data() ?? {}, doc.id, contextType);
 
     if (attempt === null) {
       counters.attemptsSkipped += 1;
@@ -422,22 +419,15 @@ async function applyEntryUpdates(
  */
 function bestAttemptWorkoutId(attempts, contextType) {
   const onSteps = ranksOnSteps(contextType);
-  const valueOf = (attempt) => onSteps ?
-    attempt.finalSteps :
-    attempt.completionDurationSeconds;
   let best = null;
 
   for (const attempt of attempts) {
-    if (valueOf(attempt) === null) {
-      continue;
-    }
-
     const beats = best === null ||
       (onSteps ?
-        valueOf(attempt) > valueOf(best) :
-        valueOf(attempt) < valueOf(best));
+        attempt.rankingValue > best.rankingValue :
+        attempt.rankingValue < best.rankingValue);
     const breaksTie = best !== null &&
-      valueOf(attempt) === valueOf(best) &&
+      attempt.rankingValue === best.rankingValue &&
       attempt.workoutId < best.workoutId;
 
     if (beats || breaksTie) {
@@ -458,6 +448,15 @@ function bestAttemptWorkoutId(attempts, contextType) {
  */
 function bestForUserFlagUpdates(attempts, contextType) {
   const winningWorkoutId = bestAttemptWorkoutId(attempts, contextType);
+
+  // Fail closed rather than demote. A climber whose attempts all read as
+  // unusable resolves no winner, and writing `false` across them would strip
+  // them out of the live race on the strength of a value that could not be
+  // read.
+  if (winningWorkoutId === null) {
+    return [];
+  }
+
   const updates = [];
 
   for (const attempt of attempts) {
@@ -480,26 +479,32 @@ function bestForUserFlagUpdates(attempts, contextType) {
 }
 
 /**
- * Reads one published attempt from its bucket-zero entry document.
+ * Reads one published attempt from its bucket-zero entry document, taking its
+ * ranking value from whichever number the context's metric ranks on.
+ *
+ * Mirrors the server's `userAttemptEntry`: an attempt carrying no usable value
+ * for the board's own metric is rejected here rather than admitted and then
+ * skipped by the winner selection, so it can never reach the flag diff as a
+ * row to demote out of the live race.
  * @param {Record<string, unknown>} data Bucket-zero entry data.
  * @param {string} documentId Entry document ID.
+ * @param {string} contextType Replay context type.
  * @return {object | null} Parsed attempt, or null when unusable.
  */
-function userAttemptEntry(data, documentId) {
-  const completionDurationSeconds = nonNegativeNumberValue(
-    data.completionDurationSeconds
-  );
+function userAttemptEntry(data, documentId, contextType) {
+  const rankingValue = ranksOnSteps(contextType) ?
+    nonNegativeIntegerValue(data.finalSteps) :
+    nonNegativeNumberValue(data.completionDurationSeconds);
   const userId = typeof data.userId === "string" ? data.userId : null;
 
-  if (completionDurationSeconds === null || userId === null) {
+  if (rankingValue === null || userId === null) {
     return null;
   }
 
   return {
     workoutId: typeof data.workoutId === "string" ? data.workoutId : documentId,
     userId,
-    completionDurationSeconds,
-    finalSteps: nonNegativeNumberValue(data.finalSteps),
+    rankingValue,
     splitBucketCount: attemptSplitBucketCount(data),
     estimatedEntryCount: estimatedPublishedBucketCount(data),
     hasKnownBucketSpan: hasStoredBucketSpan(data),
@@ -573,6 +578,19 @@ function estimatedPublishedBucketCount(data) {
  */
 function nonNegativeNumberValue(value) {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return null;
+  }
+
+  return value;
+}
+
+/**
+ * Returns a non-negative integer.
+ * @param {unknown} value Raw value.
+ * @return {number | null} Parsed integer, if valid.
+ */
+function nonNegativeIntegerValue(value) {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
     return null;
   }
 

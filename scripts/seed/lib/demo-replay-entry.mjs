@@ -19,7 +19,11 @@ export function buildDemoReplayEntry({
     contextType: context.contextType,
     displayName: user.displayName,
     finalSteps: context.finalSteps,
-    ...(context.contextType === "live_climb" ? {isBestForUser: true} : {}),
+    // Every context type races `isBestForUser == true` now, and a demo user
+    // publishes one attempt per context, so it is always their best. Omitting
+    // it would leave the row unreachable to the live race - Firestore equality
+    // never matches a missing field.
+    isBestForUser: true,
     identityState,
     isPersonalBest: true,
     isSynthetic: false,

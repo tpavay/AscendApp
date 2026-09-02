@@ -275,37 +275,9 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "finalSteps",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "splitBucketCount",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "entries",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
           "fieldPath": "isBestForUser",
           "order": "ASCENDING"
         },
-        {
-          "fieldPath": "finalSteps",
-          "order": "DESCENDING"
-        },
-        {
-          "fieldPath": "splitBucketCount",
-          "order": "DESCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "entries",
-      "queryScope": "COLLECTION",
-      "fields": [
         {
           "fieldPath": "finalSteps",
           "order": "DESCENDING"

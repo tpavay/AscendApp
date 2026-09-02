@@ -51,7 +51,6 @@ import {currentPeriod} from "./lib/leaderboard-period.mjs";
 import {
   LEADERBOARD_METRIC_SORT_FIELDS,
   LEADERBOARD_TIME_FRAMES,
-  collapsesRepeatFinishers,
   millisecondsValue,
   numberValue,
   renderedAchievement,
@@ -760,14 +759,11 @@ async function liveFieldSamples(document, board, sampleCount) {
   const samples = new Array(indices.length);
 
   await runPool(indices, READ_CONCURRENCY, async (bucketIndex, position) => {
-    // Mirrored from `liveRaceEntries` rather than hard-coded: a per-climb board
-    // races a field of climbers on their best attempt, and a context that does
-    // not collapse repeat finishers carries no flag, so filtering there would
-    // count zero rivals on a board that has plenty.
-    let query = entriesCollection(document, bucketIndex);
-    if (collapsesRepeatFinishers(LIVE_CLIMB_CONTEXT_TYPE)) {
-      query = query.where("isBestForUser", "==", true);
-    }
+    // Mirrored from `liveRaceEntries`: every context type races one flagged row
+    // per climber, so a check that counted unfiltered rows would report a field
+    // the app never shows.
+    const query = entriesCollection(document, bucketIndex)
+      .where("isBestForUser", "==", true);
     samples[position] = {
       bucketIndex,
       count: await countOf(query, `count(${document.id}/splitBuckets/${bucketIndex}/entries)`),

@@ -74,6 +74,7 @@ const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
 const LIVE_CLIMB_CONTEXT_TYPE = "live_climb";
 const JUST_CLIMB_CONTEXT_TYPE = "just_climb";
+const ROUTINE_TEMPLATE_CONTEXT_TYPE = "routine_template";
 const JUST_CLIMB_GLOBAL_CONTEXT_ID = "global";
 const DEFAULT_DEV_SEED_PACK_ID = "live-replay-v1-dev";
 const DEFAULT_STAGING_SEED_PACK_ID = "live-replay-v1-staging";
@@ -101,7 +102,7 @@ const SEED_BUCKET_COUNT_FIELD = "seedBucketCount";
  * changed constant. The step values are hashed directly, so the maths behind
  * them needs no bump.
  */
-const SEED_WRITE_REVISION = 2;
+const SEED_WRITE_REVISION = 3;
 
 /** Replay contexts enumerated at once. Each fans out again over its own buckets. */
 const CONTEXT_CONCURRENCY = 12;
@@ -1276,6 +1277,10 @@ function contextFingerprint(context, seedPackId) {
  * @return {object[]} Prepared contexts, each carrying its materialized rows.
  */
 function prepareContexts(seedPlan, claimedOpen, db) {
+  const withBestAttemptIds = (context) => ({
+    ...context,
+    bestAttemptIds: bestAttemptIds(context.rows, context.contextType),
+  });
   const contexts = seedPlan.climbPlans
     .filter((plan) => !claimedOpen.has(plan.climb.id))
     .map((plan) => ({
@@ -1289,15 +1294,15 @@ function prepareContexts(seedPlan, claimedOpen, db) {
       splitBucketsRef: splitBucketsCollection(db, plan.climb.id),
       attempts: plan.attempts,
       maxBucketIndex: plan.maxBucketIndex,
-      collapsesRepeatFinishers: true,
       rows: plan.attempts.map((attempt) => ({
         attempt,
         series: stepSeries(attempt, plan.maxBucketIndex),
       })),
-    }));
+    }))
+    .map(withBestAttemptIds);
 
   const justClimb = seedPlan.justClimbPlan;
-  contexts.push({
+  contexts.push(withBestAttemptIds({
     plan: justClimb,
     contextType: JUST_CLIMB_CONTEXT_TYPE,
     contextId: JUST_CLIMB_GLOBAL_CONTEXT_ID,
@@ -1308,12 +1313,11 @@ function prepareContexts(seedPlan, claimedOpen, db) {
     splitBucketsRef: justClimbLeaderboardRef(db).collection("splitBuckets"),
     attempts: justClimb.attempts,
     maxBucketIndex: justClimb.maxBucketIndex,
-    collapsesRepeatFinishers: false,
     rows: justClimb.attempts.map((attempt) => ({
       attempt,
       series: stepSeries(attempt, justClimb.maxBucketIndex),
     })),
-  });
+  }));
 
   return contexts;
 }
@@ -1559,6 +1563,53 @@ function summaryWrite(context, {args, now, climbBoards, justClimbBoard, seedPlan
 }
 
 /**
+ * Mirrors `ranksOnSteps` in functions/src/liveReplayLeaderboard.ts.
+ * @param {string} contextType Replay context type.
+ * @return {boolean} True when higher steps rank better.
+ */
+function ranksOnSteps(contextType) {
+  return contextType === ROUTINE_TEMPLATE_CONTEXT_TYPE;
+}
+
+/**
+ * The attempt ids one flagged `isBestForUser` row per climber belongs to.
+ *
+ * The live race filters on that flag on every context type, and Firestore
+ * equality never matches a missing field, so a seeded board whose rows omit it
+ * renders an empty field however many entries it holds. Mirrors the server's
+ * best-per-user rule, including its metric: the most steps where the board
+ * ranks on steps, the fastest completion otherwise, ties resolved on the
+ * attempt id so every writer picks the same winner.
+ * @param {object[]} rows Prepared rows, each carrying its attempt.
+ * @param {string} contextType Replay context type.
+ * @return {Set<string>} Attempt ids to flag.
+ */
+function bestAttemptIds(rows, contextType) {
+  const onSteps = ranksOnSteps(contextType);
+  const valueOf = (attempt) => (onSteps ?
+    attempt.finalSteps :
+    attempt.completionDurationSeconds);
+  const bestByUserId = new Map();
+
+  for (const {attempt} of rows) {
+    const best = bestByUserId.get(attempt.userId);
+    const beats = best === undefined ||
+      (onSteps ?
+        valueOf(attempt) > valueOf(best) :
+        valueOf(attempt) < valueOf(best));
+    const breaksTie = best !== undefined &&
+      valueOf(attempt) === valueOf(best) &&
+      attempt.id < best.id;
+
+    if (beats || breaksTie) {
+      bestByUserId.set(attempt.userId, attempt);
+    }
+  }
+
+  return new Set([...bestByUserId.values()].map((attempt) => attempt.id));
+}
+
+/**
  * One split bucket entry.
  * @param {object} context Prepared context.
  * @param {object} attempt Generated attempt.
@@ -1575,6 +1626,7 @@ function entryWrite(context, attempt, stepsAtBucket, {seedPackId, now}) {
     displayName: attempt.displayName,
     finalSteps: attempt.finalSteps,
     identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
+    isBestForUser: context.bestAttemptIds.has(attempt.id),
     isSynthetic: true,
     photoURL: attempt.photoURL ?? "",
     schemaVersion: 1,
@@ -1587,14 +1639,6 @@ function entryWrite(context, attempt, stepsAtBucket, {seedPackId, now}) {
     userId: attempt.userId,
     workoutId: attempt.id,
   };
-
-  // Every synthetic attempt is its own climber, so each is its own best. The
-  // open Just Climb race has no step target and races every completed attempt
-  // as its own opponent, so it carries no flag at all - filtering there would
-  // empty the field.
-  if (context.collapsesRepeatFinishers) {
-    entry.isBestForUser = true;
-  }
 
   return entry;
 }
