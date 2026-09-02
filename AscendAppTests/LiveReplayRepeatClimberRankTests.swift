@@ -6,17 +6,22 @@ import Testing
 /// production actually held.
 ///
 /// He held the First Ascent at 346.66s over 35 split buckets and ran it again in
-/// 399.22s over 40. Three things went wrong on the live board and its completion
-/// summary while Climb Detail - reading the same completions - stayed right:
+/// 399.22s over 40. Two things went wrong on the live board while Climb Detail -
+/// reading the same completions - stayed right:
 ///
 /// 1. His earlier row was parsed as a stranger's, so it wore initials, a
 ///    demographic subtitle and a link to another climber's profile - his own.
 /// 2. From bucket 35 his earlier attempt had no entry at all, because a
 ///    published attempt writes one entry per bucket it ran for and not one more.
 ///    The row vanished and the run still going took first.
-/// 3. The frozen summary counted climbers rather than completions and then
-///    subtracted his own faster row back out, freezing "1st of 1" on the slower
-///    run.
+///
+/// His completion summary reading "1st of 1" was the third complaint and is not
+/// a third defect. The captain settled the arithmetic on 2026-09-01: a rank is
+/// computed on the time of the climb it belongs to, against the other unique
+/// climbers, and with a field of one climber a rank of 1 of 1 is the true
+/// answer. What is wrong there is showing a leaderboard placing at all when the
+/// field is just the climber, which the ranking-and-ghost design fixes on the
+/// hero rather than in this arithmetic.
 ///
 /// The fixtures below use his real numbers so the arithmetic is checkable
 /// against `live_replay_leaderboards/live_climb__st-peters-basilica`.

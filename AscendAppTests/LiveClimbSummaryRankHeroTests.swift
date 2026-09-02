@@ -154,12 +154,13 @@ struct LiveClimbSummaryRankHeroTests {
 
     // MARK: - The frozen basis
 
-    /// The captain's second St Peter's climb: slower than his own record, yet
-    /// still holding the position that record won. The frozen standing is true -
-    /// he *is* first among the climbers on that board - but the run in front of
-    /// him did not earn it, so the card may not say a run just did.
+    /// The frozen basis reads the same the instant a climb ends as it does a
+    /// month later, because both tenses describe the same number: the rank that
+    /// climb's own time earned on the day it landed. The completion-moment
+    /// variant said "RANK YOU JUST EARNED" and bought nothing over this, so it
+    /// went along with the `Moment` branch that existed only to choose it.
     @Test
-    func aFrozenStandingIsNeverDescribedAsSomethingTheRunJustEarned() throws {
+    func theFrozenBasisReadsTheSameInBothMoments() throws {
         let hero = try #require(Hero.make(
             isClimbContext: true,
             standings: [Hero.Standing(rank: 4, total: 12, basis: .atCompletion)],

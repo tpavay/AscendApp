@@ -84,60 +84,92 @@ struct LiveReplayRecomputedStandingTests {
         #expect(standing.completedCount == 3)
     }
 
-    // MARK: - What a climber is measured against
+    // MARK: - Which time a climber's rank is computed on
 
+    /// Settled by the captain on 2026-09-01: "You use the time from the given
+    /// climb for the rank. You don't use the all-time best for the rank."
+    ///
+    /// Every completion summary is a permanent record of the climb it sits on,
+    /// so a 9:40 shows the rank a 9:40 earned and an 8:12 shows the rank an 8:12
+    /// earned on the day it landed. Ranking a repeat on its climber's all-time
+    /// best instead reads as generous and is worse than the bug it looks like a
+    /// fix for: it tells a climber their slower run came first on a board where
+    /// somebody beat that run.
     @Test
-    func aSlowerRepeatIsMeasuredAgainstTheRecordItsClimberHolds() {
-        // The captain's St Peter's pair: 346.66s banked, 399.22s publishing now.
-        // Measured against the raw attempt, this run would compute a rank worse
-        // than the board actually seats him at.
-        let best = Repository.resultingBest(
+    func aRepeatIsRankedOnTheTimeItJustPostedAndNotOnItsClimbersBest() {
+        // The captain's St Peter's pair - 346.66s banked, 399.22s publishing now
+        // - on a board where one rival holds 370s. Counting best-per-user rows
+        // ahead of the 399.22 finds both the rival and the climber's own row.
+        let betterClimberRows = 2
+        let ownLeadingRows = Repository.ownLeadingRowCount(
             metric: .fastestCompletion,
             storedBest: 346.66,
             attemptRankingValue: 399.22
         )
 
-        #expect(best == 346.66)
+        let standing = Repository.climberStanding(
+            betterClimberCount: betterClimberRows - ownLeadingRows,
+            raceFieldCount: 2,
+            climberAlreadyInField: true
+        )
+
+        // Second, because a 399.22 loses to the rival's 370 - not first, which
+        // is what ranking on the banked 346.66 would have claimed.
+        #expect(standing.rank == 2)
+        #expect(standing.completedCount == 2)
+    }
+
+    /// A board showing one row per climber must never seat a climber behind
+    /// themselves, which is the whole job of removing their own leading row.
+    @Test
+    func aClimbersOwnLeadingRowIsNotCountedAgainstThem() {
+        #expect(
+            Repository.ownLeadingRowCount(
+                metric: .fastestCompletion,
+                storedBest: 346.66,
+                attemptRankingValue: 399.22
+            ) == 1
+        )
     }
 
     @Test
-    func aFasterRepeatMovesItsClimberUp() {
+    func aFasterRepeatHasNoLeadingRowToRemove() {
         #expect(
-            Repository.resultingBest(
+            Repository.ownLeadingRowCount(
                 metric: .fastestCompletion,
                 storedBest: 399.22,
                 attemptRankingValue: 346.66
-            ) == 346.66
+            ) == 0
         )
     }
 
     @Test
-    func aRoutineClimbersBestIsTheirTallestRun() {
+    func aRoutineClimberLeadsOnTheTallerRun() {
         // A routine fixes the clock, so more steps is better in both directions.
         #expect(
-            Repository.resultingBest(
+            Repository.ownLeadingRowCount(
                 metric: .mostSteps,
                 storedBest: 1_900,
                 attemptRankingValue: 1_840
-            ) == 1_900
+            ) == 1
         )
         #expect(
-            Repository.resultingBest(
+            Repository.ownLeadingRowCount(
                 metric: .mostSteps,
                 storedBest: 1_840,
                 attemptRankingValue: 1_900
-            ) == 1_900
+            ) == 0
         )
     }
 
     @Test
-    func aFirstTimeClimberIsMeasuredAgainstTheAttemptItself() {
+    func aFirstTimeClimberHasNoRowToRemove() {
         #expect(
-            Repository.resultingBest(
+            Repository.ownLeadingRowCount(
                 metric: .fastestCompletion,
                 storedBest: nil,
                 attemptRankingValue: 399.22
-            ) == 399.22
+            ) == 0
         )
     }
 
