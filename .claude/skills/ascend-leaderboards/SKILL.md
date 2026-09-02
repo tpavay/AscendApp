@@ -106,15 +106,20 @@ When both are true, the leaderboard rank leads and the personal placing drops to
 
 ### Anchors
 
-Each statement has a test behind it, or a gap named here. `scripts/test/rank-model-contract.test.mjs` keeps this section single-homed and checks that each anchor below still exists, so deleting one fails rather than ships.
+Each statement has a test behind it, or a gap named here.
+`scripts/test/rank-model-contract.test.mjs` keeps this section single-homed and checks that each anchor below still exists, so deleting one fails rather than ships.
 
 1. During a climb - `AscendAppTests/LiveReplayFieldPopulationTests.onlyPerClimbAndPerTemplateContextsCollapseRepeats`. The `BEST` marker has no anchor yet because it has no code yet; it is being built on issue #561.
 2. The summary right after you finish - `functions/test/liveReplayLeaderboard.test.ts`, "counts a repeat rival once on a board that races climbers" and "never seats a climber behind their own earlier best".
 3. Reopened later - `AscendAppTests/CompletedClimbRankFreezeTests.aLaterServerReadNeverMovesAnAlreadyFrozenRank`, and on the share card `AscendAppTests/SavedClimbShareRankTests.aStoredFrozenStandingReachesTheSavedClimbShareCardWithoutARequest`.
-4. Climb detail - two anchors that cover different things, and neither covers the whole statement. The only thing holding the shipping `ClimbDetailView`'s `ALL TIMES` title is the contract test's string check against that file. `AscendAppTests/LiveReplayFieldPopulationRenderEvidenceTests.climbDetailsThirdTabReadsAllTimesAndCountsCompletions` covers the rendered treatment - the tab strip and its `COMPLETIONS` noun read back off pixels - but it redraws that strip and page chrome, because `ClimbDetailView` is a Firebase-auth gated screen the suite cannot host, so it is not regression cover on the shipping view. The unfiltered all-attempts read itself has no anchor at all: those rows come from an unfiltered Firestore query over `splitBuckets/0/entries` in `FirestoreLiveReplayLeaderboardRepository.fetchCompletionLeaderboard`, which no unit test reaches.
+4. Climb detail - two anchors that cover different things, and neither covers the whole statement.
+   The only thing holding the shipping `ClimbDetailView`'s `ALL TIMES` title is the contract test's string check against that file.
+   `AscendAppTests/LiveReplayFieldPopulationRenderEvidenceTests.climbDetailsThirdTabReadsAllTimesAndCountsCompletions` covers the rendered treatment - the tab strip and its `COMPLETIONS` noun read back off pixels - but it redraws that strip and page chrome, because `ClimbDetailView` is a Firebase-auth gated screen the suite cannot host, so it is not regression cover on the shipping view.
+   The unfiltered all-attempts read itself has no anchor at all: those rows come from an unfiltered Firestore query over `splitBuckets/0/entries` in `FirestoreLiveReplayLeaderboardRepository.fetchCompletionLeaderboard`, which no unit test reaches.
 5. Naming the population - `AscendAppTests/LiveReplayFieldPopulationTests.fieldSizeLabelNamesThePopulationAndGroupsTheNumber`.
 
-The rank sentence on an open Just Climb and a plain routine has no anchor either, and the tests that name it still pin the superseded attempt-counting form. What is decided, what still ships, and who is building it are stated in the row-versus-rank seam above.
+The rank sentence on an open Just Climb and a plain routine has no anchor either, and the tests that name it still pin the superseded attempt-counting form.
+What is decided, what still ships, and who is building it are stated in the row-versus-rank seam above.
 
 ## Week Start + Leaderboard Windowing
 
