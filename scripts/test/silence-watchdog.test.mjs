@@ -85,6 +85,37 @@ test("a silent command is killed after the silence limit, hook first, children i
   assert.notEqual(alive.status, 0, `child ${childPid} survived the process-group kill`);
 });
 
+test("a child that ignores TERM holds the watchdog until the KILL fallback has emptied the group", () => {
+  // The group TERM also lands on the pipeline's own shell. If the grace loop
+  // waited on that shell instead of the group, it would return at once and
+  // leave the command running into the next pass.
+  const dir = mkdtempSync(path.join(tmpdir(), "silence-watchdog-kill-"));
+  const marker = path.join(dir, "child.pid");
+  const silence = 3;
+  const grace = 3;
+  const started = Date.now();
+
+  const result = run({
+    silence,
+    grace,
+    command: `echo "one line then nothing"; bash -c 'trap "" TERM; sleep 300' & echo $! > "${marker}"; wait`,
+  });
+
+  const elapsed = (Date.now() - started) / 1000;
+
+  assert.equal(result.status, 124, `expected the watchdog's own status, got ${result.status}: ${result.stderr}`);
+  assert.ok(
+    elapsed >= silence + grace - 0.5,
+    `returned after ${elapsed}s, before the ${grace}s grace period a TERM-ignoring child has to exhaust`
+  );
+  assert.ok(elapsed < 30, `killed in ${elapsed}s, not at the command's own 300 s`);
+
+  const childPid = Number(readFileSync(marker, "utf8").trim());
+  assert.ok(childPid > 0);
+  const alive = spawnSync("kill", ["-0", String(childPid)]);
+  assert.notEqual(alive.status, 0, `child ${childPid} survived the KILL fallback, or the watchdog returned before it fired`);
+});
+
 test("a command that resumes writing before the limit is not killed", () => {
   const result = run({
     silence: 4,

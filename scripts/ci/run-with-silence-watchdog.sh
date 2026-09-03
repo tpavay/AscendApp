@@ -20,7 +20,11 @@
 # can finalise its result bundle - the `tee` in the pipeline ignores it, or the
 # command's next write during the grace period would die on SIGPIPE instead -
 # and SIGKILL after the grace period so a bridge that ignores it cannot keep
-# the step alive.
+# the step alive. The grace period and the SIGKILL decision wait on the process
+# group itself, not on the pipeline's own shell: that shell is in the group too,
+# and a TERM ends it at once while the command it started is still shutting
+# down. It ignores TERM for the same reason, so `wait` reports the command's
+# real end; the command's disposition is restored before it runs.
 #
 # Silence is measured on progress, not on bytes. With `--progress-pattern`,
 # a line is progress only if it matches; anything else is noise. A wedged test
@@ -101,11 +105,15 @@ last_size="$(log_size)"
 # Monitor mode puts the background pipeline in its own process group, which is
 # the only handle that reaches every process the command spawned.
 set -m
-( "$@" 2>&1 | ( trap "" TERM; exec tee -a "$log" ) ) &
+( trap "" TERM; ( trap - TERM; exec "$@" ) 2>&1 | ( trap "" TERM; exec tee -a "$log" ) ) &
 job=$!
 set +m
 
 group="$(ps -o pgid= -p "$job" | tr -d ' ')"
+
+group_alive() {
+    pgrep -g "$group" >/dev/null 2>&1
+}
 last_progress=0
 quiet=0
 
@@ -153,12 +161,12 @@ while kill -0 "$job" 2>/dev/null; do
     kill -TERM -- "-$group" 2>/dev/null || kill -TERM "$job" 2>/dev/null || true
 
     waited=0
-    while kill -0 "$job" 2>/dev/null && [ "$waited" -lt "$grace" ]; do
+    while group_alive && [ "$waited" -lt "$grace" ]; do
         sleep 1
         waited=$((waited + 1))
     done
 
-    if kill -0 "$job" 2>/dev/null; then
+    if group_alive; then
         kill -KILL -- "-$group" 2>/dev/null || kill -KILL "$job" 2>/dev/null || true
     fi
 
