@@ -17,8 +17,10 @@
 # host and the simulator bridge as children, and terminating the parent alone
 # leaves them holding the log open. `set -m` is what gives the background job a
 # group of its own under the runner's bash 3.2. SIGTERM first, so `xcodebuild`
-# can finalise its result bundle, SIGKILL after a grace period so a bridge that
-# ignores it cannot keep the step alive.
+# can finalise its result bundle - the `tee` in the pipeline ignores it, or the
+# command's next write during the grace period would die on SIGPIPE instead -
+# and SIGKILL after the grace period so a bridge that ignores it cannot keep
+# the step alive.
 #
 # Silence is measured on progress, not on bytes. With `--progress-pattern`,
 # a line is progress only if it matches; anything else is noise. A wedged test
@@ -78,7 +80,7 @@ mkdir -p "$(dirname "$log")"
 touch "$log"
 
 log_size() {
-    stat -f %z "$log" 2>/dev/null || echo 0
+    wc -c < "$log" | tr -d " "
 }
 
 # Progress lines written since this watchdog started; the log may already
@@ -99,7 +101,7 @@ last_size="$(log_size)"
 # Monitor mode puts the background pipeline in its own process group, which is
 # the only handle that reaches every process the command spawned.
 set -m
-( "$@" 2>&1 | tee -a "$log" ) &
+( "$@" 2>&1 | ( trap "" TERM; exec tee -a "$log" ) ) &
 job=$!
 set +m
 

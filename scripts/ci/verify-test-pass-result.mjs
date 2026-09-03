@@ -105,10 +105,9 @@ function readResult(kind, resultPath) {
         {encoding: "utf8", maxBuffer: 256 * 1024 * 1024}
     );
 
-    if (result.status !== 0) {
-        console.error(
-            `::error::Could not read the ${kind} of ${resultPath}: ${result.stderr.trim()}`
-        );
+    if (result.error || result.status !== 0) {
+        const detail = result.error?.message ?? (result.stderr ?? "").trim();
+        console.error(`::error::Could not read the ${kind} of ${resultPath}: ${detail}`);
         process.exit(2);
     }
 
@@ -141,5 +140,10 @@ function main() {
 // (macOS puts `mkdtemp` under /var, which is /private/var), and the module URL
 // is always the resolved one.
 if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
-    main();
+    try {
+        main();
+    } catch (error) {
+        console.error(`::error::Could not read the result bundle: ${error?.message ?? error}`);
+        process.exit(2);
+    }
 }

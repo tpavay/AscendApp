@@ -667,7 +667,7 @@ jobs:
       - name: Run tests
         id: tests
         shell: bash
-        timeout-minutes: 38
+        timeout-minutes: 34
         run: ./scripts/ci/run-ios-test-passes.sh "${{ steps.simulator.outputs.id }}"
 
       # A step killed by the job-level timeout-minutes reports `cancelled`,

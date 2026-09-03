@@ -153,7 +153,7 @@ node "$scripts_dir/plan-test-passes.mjs" "$log_dir/test-pass-" | tee -a "$log"
 
 # The planner writes one file per pass; count what it produced rather than
 # assuming, or an isolated pass never runs.
-total_passes="$(find "$log_dir" -name 'test-pass-*.txt' | wc -l | tr -d ' ')"
+total_passes="$(find "$log_dir" -maxdepth 1 -name 'test-pass-*.txt' ! -name '*.verdict.txt' | wc -l | tr -d ' ')"
 
 # The boot was started by the `Select simulator` step while the compiler had
 # the cores. This is the synchronisation point; `-b` boots it if that failed.
