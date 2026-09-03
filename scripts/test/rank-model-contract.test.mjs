@@ -622,12 +622,20 @@ test("a field size is never carried without the population it counted", () => {
   );
 });
 
+// An anchor is matched by its declaration, not by any occurrence of its name:
+// a Swift test is `func <symbol>(` and a Cloud Functions test is
+// `test("<name>"`. A bare substring match let a suffix rename slip past, leaving
+// the skill naming a test that no longer existed under that name.
+function anchorDeclaration(file, symbol) {
+  return file.endsWith(".swift") ? `func ${symbol}(` : `test("${symbol}"`;
+}
+
 test("each statement's anchor test still exists", () => {
   const section = modelSection();
 
   for (const {statement, file, symbol} of STATEMENT_ANCHORS) {
     assert.ok(
-      read(file, `statement ${statement}'s anchor`).includes(symbol),
+      read(file, `statement ${statement}'s anchor`).includes(anchorDeclaration(file, symbol)),
       `statement ${statement} names ${file} "${symbol}", which no longer exists`
     );
     assert.ok(
