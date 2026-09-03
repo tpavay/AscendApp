@@ -1,7 +1,8 @@
 #!/bin/bash
 #
-# Runs a command, appending its output to a log, and kills it when the log has
-# not grown for a given number of seconds while the command is still alive.
+# Runs a command, appending its output to a log, and kills it when no progress
+# line has landed in the log for a given number of seconds while the command is
+# still alive. Without `--progress-pattern`, any line is progress.
 #
 # WHY: a test host that has exhausted the runner's memory does not crash, it
 # stops. Job 100425139180 (2026-09-02) wrote its last test result at 21:44:10

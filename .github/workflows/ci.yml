@@ -663,7 +663,8 @@ jobs:
       # by the job-level cap concludes `cancelled`; a step killed by its own
       # cap fails, and the job concludes `failure` - which is what a hung
       # runner is. The script's silence watchdog normally fires long before
-      # either (five minutes without output); this is the backstop.
+      # either (five minutes in which no test starts or finishes while the
+      # host is alive); this is the backstop.
       - name: Run tests
         id: tests
         shell: bash

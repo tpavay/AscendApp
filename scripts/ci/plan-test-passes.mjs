@@ -79,8 +79,16 @@ const TEST_TARGET = "AscendAppTests";
  * CompletedClimbRankSummaryEvidenceTests 1,063 ·
  * ClimbCurationSurfaceEvidenceTests 1,043 ·
  * LiveClimbRatingPromptPlacementEvidenceTests 1,005 ·
- * LockedOutSubscriberRecoveryEvidenceTests 1,000.
- * The next suite down is 996 MB and the median render suite is ~600.
+ * LockedOutSubscriberRecoveryEvidenceTests 1,000 ·
+ * AppUpdateLockoutRootRouteEvidenceTests 996 ·
+ * RankingGhostRenderEvidenceTests 957 ·
+ * ShareStatClusterPresetEvidenceTests 951 ·
+ * SentryMaskInteractionTests 916 ·
+ * WorkoutDetailHeartRateVisibilityTests 915 ·
+ * LiveClimbPaceSplitRowLayoutEvidenceTests 896.
+ * The next suite down is 882 MB and the median render suite is ~600. Lifting
+ * only the fourteen at 1,000 MB and above left one balanced pass at 1,916 MB;
+ * lifting these twenty is what levelled both remainder passes.
  *
  * The second suite in the first group is there for ordering, not memory.
  * `ShareStatClusterPickerEvidenceTests` (701 MB, two tests, 6 s alone)
@@ -229,8 +237,9 @@ export function namedSuites() {
  * rather than buried in a nine-hundred-test one. Isolated passes also run
  * serially: their suites are there because each rendered screen is retained
  * for the life of the host, and Swift Testing starts every suite at once, so
- * run in parallel their transient render peaks stack on top of that (2,491 MB
- * for the fourteen-suite group against 1,640 MB serial, measured 2026-09-03).
+ * run in parallel their transient render peaks stack on top of that (the first
+ * fourteen of the render group measured 2,491 MB parallel against 1,640 MB
+ * serial; all twenty measure 2,011 MB serial, 2026-09-03).
  * The remainder passes stay parallel: serial measured within ~130 MB of
  * parallel there and costs the long passes their concurrency for nothing.
  */

@@ -34,8 +34,8 @@
 # minutes. Measured again 2026-09-03 when the screen-render evidence suites
 # outgrew the two-way split: each rendered screen is retained for the life of
 # the host, so a balanced pass died at its tail with 13 render suites in flight
-# and 67 MB free, and the fourteen suites holding 1,000-1,434 MB each moved to
-# one shared isolated host. The numbers live beside that list.
+# and 67 MB free, and the twenty suites holding 896-1,434 MB each moved to one
+# shared isolated host. The numbers live beside that list.
 #
 # Minutes were never the constraint and the cap is not the lever: a killed run
 # reached 1,814 completions in 6m44s where a green run took 8m30s for 1,846.
