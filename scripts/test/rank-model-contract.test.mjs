@@ -205,6 +205,12 @@ const SUPERSEDED_ATTEMPT_COUNTING = [
  * current behaviour, and cannot be left behind still disclosing a defect the
  * lane has closed. Those files state no second version of the rule; they say
  * only what their own mechanism does today.
+ *
+ * The field-size noun entry also carries the one open product question the
+ * model names: what the line beneath an attempts board counts. One derivation
+ * feeds that line and the hero, so answering the question changes that
+ * declaration either way, and the passage retires with it rather than surviving
+ * an answer the captain has already given.
  */
 const DISCLOSED_GAPS = [
   {
@@ -223,6 +229,28 @@ const DISCLOSED_GAPS = [
         file: ".claude/skills/ascend-live-climbs/SKILL.md",
         phrases: [
           "the numerator counts bucket-0 entries and the population is `reading.attemptCount`",
+          "`frozenCompletionStanding` still picks the frozen population from the same allowlist",
+        ],
+      },
+    ],
+  },
+  {
+    what: "the field-size noun",
+    file: CONTEXT_FILE,
+    declaration: "var fieldPopulation: LiveReplayFieldPopulation {",
+    closing: "\n    }\n",
+    probes: ["collapsesRepeatFinishers"],
+    disclosure: [
+      "`justClimb.fieldPopulation == .completions`",
+      "*Open question, not yet decided.*",
+      "what the field-size line beneath those rows counts is not yet settled",
+      "Today one derivation, `LiveReplayLeaderboardContextType.fieldPopulation`, feeds both the line and the hero.",
+    ],
+    alsoDisclosedIn: [
+      {
+        file: ".claude/skills/ascend-live-climbs/SKILL.md",
+        phrases: [
+          "`LiveReplayLeaderboardContextType.fieldPopulation` still takes the field-size noun from `collapsesRepeatFinishers`",
         ],
       },
     ],

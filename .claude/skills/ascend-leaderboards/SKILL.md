@@ -76,6 +76,12 @@ An open Just Climb has no target and a plain routine ranks on steps, so both dra
 The rank sentence beside those rows still counts **unique climbers on both halves**: a tower with 41 finishes from 16 climbers, where 5 distinct climbers beat you, reads `6TH OF 16`.
 Never `13TH OF 16`, and never `13TH OF 41`.
 
+*Open question, not yet decided.*
+On a Just Climb or a plain routine the rows are attempts while the rank sentence counts unique climbers, so what the field-size line beneath those rows counts is not yet settled.
+Either it counts climbers and stops matching the rows above it, or those two surfaces stop sharing one noun.
+Today one derivation, `LiveReplayLeaderboardContextType.fieldPopulation`, feeds both the line and the hero.
+The leaderboard lane implementing option (a) owns the question, and the captain answers it; it is not to be guessed at implementation time.
+
 *Decided and being built, not yet shipping.*
 The captain settled unique climbers on both halves on 2026-09-02, and answered the follow-up decision `key=climbers-noun-vs-frozen-basis` with option (a): the frozen saved card is the same result viewed later and has to read identically to the live one, so it counts unique climbers on both halves too.
 `frozenCompletionStanding` in `functions/src/liveReplayLeaderboard.ts` still takes `reading.attemptCount` as the population for the contexts that do not collapse repeats.
