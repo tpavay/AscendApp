@@ -112,8 +112,7 @@ Petronas Towers is the one row here whose figure did not come from the venue, an
 The 2,170 is the captain's number, supplied and recorded as his on 2026-09-02.
 It is corroborated by a media report of a documented training ascent of the tower's own staircase: motorsport.com's coverage of the Mercedes AMG PETRONAS session, worded "2,170 stairs to the top of the PETRONAS towers".
 No primary source backs it.
-PETRONAS publishes no stair count, and the towers hold no sanctioned tower run - the Kuala Lumpur race with a
-published 2,058-step course is at KL Tower, a different landmark, and must never be attached to this entry.
+PETRONAS publishes no stair count, and the towers hold no sanctioned tower run - the Kuala Lumpur race with a published 2,058-step course is at KL Tower, a different landmark, and must never be attached to this entry.
 Nothing meeting the primary-source bar this file sets - the venue owner, the event organiser, the custodian body, or the Towerrunning World Association race record - exists for this staircase.
 
 The row therefore ships at Low, and the reason is not the one the Low legend names.
