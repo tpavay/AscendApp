@@ -49,6 +49,12 @@ final class ActiveRoutineViewModel {
     private(set) var hasRecordedCompletion = false
     private var hasTrackedSessionStart = false
     private var hasTrackedSessionCompletion = false
+    /// Whether the leaderboard service has been told this session started. A
+    /// routine session is a session: what the repository remembers about the
+    /// climber's own rows belongs to one session, and the run this one publishes
+    /// is what the next one on the same board must not miss. Crossed on the first
+    /// window refresh, so it is ordered ahead of that refresh.
+    private var hasBegunLeaderboardSession = false
     private var stepTimelineRecorder = LiveClimbStepTimelineRecorder(intervalSeconds: 10)
     private var activeDraft: ActiveHeadphoneWorkoutDraft?
     private var lastDraftCheckpointAt: Date?
@@ -457,6 +463,11 @@ final class ActiveRoutineViewModel {
 
     func refreshReplayLeaderboardIfNeeded(force: Bool = false) async {
         guard phase == .active || phase == .complete else { return }
+
+        if !hasBegunLeaderboardSession {
+            await leaderboardService.beginLiveSession()
+            hasBegunLeaderboardSession = true
+        }
 
         do {
             let window = try await leaderboardService.refreshIfNeeded(

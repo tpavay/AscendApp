@@ -463,16 +463,27 @@ test("the climber's own cached row is scoped to them and dropped with the sessio
     session[0].includes("ownHistoryCache"),
     "a new session on the same board inherits the last session's own rows",
   );
-  const viewModel = read(
+  // Every surface that runs a live session over this repository is a session:
+  // a routine on the machine publishes a row exactly as a climb does, and the
+  // next session on that board must not inherit the facts from before it.
+  for (const sessionViewModel of [
     "AscendApp/Features/Climbs/ViewModels/LiveClimbSessionViewModel.swift",
-  );
-  assert.ok(
-    /if !hasBegunLeaderboardSession \{\s*\n\s*await leaderboardService\.beginLiveSession\(\)/.test(
-      viewModel,
-    ),
-    "the live session no longer tells the leaderboard service it started " +
-      "before its first window refresh",
-  );
+    "AscendApp/Features/Routines/ViewModels/ActiveRoutineViewModel.swift",
+  ]) {
+    const viewModel = read(sessionViewModel);
+    assert.ok(
+      viewModel.includes("leaderboardService.refreshIfNeeded("),
+      `${sessionViewModel} no longer drives the live window, so this pin is stale`,
+    );
+    assert.ok(
+      /if !hasBegunLeaderboardSession \{\s*\n\s*await leaderboardService\.beginLiveSession\(\)/.test(
+        viewModel,
+      ),
+      `${sessionViewModel} no longer tells the leaderboard service its session ` +
+        "started before its first window refresh, so a second session on the " +
+        "same board inherits the last one's own rows",
+    );
+  }
   assert.ok(
     auth.includes(
       "FirestoreLiveReplayLeaderboardRepository.shared.clearAccountScopedCaches()",

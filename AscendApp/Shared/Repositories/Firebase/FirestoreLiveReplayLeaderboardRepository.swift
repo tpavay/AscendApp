@@ -743,8 +743,11 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     /// An attempt writes one entry per bucket it ran for and not one more, so a
     /// best already home by this bucket is absent from it and is held at its
     /// final steps instead - exactly as the finished half of the window holds
-    /// every other finisher. Absent with no stored span is unreadable, and
-    /// reads as no ghost, which is what the finished half's predicate reads.
+    /// every other finisher. The stored span says so without a read: once it
+    /// places the best home, every later bucket is answered from the cached row
+    /// alone. A row absent where its span says it should still be running, or
+    /// absent with no stored span at all, reads as no ghost, which is what the
+    /// finished half's predicate reads for it too.
     private func fetchOwnPreviousCompletionRow(
         context: LiveReplayLeaderboardContext,
         userId: String,
@@ -757,6 +760,9 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         guard bucketIndex > 0 else {
             return ghost.row.rebased(currentSteps: currentSteps)
         }
+        if let splitBucketCount = ghost.splitBucketCount, splitBucketCount <= bucketIndex {
+            return ghost.row.holdingFinalSteps(currentSteps: currentSteps)
+        }
 
         let atThisBucket = try await entriesCollection(
             context: context,
@@ -766,22 +772,14 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         .getDocument(source: .server)
         .data()
 
-        if let atThisBucket,
-           let row = parseRow(
-               id: ghost.row.id,
-               data: atThisBucket,
-               currentSteps: currentSteps,
-               currentUserId: userId
-           ) {
-            return row
-        }
+        guard let atThisBucket else { return nil }
 
-        guard let splitBucketCount = ghost.splitBucketCount,
-              splitBucketCount <= bucketIndex else {
-            return nil
-        }
-
-        return ghost.row.holdingFinalSteps(currentSteps: currentSteps)
+        return parseRow(
+            id: ghost.row.id,
+            data: atThisBucket,
+            currentSteps: currentSteps,
+            currentUserId: userId
+        )
     }
 
     /// The same read, served from the last bucket's answer where it still applies.
