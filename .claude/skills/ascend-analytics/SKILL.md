@@ -37,7 +37,7 @@ When evaluating new providers, justify them by what they uniquely measure that t
 
 Debug reports to Development `4032860`, Staging reports to Staging `4051102`, and Release reports to Production `4051100`.
 `ASCEND_MIXPANEL_TOKEN` and `ASCEND_MIXPANEL_PROJECT_ID` are compile-time Xcode settings expanded through Info.plist.
-`scripts/ci/assert-mixpanel-build-settings.mjs` resolves all three configurations and rejects empty, incorrect, or duplicate destinations without printing token values.
+`scripts/ci/assert-mixpanel-build-settings.mjs` resolves a configuration's settings through `xcodebuild` and rejects an empty or incorrect destination without printing token values; the PR jobs pass their own configuration (`Staging`, `Release`) because each resolution costs ~55 s, the deploy workflows resolve all three, and `scripts/test/mixpanel-build-configuration.test.mjs` proves the three destinations are pairwise distinct from `project.pbxproj`.
 Archive workflows also inspect the processed app bundle with `scripts/ci/assert-mixpanel-bundle.mjs` before upload.
 `scripts/test/mixpanel-build-configuration.test.mjs` pins the same contract offline against `project.pbxproj` and `Info.plist`, holds the Mixpanel SDK import inside the three adapter files, and keeps session replay disabled.
 Mixpanel replay stays off because Ascend handles health data: turning it on means masking date of birth, weight, exact location, and heart-rate values before capture.

@@ -96,11 +96,15 @@ CI is the deliberate exception: its runners are discarded whole, and all three w
 The workflows and the fastlane archive lanes are CI-only and deliberately stay on the default store.
 
 ```bash
-# iOS tests (mirrors CI - .github/workflows/ci.yml; -derivedDataPath is local-only)
+# iOS tests (mirrors CI - .github/workflows/ci.yml; -derivedDataPath is local-only).
+# The four build settings after ENABLE_TESTABILITY are what CI's test build
+# overrides on the command line: Staging is wholemodule -O in the project for the
+# TestFlight archive, and a test build compiled that way costs 4x the minutes.
 xcodebuild -project AscendApp.xcodeproj -scheme "AscendApp-Staging" \
   -configuration Staging -destination "platform=iOS Simulator,name=iPhone 16 Pro" \
   -derivedDataPath "$PWD/.build/dd" \
-  ENABLE_TESTABILITY=YES test
+  ENABLE_TESTABILITY=YES SWIFT_OPTIMIZATION_LEVEL=-Onone SWIFT_COMPILATION_MODE=singlefile \
+  DEBUG_INFORMATION_FORMAT=dwarf ONLY_ACTIVE_ARCH=YES test
 
 # iOS Release compile check (unsigned, device destination - catches Release-only
 # errors). Never add -sdk iphoneos: it can override the retained watch target's
