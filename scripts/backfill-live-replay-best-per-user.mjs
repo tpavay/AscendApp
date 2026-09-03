@@ -33,8 +33,14 @@
  *   Node.js 20+
  *   cd scripts && npm install
  *   gcloud auth application-default login
+ *
+ * The winner selection is exported so scripts/test can run it against fixtures
+ * without a Firestore; the run itself starts only when this file is the
+ * entrypoint.
  */
 
+import {realpathSync} from "node:fs";
+import {fileURLToPath} from "node:url";
 import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
 
@@ -51,13 +57,13 @@ const ROUTINE_TEMPLATE_CONTEXT_TYPE = "routine_template";
  * @param {string} contextType Replay context type.
  * @return {boolean} True when the context ranks on steps.
  */
-function ranksOnSteps(contextType) {
+export function ranksOnSteps(contextType) {
   return contextType === ROUTINE_TEMPLATE_CONTEXT_TYPE;
 }
 const SPLIT_BUCKETS_COLLECTION = "splitBuckets";
 const ENTRIES_COLLECTION = "entries";
 const BUCKET_ZERO_DOC_ID = "0";
-const MAX_REPLAY_SPLIT_CHECKPOINTS = 360;
+export const MAX_REPLAY_SPLIT_CHECKPOINTS = 360;
 const FIRESTORE_NOT_FOUND_CODE = 5;
 const BULK_WRITER_MAX_ATTEMPTS = 3;
 const PROJECT_ALIASES = new Map([
@@ -67,50 +73,77 @@ const PROJECT_ALIASES = new Map([
   ["production", PROD_PROJECT_ID],
 ]);
 
-const args = parseArgs(process.argv);
-const projectId = resolveProjectId(args.project);
-
-if (projectId === PROD_PROJECT_ID && !args.dryRun && !args.confirmProduction) {
-  throw new Error("Production backfill requires --confirm-production.");
+if (isEntrypoint()) {
+  await main();
 }
 
-initializeApp({
-  credential: applicationDefault(),
-  projectId,
-});
+async function main() {
+  const args = parseArgs(process.argv);
+  const projectId = resolveProjectId(args.project);
 
-const db = getFirestore();
-const result = await backfillBestPerUserFlags(db, args);
+  if (projectId === PROD_PROJECT_ID && !args.dryRun && !args.confirmProduction) {
+    throw new Error("Production backfill requires --confirm-production.");
+  }
 
-console.log(
-  [
-    `Project: ${projectId}`,
-    `Mode: ${args.dryRun ? "dry run" : "write"}`,
-    `Contexts scanned: ${result.contextsScanned}`,
-    `Contexts skipped (context type unreadable): ${result.contextsSkipped}`,
-    `Attempts scanned: ${result.attemptsScanned}`,
-    `Climbers scanned: ${result.climbersScanned}`,
-    `Repeat climbers collapsed: ${result.repeatClimbersCollapsed}`,
-    `Attempts promoted to best: ${result.attemptsPromoted}`,
-    `Attempts demoted: ${result.attemptsDemoted}`,
-    `Attempts with unknown bucket span: ${result.attemptsWithUnknownSpan}`,
-    `Entry writes expected to land (estimate): ${result.entryWritesExpected}`,
-    `Entry writes attempted (upper bound): ${result.entryWritesPlanned}`,
-    `Entry writes applied: ${result.entryWritesApplied}`,
-    `Entry writes skipped (bucket absent): ${result.entryWritesSkipped}`,
-    `Entry writes failed: ${result.entryWritesFailed}`,
-    `Attempts unreadable: ${result.attemptsSkipped}`,
-  ].join("\n")
-);
+  initializeApp({
+    credential: applicationDefault(),
+    projectId,
+  });
 
-if (result.entryWritesFailed > 0) {
-  // A dropped flag write leaves a climber duplicated in the live field, so the
-  // run must not report success just because the rest of the writes landed.
-  console.error(
-    `\n${result.entryWritesFailed} entry write(s) failed. Re-run the backfill ` +
-    `to reconcile the remaining entries.\nFirst error: ${result.firstWriteError}`
+  const db = getFirestore();
+  const result = await backfillBestPerUserFlags(db, args);
+
+  console.log(
+    [
+      `Project: ${projectId}`,
+      `Mode: ${args.dryRun ? "dry run" : "write"}`,
+      `Contexts scanned: ${result.contextsScanned}`,
+      `Contexts skipped (context type unreadable): ${result.contextsSkipped}`,
+      `Attempts scanned: ${result.attemptsScanned}`,
+      `Climbers scanned: ${result.climbersScanned}`,
+      `Repeat climbers collapsed: ${result.repeatClimbersCollapsed}`,
+      `Attempts promoted to best: ${result.attemptsPromoted}`,
+      `Attempts demoted: ${result.attemptsDemoted}`,
+      `Attempts with unknown bucket span: ${result.attemptsWithUnknownSpan}`,
+      `Entry writes expected to land (estimate): ${result.entryWritesExpected}`,
+      `Entry writes attempted (upper bound): ${result.entryWritesPlanned}`,
+      `Entry writes applied: ${result.entryWritesApplied}`,
+      `Entry writes skipped (bucket absent): ${result.entryWritesSkipped}`,
+      `Entry writes failed: ${result.entryWritesFailed}`,
+      `Attempts unreadable: ${result.attemptsSkipped}`,
+    ].join("\n")
   );
-  process.exitCode = 1;
+
+  if (result.entryWritesFailed > 0) {
+    // A dropped flag write leaves a climber duplicated in the live field, so
+    // the run must not report success just because the rest of the writes
+    // landed.
+    console.error(
+      `\n${result.entryWritesFailed} entry write(s) failed. Re-run the backfill ` +
+      `to reconcile the remaining entries.\nFirst error: ${result.firstWriteError}`
+    );
+    process.exitCode = 1;
+  }
+}
+
+/**
+ * Whether this file was invoked directly rather than imported.
+ *
+ * Node leaves argv[1] unresolved through symlinks while the ESM loader
+ * realpaths the module URL, so a plain compare would make a linked invocation
+ * a silent no-op that exits 0.
+ * @return {boolean} True when this module is the process entrypoint.
+ */
+function isEntrypoint() {
+  const invoked = process.argv[1];
+  if (!invoked) {
+    return false;
+  }
+  try {
+    return realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -417,7 +450,7 @@ async function applyEntryUpdates(
  * @param {string} contextType Replay context type.
  * @return {string | null} Winning workout ID, or null when there are none.
  */
-function bestAttemptWorkoutId(attempts, contextType) {
+export function bestAttemptWorkoutId(attempts, contextType) {
   const onSteps = ranksOnSteps(contextType);
   let best = null;
 
@@ -446,7 +479,7 @@ function bestAttemptWorkoutId(attempts, contextType) {
  * @param {string} contextType Replay context type.
  * @return {object[]} Attempts whose flag must change.
  */
-function bestForUserFlagUpdates(attempts, contextType) {
+export function bestForUserFlagUpdates(attempts, contextType) {
   const winningWorkoutId = bestAttemptWorkoutId(attempts, contextType);
 
   // Fail closed rather than demote. A climber whose attempts all read as
@@ -491,7 +524,7 @@ function bestForUserFlagUpdates(attempts, contextType) {
  * @param {string} contextType Replay context type.
  * @return {object | null} Parsed attempt, or null when unusable.
  */
-function userAttemptEntry(data, documentId, contextType) {
+export function userAttemptEntry(data, documentId, contextType) {
   const rankingValue = ranksOnSteps(contextType) ?
     nonNegativeIntegerValue(data.finalSteps) :
     nonNegativeNumberValue(data.completionDurationSeconds);

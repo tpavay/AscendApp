@@ -192,6 +192,10 @@ final class LiveClimbSessionViewModel {
     private var hasSavedSession = false
     private var stepTimelineRecorder: LiveClimbStepTimelineRecorder
     private var isLeaderboardRefreshInFlight = false
+    /// Whether the leaderboard service has been told this session started. Done
+    /// on the first window refresh rather than in `start`, so it is ordered
+    /// ahead of that refresh instead of racing it through a detached task.
+    private var hasBegunLeaderboardSession = false
     /// Whether the server has answered with a summary at all, which is not the same
     /// question as whether its count is zero: a climb nobody has finished answers
     /// zero forever, and re-asking it every tick would be a per-second read.
@@ -925,6 +929,11 @@ final class LiveClimbSessionViewModel {
         defer { isLeaderboardRefreshInFlight = false }
 
         recordLiveSplitSample()
+
+        if !hasBegunLeaderboardSession {
+            await leaderboardService.beginLiveSession()
+            hasBegunLeaderboardSession = true
+        }
 
         do {
 #if DEBUG
