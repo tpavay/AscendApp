@@ -176,6 +176,7 @@ That instruction used to live here as prose, and prose lost. On 2026-08-10 #467 
    `AscendAppTests/ClimbCatalogCurationTests.swift` hardcodes the available/hidden/comingSoon distribution and the exact `comingSoon` id set.
    `scripts/test/live-replay-climb-tiers.test.mjs` pins the profile's open First Ascent preview, which `ProfileFirstAscentService` fills in catalog order and caps at four, so a newly opened climb that sorts early pushes one out.
    `docs/climb-real-stair-counts.md` carries the null-`realStairCount` tallies and `docs/staging-content-capture.md` the open-slot count.
+   `docs/app-store-racing-repositioning-proposal.md` pins the `available` count in its App Store claim evidence table.
    These are ledgers of what the catalogue holds, so they move with it - never the other way round.
 10. Validate JSON and schema by decoding both catalog files.
 11. Build web before deploying hosted catalog content.
