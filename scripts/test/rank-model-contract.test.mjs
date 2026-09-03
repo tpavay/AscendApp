@@ -206,10 +206,15 @@ const SUPERSEDED_ATTEMPT_COUNTING = [
  * lane has closed. Those files state no second version of the rule; they say
  * only what their own mechanism does today.
  *
- * Only a settled rule belongs in this list. Each entry is a decision the captain
- * has already made, contradicted by code that is observable from here, so the
- * code changing is the one signal that the gap has closed. An open product
- * question is not that shape and is held separately in OPEN_QUESTIONS below.
+ * Two categories, and the test between them is strict. A SETTLED GAP is a rule
+ * the captain has decided, contradicted by code observable from here, where
+ * every possible resolution changes that code - so the code changing is the one
+ * signal that the gap has closed, and only those belong in this list. An OPEN
+ * QUESTION is anything whose answer is still a product decision, including any
+ * code condition whose defect-ness depends on that answer: keying such a
+ * condition here would make the model assert forever that it is superseded
+ * when the captain may decide it is not. Those live in OPEN_QUESTIONS below,
+ * held by presence only.
  */
 const DISCLOSED_GAPS = [
   {
@@ -229,24 +234,6 @@ const DISCLOSED_GAPS = [
         phrases: [
           "the numerator counts bucket-0 entries and the population is `reading.attemptCount`",
           "`frozenCompletionStanding` still picks the frozen population from the same allowlist",
-        ],
-      },
-    ],
-  },
-  {
-    what: "the field-size noun",
-    file: CONTEXT_FILE,
-    declaration: "var fieldPopulation: LiveReplayFieldPopulation {",
-    closing: "\n    }\n",
-    probes: ["collapsesRepeatFinishers"],
-    disclosure: [
-      "`justClimb.fieldPopulation == .completions`",
-    ],
-    alsoDisclosedIn: [
-      {
-        file: ".claude/skills/ascend-live-climbs/SKILL.md",
-        phrases: [
-          "`LiveReplayLeaderboardContextType.fieldPopulation` still takes the field-size noun from `collapsesRepeatFinishers`",
         ],
       },
     ],
@@ -278,14 +265,17 @@ const GAP_CLOSED = "closed";
  * code catching up is observable and retires the note. A question's answer is
  * the captain's, and one of its candidate answers can leave every declaration
  * here untouched - the field-size line beneath an attempts board can keep
- * counting rows while only the hero moves off the shared noun - so no probe
- * can tell an answered question from an open one, and this contract does not
- * try. Do not re-tie one of these to a declaration.
+ * counting rows while only the hero moves off the shared noun, in which case
+ * `fieldPopulation` branching on `collapsesRepeatFinishers` was right all
+ * along - so no probe can tell an answered question from an open one, and this
+ * contract does not try. Do not re-tie one of these to a declaration, and do
+ * not key a gap to a condition whose defect-ness the question decides.
  *
  * Retirement is a human step. When the captain answers a question, whoever
- * implements the answer removes its passage from the model and its entry here
- * in the same change. Until then the passage must stay present and stay worded
- * as a question, so it can neither be deleted quietly nor reworded into a rule.
+ * implements the answer removes its passage from the model, the pointer
+ * sentence in `alsoStatedIn`, and its entry here in the same change. Until then
+ * every phrase must stay present inside the open-question passage, so it can
+ * neither be deleted quietly nor moved under a "decided" marker.
  */
 const OPEN_QUESTIONS = [
   {
@@ -295,10 +285,24 @@ const OPEN_QUESTIONS = [
       "what the field-size line beneath those rows counts is not yet settled",
       "Either it counts climbers and stops matching the rows above it, or those two surfaces stop sharing one noun.",
       "Today one derivation, `LiveReplayLeaderboardContextType.fieldPopulation`, feeds both the line and the hero.",
+      "part of the question rather than a gap, so no test or sentence may call it superseded until the captain has answered",
+      "`justClimb.fieldPopulation == .completions`",
+      "`theSameHeroSaysCompletionsWhereTheContextRacesAttempts`",
       "the captain answers it; it is not to be guessed at implementation time",
+    ],
+    alsoStatedIn: [
+      {
+        file: ".claude/skills/ascend-live-climbs/SKILL.md",
+        phrases: [
+          "`LiveReplayLeaderboardContextType.fieldPopulation` takes the field-size noun from it, which is the open question The rank model states and nobody has answered",
+        ],
+      },
     ],
   },
 ];
+
+const OPEN_QUESTION_MARKER = "*Open question, not yet decided.*";
+const DECIDED_MARKER = "Decided and being built, not yet shipping.";
 
 /**
  * Whether a gap is still open, closed, or no longer readable from here.
@@ -468,7 +472,7 @@ test("a statement the code does not yet keep says so, and stops once the code ke
   }
 
   assert.equal(
-    section.includes("Decided and being built, not yet shipping."),
+    section.includes(DECIDED_MARKER),
     anyGapIsOpen,
     anyGapIsOpen ?
       "the row-versus-rank seam must mark itself as decided rather than shipping, or a reader takes 6TH OF 16 for current behaviour" :
@@ -490,15 +494,31 @@ test("a statement the code does not yet keep says so, and stops once the code ke
 
 test("an open question stays stated as a question until the captain answers it", () => {
   const section = modelSection();
+  const passageStart = section.indexOf(OPEN_QUESTION_MARKER);
+  assert.notEqual(passageStart, -1, `${MODEL_SKILL} lost the "${OPEN_QUESTION_MARKER}" passage`);
+  const decidedAt = section.indexOf(DECIDED_MARKER, passageStart);
+  const passage = section.slice(passageStart, decidedAt === -1 ? undefined : decidedAt);
 
-  for (const {what, phrases} of OPEN_QUESTIONS) {
+  for (const {what, phrases, alsoStatedIn} of OPEN_QUESTIONS) {
     for (const phrase of phrases) {
       assert.ok(
-        section.includes(phrase),
-        `the model no longer says "${phrase}" about ${what}. That question is open until the ` +
-          "captain answers it, and the passage may only leave together with its OPEN_QUESTIONS " +
-          "entry in the change that implements the answer - never reworded into a settled rule."
+        passage.includes(phrase),
+        `the open-question passage no longer says "${phrase}" about ${what}. That question is ` +
+          "open until the captain answers it: the sentence may not move under a decided marker, " +
+          "and the passage may only leave together with its OPEN_QUESTIONS entry in the change " +
+          "that implements the answer - never reworded into a settled rule."
       );
+    }
+    for (const {file, phrases: pointerPhrases} of alsoStatedIn ?? []) {
+      const contents = read(file, `the pointer at the open question about ${what}`);
+      for (const phrase of pointerPhrases) {
+        assert.ok(
+          contents.includes(phrase),
+          `${file} no longer says "${phrase}", so it either dropped the pointer at the open ` +
+            "question or asserts an answer the captain has not given - it leaves only with the " +
+            "OPEN_QUESTIONS entry, in the change that implements the answer."
+        );
+      }
     }
   }
 });

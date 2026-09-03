@@ -80,19 +80,23 @@ Never `13TH OF 16`, and never `13TH OF 41`.
 On a Just Climb or a plain routine the rows are attempts while the rank sentence counts unique climbers, so what the field-size line beneath those rows counts is not yet settled.
 Either it counts climbers and stops matching the rows above it, or those two surfaces stop sharing one noun.
 Today one derivation, `LiveReplayLeaderboardContextType.fieldPopulation`, feeds both the line and the hero.
+Whether that derivation is right or wrong for `justClimb` and `routine` is part of the question rather than a gap, so no test or sentence may call it superseded until the captain has answered.
+The tests that pin today's shared derivation, which change with the answer rather than ahead of it:
+
+- `AscendAppTests/LiveReplayFieldPopulationTests.swift`, pinning `justClimb.fieldPopulation == .completions`.
+- `AscendAppTests/LiveReplayFieldPopulationRenderEvidenceTests.swift` `theSameHeroSaysCompletionsWhereTheContextRacesAttempts`, pinning a Just Climb hero that reads "fastest of 27 completions" off that same derivation, where the rank sentence rule says `CLIMBERS`.
+
 The leaderboard lane implementing option (a) owns the question, and the captain answers it; it is not to be guessed at implementation time.
 
 *Decided and being built, not yet shipping.*
 The captain settled unique climbers on both halves on 2026-09-02, and answered the follow-up decision `key=climbers-noun-vs-frozen-basis` with option (a): the frozen saved card is the same result viewed later and has to read identically to the live one, so it counts unique climbers on both halves too.
 `frozenCompletionStanding` in `functions/src/liveReplayLeaderboard.ts` still takes `reading.attemptCount` as the population for the contexts that do not collapse repeats.
-The tests that pin the superseded form live in `functions/test/liveReplayLeaderboard.test.ts` and the two `LiveReplayFieldPopulation*` suites, and all of them are expected to change when the rule lands.
+The tests that pin the superseded form live in `functions/test/liveReplayLeaderboard.test.ts`, and all of them are expected to change when the rule lands.
 The known ones, so the lane can find them rather than as a guarantee that the list is complete:
 
 - `functions/test/liveReplayLeaderboard.test.ts` "counts every repeat attempt on a board that races attempts".
 - `functions/test/liveReplayLeaderboard.test.ts` "a repeat attempt is not its own opponent where attempts race", which asserts rank 3 of 4 off `attemptCount` for a `justClimb` payload.
 - `functions/test/liveReplayLeaderboard.test.ts` "refuses to freeze an attempt rank with no attempt count", which only means anything while `attemptCount` is the population.
-- `AscendAppTests/LiveReplayFieldPopulationTests.swift`, pinning `justClimb.fieldPopulation == .completions`.
-- `AscendAppTests/LiveReplayFieldPopulationRenderEvidenceTests.swift` `theSameHeroSaysCompletionsWhereTheContextRacesAttempts`, pinning a Just Climb hero that reads "fastest of 27 completions" where the settled rule says `CLIMBERS`.
 
 The leaderboard lane (`ascend-live-leaderboard-second-attempt`) is implementing it.
 
