@@ -269,7 +269,12 @@ private final class MutableDateProvider: @unchecked Sendable {
 }
 
 private actor MockLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepository {
+    private(set) var beginLiveSessionCount = 0
     private(set) var fetchWindowCount = 0
+
+    func beginLiveSession() {
+        beginLiveSessionCount += 1
+    }
     private(set) var fetchFinisherStatusCount = 0
     private(set) var fetchCurrentUserBestCompletionCount = 0
     private(set) var fetchPublishStatusCount = 0

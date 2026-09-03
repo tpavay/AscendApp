@@ -1,4 +1,5 @@
 import Foundation
+import FirebaseFirestore
 
 /// Which swallowed finished-row read a diagnostic is about.
 ///
@@ -26,7 +27,33 @@ enum LiveReplayFinishedRowRead: String, Sendable, CaseIterable {
 struct LiveReplayFinishedRowDiagnostics: Sendable {
     private var reported: Set<LiveReplayFinishedRowRead> = []
 
+    /// Spends the read's one report on `error`, if `error` is worth one.
+    ///
+    /// Only a missing composite index is. Firestore refuses a query whose index
+    /// is not deployed with `FAILED_PRECONDITION`, which is a deployment fact
+    /// somebody has to act on. The same reads fail with `UNAVAILABLE` and
+    /// `DEADLINE_EXCEEDED` when a climber loses signal mid-climb, which is
+    /// neither news nor actionable - and a transient failure that consumed the
+    /// budget would hide the real one arriving later in the same session. So a
+    /// failure that does not qualify is declined before the budget is touched.
+    mutating func shouldReport(
+        _ read: LiveReplayFinishedRowRead,
+        failing error: Error
+    ) -> Bool {
+        guard Self.isDeploymentFailure(error) else { return false }
+        return shouldReport(read)
+    }
+
+    /// The bound alone: true the first time a read is charged, never again.
     mutating func shouldReport(_ read: LiveReplayFinishedRowRead) -> Bool {
         reported.insert(read).inserted
+    }
+
+    /// Whether `error` is Firestore refusing the query outright, as it does for
+    /// a composite index that has not been deployed.
+    static func isDeploymentFailure(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == FirestoreErrorDomain
+            && nsError.code == FirestoreErrorCode.failedPrecondition.rawValue
     }
 }

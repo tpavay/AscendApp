@@ -1,3 +1,4 @@
+import FirebaseFirestore
 import Foundation
 import Testing
 @testable import AscendApp
@@ -248,6 +249,41 @@ struct LiveReplayRecomputedStandingTests {
         #expect(secondPass.allSatisfy { !$0 })
     }
 
+    /// A climber who loses signal mid-climb fails every one of these reads, and
+    /// none of that is a deployment fact. Reporting it spent the budget on
+    /// noise, so the missing index that arrived later in the same session was
+    /// the one occurrence that went unreported.
+    @Test
+    func losingSignalNeitherReportsNorSpendsTheBudget() {
+        var diagnostics = LiveReplayFinishedRowDiagnostics()
+
+        #expect(!diagnostics.shouldReport(.aheadFetch, failing: firestoreError(.unavailable)))
+        #expect(!diagnostics.shouldReport(.aheadFetch, failing: firestoreError(.deadlineExceeded)))
+        #expect(!diagnostics.shouldReport(.aheadFetch, failing: firestoreError(.cancelled)))
+        #expect(!diagnostics.shouldReport(.aheadFetch, failing: CancellationError()))
+
+        #expect(diagnostics.shouldReport(.aheadFetch, failing: firestoreError(.failedPrecondition)))
+        #expect(!diagnostics.shouldReport(.aheadFetch, failing: firestoreError(.failedPrecondition)))
+    }
+
+    @Test
+    func onlyFirestoreRefusingTheQueryIsADeploymentFailure() {
+        #expect(LiveReplayFinishedRowDiagnostics.isDeploymentFailure(
+            firestoreError(.failedPrecondition)
+        ))
+        #expect(!LiveReplayFinishedRowDiagnostics.isDeploymentFailure(
+            firestoreError(.permissionDenied)
+        ))
+        // The same code in another domain is somebody else's precondition.
+        #expect(!LiveReplayFinishedRowDiagnostics.isDeploymentFailure(
+            NSError(domain: NSURLErrorDomain, code: FirestoreErrorCode.failedPrecondition.rawValue)
+        ))
+    }
+
+    private func firestoreError(_ code: FirestoreErrorCode) -> NSError {
+        NSError(domain: FirestoreErrorDomain, code: code.rawValue)
+    }
+
     @Test
     func everyFinishedRowReadCarriesItsOwnCrashlyticsCode() {
         let codes = Set(LiveReplayFinishedRowRead.allCases.map(\.rawValue))
@@ -255,7 +291,58 @@ struct LiveReplayRecomputedStandingTests {
         #expect(codes.count == LiveReplayFinishedRowRead.allCases.count)
     }
 
+    // MARK: - The ghost is withdrawn on the inequality the ahead reads apply
+
+    /// The running half counts a row at its steps this bucket, so a ghost still
+    /// on the course is withdrawn at exactly those steps: one place while it is
+    /// level or ahead, none once the live attempt has passed it.
+    @Test
+    func aGhostStillOnTheCourseIsWithdrawnAtItsStepsThisBucket() {
+        let running = ghost(stepsAtBucket: 400, finalSteps: 551)
+
+        #expect(Repository.ghostAhead(running, currentSteps: 399) == 1)
+        #expect(Repository.ghostAhead(running, currentSteps: 400) == 1)
+        #expect(Repository.ghostAhead(running, currentSteps: 401) == 0)
+    }
+
+    /// The finished half counts a row already home at its final steps, and
+    /// `holdingFinalSteps` is what carries a home ghost at that number - so it
+    /// is withdrawn on the same value the aggregation counted it on, never on the
+    /// handful of steps its bucket-zero row happens to hold.
+    @Test
+    func aGhostAlreadyHomeIsWithdrawnAtItsFinalSteps() {
+        let home = ghost(stepsAtBucket: 12, finalSteps: 551)
+            .holdingFinalSteps(currentSteps: 500)
+
+        #expect(Repository.ghostAhead(home, currentSteps: 551) == 1)
+        #expect(Repository.ghostAhead(home, currentSteps: 552) == 0)
+        #expect(Repository.ghostAhead(ghost(stepsAtBucket: 12, finalSteps: 551), currentSteps: 500) == 0)
+    }
+
+    @Test
+    func noGhostSubtractsNothing() {
+        #expect(Repository.ghostAhead(nil, currentSteps: 0) == 0)
+        #expect(Repository.ghostAhead(nil, currentSteps: 551) == 0)
+    }
+
     // MARK: - Fixtures
+
+    private func ghost(stepsAtBucket: Int, finalSteps: Int) -> LiveReplayLeaderboardRow {
+        LiveReplayLeaderboardRow(
+            id: "own-best",
+            rank: nil,
+            displayName: "You",
+            avatarToken: "Y",
+            photoURL: nil,
+            stepsAtBucket: stepsAtBucket,
+            finalSteps: finalSteps,
+            deltaFromUser: 0,
+            isCurrentUser: true,
+            isPersonalBest: true,
+            completionDurationSeconds: 600,
+            userId: "user-a"
+        )
+    }
 
     private static func context(
         for type: LiveReplayLeaderboardContextType
