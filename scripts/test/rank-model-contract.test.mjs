@@ -206,11 +206,10 @@ const SUPERSEDED_ATTEMPT_COUNTING = [
  * lane has closed. Those files state no second version of the rule; they say
  * only what their own mechanism does today.
  *
- * The field-size noun entry also carries the one open product question the
- * model names: what the line beneath an attempts board counts. One derivation
- * feeds that line and the hero, so answering the question changes that
- * declaration either way, and the passage retires with it rather than surviving
- * an answer the captain has already given.
+ * Only a settled rule belongs in this list. Each entry is a decision the captain
+ * has already made, contradicted by code that is observable from here, so the
+ * code changing is the one signal that the gap has closed. An open product
+ * question is not that shape and is held separately in OPEN_QUESTIONS below.
  */
 const DISCLOSED_GAPS = [
   {
@@ -242,9 +241,6 @@ const DISCLOSED_GAPS = [
     probes: ["collapsesRepeatFinishers"],
     disclosure: [
       "`justClimb.fieldPopulation == .completions`",
-      "*Open question, not yet decided.*",
-      "what the field-size line beneath those rows counts is not yet settled",
-      "Today one derivation, `LiveReplayLeaderboardContextType.fieldPopulation`, feeds both the line and the hero.",
     ],
     alsoDisclosedIn: [
       {
@@ -272,6 +268,37 @@ const DISCLOSED_GAPS = [
 
 const GAP_OPEN = "open";
 const GAP_CLOSED = "closed";
+
+/**
+ * Product questions the model names and deliberately does not answer, and the
+ * sentences that keep each one legible as a question.
+ *
+ * These are never tied to a code probe, and the distinction from DISCLOSED_GAPS
+ * is the point: a gap is a decision the code has not caught up with, so the
+ * code catching up is observable and retires the note. A question's answer is
+ * the captain's, and one of its candidate answers can leave every declaration
+ * here untouched - the field-size line beneath an attempts board can keep
+ * counting rows while only the hero moves off the shared noun - so no probe
+ * can tell an answered question from an open one, and this contract does not
+ * try. Do not re-tie one of these to a declaration.
+ *
+ * Retirement is a human step. When the captain answers a question, whoever
+ * implements the answer removes its passage from the model and its entry here
+ * in the same change. Until then the passage must stay present and stay worded
+ * as a question, so it can neither be deleted quietly nor reworded into a rule.
+ */
+const OPEN_QUESTIONS = [
+  {
+    what: "what the field-size line beneath an attempts board counts",
+    phrases: [
+      "*Open question, not yet decided.*",
+      "what the field-size line beneath those rows counts is not yet settled",
+      "Either it counts climbers and stops matching the rows above it, or those two surfaces stop sharing one noun.",
+      "Today one derivation, `LiveReplayLeaderboardContextType.fieldPopulation`, feeds both the line and the hero.",
+      "the captain answers it; it is not to be guessed at implementation time",
+    ],
+  },
+];
 
 /**
  * Whether a gap is still open, closed, or no longer readable from here.
@@ -459,6 +486,21 @@ test("a statement the code does not yet keep says so, and stops once the code ke
     section.includes("The unfiltered all-attempts read itself has no anchor"),
     "statement 4's untested half must stay disclosed, the way the BEST marker's is"
   );
+});
+
+test("an open question stays stated as a question until the captain answers it", () => {
+  const section = modelSection();
+
+  for (const {what, phrases} of OPEN_QUESTIONS) {
+    for (const phrase of phrases) {
+      assert.ok(
+        section.includes(phrase),
+        `the model no longer says "${phrase}" about ${what}. That question is open until the ` +
+          "captain answers it, and the passage may only leave together with its OPEN_QUESTIONS " +
+          "entry in the change that implements the answer - never reworded into a settled rule."
+      );
+    }
+  }
 });
 
 test("no skill or guide asserts the superseded attempt-counting form", () => {
