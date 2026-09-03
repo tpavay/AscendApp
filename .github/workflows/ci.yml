@@ -87,6 +87,9 @@ jobs:
               # against these files directly, so a vector-only edit must run them.
               - "SharedTestVectors/**"
               - ".github/workflows/**"
+              # The iOS jobs run scripts from here and the modules they import; #570 changed the test split and was skipped as "not iOS".
+              - "scripts/ci/**"
+              - "scripts/lib/**"
             functions:
               - "functions/**"
               - "firestore.indexes.json"

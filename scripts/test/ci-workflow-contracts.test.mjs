@@ -166,6 +166,11 @@ test("CI watches every iOS source and Firebase index definition", async () => {
   assert.match(trigger, /- "scripts\/\*\*"/);
   assert.match(trigger, /- "firestore\.indexes\.json"/);
   assert.match(iosFilter, /- "AscendLiveActivityWidgets\/\*\*"/);
+  // The iOS jobs are their scripts as much as their Swift: #570 changed how the
+  // suite is split across host processes and was routed as "not iOS", so the
+  // one job that could prove it never ran and the PR read green.
+  assert.match(iosFilter, /- "scripts\/ci\/\*\*"/);
+  assert.match(iosFilter, /- "scripts\/lib\/\*\*"/);
   assert.match(functionsFilter, /- "firestore\.indexes\.json"/);
 });
 
