@@ -629,12 +629,26 @@ jobs:
           echo "Selected simulator ${simulator_id} on ${runtime}."
           echo "id=$simulator_id" >> "$GITHUB_OUTPUT"
 
+          # Start the boot now and let it run under the compile: the runner's
+          # first boot of this device took 3.9 minutes of silence inside the
+          # first xcodebuild that needed it (job 100376172708), and nothing
+          # in the build needs the device. `simctl boot` returns once the boot
+          # is under way; the test script waits on `bootstatus -b` before its
+          # first pass, which boots again if this attempt failed. Output goes
+          # nowhere so a boot still in progress cannot hold this step open.
+          xcrun simctl boot "$simulator_id" >/dev/null 2>&1 &
+          echo "Booting ${simulator_id} in the background."
+
       - name: Provision watchOS runtime (best effort)
         shell: bash
         run: ./scripts/ci/ensure-watchos-runtime.sh
 
+      # Only this job's own configuration: each `-showBuildSettings` resolves
+      # the whole package graph (~55 s on the runner), and the pairwise
+      # distinctness of all three destinations is proved from project.pbxproj
+      # by the scripts job.
       - name: Verify Mixpanel build destinations
-        run: node scripts/ci/assert-mixpanel-build-settings.mjs
+        run: node scripts/ci/assert-mixpanel-build-settings.mjs Staging
 
       # The device (iphoneos) compile is covered by the ios-verify-release job;
       # this job proves the simulator build + test suite, so the app compiles
@@ -644,14 +658,23 @@ jobs:
       # the host's memory grows with the tests it has executed and one process
       # exhausts the runner before reaching the end. The script owns that
       # reasoning and the measurements behind it.
+      #
+      # The step's own timeout sits below the job's on purpose. A job killed
+      # by the job-level cap concludes `cancelled`; a step killed by its own
+      # cap fails, and the job concludes `failure` - which is what a hung
+      # runner is. The script's silence watchdog normally fires long before
+      # either (five minutes in which no test starts or finishes while the
+      # host is alive); this is the backstop.
       - name: Run tests
         id: tests
         shell: bash
+        timeout-minutes: 34
         run: ./scripts/ci/run-ios-test-passes.sh "${{ steps.simulator.outputs.id }}"
 
-      # A step killed by timeout-minutes reports `cancelled`, not `failure`, and
-      # that is exactly the hung-runner case these logs exist to explain. An
-      # empty outcome means xcodebuild never ran, so there is no log to read.
+      # A step killed by the job-level timeout-minutes reports `cancelled`,
+      # not `failure`, and that is exactly the hung-runner case these logs
+      # exist to explain. An empty outcome means xcodebuild never ran, so there
+      # is no log to read.
       - name: Summarize failure
         if: always() && steps.tests.outcome != 'success' && steps.tests.outcome != 'skipped' && steps.tests.outcome != ''
         shell: bash
@@ -713,16 +736,23 @@ jobs:
         shell: bash
         run: ./scripts/ci/ensure-watchos-runtime.sh
 
+      # Only this job's own configuration, for the reason given on the
+      # Staging job; the processed bundle is proved separately below.
       - name: Verify Mixpanel build destinations
-        run: node scripts/ci/assert-mixpanel-build-settings.mjs
+        run: node scripts/ci/assert-mixpanel-build-settings.mjs Release
 
       # The production deploy pipeline is the first place the Release
       # configuration would otherwise compile. Building it unsigned here means
       # Release-only build errors surface on the PR, not on launch day. This is
       # also the job that proves the device (iphoneos) compile for PRs.
+      #
+      # Its own timeout, below the job's, so a hung compile fails the step and
+      # the job concludes `failure` rather than `cancelled`. The build takes
+      # 9-14 minutes.
       - name: Build app (Release, unsigned)
         id: build
         shell: bash
+        timeout-minutes: 30
         run: |
           set -o pipefail
           mkdir -p build-logs
@@ -825,9 +855,10 @@ jobs:
 
           node scripts/ci/assert-mixpanel-bundle.mjs Release "$BUILT_INFO_PLIST"
 
-      # A step killed by timeout-minutes reports `cancelled`, not `failure`, and
-      # that is exactly the hung-runner case these logs exist to explain. An
-      # empty outcome means xcodebuild never ran, so there is no log to read.
+      # A step killed by the job-level timeout-minutes reports `cancelled`,
+      # not `failure`, and that is exactly the hung-runner case these logs
+      # exist to explain. An empty outcome means xcodebuild never ran, so there
+      # is no log to read.
       - name: Summarize failure
         if: always() && steps.build.outcome != 'success' && steps.build.outcome != 'skipped' && steps.build.outcome != ''
         shell: bash
