@@ -257,13 +257,21 @@ struct LiveReplayRecomputedStandingTests {
     func losingSignalNeitherReportsNorSpendsTheBudget() {
         var diagnostics = LiveReplayFinishedRowDiagnostics()
 
-        #expect(!diagnostics.shouldReport(.aheadFetch, failing: firestoreError(.unavailable)))
-        #expect(!diagnostics.shouldReport(.aheadFetch, failing: firestoreError(.deadlineExceeded)))
-        #expect(!diagnostics.shouldReport(.aheadFetch, failing: firestoreError(.cancelled)))
-        #expect(!diagnostics.shouldReport(.aheadFetch, failing: CancellationError()))
+        // `shouldReport` mutates the budget, and `#expect` captures its operands
+        // immutably, so each verdict is taken before it is asserted.
+        let reportsUnavailable = diagnostics.shouldReport(.aheadFetch, failing: firestoreError(.unavailable))
+        let reportsDeadline = diagnostics.shouldReport(.aheadFetch, failing: firestoreError(.deadlineExceeded))
+        let reportsCancelledCode = diagnostics.shouldReport(.aheadFetch, failing: firestoreError(.cancelled))
+        let reportsCancellation = diagnostics.shouldReport(.aheadFetch, failing: CancellationError())
+        #expect(!reportsUnavailable)
+        #expect(!reportsDeadline)
+        #expect(!reportsCancelledCode)
+        #expect(!reportsCancellation)
 
-        #expect(diagnostics.shouldReport(.aheadFetch, failing: firestoreError(.failedPrecondition)))
-        #expect(!diagnostics.shouldReport(.aheadFetch, failing: firestoreError(.failedPrecondition)))
+        let reportsMissingIndex = diagnostics.shouldReport(.aheadFetch, failing: firestoreError(.failedPrecondition))
+        let reportsMissingIndexAgain = diagnostics.shouldReport(.aheadFetch, failing: firestoreError(.failedPrecondition))
+        #expect(reportsMissingIndex)
+        #expect(!reportsMissingIndexAgain)
     }
 
     @Test
@@ -276,11 +284,11 @@ struct LiveReplayRecomputedStandingTests {
         ))
         // The same code in another domain is somebody else's precondition.
         #expect(!LiveReplayFinishedRowDiagnostics.isDeploymentFailure(
-            NSError(domain: NSURLErrorDomain, code: FirestoreErrorCode.failedPrecondition.rawValue)
+            NSError(domain: NSURLErrorDomain, code: FirestoreErrorCode.Code.failedPrecondition.rawValue)
         ))
     }
 
-    private func firestoreError(_ code: FirestoreErrorCode) -> NSError {
+    private func firestoreError(_ code: FirestoreErrorCode.Code) -> NSError {
         NSError(domain: FirestoreErrorDomain, code: code.rawValue)
     }
 
