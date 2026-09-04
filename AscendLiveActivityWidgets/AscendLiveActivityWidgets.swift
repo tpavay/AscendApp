@@ -64,15 +64,7 @@ private struct LiveClimbLockScreenView: View {
             VStack(alignment: .leading, spacing: 8) {
                 LiveClimbExpandedTitleView(context: context)
 
-                HStack(spacing: 16) {
-                    LiveClimbMetricColumn(title: "Steps", value: context.state.steps.formatted())
-                    LiveClimbMetricColumn(
-                        title: context.state.standingTitle,
-                        value: context.state.standingDetailLabel,
-                        secondary: context.state.standingSecondaryLabel
-                    )
-                    LiveClimbMetricColumn(title: "Time", value: context.state.durationLabel)
-                }
+                LiveClimbActivityMetricsRow(state: context.state, surface: .lockScreen)
             }
 
             Spacer(minLength: 0)
@@ -126,48 +118,11 @@ private struct LiveClimbExpandedBottomView: View {
             }
 
             HStack(spacing: 12) {
-                LiveClimbMetricColumn(
-                    title: context.state.standingTitle,
-                    value: context.state.standingDetailLabel,
-                    secondary: context.state.standingSecondaryLabel
-                )
-                LiveClimbMetricColumn(title: "Time", value: context.state.durationLabel)
-                LiveClimbMetricColumn(title: "Steps", value: context.state.steps.formatted())
+                LiveClimbActivityMetricsRow(state: context.state, surface: .expandedIsland)
 
                 Spacer(minLength: 0)
 
                 LiveClimbControlButtons()
-            }
-        }
-        .foregroundStyle(.white)
-    }
-}
-
-private struct LiveClimbCompactMetricView: View {
-    /// Nil where the metric has nothing to state, which is not the same as a
-    /// value that could not be resolved: that one arrives as `--`.
-    let value: String?
-    let label: String
-
-    var body: some View {
-        VStack(alignment: .center, spacing: 0) {
-            if let value {
-                Text(value)
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.62)
-
-                Text(label)
-                    .font(.system(size: 7, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.58))
-                    .lineLimit(1)
-            } else {
-                Text(label)
-                    .font(.system(size: 9, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.78))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
             }
         }
         .foregroundStyle(.white)
@@ -196,41 +151,6 @@ private struct LiveClimbMinimalView: View {
                 .foregroundStyle(.white)
         }
         .frame(width: 20, height: 20)
-    }
-}
-
-private struct LiveClimbMetricColumn: View {
-    let title: String
-    /// Nil where the column has nothing to state and `secondary` carries the
-    /// statement alone. A value that could not be resolved is `--`, never nil.
-    let value: String?
-    /// A second measurement of a different population, stated beneath the first
-    /// rather than beside it - the same order the in-app panel puts them in.
-    var secondary: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(.system(size: 8, weight: .heavy, design: .rounded))
-                .foregroundStyle(.white.opacity(0.48))
-                .lineLimit(1)
-
-            if let value {
-                Text(value)
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-            }
-
-            if let secondary {
-                Text(secondary)
-                    .font(.system(size: 9, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.62))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-        }
     }
 }
 
