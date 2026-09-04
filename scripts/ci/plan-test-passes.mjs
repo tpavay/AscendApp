@@ -53,7 +53,7 @@ const TEST_TARGET = "AscendAppTests";
  * group of twenty is gone: measured with the same 10 Hz RSS sampler, the
  * heaviest of them now peaks at ~1,100 MB alone (the Sentry mask proof, which
  * still photographs by design) and the median at ~640, and the WHOLE
- * remainder runs in one parallel host (the numbers are in
+ * remainder runs in one serial host (the numbers are in
  * `run-ios-test-passes.sh`'s header).
  *
  * One suite stays out. `ShareComposerBackgroundFillEvidenceTests` peaks at

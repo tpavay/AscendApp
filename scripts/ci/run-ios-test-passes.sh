@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-# Builds the staging test bundle once, then runs the suite across several host
-# processes instead of one.
+# Builds the staging test bundle once, then runs the suite as two host
+# processes instead of one: the movie-export suite alone, then everything else.
 #
 # WHY, measured 2026-09-01 against `iOS Verify (Staging)`: one process could not
 # hold this suite. Run whole it peaked at 4,228 MB RSS on a `macos-15` runner

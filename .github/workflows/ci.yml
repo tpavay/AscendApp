@@ -671,10 +671,10 @@ jobs:
       # this job proves the simulator build + test suite, so the app compiles
       # exactly once per job instead of twice.
       #
-      # The suite runs across several host processes rather than one, because
-      # the host's memory grows with the tests it has executed and one process
-      # exhausts the runner before reaching the end. The script owns that
-      # reasoning and the measurements behind it.
+      # The suite runs as one host process per isolated group in
+      # scripts/ci/plan-test-passes.mjs plus one for everything else - two
+      # today, since the movie-export suite alone needs a host to itself. The
+      # script owns that reasoning and the measurements behind it.
       #
       # The step's own timeout sits below the job's on purpose. A job killed
       # by the job-level cap concludes `cancelled`; a step killed by its own
