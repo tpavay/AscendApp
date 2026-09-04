@@ -250,8 +250,8 @@ struct ClimbDropNotificationStateTests {
     }
 }
 
-/// Presses on the two surfaces a climber actually sees the prompt on, one hosted screen at a time,
-/// because what each has to prove is that its own CTA follows the shared state.
+/// Presses on the two surfaces a climber actually sees the prompt on, one hosted screen at a time
+/// (`RenderedScreen`), because what each has to prove is that its own CTA follows the shared state.
 @MainActor
 @Suite(.hostsAWindow)
 struct ClimbDropNotificationPromptHostingTests {
@@ -268,13 +268,13 @@ struct ClimbDropNotificationPromptHostingTests {
         let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
         await state.refresh()
 
-        try await withHostedPromptSurface(surface, notificationState: state) { root in
-            #expect(isPromptOnScreen(in: root))
+        try await withHostedPromptSurface(surface, notificationState: state) { screen in
+            #expect(isPromptOnScreen(in: screen.root))
 
             await state.enable()
-            await renderNextUpdate(in: root)
+            try await screen.settle()
 
-            #expect(isPromptOnScreen(in: root) == false)
+            #expect(isPromptOnScreen(in: screen.root) == false)
         }
     }
 
@@ -290,8 +290,8 @@ struct ClimbDropNotificationPromptHostingTests {
         )
         let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
 
-        try await withHostedPromptSurface(surface, notificationState: state) { root in
-            #expect(isPromptOnScreen(in: root) == false)
+        try await withHostedPromptSurface(surface, notificationState: state) { screen in
+            #expect(isPromptOnScreen(in: screen.root) == false)
         }
     }
 
@@ -308,42 +308,20 @@ struct ClimbDropNotificationPromptHostingTests {
         let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
         await state.refresh()
 
-        try await withHostedPromptSurface(surface, notificationState: state) { root in
-            #expect(isPromptOnScreen(in: root))
+        try await withHostedPromptSurface(surface, notificationState: state) { screen in
+            #expect(isPromptOnScreen(in: screen.root))
         }
     }
 
     private func withHostedPromptSurface(
         _ surface: NotificationPromptSurface,
         notificationState: ClimbDropNotificationState,
-        _ whileOnScreen: (UIView) async throws -> Void
+        _ whileOnScreen: (HostedScreen) async throws -> Void
     ) async throws {
-        try await withAccessibilityAutomation {
-            let size = CGSize(width: 402, height: 874)
-            let controller = UIHostingController(
-                rootView: NotificationPromptSurfaceHarness(
-                    surface: surface,
-                    notificationState: notificationState
-                )
-            )
-            controller.view.frame = CGRect(origin: .zero, size: size)
-
-            let window = UIWindow(frame: controller.view.frame)
-            window.overrideUserInterfaceStyle = .dark
-            window.rootViewController = controller
-            window.makeKeyAndVisible()
-            defer { window.isHidden = true }
-
-            await renderNextUpdate(in: controller.view)
-            try await whileOnScreen(controller.view)
-        }
-    }
-
-    private func renderNextUpdate(in view: UIView) async {
-        for _ in 0..<4 {
-            await Task.yield()
-            view.setNeedsLayout()
-            view.layoutIfNeeded()
+        try await RenderedScreen.host(
+            NotificationPromptSurfaceHarness(surface: surface, notificationState: notificationState)
+        ) { screen in
+            try await whileOnScreen(screen)
         }
     }
 
@@ -369,7 +347,8 @@ enum NotificationPromptSurface: String, CaseIterable, CustomStringConvertible {
     }
 }
 
-/// What the Push screen's climb-drop row says and offers while iOS is refusing delivery.
+/// What the Push screen's climb-drop row says and offers while iOS is refusing delivery, read off
+/// the hosted screen's accessibility tree (`RenderedScreen`).
 @MainActor
 @Suite(.hostsAWindow)
 struct NotificationSettingsDeliveryStatusTests {
@@ -382,21 +361,21 @@ struct NotificationSettingsDeliveryStatusTests {
         let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
         await state.refresh()
 
-        try await withHostedNotificationSettings(notificationState: state) { root in
-            let elements = accessibilityElements(under: root)
+        try await withHostedNotificationSettings(notificationState: state) { screen in
+            let elements = accessibilityElements(under: screen.root)
             #expect(elements.contains { label(of: $0).contains("On, but iOS is blocking delivery") })
             // The row is the switch, not the route: turning this off is the climber's alone.
             #expect(elements.contains { label(of: $0) == "New climb drops" })
             #expect(elements.contains { $0.accessibilityHint == routingHint } == false)
 
             await state.disable()
-            await renderNextUpdate(in: root)
+            try await screen.settle()
 
             #expect(state.isPreferenceEnabled == false)
             #expect(client.disableCount == 1)
             #expect(client.openSettingsCount == 0)
 
-            let afterTurningOff = accessibilityElements(under: root)
+            let afterTurningOff = accessibilityElements(under: screen.root)
             #expect(afterTurningOff.contains { label(of: $0).contains("blocking delivery") } == false)
             #expect(afterTurningOff.contains { $0.accessibilityHint == routingHint })
         }
@@ -414,15 +393,15 @@ struct NotificationSettingsDeliveryStatusTests {
         let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
         await state.refresh()
 
-        try await withHostedNotificationSettings(notificationState: state) { root in
-            let elements = accessibilityElements(under: root)
+        try await withHostedNotificationSettings(notificationState: state) { screen in
+            let elements = accessibilityElements(under: screen.root)
             #expect(elements.contains { label(of: $0).contains("blocking delivery") } == false)
             #expect(elements.contains { label(of: $0).contains("Off. Allow notifications in iOS first.") })
 
-            try activateAccessibilityElement(in: root) {
+            try activateAccessibilityElement(in: screen.root) {
                 $0.accessibilityHint == routingHint
             }
-            await renderUpdates(in: root) { state.isPreferenceEnabled }
+            await renderUpdates(in: screen.root) { state.isPreferenceEnabled }
 
             #expect(state.isPreferenceEnabled)
             #expect(client.enableCount == 1)
@@ -439,8 +418,8 @@ struct NotificationSettingsDeliveryStatusTests {
         let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
         await state.refresh()
 
-        try await withHostedNotificationSettings(notificationState: state) { root in
-            let elements = accessibilityElements(under: root)
+        try await withHostedNotificationSettings(notificationState: state) { screen in
+            let elements = accessibilityElements(under: screen.root)
 
             #expect(elements.contains { label(of: $0).contains("blocking delivery") } == false)
             #expect(elements.contains { $0.accessibilityHint == routingHint } == false)
@@ -454,14 +433,6 @@ struct NotificationSettingsDeliveryStatusTests {
 
     private func label(of element: NSObject) -> String {
         element.accessibilityLabel ?? ""
-    }
-
-    private func renderNextUpdate(in view: UIView) async {
-        for _ in 0..<4 {
-            await Task.yield()
-            view.setNeedsLayout()
-            view.layoutIfNeeded()
-        }
     }
 
     /// Renders until the tap's outcome has landed, for the one wait that follows a row the view
@@ -490,30 +461,14 @@ struct NotificationSettingsDeliveryStatusTests {
 
     private func withHostedNotificationSettings(
         notificationState: ClimbDropNotificationState,
-        _ whileOnScreen: (UIView) async throws -> Void
+        _ whileOnScreen: (HostedScreen) async throws -> Void
     ) async throws {
-        try await withAccessibilityAutomation {
-            let size = CGSize(width: 402, height: 874)
-            let controller = UIHostingController(
-                rootView: NavigationStack {
-                    NotificationSettingsView(notificationState: notificationState)
-                }
-            )
-            controller.view.frame = CGRect(origin: .zero, size: size)
-
-            let window = UIWindow(frame: controller.view.frame)
-            window.overrideUserInterfaceStyle = .dark
-            window.rootViewController = controller
-            window.makeKeyAndVisible()
-            defer { window.isHidden = true }
-
-            for _ in 0..<4 {
-                await Task.yield()
-                controller.view.setNeedsLayout()
-                controller.view.layoutIfNeeded()
+        try await RenderedScreen.host(
+            NavigationStack {
+                NotificationSettingsView(notificationState: notificationState)
             }
-
-            try await whileOnScreen(controller.view)
+        ) { screen in
+            try await whileOnScreen(screen)
         }
     }
 }

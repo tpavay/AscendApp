@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-# Builds the staging test bundle once, then runs the suite across several host
-# processes instead of one.
+# Builds the staging test bundle once, then runs the suite as two host
+# processes instead of one: the movie-export suite alone, then everything else.
 #
 # WHY, measured 2026-09-01 against `iOS Verify (Staging)`: one process could not
 # hold this suite. Run whole it peaked at 4,228 MB RSS on a `macos-15` runner
@@ -19,23 +19,41 @@
 # took its suite from 2,311 MB to 1,026 MB and the whole suite from 4,228 MB to
 # 3,122 MB.
 #
-# The remainder is kept in two hosts because 3,122 MB in one host is still most
-# of what the runner has once the simulator and `xcodebuild` are resident, and
-# because the split costs one extra host launch rather than a permanent
-# slowdown. Do not raise the pass count as a memory fix without measuring:
-# memory is concentrated in a few suites rather than spread across tests, so
-# splitting four ways measured a HIGHER peak than two (2,881 MB against 2,020
-# MB) by collecting the heavy suites into one pass.
+# What made the remainder fit ONE host, measured 2026-09-03 with the same
+# sampler, is how the evidence suites read a screen, not how the passes are
+# cut. Every one of them used to host a full screen in its own `UIWindow`,
+# photograph it at 3x (12 MB a bitmap) and OCR the bitmap to prove copy was
+# on screen, and the host never gave that memory back: fourteen suites peaked
+# at 1,000-2,355 MB alone. `AscendAppTests/RenderedScreen.swift` now reads
+# copy off the accessibility tree, pixels at 1x inside a closure that releases
+# them, OCR only for legibility, and the 3x photograph only when
+# `ASCEND_EVIDENCE_DIR` is set. Isolated per suite, the heaviest render suite
+# is now ~1,100 MB (the Sentry mask proof, which still photographs by design)
+# and the median ~640. The whole remainder in one serial host - 1,995 tests,
+# every suite but the movie export, all passed - took 291 s and peaked at
+# 2,041 MB, measured 2026-09-04 at 9d2cbcb5 with the same sampler, against
+# 2,929 MB parallel before the helper and a run that never finished at all
+# (the 2,090 MB parallel and 1,708-2,109 MB serial peaks of 2026-09-03 were
+# taken before nine hosted screens were restored to the paywall gate and the
+# leaderboard window-label suites). So the plan is two passes: the movie
+# host, and everything else. Each pass beyond that is ~2 minutes of host
+# launch bought for no memory the runner needs.
 #
-# The concentrated ones get a host to themselves instead - see `ISOLATED_PASSES`
+# The one suite that still gets its own host is
+# `ShareComposerBackgroundFillEvidenceTests` (2,200-2,350 MB): three of its
+# five tests each export a real movie through the AVFoundation pipeline at the
+# 1080x2340 story frame, and that cost is the assertion. See `ISOLATED_PASSES`
 # in `plan-test-passes.mjs`, which is why this script runs however many pass
-# files the planner wrote rather than a fixed number. Isolating one five-test
-# suite costs ~90 seconds; a general three-way split costs every run ~4
-# minutes. Measured again 2026-09-03 when the screen-render evidence suites
-# outgrew the two-way split: each rendered screen is retained for the life of
-# the host, so a balanced pass died at its tail with 13 render suites in flight
-# and 67 MB free, and the twenty suites holding 896-1,434 MB each moved to one
-# shared isolated host. The numbers live beside that list.
+# files the planner wrote rather than a fixed number.
+#
+# What the one-host runs exposed was never memory. A hosted screen carrying a
+# `@Query` keeps observing SwiftData after its window is gone, and a container
+# that died with its test leaves that observer dangling, so the next
+# `ModelContext.save()` from any suite traps on the main thread - and Xcode's
+# crash interception can park the trapped host at 0% CPU instead of letting it
+# die, which is the silent-hang signature. `RetainedModelContainer` keeps every
+# container a hosted screen reads alive for the process; the allowance below
+# is what turns any such hang into a named failure.
 #
 # Minutes were never the constraint and the cap is not the lever: a killed run
 # reached 1,814 completions in 6m44s where a green run took 8m30s for 1,846.
@@ -135,9 +153,10 @@ common=(
 common+=(${derived_data[@]+"${derived_data[@]}"})
 
 # A single test that hangs fails itself, by name, instead of holding the pass
-# open until the step cap ends it anonymously. Ten minutes, because the
-# allowance kills and restarts the host (see the header) and a hosted test's
-# duration is mostly queue time; the silence watchdog names a hang sooner.
+# open until the step cap ends it anonymously. Ten minutes: the allowance
+# kills and restarts the host (see the header), and with every pass serial a
+# duration is the test's own, so the longest legitimate one is seconds; the
+# silence watchdog names a hang sooner.
 test_timeouts=(
     -test-timeouts-enabled YES
     -default-test-execution-time-allowance 600
@@ -185,8 +204,8 @@ failed_passes=()
 executed_total=0
 
 # Each pass file is that pass's `xcodebuild` argument list, one per line: the
-# `-only-testing:` or `-skip-testing:` selectors, and for an isolated pass the
-# `-parallel-testing-enabled NO` that keeps its render peaks from stacking.
+# `-only-testing:` or `-skip-testing:` selectors and the
+# `-parallel-testing-enabled NO` every pass carries (the planner says why).
 for pass in $(seq 1 "$total_passes"); do
     args=()
     expected_suites=()

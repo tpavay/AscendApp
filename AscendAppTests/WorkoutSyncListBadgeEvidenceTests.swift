@@ -5,16 +5,17 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Photographs the two sync surfaces `WorkoutSyncSurfaceEvidenceTests` cannot reach.
+/// Hosts the two sync surfaces `WorkoutSyncSurfaceEvidenceTests` cannot reach.
 ///
-/// That suite renders `WorkoutSyncStatusRow` in isolation through `ImageRenderer`, which leaves two
-/// gaps. The climbs list is where a climber first meets an unsynced climb, and its badge lives on
-/// `WorkoutRowView` rather than on the row - so nothing pictures it. And `ImageRenderer` cannot
-/// draw `ProgressView`, so the state a climber sees for the whole duration of a tap is the one
-/// state with no honest picture of it.
+/// That suite renders `WorkoutSyncStatusRow` in isolation off screen, which leaves two gaps. The
+/// climbs list is where a climber first meets an unsynced climb, and its badge lives on
+/// `WorkoutRowView` rather than on the row - so nothing pictures it. And an off-screen render
+/// cannot draw `ProgressView`, so the state a climber sees for the whole duration of a tap is the
+/// one state with no honest picture of it.
 ///
-/// Both are answered here by drawing through a live `UIWindow` instead: the same path UIKit uses
-/// to put pixels on a screen, spinner included. Writes PNGs to `ASCEND_EVIDENCE_DIR`.
+/// Both are answered here by hosting through a live `UIWindow` instead (`RenderedScreen`): the
+/// same path UIKit uses to put pixels on a screen, spinner included. The copy is read off the
+/// accessibility tree; photographs are written to `ASCEND_EVIDENCE_DIR` when it is set.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct WorkoutSyncListBadgeEvidenceTests {
@@ -23,7 +24,7 @@ struct WorkoutSyncListBadgeEvidenceTests {
     /// Side by side on purpose: the badge's whole job is to make the second distinguishable from
     /// the first, and before this change the two rows were pixel-identical.
     @Test
-    func capturesTheClimbsListBadge() throws {
+    func capturesTheClimbsListBadge() async throws {
         let container = try Self.hostedContainer()
 
         let synced = Self.makeWorkout(name: "CN Tower Live Climb", steps: 3_042)
@@ -45,12 +46,17 @@ struct WorkoutSyncListBadgeEvidenceTests {
         .padding(16)
         .modelContainer(container)
 
-        try Self.capture(
+        try await Self.hosting(
             name: "07-list-couldnt-sync-badge",
             caption: "Climbs list: the second climb is not in the account, and now says so",
-            content: list,
-            height: 320
-        )
+            content: list
+        ) { screen in
+            let text = try await screen.copy { $0.contains("couldn't sync") }
+            #expect(text.contains("morning stepper"))
+            #expect(text.contains("cn tower live climb"))
+            // Exactly one badge: on the climb that is not in the account, and not on the one that is.
+            #expect(text.components(separatedBy: "couldn't sync").count - 1 == 1, "read back as: \(text)")
+        }
     }
 
     /// The tapped state, drawn the way the device draws it.
@@ -59,8 +65,8 @@ struct WorkoutSyncListBadgeEvidenceTests {
     /// spinner. This is the same state with the spinner actually in it, so the reviewer can see
     /// that the warning text is unchanged from the untapped row rather than take it on trust.
     @Test
-    func capturesTheTappedStateWithItsRealSpinner() throws {
-        try Self.capture(
+    func capturesTheTappedStateWithItsRealSpinner() async throws {
+        try await Self.hosting(
             name: "08-tapped-live-spinner",
             caption: "Tapped, drawn through UIKit: real spinner, and the warning has not moved",
             content: WorkoutSyncStatusRow(
@@ -68,9 +74,13 @@ struct WorkoutSyncListBadgeEvidenceTests {
                 effectiveColorScheme: .dark,
                 onRetry: {}
             )
-            .padding(.horizontal, 16),
-            height: 120
-        )
+            .padding(.horizontal, 16)
+        ) { screen in
+            let text = try await screen.copy { $0.contains("syncing") }
+            // The warning stays while the control reports the retry in flight.
+            #expect(text.contains("couldn't sync this climb"))
+            #expect(text.contains("syncing"))
+        }
     }
 
     /// The section nested the way `WorkoutDetailView` actually nests it.
@@ -142,26 +152,30 @@ struct WorkoutSyncListBadgeEvidenceTests {
             """
         )
 
-        try await Self.captureAfterSettling(
-            name: "09-detail-section-nested",
-            caption: "Detail screen nesting: the row a climber should see on a refused climb",
-            content: nested {
-                WorkoutSyncStatusSection(workout: workout, effectiveColorScheme: .dark)
-            },
-            height: 220
-        )
+        // Photographed after the lifecycle has had every chance to run, so the picture shows
+        // whatever the screen genuinely settles on. The assertions above own the verdict on
+        // whether that is the right thing.
+        if RenderedScreen.isPhotographing {
+            try await Self.hosting(
+                name: "09-detail-section-nested",
+                caption: "Detail screen nesting: the row a climber should see on a refused climb",
+                content: nested {
+                    WorkoutSyncStatusSection(workout: workout, effectiveColorScheme: .dark)
+                }
+            ) { _ in }
+        }
     }
 
+    /// The content's intrinsic height once SwiftUI's lifecycle has had sixty turns to settle.
     private static func settledHeight(of view: some View) async throws -> CGFloat {
         let host = UIHostingController(rootView: view)
-        let window = try makeWindow(host: host, height: 874)
-        defer { tearDown(window) }
-
-        for _ in 0..<60 {
-            try await Task.sleep(for: .milliseconds(10))
-            _ = intrinsicHeight(of: host, in: window)
+        return try await RenderedScreen.host(host) { screen in
+            for _ in 0..<60 {
+                try await Task.sleep(for: .milliseconds(10))
+                _ = intrinsicHeight(of: host, in: screen.window)
+            }
+            return intrinsicHeight(of: host, in: screen.window)
         }
-        return intrinsicHeight(of: host, in: window)
     }
 
     private static func makeWorkout(name: String, steps: Int) -> Workout {
@@ -177,39 +191,33 @@ struct WorkoutSyncListBadgeEvidenceTests {
         )
     }
 
-    private static func capture(
+    /// Hosts the captioned frame at phone size, hands the settled screen to `body`, then - only
+    /// when this run keeps photographs - sizes the window to the content and photographs it.
+    private static func hosting(
         name: String,
         caption: String,
         content: some View,
-        height: CGFloat
-    ) throws {
-        let (window, image) = try hostAndDraw(caption: caption, content: content, height: height)
-        defer { tearDown(window) }
-        try write(image, name: name)
-    }
-
-    /// The lifecycle-driven variant: pumps the run loop until the section stops being empty.
-    private static func captureAfterSettling(
-        name: String,
-        caption: String,
-        content: some View,
-        height: CGFloat
+        _ body: @MainActor (HostedScreen) async throws -> Void
     ) async throws {
-        let framed = frame(caption: caption, content: content, height: height)
-        let host = UIHostingController(rootView: framed)
-        let window = try makeWindow(host: host, height: height)
-        defer { tearDown(window) }
+        let host = UIHostingController(rootView: frame(caption: caption, content: content))
 
-        // Photographed after the lifecycle has had every chance to run, so the picture shows
-        // whatever the screen genuinely settles on. The caller owns the verdict on whether that
-        // is the right thing.
-        var settledHeight = intrinsicHeight(of: host, in: window)
-        for _ in 0..<60 {
-            try await Task.sleep(for: .milliseconds(10))
-            settledHeight = intrinsicHeight(of: host, in: window)
+        try await RenderedScreen.host(host) { screen in
+            try await body(screen)
+
+            guard RenderedScreen.isPhotographing else { return }
+
+            var fitted = intrinsicHeight(of: host, in: screen.window)
+            for _ in 0..<60 {
+                try await Task.sleep(for: .milliseconds(10))
+                fitted = intrinsicHeight(of: host, in: screen.window)
+            }
+
+            // Sized to the content rather than to a guess, so a row that appears cannot fall off
+            // the bottom of its own evidence.
+            screen.window.frame = CGRect(x: 0, y: 0, width: 402, height: ceil(fitted))
+            pump(screen.window)
+            try screen.photograph(named: name)
         }
-
-        try write(draw(window, fittingHeight: settledHeight), name: name)
     }
 
     private static func intrinsicHeight(
@@ -222,22 +230,6 @@ struct WorkoutSyncListBadgeEvidenceTests {
         ).height
     }
 
-    private static func hostAndDraw(
-        caption: String,
-        content: some View,
-        height: CGFloat
-    ) throws -> (UIWindow, UIImage) {
-        let host = UIHostingController(rootView: frame(caption: caption, content: content, height: height))
-        let window = try makeWindow(host: host, height: height)
-
-        var fitted = height
-        for _ in 0..<10 {
-            fitted = intrinsicHeight(of: host, in: window)
-        }
-
-        return (window, draw(window, fittingHeight: fitted))
-    }
-
     /// Kept out of any async context: `RunLoop.current` is unavailable from one, and the only way
     /// to let SwiftUI's lifecycle and UIKit's layout actually run is to turn the loop by hand.
     private static func pump(_ window: UIWindow) {
@@ -248,8 +240,7 @@ struct WorkoutSyncListBadgeEvidenceTests {
 
     private static func frame(
         caption: String,
-        content: some View,
-        height: CGFloat
+        content: some View
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(caption)
@@ -262,70 +253,6 @@ struct WorkoutSyncListBadgeEvidenceTests {
         .frame(width: 402, alignment: .topLeading)
         .background(Color.black)
         .environment(\.colorScheme, .dark)
-    }
-
-    private static func makeWindow(
-        host: UIHostingController<some View>,
-        height: CGFloat
-    ) throws -> UIWindow {
-        let scene = try #require(
-            UIApplication.shared.connectedScenes.first as? UIWindowScene,
-            "test host app should expose a live UIWindowScene"
-        )
-        let window = UIWindow(windowScene: scene)
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: height)
-        window.rootViewController = host
-        window.makeKeyAndVisible()
-        return window
-    }
-
-    /// `layer.render(in:)` rather than `drawHierarchy`, because the latter needs a real screen
-    /// update cycle the test host does not reliably get and returns blank when it does not.
-    private static func draw(_ window: UIWindow, fittingHeight: CGFloat) -> UIImage {
-        // Sized to the content rather than to a guess, so a row that appears cannot fall off the
-        // bottom of its own evidence.
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: ceil(fittingHeight))
-        pump(window)
-
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 3
-        return UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { context in
-            window.layer.render(in: context.cgContext)
-        }
-    }
-
-    private static func tearDown(_ window: UIWindow) {
-        window.isHidden = true
-        window.rootViewController = nil
-        window.windowScene = nil
-    }
-
-    private static func write(_ image: UIImage, name: String) throws {
-        guard let data = image.pngData() else {
-            Issue.record("No PNG data for \(name)")
-            return
-        }
-
-        let candidates = [
-            ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"],
-            NSTemporaryDirectory().appending("ascend-sync-surface-evidence")
-        ].compactMap { $0 }
-
-        for directory in candidates {
-            let url = URL(filePath: directory).appending(path: "\(name).png")
-            do {
-                try FileManager.default.createDirectory(
-                    at: URL(filePath: directory),
-                    withIntermediateDirectories: true
-                )
-                try data.write(to: url)
-                print("ASCEND_EVIDENCE_PNG \(url.path)")
-                return
-            } catch {
-                continue
-            }
-        }
-        Issue.record("No writable evidence directory for \(name)")
     }
 
     /// Held for the process for the same reason the hosting suite holds its own: SwiftUI keeps

@@ -93,54 +93,28 @@ struct ClimbDetailHeadphoneAffordanceTests {
 
     // MARK: - Hosting
 
-    /// Climb Detail needs a live window: it sits in a `NavigationStack`, which `ImageRenderer`
-    /// cannot flatten, and its content only resolves once SwiftUI has run an update loop
-    /// against a real display link.
+    /// Climb Detail needs a live window: it sits in a `NavigationStack`, which cannot be laid out
+    /// off screen, and its content only resolves once SwiftUI has run an update loop against a
+    /// real display link. `RenderedScreen` puts it up and hands over the window to walk.
     private func withHostedClimbDetail(
         _ whileOnScreen: (UIView) async throws -> Void
     ) async throws {
         let container = try #require(Self.container, "This suite needs an in-memory container")
 
-        try await withAccessibilityAutomation {
-            let host = UIHostingController(
-                rootView: NavigationStack {
-                    ClimbDetailView(
-                        climb: .preview,
-                        climbService: Self.catalogService,
-                        leaderboardService: Self.leaderboardService
-                    )
-                }
-                .modelContainer(container)
-                .environment(ModerationStore.shared)
-                .preferredColorScheme(.dark)
-            )
-
-            let scene = try #require(
-                UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first,
-                "test host app should expose a live UIWindowScene"
-            )
-            let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
-            let window = UIWindow(windowScene: scene)
-            window.frame = CGRect(origin: .zero, size: Self.screenSize)
-            window.overrideUserInterfaceStyle = .dark
-            window.backgroundColor = .black
-            window.rootViewController = host
-
-            defer {
-                window.isHidden = true
-                previousKeyWindow?.makeKey()
-                window.rootViewController = nil
-                window.windowScene = nil
+        try await RenderedScreen.host(
+            NavigationStack {
+                ClimbDetailView(
+                    climb: .preview,
+                    climbService: Self.catalogService,
+                    leaderboardService: Self.leaderboardService
+                )
             }
-
-            window.makeKeyAndVisible()
-            for _ in 0..<12 {
-                window.setNeedsLayout()
-                window.layoutIfNeeded()
-                try await Task.sleep(for: .milliseconds(50))
-            }
-
-            try await whileOnScreen(window)
+            .modelContainer(container)
+            .environment(ModerationStore.shared)
+            .preferredColorScheme(.dark),
+            size: Self.screenSize
+        ) { screen in
+            try await whileOnScreen(screen.window)
         }
     }
 }

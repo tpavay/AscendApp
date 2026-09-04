@@ -7,10 +7,11 @@ import UIKit
 /// Visual evidence for the entitlement-resolution wait, cited by
 /// `docs/quality/contracts/returning-subscriber.md` for the loading row of the state matrix and AC-9.
 ///
-/// This renders the real `AppAccessResolvingView` - not a copy of its markup - through
-/// `ImageRenderer`, driven by a `MonetizationManager` built on the shared `EntitlementServiceStub`
-/// and `PaywallPresenterSpy` doubles. Both rows are seeded through the shipped identity transition
-/// API, so what the PNG shows is what the routing layer can actually put on screen:
+/// This lays out the real `AppAccessResolvingView` - not a copy of its markup - off screen through
+/// `RenderedScreen`, driven by a `MonetizationManager` built on the shared `EntitlementServiceStub`
+/// and `PaywallPresenterSpy` doubles, and photographs it only when `ASCEND_EVIDENCE_DIR` is set.
+/// Both rows are seeded through the shipped identity transition API, so what the PNG shows is
+/// what the routing layer can actually put on screen:
 ///   waiting  -> `prepareIdentity` has published `.unknown` and the answer is still outstanding
 ///   stalled  -> the matching identify resolved without an answer, so recovery takes over
 @MainActor
@@ -28,22 +29,13 @@ struct AppAccessResolvingSnapshotTests {
         #expect(waiting.hasFailedIdentityResolution == false)
         #expect(stalled.hasFailedIdentityResolution)
 
-        let renderer = ImageRenderer(
-            content: AppAccessResolvingStatesProof(waiting: waiting, stalled: stalled)
-        )
-        renderer.scale = 2
-
-        let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: "app-access-resolving-states.png")
-        try png.write(to: url)
-
-        #expect(image.size.width > 0)
-        #expect(image.size.height > 0)
-        #expect(png.count > 5_000)
+        let proof = AppAccessResolvingStatesProof(waiting: waiting, stalled: stalled)
+        // A size is a 1x fact; the bitmap is released before the photograph is considered.
+        try RenderedScreen.withOffscreenPixels(of: proof) { pixels in
+            #expect(pixels.size.width > 0)
+            #expect(pixels.size.height > 0)
+        }
+        try RenderedScreen.photograph(proof, named: "app-access-resolving-states", scale: 2)
     }
 }
 

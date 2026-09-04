@@ -43,7 +43,11 @@ func accessibilityElements(under root: UIView) -> [NSObject] {
             }
         }
 
-        if let view = node as? UIView {
+        // A wheel picker is one element whose value is the selection; its drums are hundreds of
+        // rows each, and with the automation runtime listening a walk that descends into them
+        // materialises every row's accessibility node. Hosting the onboarding birthday wheel
+        // measured 634 -> 2,560 MB of resident memory on that one descent.
+        if let view = node as? UIView, !(view is UIPickerView), !(view is UIDatePicker) {
             for subview in view.subviews {
                 visit(subview)
             }

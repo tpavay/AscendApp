@@ -9,8 +9,9 @@ import UIKit
 ///
 /// Rendering `WorkoutSyncStatusRow` with an explicit presentation, as the evidence test does, only
 /// ever proves the row can draw. These mount `WorkoutSyncStatusSection` - the thing the detail
-/// screen places - and check the two states that decide whether a climber ever sees the warning:
-/// a refused climb has to occupy space, and a clean one has to occupy none.
+/// screen places - through `RenderedScreen` and check the two states that decide whether a
+/// climber ever sees the warning: a refused climb has to occupy space, and a clean one has to
+/// occupy none.
 ///
 /// `WorkoutSyncListBadgeEvidenceTests.theRowSurvivesTheDetailScreensNesting` is the companion that
 /// nests the section inside a stack rather than mounting it as a root view.
@@ -47,26 +48,13 @@ struct WorkoutSyncStatusSectionHostingTests {
             .modelContainer(container)
         )
 
-        let scene = try #require(
-            UIApplication.shared.connectedScenes.first as? UIWindowScene,
-            "test host app should expose a live UIWindowScene"
-        )
-        let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
-        let window = UIWindow(windowScene: scene)
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
-        window.rootViewController = host
-        window.makeKeyAndVisible()
-        defer {
-            window.isHidden = true
-            previousKeyWindow?.makeKey()
-            window.rootViewController = nil
-            window.windowScene = nil
-        }
-
-        var height = Self.measuredHeight(of: host, in: window)
-        for _ in 0..<60 where height == 0 {
-            try await Task.sleep(for: .milliseconds(10))
-            height = Self.measuredHeight(of: host, in: window)
+        let height = try await RenderedScreen.host(host) { screen -> CGFloat in
+            var height = Self.measuredHeight(of: host, in: screen.window)
+            for _ in 0..<60 where height == 0 {
+                try await Task.sleep(for: .milliseconds(10))
+                height = Self.measuredHeight(of: host, in: screen.window)
+            }
+            return height
         }
 
         #expect(
@@ -118,11 +106,9 @@ struct WorkoutSyncStatusSectionHostingTests {
             Text("below")
         }
 
-        let (withRowHeight, window) = try Self.hostedHeight(of: withRow)
-        defer { Self.tearDown(window) }
-
-        let (withoutRowHeight, baselineWindow) = try Self.hostedHeight(of: withoutRow)
-        defer { Self.tearDown(baselineWindow) }
+        // One screen at a time: the host has a single window scene to lend.
+        let withRowHeight = try await Self.hostedHeight(of: withRow)
+        let withoutRowHeight = try await Self.hostedHeight(of: withoutRow)
 
         #expect(
             withRowHeight == withoutRowHeight,
@@ -133,28 +119,15 @@ struct WorkoutSyncStatusSectionHostingTests {
         )
     }
 
-    private static func hostedHeight(of view: some View) throws -> (CGFloat, UIWindow) {
+    private static func hostedHeight(of view: some View) async throws -> CGFloat {
         let host = UIHostingController(rootView: view)
-        let scene = try #require(
-            UIApplication.shared.connectedScenes.first as? UIWindowScene,
-            "test host app should expose a live UIWindowScene"
-        )
-        let window = UIWindow(windowScene: scene)
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
-        window.rootViewController = host
-        window.makeKeyAndVisible()
-
-        var height = measuredHeight(of: host, in: window)
-        for _ in 0..<10 {
-            height = measuredHeight(of: host, in: window)
+        return try await RenderedScreen.host(host) { screen -> CGFloat in
+            var height = measuredHeight(of: host, in: screen.window)
+            for _ in 0..<10 {
+                height = measuredHeight(of: host, in: screen.window)
+            }
+            return height
         }
-        return (height, window)
-    }
-
-    private static func tearDown(_ window: UIWindow) {
-        window.isHidden = true
-        window.rootViewController = nil
-        window.windowScene = nil
     }
 
     private static func measuredHeight(of host: UIHostingController<some View>, in window: UIWindow) -> CGFloat {

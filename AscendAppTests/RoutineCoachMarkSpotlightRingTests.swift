@@ -155,10 +155,16 @@ struct RoutineCoachMarkSpotlightRingTests {
     }
 }
 
-/// One rendered strip, and the lime it carries.
+/// One rendered strip, reduced to the lime it carries. The bitmap lives only inside the
+/// `RenderedScreen` call that counts it; what survives are the two numbers below.
 ///
 /// Lime is read as the accent's green dominance (`#86D30A`), which nothing else on this surface
 /// has: the ridge is drawn from the heat map, which is red at every level, and the label is grey.
+///
+/// Read at 2x rather than 1x: the working window's own outline is a 1.5pt stroke, which at 1x
+/// is at best two pixels each three-quarters covered and, wherever the edge falls between
+/// pixels, a blend too dark to pass the lime test. At 2x it is three pixels wide with a solid
+/// middle pixel. Every strip is read at the same scale, so the counts compare.
 @MainActor
 private struct RenderedStrip {
     /// The strip's bounds inside the device, which is also the rect the overlay spotlights - in
@@ -170,11 +176,17 @@ private struct RenderedStrip {
     /// own 4pt inset. Anything the card draws sits well below it.
     private static var band: CGRect { strip.insetBy(dx: -4, dy: -4) }
 
-    private static let scale = 3
+    private static let scale: CGFloat = 2
 
-    private let width: Int
-    private let height: Int
-    private let bytes: [UInt8]
+    /// The most lime runs any single row of the band crosses. Two nested outlines put four
+    /// vertical strokes in a row's path; one outline puts two.
+    let widestLimeCrossing: Int
+
+    let limePixelCount: Int
+
+    var hasLime: Bool {
+        limePixelCount > 0
+    }
 
     init(
         intervals: [RoutineInterval],
@@ -207,86 +219,57 @@ private struct RenderedStrip {
         .frame(width: Self.device.width, height: Self.device.height)
         .environment(\.colorScheme, .dark)
 
-        let renderer = ImageRenderer(content: probe)
-        renderer.scale = CGFloat(Self.scale)
-
-        let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
-        let bitmap = try #require(image.cgImage, "The render carried no bitmap")
-
-        let pixelWidth = bitmap.width
-        let pixelHeight = bitmap.height
-        width = pixelWidth
-        height = pixelHeight
-
-        var buffer = [UInt8](repeating: 0, count: pixelWidth * pixelHeight * 4)
-        try buffer.withUnsafeMutableBytes { raw in
-            let context = try #require(
-                CGContext(
-                    data: raw.baseAddress,
-                    width: pixelWidth,
-                    height: pixelHeight,
-                    bitsPerComponent: 8,
-                    bytesPerRow: pixelWidth * 4,
-                    space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-                ),
-                "Could not open a bitmap over the render"
-            )
-            context.draw(bitmap, in: CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight))
+        let lime = try RenderedScreen.withOffscreenPixels(of: probe, scale: Self.scale) { pixels in
+            Self.countLime(in: pixels)
         }
-        bytes = buffer
+        widestLimeCrossing = lime.widestCrossing
+        limePixelCount = lime.pixelCount
     }
 
-    /// The most lime runs any single row of the band crosses. Two nested outlines put four
-    /// vertical strokes in a row's path; one outline puts two.
-    var widestLimeCrossing: Int {
-        rows.map(limeRunCount(inRow:)).max() ?? 0
-    }
+    /// Walks the band row by row: a run starts wherever a lime pixel follows a non-lime one.
+    private static func countLime(in pixels: PixelSampler) -> (widestCrossing: Int, pixelCount: Int) {
+        let rows = pixelRange(from: band.minY, to: band.maxY, scale: pixels.scale, limit: pixels.height)
+        let columns = pixelRange(from: band.minX, to: band.maxX, scale: pixels.scale, limit: pixels.width)
 
-    var limePixelCount: Int {
-        rows.reduce(0) { total, y in
-            columns.reduce(total) { $0 + (isLime(x: $1, y: y) ? 1 : 0) }
+        var widestCrossing = 0
+        var pixelCount = 0
+
+        for y in rows {
+            var runs = 0
+            var wasLime = false
+
+            for x in columns {
+                let lime = isLime(pixels.pixel(x: x, y: y))
+                if lime {
+                    pixelCount += 1
+                    if !wasLime {
+                        runs += 1
+                    }
+                }
+                wasLime = lime
+            }
+
+            widestCrossing = max(widestCrossing, runs)
         }
+
+        return (widestCrossing, pixelCount)
     }
 
-    var hasLime: Bool {
-        limePixelCount > 0
-    }
-
-    private var rows: Range<Int> {
-        pixelRange(from: Self.band.minY, to: Self.band.maxY, limit: height)
-    }
-
-    private var columns: Range<Int> {
-        pixelRange(from: Self.band.minX, to: Self.band.maxX, limit: width)
-    }
-
-    private func pixelRange(from lower: CGFloat, to upper: CGFloat, limit: Int) -> Range<Int> {
-        let start = max(Int(lower) * Self.scale, 0)
-        let end = min(Int(upper.rounded(.up)) * Self.scale, limit)
+    private static func pixelRange(
+        from lower: CGFloat,
+        to upper: CGFloat,
+        scale: CGFloat,
+        limit: Int
+    ) -> Range<Int> {
+        let start = max(Int(lower * scale), 0)
+        let end = min(Int((upper * scale).rounded(.up)), limit)
         return start..<max(start, end)
     }
 
-    private func limeRunCount(inRow y: Int) -> Int {
-        var runs = 0
-        var wasLime = false
-
-        for x in columns {
-            let lime = isLime(x: x, y: y)
-            if lime, !wasLime {
-                runs += 1
-            }
-            wasLime = lime
-        }
-
-        return runs
-    }
-
-    private func isLime(x: Int, y: Int) -> Bool {
-        let offset = (y * width + x) * 4
-        let red = Int(bytes[offset])
-        let green = Int(bytes[offset + 1])
-        let blue = Int(bytes[offset + 2])
+    private static func isLime(_ pixel: RGBA) -> Bool {
+        let red = Int(pixel.red)
+        let green = Int(pixel.green)
+        let blue = Int(pixel.blue)
 
         // #86D30A is (134, 211, 10): bright, green-dominant, almost no blue. The heat map's
         // reds are all red-dominant, so nothing else in the band can pass this.

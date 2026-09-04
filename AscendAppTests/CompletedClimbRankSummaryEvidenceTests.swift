@@ -3,22 +3,21 @@ import SwiftData
 import SwiftUI
 import Testing
 import UIKit
-import Vision
 @testable import AscendApp
 
-/// Visual evidence for the completed-climb summary's rank hero - the surface the three reported
-/// defects were seen on (opening a saved Burj Khalifa summary from workout history).
+/// Evidence for the completed-climb summary's rank hero - the surface the three reported defects
+/// were seen on (opening a saved Burj Khalifa summary from workout history).
 ///
-/// Every image here is the real `LiveClimbCompletionSummaryView`, built the way its shipping call
+/// Every case hosts the real `LiveClimbCompletionSummaryView`, built the way its shipping call
 /// sites build it, with the rank resolved through the real `CompletedClimbRankService` and the real
 /// `FrozenCompletionRankStore`. Nothing is mocked into the view.
 ///
-/// Each case hosts the summary in a live window, so the view's `.task` runs exactly as it does on
-/// device. A zero settle captures the literal first frame - what a climber sees the instant the
-/// summary opens - and a short settle captures where the surface lands.
+/// Each case hosts the summary in a live window through `RenderedScreen`, so the view's `.task`
+/// runs exactly as it does on device, and reads the copy back off the accessibility tree. A zero
+/// settle reads the literal first frame - what a climber sees the instant the summary opens - and a
+/// short settle reads where the surface lands.
 ///
-/// Images land in `ASCEND_EVIDENCE_DIR` when it is set and in the test host's temporary directory
-/// otherwise; the path is logged either way.
+/// Photographs are written to `ASCEND_EVIDENCE_DIR` when it is set and not taken otherwise.
 ///
 /// Serialized: every case drives the one real `UserDefaults`-backed store, so they cannot run
 /// concurrently without clearing each other's records.
@@ -117,11 +116,11 @@ struct CompletedClimbRankSummaryEvidenceTests {
             contextKey: context.contextKey
         )
 
-        let image = try await hostAndCapture(
+        let text = try await hostedCopy(
             try summary(workout: workout, climb: Self.burjKhalifa, context: context),
-            settleSeconds: 0.5
-        )
-        let text = try await recognizedText(in: image)
+            settleSeconds: 0.5,
+            photographedAs: "completed-summary-frozen-rank"
+        ) { $0.contains("21st") }
 
         // The permanent standing, position, field size, and ranking basis together.
         #expect(text.contains("21st"))
@@ -136,8 +135,6 @@ struct CompletedClimbRankSummaryEvidenceTests {
         #expect(!text.contains("checking"))
         #expect(!text.contains("unavailable"))
         #expect(!text.contains("looking for your rank"))
-
-        try writeEvidence(image: image, named: "completed-summary-frozen-rank.png")
     }
 
     /// The same workout reopened after the record is on disk: the second render is identical, which
@@ -177,18 +174,16 @@ struct CompletedClimbRankSummaryEvidenceTests {
             contextKey: context.contextKey
         )
 
-        let image = try await hostAndCapture(
+        let text = try await hostedCopy(
             try summary(workout: workout, climb: Self.burjKhalifa, context: context),
-            settleSeconds: 0.5
-        )
-        let text = try await recognizedText(in: image)
+            settleSeconds: 0.5,
+            photographedAs: "completed-summary-frozen-rank-reopened"
+        ) { $0.contains("21st") }
 
         #expect(text.contains("21st"))
         #expect(text.contains("fastest of 64"))
         #expect(!text.contains("34th"))
         #expect(!text.contains("fastest of 91"))
-
-        try writeEvidence(image: image, named: "completed-summary-frozen-rank-reopened.png")
     }
 
     // MARK: - Defect 3: the value loads, it is never worded
@@ -205,11 +200,11 @@ struct CompletedClimbRankSummaryEvidenceTests {
         let workout = Self.legacyBurjWorkout()
         let context = try #require(Self.summaryContext(for: workout))
 
-        let image = try await hostAndCapture(
+        let text = try await hostedCopy(
             try summary(workout: workout, climb: Self.burjKhalifa, context: context),
-            settleSeconds: 0
-        )
-        let text = try await recognizedText(in: image)
+            settleSeconds: 0,
+            photographedAs: "completed-summary-rank-loading"
+        ) { $0.contains("looking for your rank") }
 
         #expect(text.contains("looking for your rank"))
         #expect(!text.contains("climb rank"))
@@ -221,8 +216,6 @@ struct CompletedClimbRankSummaryEvidenceTests {
 
         // The achievement row below still states the session finished.
         #expect(text.contains("climb complete"))
-
-        try writeEvidence(image: image, named: "completed-summary-rank-loading.png")
     }
 
     // MARK: - A session that ranks nowhere renders no rank hero at all
@@ -248,7 +241,7 @@ struct CompletedClimbRankSummaryEvidenceTests {
         )
         #expect(presentation.ranksOnLeaderboard == false)
 
-        let image = try await hostAndCapture(
+        let text = try await hostedCopy(
             LiveClimbCompletionSummaryView(
                 climb: nil,
                 workout: workout,
@@ -263,9 +256,9 @@ struct CompletedClimbRankSummaryEvidenceTests {
                 onDone: { _ in }
             )
             .modelContainer(for: Self.summaryModels, inMemory: true),
-            settleSeconds: 0.4
+            settleSeconds: 0.4,
+            photographedAs: "completed-summary-no-ranking-card"
         )
-        let text = try await recognizedText(in: image)
 
         // No rank hero: no label, no value slot, no detail line.
         #expect(!text.contains("routine rank"))
@@ -273,8 +266,6 @@ struct CompletedClimbRankSummaryEvidenceTests {
         #expect(!text.contains("global rank"))
         #expect(!text.contains("looking for your rank"))
         #expect(!text.contains("incomplete"))
-
-        try writeEvidence(image: image, named: "completed-summary-no-ranking-card.png")
     }
 
     // MARK: - A rank recomputed against the current field
@@ -292,7 +283,7 @@ struct CompletedClimbRankSummaryEvidenceTests {
             source: .headphoneMotion
         )
 
-        let image = try await hostAndCapture(
+        let text = try await hostedCopy(
             LiveClimbCompletionSummaryView(
                 climb: nil,
                 workout: workout,
@@ -305,17 +296,15 @@ struct CompletedClimbRankSummaryEvidenceTests {
                 onDone: { _ in }
             )
             .modelContainer(for: Self.summaryModels, inMemory: true),
-            settleSeconds: 0.4
-        )
-        let text = try await recognizedText(in: image)
+            settleSeconds: 0.4,
+            photographedAs: "open-session-current-rank"
+        ) { $0.contains("12th") }
 
         #expect(text.contains("12th"))
         #expect(text.contains("fastest of 2,460"))
         #expect(!text.contains("global rank"))
         #expect(!text.contains("current leaderboard rank"))
         #expect(!text.contains("rank when you finished"))
-
-        try writeEvidence(image: image, named: "open-session-current-rank.png")
     }
 
     // MARK: - The population a frozen standing was measured against
@@ -334,7 +323,7 @@ struct CompletedClimbRankSummaryEvidenceTests {
         let clamped = try await frozenStanding(
             rank: 3,
             completedCount: 3,
-            named: "frozen-standing-clamped-3rd-of-3.png"
+            named: "frozen-standing-clamped-3rd-of-3"
         )
 
         #expect(clamped.contains("3rd"))
@@ -343,15 +332,15 @@ struct CompletedClimbRankSummaryEvidenceTests {
         let counted = try await frozenStanding(
             rank: 2,
             completedCount: 3,
-            named: "frozen-standing-counted-2nd-of-3.png"
+            named: "frozen-standing-counted-2nd-of-3"
         )
 
         #expect(counted.contains("2nd"))
         #expect(counted.contains("fastest of 3"))
     }
 
-    /// Freezes one server-published standing on this device and renders the saved
-    /// summary that reads it back, returning the copy read off the pixels.
+    /// Freezes one server-published standing on this device and hosts the saved
+    /// summary that reads it back, returning the copy read off the tree.
     private func frozenStanding(
         rank: Int,
         completedCount: Int,
@@ -380,13 +369,11 @@ struct CompletedClimbRankSummaryEvidenceTests {
             contextKey: context.contextKey
         )
 
-        let image = try await hostAndCapture(
+        return try await hostedCopy(
             try summary(workout: workout, climb: Self.burjKhalifa, context: context),
-            settleSeconds: 0.5
-        )
-        try writeEvidence(image: image, named: name)
-
-        return try await recognizedText(in: image)
+            settleSeconds: 0.5,
+            photographedAs: name
+        ) { $0.contains(rank.rankOrdinalText.lowercased()) }
     }
 
     // MARK: - Building the surface
@@ -435,103 +422,54 @@ struct CompletedClimbRankSummaryEvidenceTests {
         try #require(Self.container, "The evidence suite needs an in-memory model container")
     }
 
-    // MARK: - Capture
+    // MARK: - Reading the hosted screen back
 
-    /// Hosts the view in a real window so `.task` runs, then captures what is on screen.
+    /// Hosts the view in a real window so `.task` runs, then reads its copy off the accessibility
+    /// tree - waiting for `isReady` so the read is the frame the case is about - and photographs
+    /// it when `ASCEND_EVIDENCE_DIR` is set.
     ///
-    /// The window is dismantled and detached from the scene before this returns. Hiding it is not
-    /// enough: a window still attached to the shared scene keeps its SwiftUI content - and the
-    /// SwiftData observers behind the summary's `@Query` - alive for the rest of the test run, and
-    /// the next capture's key-window switch then drives appearance transitions back through those
-    /// stale hosting controllers while unrelated suites are mutating their own model containers.
-    private func hostAndCapture(_ view: some View, settleSeconds: Double) async throws -> UIImage {
-        let bounds = CGRect(x: 0, y: 0, width: 402, height: 874)
-        let scene = try #require(
-            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first,
-            "The test host app must have a window scene to render into"
-        )
-        let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
-        let window = UIWindow(windowScene: scene)
-        window.frame = bounds
-
-        defer {
-            window.isHidden = true
-            previousKeyWindow?.makeKey()
-            window.rootViewController = nil
-            window.windowScene = nil
-        }
-
+    /// `RenderedScreen` dismantles the window and detaches it from the scene before this returns.
+    /// Hiding it would not be enough: a window still attached to the shared scene keeps its
+    /// SwiftUI content - and the SwiftData observers behind the summary's `@Query` - alive for the
+    /// rest of the test run, and the next host's key-window switch then drives appearance
+    /// transitions back through those stale hosting controllers while unrelated suites are
+    /// mutating their own model containers.
+    private func hostedCopy(
+        _ view: some View,
+        settleSeconds: Double,
+        photographedAs name: String,
+        until isReady: @escaping (String) -> Bool = { $0.isEmpty == false }
+    ) async throws -> String {
         let host = AppearanceTrackingHostingController(
             rootView: AnyView(view.environment(\.colorScheme, .dark))
         )
-        host.view.frame = bounds
-        window.rootViewController = host
-        window.makeKeyAndVisible()
-        host.view.setNeedsLayout()
-        host.view.layoutIfNeeded()
 
         // UIKit ends the appearance transition it began when the window became visible on a later
-        // run-loop turn, so a zero settle would otherwise capture and dismantle the host while that
+        // run-loop turn, so a zero settle would otherwise read and dismantle the host while that
         // transition is still open. Waiting on the callback rather than on a guessed interval keeps
         // this deterministic on a loaded runner.
-        try await waitUntilAppeared(host)
+        //
+        // The deadline is generous on purpose. Five seconds was not: a full parallel run on a
+        // contended machine took this suite past it once in six, and the resulting red says "the
+        // summary never appeared" about a machine that was merely slow. It exists to stop a
+        // genuinely stuck transition from hanging the run, so it only has to be shorter than a
+        // person's patience, and a passing run still leaves it the instant `viewDidAppear` lands.
+        return try await RenderedScreen.host(
+            host,
+            settle: .until(turns: 12_000, interval: .milliseconds(5)) { _ in host.hasAppeared }
+        ) { screen in
+            #expect(host.hasAppeared, "The hosted summary never finished its appearance transition")
 
-        // Awaiting is what lets the view's `.task` start, so a zero settle captures the literal
-        // first frame - what a climber sees the instant the summary opens.
-        if settleSeconds > 0 {
-            try await Task.sleep(for: .seconds(settleSeconds))
+            // Awaiting is what lets the view's `.task` start, so a zero settle reads the literal
+            // first frame - what a climber sees the instant the summary opens.
+            if settleSeconds > 0 {
+                try await Task.sleep(for: .seconds(settleSeconds))
+            }
+
+            let text = try await screen.copy(until: isReady)
+            try screen.photograph(named: name)
+            return text
         }
-
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 3
-        return UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in
-            window.drawHierarchy(in: bounds, afterScreenUpdates: true)
-        }
-    }
-
-    /// Waits for UIKit to finish the appearance transition, with a deadline generous enough that a
-    /// busy runner cannot be mistaken for a broken one.
-    ///
-    /// Five seconds was not: a full parallel run on a contended machine took this suite past it once
-    /// in six, and the resulting red says "the summary never appeared" about a machine that was
-    /// merely slow. The deadline exists to stop a genuinely stuck transition from hanging the run,
-    /// so it only has to be shorter than a person's patience - it buys nothing by being tight, and
-    /// a passing run still leaves it the instant `viewDidAppear` lands.
-    private func waitUntilAppeared(_ host: AppearanceTrackingHostingController) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(60))
-        while host.hasAppeared == false, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(5))
-        }
-
-        #expect(host.hasAppeared, "The hosted summary never finished its appearance transition")
-    }
-
-    // MARK: - Reading the rendered pixels back
-
-    private func recognizedText(in image: UIImage) async throws -> String {
-        let cgImage = try #require(image.cgImage, "UIImage had no CGImage")
-        var request = RecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-
-        let observations = try await request.perform(on: cgImage)
-        return observations
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: " ")
-            .lowercased()
-    }
-
-    private func writeEvidence(image: UIImage, named name: String) throws {
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: name)
-        try png.write(to: url)
-        #expect(png.count > 5_000)
-
-        // Logged so the image is findable inside the simulator container when no
-        // ASCEND_EVIDENCE_DIR was provided.
-        print("Rendered completed-climb rank evidence: \(url.path())")
     }
 }
 

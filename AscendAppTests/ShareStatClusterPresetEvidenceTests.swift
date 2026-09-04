@@ -8,10 +8,16 @@ import UIKit
 ///
 /// Every cluster the approved review page settled on is placed on a real
 /// photograph and pushed through `ShareComposerExporter.renderImage` - the same
-/// call the share button makes - then written out as a full-resolution PNG, so
-/// the set can be looked at rather than described. The measurements alongside
-/// each render are the two rules a cluster cannot be trusted to keep on its own:
-/// it draws plate-free, and it does not put a second wordmark on the export.
+/// call the share button makes - then written out as a full-resolution PNG when
+/// `ASCEND_EVIDENCE_DIR` is set, so the set can be looked at rather than
+/// described. The measurements alongside each render are the two rules a cluster
+/// cannot be trusted to keep on its own: it draws plate-free, and it does not put
+/// a second wordmark on the export.
+///
+/// The exporter hands back the app's own bitmap - that bitmap is the product
+/// under test - and it is read through `RenderedScreen`'s `PixelSampler` at 1x
+/// and dropped. Everything this suite lays out itself goes through
+/// `RenderedScreen.withOffscreenPixels`, keeping only the pixels it compares.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct ShareStatClusterPresetEvidenceTests {
@@ -38,7 +44,7 @@ struct ShareStatClusterPresetEvidenceTests {
                 abs(image.size.width / image.size.height - ShareCardFormat.aspectRatio) < 0.0001,
                 "\(preset.id) did not export at the story aspect ratio"
             )
-            Self.write(image, String(format: "01-%02d-climb-%@", index + 1, preset.id))
+            try Self.write(image, String(format: "01-%02d-climb-%@", index + 1, preset.id))
         }
     }
 
@@ -60,7 +66,7 @@ struct ShareStatClusterPresetEvidenceTests {
                     "\(session.name)/\(preset.id) rendered nothing"
                 )
                 #expect(image.size == Self.exportSize)
-                Self.write(image, "02-\(session.name)-\(preset.id)")
+                try Self.write(image, "02-\(session.name)-\(preset.id)")
             }
         }
     }
@@ -73,16 +79,16 @@ struct ShareStatClusterPresetEvidenceTests {
         let hero = try #require(viewModel.availablePresets().first { $0.id == "hero" })
 
         let plateFree = try #require(await Self.export(hero, on: viewModel, keepSticker: true))
-        Self.write(plateFree, "03-hero-plate-free")
+        try Self.write(plateFree, "03-hero-plate-free")
 
         let id = try #require(viewModel.stickers.first?.id)
         viewModel.cycleTextBackground(for: id)
         let plated = try #require(await ShareComposerExporter().renderImage(viewModel: viewModel))
-        Self.write(plated, "04-hero-with-panel")
+        try Self.write(plated, "04-hero-with-panel")
 
         // A panel is a large opaque area the photograph no longer shows through.
         #expect(
-            try Self.differingPixelFraction(plateFree, plated) > 0.02,
+            try Self.differingPixelFraction(exported: plateFree, plated) > 0.02,
             "adding a panel changed almost nothing, so the default was not plate-free"
         )
         viewModel.deleteSticker(id)
@@ -127,10 +133,10 @@ struct ShareStatClusterPresetEvidenceTests {
         let image = try #require(await ShareComposerExporter().renderImage(viewModel: viewModel))
         #expect(image.size == Self.exportSize)
         #expect(
-            try Self.differingPixelFraction(recap, image) > 0.001,
+            try Self.differingPixelFraction(exported: recap, image) > 0.001,
             "the cluster did not draw on top of the recap"
         )
-        Self.write(image, "05-row-on-recap")
+        try Self.write(image, "05-row-on-recap")
     }
 
     /// The lockup is drawn once, bottom center, whatever the cluster does. Every
@@ -141,13 +147,17 @@ struct ShareStatClusterPresetEvidenceTests {
         let viewModel = try Self.liveClimbViewModel()
         let bare = try #require(await ShareComposerExporter().renderImage(viewModel: viewModel))
         let band = Self.wordmarkBand
-        let bareBand = try #require(Self.crop(bare, to: band))
-        let reference = try #require(Self.inkBounds(of: bareBand), "the bare canvas drew no wordmark")
+        let reference = try #require(
+            try Self.withExportedPixels(bare, { Self.inkBounds(in: band, of: $0) }),
+            "the bare canvas drew no wordmark"
+        )
 
         for preset in viewModel.availablePresets() {
             let image = try #require(await Self.export(preset, on: viewModel))
-            let cropped = try #require(Self.crop(image, to: band))
-            let box = try #require(Self.inkBounds(of: cropped), "\(preset.id) lost the wordmark")
+            let box = try #require(
+                try Self.withExportedPixels(image, { Self.inkBounds(in: band, of: $0) }),
+                "\(preset.id) lost the wordmark"
+            )
             #expect(abs(box.minX - reference.minX) < 3, "\(preset.id) moved the wordmark horizontally")
             #expect(abs(box.minY - reference.minY) < 3, "\(preset.id) moved the wordmark vertically")
             #expect(abs(box.width - reference.width) < 3, "\(preset.id) changed the wordmark's width")
@@ -165,12 +175,12 @@ struct ShareStatClusterPresetEvidenceTests {
 
         for preset in viewModel.availablePresets() {
             let image = try #require(await Self.export(preset, on: viewModel))
-            let ink = try Self.inkFraction(of: image)
+            let ink = try Self.withExportedPixels(image) { Self.inkFraction(of: $0) }
             #expect(
                 ink > 0.004,
                 "\(preset.id) laid down almost no ink on a white background (\(ink)) - it would read as blank"
             )
-            Self.write(image, "06-whiteout-\(preset.id)")
+            try Self.write(image, "06-whiteout-\(preset.id)")
         }
     }
 
@@ -191,14 +201,14 @@ struct ShareStatClusterPresetEvidenceTests {
         for id in ["splits", "hero", "receipt"] {
             let preset = try #require(viewModel.availablePresets().first { $0.id == id })
             let content = viewModel.presetPreview(for: preset)
-            let shipped = try #require(Self.render(content.node, context: content.context, over: band.image))
-            let untreated = try #require(
-                Self.render(Self.untreated(content.node), context: content.context, over: band.image)
-            )
-            Self.write(shipped, "10-bright-band-\(id)-shipped")
-            Self.write(untreated, "10-bright-band-\(id)-untreated")
+            let shippedFrame = Self.frame(content.node, context: content.context, over: band)
+            let untreatedFrame = Self.frame(Self.untreated(content.node), context: content.context, over: band)
+            let shipped = try Self.pixels(of: shippedFrame)
+            let untreated = try Self.pixels(of: untreatedFrame)
+            try Self.write(shippedFrame, "10-bright-band-\(id)-shipped")
+            try Self.write(untreatedFrame, "10-bright-band-\(id)-untreated")
             #expect(
-                try Self.differingPixelFraction(shipped, untreated) > 0.001,
+                Self.differingPixelFraction(shipped, untreated) > 0.001,
                 "\(id) drew the same pixels treated and untreated, so nothing is holding its small text up"
             )
         }
@@ -234,9 +244,9 @@ struct ShareStatClusterPresetEvidenceTests {
                     legibility: treatment
                 )
             )))
-            let rendered = try #require(Self.renderOnWhite(node))
-            ink[treatment] = try Self.inkFraction(of: rendered)
-            Self.write(rendered, "07-caption-on-white-\(treatment.rawValue)")
+            let rendered = Self.onWhite(node)
+            ink[treatment] = try RenderedScreen.withOffscreenPixels(of: rendered) { Self.inkFraction(of: $0) }
+            try Self.write(rendered, "07-caption-on-white-\(treatment.rawValue)")
         }
 
         let bare = try #require(ink[ShareCardTextLegibility.none])
@@ -593,6 +603,10 @@ struct ShareStatClusterPresetEvidenceTests {
         )
     }
 
+    /// Times one `ImageRenderer` pass and discards its output. This is the one place
+    /// the suite touches `ImageRenderer` directly: the pass itself is what is being
+    /// measured, and reading the pixels back would add a constant to both sides of
+    /// every ratio asserted above.
     private static func renderDuration<Content: View>(of content: @escaping () -> Content) -> Double {
         let renderer = ImageRenderer(content: content())
         renderer.scale = 1
@@ -611,40 +625,47 @@ struct ShareStatClusterPresetEvidenceTests {
         String(format: "%.2f", seconds * 1_000)
     }
 
-
     /// The brightest window of the photograph, drawn the way the canvas draws it
     /// so the band is one a climber could really drop a cluster onto.
-    private static func brightestBand(
-        of photo: UIImage,
-        size: CGSize
-    ) throws -> (image: UIImage, top: Int, canvasHeight: Int, meanLuminance: Double) {
-        let canvasHeight = (size.width * exportSize.height / exportSize.width).rounded()
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        let filled = UIGraphicsImageRenderer(
-            size: CGSize(width: size.width, height: canvasHeight),
-            format: format
-        ).image { _ in
-            let scale = max(size.width / photo.size.width, canvasHeight / photo.size.height)
-            let drawn = CGSize(width: photo.size.width * scale, height: photo.size.height * scale)
-            photo.draw(in: CGRect(
-                x: (size.width - drawn.width) / 2,
-                y: (canvasHeight - drawn.height) / 2,
-                width: drawn.width,
-                height: drawn.height
-            ))
+    private struct BrightestBand {
+        let photo: UIImage
+        let size: CGSize
+        let top: Int
+        let canvasHeight: Int
+        let meanLuminance: Double
+
+        /// The photograph filled into the canvas the way the composer fills it,
+        /// scrolled so the band is what shows.
+        var view: some View {
+            Image(uiImage: photo)
+                .resizable()
+                .scaledToFill()
+                .frame(width: size.width, height: CGFloat(canvasHeight))
+                .clipped()
+                .offset(y: -CGFloat(top))
+                .frame(width: size.width, height: size.height, alignment: .top)
+                .clipped()
         }
+    }
+
+    private static func brightestBand(of photo: UIImage, size: CGSize) throws -> BrightestBand {
+        let canvasHeight = (size.width * exportSize.height / exportSize.width).rounded()
+        let filled = Image(uiImage: photo)
+            .resizable()
+            .scaledToFill()
+            .frame(width: size.width, height: canvasHeight)
+            .clipped()
 
         let width = Int(size.width)
         let height = Int(canvasHeight)
-        let buffer = try pixels(of: filled, width: width, height: height)
-        let rows = (0..<height).map { y -> Double in
-            var total = 0
-            for x in 0..<width {
-                let index = (y * width + x) * 4
-                total += (Int(buffer[index]) * 21 + Int(buffer[index + 1]) * 72 + Int(buffer[index + 2]) * 7) / 100
+        let rows = try RenderedScreen.withOffscreenPixels(of: filled) { pixels in
+            (0..<height).map { y -> Double in
+                var total = 0
+                for x in 0..<width {
+                    total += luminance(of: pixels.pixel(x: x, y: y))
+                }
+                return Double(total) / Double(width)
             }
-            return Double(total) / Double(width)
         }
 
         let bandHeight = Int(size.height)
@@ -658,61 +679,62 @@ struct ShareStatClusterPresetEvidenceTests {
             }
         }
 
-        guard let cropped = filled.cgImage?.cropping(
-            to: CGRect(x: 0, y: top, width: width, height: bandHeight)
-        ) else { throw EvidenceError.noBitmapContext }
-        return (UIImage(cgImage: cropped), top, height, brightest)
+        return BrightestBand(
+            photo: photo,
+            size: size,
+            top: top,
+            canvasHeight: height,
+            meanLuminance: brightest
+        )
     }
 
     /// A cluster at export scale over a real background crop, which is what the
     /// climber sees through the photograph rather than through a flat fill.
-    private static func render(
+    private static func frame(
         _ node: ShareCardNode,
         context: ShareCardRenderContext,
-        over background: UIImage
-    ) -> UIImage? {
-        let content = ZStack {
-            Image(uiImage: background).resizable().scaledToFill()
+        over band: BrightestBand
+    ) -> some View {
+        ZStack {
+            band.view
             ShareCardRenderer(node: node, context: context)
                 .fixedSize()
                 .scaleEffect(exportSize.width / ShareCardFormat.designSize.width)
         }
-        .frame(width: background.size.width, height: background.size.height)
+        .frame(width: band.size.width, height: band.size.height)
         .clipped()
-        let renderer = ImageRenderer(content: content)
-        renderer.scale = 1
-        renderer.isOpaque = true
-        return renderer.uiImage
     }
 
     /// A caption drawn on white at export scale, so the measurement is of the
     /// pixels a climber would actually be shown.
-    private static func renderOnWhite(_ node: ShareCardNode) -> UIImage? {
-        let content = ZStack {
+    private static func onWhite(_ node: ShareCardNode) -> some View {
+        ZStack {
             Color.white
             ShareCardRenderer(node: node, context: ShareCardRenderContext())
                 .fixedSize()
                 .scaleEffect(exportSize.width / ShareCardFormat.designSize.width)
         }
         .frame(width: 400, height: 120)
-        let renderer = ImageRenderer(content: content)
-        renderer.scale = 1
-        renderer.isOpaque = true
-        return renderer.uiImage
     }
 
     /// Fraction of pixels meaningfully darker than white.
-    private static func inkFraction(of image: UIImage, threshold: Int = 205) throws -> Double {
-        let width = Int(image.size.width.rounded())
-        let height = Int(image.size.height.rounded())
-        let buffer = try pixels(of: image, width: width, height: height)
+    private static func inkFraction(of pixels: PixelSampler) -> Double {
+        inkFraction(of: pixels, threshold: 205)
+    }
 
+    private static func inkFraction(of pixels: PixelSampler, threshold: Int) -> Double {
         var dark = 0
-        for index in stride(from: 0, to: buffer.count, by: 4) {
-            let luminance = (Int(buffer[index]) * 21 + Int(buffer[index + 1]) * 72 + Int(buffer[index + 2]) * 7) / 100
-            if luminance < threshold { dark += 1 }
+        for y in 0..<pixels.height {
+            for x in 0..<pixels.width where luminance(of: pixels.pixel(x: x, y: y)) < threshold {
+                dark += 1
+            }
         }
-        return Double(dark) / Double(width * height)
+        return Double(dark) / Double(pixels.width * pixels.height)
+    }
+
+    /// Integer luma, the same weights every reader here has always used.
+    private static func luminance(of pixel: RGBA) -> Int {
+        (Int(pixel.red) * 21 + Int(pixel.green) * 72 + Int(pixel.blue) * 7) / 100
     }
 
     /// The add sheet previews each cluster inside one fixed design box so every
@@ -725,7 +747,7 @@ struct ShareStatClusterPresetEvidenceTests {
         for viewModel in [try Self.liveClimbViewModel(), try Self.routineViewModel(), try Self.justClimbViewModel()] {
             for preset in viewModel.availablePresets() {
                 let content = viewModel.presetPreview(for: preset)
-                let size = try #require(Self.intrinsicSize(of: content))
+                let size = try #require(try Self.intrinsicSize(of: content))
                 #expect(
                     size.width <= box.width && size.height <= box.height,
                     "\(preset.id) measures \(size) and does not fit the \(box) preview tile"
@@ -736,11 +758,10 @@ struct ShareStatClusterPresetEvidenceTests {
 
     /// What the cluster actually lays out at, with no size proposed to it -
     /// the same `fixedSize()` the canvas and the tile both render it under.
-    private static func intrinsicSize(of content: ShareStickerContent) -> CGSize? {
-        let renderer = ImageRenderer(
-            content: ShareCardRenderer(node: content.node, context: content.context).fixedSize()
-        )
-        return renderer.uiImage?.size
+    private static func intrinsicSize(of content: ShareStickerContent) throws -> CGSize? {
+        try RenderedScreen.withOffscreenPixels(
+            of: ShareCardRenderer(node: content.node, context: content.context).fixedSize()
+        ) { $0.size }
     }
 
     /// A cluster is fixed art, so a reader at the largest accessibility text
@@ -752,10 +773,10 @@ struct ShareStatClusterPresetEvidenceTests {
         viewModel.addPresetSticker(hero)
         defer { viewModel.stickers.removeAll() }
 
-        let large = try #require(Self.render(viewModel, dynamicType: .large))
-        let accessibility = try #require(Self.render(viewModel, dynamicType: .accessibility5))
+        let large = try Self.pixels(of: Self.canvas(viewModel, dynamicType: .large))
+        let accessibility = try Self.pixels(of: Self.canvas(viewModel, dynamicType: .accessibility5))
         #expect(
-            try Self.differingPixelFraction(large, accessibility) == 0,
+            Self.differingPixelFraction(large, accessibility) == 0,
             "the cluster reflowed under an accessibility text size"
         )
     }
@@ -776,16 +797,12 @@ struct ShareStatClusterPresetEvidenceTests {
         return image
     }
 
-    private static func render(
+    private static func canvas(
         _ viewModel: ShareComposerViewModel,
         dynamicType: DynamicTypeSize
-    ) -> UIImage? {
-        let canvas = ShareExportCanvas(viewModel: viewModel, size: exportSize)
+    ) -> some View {
+        ShareExportCanvas(viewModel: viewModel, size: exportSize)
             .environment(\.dynamicTypeSize, dynamicType)
-        let renderer = ImageRenderer(content: canvas)
-        renderer.scale = 1
-        renderer.isOpaque = true
-        return renderer.uiImage
     }
 
     /// The strip the canvas lockup lives in, in export pixels.
@@ -869,100 +886,96 @@ struct ShareStatClusterPresetEvidenceTests {
 
     // MARK: - Pixel readers
 
-    private static func crop(_ image: UIImage, to rect: CGRect) -> UIImage? {
-        guard let cgImage = image.cgImage?.cropping(to: rect) else { return nil }
-        return UIImage(cgImage: cgImage)
+    /// Reads the exporter's own bitmap through the one pixel reader the target has,
+    /// by laying it out 1:1 at 1x - no bitmap outlives the call.
+    private static func withExportedPixels<Result>(
+        _ image: UIImage,
+        _ body: (PixelSampler) throws -> Result
+    ) throws -> Result {
+        try RenderedScreen.withOffscreenPixels(
+            of: Image(uiImage: image)
+                .resizable()
+                .interpolation(.none)
+                .frame(width: image.size.width, height: image.size.height),
+            proposedSize: ProposedViewSize(image.size),
+            body
+        )
     }
 
-    /// Bounding box of everything that reads as drawn against the crop's
-    /// dominant color.
-    private static func inkBounds(of image: UIImage, threshold: Int = 70) -> CGRect? {
-        let width = Int(image.size.width.rounded())
-        let height = Int(image.size.height.rounded())
-        guard let buffer = try? pixels(of: image, width: width, height: height) else { return nil }
+    /// Every pixel of `view` laid out at 1x, kept only for the comparison it feeds.
+    private static func pixels(of view: some View) throws -> [RGBA] {
+        try RenderedScreen.withOffscreenPixels(of: view) { pixels in
+            pixels.pixels(in: CGRect(origin: .zero, size: pixels.size))
+        }
+    }
 
+    /// Bounding box, in points, of everything inside `rect` that reads as drawn
+    /// against the crop's dominant color.
+    private static func inkBounds(in rect: CGRect, of pixels: PixelSampler, threshold: Int = 70) -> CGRect? {
         var histogram: [UInt32: Int] = [:]
-        for index in stride(from: 0, to: buffer.count, by: 4) {
-            histogram[key(buffer, index), default: 0] += 1
+        for pixel in pixels.pixels(in: rect) {
+            histogram[key(pixel), default: 0] += 1
         }
         guard let background = histogram.max(by: { $0.value < $1.value })?.key else { return nil }
         let channels = (Int(background >> 16 & 0xFF), Int(background >> 8 & 0xFF), Int(background & 0xFF))
 
-        var minX = width, minY = height, maxX = -1, maxY = -1
-        for y in 0..<height {
-            for x in 0..<width {
-                let index = (y * width + x) * 4
-                let distance = max(
-                    abs(Int(buffer[index]) - channels.0),
-                    abs(Int(buffer[index + 1]) - channels.1),
-                    abs(Int(buffer[index + 2]) - channels.2)
-                )
-                guard distance > threshold else { continue }
-                minX = min(minX, x)
-                maxX = max(maxX, x)
-                minY = min(minY, y)
-                maxY = max(maxY, y)
-            }
+        return pixels.bounds(in: rect) { pixel in
+            let distance = max(
+                abs(Int(pixel.red) - channels.0),
+                abs(Int(pixel.green) - channels.1),
+                abs(Int(pixel.blue) - channels.2)
+            )
+            return distance > threshold
         }
-        guard maxX >= minX, maxY >= minY else { return nil }
-        return CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
     }
 
-    private static func key(_ buffer: [UInt8], _ index: Int) -> UInt32 {
-        UInt32(buffer[index]) << 16 | UInt32(buffer[index + 1]) << 8 | UInt32(buffer[index + 2])
+    private static func key(_ pixel: RGBA) -> UInt32 {
+        UInt32(pixel.red) << 16 | UInt32(pixel.green) << 8 | UInt32(pixel.blue)
     }
 
-    private static func differingPixelFraction(_ lhs: UIImage, _ rhs: UIImage) throws -> Double {
-        let width = Int(max(lhs.size.width, rhs.size.width).rounded())
-        let height = Int(max(lhs.size.height, rhs.size.height).rounded())
-        let left = try pixels(of: lhs, width: width, height: height)
-        let right = try pixels(of: rhs, width: width, height: height)
+    /// Fraction of pixels whose colour differs between two exports of the same size.
+    private static func differingPixelFraction(exported lhs: UIImage, _ rhs: UIImage) throws -> Double {
+        let left = try withExportedPixels(lhs) { $0.pixels(in: CGRect(origin: .zero, size: $0.size)) }
+        let right = try withExportedPixels(rhs) { $0.pixels(in: CGRect(origin: .zero, size: $0.size)) }
+        return differingPixelFraction(left, right)
+    }
 
-        var differing = 0
-        for index in stride(from: 0, to: left.count, by: 4) where
-            left[index] != right[index] || left[index + 1] != right[index + 1] ||
-            left[index + 2] != right[index + 2] {
+    private static func differingPixelFraction(_ lhs: [RGBA], _ rhs: [RGBA]) -> Double {
+        let count = max(lhs.count, rhs.count)
+        guard count > 0 else { return 0 }
+        var differing = abs(lhs.count - rhs.count)
+        for (left, right) in zip(lhs, rhs)
+        where left.red != right.red || left.green != right.green || left.blue != right.blue {
             differing += 1
         }
-        return Double(differing) / Double(width * height)
+        return Double(differing) / Double(count)
     }
-
-    private static func pixels(of image: UIImage, width: Int, height: Int) throws -> [UInt8] {
-        var buffer = [UInt8](repeating: 0, count: width * height * 4)
-        guard let cgImage = image.cgImage,
-              let context = CGContext(
-                data: &buffer,
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bytesPerRow: width * 4,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-              ) else {
-            throw EvidenceError.noBitmapContext
-        }
-        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
-        return buffer
-    }
-
-    private enum EvidenceError: Error { case noBitmapContext }
 
     // MARK: - Evidence
 
-    private static func write(_ image: UIImage, _ name: String) {
-        guard let data = image.pngData() else { return }
-        write(data, name, extension: "png")
+    /// An export, at the resolution the exporter produced it.
+    private static func write(_ image: UIImage, _ name: String) throws {
+        try RenderedScreen.photograph(
+            Image(uiImage: image)
+                .resizable()
+                .interpolation(.none)
+                .frame(width: image.size.width, height: image.size.height),
+            named: "stat-cluster-\(name)",
+            scale: 1,
+            proposedSize: ProposedViewSize(image.size)
+        )
     }
 
+    /// A frame this suite laid out itself, at the 1x it was measured at.
+    private static func write(_ view: some View, _ name: String) throws {
+        try RenderedScreen.photograph(view, named: "stat-cluster-\(name)", scale: 1)
+    }
+
+    /// A report beside the photographs, written only where the photographs go.
     private static func write(_ report: String, _ name: String) {
-        write(Data(report.utf8), name, extension: "txt")
-    }
-
-    private static func write(_ data: Data, _ name: String, extension pathExtension: String) {
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            .map { URL(filePath: $0) } ?? FileManager.default.temporaryDirectory
-        let url = directory.appending(path: "stat-cluster-\(name).\(pathExtension)")
-        try? data.write(to: url)
+        guard let directory = RenderedScreen.evidenceDirectory else { return }
+        let url = directory.appending(path: "stat-cluster-\(name).txt")
+        try? Data(report.utf8).write(to: url)
         print("evidence: \(url.path())")
     }
 }

@@ -8,13 +8,17 @@
  *
  * - Every isolated group is one host process, runs its suites serially, runs
  *   before the remainder, and is skipped by the complement pass. A group that
- *   leaked a suite back into the remainder, or lost its
- *   `-parallel-testing-enabled NO`, would undo the measurement the list was
- *   built from (2,491 MB parallel against 1,640 MB serial for the same
- *   fourteen suites).
+ *   leaked a suite back into the remainder would undo the measurement the
+ *   list was built from, and every pass - the remainder included - runs with
+ *   `-parallel-testing-enabled NO`, because parallelism measured no faster and
+ *   no leaner and is where the main-actor races came from.
+ * - The plan is exactly two passes: the movie-export host and everything
+ *   else. Since the render suites read screens through `RenderedScreen`
+ *   (2026-09-03) the whole remainder fits one host, and every extra pass
+ *   costs the job ~2 minutes of host launch for no memory it needs; a third
+ *   pass reappearing here is a regression to measure, not a default.
  * - The complement pass skips exactly the suites every other pass names, so a
  *   suite that exists nowhere in the plan still runs, and no suite runs twice.
- * - The pair whose shared-state coupling the split hides stays apart.
  * - The executed-test floor stays under the measured baseline and above the
  *   number a silently shrunken plan would produce.
  *
@@ -34,7 +38,6 @@ import {test} from "node:test";
 import {
   EXECUTED_TEST_FLOOR,
   ISOLATED_PASSES,
-  STATIC_REMAINDER_SUITES,
   namedSuites,
   planTestPasses,
 } from "../ci/plan-test-passes.mjs";
@@ -57,12 +60,9 @@ test("every suite is named exactly once, and the movie-export suite keeps its ow
   const suites = namedSuites();
 
   assert.equal(new Set(suites).size, suites.length, "a suite is named in more than one pass");
-  // The movie suite keeps its own host; the picker follows it there because
-  // it poisons every hosted SwiftData save that runs after it (see the plan).
-  assert.deepEqual(ISOLATED_PASSES[0], [
-    "ShareComposerBackgroundFillEvidenceTests",
-    "ShareStatClusterPickerEvidenceTests",
-  ]);
+  // The movie suite keeps its own host: three of its five tests each export a
+  // real movie, and that cost is the assertion.
+  assert.deepEqual(ISOLATED_PASSES, [["ShareComposerBackgroundFillEvidenceTests"]]);
   for (const suite of suites) {
     assert.doesNotMatch(suite, /\//, `${suite} must be a bare suite name; the planner adds the target`);
   }
@@ -71,7 +71,7 @@ test("every suite is named exactly once, and the movie-export suite keeps its ow
 test("each isolated group is one serial pass that runs first", () => {
   const passes = planTestPasses();
 
-  assert.equal(passes.length, ISOLATED_PASSES.length + 2);
+  assert.equal(passes.length, ISOLATED_PASSES.length + 1);
 
   ISOLATED_PASSES.forEach((group, index) => {
     const pass = passes[index];
@@ -85,18 +85,6 @@ test("each isolated group is one serial pass that runs first", () => {
   });
 });
 
-test("the static half runs in parallel and names exactly its own suites", () => {
-  const passes = planTestPasses();
-  const staticHalf = passes[ISOLATED_PASSES.length];
-
-  assert.deepEqual(
-    selectors(staticHalf, "-only-testing"),
-    [...STATIC_REMAINDER_SUITES].sort().map((suite) => `AscendAppTests/${suite}`)
-  );
-  assert.equal(isSerial(staticHalf), false, "the remainder halves stay parallel");
-  assert.deepEqual(staticHalf.expectedSuites, selectors(staticHalf, "-only-testing"));
-});
-
 test("the last pass is the complement: it skips exactly what every other pass runs", () => {
   const passes = planTestPasses();
   const complement = passes[passes.length - 1];
@@ -107,7 +95,9 @@ test("the last pass is the complement: it skips exactly what every other pass ru
 
   assert.deepEqual(selectors(complement, "-skip-testing"), runElsewhere);
   assert.deepEqual(selectors(complement, "-only-testing"), []);
-  assert.equal(isSerial(complement), false);
+  // Measured 2026-09-03: the whole remainder took 377 s parallel against 378 s serial and
+  // peaked within 20 MB either way, and serial is what makes a hosted test's duration its own.
+  assert.equal(isSerial(complement), true, "the remainder runs serially");
   assert.deepEqual(
     complement.expectedSuites,
     [],
@@ -115,14 +105,13 @@ test("the last pass is the complement: it skips exactly what every other pass ru
   );
 });
 
-test("the restore-coupled pair is kept in different hosts", () => {
-  // Measured 2026-09-03: in one host, five of their tests fail with the
-  // restore coordinator never invoked. One of the pair is named so that the
-  // other lands in the complement.
-  const pair = ["RevenueCatPurchaseControllerRestoreTests", "PaywallPurchaseAnalyticsContractTests"];
-  const named = pair.filter((suite) => namedSuites().includes(suite));
+test("the plan is two passes: the movie host and one host for everything else", () => {
+  const passes = planTestPasses();
 
-  assert.equal(named.length, 1, `exactly one of ${pair.join(" / ")} must be named, got ${named}`);
+  assert.equal(passes.length, 2, "every extra pass costs ~2 minutes of host launch; measure before adding one");
+  assert.deepEqual(selectors(passes[1], "-skip-testing"), [
+    "AscendAppTests/ShareComposerBackgroundFillEvidenceTests",
+  ]);
 });
 
 test("the executed-test floor sits under the measured baseline, not at zero", () => {
@@ -156,8 +145,8 @@ test("the CLI writes one argument-per-line file per pass, in run order", () => {
 test("a suite named twice refuses to plan", () => {
   const source = readFileSync(scriptPath, "utf8");
   const duplicated = source.replace(
-    'export const STATIC_REMAINDER_SUITES = [\n',
-    'export const STATIC_REMAINDER_SUITES = [\n    "ShareComposerBackgroundFillEvidenceTests",\n'
+    'export const ISOLATED_PASSES = [["ShareComposerBackgroundFillEvidenceTests"]];',
+    'export const ISOLATED_PASSES = [["ShareComposerBackgroundFillEvidenceTests"], ["ShareComposerBackgroundFillEvidenceTests"]];'
   );
   assert.notEqual(duplicated, source);
 

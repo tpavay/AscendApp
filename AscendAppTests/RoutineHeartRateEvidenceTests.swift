@@ -8,8 +8,9 @@ import UIKit
 /// Product-level evidence for issue #241: a routine session driven by a
 /// producing chest strap saves heart rate, and a routine without a strap saves
 /// clean. Both workouts are built by the real `ActiveRoutineViewModel` save
-/// path, persisted to SwiftData, re-fetched from the store, and then rendered
-/// through the exact surface `WorkoutDetailView` shows when data exists.
+/// path, persisted to SwiftData, re-fetched from the store, and then photographed
+/// through the exact surface `WorkoutDetailView` shows when data exists - only
+/// when `ASCEND_EVIDENCE_DIR` is set (`RenderedScreen`).
 /// The no-strap workout deliberately contributes no heart-rate section.
 @MainActor
 struct RoutineHeartRateEvidenceTests {
@@ -45,24 +46,14 @@ struct RoutineHeartRateEvidenceTests {
         #expect(persistedBare.maxHeartRate == nil)
         #expect(persistedBare.heartRateData == nil)
 
-        let renderer = ImageRenderer(
-            content: RoutineHeartRateProof(
+        try RenderedScreen.photograph(
+            RoutineHeartRateProof(
                 strapWorkout: persistedStrap,
                 bareWorkout: persistedBare,
                 workoutStartTime: start
-            )
+            ),
+            named: "routine-chest-strap-heart-rate"
         )
-        renderer.scale = 3
-        let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory)
-            .appending(path: "routine-chest-strap-heart-rate.png")
-        try png.write(to: url)
-
-        #expect(png.count > 5_000)
     }
 
     private struct Harness {
@@ -94,13 +85,7 @@ struct RoutineHeartRateEvidenceTests {
     }
 
     private func makeHarness(startedAt: Date, strapBeats: [Int]) throws -> Harness {
-        let container = try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            ActiveHeadphoneWorkoutDraft.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, ActiveHeadphoneWorkoutDraft.self)
         let modelContext = ModelContext(container)
         let routine = Routine(
             id: UUID(uuidString: "41414141-4141-4141-4141-414141414141")!,

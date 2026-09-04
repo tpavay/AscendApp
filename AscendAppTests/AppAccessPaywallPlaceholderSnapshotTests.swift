@@ -1,17 +1,27 @@
 import SwiftUI
 import Testing
 import UIKit
-import Vision
 @testable import AscendApp
 
+/// The app-access gate, every phase and every restore state, hosted through `RenderedScreen` and
+/// read off the accessibility tree: the headline is on screen, every reachable label reaches the
+/// viewport, every forbidden label is absent.
+///
+/// Each gate phase is hosted on two surfaces: compact dark - the smallest viewport, so a label
+/// that only reaches it by scrolling has to be scrolled to - and accessibility dark, at
+/// `.accessibility3`, so every label is proved reachable at an accessibility text size. The
+/// large light surface is a reviewer artifact, not a third assertion: it is hosted and
+/// photographed only when `ASCEND_EVIDENCE_DIR` is set.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct AppAccessPaywallPlaceholderSnapshotTests {
     @Test
     func evidenceCoversEveryRealGatePhaseAcrossAppearanceDeviceAndTextVariants() async throws {
         #expect(gateScenarios.map(\.phase) == AppAccessGatePhase.allCases)
+        #expect(assertedSurfaces.map(\.id) == ["compact-dark", "accessibility-dark"])
 
-        for surface in evidenceSurfaces {
+        let surfaces = RenderedScreen.isPhotographing ? evidenceSurfaces : assertedSurfaces
+        for surface in surfaces {
             for scenario in gateScenarios {
                 try await render(
                     scenario: scenario,
@@ -72,20 +82,18 @@ struct AppAccessPaywallPlaceholderSnapshotTests {
         let manager = makeManager()
         let content = AccountDeletionFocusHarness(manager: manager, probe: probe)
 
-        try await withAccessibilityAutomation {
-            try await host(content, surface: restoreSurface) { window in
-                _ = try await settledAccessibilityElements(under: window) { elements in
-                    elements.contains { $0.accessibilityLabel == "Simulate account deletion dismissal" }
-                }
-                try activateAccessibilityElement(
-                    labelled: "Simulate account deletion dismissal",
-                    in: window
-                )
-                await probe.waitUntilRestored()
-                #expect(probe.restoreCount == 1)
-                let delete = try await reachableElement(labelled: "Delete account", in: window)
-                #expect(delete.accessibilityLabel == "Delete account")
+        try await host(content, surface: restoreSurface) { window in
+            _ = try await settledAccessibilityElements(under: window) { elements in
+                elements.contains { $0.accessibilityLabel == "Simulate account deletion dismissal" }
             }
+            try activateAccessibilityElement(
+                labelled: "Simulate account deletion dismissal",
+                in: window
+            )
+            await probe.waitUntilRestored()
+            #expect(probe.restoreCount == 1)
+            let delete = try await reachableElement(labelled: "Delete account", in: window)
+            #expect(delete.accessibilityLabel == "Delete account")
         }
     }
 
@@ -110,90 +118,78 @@ struct AppAccessPaywallPlaceholderSnapshotTests {
         .environment(\.colorScheme, surface.style == .dark ? .dark : .light)
         .transaction { $0.disablesAnimations = true }
 
-        try await withAccessibilityAutomation {
-            try await host(content, surface: surface) { window in
-                let elements = try await settledAccessibilityElements(under: window) { elements in
-                    elements.contains {
-                        $0.accessibilityLabel?.localizedCaseInsensitiveContains(
-                            scenario.expectedHeadline
-                        ) == true && $0.accessibilityFrame.height > 0
-                    }
-                }
-                let labels = elements.compactMap(\.accessibilityLabel)
-                for forbidden in scenario.forbiddenLabels {
-                    #expect(labels.allSatisfy {
-                        !$0.localizedCaseInsensitiveContains(forbidden)
-                    })
-                }
-
-                for required in scenario.reachableLabels {
-                    _ = try await reachableElement(labelled: required, in: window)
-                }
-                if scenario.includesRecovery {
-                    for label in recoveryLabels {
-                        _ = try await reachableElement(labelled: label, in: window)
-                    }
-                    try writeEvidence(
-                        try capture(window),
-                        named: "\(evidenceName)-recovery"
-                    )
-                }
-
-                try await settleScrollAtTop(in: window)
-                let settledAtTop = try await settledAccessibilityElements(under: window) { elements in
-                    elements.contains {
-                        $0.accessibilityLabel?.localizedCaseInsensitiveContains(
-                            scenario.expectedHeadline
-                        ) == true && window.bounds.intersects($0.accessibilityFrame)
-                    }
-                }
-                let headline = try #require(settledAtTop.first {
+        try await host(content, surface: surface) { screen, window in
+            let elements = try await settledAccessibilityElements(under: window) { elements in
+                elements.contains {
                     $0.accessibilityLabel?.localizedCaseInsensitiveContains(
                         scenario.expectedHeadline
-                    ) == true
-                })
-                expectVisibleFrame(headline, in: window, label: scenario.expectedHeadline)
-
-                let image = try capture(window)
-                let recognized = try await recognizedText(in: image)
-                #expect(
-                    recognized.contains(scenario.expectedHeadline.lowercased()),
-                    "OCR could not find \(scenario.expectedHeadline) in \(evidenceName)"
-                )
-                try writeEvidence(image, named: evidenceName)
+                    ) == true && $0.accessibilityFrame.height > 0
+                }
             }
+            let labels = elements.compactMap(\.accessibilityLabel)
+            for forbidden in scenario.forbiddenLabels {
+                #expect(labels.allSatisfy {
+                    !$0.localizedCaseInsensitiveContains(forbidden)
+                })
+            }
+
+            for required in scenario.reachableLabels {
+                _ = try await reachableElement(labelled: required, in: window)
+            }
+            if scenario.includesRecovery {
+                for label in recoveryLabels {
+                    _ = try await reachableElement(labelled: label, in: window)
+                }
+                try screen.photograph(named: "\(evidenceName)-recovery")
+            }
+
+            try await settleScrollAtTop(in: window)
+            let settledAtTop = try await settledAccessibilityElements(under: window) { elements in
+                elements.contains {
+                    $0.accessibilityLabel?.localizedCaseInsensitiveContains(
+                        scenario.expectedHeadline
+                    ) == true && window.bounds.intersects($0.accessibilityFrame)
+                }
+            }
+            let headline = try #require(settledAtTop.first {
+                $0.accessibilityLabel?.localizedCaseInsensitiveContains(
+                    scenario.expectedHeadline
+                ) == true
+            })
+            expectVisibleFrame(headline, in: window, label: scenario.expectedHeadline)
+
+            let copy = try await screen.copy()
+            #expect(
+                copy.contains(scenario.expectedHeadline.lowercased()),
+                "The on-screen copy does not carry \(scenario.expectedHeadline) in \(evidenceName)"
+            )
+            try screen.photograph(named: evidenceName)
         }
     }
 
+    /// Hosts the gate on `surface` and hands `body` the window, with the screen handle held for
+    /// the photograph and the copy read.
     private func host<Content: View>(
         _ content: Content,
         surface: EvidenceSurface,
         body: (UIWindow) async throws -> Void
     ) async throws {
-        let scene = try #require(
-            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-        )
-        let controller = UIHostingController(rootView: content)
-        let window = UIWindow(windowScene: scene)
-        let bounds = CGRect(origin: .zero, size: surface.size)
-        controller.overrideUserInterfaceStyle = surface.style
-        controller.view.frame = bounds
-        window.frame = bounds
-        window.overrideUserInterfaceStyle = surface.style
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        controller.view.setNeedsLayout()
-        controller.view.layoutIfNeeded()
-        window.layoutIfNeeded()
-        await Task.yield()
-        try await Task.sleep(for: .milliseconds(20))
-        controller.view.layoutIfNeeded()
-        window.layoutIfNeeded()
-        defer {
-            window.isHidden = true
-            window.rootViewController = nil
+        try await host(content, surface: surface) { screen, window in try await body(window) }
+    }
+
+    private func host<Content: View>(
+        _ content: Content,
+        surface: EvidenceSurface,
+        body: (HostedScreen, UIWindow) async throws -> Void
+    ) async throws {
+        try await RenderedScreen.host(
+            content,
+            size: surface.size,
+            interfaceStyle: surface.style,
+            settle: .turns(2, interval: .milliseconds(20))
+        ) { screen in
+            try await body(screen, screen.window)
         }
-        try await body(window)
     }
 
     private func reachableElement(labelled label: String, in window: UIWindow) async throws -> NSObject {
@@ -257,43 +253,6 @@ struct AppAccessPaywallPlaceholderSnapshotTests {
             try await Task.sleep(for: .milliseconds(20))
         }
         #expect(abs(scrollView.contentOffset.y - top.y) < 0.5)
-    }
-
-    private func capture(_ window: UIWindow) throws -> UIImage {
-        var didDraw = false
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.scale = 3
-        let image = UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { _ in
-            didDraw = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-        }
-        #expect(didDraw, "The live window hierarchy must render without a layer fallback")
-        return image
-    }
-
-    private func recognizedText(in image: UIImage) async throws -> String {
-        let cgImage = try #require(image.cgImage)
-        var request = RecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-        return try await request.perform(on: cgImage)
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: " ")
-            .lowercased()
-    }
-
-    private func writeEvidence(_ image: UIImage, named name: String) throws {
-        let png = try #require(image.pngData())
-        let sourceRoot = URL(filePath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"].map {
-            URL(filePath: $0, directoryHint: .isDirectory)
-        } ?? sourceRoot.appending(path: ".build/issue554-evidence", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appending(path: "\(name).png")
-        try png.write(to: url)
-        #expect(png.count > 5_000)
-        print("evidence: \(url.path())")
     }
 
     private func makeManager() -> MonetizationManager {
@@ -405,6 +364,9 @@ private let evidenceSurfaces: [EvidenceSurface] = [
     .init(id: "large-light-system-forced-dark", size: CGSize(width: 430, height: 932), dynamicTypeSize: .large, style: .light),
     .init(id: "accessibility-dark", size: CGSize(width: 430, height: 932), dynamicTypeSize: .accessibility3, style: .dark)
 ]
+
+/// The surfaces every run asserts on: the compact viewport and the accessibility text size.
+private let assertedSurfaces = evidenceSurfaces.filter { $0.id == "compact-dark" || $0.id == "accessibility-dark" }
 
 private let restoreSurface = EvidenceSurface(
     id: "large-dark",

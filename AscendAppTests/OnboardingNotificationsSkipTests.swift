@@ -33,10 +33,10 @@ struct OnboardingNotificationsSkipTests {
 
         let statusBefore = await PushNotificationService.shared.authorizationStatus()
 
-        try await hostNotificationsStep(emailOptIn: optIn) { root in
+        try await hostNotificationsStep(emailOptIn: optIn) { screen in
             #expect(optIn.isSelected, "The box ships ticked")
-            try photograph(root, named: "onboarding-skip-box-ticked.png")
-            try activateElement(labelled: "Skip", in: root)
+            try screen.photograph(named: "onboarding-skip-box-ticked")
+            try activateAccessibilityElement(labelled: "Skip", in: screen.root)
         }
 
         let decisions = await service.awaitDecisions()
@@ -56,11 +56,11 @@ struct OnboardingNotificationsSkipTests {
         let service = SkipRecordingEmailPreferencesService()
         let optIn = OnboardingEmailOptInViewModel(service: service)
 
-        try await hostNotificationsStep(emailOptIn: optIn) { root in
-            try activateElement(labelled: "Email me when climbs drop.", in: root)
+        try await hostNotificationsStep(emailOptIn: optIn) { screen in
+            try activateAccessibilityElement(labelled: "Email me when climbs drop.", in: screen.root)
             #expect(optIn.isSelected == false)
-            try photograph(root, named: "onboarding-skip-box-unticked.png")
-            try activateElement(labelled: "Skip", in: root)
+            try screen.photograph(named: "onboarding-skip-box-unticked")
+            try activateAccessibilityElement(labelled: "Skip", in: screen.root)
         }
 
         let decisions = await service.awaitDecisions()
@@ -70,72 +70,39 @@ struct OnboardingNotificationsSkipTests {
 
     // MARK: - Hosting
 
-    /// Puts the shipping step in a real window so its controls exist and can be
-    /// pressed, then tears it down once `whileOnScreen` has finished with it.
+    /// Puts the shipping step in a real window through `RenderedScreen` so its
+    /// controls exist and can be pressed, then tears it down once
+    /// `whileOnScreen` has finished with it. The photograph `whileOnScreen`
+    /// takes shows the step exactly as it stands when Skip is about to be
+    /// pressed - which way the box was pointing at the moment of the press -
+    /// and is written only under `ASCEND_EVIDENCE_DIR`.
     private func hostNotificationsStep(
         emailOptIn: OnboardingEmailOptInViewModel,
-        whileOnScreen: (UIView) throws -> Void
+        whileOnScreen: (HostedScreen) throws -> Void
     ) async throws {
         // Skip writes the device-local push preference. It is global state the
         // rest of the suite shares, so it goes back exactly as it was found.
         let pushPreference = ClimbDropNotificationPreferenceStore.isEnabled
         defer { ClimbDropNotificationPreferenceStore.isEnabled = pushPreference }
 
-        try await withAccessibilityAutomation {
-            let size = CGSize(width: 402, height: 874)
-            let controller = UIHostingController(
-                rootView: PostAuthNotificationScreen(
-                    stage: .notifications,
-                    onBack: {},
-                    onContinue: {},
-                    emailOptIn: emailOptIn
-                )
-                .frame(width: size.width, height: size.height)
+        let size = RenderedScreen.iPhone16ProSize
+        try await RenderedScreen.host(
+            PostAuthNotificationScreen(
+                stage: .notifications,
+                onBack: {},
+                onContinue: {},
+                emailOptIn: emailOptIn
             )
-            controller.view.frame = CGRect(origin: .zero, size: size)
-
-            let window = UIWindow(frame: controller.view.frame)
-            window.overrideUserInterfaceStyle = .dark
-            window.rootViewController = controller
-            window.makeKeyAndVisible()
-            defer { window.isHidden = true }
-
-            for _ in 0..<8 {
-                controller.view.setNeedsLayout()
-                controller.view.layoutIfNeeded()
-                try await Task.sleep(for: .milliseconds(50))
-            }
-
-            try whileOnScreen(controller.view)
+            .frame(width: size.width, height: size.height),
+            size: size,
+            settle: .turns(8)
+        ) { screen in
+            try whileOnScreen(screen)
 
             // The button handlers hop through their own tasks before the write
             // starts, so the screen stays up long enough for them to get there.
-            for _ in 0..<8 {
-                try await Task.sleep(for: .milliseconds(50))
-            }
+            try await screen.settle(.turns(8))
         }
-    }
-
-    /// Photographs the step exactly as it stands when Skip is about to be
-    /// pressed, so which way the box was pointing at the moment of the press is
-    /// visible rather than only asserted. Images land in `ASCEND_EVIDENCE_DIR`
-    /// when it is set and in the test host's temporary directory otherwise.
-    /// Nothing reads them back - these are evidence, not golden images.
-    private func photograph(_ view: UIView, named name: String) throws {
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.scale = 3
-        let image = UIGraphicsImageRenderer(size: view.bounds.size, format: format).image { _ in
-            view.drawHierarchy(in: view.bounds, afterScreenUpdates: true)
-        }
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: name)
-        try png.write(to: url)
-
-        #expect(png.count > 5_000)
-        print("Rendered onboarding Skip evidence: \(url.path())")
     }
 
     /// Prints what the press actually persisted, so the recorded answer reads
@@ -146,10 +113,6 @@ struct OnboardingNotificationsSkipTests {
             .map { "lifecycleEmailsEnabled=\($0.isGranted) source=\($0.source.rawValue)" }
             .joined(separator: ", ")
         print("Onboarding Skip - \(situation) -> wrote [\(written.isEmpty ? "nothing" : written)]")
-    }
-
-    private func activateElement(labelled label: String, in root: UIView) throws {
-        try activateAccessibilityElement(labelled: label, in: root)
     }
 }
 

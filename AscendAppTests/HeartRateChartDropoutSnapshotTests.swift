@@ -1,6 +1,5 @@
 import SwiftUI
 import Testing
-import UIKit
 @testable import AscendApp
 
 @MainActor
@@ -8,18 +7,18 @@ struct HeartRateChartDropoutSnapshotTests {
     @Test("Saved heart-rate chart leaves a visible gap where the strap dropped")
     func rendersDropoutGap() throws {
         let start = Date(timeIntervalSince1970: 1_700_000_000)
-        let renderer = ImageRenderer(
-            content: chartProof(start: start)
+
+        // The chart draws one line per segment, so the series splitting in two is the gap:
+        // the data set the shipping view builds says so before any pixel does. The 3x
+        // photograph is written only under `ASCEND_EVIDENCE_DIR`.
+        let dataSet = HeartRateChartDataSet(
+            samples: samples(start: start),
+            workoutStartTime: start,
+            workoutDuration: 420
         )
-        renderer.scale = 3
+        #expect(dataSet.segments.count == 2)
 
-        let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-        let url = URL(filePath: NSTemporaryDirectory())
-            .appending(path: "heart-rate-chart-dropout.png")
-        try png.write(to: url)
-
-        #expect(png.count > 5_000)
+        try RenderedScreen.photograph(chartProof(start: start), named: "heart-rate-chart-dropout")
     }
 
     /// 0-120s captured, 120-300s strap silent, 300-420s captured again.

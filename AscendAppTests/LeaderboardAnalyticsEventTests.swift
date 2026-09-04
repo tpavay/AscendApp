@@ -1,11 +1,11 @@
 import SwiftData
 import SwiftUI
 import Testing
-import UIKit
 @testable import AscendApp
 
-/// Hosts real windows for the once-per-route-instance cases, so it takes the same
-/// gate every other hosting suite takes rather than starving one mid-capture.
+/// Hosts real windows (through `RenderedScreen`, never capturing them) for the
+/// once-per-route-instance cases, so it takes the same gate every other hosting
+/// suite takes rather than starving one mid-capture.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct LeaderboardAnalyticsEventTests {
@@ -172,28 +172,29 @@ struct LeaderboardAnalyticsEventTests {
         let telemetry = makeTestTelemetry(sink: sink)
         let filters = LeaderboardViewEventHarnessFilters()
 
-        let window = hostWindow(
-            LeaderboardViewEventHarness(filters: filters, telemetry: telemetry)
-        )
-        defer { teardown(window) }
+        try await RenderedScreen.host(
+            LeaderboardViewEventHarness(filters: filters, telemetry: telemetry),
+            size: Self.hostSize,
+            settle: Self.oneTurn
+        ) { screen in
+            let emitted = try await pump(screen) { sink.viewEventCount == 1 }
+            #expect(emitted)
 
-        let emitted = try await pump(window) { sink.viewEventCount == 1 }
-        #expect(emitted)
+            let rendersBeforeFilterChange = filters.renderCount
+            filters.metric = .duration
+            filters.ageGroup = .age40To44
 
-        let rendersBeforeFilterChange = filters.renderCount
-        filters.metric = .duration
-        filters.ageGroup = .age40To44
+            let rerendered = try await pump(screen) { filters.renderCount > rendersBeforeFilterChange }
+            #expect(rerendered)
 
-        let rerendered = try await pump(window) { filters.renderCount > rendersBeforeFilterChange }
-        #expect(rerendered)
+            try await drain(screen)
 
-        try await drain(window)
-
-        let viewEvents = sink.records.filter { $0.name == "leaderboard_viewed" }
-        #expect(viewEvents.count == 1)
-        #expect(viewEvents.first?.parameters["metric"] == .string("climb"))
-        #expect(viewEvents.first?.parameters["source"] == .string("tab"))
-        #expect(viewEvents.first?.parameters["has_active_filters"] == .bool(false))
+            let viewEvents = sink.records.filter { $0.name == "leaderboard_viewed" }
+            #expect(viewEvents.count == 1)
+            #expect(viewEvents.first?.parameters["metric"] == .string("climb"))
+            #expect(viewEvents.first?.parameters["source"] == .string("tab"))
+            #expect(viewEvents.first?.parameters["has_active_filters"] == .bool(false))
+        }
     }
 
     /// The dedupe belongs to the route instance, not to the app: a board rebuilt
@@ -204,14 +205,16 @@ struct LeaderboardAnalyticsEventTests {
         let telemetry = makeTestTelemetry(sink: sink)
 
         for visit in 1...2 {
-            let window = hostWindow(
+            let emitted = try await RenderedScreen.host(
                 LeaderboardViewEventHarness(
                     filters: LeaderboardViewEventHarnessFilters(),
                     telemetry: telemetry
-                )
-            )
-            let emitted = try await pump(window) { sink.viewEventCount == visit }
-            teardown(window)
+                ),
+                size: Self.hostSize,
+                settle: Self.oneTurn
+            ) { screen in
+                try await pump(screen) { sink.viewEventCount == visit }
+            }
 
             #expect(emitted)
         }
@@ -227,23 +230,24 @@ struct LeaderboardAnalyticsEventTests {
         let telemetry = makeTestTelemetry(sink: sink)
         let filters = LeaderboardViewEventHarnessFilters()
 
-        let window = hostWindow(
-            TrackOnceScreenHarness(filters: filters, telemetry: telemetry)
-        )
-        defer { teardown(window) }
+        try await RenderedScreen.host(
+            TrackOnceScreenHarness(filters: filters, telemetry: telemetry),
+            size: Self.hostSize,
+            settle: Self.oneTurn
+        ) { screen in
+            let emitted = try await pump(screen) { sink.screens.isEmpty == false }
+            #expect(emitted)
 
-        let emitted = try await pump(window) { sink.screens.isEmpty == false }
-        #expect(emitted)
+            let rendersBeforeChange = filters.renderCount
+            filters.metric = .duration
+            let rerendered = try await pump(screen) { filters.renderCount > rendersBeforeChange }
+            #expect(rerendered)
 
-        let rendersBeforeChange = filters.renderCount
-        filters.metric = .duration
-        let rerendered = try await pump(window) { filters.renderCount > rendersBeforeChange }
-        #expect(rerendered)
+            try await drain(screen)
 
-        try await drain(window)
-
-        #expect(sink.screens.count == 1)
-        #expect(sink.screens.first?.name == "leaderboard")
+            #expect(sink.screens.count == 1)
+            #expect(sink.screens.first?.name == "leaderboard")
+        }
     }
 
     /// The rank-card entry survives the selection binding `MainTabView` hands to
@@ -253,32 +257,38 @@ struct LeaderboardAnalyticsEventTests {
         let router = TabRouter()
         router.select(.leaderboard, reason: .homeRankCard)
 
-        let window = hostWindow(try mainTabView(tabRouter: router))
-        defer { teardown(window) }
+        try await RenderedScreen.host(
+            try mainTabView(tabRouter: router),
+            size: Self.hostSize,
+            settle: Self.oneTurn
+        ) { screen in
+            try await drain(screen)
 
-        try await drain(window)
+            #expect(router.selectedTab == .leaderboard)
+            #expect(router.selectionReason == .homeRankCard)
+            #expect(
+                LeaderboardAnalyticsEvent.ViewSource(tabSelection: router.selectionReason) == .homeRankCard
+            )
 
-        #expect(router.selectedTab == .leaderboard)
-        #expect(router.selectionReason == .homeRankCard)
-        #expect(
-            LeaderboardAnalyticsEvent.ViewSource(tabSelection: router.selectionReason) == .homeRankCard
-        )
+            router.select(.home, reason: .appRouting)
+            router.select(.leaderboard, reason: .tabBarTap)
+            try await drain(screen)
 
-        router.select(.home, reason: .appRouting)
-        router.select(.leaderboard, reason: .tabBarTap)
-        try await drain(window)
-
-        #expect(router.selectionReason == .tabBarTap)
-        #expect(LeaderboardAnalyticsEvent.ViewSource(tabSelection: router.selectionReason) == .tab)
+            #expect(router.selectionReason == .tabBarTap)
+            #expect(LeaderboardAnalyticsEvent.ViewSource(tabSelection: router.selectionReason) == .tab)
+        }
     }
 
     // MARK: - Rendering
 
+    private static let hostSize = CGSize(width: 390, height: 640)
+
+    /// The pumps below wait on their own conditions, so the host hands over after one turn
+    /// rather than the twelve a screenshot needs.
+    private static let oneTurn = RenderedScreen.Settle.turns(1, interval: .milliseconds(10))
+
     private func mainTabView(tabRouter: TabRouter) throws -> some View {
-        let container = try ModelContainer(
-            for: AscendLocalStore.schema,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        let container = try RetainedModelContainer.inMemory(schema: AscendLocalStore.schema)
 
         return MainTabView(tabRouter: tabRouter)
             .environment(AuthenticationViewModel())
@@ -287,39 +297,19 @@ struct LeaderboardAnalyticsEventTests {
             .modelContainer(container)
     }
 
-    private func hostWindow(_ view: some View) -> UIWindow {
-        let size = CGSize(width: 390, height: 640)
-        let controller = UIHostingController(rootView: view)
-        controller.view.frame = CGRect(origin: .zero, size: size)
-
-        let window = UIWindow(frame: controller.view.frame)
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        return window
-    }
-
-    private func teardown(_ window: UIWindow) {
-        window.resignKey()
-        window.isHidden = true
-        window.rootViewController = nil
-    }
-
     /// Drives layout until the condition holds, so a slow machine costs latency
     /// rather than a red build.
     private func pump(
-        _ window: UIWindow,
+        _ screen: HostedScreen,
         iterations: Int = 200,
         until isSatisfied: () -> Bool
     ) async throws -> Bool {
         for _ in 0..<iterations {
-            window.setNeedsLayout()
-            window.layoutIfNeeded()
+            try await screen.settle(.turns(1, interval: .milliseconds(10)))
 
             if isSatisfied() {
                 return true
             }
-
-            try await Task.sleep(for: .milliseconds(10))
         }
 
         return false
@@ -327,8 +317,8 @@ struct LeaderboardAnalyticsEventTests {
 
     /// A bounded drain for the assertions that something did NOT happen - there
     /// is no condition to wait on, only a window in which it could have.
-    private func drain(_ window: UIWindow, iterations: Int = 12) async throws {
-        _ = try await pump(window, iterations: iterations) { false }
+    private func drain(_ screen: HostedScreen, iterations: Int = 12) async throws {
+        _ = try await pump(screen, iterations: iterations) { false }
     }
 }
 

@@ -2,7 +2,6 @@ import SwiftData
 import SwiftUI
 import Testing
 import UIKit
-import Vision
 @testable import AscendApp
 
 /// Visual evidence for the racing curation (#440): the onboarding landmark
@@ -10,8 +9,9 @@ import Vision
 /// reached through history refuses the race truthfully instead of promising a
 /// "Coming Soon" that is never coming.
 ///
-/// Images land in `ASCEND_EVIDENCE_DIR` when it is set and in the test host's
-/// temporary directory otherwise.
+/// Every surface is hosted through `RenderedScreen` and its copy read off the
+/// accessibility tree; photographs land in `ASCEND_EVIDENCE_DIR` when it is set
+/// and are not taken otherwise.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct ClimbCurationSurfaceEvidenceTests {
@@ -39,29 +39,44 @@ struct ClimbCurationSurfaceEvidenceTests {
         configurations: ModelConfiguration(isStoredInMemoryOnly: true)
     )
 
+    /// The page publishes itself as one combined element whose label names every
+    /// card it draws, so the tree holds the same list the collage shows.
     @Test("The landmarks value page shows four distinct landmarks in two columns", .bug(id: 440))
     func landmarksValuePageShowsNoLandmarkTwice() async throws {
-        let image = try renderFlat(
-            OnboardingLandmarksValuePageContent(
-                subtitle: OnboardingValuePages.landmarkSubtitle(raceableLandmarkCount: 30)
-            )
-        )
-        let text = try await recognizedText(in: image)
+        try await RenderedScreen.host(
+            flat(
+                OnboardingLandmarksValuePageContent(
+                    subtitle: OnboardingValuePages.landmarkSubtitle(raceableLandmarkCount: 30)
+                )
+            ),
+            size: Self.screenSize
+        ) { screen in
+            let text = try await screen.copy()
 
-        for label in ["statue", "empire", "eiffel", "burj"] {
-            #expect(text.contains(label), "expected \(label) in: \(text)")
+            for label in ["statue", "empire", "eiffel", "burj"] {
+                #expect(text.contains(label), "expected \(label) in: \(text)")
+            }
+            #expect(!text.contains("machu"))
+            #expect(!text.contains("everest"))
+
+            try screen.photograph(named: "onboarding-landmarks-value-page")
         }
-        #expect(!text.contains("machu"))
-        #expect(!text.contains("everest"))
-
-        try write(image, named: "onboarding-landmarks-value-page")
     }
 
+    /// The collage is hidden from the accessibility tree by design, so which
+    /// landmarks it draws is checked by eye on the photograph; what the tree can
+    /// hold is that the screen photographed is the guide's landmark page.
     @Test("The pre-auth guide collage repeats no landmark", .bug(id: 440))
-    func preAuthGuideCollageRepeatsNoLandmark() throws {
-        let image = try renderFlat(OnboardingFeatureGuideFlowScreen(onFinish: {}))
+    func preAuthGuideCollageRepeatsNoLandmark() async throws {
+        try await RenderedScreen.host(
+            flat(OnboardingFeatureGuideFlowScreen(onFinish: {})),
+            size: Self.screenSize
+        ) { screen in
+            let text = try await screen.copy()
+            #expect(text.contains("most iconic landmarks"), "expected the landmark guide page in: \(text)")
 
-        try write(image, named: "onboarding-preauth-guide-collage")
+            try screen.photograph(named: "onboarding-preauth-guide-collage")
+        }
     }
 
     @Test("A hidden mountain reached through history reads Not Raceable", .bug(id: 440))
@@ -181,21 +196,17 @@ struct ClimbCurationSurfaceEvidenceTests {
 
     // MARK: - Rendering
 
-    /// `ImageRenderer` flattens a plain view tree, which is all the onboarding
-    /// pages need and is far cheaper than borrowing the window scene.
-    private func renderFlat(_ content: some View) throws -> UIImage {
-        let renderer = ImageRenderer(
-            content: content
-                .frame(width: Self.screenSize.width, height: Self.screenSize.height)
-                .environment(\.colorScheme, .dark)
-        )
-        renderer.scale = 3
-        return try #require(renderer.uiImage, "ImageRenderer produced no image")
+    /// The onboarding pages are plain view trees: a full-screen frame in the dark
+    /// scheme is all they need before hosting.
+    private func flat(_ content: some View) -> some View {
+        content
+            .frame(width: Self.screenSize.width, height: Self.screenSize.height)
+            .environment(\.colorScheme, .dark)
     }
 
-    /// The climb detail screen needs a live window: it sits in a `NavigationStack`,
-    /// which `ImageRenderer` cannot flatten, and its content only resolves once
-    /// SwiftUI has run an update loop against a real display link.
+    /// The climb detail screen sits in a `NavigationStack` and its content only
+    /// resolves once SwiftUI has run an update loop against a real display link,
+    /// so it is hosted in a live window and its copy read off the tree.
     private func captureDetail(
         for climb: Climb,
         named name: String,
@@ -211,55 +222,23 @@ struct ClimbCurationSurfaceEvidenceTests {
             .preferredColorScheme(.dark)
         )
 
-        let scene = try #require(
-            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first,
-            "test host app should expose a live UIWindowScene"
-        )
-        let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
-        let window = UIWindow(windowScene: scene)
-        window.frame = CGRect(origin: .zero, size: Self.screenSize)
-        window.overrideUserInterfaceStyle = .dark
-        window.backgroundColor = .black
-        window.rootViewController = host
-
-        defer {
-            window.isHidden = true
-            previousKeyWindow?.makeKey()
-            window.rootViewController = nil
-            window.windowScene = nil
-        }
-
-        window.makeKeyAndVisible()
-        for _ in 0..<12 {
-            window.setNeedsLayout()
-            window.layoutIfNeeded()
-            try await Task.sleep(for: .milliseconds(50))
-        }
-
-        // The race action sits at the foot of the overview, below the fold on a
-        // 393pt screen, so the state under test is only in frame after a scroll.
-        if scrollingToBottom, let scrollView = Self.firstScrollView(in: window) {
-            let maximumOffset = max(
-                0,
-                scrollView.contentSize.height - scrollView.bounds.height
-                    + scrollView.adjustedContentInset.bottom
-            )
-            scrollView.setContentOffset(CGPoint(x: 0, y: maximumOffset), animated: false)
-            for _ in 0..<6 {
-                window.setNeedsLayout()
-                window.layoutIfNeeded()
-                try await Task.sleep(for: .milliseconds(50))
+        return try await RenderedScreen.host(host, size: Self.screenSize) { screen -> String in
+            // The race action sits at the foot of the overview, below the fold on a
+            // 393pt screen, so the state under test is only in frame after a scroll.
+            if scrollingToBottom, let scrollView = Self.firstScrollView(in: screen.window) {
+                let maximumOffset = max(
+                    0,
+                    scrollView.contentSize.height - scrollView.bounds.height
+                        + scrollView.adjustedContentInset.bottom
+                )
+                scrollView.setContentOffset(CGPoint(x: 0, y: maximumOffset), animated: false)
+                try await screen.settle(.turns(6))
             }
-        }
 
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.scale = 3
-        let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
-            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            let text = try await screen.copy()
+            try screen.photograph(named: name)
+            return text
         }
-
-        try write(image, named: name)
-        return try await recognizedText(in: image)
     }
 
     private static func firstScrollView(in view: UIView) -> UIScrollView? {
@@ -268,32 +247,6 @@ struct ClimbCurationSurfaceEvidenceTests {
             if let found = firstScrollView(in: subview) { return found }
         }
         return nil
-    }
-
-    // MARK: - Reading the rendered pixels back
-
-    private func recognizedText(in image: UIImage) async throws -> String {
-        let cgImage = try #require(image.cgImage, "UIImage had no CGImage")
-        var request = RecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-
-        let observations = try await request.perform(on: cgImage)
-        return observations
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: " ")
-            .lowercased()
-    }
-
-    private func write(_ image: UIImage, named name: String) throws {
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: "\(name).png")
-        try png.write(to: url)
-
-        #expect(png.count > 5_000)
-        print("ASCEND_EVIDENCE_FILE: \(url.path())")
     }
 }
 

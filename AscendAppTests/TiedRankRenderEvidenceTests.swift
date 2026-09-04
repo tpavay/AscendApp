@@ -4,13 +4,14 @@ import Testing
 @testable import AscendApp
 
 /// Renders the leaderboard surfaces a climber actually sees when two of them tie, and
-/// writes the images out for review. Assertions cover the labels; the images cover the
-/// part CLAUDE.md asks a human to judge — that a shared rank is *visually obvious*.
+/// writes the images out for review. Assertions cover the boards and their labels; the
+/// images cover the part CLAUDE.md asks a human to judge - that a shared rank is
+/// *visually obvious*.
 ///
-/// Images land in `ASCEND_EVIDENCE_DIR` when it is set, and in the test host's temporary
-/// directory otherwise; either way the path is logged. Nothing here reads them back, so
-/// these are evidence rather than golden-image assertions — no snapshot to re-record when
-/// an unrelated colour or font changes.
+/// Images land in `ASCEND_EVIDENCE_DIR` when it is set, and are not rendered at all
+/// otherwise - the boards are built and asserted on either way. Nothing here reads them
+/// back, so these are evidence rather than golden-image assertions - no snapshot to
+/// re-record when an unrelated colour or font changes.
 @MainActor
 struct TiedRankRenderEvidenceTests {
     private actor EmptyModerationRepository: ModerationRepositoryProtocol {
@@ -57,8 +58,8 @@ struct TiedRankRenderEvidenceTests {
     }
 
     /// The same field as the old client rendered it: `startRank + offset`, no tie flag.
-    /// `rankLabel(3, isTied: false, untiedPrefix: "#")` is "#3" — byte-identical to the
-    /// `Text("#\(rank)")` this replaced — so the image reproduces the reported screen.
+    /// `rankLabel(3, isTied: false, untiedPrefix: "#")` is "#3" - byte-identical to the
+    /// `Text("#\(rank)")` this replaced - so the image reproduces the reported screen.
     @Test
     func perClimbBoardBeforeNumberedTiedClimbersByPosition() async throws {
         let board = makeCompletionBoard(ranks: positionalRanks())
@@ -82,7 +83,7 @@ struct TiedRankRenderEvidenceTests {
         let tiedIndex = 2
         let duration = Self.tiedDurations[tiedIndex]
 
-        // What the pinned row shows — countRowsFasterThan + 1, matching the server.
+        // What the pinned row shows - countRowsFasterThan + 1, matching the server.
         let pinnedRank = Self.tiedDurations.count(where: { $0 < duration }) + 1
 
         #expect(positionalRanks()[tiedIndex] == 3)
@@ -173,7 +174,7 @@ struct TiedRankRenderEvidenceTests {
     }
 
     /// The old global board numbered by list position, so two climbers on identical step
-    /// totals read 2 and 3 — while the Cloud Function had already awarded both of them
+    /// totals read 2 and 3 - while the Cloud Function had already awarded both of them
     /// rank 2 when it decided achievements.
     @Test
     func globalBoardBeforeSplitEqualStepTotalsAcrossTwoRanks() async throws {
@@ -225,7 +226,7 @@ struct TiedRankRenderEvidenceTests {
 
     /// The photographed contradiction, on one screen: one climber on the podium with
     /// places 2 and 3 unclaimed, and the pinned YOU row beneath claiming rank 2 on 0
-    /// steps — a rank borrowed from list position.
+    /// steps - a rank borrowed from list position.
     @Test
     func sparsePodiumAndPinnedRowBeforeGaveTheZeroActivityClimberRankTwo() async throws {
         let entries = makeGlobalEntries(ranks: [1], steps: [48_000], currentUserIndex: nil)
@@ -368,8 +369,8 @@ struct TiedRankRenderEvidenceTests {
         return store
     }
 
-    /// A climber is tied when another climber shares their *step total* — the ranking
-    /// value — not merely their rank number. That keeps the rendered board in a state
+    /// A climber is tied when another climber shares their *step total* - the ranking
+    /// value - not merely their rank number. That keeps the rendered board in a state
     /// the app can actually reach.
     /// - Parameter marksTies: `false` reproduces the old client, which had no tie
     ///   concept at all.
@@ -410,26 +411,18 @@ struct TiedRankRenderEvidenceTests {
 
     // MARK: - Rendering
 
+    /// The 3x photograph, taken only when this run keeps photographs; the view is not even
+    /// laid out otherwise.
     private func render(_ view: some View, named name: String, height: CGFloat) throws {
-        let renderer = ImageRenderer(
-            content: view
+        guard RenderedScreen.isPhotographing else { return }
+
+        try RenderedScreen.photograph(
+            view
                 .frame(width: 390)
                 .frame(height: height, alignment: .top)
                 .background(Color.black)
-                .environment(\.colorScheme, .dark)
+                .environment(\.colorScheme, .dark),
+            named: name
         )
-        renderer.scale = 3
-
-        let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: "\(name).png")
-        try png.write(to: url)
-
-        // Logged so the image is findable inside the simulator container when no
-        // ASCEND_EVIDENCE_DIR was provided.
-        print("Rendered tied-rank evidence: \(url.path())")
     }
 }

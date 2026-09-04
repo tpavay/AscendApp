@@ -1,7 +1,6 @@
 import SwiftUI
 import Testing
 import UIKit
-import Vision
 @testable import AscendApp
 
 /// Visual evidence for the copy shown on the climb preview card that appears when a
@@ -9,27 +8,29 @@ import Vision
 /// `ClimbPreviewCardView`).
 ///
 /// The card used to stack "Finish in one live attempt" directly under the First Ascent
-/// stake line, so the two lines read as one confusing sentence. This test renders the
+/// stake line, so the two lines read as one confusing sentence. This test hosts the
 /// real `ClimbPreviewCardView` for every state the globe can show, then reads the
-/// rendered pixels back with Vision text recognition to assert no attempt copy survives
-/// on the card while the identifying copy (name, location, steps, estimate) still does.
+/// card's on-screen copy back off the accessibility tree (`RenderedScreen`) to assert no
+/// attempt copy survives on the card while the identifying copy (name, location, steps,
+/// estimate) still does.
 @MainActor
+@Suite(.hostsAWindow)
 struct ClimbPreviewCardCopySnapshotTests {
     @Test
     func previewCardRendersNoAttemptCopy() async throws {
-        let availableImage = try renderCard(
-            summary: ClimbPreviewSummary(climb: .preview, isCompleted: false)
-        )
-        let completedImage = try renderCard(
+        let availableText = try await RenderedScreen.host(
+            cardContent(summary: ClimbPreviewSummary(climb: .preview, isCompleted: false))
+        ) { screen in
+            let text = try await screen.copy { $0.contains("steps") }
+            try screen.photograph(named: "climb-preview-card-available")
+            return text
+        }
+        let completedText = try await cardCopy(
             summary: ClimbPreviewSummary(climb: .preview, isCompleted: true)
         )
-        let comingSoonImage = try renderCard(
+        let comingSoonText = try await cardCopy(
             summary: ClimbPreviewSummary(climb: .previewComingSoon, isCompleted: false)
         )
-
-        let availableText = try await recognizedText(in: availableImage)
-        let completedText = try await recognizedText(in: completedImage)
-        let comingSoonText = try await recognizedText(in: comingSoonImage)
 
         // The card still identifies the landmark and its effort.
         #expect(availableText.contains("empire state"))
@@ -41,54 +42,28 @@ struct ClimbPreviewCardCopySnapshotTests {
         #expect(!completedText.contains("attempt"))
         #expect(!comingSoonText.contains("attempt"))
 
-        try writeEvidence(
-            image: try renderProofSheet(),
-            named: "climb-preview-card-copy.png"
-        )
-        try writeEvidence(image: availableImage, named: "climb-preview-card-available.png")
+        // The reviewer-facing sheet is laid out only when a photograph is being kept.
+        if RenderedScreen.isPhotographing {
+            try RenderedScreen.photograph(PreviewCardProof(), named: "climb-preview-card-copy")
+        }
     }
 
-    // MARK: - Rendering
+    // MARK: - Reading the hosted card back
 
-    private func renderCard(summary: ClimbPreviewSummary) throws -> UIImage {
-        let renderer = ImageRenderer(
-            content: ClimbPreviewCardView(summary: summary, onSelect: {}, onClose: {})
-                .frame(width: 361)
-                .padding(16)
-                .background(Color.black)
-                .environment(\.colorScheme, .dark)
-        )
-        renderer.scale = 3
-        return try #require(renderer.uiImage, "ImageRenderer produced no image")
+    /// The card's on-screen copy in `summary`'s state, lowercased, off the accessibility tree.
+    private func cardCopy(summary: ClimbPreviewSummary) async throws -> String {
+        try await RenderedScreen.host(cardContent(summary: summary)) { screen in
+            try await screen.copy()
+        }
     }
 
-    private func renderProofSheet() throws -> UIImage {
-        let renderer = ImageRenderer(content: PreviewCardProof())
-        renderer.scale = 3
-        return try #require(renderer.uiImage, "ImageRenderer produced no proof sheet")
-    }
-
-    // MARK: - Reading the rendered pixels back
-
-    private func recognizedText(in image: UIImage) async throws -> String {
-        let cgImage = try #require(image.cgImage, "UIImage had no CGImage")
-        var request = RecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-
-        let observations = try await request.perform(on: cgImage)
-        return observations
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: " ")
-            .lowercased()
-    }
-
-    private func writeEvidence(image: UIImage, named name: String) throws {
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        try png.write(to: URL(filePath: directory).appending(path: name))
-        #expect(png.count > 5_000)
+    private func cardContent(summary: ClimbPreviewSummary) -> some View {
+        ClimbPreviewCardView(summary: summary, onSelect: {}, onClose: {})
+            .frame(width: 361)
+            .padding(16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Color.black)
+            .environment(\.colorScheme, .dark)
     }
 }
 

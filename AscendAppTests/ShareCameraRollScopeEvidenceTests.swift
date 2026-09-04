@@ -5,11 +5,12 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// The album + date filter, photographed on the shipping controls.
+/// The album + date filter, walked and photographed on the shipping controls.
 ///
 /// `ShareCameraRollScopeTests` pins the ordering rules as arithmetic; nothing there shows the row a
 /// climber reads, the album grid, the earned back item, or what the date sheet's primary button
-/// says. These suites host the real views in a phone-sized window and read the pixels back.
+/// says. These suites host the real views in a phone-sized window through `RenderedScreen` and
+/// read the accessibility tree back.
 ///
 /// The photo library itself is not reachable from a test host: PhotoKit answers `notDetermined` and
 /// every fetch returns nothing until a person taps the system permission alert, which is presented
@@ -17,7 +18,7 @@ import UIKit
 /// and the *scope* is driven through the shipping `SharePhotoLibrary`, whose scope machine needs no
 /// authorization.
 
-// MARK: - Shared hosting
+// MARK: - Shared fixtures and tree reads
 
 @MainActor
 enum ShareScopeEvidence {
@@ -62,32 +63,6 @@ enum ShareScopeEvidence {
 
     nonisolated static var albums: [ShareAlbum] { [climbs, trip, favorites, videos, raceDay] }
 
-    static func host<Content: View>(
-        _ view: Content,
-        _ body: (UIWindow) async throws -> Void
-    ) async throws {
-        let controller = UIHostingController(rootView: view)
-        controller.overrideUserInterfaceStyle = .dark
-        controller.view.frame = CGRect(origin: .zero, size: screenSize)
-
-        let scene = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first
-        let window = scene.map { UIWindow(windowScene: $0) }
-            ?? UIWindow(frame: CGRect(origin: .zero, size: screenSize))
-        window.frame = CGRect(origin: .zero, size: screenSize)
-        window.overrideUserInterfaceStyle = .dark
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        defer {
-            window.isHidden = true
-            window.rootViewController = nil
-            window.windowScene = nil
-        }
-
-        try await body(window)
-    }
-
     /// Every accessibility label the hosted screen publishes, in tree order, read once the screen
     /// has settled into the state the caller is waiting for.
     static func labels(
@@ -111,22 +86,6 @@ enum ShareScopeEvidence {
         _ = try await labels(in: window) { $0.contains(label) }
         try activateAccessibilityElement(labelled: label, in: window)
     }
-
-    static func photograph(_ window: UIWindow, named name: String, size: CGSize? = nil) throws {
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.scale = 3
-        let image = UIGraphicsImageRenderer(size: size ?? window.bounds.size, format: format).image { _ in
-            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-        }
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: "\(name).png")
-        try png.write(to: url)
-        #expect(png.count > 5_000)
-        print("evidence: \(url.path())")
-    }
 }
 
 // MARK: - The walk
@@ -143,45 +102,43 @@ struct ShareCameraRollScopeWalkEvidenceTests {
         let harness = ShareScopeWalkHarness(albums: ShareScopeEvidence.albums)
             .transaction { $0.disablesAnimations = true }
 
-        try await withAccessibilityAutomation {
-            try await ShareScopeEvidence.host(harness) { window in
-                // 1. Recents. `All Albums` sits directly right of it, the earned album third.
-                var labels = try await ShareScopeEvidence.labels(in: window) {
-                    $0.contains("All Albums")
-                }
-                let recents = try #require(labels.firstIndex(of: "Recents"))
-                #expect(
-                    Array(labels[recents...(recents + 2)]) == ["Recents", "All Albums", "Ascend Climbs"],
-                    "row read: \(labels.prefix(6))"
-                )
-                try ShareScopeEvidence.photograph(window, named: "share-walk-1-recents")
-
-                // 2. Tapping `All Albums` browses albums in place - the row above stays put.
-                try await ShareScopeEvidence.tap("All Albums", in: window)
-                labels = try await ShareScopeEvidence.labels(in: window) { $0.contains("MY ALBUMS") }
-                #expect(labels.contains("Race Day, empty"))
-                try ShareScopeEvidence.photograph(window, named: "share-walk-2-all-albums")
-
-                // 3. Opening an album from the grid turns that same slot into the way back, and
-                // drops the album from the shortcuts further along so it cannot appear twice.
-                try await ShareScopeEvidence.tap("Ascend Climbs, 128 items", in: window)
-                labels = try await ShareScopeEvidence.labels(in: window) {
-                    $0.contains("Back to all albums, Ascend Climbs")
-                }
-                let back = try #require(labels.firstIndex(of: "Back to all albums, Ascend Climbs"))
-                #expect(labels[back - 1] == "Recents")
-                #expect(
-                    !labels.contains("Ascend Climbs"),
-                    "the opened album is also offered as a shortcut: \(labels.prefix(6))"
-                )
-                try ShareScopeEvidence.photograph(window, named: "share-walk-3-album-open")
-
-                // 4. Tapping it goes back to the grid rather than to Recents.
-                try await ShareScopeEvidence.tap("Back to all albums, Ascend Climbs", in: window)
-                labels = try await ShareScopeEvidence.labels(in: window) { $0.contains("MY ALBUMS") }
-                #expect(labels.contains("All Albums"))
-                try ShareScopeEvidence.photograph(window, named: "share-walk-4-back-to-grid")
+        try await RenderedScreen.host(harness, size: ShareScopeEvidence.screenSize) { screen in
+            // 1. Recents. `All Albums` sits directly right of it, the earned album third.
+            var labels = try await ShareScopeEvidence.labels(in: screen.window) {
+                $0.contains("All Albums")
             }
+            let recents = try #require(labels.firstIndex(of: "Recents"))
+            #expect(
+                Array(labels[recents...(recents + 2)]) == ["Recents", "All Albums", "Ascend Climbs"],
+                "row read: \(labels.prefix(6))"
+            )
+            try screen.photograph(named: "share-walk-1-recents")
+
+            // 2. Tapping `All Albums` browses albums in place - the row above stays put.
+            try await ShareScopeEvidence.tap("All Albums", in: screen.window)
+            labels = try await ShareScopeEvidence.labels(in: screen.window) { $0.contains("MY ALBUMS") }
+            #expect(labels.contains("Race Day, empty"))
+            try screen.photograph(named: "share-walk-2-all-albums")
+
+            // 3. Opening an album from the grid turns that same slot into the way back, and
+            // drops the album from the shortcuts further along so it cannot appear twice.
+            try await ShareScopeEvidence.tap("Ascend Climbs, 128 items", in: screen.window)
+            labels = try await ShareScopeEvidence.labels(in: screen.window) {
+                $0.contains("Back to all albums, Ascend Climbs")
+            }
+            let back = try #require(labels.firstIndex(of: "Back to all albums, Ascend Climbs"))
+            #expect(labels[back - 1] == "Recents")
+            #expect(
+                !labels.contains("Ascend Climbs"),
+                "the opened album is also offered as a shortcut: \(labels.prefix(6))"
+            )
+            try screen.photograph(named: "share-walk-3-album-open")
+
+            // 4. Tapping it goes back to the grid rather than to Recents.
+            try await ShareScopeEvidence.tap("Back to all albums, Ascend Climbs", in: screen.window)
+            labels = try await ShareScopeEvidence.labels(in: screen.window) { $0.contains("MY ALBUMS") }
+            #expect(labels.contains("All Albums"))
+            try screen.photograph(named: "share-walk-4-back-to-grid")
         }
     }
 }
@@ -271,31 +228,25 @@ struct ShareScopeChromeEvidenceTests {
         .background(Color.black)
         .transaction { $0.disablesAnimations = true }
 
-        try await withAccessibilityAutomation {
-            try await ShareScopeEvidence.host(board) { window in
-                let labels = try await ShareScopeEvidence.labels(in: window) {
-                    $0.contains("Back to all albums, Ascend Climbs")
-                }
-
-                let first = try #require(labels.firstIndex(of: "Recents"))
-                #expect(
-                    Array(labels[first...(first + 2)]) == ["Recents", "All Albums", "Ascend Climbs"]
-                )
-
-                // The album items go inert under limited access, where PhotoKit can fetch no
-                // albums at all; Recents still works.
-                let inert = accessibilityElements(under: window).filter {
-                    $0.accessibilityLabel == "All Albums"
-                        && $0.accessibilityTraits.contains(.notEnabled)
-                }
-                #expect(inert.count == 1, "the limited-access row did not go inert")
-
-                try ShareScopeEvidence.photograph(
-                    window,
-                    named: "share-scope-row-states",
-                    size: CGSize(width: 393, height: 470)
-                )
+        try await RenderedScreen.host(board, size: ShareScopeEvidence.screenSize) { screen in
+            let labels = try await ShareScopeEvidence.labels(in: screen.window) {
+                $0.contains("Back to all albums, Ascend Climbs")
             }
+
+            let first = try #require(labels.firstIndex(of: "Recents"))
+            #expect(
+                Array(labels[first...(first + 2)]) == ["Recents", "All Albums", "Ascend Climbs"]
+            )
+
+            // The album items go inert under limited access, where PhotoKit can fetch no
+            // albums at all; Recents still works.
+            let inert = accessibilityElements(under: screen.window).filter {
+                $0.accessibilityLabel == "All Albums"
+                    && $0.accessibilityTraits.contains(.notEnabled)
+            }
+            #expect(inert.count == 1, "the limited-access row did not go inert")
+
+            try screen.photograph(named: "share-scope-row-states")
         }
     }
 
@@ -337,19 +288,13 @@ struct ShareScopeChromeEvidenceTests {
         .background(Color(hex: "121212"))
         .transaction { $0.disablesAnimations = true }
 
-        try await withAccessibilityAutomation {
-            try await ShareScopeEvidence.host(sheet) { hosted in
-                let labels = try await ShareScopeEvidence.labels(in: hosted) {
-                    $0.contains { $0.localizedCaseInsensitiveContains(expectedTitle) }
-                }
-                #expect(labels.contains { $0.localizedCaseInsensitiveContains(expectedTitle) })
-
-                try ShareScopeEvidence.photograph(
-                    hosted,
-                    named: name,
-                    size: CGSize(width: 393, height: 470)
-                )
+        try await RenderedScreen.host(sheet, size: ShareScopeEvidence.screenSize) { screen in
+            let labels = try await ShareScopeEvidence.labels(in: screen.window) {
+                $0.contains { $0.localizedCaseInsensitiveContains(expectedTitle) }
             }
+            #expect(labels.contains { $0.localizedCaseInsensitiveContains(expectedTitle) })
+
+            try screen.photograph(named: name)
         }
     }
 

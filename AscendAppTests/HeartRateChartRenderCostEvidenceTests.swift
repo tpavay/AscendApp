@@ -6,17 +6,16 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Renders the shipping heart-rate chart against the pre-fix mark set and writes the
-/// proof to disk.
+/// Renders the shipping heart-rate chart against the pre-fix mark set and holds the thinning
+/// invariants.
 ///
 /// The plotted marks are the whole cost: before the fix the chart handed Swift Charts
 /// one `LineMark` per raw sample, so this renders the same curve twice - once from the
 /// raw series (`scrubPoints`, which is exactly what used to be plotted) and once from
 /// the thinned series the view now plots - and compares both the wall-clock render
-/// cost and the resulting pixels.
+/// cost and the resulting pixels, read through `RenderedScreen.withOffscreenPixels`.
 ///
-/// Images land in `ASCEND_EVIDENCE_DIR` when it is set, and in the test host's temporary
-/// directory otherwise; the paths are printed so a run can lift them out for review.
+/// Photographs land in `ASCEND_EVIDENCE_DIR` when it is set and are not taken otherwise.
 ///
 /// The render timings are printed for the record and never asserted - a wall-clock
 /// threshold would flake on a loaded runner. Only the mark counts, the preserved
@@ -28,6 +27,10 @@ struct HeartRateChartRenderCostEvidenceTests {
     private static let sessionSeconds = 2_603
     private static let chartSize = CGSize(width: 362, height: 200)
     private static let renderIterations = 5
+    /// The scale the timings and the pixel comparison were always taken at. A timing at a
+    /// different scale is a different number, so this stays at 2 rather than the 1x a colour or
+    /// position read would use.
+    private static let renderScale: CGFloat = 2
 
     @Test
     func theThinnedChartDrawsTheSameCurveForAFractionOfTheRenderCost() throws {
@@ -46,47 +49,38 @@ struct HeartRateChartRenderCostEvidenceTests {
         let before = Self.curve(segments: rawSegments, dataSet: dataSet)
         let after = Self.curve(segments: dataSet.segments, dataSet: dataSet)
 
-        let beforeDuration = Self.medianRenderDuration(of: before)
-        let afterDuration = Self.medianRenderDuration(of: after)
+        let beforeDuration = try Self.medianRenderDuration(of: before)
+        let afterDuration = try Self.medianRenderDuration(of: after)
 
-        let beforeImage = try #require(Self.render(before), "before image")
-        let afterImage = try #require(Self.render(after), "after image")
-        let difference = try Self.differingPixelFraction(beforeImage, afterImage)
+        let difference = try Self.differingPixelFraction(before, after)
 
-        let overlay = try #require(
-            Self.render(
-                ZStack {
-                    Color.black
-                    Self.curve(segments: rawSegments, dataSet: dataSet, color: .white, lineWidth: 7)
-                    Self.curve(segments: dataSet.segments, dataSet: dataSet, color: .red, lineWidth: 2)
-                }
-                .frame(width: Self.chartSize.width, height: Self.chartSize.height)
-            ),
-            "overlay image"
+        try RenderedScreen.photograph(before, named: "heart-rate-chart-before", scale: Self.renderScale)
+        try RenderedScreen.photograph(after, named: "heart-rate-chart-after", scale: Self.renderScale)
+        try RenderedScreen.photograph(
+            ZStack {
+                Color.black
+                Self.curve(segments: rawSegments, dataSet: dataSet, color: .white, lineWidth: 7)
+                Self.curve(segments: dataSet.segments, dataSet: dataSet, color: .red, lineWidth: 2)
+            }
+            .frame(width: Self.chartSize.width, height: Self.chartSize.height),
+            named: "heart-rate-chart-overlay",
+            scale: Self.renderScale
         )
-
-        let full = try #require(
-            Self.render(
-                HeartRateChartView(
-                    heartRateData: samples,
-                    workoutStartTime: Self.start,
-                    workoutDuration: TimeInterval(Self.sessionSeconds),
-                    averageHeartRateBpm: 154,
-                    maxHeartRateBpm: samples.map(\.heartRate).max()
-                )
-                .padding(20)
-                .frame(width: 402)
-                .background(Color.black)
-                .environment(\.colorScheme, .dark)
-            ),
-            "full chart image"
+        try RenderedScreen.photograph(
+            HeartRateChartView(
+                heartRateData: samples,
+                workoutStartTime: Self.start,
+                workoutDuration: TimeInterval(Self.sessionSeconds),
+                averageHeartRateBpm: 154,
+                maxHeartRateBpm: samples.map(\.heartRate).max()
+            )
+            .padding(20)
+            .frame(width: 402)
+            .background(Color.black)
+            .environment(\.colorScheme, .dark),
+            named: "heart-rate-chart-full",
+            scale: Self.renderScale
         )
-
-        let directory = try Self.evidenceDirectory()
-        try Self.write(beforeImage, to: directory, named: "heart-rate-chart-before.png")
-        try Self.write(afterImage, to: directory, named: "heart-rate-chart-after.png")
-        try Self.write(overlay, to: directory, named: "heart-rate-chart-overlay.png")
-        try Self.write(full, to: directory, named: "heart-rate-chart-full.png")
 
         let rawRates = samples.map(\.heartRate)
         let plottedRates = dataSet.points.map(\.heartRate)
@@ -98,10 +92,13 @@ struct HeartRateChartRenderCostEvidenceTests {
           peak BPM        raw \(rawRates.max() ?? 0)   plotted \(plottedRates.max() ?? 0)
           trough BPM      raw \(rawRates.min() ?? 0)   plotted \(plottedRates.min() ?? 0)
           axis range      \(dataSet.heartRateRange.lowerBound)...\(dataSet.heartRateRange.upperBound)
-          images          \(directory.path())
+          images          \(RenderedScreen.evidenceDirectory?.path() ?? "not written - ASCEND_EVIDENCE_DIR is unset")
         """
         print(report)
-        try Data(report.utf8).write(to: directory.appending(path: "heart-rate-chart-render-cost.txt"))
+        if let directory = RenderedScreen.evidenceDirectory {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data(report.utf8).write(to: directory.appending(path: "heart-rate-chart-render-cost.txt"))
+        }
 
         #expect(rawMarkCount == Self.sessionSeconds)
         #expect(thinnedMarkCount <= HeartRateChartDataSet.maximumPlottedPointCount)
@@ -113,10 +110,11 @@ struct HeartRateChartRenderCostEvidenceTests {
         )
     }
 
-    /// Screenshots the real activity detail screen for the session that stuttered, at
-    /// the top and mid-scroll, so the fix can be reviewed as the screen a climber sees.
+    /// Hosts the real activity detail screen for the session that stuttered and photographs it
+    /// at the top and mid-scroll when `ASCEND_EVIDENCE_DIR` is set, so the fix can be reviewed as
+    /// the screen a climber sees.
     @Test
-    func theActivityDetailScreenRendersTheSessionThatStuttered() throws {
+    func theActivityDetailScreenRendersTheSessionThatStuttered() async throws {
         let container = try Self.hostedContainer()
 
         let workout = Self.stutteringWorkout()
@@ -129,48 +127,31 @@ struct HeartRateChartRenderCostEvidenceTests {
                 .modelContainer(container)
         )
 
-        let scene = try #require(
-            UIApplication.shared.connectedScenes.first as? UIWindowScene,
-            "test host app should expose a live UIWindowScene"
-        )
-        let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
-        let window = UIWindow(windowScene: scene)
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
-        window.rootViewController = host
-        window.makeKeyAndVisible()
-        // Detaching from the scene is what dismantles the content. Hiding is not enough: a window
-        // still attached keeps `WorkoutDetailView`'s `@Query` observing SwiftData after the
-        // container declared above has gone, and that observer then traps on the next save any
-        // other suite performs, taking the whole test process down.
-        defer {
-            window.isHidden = true
-            previousKeyWindow?.makeKey()
-            window.rootViewController = nil
-            window.windowScene = nil
+        // `RenderedScreen` detaches the window from the scene on the way out, which is what
+        // dismantles the content. Hiding would not be enough: a window still attached keeps
+        // `WorkoutDetailView`'s `@Query` observing SwiftData after the container declared above
+        // has gone, and that observer then traps on the next save any other suite performs,
+        // taking the whole test process down.
+        try await RenderedScreen.host(host) { screen in
+            let scrollView = try #require(Self.firstScrollView(in: screen.window), "detail ScrollView")
+            try screen.photograph(named: "activity-detail-top")
+
+            // Just past the reveal threshold: the header takes the title over from the
+            // inline row.
+            scrollView.contentOffset = CGPoint(x: 0, y: WorkoutDetailView.navigationTitleRevealOffset + 40)
+            // A photograph taken the instant after a scroll catches Swift Charts mid-draw, so
+            // let the render loop run itself out before capturing.
+            try await screen.settle(.turns(5))
+            try screen.photograph(named: "activity-detail-title-revealed")
+
+            // Far enough down that the heart-rate chart - the expensive section - clears
+            // the header and sits fully on screen.
+            scrollView.contentOffset = CGPoint(x: 0, y: 330)
+            try await screen.settle(.turns(5))
+            try screen.photograph(named: "activity-detail-heart-rate")
+
+            #expect(scrollView.contentSize.height > 1_400)
         }
-        Self.flush(window)
-
-        let scrollView = try #require(Self.firstScrollView(in: window), "detail ScrollView")
-        Self.flush(window)
-
-        let directory = try Self.evidenceDirectory()
-        Self.settle(window)
-        try Self.write(Self.snapshot(window), to: directory, named: "activity-detail-top.png")
-
-        // Just past the reveal threshold: the header takes the title over from the
-        // inline row.
-        scrollView.contentOffset = CGPoint(x: 0, y: WorkoutDetailView.navigationTitleRevealOffset + 40)
-        Self.settle(window)
-        try Self.write(Self.snapshot(window), to: directory, named: "activity-detail-title-revealed.png")
-
-        // Far enough down that the heart-rate chart - the expensive section - clears
-        // the header and sits fully on screen.
-        scrollView.contentOffset = CGPoint(x: 0, y: 330)
-        Self.settle(window)
-        try Self.write(Self.snapshot(window), to: directory, named: "activity-detail-heart-rate.png")
-
-        print("activity detail screenshots: \(directory.path())")
-        #expect(scrollView.contentSize.height > 1_400)
     }
 
     // MARK: - Fixtures
@@ -275,26 +256,23 @@ struct HeartRateChartRenderCostEvidenceTests {
         .frame(width: chartSize.width, height: chartSize.height)
     }
 
-    private static func render(_ view: some View) -> UIImage? {
-        let renderer = ImageRenderer(content: view)
-        renderer.scale = 2
-        return renderer.uiImage
+    /// One timed render at `renderScale`, through the same off-screen path the pixel comparison
+    /// reads. The bitmap is released before this returns; what is measured includes the sampler's
+    /// readback, the same on both sides of the comparison.
+    private static func render(_ view: some View) throws {
+        try RenderedScreen.withOffscreenPixels(of: view, scale: renderScale) { _ in }
     }
 
     /// Median rather than mean so a single scheduling hiccup on a loaded machine does
     /// not decide the number.
-    private static func medianRenderDuration(of view: some View) -> Duration {
-        _ = render(view) // warm the font and chart machinery
-        let samples = (0..<renderIterations)
-            .map { _ in ContinuousClock().measure { _ = render(view) } }
-            .sorted()
-        return samples[samples.count / 2]
-    }
-
-    private static func snapshot(_ window: UIWindow) -> UIImage {
-        UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
-            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+    private static func medianRenderDuration(of view: some View) throws -> Duration {
+        try render(view) // warm the font and chart machinery
+        var samples: [Duration] = []
+        for _ in 0..<renderIterations {
+            samples.append(try ContinuousClock().measure { try render(view) })
         }
+        samples.sort()
+        return samples[samples.count / 2]
     }
 
     private static func milliseconds(_ duration: Duration) -> String {
@@ -305,77 +283,34 @@ struct HeartRateChartRenderCostEvidenceTests {
 
     // MARK: - Pixel comparison
 
-    /// Share of pixels whose colour differs by more than an antialiasing wobble.
-    private static func differingPixelFraction(_ lhs: UIImage, _ rhs: UIImage) throws -> Double {
+    /// Share of pixels whose colour differs by more than an antialiasing wobble. Each side's
+    /// pixels are lifted out of their own off-screen render so no two bitmaps are ever held at
+    /// once.
+    private static func differingPixelFraction(_ lhs: some View, _ rhs: some View) throws -> Double {
         let left = try pixels(of: lhs)
         let right = try pixels(of: rhs)
         #expect(left.count == right.count, "images should share a size")
 
         var differing = 0
-        for index in stride(from: 0, to: min(left.count, right.count), by: 4) {
-            let delta = (0..<4).reduce(0) { running, channel in
-                max(running, abs(Int(left[index + channel]) - Int(right[index + channel])))
-            }
+        for index in 0..<min(left.count, right.count) {
+            let delta = max(
+                abs(Int(left[index].red) - Int(right[index].red)),
+                abs(Int(left[index].green) - Int(right[index].green)),
+                abs(Int(left[index].blue) - Int(right[index].blue)),
+                abs(Int(left[index].alpha) - Int(right[index].alpha))
+            )
             if delta > 32 { differing += 1 }
         }
-        return Double(differing) / Double(left.count / 4)
+        return Double(differing) / Double(left.count)
     }
 
-    private static func pixels(of image: UIImage) throws -> [UInt8] {
-        let cgImage = try #require(image.cgImage, "image should be CG backed")
-        let width = cgImage.width
-        let height = cgImage.height
-        var buffer = [UInt8](repeating: 0, count: width * height * 4)
-        let context = try #require(
-            CGContext(
-                data: &buffer,
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bytesPerRow: width * 4,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ),
-            "bitmap context"
-        )
-        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
-        return buffer
-    }
-
-    // MARK: - Files
-
-    /// The harness-provided override when present, otherwise the always-writable temp
-    /// dir. Never a hardcoded machine path - that exists only on one Mac and fails on
-    /// CI runners.
-    private static func evidenceDirectory() throws -> URL {
-        let base = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let directory = URL(filePath: base).appending(path: "heart-rate-chart-evidence")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory
-    }
-
-    private static func write(_ image: UIImage, to directory: URL, named name: String) throws {
-        let png = try #require(image.pngData(), "\(name) should encode to PNG")
-        try png.write(to: directory.appending(path: name))
+    private static func pixels(of view: some View) throws -> [RGBA] {
+        try RenderedScreen.withOffscreenPixels(of: view, scale: renderScale) { pixels in
+            pixels.pixels(in: CGRect(origin: .zero, size: pixels.size))
+        }
     }
 
     // MARK: - Hosting helpers
-
-    private static func flush(_ window: UIWindow) {
-        window.layoutIfNeeded()
-        CATransaction.flush()
-        RunLoop.current.run(until: Date())
-    }
-
-    /// A screenshot taken the instant after a scroll catches Swift Charts mid-draw, so
-    /// let the render loop run itself out before capturing.
-    private static func settle(_ window: UIWindow) {
-        for _ in 0..<5 {
-            flush(window)
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-    }
 
     private static func firstScrollView(in view: UIView) -> UIScrollView? {
         if let scrollView = view as? UIScrollView { return scrollView }

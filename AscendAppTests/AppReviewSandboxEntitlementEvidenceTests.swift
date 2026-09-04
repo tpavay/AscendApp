@@ -6,15 +6,16 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Reviewer-facing pixels for the Guideline 2.1(b) rejection of build 2026081401 (#506).
+/// Reviewer-facing evidence for the Guideline 2.1(b) rejection of build 2026081401 (#506).
 ///
-/// `AppReviewSandboxEntitlementTests` holds the rule; this photographs what App Review actually
-/// looks at. One entitlement - the reviewer's: active, RevenueCat-verified, bought in whichever
+/// `AppReviewSandboxEntitlementTests` holds the rule; this reproduces what App Review actually
+/// looked at. One entitlement - the reviewer's: active, RevenueCat-verified, bought in whichever
 /// StoreKit environment is *not* the one `BundleSandboxEnvironmentDetector` reads off this binary
 /// - is run twice through the shipped `RevenueCatPurchaseExecutor` and `AppAccessRestoreService`:
 /// once resolved with the deleted `Set(entitlements.activeInCurrentEnvironment.keys)` line, once
-/// with the shipped `appAccessEntitlementState`. The alert copy and the gate's restore line in the
-/// PNGs are the ones those production calls returned, not strings this file wrote.
+/// with the shipped `appAccessEntitlementState`. The alert copy and the gate's restore line are
+/// the ones those production calls returned, not strings this file wrote. The photographs of both
+/// are taken through `RenderedScreen` only when `ASCEND_EVIDENCE_DIR` is set.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct AppReviewSandboxEntitlementEvidenceTests {
@@ -43,22 +44,28 @@ struct AppReviewSandboxEntitlementEvidenceTests {
         #expect(Self.failureAlertMessage(shipped.result) == nil)
         #expect(shipped.events.contains("revenuecat_purchase_completed"))
 
-        let before = try await Self.captureAlert(message: alertMessage)
-        let after = try await Self.captureAlert(message: nil)
+        guard RenderedScreen.isPhotographing else { return }
 
-        try Self.write(
-            PurchaseAlertProof(
-                subtitle: Self.environmentSubtitle(for: entitlements),
-                before: before,
-                beforeCaption: "Build 2026081401 · rejected",
-                beforeDetail: "Superwall .failed → \(alertMessage)",
-                beforeEvents: rejected.events,
-                after: after,
-                afterCaption: "This build",
-                afterDetail: "Superwall .purchased → no alert presented, paywall dismisses, app unlocks",
-                afterEvents: shipped.events
+        let subtitle = Self.environmentSubtitle(for: entitlements)
+        try await Self.photographAlert(
+            message: alertMessage,
+            annotation: .init(
+                subtitle: subtitle,
+                caption: "Build 2026081401 · rejected",
+                detail: "Superwall .failed → \(alertMessage)",
+                events: rejected.events
             ),
-            named: "app-review-purchase-alert-before-after"
+            named: "app-review-purchase-alert-before"
+        )
+        try await Self.photographAlert(
+            message: nil,
+            annotation: .init(
+                subtitle: subtitle,
+                caption: "This build",
+                detail: "Superwall .purchased → no alert presented, paywall dismisses, app unlocks",
+                events: shipped.events
+            ),
+            named: "app-review-purchase-alert-after"
         )
     }
 
@@ -81,13 +88,15 @@ struct AppReviewSandboxEntitlementEvidenceTests {
         #expect(shipped.state.statusMessage == nil)
         #expect(shipped.events.contains("revenuecat_restore_completed"))
 
+        guard RenderedScreen.isPhotographing else { return }
+
         let manager = MonetizationManager(
             entitlementService: EntitlementServiceStub(),
             paywallPresenter: PaywallPresenterSpy(),
             telemetry: makeTestTelemetry(sink: InMemoryTelemetrySink(destination: .analytics))
         )
 
-        try Self.write(
+        try RenderedScreen.photograph(
             GateRestoreProof(
                 monetizationManager: manager,
                 before: .init(
@@ -172,9 +181,12 @@ struct AppReviewSandboxEntitlementEvidenceTests {
         let transcript = lines.joined(separator: "\n")
         print(transcript)
 
-        let url = Self.evidenceDirectory.appending(path: "app-review-sandbox-entitlement-transcript.txt")
-        try Data(transcript.utf8).write(to: url)
-        print("ASCEND_EVIDENCE_FILE: \(url.path())")
+        if let directory = RenderedScreen.evidenceDirectory {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let url = directory.appending(path: "app-review-sandbox-entitlement-transcript.txt")
+            try Data(transcript.utf8).write(to: url)
+            print("ASCEND_EVIDENCE_FILE: \(url.path())")
+        }
 
         #expect(transcript.contains("storekit_receipt_name"))
         #expect(transcript.contains("holds_sandbox_entitlement=\(entitlements.holdsSandboxEntitlement)"))
@@ -352,95 +364,100 @@ private extension AppReviewSandboxEntitlementEvidenceTests {
     }
 }
 
-// MARK: - Capture
+// MARK: - Photographs
 
 private extension AppReviewSandboxEntitlementEvidenceTests {
-    static var evidenceDirectory: URL {
-        URL(
-            filePath: ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-                ?? NSTemporaryDirectory()
-        )
-    }
-
-    static func write(_ proof: some View, named name: String) throws {
-        let renderer = ImageRenderer(content: proof)
-        renderer.scale = 2
-
-        let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-        let url = evidenceDirectory.appending(path: "\(name).png")
-        try png.write(to: url)
-
-        #expect(png.count > 5_000)
-        print("ASCEND_EVIDENCE_FILE: \(url.path())")
-    }
-
     /// An alert is a UIKit presentation rather than a subview, so it is photographed off a live
     /// window. `message: nil` presents nothing, which is precisely the "after" surface: a reviewer
-    /// who buys today is shown no alert at all.
-    static func captureAlert(message: String?) async throws -> UIImage {
-        let bounds = CGRect(x: 0, y: 0, width: 393, height: 852)
-        let window = UIWindow(frame: bounds)
-        window.windowScene = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first
-        window.rootViewController = UIHostingController(rootView: PurchaseAlertHost(message: message))
-        window.makeKeyAndVisible()
-        defer {
-            window.isHidden = true
-            window.rootViewController = nil
-            window.windowScene = nil
-        }
+    /// who buys today is shown no alert at all. Called only when this run keeps photographs.
+    static func photographAlert(
+        message: String?,
+        annotation: PurchaseAlertHost.Annotation,
+        named name: String
+    ) async throws {
+        let controller = UIHostingController(
+            rootView: PurchaseAlertHost(message: message, annotation: annotation)
+        )
 
-        if message != nil {
-            for _ in 0..<120 {
-                try await Task.sleep(for: .milliseconds(20))
-                if window.rootViewController?.presentedViewController != nil { break }
+        try await RenderedScreen.host(
+            controller,
+            size: CGSize(width: 393, height: 852),
+            settle: .until { _ in message == nil || controller.presentedViewController != nil }
+        ) { screen in
+            if message != nil {
+                try #require(
+                    controller.presentedViewController != nil,
+                    "The purchase-failure alert never presented"
+                )
             }
 
-            try #require(
-                window.rootViewController?.presentedViewController != nil,
-                "The purchase-failure alert never presented"
-            )
-        }
-
-        // Presented is not drawn: the alert fades and scales in, and a mid-animation capture
-        // photographs a ghost of the copy rather than the copy.
-        try await Task.sleep(for: .milliseconds(900))
-
-        let band = CGRect(x: 0, y: bounds.midY - 190, width: bounds.width, height: 380)
-        return UIGraphicsImageRenderer(size: band.size).image { _ in
-            window.drawHierarchy(
-                in: CGRect(origin: CGPoint(x: 0, y: -band.minY), size: bounds.size),
-                afterScreenUpdates: true
-            )
+            // Presented is not drawn: the alert fades and scales in, and a mid-animation capture
+            // photographs a ghost of the copy rather than the copy.
+            try await screen.settle(.turns(18))
+            try screen.photograph(named: name)
         }
     }
 }
 
 // MARK: - Views
 
-/// A stand-in for the paywall behind Superwall's purchase-failure alert. The alert is a translucent
-/// system material, so photographing it over pure black would render it black on black.
+/// A stand-in for the paywall behind Superwall's purchase-failure alert, captioned with the run it
+/// stands for so each photograph carries its own evidence. The backdrop is a mid grey: the alert
+/// is a translucent system material, and over pure black it would render black on black.
 private struct PurchaseAlertHost: View {
-    @State private var message: String?
+    struct Annotation {
+        let subtitle: String
+        let caption: String
+        let detail: String
+        let events: [String]
+    }
 
-    init(message: String?) {
+    @State private var message: String?
+    let annotation: Annotation
+
+    init(message: String?, annotation: Annotation) {
         _message = State(initialValue: message)
+        self.annotation = annotation
     }
 
     var body: some View {
-        Color(white: 0.22)
-            .ignoresSafeArea()
-            .alert(
-                "An error occurred",
-                isPresented: .constant(message != nil),
-                presenting: message
-            ) { _ in
-                Button("OK") {}
-            } message: { message in
-                Text(message)
+        ZStack(alignment: .top) {
+            Color(white: 0.22)
+                .ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("App Review buys app_access · what the reviewer sees")
+                    .font(.montserratBold(size: 16))
+                    .foregroundStyle(.white)
+
+                Text(annotation.subtitle)
+                    .font(.montserratMedium(size: 12))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(annotation.caption.uppercased())
+                    .font(.montserratSemiBold(size: 11))
+                    .foregroundStyle(Color.ascendAccent.opacity(0.9))
+
+                Text(annotation.detail)
+                    .font(.montserratMedium(size: 12))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                EventList(events: annotation.events)
             }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .alert(
+            "An error occurred",
+            isPresented: .constant(message != nil),
+            presenting: message
+        ) { _ in
+            Button("OK") {}
+        } message: { message in
+            Text(message)
+        }
     }
 }
 
@@ -510,40 +527,6 @@ private struct ProofSheet<Content: View>: View {
         .padding(28)
         .frame(width: 828, alignment: .topLeading)
         .background(Color.black)
-    }
-}
-
-private struct PurchaseAlertProof: View {
-    let subtitle: String
-    let before: UIImage
-    let beforeCaption: String
-    let beforeDetail: String
-    let beforeEvents: [String]
-    let after: UIImage
-    let afterCaption: String
-    let afterDetail: String
-    let afterEvents: [String]
-
-    var body: some View {
-        ProofSheet(
-            title: "App Review buys app_access · what the reviewer sees",
-            subtitle: subtitle
-        ) {
-            ProofColumn(caption: beforeCaption, detail: beforeDetail, events: beforeEvents) {
-                shot(before)
-            }
-            ProofColumn(caption: afterCaption, detail: afterDetail, events: afterEvents) {
-                shot(after)
-            }
-        }
-    }
-
-    private func shot(_ image: UIImage) -> some View {
-        Image(uiImage: image)
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .frame(width: 340)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 

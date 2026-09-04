@@ -1,7 +1,6 @@
 import Foundation
 import SwiftUI
 import Testing
-import UIKit
 @testable import AscendApp
 
 /// The sparse-series stand-in copy, rendered at the width Workout Detail actually hands it.
@@ -47,23 +46,14 @@ struct HeartRateSparseCopyDeviceWidthEvidenceTests {
         let widths: [CGFloat] = [375 - 40, Self.contentWidth, 430 - 40]
 
         let proof = SparseCopyProof(cases: cases, start: start, widths: widths)
-        let renderer = ImageRenderer(content: proof)
-        renderer.scale = 3
-
-        let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
 
         // The proof pins the widest phone. Anything wider means the panel's contents pushed
-        // the layout past the screen instead of wrapping inside the card.
-        #expect(image.size.width == 430)
-
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory)
-            .appending(path: "heart-rate-sparse-copy-device-width.png")
-        try png.write(to: url)
-        #expect(png.count > 5_000)
-        print("ASCEND_EVIDENCE_FILE: \(url.path())")
+        // the layout past the screen instead of wrapping inside the card. A 1x layout answers
+        // that; the 3x photograph is written only under `ASCEND_EVIDENCE_DIR`.
+        try RenderedScreen.withOffscreenPixels(of: proof) { pixels in
+            #expect(pixels.size.width == 430)
+        }
+        try RenderedScreen.photograph(proof, named: "heart-rate-sparse-copy-device-width")
     }
 }
 

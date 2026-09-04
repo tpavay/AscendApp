@@ -322,11 +322,12 @@ struct SavedClimbShareRankTests {
 
     /// The reported symptom and its fix on the artifact a climber actually posts.
     ///
-    /// The other tests judge which cards are offered; this one renders the recap through the
-    /// shipping template view, the way the composer bakes it, and photographs both halves: the card
-    /// Workout Detail used to build, with its top-right corner empty, and the same card once the
-    /// frozen standing lands. Cheap on purpose - `ImageRenderer`, no window hosting, because hosting
-    /// a window is what put `iOS Verify (Staging)` past its cap.
+    /// The other tests judge which cards are offered; this one lays the recap out through the
+    /// shipping template view, the way the composer bakes it, and reads the rank corner off both
+    /// halves: the card Workout Detail used to build, with its top-right corner empty, and the
+    /// same card once the frozen standing lands. Cheap on purpose - a 1x off-screen lay-out, no
+    /// window hosting, because hosting a window is what put `iOS Verify (Staging)` past its cap.
+    /// Both halves are photographed under `ASCEND_EVIDENCE_DIR`.
     @Test
     func theRecapCardDrawsItsRankTabOnceTheStandingLands() throws {
         let viewModel = Self.savedClimbViewModel(standing: nil)
@@ -334,16 +335,22 @@ struct SavedClimbShareRankTests {
             ShareCardTemplateStore(bundle: .main).templates(for: [.climb]).first { $0.id == "result" }
         )
 
-        let withoutRank = try #require(Self.renderRecapCard(template, for: viewModel))
-        Self.write(withoutRank, "saved-climb-recap-card-1-without-rank")
+        let withoutRank = try Self.rankTabCorner(
+            of: template,
+            for: viewModel,
+            photographedAs: "saved-climb-recap-card-1-without-rank"
+        )
 
         let standing = try #require(SavedClimbShareStanding(snapshot: Self.snapshot()))
         viewModel.setClimbRank(standing.rank, total: standing.totalClimbers)
-        let withRank = try #require(Self.renderRecapCard(template, for: viewModel))
-        Self.write(withRank, "saved-climb-recap-card-2-with-rank")
+        let withRank = try Self.rankTabCorner(
+            of: template,
+            for: viewModel,
+            photographedAs: "saved-climb-recap-card-2-with-rank"
+        )
 
         #expect(
-            try Self.rankTabCornerDiffers(withoutRank, withRank),
+            withoutRank != withRank,
             "the standing landed and the card's rank corner was drawn exactly as it was without one"
         )
     }
@@ -393,6 +400,7 @@ struct SavedClimbShareRankTests {
         card(.darkGray)
     }
 
+    /// A fixture image handed to the view model as a background - input to the app, not a render.
     private static func card(_ color: UIColor) -> UIImage {
         UIGraphicsImageRenderer(size: CGSize(width: 120, height: 214)).image { context in
             color.setFill()
@@ -428,10 +436,10 @@ struct SavedClimbShareRankTests {
 
     /// The recap exactly as the composer bakes it: the same template view, over the same context
     /// `makeRecapPreview` builds, at the size the share button exports.
-    private static func renderRecapCard(
+    private static func recapCard(
         _ template: ShareCardTemplate,
         for viewModel: ShareComposerViewModel
-    ) -> UIImage? {
+    ) -> some View {
         let context = ShareCardRenderContext.template(
             stats: viewModel.climbStats(),
             bestEfforts: viewModel.bestEffortStats,
@@ -443,14 +451,27 @@ struct SavedClimbShareRankTests {
             )
         )
         let size = ShareComposerExporter.exportSize
-        let card = ShareCardTemplateView(template: template, context: context, artwork: heroArtwork)
+        return ShareCardTemplateView(template: template, context: context, artwork: heroArtwork)
             .frame(width: size.width, height: size.height)
             .clipped()
-        let renderer = ImageRenderer(content: card)
-        renderer.proposedSize = ProposedViewSize(size)
-        renderer.scale = 1
-        renderer.isOpaque = true
-        return renderer.uiImage
+    }
+
+    /// The pixels of the corner the rank tab lives in, read off a 1x lay-out of the card. Read
+    /// from the pixels rather than from the render context, because what the card publishes is
+    /// the image. The card is photographed at the same 1x under `ASCEND_EVIDENCE_DIR`.
+    private static func rankTabCorner(
+        of template: ShareCardTemplate,
+        for viewModel: ShareComposerViewModel,
+        photographedAs name: String
+    ) throws -> [RGBA] {
+        let card = recapCard(template, for: viewModel)
+        let size = ShareComposerExporter.exportSize
+        let corner = CGRect(x: size.width / 2, y: 0, width: size.width / 2, height: size.height / 4)
+
+        try RenderedScreen.photograph(card, named: name, scale: 1, proposedSize: ProposedViewSize(size))
+        return try RenderedScreen.withOffscreenPixels(of: card, proposedSize: ProposedViewSize(size)) {
+            $0.pixels(in: corner)
+        }
     }
 
     /// The bundled Empire State photograph stands in for the climb's hosted hero artwork, which a
@@ -458,48 +479,5 @@ struct SavedClimbShareRankTests {
     private static var heroArtwork: ShareCardArtworkSource {
         let image = UIImage(named: "OnboardingLandmarkEmpireCard")
         return ShareCardArtworkSource(overrides: image.map { [.hero: $0] } ?? [:])
-    }
-
-    /// Whether the corner the rank tab lives in was drawn differently. Read from the pixels rather
-    /// than from the render context, because what the card publishes is the image.
-    private static func rankTabCornerDiffers(_ before: UIImage, _ after: UIImage) throws -> Bool {
-        let corner = CGRect(
-            x: before.size.width / 2,
-            y: 0,
-            width: before.size.width / 2,
-            height: before.size.height / 4
-        )
-        return try pixels(of: before, in: corner) != pixels(of: after, in: corner)
-    }
-
-    private static func pixels(of image: UIImage, in rect: CGRect) throws -> [UInt8] {
-        let cropped = try #require(image.cgImage?.cropping(to: rect))
-        let width = cropped.width
-        let height = cropped.height
-        var buffer = [UInt8](repeating: 0, count: width * height * 4)
-        guard let context = CGContext(
-            data: &buffer,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: width * 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else {
-            throw EvidenceError.noBitmapContext
-        }
-        context.draw(cropped, in: CGRect(x: 0, y: 0, width: width, height: height))
-        return buffer
-    }
-
-    private enum EvidenceError: Error { case noBitmapContext }
-
-    private static func write(_ image: UIImage, _ name: String) {
-        guard let data = image.pngData() else { return }
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            .map { URL(filePath: $0) } ?? FileManager.default.temporaryDirectory
-        let url = directory.appending(path: "\(name).png")
-        try? data.write(to: url)
-        print("evidence: \(url.path())")
     }
 }

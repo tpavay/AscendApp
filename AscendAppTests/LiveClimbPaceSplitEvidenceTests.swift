@@ -1,13 +1,11 @@
-import CoreGraphics
 import Foundation
-import ImageIO
 import SwiftUI
 import Testing
-import UniformTypeIdentifiers
 @testable import AscendApp
 
 /// Renders the real Splits surface from a recorded live-climb split curve so the
 /// reconciliation contract is verifiable as the user sees it, not just as numbers.
+/// The card is photographed, and the transcript written, only under `ASCEND_EVIDENCE_DIR`.
 @MainActor
 struct LiveClimbPaceSplitEvidenceTests {
     private static let intervalSeconds = 10
@@ -22,16 +20,17 @@ struct LiveClimbPaceSplitEvidenceTests {
         )
 
         let transcript = Self.transcript(for: workout, splits: splits)
-        let transcriptURL = FileManager.default.temporaryDirectory
-            .appending(path: "ascend-live-climb-splits.txt")
-        try transcript.write(to: transcriptURL, atomically: true, encoding: .utf8)
+        if let directory = RenderedScreen.evidenceDirectory {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let transcriptURL = directory.appending(path: "ascend-live-climb-splits.txt")
+            try transcript.write(to: transcriptURL, atomically: true, encoding: .utf8)
+            print("ASCEND_EVIDENCE_TRANSCRIPT=\(transcriptURL.path(percentEncoded: false))")
+        }
+        try RenderedScreen.photograph(
+            Self.splitsCard(splits: splits, workout: workout),
+            named: "ascend-live-climb-splits-card"
+        )
 
-        let imageURL = FileManager.default.temporaryDirectory
-            .appending(path: "ascend-live-climb-splits-card.png")
-        try Self.renderSplitsCard(splits: splits, workout: workout, to: imageURL)
-
-        print("ASCEND_EVIDENCE_TRANSCRIPT=\(transcriptURL.path(percentEncoded: false))")
-        print("ASCEND_EVIDENCE_IMAGE=\(imageURL.path(percentEncoded: false))")
         print(transcript)
 
         #expect(splits.reduce(0) { $0 + $1.steps } == workout.steps)
@@ -86,12 +85,11 @@ struct LiveClimbPaceSplitEvidenceTests {
 
     // MARK: - Artifacts
 
-    private static func renderSplitsCard(
+    private static func splitsCard(
         splits: [LiveClimbPaceSplit],
-        workout: Workout,
-        to url: URL
-    ) throws {
-        let content = VStack(alignment: .leading, spacing: 16) {
+        workout: Workout
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
             Text("\(workout.steps.formatted()) steps · 15:30 · \(splits.count) splits")
                 .font(.montserratMedium(size: 12))
                 .foregroundStyle(.white.opacity(0.54))
@@ -105,16 +103,6 @@ struct LiveClimbPaceSplitEvidenceTests {
         .padding(20)
         .frame(width: 402)
         .background(Color.black)
-
-        let renderer = ImageRenderer(content: content)
-        renderer.scale = 3
-
-        let image = try #require(renderer.cgImage)
-        let destination = try #require(
-            CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)
-        )
-        CGImageDestinationAddImage(destination, image, nil)
-        #expect(CGImageDestinationFinalize(destination))
     }
 
     private static func transcript(for workout: Workout, splits: [LiveClimbPaceSplit]) -> String {

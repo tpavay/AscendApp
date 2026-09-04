@@ -1,18 +1,18 @@
 import SwiftUI
 import Testing
 import UIKit
-import Vision
 @testable import AscendApp
 
-/// Reviewer-facing pixels for the Settings and Edit Profile reorganization.
+/// Reviewer-facing evidence for the Settings and Edit Profile reorganization.
 ///
 /// `SettingsReorganizationContractTests` holds the shape of the source. This
 /// holds what a climber actually sees: the shipping `AccountView`,
 /// `EditProfileView`, `NotificationSettingsView`, `EmailPreferencesView`, and
-/// every drill-in editor hosted in a real window and photographed, with the
-/// rendered pixels read back so the section order, the row set, and the absence
-/// of on/off summary text are asserted from the screen rather than from a
-/// string in a Swift file.
+/// every drill-in editor hosted in a real window through `RenderedScreen`,
+/// photographed under `ASCEND_EVIDENCE_DIR`, with the on-screen copy read back
+/// off the accessibility tree so the section order, the row set, and the
+/// absence of on/off summary text are asserted from the screen rather than
+/// from a string in a Swift file.
 @MainActor
 @Suite(.hostsAWindow, .serialized)
 struct SettingsReorganizationEvidenceTests {
@@ -20,7 +20,7 @@ struct SettingsReorganizationEvidenceTests {
 
     @Test
     func settingsShowsPreferencesWhereTheyBelongAndPrivacyLast() async throws {
-        let image = try await snapshot(
+        let lowercased = try await screenCopy(
             NavigationStack {
                 AccountView()
                     .environment(signedOutAuthentication(displayName: "Maya Chen"))
@@ -28,9 +28,6 @@ struct SettingsReorganizationEvidenceTests {
             named: "settings-screen",
             height: 1500
         )
-
-        let text = try await recognizedText(in: image)
-        let lowercased = text.lowercased()
 
         // The board's section order, read off the screen top to bottom.
         try expectInOrder(
@@ -71,7 +68,7 @@ struct SettingsReorganizationEvidenceTests {
 
     @Test
     func editProfileReadsAsThreeGroupedCards() async throws {
-        let image = try await snapshot(
+        let lowercased = try await screenCopy(
             NavigationStack {
                 EditProfileView()
                     .environment(signedOutAuthentication(displayName: "Maya Chen"))
@@ -79,8 +76,6 @@ struct SettingsReorganizationEvidenceTests {
             named: "edit-profile-screen",
             height: 1000
         )
-
-        let lowercased = try await recognizedText(in: image).lowercased()
 
         try expectInOrder(["profile", "personal information", "location"], in: lowercased)
         for row in ["first name", "last name", "birthday", "gender", "height", "weight"] {
@@ -101,7 +96,10 @@ struct SettingsReorganizationEvidenceTests {
     /// chrome `EditProfileView` builds around it.
     @Test
     func everyEditProfileRowCarriesItsFormattedValueOnTheRight() async throws {
-        let image = try await snapshot(
+        // A row's label and value reach the tree joined by whatever separator the
+        // row publishes, so the comparison ignores whitespace rather than pinning
+        // one join.
+        let recognized = try await screenCopy(
             NavigationStack {
                 PopulatedEditProfileEvidence()
                     .environment(signedOutAuthentication(displayName: "Maya Chen"))
@@ -109,12 +107,7 @@ struct SettingsReorganizationEvidenceTests {
             named: "edit-profile-populated",
             height: 700
         )
-
-        // Text recognition is inconsistent about the space in "175 cm", so the
-        // comparison ignores whitespace rather than pinning an OCR quirk.
-        let recognized = try await recognizedText(in: image)
-            .lowercased()
-            .replacing(" ", with: "")
+        .replacing(" ", with: "")
 
         for value in ["maya", "chen", "mar14,1994", "woman", "175cm", "64kg", "boulder,co"] {
             #expect(recognized.contains(value), "Missing the \(value) value")
@@ -151,15 +144,13 @@ struct SettingsReorganizationEvidenceTests {
 
     @Test
     func pushCarriesOnlyTheExistingPushGranularity() async throws {
-        let image = try await snapshot(
+        let lowercased = try await screenCopy(
             NavigationStack {
                 NotificationSettingsView()
             },
             named: "settings-push-screen",
             height: 560
         )
-
-        let lowercased = try await recognizedText(in: image).lowercased()
 
         #expect(lowercased.contains("new climb drops"))
         #expect(lowercased.contains("ios permission"))
@@ -175,15 +166,13 @@ struct SettingsReorganizationEvidenceTests {
         )
         await viewModel.load()
 
-        let image = try await snapshot(
+        let lowercased = try await screenCopy(
             NavigationStack {
                 EmailPreferencesView(viewModel: viewModel)
             },
             named: "settings-email-screen",
             height: 560
         )
-
-        let lowercased = try await recognizedText(in: image).lowercased()
 
         // The screen PR #399 shipped, reached from the new Notifications row.
         #expect(lowercased.contains("ascend emails"))
@@ -196,7 +185,7 @@ struct SettingsReorganizationEvidenceTests {
     func everyEditProfileRowOpensItsOwnEditor() async throws {
         let authentication = signedOutAuthentication(displayName: "Maya Chen")
 
-        let name = try await snapshot(
+        let name = try await screenCopy(
             NavigationStack {
                 ProfileNameEditorView(field: .firstName, firstName: "Maya", lastName: "Chen")
                     .environment(authentication)
@@ -204,9 +193,9 @@ struct SettingsReorganizationEvidenceTests {
             named: "edit-profile-name-editor",
             height: 420
         )
-        #expect(try await recognizedText(in: name).lowercased().contains("maya"))
+        #expect(name.contains("maya"))
 
-        let birthday = try await snapshot(
+        let birthdayText = try await screenCopy(
             NavigationStack {
                 ProfileBirthdayEditorView(birthday: ProfileBirthday(rawValue: "1994-03-14"))
                     .environment(authentication)
@@ -214,10 +203,9 @@ struct SettingsReorganizationEvidenceTests {
             named: "edit-profile-birthday-editor",
             height: 560
         )
-        let birthdayText = try await recognizedText(in: birthday).lowercased()
         #expect(birthdayText.contains("march") || birthdayText.contains("1994"))
 
-        let gender = try await snapshot(
+        let genderText = try await screenCopy(
             NavigationStack {
                 ProfileGenderEditorView(gender: .woman)
                     .environment(authentication)
@@ -225,11 +213,10 @@ struct SettingsReorganizationEvidenceTests {
             named: "edit-profile-gender-editor",
             height: 520
         )
-        let genderText = try await recognizedText(in: gender).lowercased()
         #expect(genderText.contains("woman"))
         #expect(genderText.contains("prefer not to say"))
 
-        let location = try await snapshot(
+        let location = try await screenCopy(
             NavigationStack {
                 ProfileLocationEditorView(city: "Boulder", region: "CO", countryCode: "US")
                     .environment(authentication)
@@ -237,7 +224,7 @@ struct SettingsReorganizationEvidenceTests {
             named: "edit-profile-location-editor",
             height: 520
         )
-        #expect(try await recognizedText(in: location).lowercased().contains("boulder"))
+        #expect(location.contains("boulder"))
     }
 
     // MARK: - Helpers
@@ -260,62 +247,26 @@ struct SettingsReorganizationEvidenceTests {
         }
     }
 
-    @discardableResult
-    private func snapshot(
+    /// Hosts the view in a real window tall enough to show the whole screen,
+    /// photographs it when `ASCEND_EVIDENCE_DIR` is set, and hands back its
+    /// on-screen copy - lowercased, in tree order - off the accessibility tree.
+    private func screenCopy(
         _ view: some View,
         named name: String,
         height: CGFloat
-    ) async throws -> UIImage {
+    ) async throws -> String {
         let size = CGSize(width: 390, height: height)
-        let controller = UIHostingController(
-            rootView: view
+        return try await RenderedScreen.host(
+            view
                 .frame(width: size.width, height: size.height, alignment: .top)
                 .background(Color.black)
-                .environment(\.colorScheme, .dark)
-        )
-        controller.overrideUserInterfaceStyle = .dark
-        controller.view.frame = CGRect(origin: .zero, size: size)
-        controller.view.backgroundColor = .black
-
-        let window = UIWindow(frame: controller.view.frame)
-        window.overrideUserInterfaceStyle = .dark
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        defer { window.isHidden = true }
-
-        for _ in 0..<12 {
-            controller.view.setNeedsLayout()
-            controller.view.layoutIfNeeded()
-            try await Task.sleep(for: .milliseconds(50))
+                .environment(\.colorScheme, .dark),
+            size: size
+        ) { screen in
+            let copy = try await screen.copy()
+            try screen.photograph(named: name)
+            return copy
         }
-
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.scale = 3
-        let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
-        }
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: "\(name).png")
-        try png.write(to: url)
-
-        #expect(png.count > 5_000)
-        print("ASCEND_EVIDENCE_FILE: \(url.path())")
-        return image
-    }
-
-    private func recognizedText(in image: UIImage) async throws -> String {
-        let cgImage = try #require(image.cgImage, "UIImage had no CGImage")
-        var request = RecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-
-        let observations = try await request.perform(on: cgImage)
-        return observations
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: " ")
     }
 }
 

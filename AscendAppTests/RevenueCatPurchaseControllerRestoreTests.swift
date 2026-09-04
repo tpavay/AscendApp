@@ -6,6 +6,12 @@ import Testing
 /// The Superwall paywall's Restore button is one of the two restore surfaces the server
 /// reconciliation contract names. It used to call the RevenueCat entitlement service directly and
 /// skip reconciliation entirely, so these tests pin it to the shared coordinator.
+///
+/// Every controller here is built with its restore analytics context injected. The production
+/// default reads `SuperwallPaywallPresenter.shared`'s presented token, and a token another suite
+/// left on that process-wide presenter carries *its* identity - which the restore service then
+/// refuses as a pending identity transition before the coordinator is ever asked. That is how these
+/// tests passed in their own CI pass and failed whenever the suite ran in one host.
 @MainActor
 struct RevenueCatPurchaseControllerRestoreTests {
     @Test
@@ -17,7 +23,8 @@ struct RevenueCatPurchaseControllerRestoreTests {
         let controller = RevenueCatPurchaseController(
             coordinator: { coordinator },
             applySuperwallStatus: { published.append($0) },
-            restoreService: restoreService(for: coordinator)
+            restoreService: restoreService(for: coordinator),
+            restoreAnalyticsContext: { Self.hostedRestoreContext }
         )
 
         let result = await controller.restorePurchases()
@@ -38,7 +45,8 @@ struct RevenueCatPurchaseControllerRestoreTests {
         let controller = RevenueCatPurchaseController(
             coordinator: { coordinator },
             applySuperwallStatus: { published.append($0) },
-            restoreService: restoreService(for: coordinator)
+            restoreService: restoreService(for: coordinator),
+            restoreAnalyticsContext: { Self.hostedRestoreContext }
         )
 
         let result = await controller.restorePurchases()
@@ -55,7 +63,8 @@ struct RevenueCatPurchaseControllerRestoreTests {
         let controller = RevenueCatPurchaseController(
             coordinator: { coordinator },
             applySuperwallStatus: { _ in },
-            restoreService: restoreService(for: coordinator)
+            restoreService: restoreService(for: coordinator),
+            restoreAnalyticsContext: { Self.hostedRestoreContext }
         )
 
         let result = await controller.restorePurchases()
@@ -71,7 +80,8 @@ struct RevenueCatPurchaseControllerRestoreTests {
         let controller = RevenueCatPurchaseController(
             coordinator: { coordinator },
             applySuperwallStatus: { _ in },
-            restoreService: restoreService(for: coordinator)
+            restoreService: restoreService(for: coordinator),
+            restoreAnalyticsContext: { Self.hostedRestoreContext }
         )
 
         let result = await controller.restorePurchases()
@@ -90,7 +100,8 @@ struct RevenueCatPurchaseControllerRestoreTests {
         let controller = RevenueCatPurchaseController(
             coordinator: { coordinator },
             applySuperwallStatus: { _ in },
-            restoreService: restoreService(for: coordinator)
+            restoreService: restoreService(for: coordinator),
+            restoreAnalyticsContext: { Self.hostedRestoreContext }
         )
 
         _ = await controller.restorePurchases()
@@ -106,12 +117,19 @@ struct RevenueCatPurchaseControllerRestoreTests {
         let controller = RevenueCatPurchaseController(
             coordinator: { coordinator },
             applySuperwallStatus: { published.append($0) },
-            restoreService: restoreService(for: coordinator)
+            restoreService: restoreService(for: coordinator),
+            restoreAnalyticsContext: { Self.hostedRestoreContext }
         )
 
         _ = await controller.restorePurchases()
 
         #expect(published.isEmpty)
+    }
+
+    /// The context the Superwall Restore button reports under when no hosted presentation owns the
+    /// attempt - nil identity, so the restore is scoped to the coordinator's current identity.
+    private static var hostedRestoreContext: AppAccessRestoreAnalyticsContext {
+        .hostedPaywall(placement: nil, presentationID: nil, gateAttemptID: nil)
     }
 
     private func isRestored(_ result: RestorationResult) -> Bool {
