@@ -7,6 +7,8 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { matchesAny } from "../lib/required-check-routing.mjs";
+
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 async function readWorkflow(name) {
@@ -172,7 +174,31 @@ test("CI watches every iOS source and Firebase index definition", async () => {
   assert.match(iosFilter, /- "scripts\/ci\/\*\*"/);
   assert.match(iosFilter, /- "scripts\/lib\/\*\*"/);
   assert.match(functionsFilter, /- "firestore\.indexes\.json"/);
+
+  const iosFilterPatterns = filterPatterns(iosFilter);
+  const iosJobs = sectionBetween(workflow, requiredCheckStartMarker, requiredCheckEndMarker);
+  const referencedScripts = [
+    ...new Set([...iosJobs.matchAll(/scripts\/[\w.\/-]+/g)].map((match) => match[0])),
+  ];
+
+  assert.ok(
+    referencedScripts.length > 0,
+    "the iOS verification jobs must reference at least one script for this contract to mean anything",
+  );
+
+  for (const path of referencedScripts) {
+    assert.ok(
+      matchesAny(path, iosFilterPatterns),
+      `the iOS verification jobs run ${path}, so the "ios" filter must match it or a change to it routes as "not iOS" and the job that would prove it is skipped`,
+    );
+  }
 });
+
+function filterPatterns(filterSection) {
+  return [...filterSection.matchAll(/^\s+- "(?<pattern>[^"]+)"$/gm)].map(
+    (match) => match.groups.pattern,
+  );
+}
 
 test("deploy workflows watch every artifact and Firebase deployment input", async () => {
   for (const name of ["deploy-staging.yml", "deploy-production.yml"]) {

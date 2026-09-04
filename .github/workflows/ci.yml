@@ -183,6 +183,7 @@ jobs:
               - "remoteconfig.template.json"
               - "AscendApp/Shared/Services/RemoteConfig/**"
               - "scripts/lib/remote-config-template.mjs"
+              - "scripts/lib/ci-annotations.mjs"
               - "scripts/ci/report-kill-switch-changes.mjs"
               - ".github/workflows/**"
             swiftdata_schema:
