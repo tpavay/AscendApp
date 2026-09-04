@@ -56,13 +56,15 @@ Any new card-content view under the composer needs the same `.dynamicTypeSize(.l
 
 ## The standing a card asserts
 
+**What a rank means is stated once in `ascend-leaderboards` under The rank model.** A share card is statement 3: a climb's summary, reopened, still says what it said, and the card carries that same time and that same number.
+
 Rank is what Ascend shares, so it is an input the entry point supplies - not something the composer looks up.
 `ShareComposerView(climbRank:climbRankTotal:)` deliberately carries **no default**: a call site that silently omitted it is exactly how the saved-climb path shipped with no rank cluster, no rank stickers and no recap rank tab.
 All three come off the one missing pair - `ShareStatResolver` returns nil, so `availablePresets()`, `climbStats()` and the `standing` requirement drop together - so a new entry point has to pass `nil` on purpose.
 
 - **Only the frozen `.atCompletion` standing may be forwarded.**
   A card is published and keeps asserting its number after the board moves, while the screen behind it is free to keep showing a recomputed one; the two are supposed to differ.
-  See `LiveClimbSummaryRankHero.Standing.frozen`, and the basis rules in `ascend-live-climbs`.
+  See `LiveClimbSummaryRankHero.Standing.frozen`; the live-versus-frozen seam that makes the two differ is stated in The rank model (`ascend-leaderboards`), and the two documents carrying it are in `ascend-live-climbs`.
 - **One source, never a second fetch.**
   The completion summary and a saved climb both read the frozen `completionSnapshots` answer through `CompletedClimbRankService`; the saved path wraps it in `SavedClimbShareStanding`, seeded synchronously on the Share tap so a device that already holds the snapshot draws the rank in the composer's first frame.
 - **A standing that lands after the composer opens still has to reach every surface.**

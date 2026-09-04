@@ -19,9 +19,9 @@ for App Store listing work and for evaluating onboarding screen templates.
 
 Ascend is a **stair stepper racing app for iOS**. Racing is the product; measuring the
 session is a byproduct. Users pick a real tower, race its actual step count in real time
-against every attempt already posted on it via headphone-motion step counting, and either
-reach the target (completion) or don't (failed attempt). The leaderboard is the
-conversation.
+against every climber already on it, each at their best, via headphone-motion step
+counting, and either reach the target (completion) or don't (failed attempt). The
+leaderboard is the conversation.
 
 `CLAUDE.md` ("What Is Ascend") owns the positioning statement and the tower-running market
 framing behind it. Read it there rather than from a second copy.

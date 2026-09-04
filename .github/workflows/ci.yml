@@ -142,6 +142,19 @@ jobs:
               # inputs, discovering every copyable xcodebuild command they carry,
               # so an edit to one has to run the suite that guards it.
               - ".claude/skills/**"
+              # The rank-model contract reads the anchor tests named in The rank
+              # model's Anchors list as declared inputs, so renaming or deleting
+              # one has to run this suite on the pull request that does it rather
+              # than failing later on an unrelated one. AscendAppTests/** holds
+              # the Swift anchors (LiveReplayFieldPopulationTests,
+              # LiveReplayFieldPopulationRenderEvidenceTests,
+              # LiveReplayPreviousBestMarkerTests,
+              # CompletedClimbRankFreezeTests, SavedClimbShareRankTests).
+              - "AscendAppTests/**"
+              # functions/** is the whole tree on purpose, not functions/test/**:
+              # the same contract cites functions/src/liveReplayLeaderboard.ts
+              # alongside functions/test/liveReplayLeaderboard.test.ts.
+              - "functions/**"
               # The exported-IPA suite asserts both signed lanes publish their
               # artifact by exact name, so a Fastfile edit must run it: a lane
               # that goes back to picking a wildcard match hands every
