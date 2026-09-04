@@ -34,15 +34,15 @@ struct ClimbCatalogCurationTests {
         #expect(Self.comingSoonClimbIDs.isSubset(of: Set(snapshot.visibleClimbs.map(\.id))))
     }
 
-    @Test("The curated catalogue ships the approved 58/21/8 distribution", .bug(id: 465))
+    @Test("The curated catalogue ships the approved 59/21/7 distribution", .bug(id: 465))
     func curatedCatalogueCounts() throws {
         let snapshot = try Self.bundledSnapshot()
         let hiddenCount = snapshot.climbs.count(where: { $0.releaseState == .hidden })
 
         #expect(snapshot.climbs.count == 87)
-        #expect(snapshot.availableClimbs.count == 58)
+        #expect(snapshot.availableClimbs.count == 59)
         #expect(hiddenCount == 21)
-        #expect(snapshot.comingSoonClimbs.count == 8)
+        #expect(snapshot.comingSoonClimbs.count == 7)
         #expect(snapshot.climbs.allSatisfy { $0.releaseState != .disabled })
         #expect(Set(snapshot.climbs.map(\.id)).count == snapshot.climbs.count)
     }
@@ -130,7 +130,6 @@ struct ClimbCatalogCurationTests {
         "marina-bay-sands",
         "n-seoul-tower",
         "osaka-castle",
-        "petronas-towers",
         "sagrada-familia",
         "the-shard",
         "voortrekker-monument"

@@ -97,6 +97,40 @@ struct ClimbCurationSurfaceEvidenceTests {
         #expect(text.contains("start live climb"), "expected the race CTA in: \(text)")
     }
 
+    @Test("The opened Petronas Towers races over its corrected distance, not its height")
+    func openedPetronasTowersDetailRacesTheCorrectedDistance() async throws {
+        let petronas = try #require(
+            try Self.bundledCatalogService.loadAllClimbs().first { $0.id == "petronas-towers" }
+        )
+        #expect(petronas.releaseState == .available)
+        #expect(petronas.realStairCount == 2_170)
+        #expect(petronas.referenceStepCount == 2_170)
+        #expect(petronas.calculatedFloors == 88)
+        #expect(petronas.totalSteps == 2_486, "the height fact is never rewritten by a distance correction")
+        #expect(petronas.tier == .diamond)
+
+        let overview = try await captureDetail(
+            for: petronas,
+            named: "climb-detail-available-petronas-towers-overview",
+            scrollingToBottom: false
+        )
+
+        #expect(overview.contains("2,170"), "expected the raced distance in: \(overview)")
+        #expect(overview.contains("steps"))
+        #expect(overview.contains("floors"))
+        #expect(overview.contains("88"), "expected the corrected floor count in: \(overview)")
+        #expect(!overview.contains("2,486"), "the architectural height must not stand in for the route")
+        #expect(!overview.contains("126"), "the height-derived floor count must not survive the correction")
+
+        let race = try await captureDetail(
+            for: petronas,
+            named: "climb-detail-available-petronas-towers-race"
+        )
+
+        #expect(race.contains("start live climb"), "expected the race CTA in: \(race)")
+        #expect(!race.contains("coming soon"))
+    }
+
     @Test("An activated World Tour venue offers the race on its detail screen", .bug(id: 465))
     func activatedWorldTourVenueDetailStartsTheRace() async throws {
         let torreReforma = try #require(
@@ -162,7 +196,11 @@ struct ClimbCurationSurfaceEvidenceTests {
     /// The climb detail screen needs a live window: it sits in a `NavigationStack`,
     /// which `ImageRenderer` cannot flatten, and its content only resolves once
     /// SwiftUI has run an update loop against a real display link.
-    private func captureDetail(for climb: Climb, named name: String) async throws -> String {
+    private func captureDetail(
+        for climb: Climb,
+        named name: String,
+        scrollingToBottom: Bool = true
+    ) async throws -> String {
         let container = try #require(Self.container, "The evidence suite needs an in-memory container")
         let host = UIHostingController(
             rootView: NavigationStack {
@@ -200,7 +238,7 @@ struct ClimbCurationSurfaceEvidenceTests {
 
         // The race action sits at the foot of the overview, below the fold on a
         // 393pt screen, so the state under test is only in frame after a scroll.
-        if let scrollView = Self.firstScrollView(in: window) {
+        if scrollingToBottom, let scrollView = Self.firstScrollView(in: window) {
             let maximumOffset = max(
                 0,
                 scrollView.contentSize.height - scrollView.bounds.height

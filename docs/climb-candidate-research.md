@@ -25,9 +25,9 @@ recount from that file rather than trusting this table after a catalog change.
 
 The "verified real stair-climb venues only" audit has since happened.
 [Issue #440](https://github.com/tpavay/AscendApp/issues/440) deleted the seventeen entries with no
-race anyone can run, hid the twenty-one mountains for a future endurance ladder, and left the seven
-plausible-but-unverified stair routes as `comingSoon`.
-See `docs/climb-real-stair-counts.md` for which entry fell into which bucket.
+race anyone can run, hid the twenty-one mountains for a future endurance ladder, and left the
+plausible-but-unverified stair routes as `comingSoon` until each earns a sourced count.
+See `docs/climb-real-stair-counts.md` for which entry fell into which bucket and for the current tally of each.
 Judge expansion candidates below against that bar.
 
 ## Eligibility Rules
