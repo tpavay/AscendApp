@@ -25,14 +25,15 @@ enum LiveReplayLeaderboardContextType: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    /// Whether this context collapses a climber's repeat completions into one row.
+    /// Whether the server's frozen standing on this context counts climbers
+    /// rather than attempts - and, through `fieldPopulation`, which noun the
+    /// board's field-size line takes.
     ///
-    /// Per-climb and per-routine-template contexts do: a climb board reaches the
-    /// same step target every time, so the fastest attempt is genuinely that
-    /// climber's best; a routine board fixes the clock, so the highest-steps
-    /// attempt is theirs. An open Just Climb session has no target, so its
-    /// shortest attempt is the one the climber quit earliest rather than their
-    /// best. Mirrors the server allowlist in `functions/src/liveReplayLeaderboard.ts`.
+    /// That is all it decides. Every context type writes `isBestForUser` and
+    /// every live-race read filters on it, so this predicate gates neither; do
+    /// not re-gate them on it, and do not widen it to make the boards agree,
+    /// because that changes write-once `completionSnapshots` arithmetic. Mirrors
+    /// `collapsesRepeatFinishers` in `functions/src/liveReplayLeaderboard.ts`.
     var collapsesRepeatFinishers: Bool {
         switch self {
         case .liveClimb, .routineTemplate:
@@ -63,9 +64,9 @@ enum LiveReplayLeaderboardContextType: String, CaseIterable, Codable, Sendable {
     /// and never "13th of 41".
     ///
     /// Deliberately not derived from `collapsesRepeatFinishers`. That predicate
-    /// also mirrors the server's `isBestForUser` writes and its frozen-standing
-    /// branch, so folding this into it would change the server's meaning by
-    /// implication; what the client's own standing counts is stated separately.
+    /// mirrors the server's frozen-standing branch, so folding this into it would
+    /// change the server's meaning by implication; what the client's own standing
+    /// counts is stated separately.
     var recomputedFieldPopulation: LiveReplayFieldPopulation {
         .climbers
     }

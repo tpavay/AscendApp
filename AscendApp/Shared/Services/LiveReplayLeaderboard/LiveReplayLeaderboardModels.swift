@@ -718,10 +718,10 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
 
     /// Every row on this board that belongs to somebody else.
     ///
-    /// The climber's own earlier completion is withdrawn here rather than at the
-    /// view: it is drawn as the `BEST` marker inside the climber's own row, and
-    /// leaving it in the list would put the climber's name on the board twice
-    /// and rank them behind themselves.
+    /// The viewer's ghost is still drawn - `locallyRankedRows` keeps it, with no
+    /// rank cell - but it is not a rival, so the window-sizing decisions that ask
+    /// whether a known row sits ahead of or behind the climber look here rather
+    /// than at `rows`.
     var opponentRows: [LiveReplayLeaderboardRow] {
         rows.filter { !$0.isViewerGhost }
     }

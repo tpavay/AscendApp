@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 /**
- * Backfills the best-per-user flag on per-climb Live Replay bucket entries.
+ * Backfills the best-per-user flag on Live Replay bucket entries.
  *
- * A per-climb race ranks one row per opponent, so exactly one of a user's
+ * A live race ranks one row per opponent, so exactly one of a user's
  * attempts in a context may carry isBestForUser. New completions get the flag
  * from the Cloud Function; this script covers entries published before it
  * existed. Without it the live race filter matches nothing and the field looks
