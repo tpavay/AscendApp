@@ -223,12 +223,6 @@ private struct ClimbLeaderboardPageProof: View {
 
     private let gold = Color(hex: "F3D76B")
 
-    /// The page draws the First Ascent line only for a claimed climb.
-    var showsFirstAscentLine: Bool { firstAscent != nil }
-
-    /// An unclaimed climb draws no line and no rows: the empty state's dare is the whole page.
-    var daresTheFirstFinisher: Bool { rows.isEmpty && firstAscent == nil }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             if let firstAscent {

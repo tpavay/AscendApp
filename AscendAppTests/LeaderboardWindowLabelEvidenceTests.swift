@@ -17,9 +17,10 @@ import UIKit
 /// Signed out, `setupAndLoad` returns before it loads anything, which is what puts the
 /// board in the empty state the monthly tab was actually in.
 ///
-/// The labels are asserted from `LeaderboardPeriod`; the board is hosted and
-/// photographed only when `ASCEND_EVIDENCE_DIR` is set. Nothing reads the
-/// photographs back - these are evidence, not golden-image assertions.
+/// The labels are asserted from `LeaderboardPeriod`, and the shipping board is hosted
+/// through `RenderedScreen` to prove the label is on its accessibility tree; it is
+/// photographed only when `ASCEND_EVIDENCE_DIR` is set. Nothing reads the photographs
+/// back - these are evidence, not golden-image assertions.
 @MainActor
 @Suite(.hostsAWindow)
 struct LeaderboardWindowLabelEvidenceTests {
@@ -29,8 +30,9 @@ struct LeaderboardWindowLabelEvidenceTests {
         // A dated range, never a bare "This week" - the dates are the whole point.
         #expect(period.windowLabel.contains("-"))
 
-        try await photograph(
+        try await hostAndPhotograph(
             leaderboard(initialTimeFrame: .weekly),
+            showing: period.windowLabel,
             named: "leaderboard-window-label-weekly",
             height: 620
         )
@@ -43,8 +45,9 @@ struct LeaderboardWindowLabelEvidenceTests {
         let period = LeaderboardTimeFrame.monthly.currentPeriod()
         #expect(period.windowSubject == period.windowLabel)
 
-        try await photograph(
+        try await hostAndPhotograph(
             leaderboard(initialTimeFrame: .monthly),
+            showing: period.windowLabel,
             named: "leaderboard-window-label-monthly-empty",
             height: 620
         )
@@ -60,8 +63,9 @@ struct LeaderboardWindowLabelEvidenceTests {
         let year = boardCalendar.component(.year, from: period.startAt)
         #expect(period.windowLabel.contains(String(year)))
 
-        try await photograph(
+        try await hostAndPhotograph(
             leaderboard(initialTimeFrame: .yearly),
+            showing: period.windowLabel,
             named: "leaderboard-window-label-yearly",
             height: 620
         )
@@ -82,17 +86,16 @@ struct LeaderboardWindowLabelEvidenceTests {
         .modelContainer(container)
     }
 
-    // MARK: - The photograph
+    // MARK: - The board on screen
 
-    /// Hosts the view in a real window so the scroll content lays out, and photographs
-    /// it - only when this run keeps photographs.
-    private func photograph<Content: View>(
+    /// Hosts the shipping board in a real window so the scroll content lays out, proves the
+    /// window label reached the screen, and photographs it when this run keeps photographs.
+    private func hostAndPhotograph<Content: View>(
         _ view: @autoclosure () throws -> Content,
+        showing windowLabel: String,
         named name: String,
         height: CGFloat
     ) async throws {
-        guard RenderedScreen.isPhotographing else { return }
-
         let size = CGSize(width: 390, height: height)
         try await RenderedScreen.host(
             try view()
@@ -101,6 +104,11 @@ struct LeaderboardWindowLabelEvidenceTests {
                 .environment(\.colorScheme, .dark),
             size: size
         ) { screen in
+            let copy = try await screen.copy()
+            #expect(
+                copy.contains("showing \(windowLabel.lowercased())"),
+                "The board does not name its window (\(windowLabel)) on screen: \(copy)"
+            )
             try screen.photograph(named: name)
         }
     }

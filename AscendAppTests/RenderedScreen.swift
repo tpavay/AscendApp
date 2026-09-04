@@ -76,16 +76,22 @@ enum RenderedScreen {
     }
 
     /// A hosting controller and whether the helper is the only thing holding it. The strong
-    /// reference is dropped before `dismantle` waits, so a helper-made controller can actually
-    /// deallocate inside that wait - with the reference held in a parameter it never could, and
-    /// the wait measured nothing.
+    /// reference is dropped before `dismantle` waits, and the wait watches the weak one, so a
+    /// helper-made controller can actually deallocate inside that wait - with the reference
+    /// held in a parameter it never could, and the wait measured nothing.
     private final class HelperOwned {
         var controller: UIViewController?
+        weak var hosted: UIViewController?
         let isOwnedByCaller: Bool
         init(_ controller: UIViewController, isOwnedByCaller: Bool = false) {
             self.controller = controller
+            self.hosted = controller
             self.isOwnedByCaller = isOwnedByCaller
         }
+
+        /// Whether the wait still has something to watch: a helper-owned controller that has not
+        /// deallocated yet. A caller-owned controller is never watched.
+        var isStillHosted: Bool { !isOwnedByCaller && hosted != nil }
     }
 
     private static func host<Result>(
@@ -98,10 +104,11 @@ enum RenderedScreen {
         let bounds = CGRect(origin: .zero, size: size)
         // A window with no scene is never handed to the render server, and `drawHierarchy` then
         // captures an empty surface - so borrow the test host's own scene.
-        let scene = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first
-        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: bounds)
+        let scene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first,
+            "no UIWindowScene is connected, so nothing hosted here would ever be drawn"
+        )
+        let window = UIWindow(windowScene: scene)
         window.frame = bounds
         window.overrideUserInterfaceStyle = interfaceStyle
         window.backgroundColor = interfaceStyle == .light ? .white : .black
@@ -109,10 +116,8 @@ enum RenderedScreen {
         // The strong reference to the controller lives only inside `mount`, so that once `body`
         // has returned and `owned` has let go, the dismantle wait below is waiting on the last
         // reference the helper holds rather than on its own local.
-        weak var hosted: UIViewController?
         func mount() async throws -> Result {
             let controller = owned.controller!
-            hosted = controller
             controller.overrideUserInterfaceStyle = interfaceStyle
             controller.view.frame = bounds
             window.rootViewController = controller
@@ -128,17 +133,16 @@ enum RenderedScreen {
             }
         }
 
-        let waitsForDeallocation = !owned.isOwnedByCaller
         let result: Result
         do {
             result = try await mount()
         } catch {
             owned.controller = nil
-            await dismantle(window, waitingFor: waitsForDeallocation ? hosted : nil)
+            await dismantle(window, watching: owned)
             throw error
         }
         owned.controller = nil
-        await dismantle(window, waitingFor: waitsForDeallocation ? hosted : nil)
+        await dismantle(window, watching: owned)
         return result
     }
 
@@ -151,7 +155,7 @@ enum RenderedScreen {
     /// one-host runs of the whole suite wedged exactly there, ~250 suites in, with the host alive
     /// at 0% CPU: the silent-hang signature `iOS Verify (Staging)` shows. Two run-loop turns cost
     /// 40 ms a host and give the observer its beat.
-    private static func dismantle(_ window: consuming UIWindow, waitingFor hosted: UIViewController?) async {
+    private static func dismantle(_ window: consuming UIWindow, watching owned: HelperOwned) async {
         window.isHidden = true
         window.rootViewController = nil
         window.windowScene = nil
@@ -160,8 +164,8 @@ enum RenderedScreen {
         _ = consume window
         // Two turns at least; up to half a second for the hosting controller the helper built to
         // actually deallocate, which is when SwiftUI drops its `@Query` observers. A controller the
-        // caller built and still holds cannot deallocate here (`hosted` is nil then), so the wait
-        // is bounded. A `@Query` that outlives this wait anyway is why every container a hosted
+        // caller built and still holds cannot deallocate here (`isStillHosted` is false then), so
+        // the wait is bounded. A `@Query` that outlives this wait anyway is why every container a hosted
         // screen reads comes from `RetainedModelContainer`.
         // UIKit lets go of the controller on its own schedule after the window is gone - measured
         // at the return of `host`, not inside this wait, so a controller still alive here is not a
@@ -169,7 +173,7 @@ enum RenderedScreen {
         for turn in 0..<25 {
             await Task.yield()
             try? await Task.sleep(for: .milliseconds(20))
-            if turn >= 1, hosted == nil { return }
+            if turn >= 1, !owned.isStillHosted { return }
         }
     }
 
@@ -628,9 +632,48 @@ struct PixelSampler {
         guard let region = Self.inkRegion(of: rect, in: size) else { return true }
         let lumas = pixels(in: region).map(\.luminance)
         guard lumas.count >= 16 else { return true }
-        let median = lumas.sorted()[lumas.count / 2]
+        let median = Self.median(of: lumas)
         let inked = lumas.reduce(0) { abs($1 - median) > contrast ? $0 + 1 : $0 }
         return Double(inked) / Double(lumas.count) > fraction
+    }
+
+    /// The upper median of `values` - the element a full sort would put at `count / 2` - found
+    /// by quickselect in linear expected time. The three-way partition keeps a region that is
+    /// one flat colour, the common case, linear too: a two-way partition degrades to quadratic
+    /// when every value is equal.
+    static func median(of values: [Double]) -> Double {
+        precondition(!values.isEmpty)
+        var values = values
+        let target = values.count / 2
+        var low = 0
+        var high = values.count - 1
+        while low < high {
+            let pivot = values[(low + high) / 2]
+            var below = low
+            var cursor = low
+            var above = high
+            while cursor <= above {
+                let value = values[cursor]
+                if value < pivot {
+                    values.swapAt(below, cursor)
+                    below += 1
+                    cursor += 1
+                } else if value > pivot {
+                    values.swapAt(cursor, above)
+                    above -= 1
+                } else {
+                    cursor += 1
+                }
+            }
+            if target < below {
+                high = below - 1
+            } else if target > above {
+                low = above + 1
+            } else {
+                return pivot
+            }
+        }
+        return values[target]
     }
 
     /// The part of `rect` (points) `hasInk` reads, or nil when the frame is too small to judge.
@@ -647,10 +690,9 @@ struct PixelSampler {
         guard let region = Self.inkRegion(of: rect, in: size) else { return "too-small-or-off-screen" }
         let lumas = pixels(in: region).map(\.luminance)
         guard !lumas.isEmpty else { return "empty-region" }
-        let sorted = lumas.sorted()
-        let median = sorted[sorted.count / 2]
+        let median = Self.median(of: lumas)
         let inked = lumas.reduce(0) { abs($1 - median) > contrast ? $0 + 1 : $0 }
-        return "region=\(region.integral) median=\(Int(median)) range=\(Int(sorted.first!))...\(Int(sorted.last!)) ink=\(inked)/\(lumas.count)"
+        return "region=\(region.integral) median=\(Int(median)) range=\(Int(lumas.min()!))...\(Int(lumas.max()!)) ink=\(inked)/\(lumas.count)"
     }
 
     /// The pixel bounds of everything in `rect` (points) satisfying `predicate`, in points, or

@@ -7,10 +7,11 @@ import UIKit
 /// read off the accessibility tree: the headline is on screen, every reachable label reaches the
 /// viewport, every forbidden label is absent.
 ///
-/// Each gate phase is hosted once, on the compact dark surface - the smallest viewport, so a label
-/// that only reaches it by scrolling has to be scrolled to. The full appearance x device x text-size
-/// matrix is a reviewer artifact, not a second assertion: it is hosted and photographed only when
-/// `ASCEND_EVIDENCE_DIR` is set, because 33 full-screen hosts per run is a matrix, not a test.
+/// Each gate phase is hosted on two surfaces: compact dark - the smallest viewport, so a label
+/// that only reaches it by scrolling has to be scrolled to - and accessibility dark, at
+/// `.accessibility3`, so every label is proved reachable at an accessibility text size. The
+/// large light surface is a reviewer artifact, not a third assertion: it is hosted and
+/// photographed only when `ASCEND_EVIDENCE_DIR` is set.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct AppAccessPaywallPlaceholderSnapshotTests {
@@ -18,7 +19,7 @@ struct AppAccessPaywallPlaceholderSnapshotTests {
     func evidenceCoversEveryRealGatePhaseAcrossAppearanceDeviceAndTextVariants() async throws {
         #expect(gateScenarios.map(\.phase) == AppAccessGatePhase.allCases)
 
-        let surfaces = RenderedScreen.isPhotographing ? evidenceSurfaces : [compactDarkSurface]
+        let surfaces = RenderedScreen.isPhotographing ? evidenceSurfaces : assertedSurfaces
         for surface in surfaces {
             for scenario in gateScenarios {
                 try await render(
@@ -363,7 +364,8 @@ private let evidenceSurfaces: [EvidenceSurface] = [
     .init(id: "accessibility-dark", size: CGSize(width: 430, height: 932), dynamicTypeSize: .accessibility3, style: .dark)
 ]
 
-private let compactDarkSurface = evidenceSurfaces[0]
+/// The surfaces every run asserts on: the compact viewport and the accessibility text size.
+private let assertedSurfaces = evidenceSurfaces.filter { $0.id == "compact-dark" || $0.id == "accessibility-dark" }
 
 private let restoreSurface = EvidenceSurface(
     id: "large-dark",
