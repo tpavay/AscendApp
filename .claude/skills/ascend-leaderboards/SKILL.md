@@ -42,7 +42,7 @@ Five of six means five of six, then.
 That standing is computed on **that climb's own time**, never on your all-time best.
 You finished in 9:40, so the summary ranks a 9:40 against the other climbers at their bests.
 Your 8:12 has its own summary, showing 8:12 and the rank an 8:12 earned when it landed.
-Until the server has ranked that attempt the summary falls back to today's standing, which still counts attempts on both halves, and that gap is named in the row-versus-rank seam below.
+Until the server has ranked that attempt the summary shows a current standing recomputed on the client, which counts unique climbers on both halves too, and says which it is.
 
 ### 3. That same summary, reopened later
 
@@ -99,11 +99,6 @@ The known ones, so the lane can find them rather than as a guarantee that the li
 - `functions/test/liveReplayLeaderboard.test.ts` "refuses to freeze an attempt rank with no attempt count", which only means anything while `attemptCount` is the population.
 
 The leaderboard lane (`ascend-live-leaderboard-second-attempt`) is implementing it.
-
-`FirestoreLiveReplayLeaderboardRepository.fetchCompletionRank` counts attempts the same way, and not only where attempts race.
-The summary falls back to it until the server publishes a frozen standing, and both halves of that fallback run over the unfiltered bucket 0 entries: `countRowsBetterThan` for the numerator and `countRows` for the denominator.
-So a repeat climber's own earlier attempts count as rivals ahead of them and the denominator counts completions, on `live_climb` too.
-Decided and being built, and owned by the same lane.
 
 **The live number versus the frozen number.**
 A rank recomputed from today's rows is a *current* standing; the rank stamped when your attempt published is what you *were*.
