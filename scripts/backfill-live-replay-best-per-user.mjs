@@ -124,7 +124,9 @@ async function main() {
     // landed.
     console.error(
       `\n${result.entryWritesFailed} entry write(s) failed. Re-run the backfill ` +
-      `to reconcile the remaining entries.\nFirst error: ${result.firstWriteError}`
+      `to reconcile the remaining entries. The applied and failed counts above ` +
+      `are approximate: sibling commits may still have been in flight when the ` +
+      `first failure was reported.\nFirst error: ${result.firstWriteError}`
     );
     process.exitCode = 1;
   }

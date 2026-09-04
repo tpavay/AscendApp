@@ -144,21 +144,31 @@ private struct LiveClimbExpandedBottomView: View {
 }
 
 private struct LiveClimbCompactMetricView: View {
-    let value: String
+    /// Nil where the metric has nothing to state, which is not the same as a
+    /// value that could not be resolved: that one arrives as `--`.
+    let value: String?
     let label: String
 
     var body: some View {
         VStack(alignment: .center, spacing: 0) {
-            Text(value)
-                .font(.system(size: 14, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.62)
+            if let value {
+                Text(value)
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.62)
 
-            Text(label)
-                .font(.system(size: 7, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.58))
-                .lineLimit(1)
+                Text(label)
+                    .font(.system(size: 7, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.58))
+                    .lineLimit(1)
+            } else {
+                Text(label)
+                    .font(.system(size: 9, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
         }
         .foregroundStyle(.white)
     }
@@ -191,7 +201,9 @@ private struct LiveClimbMinimalView: View {
 
 private struct LiveClimbMetricColumn: View {
     let title: String
-    let value: String
+    /// Nil where the column has nothing to state and `secondary` carries the
+    /// statement alone. A value that could not be resolved is `--`, never nil.
+    let value: String?
     /// A second measurement of a different population, stated beneath the first
     /// rather than beside it - the same order the in-app panel puts them in.
     var secondary: String?
@@ -203,11 +215,13 @@ private struct LiveClimbMetricColumn: View {
                 .foregroundStyle(.white.opacity(0.48))
                 .lineLimit(1)
 
-            Text(value)
-                .font(.system(size: 15, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
+            if let value {
+                Text(value)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+            }
 
             if let secondary {
                 Text(secondary)

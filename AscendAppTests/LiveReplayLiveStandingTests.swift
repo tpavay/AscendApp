@@ -173,7 +173,7 @@ struct LiveReplayLiveStandingTests {
 
     @Test
     func aRacingLockScreenStatesBothNumbersAndNamesBothPopulations() {
-        let state = activityState(rank: 2, rankTotal: 27, ownClimbs: (2, 5))
+        let state = activityState(rank: 2, rankTotal: 27, ownClimbs: (2, 5), board: .racing)
 
         #expect(state.standingTitle == "Rank")
         #expect(state.standingDetailLabel == "#2 of 27 climbers")
@@ -186,21 +186,25 @@ struct LiveReplayLiveStandingTests {
         // roughly 44 points of Dynamic Island, so a caption that only fits by
         // scaling is not fitting - and the value line above already holds the
         // figure, which is what leaves the ordinal labelled rather than bare.
-        let racing = activityState(rank: 2, rankTotal: 27, ownClimbs: (2, 5))
+        let racing = activityState(rank: 2, rankTotal: 27, ownClimbs: (2, 5), board: .racing)
         #expect(racing.standingValue == "#2")
         #expect(racing.standingCaption == "climbers")
 
-        let alone = activityState(rank: nil, rankTotal: 1, ownClimbs: (2, 2))
+        let alone = activityState(rank: nil, rankTotal: 1, ownClimbs: (2, 2), board: .alone)
         #expect(alone.standingValue == "2nd")
         #expect(alone.standingCaption == "your climbs")
 
+        let nobodyElse = activityState(rank: nil, rankTotal: 1, ownClimbs: nil, board: .alone)
+        #expect(nobodyElse.standingCaption == "nobody else")
+
         #expect(racing.standingCaption.count <= "your climbs".count)
         #expect(alone.standingCaption.count <= "your climbs".count)
+        #expect(nobodyElse.standingCaption.count <= "your climbs".count)
     }
 
     @Test
     func aLockScreenAloneOnTheTowerStatesOnlyTheClimbersOwnClimbs() {
-        let state = activityState(rank: nil, rankTotal: 1, ownClimbs: (2, 2))
+        let state = activityState(rank: nil, rankTotal: 1, ownClimbs: (2, 2), board: .alone)
 
         #expect(state.standingTitle == "Your climbs")
         #expect(state.standingDetailLabel == "2nd of your 2 climbs")
@@ -224,22 +228,92 @@ struct LiveReplayLiveStandingTests {
         )
 
         #expect(state.ownClimbs == nil)
+        #expect(state.board == nil)
         #expect(state.standingDetailLabel == "#2 of 27 climbers")
         #expect(state.standingSecondaryLabel == nil)
     }
 
+    /// The same old shape with no rank was a rank the old binary could not
+    /// resolve, and it must keep reading as one: a legacy state carries no
+    /// board, and a missing board never promotes `--` into "nobody else".
     @Test
-    func aLockScreenWithNothingMeasuredStatesNoOrdinalAtAll() {
-        let state = activityState(rank: nil, rankTotal: 0, ownClimbs: nil)
+    func aLegacyStateWithNoRankStillReadsAsUnresolved() throws {
+        let legacy = Data("""
+        {"steps":12,"rank":null,"rankTotal":0,"durationSeconds":9,"progress":0.02,"status":"recording","updatedAt":787957195}
+        """.utf8)
 
+        let state = try JSONDecoder().decode(
+            LiveClimbActivityAttributes.ContentState.self,
+            from: legacy
+        )
+
+        #expect(state.standing == .unresolved)
         #expect(state.standingValue == "--")
+        #expect(state.standingCaption == "rank")
+    }
+
+    // MARK: - Three states, and no glyph shared between them
+
+    /// `--` means one thing: a rank that could not be resolved. A first-ever
+    /// climber on a board nobody else has finished has no rank to resolve and
+    /// nothing has failed, so they render neither an ordinal nor that glyph -
+    /// the caption states the condition instead, on every surface. The
+    /// captions are asserted beside the values because the defect this pins was
+    /// a true value under a false caption, which a value-only check cannot see.
+    @Test
+    func aResolvedRankRendersTheOrdinalUnderItsPopulation() {
+        let state = activityState(rank: 4, rankTotal: 27, ownClimbs: nil, board: .racing)
+
+        #expect(state.standing == .rank(4))
+        #expect(state.standingValue == "#4")
+        #expect(state.standingCaption == "climbers")
+        #expect(state.standingTitle == "Rank")
+        #expect(state.standingDetailLabel == "#4 of 27 climbers")
+        #expect(state.standingSecondaryLabel == nil)
+    }
+
+    @Test
+    func aRankThatCouldNotBeResolvedRendersThePlaceholderUnderRank() {
+        let state = activityState(rank: nil, rankTotal: 27, ownClimbs: nil, board: .racing)
+
+        #expect(state.standing == .unresolved)
+        #expect(state.standingValue == "--")
+        #expect(state.standingCaption == "rank")
+        #expect(state.standingTitle == "Rank")
         #expect(state.standingDetailLabel == "--")
         #expect(state.standingSecondaryLabel == nil)
     }
 
     @Test
+    func aFirstEverClimberNobodyElseHasRacedRendersNeitherAnOrdinalNorThePlaceholder() {
+        let state = activityState(rank: nil, rankTotal: 1, ownClimbs: nil, board: .alone)
+
+        #expect(state.standing == .nobodyElse)
+        #expect(state.standingValue == nil)
+        #expect(state.standingCaption == "nobody else")
+        #expect(state.standingTitle == "Field")
+        #expect(state.standingDetailLabel == nil)
+        #expect(state.standingSecondaryLabel == "Nobody else has finished")
+    }
+
+    /// A board that proves nobody else has finished never shows a leaderboard
+    /// rank, whatever number arrived with it: `#1 of 1 climber` is the number
+    /// the rank model forbids, and the Lock Screen may not draw it either.
+    @Test
+    func aRankArrivingOnAnAloneBoardIsNotDrawn() {
+        let firstClimb = activityState(rank: 1, rankTotal: 1, ownClimbs: nil, board: .alone)
+        #expect(firstClimb.standing == .nobodyElse)
+        #expect(firstClimb.standingValue == nil)
+
+        let repeatClimb = activityState(rank: 1, rankTotal: 1, ownClimbs: (2, 2), board: .alone)
+        #expect(repeatClimb.standing == .ownClimbs(.init(placing: 2, total: 2)))
+        #expect(repeatClimb.standingValue == "2nd")
+        #expect(repeatClimb.standingCaption == "your climbs")
+    }
+
+    @Test
     func aFieldOfOneIsNamedInTheSingular() {
-        let state = activityState(rank: 1, rankTotal: 1, ownClimbs: (1, 1))
+        let state = activityState(rank: 1, rankTotal: 1, ownClimbs: (1, 1), board: .racing)
 
         #expect(state.standingDetailLabel == "#1 of 1 climber")
         #expect(state.standingSecondaryLabel == "1st of your 1 climb")
@@ -248,13 +322,15 @@ struct LiveReplayLiveStandingTests {
     private func activityState(
         rank: Int?,
         rankTotal: Int,
-        ownClimbs: (placing: Int, total: Int)?
+        ownClimbs: (placing: Int, total: Int)?,
+        board: LiveClimbActivityAttributes.ContentState.Board?
     ) -> LiveClimbActivityAttributes.ContentState {
         LiveClimbActivityAttributes.ContentState(
             steps: 497,
             rank: rank,
             rankTotal: rankTotal,
             ownClimbs: ownClimbs.map { .init(placing: $0.placing, total: $0.total) },
+            board: board,
             durationSeconds: 350,
             progress: 0.9,
             status: .recording,

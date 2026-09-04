@@ -1166,9 +1166,9 @@ final class LiveClimbSessionViewModel {
             sessionSubtitle: mode.subtitle,
             targetSteps: mode.targetStepCount ?? 0,
             steps: totalRecordedSteps,
-            rank: liveActivityRank,
+            rank: currentLeaderboardRank,
             rankTotal: leaderboardTotalClimbers,
-            ownClimbs: liveActivityOwnClimbs,
+            standing: leaderboardStanding,
             duration: displayedDuration,
             progress: liveActivityProgress
         )
@@ -1182,22 +1182,14 @@ final class LiveClimbSessionViewModel {
 
         await liveActivityManager.update(
             steps: totalRecordedSteps,
-            rank: liveActivityRank,
+            rank: currentLeaderboardRank,
             rankTotal: leaderboardTotalClimbers,
-            ownClimbs: liveActivityOwnClimbs,
+            standing: leaderboardStanding,
             duration: displayedDuration,
             progress: liveActivityProgress,
             status: status,
             force: force
         )
-    }
-
-    private var liveActivityRank: Int? {
-        leaderboardStanding.showsLeaderboardRank ? currentLeaderboardRank : nil
-    }
-
-    private var liveActivityOwnClimbs: LiveReplayPersonalPlacing? {
-        leaderboardStanding.ownClimbs
     }
 
     private var liveActivityProgress: Double {
