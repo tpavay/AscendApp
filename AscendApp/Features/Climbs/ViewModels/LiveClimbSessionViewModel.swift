@@ -192,6 +192,10 @@ final class LiveClimbSessionViewModel {
     private var hasSavedSession = false
     private var stepTimelineRecorder: LiveClimbStepTimelineRecorder
     private var isLeaderboardRefreshInFlight = false
+    /// Whether the leaderboard service has been told this session started. Done
+    /// on the first window refresh rather than in `start`, so it is ordered
+    /// ahead of that refresh instead of racing it through a detached task.
+    private var hasBegunLeaderboardSession = false
     /// Whether the server has answered with a summary at all, which is not the same
     /// question as whether its count is zero: a climb nobody has finished answers
     /// zero forever, and re-asking it every tick would be a per-second read.
@@ -402,9 +406,9 @@ final class LiveClimbSessionViewModel {
     /// Where this climber's previous best on this climb had reached at this
     /// moment, in steps, or nil when they have never finished it.
     ///
-    /// The board withdrew that completion from the standings, so this is all that
-    /// is left of it: a position for the `BEST` marker. It is never ranked, never
-    /// counted in the field size, and never accompanied by a number.
+    /// The board ranks nothing off that completion, so inside the live row this
+    /// is all there is of it: a position for the `BEST` marker. It is never
+    /// ranked, never counted in the field size, and never accompanied by a number.
     var previousBestStepsAtBucket: Int? {
         leaderboardWindow?.previousBestStepsAtBucket(
             currentElapsedSeconds: Int(displayedDuration.rounded(.down))
@@ -446,8 +450,33 @@ final class LiveClimbSessionViewModel {
               leaderboardSummary.totalClimbers > 0 else { return nil }
 
         return LiveReplayFieldSize(
-            population: contextType.fieldPopulation,
+            // The race collapses to one row per climber on every board now, so
+            // the ghosts beside this number are people rather than attempts.
+            population: .climbers,
             count: leaderboardSummary.totalClimbers
+        )
+    }
+
+    /// What the live panel and the Live Activity state about where this climber
+    /// stands. One answer, so the Lock Screen can never disagree with the panel.
+    var leaderboardStanding: LiveReplayLiveStanding {
+        // Three states, kept apart to the pixel: no window has answered yet, a
+        // window answered but could not count this climber's own history, and a
+        // window that counted it. Only the last may draw an ordinal.
+        //
+        // `??` would collapse the first two into "1st of your 1 climb" - a
+        // measurement invented out of not having measured - and the summary
+        // cannot stand in for the window either: it reads zero climbers until it
+        // first answers, which is not the same statement as nobody else being
+        // here.
+        guard let window = leaderboardWindow else {
+            return .racing(field: leaderboardField, ownClimbs: nil)
+        }
+
+        return LiveReplayLiveStanding.resolve(
+            field: leaderboardField,
+            ownClimbs: window.ownClimbs,
+            isSoleClimber: window.isSoleClimber
         )
     }
 
@@ -456,7 +485,7 @@ final class LiveClimbSessionViewModel {
     }
 
     var currentLeaderboardRank: Int? {
-        leaderboardRows.first(where: \.isCurrentUser)?.rank ?? leaderboardWindow?.currentUserRank
+        leaderboardRows.first(where: \.isLiveAttempt)?.rank ?? leaderboardWindow?.currentUserRank
     }
 
     var currentRankDisplay: String {
@@ -464,7 +493,7 @@ final class LiveClimbSessionViewModel {
     }
 
     var completionLeaderboardRank: Int? {
-        leaderboardWindow?.currentUserRank ?? leaderboardRows.first(where: \.isCurrentUser)?.rank
+        leaderboardWindow?.currentUserRank ?? leaderboardRows.first(where: \.isLiveAttempt)?.rank
     }
 
     var completionLeaderboardTotal: Int? {
@@ -901,6 +930,11 @@ final class LiveClimbSessionViewModel {
 
         recordLiveSplitSample()
 
+        if !hasBegunLeaderboardSession {
+            await leaderboardService.beginLiveSession()
+            hasBegunLeaderboardSession = true
+        }
+
         do {
 #if DEBUG
             let refreshStartedAt = Date()
@@ -1134,6 +1168,7 @@ final class LiveClimbSessionViewModel {
             steps: totalRecordedSteps,
             rank: liveActivityRank,
             rankTotal: leaderboardTotalClimbers,
+            ownClimbs: liveActivityOwnClimbs,
             duration: displayedDuration,
             progress: liveActivityProgress
         )
@@ -1149,6 +1184,7 @@ final class LiveClimbSessionViewModel {
             steps: totalRecordedSteps,
             rank: liveActivityRank,
             rankTotal: leaderboardTotalClimbers,
+            ownClimbs: liveActivityOwnClimbs,
             duration: displayedDuration,
             progress: liveActivityProgress,
             status: status,
@@ -1157,7 +1193,11 @@ final class LiveClimbSessionViewModel {
     }
 
     private var liveActivityRank: Int? {
-        currentLeaderboardRank
+        leaderboardStanding.showsLeaderboardRank ? currentLeaderboardRank : nil
+    }
+
+    private var liveActivityOwnClimbs: LiveReplayPersonalPlacing? {
+        leaderboardStanding.ownClimbs
     }
 
     private var liveActivityProgress: Double {

@@ -29,8 +29,7 @@ struct RankingGhostRenderEvidenceTests {
     func aSoloSlowerRepeatShowsItsPlacingAmongTheClimbersOwnClimbs() async throws {
         let image = try screenshot(of: heroPanel(
             standing: Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
-            personalPlacing: PersonalClimbPlacing(ordinal: 2, total: 5),
-            moment: .freshCompletion
+            personalPlacing: PersonalClimbPlacing(ordinal: 2, total: 5)
         ))
         let text = try await recognizedText(in: image)
 
@@ -48,8 +47,7 @@ struct RankingGhostRenderEvidenceTests {
     func aSoloPersonalBestUsesTheSameCard() async throws {
         let image = try screenshot(of: heroPanel(
             standing: Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
-            personalPlacing: PersonalClimbPlacing(ordinal: 1, total: 5),
-            moment: .freshCompletion
+            personalPlacing: PersonalClimbPlacing(ordinal: 1, total: 5)
         ))
         let text = try await recognizedText(in: image)
 
@@ -65,8 +63,7 @@ struct RankingGhostRenderEvidenceTests {
         let image = try screenshot(of: heroPanel(
             standing: Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
             personalPlacing: PersonalClimbPlacing(ordinal: 1, total: 1),
-            claimsFirstAscent: true,
-            moment: .freshCompletion
+            claimsFirstAscent: true
         ))
         let text = try await recognizedText(in: image)
 
@@ -85,8 +82,7 @@ struct RankingGhostRenderEvidenceTests {
         let image = try screenshot(of: heroPanel(
             standing: Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
             personalPlacing: PersonalClimbPlacing(ordinal: 4, total: 4),
-            claimsFirstAscent: true,
-            moment: .retrospective
+            claimsFirstAscent: true
         ))
         let text = try await recognizedText(in: image)
 
@@ -102,8 +98,7 @@ struct RankingGhostRenderEvidenceTests {
     func aRealFieldKeepsTheLeaderboardRankInTheHero() async throws {
         let image = try screenshot(of: heroPanel(
             standing: Hero.Standing(rank: 2, total: 2, basis: .atCompletion),
-            personalPlacing: PersonalClimbPlacing(ordinal: 2, total: 5),
-            moment: .freshCompletion
+            personalPlacing: PersonalClimbPlacing(ordinal: 2, total: 5)
         ))
         let text = try await recognizedText(in: image)
 
@@ -274,12 +269,10 @@ struct RankingGhostRenderEvidenceTests {
     private func heroPanel(
         standing: Hero.Standing?,
         personalPlacing: PersonalClimbPlacing?,
-        claimsFirstAscent: Bool = false,
-        moment: Hero.Moment
+        claimsFirstAscent: Bool = false
     ) throws -> some View {
         let hero = try #require(Hero.make(
             isClimbContext: true,
-            moment: moment,
             standings: [standing],
             personalPlacing: personalPlacing,
             claimsFirstAscent: claimsFirstAscent,
@@ -323,7 +316,10 @@ struct RankingGhostRenderEvidenceTests {
             currentUserPhotoURL: nil,
             previousBestStepsAtBucket: markerSteps,
             fetchFailed: false,
-            field: LiveReplayFieldSize(population: .climbers, count: 1),
+            standing: .racing(
+                field: LiveReplayFieldSize(population: .climbers, count: 1),
+                ownClimbs: nil
+            ),
             tint: .accent,
             effectiveColorScheme: .dark,
             showsFilter: false

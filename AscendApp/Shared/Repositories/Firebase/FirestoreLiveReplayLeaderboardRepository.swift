@@ -1,5 +1,5 @@
 import Foundation
-import os
+import os.lock
 @preconcurrency import FirebaseAuth
 @preconcurrency import FirebaseFirestore
 
@@ -19,9 +19,61 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         let row: LiveReplayLeaderboardRow?
     }
 
+    /// The climber's own already-published rows on one board, as this session
+    /// found them.
+    ///
+    /// Both facts are about rows the climber published before this session
+    /// began, and the attempt on the machine does not publish until the session
+    /// ends - so neither can change while `fetchWindow` runs on its ~10s clock,
+    /// yet both used to be re-read on every tick. Nothing a rival publishes is
+    /// held here: a rival's rows move the counts the window takes fresh each
+    /// time, never these. One slot, keyed by owner and board, which
+    /// `beginLiveSession()` empties for the next session and
+    /// `clearAccountScopedCaches()` empties for the next account.
+    private struct OwnHistoryCache: Sendable {
+        let key: String
+        /// Every attempt of theirs in bucket zero, flagged or not.
+        var publishedAttemptCount: Int?
+        /// Their flagged best, once resolved. A read that failed is never
+        /// stored, so the next tick asks again.
+        var ghost: OwnGhostLookup?
+    }
+
+    /// The settled answer to whether the climber holds a flagged row here.
+    private struct OwnGhostLookup: Sendable {
+        let ghost: OwnGhost?
+    }
+
+    /// One fact for `OwnHistoryCache`, merged in under the lock. The two reads
+    /// that fill the slot run side by side, so each lands its own field rather
+    /// than replacing the whole slot.
+    private enum OwnHistoryFact: Sendable {
+        case ghost(OwnGhost?)
+        case publishedAttemptCount(Int)
+    }
+
+    /// The climber's own flagged bucket-zero entry.
+    ///
+    /// `row.id` is the entry document ID, which every bucket the attempt ran for
+    /// shares, so it is what the per-bucket read is addressed by.
+    private struct OwnGhost: Sendable {
+        let row: LiveReplayLeaderboardRow
+        let splitBucketCount: Int?
+    }
+
     private let db = Firestore.firestore()
     private let ownPreviousCompletionCache =
         OSAllocatedUnfairLock<OwnPreviousCompletionCache?>(initialState: nil)
+    private let ownHistoryCache =
+        OSAllocatedUnfairLock<OwnHistoryCache?>(initialState: nil)
+    private let finishedRowDiagnostics = OSAllocatedUnfairLock(
+        initialState: LiveReplayFinishedRowDiagnostics()
+    )
+    /// `"{uid}__{contextKey}"` for every board this climber is known to already
+    /// stand in. See `optionalCurrentUserIsFinisher`.
+    private let knownFinisherClimbers = OSAllocatedUnfairLock(
+        initialState: Set<String>()
+    )
 
     private init() {}
 
@@ -42,42 +94,141 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         )
     }
 
+    /// The standing this attempt holds on the board as it stands right now.
+    ///
+    /// Counts climbers on every board: one document per climber from the
+    /// `finishers` subcollection, taken at their standing best, so a rival's
+    /// five faster attempts are one climber ahead and the denominator names the
+    /// same people the numerator counted. The hero takes its noun from the same
+    /// `recomputedFieldPopulation`, so a recomputed "of N" cannot name a
+    /// population it did not count.
+    ///
+    /// Not the entry rows. Every board carries `isBestForUser` now, but it is
+    /// one row per climber only eventually - a publish commits the improved row
+    /// while the old one is still flagged - and a board whose rows predate the
+    /// flag answers a filtered count with nothing at all. Finishers are one
+    /// document per climber by construction and are maintained on every context
+    /// type, which is why they are the one field this side counts.
+    ///
+    /// The rank still belongs to *this* climb's own time; `ownLeadingRowCount`
+    /// says why.
     func fetchCompletionRank(
         context: LiveReplayLeaderboardContext,
         completionDurationSeconds: TimeInterval,
         finalSteps: Int
     ) async throws -> LiveReplayCompletionRank {
-        let resolvedRankingValue = rankingValue(
+        try await climberCompletionRank(
             context: context,
-            completionDurationSeconds: completionDurationSeconds,
-            finalSteps: finalSteps
+            attemptRankingValue: rankingValue(
+                context: context,
+                completionDurationSeconds: completionDurationSeconds,
+                finalSteps: finalSteps
+            )
         )
+    }
 
-        async let betterCompletionCount = countRowsBetterThan(
-            context: context,
-            rankingValue: resolvedRankingValue
-        )
-        async let publishedCompletionCount = countRows(
-            context: context,
-            bucketIndex: 0
-        )
-        async let currentUserIsPublished = currentUserHasPublishedCompletion(
-            context: context
-        )
+    /// The population a recomputed standing counts on this board.
+    ///
+    /// The `.current` basis' half of the invariant the hero's field line
+    /// asserts: it resolves from the one property the hero takes its noun from,
+    /// so a recomputed "of N" cannot name a population it did not count.
+    static func recomputedFieldPopulation(
+        for context: LiveReplayLeaderboardContext
+    ) -> LiveReplayFieldPopulation {
+        context.type.recomputedFieldPopulation
+    }
 
-        let betterCount = try await betterCompletionCount
-        let publishedCount = try await publishedCompletionCount
-        let hasPublishedCurrentUser = try await currentUserIsPublished
-        let localCompletionAdjustment = hasPublishedCurrentUser ? 0 : 1
+    /// The standing a climber holds among the climbers of their board.
+    ///
+    /// Pure so the arithmetic is checkable without a Firestore behind it. The
+    /// climber joins the field only when they hold no completion on it yet, and
+    /// the rank can never outrun the population it was measured against.
+    ///
+    /// `betterClimberCount` arrives with the climber's own leading finisher
+    /// already removed. Both operands are read from the one finishers
+    /// collection, so that subtraction can only ever take out a document the
+    /// count really included - and it is floored anyway, because a count of
+    /// rivals ahead has no negative value and "#0" would state a placement
+    /// nobody holds.
+    static func climberStanding(
+        betterClimberCount: Int,
+        raceFieldCount: Int,
+        climberAlreadyInField: Bool
+    ) -> LiveReplayCompletionRank {
+        let climbersAhead = max(betterClimberCount, 0)
         let completedCount = max(
-            publishedCount + localCompletionAdjustment,
-            betterCount + 1
+            raceFieldCount + (climberAlreadyInField ? 0 : 1),
+            climbersAhead + 1
         )
 
         return LiveReplayCompletionRank(
-            rank: min(betterCount + 1, completedCount),
+            rank: min(climbersAhead + 1, completedCount),
             completedCount: completedCount,
             updatedAt: nil
+        )
+    }
+
+    /// Whether the climber's own finisher document stands ahead of this attempt.
+    ///
+    /// The client half of the server's `ownLeadingFinisherCount`, and it exists
+    /// for the same reason: a board that shows one row per climber must never
+    /// seat a climber behind themselves, so their own leading row is removed
+    /// from the count of climbers ahead of this attempt.
+    ///
+    /// The rank still belongs to *this climb's own time* - each completion
+    /// summary is a permanent record of the climb it sits on, so a 9:40 shows
+    /// the rank a 9:40 earned and an 8:12 shows the rank an 8:12 earned. Ranking
+    /// on the climber's all-time best instead would tell a climber their slower
+    /// run came first on a board somebody beat that run on.
+    static func ownLeadingRowCount(
+        metric: LiveReplayRankingMetric,
+        storedBest: Double?,
+        attemptRankingValue: Double
+    ) -> Int {
+        guard let storedBest else { return 0 }
+
+        let leads = metric.ranksHighestFirst
+            ? storedBest > attemptRankingValue
+            : storedBest < attemptRankingValue
+        return leads ? 1 : 0
+    }
+
+    /// One row per climber, on their standing best.
+    ///
+    /// The field is the `finishers` subcollection - one document per climber by
+    /// construction, written in the same transaction as the row it stands for,
+    /// and maintained on every context type. It is also the collection the
+    /// server's collapsing numerator counts, so a recomputed standing and the
+    /// stamp that will replace it measure the same field rather than two that
+    /// only agree eventually.
+    ///
+    /// Both halves come out of that one collection: the climber's own stored
+    /// best is read from their own finisher document, so the row the count
+    /// included and the row the subtraction removes are the same row. The
+    /// climber joins the field only if they are not already standing in it,
+    /// which is a question about the *climber*, not about whether this
+    /// particular attempt published.
+    private func climberCompletionRank(
+        context: LiveReplayLeaderboardContext,
+        attemptRankingValue: Double
+    ) async throws -> LiveReplayCompletionRank {
+        let finisher = try await currentUserFinisher(context: context)
+        let ownLeadingRows = Self.ownLeadingRowCount(
+            metric: context.type.rankingMetric,
+            storedBest: finisher?.storedBest,
+            attemptRankingValue: attemptRankingValue
+        )
+
+        async let betterClimberCount = countFinishersBetterThan(
+            context: context,
+            rankingValue: attemptRankingValue
+        )
+        async let climberFieldCount = countFinishers(context: context)
+
+        return Self.climberStanding(
+            betterClimberCount: try await betterClimberCount - ownLeadingRows,
+            raceFieldCount: try await climberFieldCount,
+            climberAlreadyInField: finisher != nil
         )
     }
 
@@ -166,21 +317,8 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             return nil
         }
 
-        let snapshot = try await entriesCollection(context: context, bucketIndex: 0)
-            .whereField("userId", isEqualTo: uid)
-            .getDocuments(source: .server)
         let metric = context.type.rankingMetric
-
-        // Ties on the metric resolve on document ID, which is the immutable workout ID,
-        // so every recompute picks the same winner instead of jittering between them.
-        let bestDocument = snapshot.documents.min { lhs, rhs in
-            let lhsValue = rankingValue(for: metric, in: lhs.data())
-            let rhsValue = rankingValue(for: metric, in: rhs.data())
-            if lhsValue == rhsValue {
-                return lhs.documentID < rhs.documentID
-            }
-            return metric.ranksHighestFirst ? lhsValue > rhsValue : lhsValue < rhsValue
-        }
+        let bestDocument = try await currentUserBestCompletionDocument(context: context)
 
         guard let bestDocument,
               let completionDurationSeconds = doubleValue(
@@ -371,67 +509,87 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         rowsAhead: Int,
         rowsBehind: Int
     ) async throws -> LiveReplayLeaderboardWindow {
+        let currentUserId = Auth.auth().currentUser?.uid
         async let summary = fetchSummary(context: context)
-        async let aheadRows = fetchRows(
+        async let runningAheadRows = fetchRows(
             context: context,
             bucketIndex: bucketIndex,
             currentSteps: currentSteps,
             direction: .ahead,
-            limit: rowsAhead
+            limit: rowsAhead,
+            currentUserId: currentUserId
         )
-        async let aheadCount = optionalCountRowsAhead(
+        // Optional on purpose. The finished half needs a composite index the
+        // running half does not, so if that index is ever missing the board
+        // loses the rivals already home rather than failing mid-climb - which
+        // is the behaviour it had before this read existed, not a worse one.
+        async let finishedAheadRows = optionalFetchFinishedRows(
+            context: context,
+            bucketIndex: bucketIndex,
+            currentSteps: currentSteps,
+            direction: .ahead,
+            limit: rowsAhead,
+            currentUserId: currentUserId
+        )
+        async let standing = windowStanding(
             context: context,
             bucketIndex: bucketIndex,
             currentSteps: currentSteps
-        )
-        async let totalBucketCount = optionalCountLiveRaceRows(
-            context: context,
-            bucketIndex: bucketIndex
         )
         async let behindRows = fetchRows(
             context: context,
             bucketIndex: bucketIndex,
             currentSteps: currentSteps,
             direction: .behind,
-            limit: rowsBehind
+            limit: rowsBehind,
+            currentUserId: currentUserId
         )
-        async let ownPreviousCompletion = optionalOwnPreviousCompletionRow(
+        async let finishedBehindRows = optionalFetchFinishedRows(
             context: context,
             bucketIndex: bucketIndex,
-            currentSteps: currentSteps
+            currentSteps: currentSteps,
+            direction: .behind,
+            limit: rowsBehind,
+            currentUserId: currentUserId
         )
 
         let resolvedSummary = try await summary
-        let rowsAhead = try await aheadRows
-        let rowsBehind = try await behindRows
-        let ownPreviousCompletionRow = await ownPreviousCompletion
-        let ownCompletionCount = ownPreviousCompletionRow == nil ? 0 : 1
-        let ownCompletionsAhead = ownPreviousCompletionRow
-            .map { $0.stepsAtBucket >= currentSteps ? 1 : 0 } ?? 0
-        // The counts the server answers with still hold the climber's own earlier
-        // completion, because the board it counts is the board every other
-        // climber sees. Taking it out here rather than off the fetched page keeps
-        // the rank exact: a previous best sitting more than a page ahead is
-        // withdrawn just the same as one the window happens to hold.
-        let opponentRowsAhead = rowsAhead.filter { !$0.isOwnPreviousCompletion }
-        let opponentRowsBehind = rowsBehind.filter { !$0.isOwnPreviousCompletion }
-        let currentUserRank = max(
-            (await aheadCount).map { $0 - ownCompletionsAhead } ?? opponentRowsAhead.count,
-            0
+        let fetchedRunningAheadRows = try await runningAheadRows
+        let fetchedFinishedAheadRows = await finishedAheadRows
+        let rowsAhead = Self.mergedAheadRows(
+            running: fetchedRunningAheadRows,
+            finished: fetchedFinishedAheadRows,
+            limit: rowsAhead,
+            metric: context.type.rankingMetric
+        )
+        let fetchedRunningBehindRows = try await behindRows
+        let fetchedFinishedBehindRows = await finishedBehindRows
+        let rowsBehind = Self.mergedBehindRows(
+            running: fetchedRunningBehindRows,
+            finished: fetchedFinishedBehindRows,
+            limit: rowsBehind,
+            metric: context.type.rankingMetric
+        )
+        let resolvedStanding = await standing
+        let currentUserRank = Self.aheadCount(
+            running: resolvedStanding.runningAheadCount,
+            finished: resolvedStanding.finishedAheadCount,
+            ownGhostAhead: resolvedStanding.ownGhostAhead,
+            fetchedRows: rowsAhead
         ) + 1
+        let ownClimbs = resolvedStanding.ownClimbs
+        let totalClimbers = max(
+            resolvedSummary.totalClimbers + resolvedStanding.joiningClimber,
+            currentUserRank
+        )
+
         let rankedAheadRows = rankedAheadRows(
-            Array(opponentRowsAhead.reversed()),
+            Array(rowsAhead.reversed()),
             currentUserRank: currentUserRank
         )
         let rankedBehindRows = rankedBehindRows(
-            opponentRowsBehind,
+            rowsBehind,
             currentUserRank: currentUserRank
-        )
-        let visibleWindowCount = currentUserRank + opponentRowsBehind.count
-        let totalClimbers = max(
-            resolvedSummary.totalClimbers,
-            (await totalBucketCount).map { max($0 - ownCompletionCount, 0) + 1 } ?? 0,
-            visibleWindowCount
         )
 
         return LiveReplayLeaderboardWindow(
@@ -442,7 +600,89 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             rows: rankedAheadRows + rankedBehindRows,
             currentUserRank: currentUserRank,
             totalClimbers: totalClimbers,
-            ownPreviousCompletionRow: ownPreviousCompletionRow
+            ownPreviousCompletionRow: resolvedStanding.ownPreviousCompletionRow,
+            ownClimbs: ownClimbs
+        )
+    }
+
+    /// A live window's rank and the denominator it is measured against.
+    ///
+    /// One shape on every board. Each ghost carries `isBestForUser` and so
+    /// stands for exactly one climber, so counting the ghosts ahead at this
+    /// bucket already counts people, and the summary's distinct-climber count
+    /// is the field they were counted out of.
+    private struct WindowStanding {
+        let runningAheadCount: Int?
+        let finishedAheadCount: Int?
+        /// A climber joins the field only when they hold no completion on it
+        /// yet - a question about the climber, never inferred from a count.
+        let joiningClimber: Int
+        /// 1 while the climber's own collapsed best stands ahead of them, 0
+        /// otherwise. A climber races their own ghost; they never compete with
+        /// it, so it is not one of the rivals the numerator counts.
+        let ownGhostAhead: Int
+        /// Where this run places among the climber's own climbs of this board,
+        /// or nil when the read that counts them could not answer.
+        let ownClimbs: LiveReplayPersonalPlacing?
+        /// The climber's own best at this bucket, read by owner: the `BEST`
+        /// marker's position, and the one row `ownGhostAhead` was decided from.
+        let ownPreviousCompletionRow: LiveReplayLeaderboardRow?
+    }
+
+    /// Resolves the rank and denominator a live window reports.
+    ///
+    /// Ranked on what the window itself measures at this bucket - position among
+    /// the rival rows beside it - and never on a finishers read. A finishers read
+    /// answers a question about a *finished* attempt, so mid-race it compares a
+    /// climber against the elapsed session clock: they would start first and
+    /// slide down as time passed, with performance playing no part.
+    ///
+    /// The climber's own collapsed best is not one of those rivals
+    /// (`ownClimbHistory`), so a climber alone on a board reads first over a
+    /// field of one on every surface rather than second over a field of two.
+    ///
+    /// Settled by the captain on 2026-09-02: all three board types race off one
+    /// mechanism. The server writes `isBestForUser` on every context now, so the
+    /// ghosts are one row per climber at their best everywhere and both halves
+    /// of this pair count climbers without a second query shape.
+    private func windowStanding(
+        context: LiveReplayLeaderboardContext,
+        bucketIndex: Int,
+        currentSteps: Int
+    ) async -> WindowStanding {
+        async let runningAheadCount = optionalCountRowsAhead(
+            context: context,
+            bucketIndex: bucketIndex,
+            currentSteps: currentSteps
+        )
+        async let finishedAheadCount = optionalCountFinishedRowsAhead(
+            context: context,
+            bucketIndex: bucketIndex,
+            currentSteps: currentSteps
+        )
+        // Two questions about the climber, asked side by side rather than one
+        // behind the other. Whether they join the field belongs to the finisher
+        // document, because that is what the denominator counts. Whether there
+        // is a ghost to take back out, and where this run places among their
+        // own, belongs to their own rows - which a first-time climber has none
+        // of, so that path costs them one session-cached lookup and no per-tick
+        // read. A climber who holds no finisher document holds no published
+        // row either, both being written in one transaction, so the two never
+        // disagree about whether there is a history at all.
+        async let alreadyInField = optionalCurrentUserIsFinisher(context: context)
+        let ownHistory = await ownClimbHistory(
+            context: context,
+            bucketIndex: bucketIndex,
+            currentSteps: currentSteps
+        )
+
+        return WindowStanding(
+            runningAheadCount: await runningAheadCount,
+            finishedAheadCount: await finishedAheadCount,
+            joiningClimber: await alreadyInField ? 0 : 1,
+            ownGhostAhead: ownHistory.ghostAhead,
+            ownClimbs: ownHistory.placing,
+            ownPreviousCompletionRow: ownHistory.ghostRow
         )
     }
 
@@ -456,7 +696,8 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         bucketIndex: Int,
         currentSteps: Int,
         direction: WindowDirection,
-        limit: Int
+        limit: Int,
+        currentUserId: String?
     ) async throws -> [LiveReplayLeaderboardRow] {
         guard limit > 0 else { return [] }
 
@@ -476,7 +717,6 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
                 .limit(to: limit)
         }
 
-        let currentUserId = collapsingBoardUserId(context: context)
         let snapshot = try await query.getDocuments(source: .server)
         return snapshot.documents.compactMap { document in
             parseRow(
@@ -488,51 +728,58 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         }
     }
 
-    /// The signed-in climber's id, but only on a board that collapses repeat
-    /// finishers.
-    ///
-    /// That allowlist is the whole scope of the previous-best marker: a per-climb
-    /// or per-routine-template board races one row per climber, so a row of the
-    /// climber's own is their previous best. Just Climb and a plain routine race
-    /// every completed attempt as its own opponent, and withdrawing the climber's
-    /// own attempts there would delete rivals the board is meant to hold.
-    private func collapsingBoardUserId(
-        context: LiveReplayLeaderboardContext
-    ) -> String? {
-        guard context.type.collapsesRepeatFinishers else { return nil }
-        return Auth.auth().currentUser?.uid
-    }
-
-    /// The climber's own entry on this board, read straight by owner rather than
-    /// hoped for inside the fetched page.
+    /// The climber's own entry on this board at this bucket, read straight by
+    /// owner rather than hoped for inside the fetched page.
     ///
     /// The window holds at most eight rows either side of the climber, so a
     /// previous best further away than that used to vanish from the board and
-    /// take the `BEST` marker with it mid-race. A collapsing board stores exactly
-    /// one entry per climber, so this is a single-document read that always finds
-    /// it - and it is what the rank and the field size are corrected by.
+    /// take the `BEST` marker with it mid-race. Every board flags exactly one
+    /// entry per climber now, so this is addressed by document on every context
+    /// type - the marker's position never depends on what the page happens to
+    /// hold, on an open Just Climb as much as on a tower. It is also the one row
+    /// `ownGhostAhead` is decided from, so the row the marker draws and the row
+    /// the rank withdraws are the same row.
+    ///
+    /// An attempt writes one entry per bucket it ran for and not one more, so a
+    /// best already home by this bucket is absent from it and is held at its
+    /// final steps instead - exactly as the finished half of the window holds
+    /// every other finisher. The stored span says so without a read: once it
+    /// places the best home, every later bucket is answered from the cached row
+    /// alone. A row absent where its span says it should still be running, or
+    /// absent with no stored span at all, reads as no ghost, which is what the
+    /// finished half's predicate reads for it too.
     private func fetchOwnPreviousCompletionRow(
         context: LiveReplayLeaderboardContext,
+        userId: String,
         bucketIndex: Int,
         currentSteps: Int
     ) async throws -> LiveReplayLeaderboardRow? {
-        guard let currentUserId = collapsingBoardUserId(context: context) else {
+        guard let ghost = try await ownGhost(context: context, userId: userId) else {
             return nil
         }
+        guard bucketIndex > 0 else {
+            return ghost.row.rebased(currentSteps: currentSteps)
+        }
+        if let splitBucketCount = ghost.splitBucketCount, splitBucketCount <= bucketIndex {
+            return ghost.row.holdingFinalSteps(currentSteps: currentSteps)
+        }
 
-        let snapshot = try await liveRaceEntries(context: context, bucketIndex: bucketIndex)
-            .whereField("userId", isEqualTo: currentUserId)
-            .limit(to: 1)
-            .getDocuments(source: .server)
+        let atThisBucket = try await entriesCollection(
+            context: context,
+            bucketIndex: bucketIndex
+        )
+        .document(ghost.row.id)
+        .getDocument(source: .server)
+        .data()
 
-        return snapshot.documents.lazy.compactMap { document in
-            self.parseRow(
-                id: document.documentID,
-                data: document.data(),
-                currentSteps: currentSteps,
-                currentUserId: currentUserId
-            )
-        }.first
+        guard let atThisBucket else { return nil }
+
+        return parseRow(
+            id: ghost.row.id,
+            data: atThisBucket,
+            currentSteps: currentSteps,
+            currentUserId: userId
+        )
     }
 
     /// The same read, served from the last bucket's answer where it still applies.
@@ -542,17 +789,16 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     /// client rather than a re-read - so the periodic refresh, which runs more
     /// often than the bucket advances, was paying for the same document twice.
     /// Only the row's gap to the live climber is re-derived. A read that failed is
-    /// never cached, so the next refresh tries again.
+    /// never cached, so the next refresh tries again - and it is reported, since
+    /// a ghost that could not be read subtracts nothing from the rank, which is
+    /// the rank this board reported before the correction existed.
     private func optionalOwnPreviousCompletionRow(
         context: LiveReplayLeaderboardContext,
+        userId: String,
         bucketIndex: Int,
         currentSteps: Int
     ) async -> LiveReplayLeaderboardRow? {
-        guard let currentUserId = collapsingBoardUserId(context: context) else {
-            return nil
-        }
-
-        let key = "\(currentUserId)|\(context.contextKey)|\(max(bucketIndex, 0))"
+        let key = "\(userId)|\(context.contextKey)|\(max(bucketIndex, 0))"
         if let cached = ownPreviousCompletionCache.withLock({ $0 }), cached.key == key {
             return cached.row?.rebased(currentSteps: currentSteps)
         }
@@ -560,6 +806,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         do {
             let row = try await fetchOwnPreviousCompletionRow(
                 context: context,
+                userId: userId,
                 bucketIndex: bucketIndex,
                 currentSteps: currentSteps
             )
@@ -568,17 +815,369 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             }
             return row
         } catch {
+            reportFinishedRowFailure(
+                error,
+                read: .ownGhost,
+                context: context,
+                bucketIndex: bucketIndex
+            )
             return nil
         }
     }
 
+    /// The climber's flagged best on this board, read once per session.
+    ///
+    /// Bounded to one document: the server flags exactly one entry per climber,
+    /// so this is a lookup rather than a scan however long their history is.
+    private func ownGhost(
+        context: LiveReplayLeaderboardContext,
+        userId: String
+    ) async throws -> OwnGhost? {
+        let key = Self.ownHistoryKey(userId: userId, context: context)
+        if let cached = ownHistoryCache.withLock({ $0 }),
+           cached.key == key,
+           let lookup = cached.ghost {
+            return lookup.ghost
+        }
+
+        let snapshot = try await liveRaceEntries(context: context, bucketIndex: 0)
+            .whereField("userId", isEqualTo: userId)
+            .limit(to: 1)
+            .getDocuments(source: .server)
+        let ghost = snapshot.documents.lazy.compactMap { document -> OwnGhost? in
+            guard let row = self.parseRow(
+                id: document.documentID,
+                data: document.data(),
+                currentSteps: 0,
+                currentUserId: userId
+            ) else {
+                return nil
+            }
+
+            return OwnGhost(
+                row: row,
+                splitBucketCount: self.intValue(for: "splitBucketCount", in: document.data())
+            )
+        }.first
+
+        rememberOwnHistory(key: key, .ghost(ghost))
+        return ghost
+    }
+
+    /// How many attempts the climber has published on this board - every run of
+    /// theirs, flagged or not - read once per session.
+    private func publishedAttemptCount(
+        context: LiveReplayLeaderboardContext,
+        userId: String
+    ) async throws -> Int {
+        let key = Self.ownHistoryKey(userId: userId, context: context)
+        if let cached = ownHistoryCache.withLock({ $0 }),
+           cached.key == key,
+           let count = cached.publishedAttemptCount {
+            return count
+        }
+
+        let count = try await countOf(ownEntries(context: context, bucketIndex: 0, userId: userId))
+        rememberOwnHistory(key: key, .publishedAttemptCount(count))
+        return count
+    }
+
+    private static func ownHistoryKey(
+        userId: String,
+        context: LiveReplayLeaderboardContext
+    ) -> String {
+        "\(userId)|\(context.contextKey)"
+    }
+
+    private func rememberOwnHistory(key: String, _ fact: OwnHistoryFact) {
+        ownHistoryCache.withLock { cache in
+            var next = cache.flatMap { $0.key == key ? $0 : nil } ?? OwnHistoryCache(key: key)
+            switch fact {
+            case .ghost(let ghost):
+                next.ghost = OwnGhostLookup(ghost: ghost)
+            case .publishedAttemptCount(let count):
+                next.publishedAttemptCount = count
+            }
+            cache = next
+        }
+    }
+
+    /// Forgets what the last session learned about the climber's own rows.
+    ///
+    /// Those rows are stable for the length of one session and no longer: the
+    /// attempt that just ended publishes a new one, and a workout deleted between
+    /// sessions takes one away. A second session on the same board therefore
+    /// reads them afresh, rather than placing the run on the machine against a
+    /// history that is missing the run it just finished.
+    func beginLiveSession() {
+        ownHistoryCache.withLock { $0 = nil }
+        ownPreviousCompletionCache.withLock { $0 = nil }
+    }
+
     /// Drops everything this repository holds on behalf of one climber.
     ///
-    /// A signed-in uid in the cache key stops the next account reading this one's
-    /// row, but it leaves it resident in a process-wide singleton that outlives
-    /// the store wipe - so the session's end empties it as well.
+    /// A signed-in uid in every key stops the next account reading this one's
+    /// rows, but it leaves them resident in a process-wide singleton that
+    /// outlives the store wipe - so the session's end empties them as well.
     func clearAccountScopedCaches() {
         ownPreviousCompletionCache.withLock { $0 = nil }
+        ownHistoryCache.withLock { $0 = nil }
+        knownFinisherClimbers.withLock { $0.removeAll() }
+    }
+
+    /// The attempts that have already finished by this bucket, each held at the
+    /// step count it finished on.
+    ///
+    /// A published attempt writes one entry per bucket it ran for and not one
+    /// more, so from the bucket after it completes it is absent from the board
+    /// entirely. Reading only the current bucket therefore erased every rival
+    /// who had already finished - the climber's own earlier completion first of
+    /// all - and promoted the attempt still running to first place. A finisher
+    /// does not leave the race; it holds its final steps for the rest of it.
+    ///
+    /// Both sides of the window need it. A landmark climb hides the behind half
+    /// of the defect, because every completion is at or past the target and so
+    /// stands ahead until the climber overshoots; an open Just Climb has no
+    /// target at all, so a rival who stopped at 200 steps vanishes the moment
+    /// the climber passes 200 - the same disappearance, below the row instead of
+    /// above it.
+    private func finishedRowsQuery(
+        context: LiveReplayLeaderboardContext,
+        bucketIndex: Int,
+        currentSteps: Int,
+        direction: WindowDirection
+    ) -> Query {
+        // `splitBucketCount` is the exact count of buckets an entry was written
+        // to, so this predicate is the precise complement of "present in this
+        // bucket": no attempt can be read as both running and finished, and none
+        // can fall between the two.
+        let entries = liveRaceEntries(context: context, bucketIndex: 0)
+
+        switch direction {
+        case .ahead:
+            return Self.finishedAhead(
+                entries,
+                bucketIndex: bucketIndex,
+                currentSteps: currentSteps
+            )
+        case .behind:
+            return entries
+                .whereField("splitBucketCount", isLessThanOrEqualTo: bucketIndex)
+                .whereField("finalSteps", isLessThan: currentSteps)
+                .order(by: "finalSteps", descending: true)
+                .order(by: "splitBucketCount", descending: true)
+        }
+    }
+
+    /// "Already home by this bucket, and standing at or beyond these steps."
+    ///
+    /// One owner, applied to whichever entries a caller is asking about - the
+    /// flagged race field, or one climber's own attempts. A second spelling of
+    /// this pair would let the climber's placing count rows the race never did.
+    ///
+    /// The ordering is part of the predicate rather than left to each caller,
+    /// including the aggregations that do not need rows back. Two inequality
+    /// fields have to lead the `orderBy`, and the composite index has to list
+    /// them in that same order - so a caller that stated no order would leave
+    /// the required index to be inferred, and the Firestore emulator does not
+    /// enforce composite indexes, meaning a wrong guess passes every local and
+    /// CI check and fails first in production as `FAILED_PRECONDITION`. Stated
+    /// here once, every index this needs is `<equality field>, finalSteps ASC,
+    /// splitBucketCount ASC` and can be read off without running anything.
+    private static func finishedAhead(
+        _ entries: Query,
+        bucketIndex: Int,
+        currentSteps: Int
+    ) -> Query {
+        entries
+            .whereField("splitBucketCount", isLessThanOrEqualTo: bucketIndex)
+            .whereField("finalSteps", isGreaterThanOrEqualTo: currentSteps)
+            .order(by: "finalSteps", descending: false)
+            .order(by: "splitBucketCount", descending: false)
+    }
+
+    private func fetchFinishedRows(
+        context: LiveReplayLeaderboardContext,
+        bucketIndex: Int,
+        currentSteps: Int,
+        direction: WindowDirection,
+        limit: Int,
+        currentUserId: String?
+    ) async throws -> [LiveReplayLeaderboardRow] {
+        guard limit > 0, bucketIndex > 0 else { return [] }
+
+        let snapshot = try await finishedRowsQuery(
+            context: context,
+            bucketIndex: bucketIndex,
+            currentSteps: currentSteps,
+            direction: direction
+        )
+        .limit(to: limit)
+        .getDocuments(source: .server)
+
+        return snapshot.documents.compactMap { document in
+            parseRow(
+                id: document.documentID,
+                data: document.data(),
+                currentSteps: currentSteps,
+                currentUserId: currentUserId
+            )?.holdingFinalSteps(currentSteps: currentSteps)
+        }
+    }
+
+    private func countFinishedRowsAhead(
+        context: LiveReplayLeaderboardContext,
+        bucketIndex: Int,
+        currentSteps: Int
+    ) async throws -> Int {
+        guard bucketIndex > 0 else { return 0 }
+
+        let snapshot = try await finishedRowsQuery(
+            context: context,
+            bucketIndex: bucketIndex,
+            currentSteps: currentSteps,
+            direction: .ahead
+        )
+        .count
+        .getAggregation(source: .server)
+        return snapshot.count.intValue
+    }
+
+    /// A window row and whether it is already home, which steps alone cannot say.
+    private struct MergeableRow {
+        let row: LiveReplayLeaderboardRow
+        let isFinished: Bool
+    }
+
+    private static func mergeable(
+        running: [LiveReplayLeaderboardRow],
+        finished: [LiveReplayLeaderboardRow]
+    ) -> [MergeableRow] {
+        running.map { MergeableRow(row: $0, isFinished: false) } +
+            finished.map { MergeableRow(row: $0, isFinished: true) }
+    }
+
+    /// The value a window row is ranked on, in the board's own metric. A row
+    /// carrying no value for it sorts last in either direction, so a running
+    /// attempt can never borrow a rank from a number it has not produced.
+    private static func windowRankingValue(
+        _ row: LiveReplayLeaderboardRow,
+        metric: LiveReplayRankingMetric
+    ) -> Double {
+        switch metric {
+        case .fastestCompletion:
+            return row.completionDurationSeconds ?? .greatestFiniteMagnitude
+        case .mostSteps:
+            return Double(row.finalSteps)
+        }
+    }
+
+    /// Whether `lhs` is the better attempt of two rows tied on steps, or nil when
+    /// nothing but the document ID separates them.
+    ///
+    /// A live climb clamps every recorded step count to the target and the
+    /// server publishes only a target-reached stop, so every finisher on a climb
+    /// board holds *exactly* the target: ties on steps are not the edge case
+    /// there, they are the only case, and ordering them on document ID threw
+    /// away the speed ordering the query had already produced. The board's own
+    /// `rankingMetric` settles them instead - the same value the panel's field
+    /// line names, so the ordering and the label cannot disagree. An attempt
+    /// already home always leads one still running, whatever the metric says.
+    private static func isBetterOnTie(
+        _ lhs: MergeableRow,
+        _ rhs: MergeableRow,
+        metric: LiveReplayRankingMetric
+    ) -> Bool? {
+        if lhs.isFinished != rhs.isFinished {
+            return lhs.isFinished
+        }
+
+        let lhsValue = windowRankingValue(lhs.row, metric: metric)
+        let rhsValue = windowRankingValue(rhs.row, metric: metric)
+        guard lhsValue != rhsValue else { return nil }
+
+        return metric.ranksHighestFirst ? lhsValue > rhsValue : lhsValue < rhsValue
+    }
+
+    /// The rows standing ahead of the live attempt, nearest first.
+    ///
+    /// Both halves arrive sorted by steps ascending - the running half from the
+    /// bucket query, the finished half from its own - so this is a merge of two
+    /// sorted runs, and the window keeps the `limit` nearest, which is the head.
+    /// A board with more finishers than the window holds shows the ones the
+    /// climber is actually closing on, not the leaders.
+    ///
+    /// `fetchWindow` reverses this half before ranking it, so rows tied on steps
+    /// are ordered worst first: the better attempt ends up nearest rank 1.
+    static func mergedAheadRows(
+        running: [LiveReplayLeaderboardRow],
+        finished: [LiveReplayLeaderboardRow],
+        limit: Int,
+        metric: LiveReplayRankingMetric
+    ) -> [LiveReplayLeaderboardRow] {
+        guard limit > 0 else { return [] }
+        guard !finished.isEmpty else { return Array(running.prefix(limit)) }
+
+        let merged = mergeable(running: running, finished: finished)
+            .sorted { lhs, rhs in
+                guard lhs.row.stepsAtBucket == rhs.row.stepsAtBucket else {
+                    return lhs.row.stepsAtBucket < rhs.row.stepsAtBucket
+                }
+                guard let lhsIsBetter = isBetterOnTie(lhs, rhs, metric: metric) else {
+                    return lhs.row.id < rhs.row.id
+                }
+                return !lhsIsBetter
+            }
+        return merged.prefix(limit).map(\.row)
+    }
+
+    /// The rows standing behind the live attempt, nearest first.
+    ///
+    /// The twin of `mergedAheadRows`, sorted the other way: both halves arrive
+    /// descending by steps, and the window keeps the `limit` nearest, which is
+    /// again the head. Rank never consults this side - it is `aheadCount + 1` -
+    /// so the finished rows below cost a fetch and no count.
+    ///
+    /// This half is ranked in the order it comes out, so rows tied on steps are
+    /// ordered best first - the opposite orientation to the ahead half.
+    static func mergedBehindRows(
+        running: [LiveReplayLeaderboardRow],
+        finished: [LiveReplayLeaderboardRow],
+        limit: Int,
+        metric: LiveReplayRankingMetric
+    ) -> [LiveReplayLeaderboardRow] {
+        guard limit > 0 else { return [] }
+        guard !finished.isEmpty else { return Array(running.prefix(limit)) }
+
+        let merged = mergeable(running: running, finished: finished)
+            .sorted { lhs, rhs in
+                guard lhs.row.stepsAtBucket == rhs.row.stepsAtBucket else {
+                    return lhs.row.stepsAtBucket > rhs.row.stepsAtBucket
+                }
+                guard let lhsIsBetter = isBetterOnTie(lhs, rhs, metric: metric) else {
+                    return lhs.row.id < rhs.row.id
+                }
+                return lhsIsBetter
+            }
+        return merged.prefix(limit).map(\.row)
+    }
+
+    /// How many attempts stand ahead of the live one: those still running that
+    /// are further up this bucket, plus every attempt already home.
+    ///
+    /// Both halves or neither. Summing a real count with a fallback would report
+    /// a rank measured against a population that was never counted, so a failed
+    /// read falls back to the rows actually on screen.
+    static func aheadCount(
+        running: Int?,
+        finished: Int?,
+        ownGhostAhead: Int,
+        fetchedRows: [LiveReplayLeaderboardRow]
+    ) -> Int {
+        guard let running, let finished else {
+            return fetchedRows.filter { !$0.isCurrentUser }.count
+        }
+        return max(running + finished - ownGhostAhead, 0)
     }
 
     private func countRowsAhead(
@@ -604,15 +1203,15 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         return snapshot.count.intValue
     }
 
-    /// Counts the live race field: distinct climbers where a context collapses
-    /// repeat finishers, every completed attempt where it does not.
-    private func countLiveRaceRows(
-        context: LiveReplayLeaderboardContext,
-        bucketIndex: Int
+    /// Counts the climbers standing on this board - one finisher document each,
+    /// the same population the summary's `totalClimbers` carries, written in the
+    /// same transaction as the row that produced it.
+    private func countFinishers(
+        context: LiveReplayLeaderboardContext
     ) async throws -> Int {
-        let query = liveRaceEntries(context: context, bucketIndex: bucketIndex)
-
-        let snapshot = try await query.count.getAggregation(source: .server)
+        let snapshot = try await finishersCollection(context: context)
+            .count
+            .getAggregation(source: .server)
         return snapshot.count.intValue
     }
 
@@ -654,6 +1253,89 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         return snapshot.count.intValue
     }
 
+    /// Counts the climbers whose standing best leads one value.
+    ///
+    /// The `countRowsBetterThan` twin for a board that ranks climbers: the same
+    /// strict inequality, applied to the one finisher document each climber
+    /// holds, so climbers tied on the metric still share a rank and a repeat
+    /// finisher is one rival rather than several.
+    ///
+    /// A single-field inequality, which Firestore indexes by default - declare
+    /// no composite index for it, and never let a field override strip
+    /// `finishers.bestCompletionDurationSeconds` or `finishers.bestFinalSteps`
+    /// of that default index.
+    private func countFinishersBetterThan(
+        context: LiveReplayLeaderboardContext,
+        rankingValue: Double
+    ) async throws -> Int {
+        let metric = context.type.rankingMetric
+        let finishers = finishersCollection(context: context)
+        let query = metric.ranksHighestFirst
+            ? finishers.whereField(metric.finisherBestField, isGreaterThan: rankingValue)
+            : finishers.whereField(metric.finisherBestField, isLessThan: rankingValue)
+
+        let snapshot = try await query.count.getAggregation(source: .server)
+        return snapshot.count.intValue
+    }
+
+    /// The signed-in climber's finisher document, when they hold one.
+    ///
+    /// Its presence answers whether they already stand in the field; its stored
+    /// best is the value that decides whether they stand ahead of the attempt
+    /// being ranked. Both answers come from the same document as the count they
+    /// are used beside.
+    private struct CurrentUserFinisher {
+        let storedBest: Double?
+    }
+
+    private func currentUserFinisher(
+        context: LiveReplayLeaderboardContext
+    ) async throws -> CurrentUserFinisher? {
+        guard let uid = Auth.auth().currentUser?.uid else {
+            return nil
+        }
+
+        let snapshot = try await finisherDocument(context: context, userId: uid)
+            .getDocument(source: .server)
+        guard let data = snapshot.data() else {
+            return nil
+        }
+
+        return CurrentUserFinisher(
+            storedBest: doubleValue(
+                for: context.type.rankingMetric.finisherBestField,
+                in: data
+            )
+        )
+    }
+
+    /// The signed-in climber's best completion row on this board, or nil when
+    /// they hold none.
+    ///
+    /// Ties on the metric resolve on document ID, which is the immutable workout ID,
+    /// so every recompute picks the same winner instead of jittering between them.
+    private func currentUserBestCompletionDocument(
+        context: LiveReplayLeaderboardContext
+    ) async throws -> QueryDocumentSnapshot? {
+        guard let uid = Auth.auth().currentUser?.uid else {
+            return nil
+        }
+
+        let snapshot = try await entriesCollection(context: context, bucketIndex: 0)
+            .whereField("userId", isEqualTo: uid)
+            .getDocuments(source: .server)
+        let metric = context.type.rankingMetric
+
+        return snapshot.documents.min { lhs, rhs in
+            let lhsValue = rankingValue(for: metric, in: lhs.data())
+            let rhsValue = rankingValue(for: metric, in: rhs.data())
+            if lhsValue == rhsValue {
+                return lhs.documentID < rhs.documentID
+            }
+            return metric.ranksHighestFirst ? lhsValue > rhsValue : lhsValue < rhsValue
+        }
+    }
+
     private func countRowsMatching(
         context: LiveReplayLeaderboardContext,
         rankingValue: Double
@@ -665,18 +1347,208 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         return snapshot.count.intValue
     }
 
-    private func currentUserHasPublishedCompletion(
+    /// Whether the climber already stands in the field this board's denominator
+    /// counts.
+    ///
+    /// Asked of `finishers`, because that is what the denominator counts: the
+    /// summary's `totalClimbers` is the server's `completedCount`, one per
+    /// finisher document. Asking `entries` instead could disagree with it -
+    /// `deleteReplayEntriesForId` takes a climber's rows back out when a workout
+    /// is deleted or becomes ineligible, while the finisher document is only
+    /// ever created or merged and `completedCount` never decreases - so a
+    /// climber who deleted the workout behind their only completion would be
+    /// added to a total that already counted them.
+    private func currentUserIsFinisher(
         context: LiveReplayLeaderboardContext
     ) async throws -> Bool {
         guard let uid = Auth.auth().currentUser?.uid else {
             return false
         }
 
-        let snapshot = try await entriesCollection(context: context, bucketIndex: 0)
-            .whereField("userId", isEqualTo: uid)
-            .limit(to: 1)
-            .getDocuments(source: .server)
-        return snapshot.documents.isEmpty == false
+        return try await finisherDocument(context: context, userId: uid)
+            .getDocument(source: .server)
+            .exists
+    }
+
+    /// Everything the window needs to know about the climber's own history on
+    /// this board.
+    private struct OwnClimbHistory {
+        /// The climber's own collapsed best at this bucket, or nil when they
+        /// hold none - or when the read that finds it could not answer.
+        let ghostRow: LiveReplayLeaderboardRow?
+        /// 1 while the climber's own collapsed best stands ahead of them, 0
+        /// otherwise. A climber races their own ghost; they never compete with
+        /// it, so it is not one of the rivals the numerator counts.
+        let ghostAhead: Int
+        let placing: LiveReplayPersonalPlacing?
+
+        /// A read that could not answer subtracts nothing and states no placing,
+        /// because an ordinal nothing measured is the thing this must never show.
+        static let unresolved = OwnClimbHistory(ghostRow: nil, ghostAhead: 0, placing: nil)
+    }
+
+    /// Whether the climber's own collapsed best stands ahead of them right now.
+    ///
+    /// Decided from the same row the `BEST` marker draws, on the same inequality
+    /// both ahead reads apply: a row still running is counted by the running
+    /// half at its steps this bucket, one already home by the finished half at
+    /// its final steps, and `holdingFinalSteps` is what puts the second at the
+    /// steps the row now carries. A row subtracted here that the aggregations
+    /// never counted would seat the climber a place too high.
+    static func ghostAhead(
+        _ ghostRow: LiveReplayLeaderboardRow?,
+        currentSteps: Int
+    ) -> Int {
+        guard let ghostRow, ghostRow.stepsAtBucket >= currentSteps else { return 0 }
+        return 1
+    }
+
+    /// Answers both questions the window asks about the climber's own history.
+    ///
+    /// Every read here is bounded by construction rather than by how much the
+    /// climber has climbed. `just_climb__global` is one board every open session
+    /// in the app publishes to, so a list of "this climber's own entries" grows
+    /// without bound and would be paid for on every bucket of every race - the
+    /// hazard the project guide names as a query whose cost grows with the
+    /// user's history. The ghost is a single flagged document by construction,
+    /// and the placing needs two numbers rather than any documents, so it is
+    /// counted. Both start from facts about the climber's own published rows
+    /// that a session reads once (`ownGhost`, `publishedAttemptCount`); only
+    /// the per-bucket position and the two placing counts move with the race.
+    ///
+    /// Two answers, two failure paths, deliberately not shared. They feed
+    /// different numbers - the ghost comes out of the leaderboard rank, the
+    /// placing is its own ordinal - and are never mixed, so one failing must not
+    /// cost the other. Sharing a `catch` meant a failed placing count silently
+    /// zeroed the ghost subtraction, which is exactly the pre-fix behaviour:
+    /// the solo repeat climber goes back to being ranked behind their own best.
+    ///
+    /// "Never assemble a real count with a fallback" governs the placing's own
+    /// two halves, which are summed into one ordinal. It does not reach across
+    /// to the ghost.
+    private func ownClimbHistory(
+        context: LiveReplayLeaderboardContext,
+        bucketIndex: Int,
+        currentSteps: Int
+    ) async -> OwnClimbHistory {
+        guard let uid = Auth.auth().currentUser?.uid else { return .unresolved }
+
+        async let ghostRow = optionalOwnPreviousCompletionRow(
+            context: context,
+            userId: uid,
+            bucketIndex: bucketIndex,
+            currentSteps: currentSteps
+        )
+        async let placing = optionalOwnClimbPlacing(
+            context: context,
+            userId: uid,
+            bucketIndex: bucketIndex,
+            currentSteps: currentSteps
+        )
+
+        let resolvedGhostRow = await ghostRow
+        return OwnClimbHistory(
+            ghostRow: resolvedGhostRow,
+            ghostAhead: Self.ghostAhead(resolvedGhostRow, currentSteps: currentSteps),
+            placing: await placing
+        )
+    }
+
+    /// A placing that could not be counted states no ordinal at all, because an
+    /// ordinal nothing measured is the thing this must never show.
+    private func optionalOwnClimbPlacing(
+        context: LiveReplayLeaderboardContext,
+        userId: String,
+        bucketIndex: Int,
+        currentSteps: Int
+    ) async -> LiveReplayPersonalPlacing? {
+        do {
+            return try await ownClimbPlacing(
+                context: context,
+                userId: userId,
+                bucketIndex: bucketIndex,
+                currentSteps: currentSteps
+            )
+        } catch {
+            reportFinishedRowFailure(
+                error,
+                read: .ownClimbPlacing,
+                context: context,
+                bucketIndex: bucketIndex
+            )
+            return nil
+        }
+    }
+
+    /// Where the run on the machine places among this climber's own climbs.
+    ///
+    /// Counted on the same two ahead predicates the race field is counted on, so
+    /// an attempt of theirs can never be placed ahead of them here while the
+    /// window reads it as behind. The race rows cannot answer this: they are
+    /// collapsed to one row per climber, so the climber's second-best run is not
+    /// on the board at all.
+    ///
+    /// The denominator is the session-cached count of their published attempts,
+    /// so a climber with no run here is first of one without a further read, and
+    /// a repeat climber pays the two ahead counts per tick and nothing else.
+    private func ownClimbPlacing(
+        context: LiveReplayLeaderboardContext,
+        userId: String,
+        bucketIndex: Int,
+        currentSteps: Int
+    ) async throws -> LiveReplayPersonalPlacing {
+        let published = try await publishedAttemptCount(context: context, userId: userId)
+        guard published > 0 else { return .firstClimb }
+
+        async let runningAhead = countOf(
+            ownEntries(context: context, bucketIndex: bucketIndex, userId: userId)
+                .whereField("stepsAtBucket", isGreaterThanOrEqualTo: currentSteps)
+        )
+        async let finishedAhead = ownFinishedAheadCount(
+            context: context,
+            userId: userId,
+            bucketIndex: bucketIndex,
+            currentSteps: currentSteps
+        )
+
+        let ahead = try await runningAhead + (try await finishedAhead)
+
+        return LiveReplayPersonalPlacing(
+            placing: ahead + 1,
+            total: published + 1
+        )
+    }
+
+    private func ownFinishedAheadCount(
+        context: LiveReplayLeaderboardContext,
+        userId: String,
+        bucketIndex: Int,
+        currentSteps: Int
+    ) async throws -> Int {
+        guard bucketIndex > 0 else { return 0 }
+
+        return try await countOf(
+            Self.finishedAhead(
+                ownEntries(context: context, bucketIndex: 0, userId: userId),
+                bucketIndex: bucketIndex,
+                currentSteps: currentSteps
+            )
+        )
+    }
+
+    /// This climber's own entries in one bucket, deliberately unfiltered by
+    /// `isBestForUser` - a question about their history sees every run of it.
+    private func ownEntries(
+        context: LiveReplayLeaderboardContext,
+        bucketIndex: Int,
+        userId: String
+    ) -> Query {
+        entriesCollection(context: context, bucketIndex: bucketIndex)
+            .whereField("userId", isEqualTo: userId)
+    }
+
+    private func countOf(_ query: Query) async throws -> Int {
+        try await query.count.getAggregation(source: .server).count.intValue
     }
 
     private func optionalCountRowsAhead(
@@ -695,28 +1567,132 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         }
     }
 
-    private func optionalCountLiveRaceRows(
+    /// Reports a swallowed finished-row read, at most once per read per session,
+    /// and only when the failure is the deployment fact this exists to surface.
+    ///
+    /// `debugLog` is compiled out of Staging and Release, and Release is exactly
+    /// the build where a composite index that has not been deployed yet makes
+    /// this swallowed error the live path, so the report has to reach
+    /// Crashlytics too. The bound is what keeps it off the App Hang path.
+    ///
+    /// The same reads fail for ordinary loss of signal, and a climber who drops
+    /// out mid-climb is not news: `LiveReplayFinishedRowDiagnostics` declines
+    /// those before the budget is touched, so a transient failure neither
+    /// reaches Crashlytics nor spends the one report a missing index later in
+    /// the same session would need.
+    private func reportFinishedRowFailure(
+        _ error: Error,
+        read: LiveReplayFinishedRowRead,
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int
-    ) async -> Int? {
+    ) {
+        debugLog(
+            "Live replay finished-row read \(read.rawValue) failed for " +
+            "\(context.contextKey) bucket \(bucketIndex): \(error.localizedDescription)"
+        )
+
+        guard finishedRowDiagnostics.withLock({ $0.shouldReport(read, failing: error) }) else {
+            return
+        }
+
+        TelemetryManager.shared.recordError(
+            error,
+            context: .firestore,
+            code: read.rawValue,
+            additionalInfo: ["contextType": context.type.rawValue]
+        )
+    }
+
+    /// Swallowing the error is the point - the board keeps racing without the
+    /// rivals already home - but a swallowed error and an empty finished field
+    /// look identical, and the likeliest cause is the composite index this read
+    /// needs not being deployed yet, which degrades straight back into the
+    /// vanishing-rows defect. Say which it was.
+    private func optionalFetchFinishedRows(
+        context: LiveReplayLeaderboardContext,
+        bucketIndex: Int,
+        currentSteps: Int,
+        direction: WindowDirection,
+        limit: Int,
+        currentUserId: String?
+    ) async -> [LiveReplayLeaderboardRow] {
         do {
-            return try await countLiveRaceRows(
+            return try await fetchFinishedRows(
+                context: context,
+                bucketIndex: bucketIndex,
+                currentSteps: currentSteps,
+                direction: direction,
+                limit: limit,
+                currentUserId: currentUserId
+            )
+        } catch {
+            reportFinishedRowFailure(
+                error,
+                read: direction == .ahead ? .aheadFetch : .behindFetch,
                 context: context,
                 bucketIndex: bucketIndex
             )
+            return []
+        }
+    }
+
+    private func optionalCountFinishedRowsAhead(
+        context: LiveReplayLeaderboardContext,
+        bucketIndex: Int,
+        currentSteps: Int
+    ) async -> Int? {
+        do {
+            return try await countFinishedRowsAhead(
+                context: context,
+                bucketIndex: bucketIndex,
+                currentSteps: currentSteps
+            )
         } catch {
+            reportFinishedRowFailure(
+                error,
+                read: .aheadCount,
+                context: context,
+                bucketIndex: bucketIndex
+            )
             return nil
         }
     }
 
-    /// Parses one live-race entry.
+    /// A read that could not answer reports the climber as already standing in
+    /// the field, so the denominator never gains a climber nothing measured.
     ///
-    /// `currentUserId` is what lets an entry the signed-in climber published
-    /// earlier be told apart from a rival's. It is not drawn as a row: a
-    /// per-climb board collapses each climber to their best, so this is the
-    /// climber's previous best, and the board renders it as the `BEST` marker
-    /// inside their own row instead. Before that distinction existed the row
-    /// rendered as a stranger with the climber's own name on it.
+    /// `fetchWindow` asks this on a ~10s bucket clock for the whole of a race
+    /// and is forced more often than that, so a settled answer is remembered:
+    /// a finisher document is only ever created or merged, which makes a
+    /// positive permanent for the life of the process. A negative is never
+    /// cached, because this climber's own attempt writes that document at the
+    /// end of the session and a remembered "not in the field yet" would add a
+    /// phantom climber to the denominator of their next climb on the same board.
+    private func optionalCurrentUserIsFinisher(
+        context: LiveReplayLeaderboardContext
+    ) async -> Bool {
+        let key = Auth.auth().currentUser.map { "\($0.uid)__\(context.contextKey)" }
+        if let key, knownFinisherClimbers.withLock({ $0.contains(key) }) {
+            return true
+        }
+
+        guard let isFinisher = try? await currentUserIsFinisher(context: context) else {
+            return true
+        }
+
+        if isFinisher, let key {
+            knownFinisherClimbers.withLock { $0.insert(key) }
+        }
+
+        return isFinisher
+    }
+
+    /// One live-race row.
+    ///
+    /// `currentUserId` is what makes a climber's own earlier completion read as
+    /// theirs. Without it every published row was parsed as a stranger, so a
+    /// repeat climber raced a row that wore initials, a demographic subtitle and
+    /// a link to a stranger's profile - their own.
     private func parseRow(
         id: String,
         data: [String: Any],
@@ -730,13 +1706,15 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         let userId = (data["userId"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty
+        let isCurrentUser = userId != nil && userId == currentUserId
         let isSynthetic = isTrustedSyntheticRecord(data)
         let identity = PublicClimberIdentity.resolve(
             userId: userId,
             storedDisplayName: data["displayName"] as? String,
             storedPhotoURL: photoURLValue(for: "photoURL", in: data),
             storedAvatarToken: data["avatarToken"] as? String,
-            isSynthetic: isSynthetic
+            isSynthetic: isSynthetic,
+            isCurrentUser: isCurrentUser
         )
 
         return LiveReplayLeaderboardRow(
@@ -748,8 +1726,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             stepsAtBucket: stepsAtBucket,
             finalSteps: intValue(for: "finalSteps", in: data) ?? stepsAtBucket,
             deltaFromUser: stepsAtBucket - currentSteps,
-            isCurrentUser: false,
-            isOwnPreviousCompletion: userId != nil && userId == currentUserId,
+            isCurrentUser: isCurrentUser,
             isPersonalBest: (data["isPersonalBest"] as? Bool) ?? false,
             completionDurationSeconds: doubleValue(for: "completionDurationSeconds", in: data),
             userId: userId,
@@ -812,32 +1789,21 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         _ rows: [LiveReplayLeaderboardRow],
         currentUserRank: Int
     ) -> [LiveReplayLeaderboardRow] {
-        rows.enumerated().map { offset, row in
-            rankedRow(
-                row,
-                rank: currentUserRank - rows.count + offset
-            )
-        }
+        LiveReplayLeaderboardRow.rankedSkippingGhosts(
+            rows,
+            anchorIndex: rows.count,
+            anchorRank: currentUserRank
+        )
     }
 
     private func rankedBehindRows(
         _ rows: [LiveReplayLeaderboardRow],
         currentUserRank: Int
     ) -> [LiveReplayLeaderboardRow] {
-        rows.enumerated().map { offset, row in
-            rankedRow(
-                row,
-                rank: currentUserRank + offset + 1
-            )
-        }
-    }
-
-    private func rankedRow(
-        _ row: LiveReplayLeaderboardRow,
-        rank: Int
-    ) -> LiveReplayLeaderboardRow {
-        row.updating(
-            rank: row.rank ?? max(rank, 1)
+        LiveReplayLeaderboardRow.rankedSkippingGhosts(
+            rows,
+            anchorIndex: -1,
+            anchorRank: currentUserRank
         )
     }
 
@@ -888,30 +1854,38 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
 
     /// Entries as the live race ranks them.
     ///
-    /// A per-climb race is a field of climbers, not of attempts, so a repeat
-    /// finisher races as a single rival on their fastest completion. The server
-    /// owns the flag; the static completion board reads the same entries
-    /// unfiltered to keep showing every completion.
-    ///
-    /// Every other context races every completed attempt as its own opponent and
-    /// carries no flag, so filtering there would empty the field.
+    /// A race is a field of climbers, not of attempts, so a repeat finisher
+    /// races as a single rival on their best run against the board's own
+    /// ranking metric. The server owns the flag on every context type; the
+    /// static completion board reads the same entries unfiltered to keep
+    /// showing every completion.
     private func liveRaceEntries(
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int
     ) -> Query {
-        let entries = entriesCollection(context: context, bucketIndex: bucketIndex)
+        // Every context type carries the flag now, so one mechanism collapses
+        // the race on all three board types rather than one of them behaving
+        // differently for want of a field. It also stops a repeat climber's own
+        // earlier attempts lining up against them as separate racers.
+        entriesCollection(context: context, bucketIndex: bucketIndex)
+            .whereField("isBestForUser", isEqualTo: true)
+    }
 
-        guard context.type.collapsesRepeatFinishers else { return entries }
-
-        return entries.whereField("isBestForUser", isEqualTo: true)
+    /// One document per climber who has completed on this board, on every
+    /// context type - the server writes it in the same transaction as the entry
+    /// row, whether or not the board collapses repeat finishers.
+    private func finishersCollection(
+        context: LiveReplayLeaderboardContext
+    ) -> CollectionReference {
+        leaderboardDocument(context: context)
+            .collection("finishers")
     }
 
     private func finisherDocument(
         context: LiveReplayLeaderboardContext,
         userId: String
     ) -> DocumentReference {
-        leaderboardDocument(context: context)
-            .collection("finishers")
+        finishersCollection(context: context)
             .document(userId)
     }
 

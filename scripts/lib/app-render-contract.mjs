@@ -107,13 +107,15 @@ export function replayContextKey(type, id) {
 }
 
 /**
- * Whether a context's live race collapses a climber's repeat runs to their best.
+ * Whether a context's frozen standing collapses a climber's repeat runs.
  *
- * Decides the filter on the live-race read: a collapsing context races
- * `isBestForUser == true`, and every other context races every attempt and
- * carries no flag, so filtering there would empty the field.
+ * Deliberately NOT the live-race filter. Every context type now carries
+ * `isBestForUser` and every live-race read filters on it, so a race panel over
+ * any board shows one row per climber. This predicate decides only what the
+ * server's frozen standing counts and which population a board's field-size
+ * line names.
  * @param {string} type Context type raw value.
- * @return {boolean} Whether the live race filters on `isBestForUser`.
+ * @return {boolean} Whether the frozen standing counts climbers.
  */
 export function collapsesRepeatFinishers(type) {
   return CONTEXT_TYPES_COLLAPSING_REPEAT_FINISHERS.has(type);

@@ -33,8 +33,8 @@ struct LiveClimbActivityWidget: Widget {
                 }
             } compactLeading: {
                 LiveClimbCompactMetricView(
-                    value: context.state.rankLabel,
-                    label: "rank"
+                    value: context.state.standingValue,
+                    label: context.state.standingCaption
                 )
             } compactTrailing: {
                 LiveClimbCompactMetricView(
@@ -66,7 +66,11 @@ private struct LiveClimbLockScreenView: View {
 
                 HStack(spacing: 16) {
                     LiveClimbMetricColumn(title: "Steps", value: context.state.steps.formatted())
-                    LiveClimbMetricColumn(title: "Rank", value: context.state.rankDetailLabel)
+                    LiveClimbMetricColumn(
+                        title: context.state.standingTitle,
+                        value: context.state.standingDetailLabel,
+                        secondary: context.state.standingSecondaryLabel
+                    )
                     LiveClimbMetricColumn(title: "Time", value: context.state.durationLabel)
                 }
             }
@@ -122,7 +126,11 @@ private struct LiveClimbExpandedBottomView: View {
             }
 
             HStack(spacing: 12) {
-                LiveClimbMetricColumn(title: "Rank", value: context.state.rankDetailLabel)
+                LiveClimbMetricColumn(
+                    title: context.state.standingTitle,
+                    value: context.state.standingDetailLabel,
+                    secondary: context.state.standingSecondaryLabel
+                )
                 LiveClimbMetricColumn(title: "Time", value: context.state.durationLabel)
                 LiveClimbMetricColumn(title: "Steps", value: context.state.steps.formatted())
 
@@ -184,6 +192,9 @@ private struct LiveClimbMinimalView: View {
 private struct LiveClimbMetricColumn: View {
     let title: String
     let value: String
+    /// A second measurement of a different population, stated beneath the first
+    /// rather than beside it - the same order the in-app panel puts them in.
+    var secondary: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -197,6 +208,14 @@ private struct LiveClimbMetricColumn: View {
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
+
+            if let secondary {
+                Text(secondary)
+                    .font(.system(size: 9, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.62))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
         }
     }
 }

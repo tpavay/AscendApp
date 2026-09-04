@@ -862,16 +862,14 @@ function touchedReplayPayloads(
 }
 
 /**
- * Whether a context races one row per climber rather than one per attempt.
+ * Whether a context's frozen standing counts climbers rather than attempts.
  *
- * Per-climb and per-routine-template contexts collapse repeats. A per-climb
- * board reaches the same step target every time, so the fastest attempt is
- * genuinely that climber's best; a routine board fixes the clock, so the
- * highest-steps attempt is theirs. An open Just Climb session has no target and
- * publishes on any stop with steps, so its shortest attempt is the one the
- * climber quit earliest: their weakest curve, not their best. Contexts outside
- * the allowlist carry no flag at all, so nothing can filter them into a wrong
- * winner.
+ * That is all it decides now. Every context type carries `isBestForUser` and
+ * every live-race read filters on it (settled by the captain on 2026-09-02),
+ * so this predicate gates neither `seedBestForUser` nor
+ * `reconcileUserBestEntries`; it shapes `readCompletionField` and
+ * `ownLeadingFinisherCount` only. Widening it changes write-once
+ * `completionSnapshots` arithmetic, which is a separate decision.
  * @param {LiveReplayIndexPayload} payload Replay payload.
  * @return {boolean} True when the context collapses repeat finishers.
  */
@@ -895,11 +893,7 @@ function seedBestForUser(
   payload: LiveReplayIndexPayload,
   entryId: string,
   finisherData: Record<string, unknown> | undefined
-): boolean | null {
-  if (!collapsesRepeatFinishers(payload)) {
-    return null;
-  }
-
+): boolean {
   const storedBest = finisherStoredBest(payload, finisherData);
 
   return storedBest === null ||
@@ -1038,10 +1032,19 @@ function userAttemptEntry(
 /**
  * Re-derives which of a user's attempts is their best in one replay context.
  *
- * A per-climb race ranks one row per opponent, so at most one of a user's
- * attempts may carry isBestForUser. Publishes, edits and deletes all funnel
- * through here so the flag heals itself from the entries rather than from flip
- * bookkeeping. Contexts that race every attempt return before any read.
+ * A live race ranks one row per opponent, so at most one of a user's attempts
+ * may carry isBestForUser. Publishes, edits and deletes all funnel through here
+ * so the flag heals itself from the entries rather than from flip bookkeeping.
+ *
+ * Every context type maintains it, including the ones that do not collapse
+ * repeat finishers in their frozen standing. Settled by the captain on
+ * 2026-09-02: all three board types race off one mechanism rather than one of
+ * them behaving differently because it is missing a piece of data. Without the
+ * flag an open Just Climb raced a rival's four runs as four opponents and
+ * showed a climber their own earlier attempts as racers.
+ *
+ * `collapsesRepeatFinishers` still decides what the SERVER's frozen standing
+ * counts, and that is all it decides now - do not re-gate this on it.
  * @param {LiveReplayIndexPayload} payload Replay payload.
  * @param {string} userId Owner user ID.
  */
@@ -1049,10 +1052,6 @@ async function reconcileUserBestEntries(
   payload: LiveReplayIndexPayload,
   userId: string
 ): Promise<void> {
-  if (!collapsesRepeatFinishers(payload)) {
-    return;
-  }
-
   const snapshot = await entriesCollectionReference(payload, 0)
     .where("userId", "==", userId)
     .get();

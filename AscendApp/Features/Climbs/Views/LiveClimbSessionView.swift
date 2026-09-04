@@ -70,7 +70,6 @@ struct LiveClimbSessionView: View {
                     leaderboardTotal: viewModel.completionLeaderboardTotal,
                     leaderboardRankBasis: .liveSession,
                     leaderboardContext: viewModel.replayContext,
-                    moment: .freshCompletion,
                     onDone: handleCompletionSummaryDismissed
                 )
             } else {
@@ -345,7 +344,7 @@ struct LiveClimbSessionView: View {
             currentUserPhotoURL: currentUserPhotoURL,
             previousBestStepsAtBucket: viewModel.previousBestStepsAtBucket,
             fetchFailed: viewModel.leaderboardFetchFailed,
-            field: viewModel.leaderboardField,
+            standing: viewModel.leaderboardStanding,
             tint: .accent,
             effectiveColorScheme: .dark,
             showsFilter: false

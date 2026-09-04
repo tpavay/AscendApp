@@ -252,41 +252,36 @@ test("the Climb Detail board still counts every completion", () => {
   );
 });
 
-test("the previous best is withdrawn only where the board collapses repeat finishers", () => {
+test("the previous best is read directly by owner on every board", () => {
   const repository = read(
     "AscendApp/Shared/Repositories/Firebase/" +
       "FirestoreLiveReplayLeaderboardRepository.swift",
   );
 
-  // One gate, reading the client's single existing allowlist - not a second
-  // list of context types, and not an inverted denylist.
-  const gate = repository.match(
-    /private func collapsingBoardUserId\([\s\S]*?\n    \}/,
+  // Settled by the captain on 2026-09-02: every board type races one row per
+  // climber, so every board holds exactly one entry of the viewer's to read
+  // the marker from. Gating that read on `collapsesRepeatFinishers` was
+  // describing the world before the flag reached every board, and it left the
+  // marker on a Just Climb hostage to the fetched page - drawn only while the
+  // ghost sat inside the eight-row window, gone when it scrolled past, which
+  // is the flicker the direct read exists to remove.
+  const directRead = repository.match(
+    /private func fetchOwnPreviousCompletionRow\([\s\S]*?\n    \}/,
   );
-  assert.ok(gate, "the withdrawal is no longer scoped to a board type");
+  assert.ok(directRead, "the climber's own entry is no longer read directly");
   assert.ok(
-    gate[0].includes("context.type.collapsesRepeatFinishers"),
-    "the withdrawal stopped reading collapsesRepeatFinishers, the client's " +
-      "one definition of which boards race one row per climber. Just Climb " +
-      "and a plain routine race every completed attempt as its own opponent, " +
-      "so withdrawing the climber's own rows there deletes real rivals.",
+    !directRead[0].includes("collapsesRepeatFinishers") &&
+      !directRead[0].includes("collapsingBoardUserId"),
+    "the direct read is gated on a board type again, so the BEST marker " +
+      "blinks out on the boards outside that gate",
   );
-  // Every live-race row is parsed with an id that passed through that gate,
-  // so no board can acquire the withdrawal by adding a call site.
-  const parseRowBindings = [
-    ...repository.matchAll(
-      /currentUserId = (collapsingBoardUserId\(context: context\)|[^\n]+?)( else \{)?\n[\s\S]{0,600}?parseRow\(/g,
-    ),
-  ].map((match) => match[1].trim());
-  assert.ok(parseRowBindings.length > 0, "no parseRow call site was found");
-  for (const binding of parseRowBindings) {
-    assert.equal(
-      binding,
-      "collapsingBoardUserId(context: context)",
-      "a live-race row resolves the signed-in climber without the " +
-        "collapsesRepeatFinishers gate",
-    );
-  }
+  // The predicate decides what the server's frozen standing counts and which
+  // population a field-size line names, and nothing about the live window.
+  assert.ok(
+    !repository.includes("collapsesRepeatFinishers"),
+    "the live-window repository consults collapsesRepeatFinishers, which " +
+      "does not shape the live-race read on any board",
+  );
 });
 
 test("the rank and the field size drop the previous best at the fetch, not off the page", () => {
@@ -308,8 +303,8 @@ test("the rank and the field size drop the previous best at the fetch, not off t
       "the fetched window",
   );
   assert.ok(
-    repository.includes("ownCompletionsAhead") &&
-      repository.includes("ownCompletionCount"),
+    repository.includes("ownGhostAhead") &&
+      repository.includes("joiningClimber"),
     "the fetch no longer withdraws the climber's own completion from the " +
       "server's own ahead count and live-race count",
   );
@@ -433,15 +428,62 @@ test("the climber's own cached row is scoped to them and dropped with the sessio
 
   // Per-user data on a process-wide singleton needs both: the uid in the key so
   // the next account cannot read it, and a teardown because a store wipe never
-  // reaches a singleton.
+  // reaches a singleton. Two slots hold it - the climber's row at one bucket,
+  // and what the session learned about their published rows - and both are
+  // keyed the same way.
   assert.ok(
-    /let key = "\\\(currentUserId\)\|\\\(context\.contextKey\)\|/.test(repository),
+    /let key = "\\\(userId\)\|\\\(context\.contextKey\)\|/.test(repository),
     "the own-row cache key no longer names the climber it belongs to",
   );
   assert.ok(
-    repository.includes("func clearAccountScopedCaches()"),
-    "the repository lost its account-scoped teardown",
+    /"\\\(userId\)\|\\\(context\.contextKey\)"/.test(repository),
+    "the session's own-history key no longer names the climber it belongs to",
   );
+  const teardown = repository.match(
+    /func clearAccountScopedCaches\(\) \{[\s\S]*?\n    \}/,
+  );
+  assert.ok(teardown, "the repository lost its account-scoped teardown");
+  for (const slot of [
+    "ownPreviousCompletionCache",
+    "ownHistoryCache",
+    "knownFinisherClimbers",
+  ]) {
+    assert.ok(
+      teardown[0].includes(slot),
+      `clearAccountScopedCaches no longer empties ${slot}, so the docstring ` +
+        "that says it drops everything held for one climber is false",
+    );
+  }
+  // The published rows are stable for one session and no longer: the run that
+  // just ended publishes a new one. So the session boundary is explicit and it
+  // is crossed before the session's first window, not raced from `start`.
+  const session = repository.match(/func beginLiveSession\(\) \{[\s\S]*?\n    \}/);
+  assert.ok(session, "the repository lost its session boundary");
+  assert.ok(
+    session[0].includes("ownHistoryCache"),
+    "a new session on the same board inherits the last session's own rows",
+  );
+  // Every surface that runs a live session over this repository is a session:
+  // a routine on the machine publishes a row exactly as a climb does, and the
+  // next session on that board must not inherit the facts from before it.
+  for (const sessionViewModel of [
+    "AscendApp/Features/Climbs/ViewModels/LiveClimbSessionViewModel.swift",
+    "AscendApp/Features/Routines/ViewModels/ActiveRoutineViewModel.swift",
+  ]) {
+    const viewModel = read(sessionViewModel);
+    assert.ok(
+      viewModel.includes("leaderboardService.refreshIfNeeded("),
+      `${sessionViewModel} no longer drives the live window, so this pin is stale`,
+    );
+    assert.ok(
+      /if !hasBegunLeaderboardSession \{\s*\n\s*await leaderboardService\.beginLiveSession\(\)/.test(
+        viewModel,
+      ),
+      `${sessionViewModel} no longer tells the leaderboard service its session ` +
+        "started before its first window refresh, so a second session on the " +
+        "same board inherits the last one's own rows",
+    );
+  }
   assert.ok(
     auth.includes(
       "FirestoreLiveReplayLeaderboardRepository.shared.clearAccountScopedCaches()",

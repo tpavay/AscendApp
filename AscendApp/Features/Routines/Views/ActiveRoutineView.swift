@@ -253,10 +253,7 @@ struct ActiveRoutineView: View {
             progress: viewModel.leaderboardCurrentProgressFraction,
             currentUserPhotoURL: currentUserPhotoURL,
             fetchFailed: viewModel.leaderboardFetchFailed,
-            // A routine session holds no authoritative count of its own field - only
-            // the fetched window, whose total is a display floor - so this board
-            // states no field size rather than a number it cannot substantiate.
-            field: nil,
+            standing: viewModel.leaderboardStanding,
             tint: currentIntervalColor,
             effectiveColorScheme: .dark
         )
@@ -359,7 +356,6 @@ struct ActiveRoutineView: View {
             leaderboardTotal: viewModel.completionLeaderboardTotal,
             leaderboardRankBasis: .liveSession,
             leaderboardContext: viewModel.completionLeaderboardContext,
-            moment: .freshCompletion,
             rankingLabelOverride: "ROUTINE RANK",
             completedDetailOverride: "ROUTINE COMPLETE",
             ranksOnLeaderboard: presentation.ranksOnLeaderboard,

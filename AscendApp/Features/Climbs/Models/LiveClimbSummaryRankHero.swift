@@ -42,13 +42,6 @@ struct LiveClimbSummaryRankHero: Equatable {
         case liveSession
     }
 
-    /// Whether this summary *is* the post-session moment or a look back at a
-    /// saved one. Only changes the tense of the frozen-basis copy.
-    enum Moment: Equatable {
-        case freshCompletion
-        case retrospective
-    }
-
     /// One candidate standing, carrying the population it was measured against.
     struct Standing: Equatable {
         let rank: Int
@@ -239,8 +232,12 @@ struct LiveClimbSummaryRankHero: Equatable {
         }
     }
 
+    /// The frozen basis reads the same the instant a climb ends as it does a
+    /// month later, because it names a standing rather than a prize. A repeat
+    /// climber's slower run holds the position their earlier, faster run won,
+    /// so the tense that said the run had just earned it was the one sentence
+    /// on this card that a slower time could not make true.
     static let atCompletionDetail = "RANK WHEN YOU FINISHED"
-    static let freshAtCompletionDetail = "RANK YOU JUST EARNED"
     static let currentDetail = "CURRENT LEADERBOARD RANK"
     /// The whole First Ascent card. No sentence, no date, no dare, no rank -
     /// the gold flag and this claim, and nothing else (`first-ascent-line-copy`).
@@ -278,6 +275,29 @@ struct LiveClimbSummaryRankHero: Equatable {
         standing?.renderableTotal
     }
 
+    /// Who the field this hero's standing was measured against counts.
+    ///
+    /// The noun has to follow the number that is actually on screen, and the two
+    /// bases count different fields on a board that races attempts: the server
+    /// froze its stamp over completed attempts there, while a standing the
+    /// client recomputes counts climbers on every board. Reading one noun off
+    /// the context alone would name a population the figure beside it never
+    /// counted.
+    ///
+    /// A `.liveSession` standing has no field line at all - its population is
+    /// the caller's own race window - so the board's own noun stands in and is
+    /// never rendered.
+    func fieldPopulation(
+        on contextType: LiveReplayLeaderboardContextType
+    ) -> LiveReplayFieldPopulation {
+        switch standing?.basis {
+        case .current:
+            return contextType.recomputedFieldPopulation
+        case .atCompletion, .liveSession, nil:
+            return contextType.fieldPopulation
+        }
+    }
+
     /// The candidate standings a surface offers, most authoritative first.
     ///
     /// A landmark climb prefers the server's immutable frozen sources: that is the
@@ -308,7 +328,6 @@ struct LiveClimbSummaryRankHero: Equatable {
     ///
     /// - Parameters:
     ///   - isClimbContext: Whether this summary belongs to a catalog climb.
-    ///   - moment: Whether this summary is the post-session moment itself.
     ///   - standings: Candidates most-authoritative first; the first non-`nil`
     ///     entry supplies both the rank and its total.
     ///   - personalPlacing: Where this completion sits among the climber's own
@@ -318,7 +337,6 @@ struct LiveClimbSummaryRankHero: Equatable {
     ///     tower's First Ascent. See `Value.firstAscent`.
     static func make(
         isClimbContext: Bool,
-        moment: Moment = .retrospective,
         standings: [Standing?],
         personalPlacing: PersonalClimbPlacing? = nil,
         claimsFirstAscent: Bool = false,
@@ -343,7 +361,6 @@ struct LiveClimbSummaryRankHero: Equatable {
                 value: value,
                 standing: standing,
                 isClimbContext: isClimbContext,
-                moment: moment,
                 sync: sync,
                 copy: copy
             ),
@@ -408,7 +425,6 @@ struct LiveClimbSummaryRankHero: Equatable {
         value: Value,
         standing: Standing?,
         isClimbContext: Bool,
-        moment: Moment,
         sync: SyncState,
         copy: Copy
     ) -> String {
@@ -431,7 +447,7 @@ struct LiveClimbSummaryRankHero: Equatable {
         if let standing, case .rank = value {
             switch standing.basis {
             case .atCompletion:
-                return moment == .freshCompletion ? freshAtCompletionDetail : atCompletionDetail
+                return atCompletionDetail
             case .current:
                 return currentDetail
             case .liveSession:
@@ -466,13 +482,5 @@ struct LiveClimbSummaryRankHero: Equatable {
     private static func completedDetail(isClimbContext: Bool, copy: Copy) -> String {
         copy.completedDetailOverride ??
             (isClimbContext ? "LIVE CLIMB COMPLETE" : "WORKOUT COMPLETE")
-    }
-}
-
-extension Int {
-    var rankOrdinalText: String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .ordinal
-        return formatter.string(from: NSNumber(value: self)) ?? "\(self)"
     }
 }

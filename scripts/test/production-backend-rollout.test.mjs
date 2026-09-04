@@ -81,6 +81,64 @@ test("declares both filtered Live Replay window indexes", () => {
   );
 });
 
+/// Every live-window read a climber's own history needs, and the index each one
+/// selects.
+///
+/// The Firestore emulator does not enforce composite indexes, so a green
+/// `test:firebase-rules` run is not evidence that these exist or that their
+/// field order is right - a wrong order first shows up in production as
+/// `FAILED_PRECONDITION` on every window fetch. This guard is the substitute:
+/// it holds each query's stated `orderBy` against the index declared for it, so
+/// the two can only drift together.
+test("declares the indexes the climber's own history reads select", () => {
+  const config = JSON.parse(
+    readFileSync(join(repositoryRoot, "firestore.indexes.json"), "utf8")
+  );
+  const runningAheadFields = [
+    {fieldPath: "userId", order: "ASCENDING"},
+    {fieldPath: "stepsAtBucket", order: "ASCENDING"},
+  ];
+  // Two inequality fields have to lead the orderBy, and the index has to list
+  // them in that same order. `finishedAhead` states `finalSteps` then
+  // `splitBucketCount` for every caller, so both finished-ahead indexes carry
+  // that pair in that order behind their own equality field.
+  const finishedAheadFields = [
+    {fieldPath: "userId", order: "ASCENDING"},
+    {fieldPath: "finalSteps", order: "ASCENDING"},
+    {fieldPath: "splitBucketCount", order: "ASCENDING"},
+  ];
+  const racedFinishedAheadFields = [
+    {fieldPath: "isBestForUser", order: "ASCENDING"},
+    {fieldPath: "finalSteps", order: "ASCENDING"},
+    {fieldPath: "splitBucketCount", order: "ASCENDING"},
+  ];
+
+  assert.ok(hasIndex(config.indexes, "entries", runningAheadFields));
+  assert.ok(hasIndex(config.indexes, "entries", finishedAheadFields));
+  assert.ok(hasIndex(config.indexes, "entries", racedFinishedAheadFields));
+
+  const repository = readFileSync(
+    join(
+      repositoryRoot,
+      "AscendApp/Shared/Repositories/Firebase/" +
+        "FirestoreLiveReplayLeaderboardRepository.swift"
+    ),
+    "utf8"
+  );
+
+  // One spelling of the finished-ahead predicate, and it states its own order
+  // rather than leaving each caller to imply one.
+  assert.match(
+    repository,
+    /whereField\("splitBucketCount", isLessThanOrEqualTo: bucketIndex\)\s*\n\s*\.whereField\("finalSteps", isGreaterThanOrEqualTo: currentSteps\)\s*\n\s*\.order\(by: "finalSteps", descending: false\)\s*\n\s*\.order\(by: "splitBucketCount", descending: false\)/
+  );
+  assert.equal(
+    repository.match(/isGreaterThanOrEqualTo: currentSteps\)\s*\n\s*\.order\(by: "finalSteps"/g)?.length,
+    1,
+    "a second spelling would need a second index nothing here would notice"
+  );
+});
+
 test("keeps every frozen completion rank query on an automatic index", () => {
   const config = JSON.parse(
     readFileSync(join(repositoryRoot, "firestore.indexes.json"), "utf8")

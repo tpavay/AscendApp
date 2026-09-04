@@ -41,6 +41,8 @@ final class StubLiveReplayLeaderboardService: LiveReplayLeaderboardServicing, @u
         self.completionLeaderboard = completionLeaderboard
     }
 
+    func beginLiveSession() {}
+
     func fetchSummary(
         context: LiveReplayLeaderboardContext
     ) async throws -> LiveReplayLeaderboardSummary {

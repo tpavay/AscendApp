@@ -4,8 +4,15 @@ import Foundation
 struct LiveClimbActivityAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable, Sendable {
         var steps: Int
+        /// The leaderboard placing, or nil where the board holds no other
+        /// climber and so has no leaderboard placing to state.
         var rank: Int?
         var rankTotal: Int
+        /// Where this run places among the climber's own climbs of this board.
+        /// The only thing a solo board can substantiate, and what it states
+        /// instead of an ordinal nothing measured.
+        var ownClimbsPlacing: Int?
+        var ownClimbsTotal: Int
         var durationSeconds: Int
         var progress: Double
         var status: LiveClimbActivityStatus
@@ -16,8 +23,37 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
             min(max(progress, 0), 1)
         }
 
-        var rankLabel: String {
-            rank.map { "#\($0)" } ?? "--"
+        /// The compact value, and the caption that names what it counted.
+        ///
+        /// The two travel together on purpose: an ordinal captioned `rank` names
+        /// no population, and a number with no population beside it is the whole
+        /// defect this pair exists to prevent. The compact slot holds one
+        /// number, so the leaderboard placing leads and the personal placing is
+        /// the one dropped - the finish card's own hierarchy.
+        var standingValue: String {
+            if let rank {
+                return "#\(rank)"
+            }
+
+            guard let ownClimbsPlacing else { return "--" }
+            return Self.ordinalText(ownClimbsPlacing)
+        }
+
+        /// The noun alone, never the count: this renders in the Dynamic Island's
+        /// compact slot at 7pt in about 44 points of width, and `of 27 climbers`
+        /// only fits there by scaling to illegibility. The figure is already on
+        /// the value line directly above, so the caption naming the population
+        /// is what makes that ordinal a labelled number rather than a bare one.
+        var standingCaption: String {
+            if rank != nil {
+                return "climbers"
+            }
+
+            return ownClimbsPlacing == nil ? "rank" : "your climbs"
+        }
+
+        var standingTitle: String {
+            rank == nil && ownClimbsPlacing != nil ? "Your climbs" : "Rank"
         }
 
         var compactStepsLabel: String {
@@ -46,14 +82,46 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
             return "\(wholeThousands).\(tenths)k"
         }
 
-        var rankDetailLabel: String {
-            guard let rank else { return "Rank --" }
-
-            if rankTotal > 0 {
-                return "#\(rank) of \(rankTotal)"
+        var standingDetailLabel: String {
+            if let rank {
+                return "#\(rank) of \(Self.climberField(max(rankTotal, rank)))"
             }
 
-            return "#\(rank)"
+            return ownClimbsDetailLabel ?? "--"
+        }
+
+        /// The climber's own history, stated beneath the leaderboard placing
+        /// where there is room for both - the Lock Screen and the expanded
+        /// Dynamic Island - and nil where there is nothing measured to state.
+        ///
+        /// Where the climber is alone on the board this is the whole statement
+        /// and `standingDetailLabel` carries it instead, so the two never appear
+        /// twice on one surface.
+        var standingSecondaryLabel: String? {
+            rank == nil ? nil : ownClimbsDetailLabel
+        }
+
+        private var ownClimbsDetailLabel: String? {
+            guard let ownClimbsPlacing else { return nil }
+
+            let total = max(ownClimbsTotal, ownClimbsPlacing)
+            return "\(Self.ordinalText(ownClimbsPlacing)) of your \(Self.climbField(total))"
+        }
+
+        /// Spelled here rather than through the app's shared helper because the
+        /// widget extension compiles this file and not that one.
+        private static func ordinalText(_ value: Int) -> String {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .ordinal
+            return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+        }
+
+        private static func climberField(_ count: Int) -> String {
+            "\(count) climber\(count == 1 ? "" : "s")"
+        }
+
+        private static func climbField(_ count: Int) -> String {
+            "\(count) climb\(count == 1 ? "" : "s")"
         }
 
         var durationLabel: String {
