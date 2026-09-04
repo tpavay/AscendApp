@@ -2,12 +2,10 @@ import Foundation
 import SwiftData
 import SwiftUI
 import Testing
-import UIKit
-import Vision
 @testable import AscendApp
 
-/// Photographs the three surfaces that count a climb's field, so a reviewer can
-/// read the approved presentation off the pixels rather than off the diff.
+/// Hosts the three surfaces that count a climb's field, so a reviewer can read
+/// the approved presentation off the photograph rather than off the diff.
 ///
 /// The three answer different questions about one climb on purpose - the live
 /// race collapses a rival's repeat runs to their best, the static board keeps
@@ -23,32 +21,37 @@ import Vision
 /// strip and page chrome are redrawn here from `ClimbDetailView.swift`, while the
 /// line under review is the shipping `LiveReplayFieldSizeLine`.
 ///
-/// Every assertion reads the rendered pixels back with Vision, so a caption that
-/// never drew fails the test. PNGs land in `ASCEND_EVIDENCE_DIR` when set.
+/// Every assertion reads the hosted screen's copy off the accessibility tree
+/// (`RenderedScreen`), so a caption that never made it on screen fails the test.
+/// PNGs land in `ASCEND_EVIDENCE_DIR` when set and are not taken otherwise.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct LiveReplayFieldPopulationRenderEvidenceTests {
-    private static let phoneSize = CGSize(width: 393, height: 852)
+    static let phoneSize = CGSize(width: 393, height: 852)
     /// The race HUD's board and Climb Detail's third tab occupy a panel, not a
-    /// whole screen, so each is captured at the height its own content needs -
+    /// whole screen, so each is hosted at the height its own content needs -
     /// which is what puts the pinned line where a climber actually reads it.
-    private static let panelSize = CGSize(width: 393, height: 620)
-    private static let pageSize = CGSize(width: 393, height: 700)
+    static let panelSize = CGSize(width: 393, height: 620)
+    static let pageSize = CGSize(width: 393, height: 700)
 
     /// Screen 1. The captain kept the title LEADERBOARD and rejected renaming it;
     /// the panel says which field it ranks on a bottom-pinned centred line instead.
     @Test
     func liveRacePanelKeepsItsTitleAndNamesTheClimbersItRanks() async throws {
-        let image = try raceHUD(field: LiveReplayFieldSize(population: .climbers, count: 27))
-        let text = try await recognizedText(in: image)
+        try await RenderedScreen.host(
+            RaceHUDProof(field: LiveReplayFieldSize(population: .climbers, count: 27)),
+            size: Self.panelSize
+        ) { screen in
+            let text = try await screen.copy { $0.contains("27 climbers") }
 
-        #expect(text.contains("leaderboard"))
-        #expect(text.contains("27 climbers"))
-        #expect(!text.contains("the field"))
-        #expect(!text.contains("best run per climber"))
-        #expect(appearsBefore("leaderboard", "27 climbers", in: text))
+            #expect(text.contains("leaderboard"))
+            #expect(text.contains("27 climbers"))
+            #expect(!text.contains("the field"))
+            #expect(!text.contains("best run per climber"))
+            #expect(appearsBefore("leaderboard", "27 climbers", in: text))
 
-        try writeEvidence(image: image, named: "field-population-1-live-race-panel.png")
+            try screen.photograph(named: "field-population-1-live-race-panel")
+        }
     }
 
     /// The same panel with nothing on hand that measures its field - an open Just
@@ -56,44 +59,48 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
     /// rather than counting the rows on screen.
     @Test
     func aPanelWithNoSubstantiatedFieldStatesNoTotal() async throws {
-        let image = try raceHUD(field: nil)
-        let text = try await recognizedText(in: image)
+        try await RenderedScreen.host(RaceHUDProof(field: nil), size: Self.panelSize) { screen in
+            let text = try await screen.copy { $0.contains("leaderboard") }
 
-        #expect(text.contains("leaderboard"))
-        #expect(!text.contains("climbers"))
-        #expect(!text.contains("completions"))
+            #expect(text.contains("leaderboard"))
+            #expect(!text.contains("climbers"))
+            #expect(!text.contains("completions"))
 
-        try writeEvidence(image: image, named: "field-population-2-live-race-panel-no-field.png")
+            try screen.photograph(named: "field-population-2-live-race-panel-no-field")
+        }
     }
 
     /// Screen 2. Climb Detail's third tab, renamed LEADERBOARD -> ALL TIMES, with
     /// the identical line and one noun swapped.
     @Test
     func climbDetailsThirdTabReadsAllTimesAndCountsCompletions() async throws {
-        let image = try screenshot(of: AllTimesTabProof(), size: Self.pageSize)
-        let text = try await recognizedText(in: image)
+        try await RenderedScreen.host(AllTimesTabProof(), size: Self.pageSize) { screen in
+            let text = try await screen.copy { $0.contains("60 completions") }
 
-        #expect(text.contains("all times"))
-        #expect(text.contains("60 completions"))
-        #expect(!text.contains("leaderboard"))
-        #expect(appearsBefore("all times", "60 completions", in: text))
+            #expect(text.contains("all times"))
+            #expect(text.contains("60 completions"))
+            #expect(!text.contains("leaderboard"))
+            #expect(appearsBefore("all times", "60 completions", in: text))
 
-        try writeEvidence(image: image, named: "field-population-3-climb-detail-all-times.png")
+            try screen.photograph(named: "field-population-3-climb-detail-all-times")
+        }
     }
 
     /// Screen 3, rendered by the shipping completion summary: a landmark climb's
     /// context collapses repeat finishers, so the hero's field line names climbers.
     @Test
     func theCompletionHeroNamesTheClimberFieldItWasRankedAgainst() async throws {
-        let image = try renderCompletionSummary(
-            context: .liveClimb(climbId: "cn-tower", targetSteps: 2_579)
-        )
-        let text = try await recognizedText(in: image)
+        try await RenderedScreen.host(
+            try completionSummary(context: .liveClimb(climbId: "cn-tower", targetSteps: 2_579)),
+            size: Self.phoneSize
+        ) { screen in
+            let text = try await screen.copy { $0.contains("fastest of 27") }
 
-        #expect(text.contains("fastest of 27 climbers"))
-        #expect(!text.contains("fastest of 27 completions"))
+            #expect(text.contains("fastest of 27 climbers"))
+            #expect(!text.contains("fastest of 27 completions"))
 
-        try writeEvidence(image: image, named: "field-population-4-completion-hero-climbers.png")
+            try screen.photograph(named: "field-population-4-completion-hero-climbers")
+        }
     }
 
     /// The noun follows the replay context rather than being hardcoded. An open
@@ -101,76 +108,43 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
     /// attempt, so the same hero, same rank, same total says completions.
     @Test
     func theSameHeroSaysCompletionsWhereTheContextRacesAttempts() async throws {
-        let image = try renderCompletionSummary(context: .justClimbGlobal(targetSteps: 2_579))
-        let text = try await recognizedText(in: image)
+        try await RenderedScreen.host(
+            try completionSummary(context: .justClimbGlobal(targetSteps: 2_579)),
+            size: Self.phoneSize
+        ) { screen in
+            let text = try await screen.copy { $0.contains("fastest of 27") }
 
-        #expect(text.contains("fastest of 27 completions"))
-        #expect(!text.contains("fastest of 27 climbers"))
+            #expect(text.contains("fastest of 27 completions"))
+            #expect(!text.contains("fastest of 27 climbers"))
 
-        try writeEvidence(image: image, named: "field-population-5-completion-hero-completions.png")
+            try screen.photograph(named: "field-population-5-completion-hero-completions")
+        }
     }
 
-    /// One sheet a reviewer can read end to end: the three approved screens as
-    /// rendered screenshots, side by side with the totals that used to read as a
-    /// contradiction.
+    /// One sheet a reviewer can read end to end: the three approved screens, live,
+    /// side by side with the totals that used to read as a contradiction. Hosted
+    /// only when a photograph is being written; the populations it names are
+    /// pinned from the contexts either way.
     @Test
     func proofSheetShowsAllThreeSurfacesTogether() async throws {
-        let panels: [(String, String, UIImage)] = [
-            (
-                "Live race panel - during a Live Climb",
-                "Title stays LEADERBOARD. One row per climber, best run only, and the field it ranks pinned at the bottom.",
-                try raceHUD(field: LiveReplayFieldSize(population: .climbers, count: 27))
-            ),
-            (
-                "Climb Detail, third tab - the same climb",
-                "Renamed LEADERBOARD -> ALL TIMES. Every completion kept, so the same climb honestly shows a different total.",
-                try screenshot(of: AllTimesTabProof(), size: Self.pageSize)
-            ),
-            (
-                "Completion summary - the rank you just froze",
-                "FASTEST OF 27 CLIMBERS. The noun comes from the replay context, so an open Just Climb says COMPLETIONS instead.",
-                try crop(
-                    try renderCompletionSummary(
-                        context: .liveClimb(climbId: "cn-tower", targetSteps: 2_579)
-                    ),
-                    to: CGRect(x: 0, y: 40, width: Self.phoneSize.width, height: 320)
-                )
-            )
-        ]
+        let raced = LiveReplayLeaderboardContext.liveClimb(climbId: "cn-tower", targetSteps: 2_579)
+        let open = LiveReplayLeaderboardContext.justClimbGlobal(targetSteps: 2_579)
+        #expect([raced.type.fieldPopulation, open.type.fieldPopulation] == [.climbers, .completions])
 
-        let sheet = try #require(
-            {
-                let renderer = ImageRenderer(content: FieldPopulationProofSheet(panels: panels))
-                renderer.scale = 2
-                return renderer.uiImage
-            }(),
-            "ImageRenderer produced no proof sheet"
-        )
+        guard RenderedScreen.isPhotographing else { return }
 
-        try writeEvidence(image: sheet, named: "field-population-0-proof-sheet.png")
+        try await RenderedScreen.host(
+            FieldPopulationProofSheet(summary: try completionSummary(context: raced)),
+            size: FieldPopulationProofSheet<EmptyView>.size
+        ) { screen in
+            try screen.photograph(named: "field-population-0-proof-sheet")
+        }
     }
 
-    /// The race HUD's board, with the empty navigation strip the hosting stack
-    /// leaves above it trimmed off - the session screen has no bar there.
-    private func raceHUD(field: LiveReplayFieldSize?) throws -> UIImage {
-        let full = try screenshot(of: RaceHUDProof(field: field), size: Self.panelSize)
-        return try crop(
-            full,
-            to: CGRect(
-                x: 0,
-                y: 60,
-                width: Self.panelSize.width,
-                height: Self.panelSize.height - 60
-            )
-        )
-    }
+    // MARK: - The shipping completion summary
 
-    // MARK: - Rendering the shipping completion summary
-
-    private func renderCompletionSummary(
-        context: LiveReplayLeaderboardContext
-    ) throws -> UIImage {
-        let screen = LiveClimbCompletionSummaryView(
+    private func completionSummary(context: LiveReplayLeaderboardContext) throws -> some View {
+        LiveClimbCompletionSummaryView(
             climb: nil,
             workout: Workout(
                 name: "CN Tower Live Climb",
@@ -189,8 +163,6 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
             onDone: { _ in }
         )
         .modelContainer(try #require(Self.container, "The evidence suite needs a model container"))
-
-        return try screenshot(of: screen, size: Self.phoneSize)
     }
 
     /// Held for the process: the summary carries a `@Query`, and SwiftUI keeps
@@ -200,70 +172,7 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
         configurations: ModelConfiguration(isStoredInMemoryOnly: true)
     )
 
-    // MARK: - Capture
-
-    private func screenshot(of view: some View, size: CGSize) throws -> UIImage {
-        let controller = UIHostingController(rootView: view)
-        controller.overrideUserInterfaceStyle = .dark
-        controller.view.frame = CGRect(origin: .zero, size: size)
-
-        let scene = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first
-        let window = scene.map { UIWindow(windowScene: $0) }
-            ?? UIWindow(frame: CGRect(origin: .zero, size: size))
-        window.frame = CGRect(origin: .zero, size: size)
-        window.overrideUserInterfaceStyle = .dark
-
-        defer {
-            window.isHidden = true
-            window.rootViewController = nil
-            window.windowScene = nil
-        }
-
-        window.rootViewController = controller
-        window.isHidden = false
-
-        controller.view.setNeedsLayout()
-        controller.view.layoutIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
-
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 3
-        return UIGraphicsImageRenderer(size: size, format: format).image { context in
-            if !window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) {
-                window.layer.render(in: context.cgContext)
-            }
-        }
-    }
-
-    private func crop(_ image: UIImage, to rect: CGRect) throws -> UIImage {
-        let cgImage = try #require(image.cgImage, "UIImage had no CGImage")
-        let scale = image.scale
-        let scaled = CGRect(
-            x: rect.origin.x * scale,
-            y: rect.origin.y * scale,
-            width: rect.width * scale,
-            height: rect.height * scale
-        )
-        let cropped = try #require(cgImage.cropping(to: scaled), "Crop fell outside the image")
-        return UIImage(cgImage: cropped, scale: scale, orientation: image.imageOrientation)
-    }
-
-    // MARK: - Reading the rendered pixels back
-
-    private func recognizedText(in image: UIImage) async throws -> String {
-        let cgImage = try #require(image.cgImage, "UIImage had no CGImage")
-        var request = RecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-
-        let observations = try await request.perform(on: cgImage)
-        return observations
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: " ")
-            .lowercased()
-    }
+    // MARK: - Reading the copy back
 
     private func appearsBefore(_ first: String, _ second: String, in text: String) -> Bool {
         guard let firstRange = text.range(of: first),
@@ -271,33 +180,6 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
             return false
         }
         return firstRange.lowerBound < secondRange.lowerBound
-    }
-
-    private func writeEvidence(image: UIImage, named name: String) throws {
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-        #expect(png.count > 5_000)
-
-        let candidates = [
-            ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"],
-            NSTemporaryDirectory().appending("ascend-field-population-evidence")
-        ].compactMap { $0 }
-
-        for directory in candidates {
-            do {
-                try FileManager.default.createDirectory(
-                    at: URL(filePath: directory),
-                    withIntermediateDirectories: true
-                )
-                let url = URL(filePath: directory).appending(path: name)
-                try png.write(to: url)
-                print("ASCEND_EVIDENCE_PNG \(url.path())")
-                return
-            } catch {
-                continue
-            }
-        }
-
-        Issue.record("No writable evidence directory for \(name)")
     }
 
     // MARK: - Fixtures
@@ -499,10 +381,16 @@ private struct AllTimesTabProof: View {
     }
 }
 
-/// Reviewer-facing sheet. Every panel image is a crop of a real screenshot; only
-/// the captions are drawn here.
-private struct FieldPopulationProofSheet: View {
-    let panels: [(String, String, UIImage)]
+/// Reviewer-facing sheet. Every panel is the live surface itself, hosted at the
+/// size its own test hosts it and cropped to the part a climber reads; only the
+/// captions are drawn here. Built only to be photographed.
+private struct FieldPopulationProofSheet<Summary: View>: View {
+    private typealias Sizes = LiveReplayFieldPopulationRenderEvidenceTests
+
+    /// Tall enough for the three panels and their captions; the rest stays black.
+    static var size: CGSize { CGSize(width: 449, height: 2_000) }
+
+    let summary: Summary
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -517,27 +405,64 @@ private struct FieldPopulationProofSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            ForEach(Array(panels.enumerated()), id: \.offset) { _, panel in
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(panel.0)
-                        .font(.montserratBold(size: 13))
-                        .foregroundStyle(.accent)
+            panel(
+                "Live race panel - during a Live Climb",
+                "Title stays LEADERBOARD. One row per climber, best run only, and the field it ranks pinned at the bottom."
+            ) {
+                // The empty navigation strip the hosting stack leaves above the board is
+                // trimmed off - the session screen has no bar there.
+                cropped(
+                    RaceHUDProof(field: LiveReplayFieldSize(population: .climbers, count: 27)),
+                    hostedAt: Sizes.panelSize,
+                    top: 60,
+                    height: Sizes.panelSize.height - 60
+                )
+            }
 
-                    Text(panel.1)
-                        .font(.montserratMedium(size: 12))
-                        .foregroundStyle(.white.opacity(0.62))
-                        .fixedSize(horizontal: false, vertical: true)
+            panel(
+                "Climb Detail, third tab - the same climb",
+                "Renamed LEADERBOARD -> ALL TIMES. Every completion kept, so the same climb honestly shows a different total."
+            ) {
+                AllTimesTabProof()
+                    .frame(width: Sizes.pageSize.width, height: Sizes.pageSize.height)
+            }
 
-                    Image(uiImage: panel.2)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 393)
-                }
+            panel(
+                "Completion summary - the rank you just froze",
+                "FASTEST OF 27 CLIMBERS. The noun comes from the replay context, so an open Just Climb says COMPLETIONS instead."
+            ) {
+                cropped(summary, hostedAt: Sizes.phoneSize, top: 40, height: 320)
             }
         }
         .padding(28)
-        .frame(width: 449)
+        .frame(width: Self.size.width)
+        .frame(maxHeight: .infinity, alignment: .top)
         .background(Color.black)
         .environment(\.colorScheme, .dark)
+    }
+
+    private func panel(_ title: String, _ caption: String, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.montserratBold(size: 13))
+                .foregroundStyle(.accent)
+
+            Text(caption)
+                .font(.montserratMedium(size: 12))
+                .foregroundStyle(.white.opacity(0.62))
+                .fixedSize(horizontal: false, vertical: true)
+
+            content()
+        }
+    }
+
+    /// `content` laid out at the size its own test hosts it, showing only the band
+    /// `height` tall that starts `top` points down.
+    private func cropped(_ content: some View, hostedAt size: CGSize, top: CGFloat, height: CGFloat) -> some View {
+        content
+            .frame(width: size.width, height: size.height)
+            .offset(y: -top)
+            .frame(width: size.width, height: height, alignment: .top)
+            .clipped()
     }
 }

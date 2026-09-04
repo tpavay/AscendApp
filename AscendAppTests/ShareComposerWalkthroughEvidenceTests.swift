@@ -5,6 +5,9 @@ import Testing
 import UIKit
 @testable import AscendApp
 
+/// Drives the share composer's four coach marks against their real targets on a hosted screen
+/// (`RenderedScreen`), reading each step off the accessibility tree. The photographs are taken
+/// only when `ASCEND_EVIDENCE_DIR` is set.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct ShareComposerWalkthroughEvidenceTests {
@@ -61,87 +64,76 @@ struct ShareComposerWalkthroughEvidenceTests {
         .modelContainer(container)
         .transaction { $0.disablesAnimations = true }
 
-        try await withAccessibilityAutomation {
-            let controller = UIHostingController(rootView: composer)
-            controller.overrideUserInterfaceStyle = .dark
-            controller.view.frame = CGRect(origin: .zero, size: Self.screenSize)
+        try await RenderedScreen.host(composer, size: Self.screenSize) { screen in
+            try await walkEveryMark(on: screen)
+        }
+    }
 
-            let scene = UIApplication.shared.connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .first
-            let window = scene.map { UIWindow(windowScene: $0) }
-                ?? UIWindow(frame: CGRect(origin: .zero, size: Self.screenSize))
-            window.frame = CGRect(origin: .zero, size: Self.screenSize)
-            window.overrideUserInterfaceStyle = .dark
-            window.rootViewController = controller
-            window.makeKeyAndVisible()
-            defer {
-                window.isHidden = true
-                window.rootViewController = nil
-                window.windowScene = nil
-            }
+    /// The walk itself, as a method: the compiler's region-isolation pass crashes on this body
+    /// as a closure literal handed to `RenderedScreen.host` (Xcode 26.2, `SendNonSendable`).
+    private func walkEveryMark(on screen: HostedScreen) async throws {
+        let window = screen.window
 
-            try await settle(window, title: ShareComposerCoachMark.sources.title)
-            try Self.photograph(window, named: "01-source-tabs")
+        try await settle(window, title: ShareComposerCoachMark.sources.title)
+        try screen.photograph(named: "01-source-tabs")
 
-            try activateAccessibilityElement(labelled: "Next", in: window)
-            try await settle(window, label: "Presets")
-            try activateAccessibilityElement(labelled: "Presets", in: window)
-            try await settle(window, label: Climb.preview.name)
-            try activateAccessibilityElement(in: window) {
-                $0.accessibilityLabel == Climb.preview.name && $0.accessibilityTraits.contains(.button)
-            }
+        try activateAccessibilityElement(labelled: "Next", in: window)
+        try await settle(window, label: "Presets")
+        try activateAccessibilityElement(labelled: "Presets", in: window)
+        try await settle(window, label: Climb.preview.name)
+        try activateAccessibilityElement(in: window) {
+            $0.accessibilityLabel == Climb.preview.name && $0.accessibilityTraits.contains(.button)
+        }
 
-            try await settle(
-                window,
-                title: ShareComposerCoachMark.stats.title,
-                previousTitle: ShareComposerCoachMark.sources.title
-            )
-            try Self.photograph(window, named: "02-stats-sheet")
+        try await settle(
+            window,
+            title: ShareComposerCoachMark.stats.title,
+            previousTitle: ShareComposerCoachMark.sources.title
+        )
+        try screen.photograph(named: "02-stats-sheet")
 
-            try activateAccessibilityElement(labelled: "Next", in: window)
-            try await scrollToCompatibleStat(in: window)
-            try activateAccessibilityElement(in: window) {
-                $0.accessibilityLabel?.hasSuffix("STEPS") == true
+        try activateAccessibilityElement(labelled: "Next", in: window)
+        try await scrollToCompatibleStat(in: window)
+        try activateAccessibilityElement(in: window) {
+            $0.accessibilityLabel?.hasSuffix("STEPS") == true
+                && $0.accessibilityTraits.contains(.button)
+        }
+
+        try await settle(
+            window,
+            title: ShareComposerCoachMark.editRail.title,
+            previousTitle: ShareComposerCoachMark.stats.title,
+            waitsForSheetDismissal: true
+        )
+        try screen.photograph(named: "03-edit-rail")
+
+        try activateAccessibilityElement(labelled: "Next", in: window)
+        try await settle(
+            window,
+            title: ShareComposerCoachMark.filters.title,
+            previousTitle: ShareComposerCoachMark.editRail.title
+        )
+        try screen.photograph(named: "04-filters")
+
+        // Dismissing the last mark has to hand the screen back: the dim goes, and the control
+        // the card just explained is reachable where VoiceOver is sent.
+        try activateAccessibilityElement(labelled: "Got it", in: window)
+        let afterDismissal = try await settledAccessibilityElements(under: window) { elements in
+            elements.contains {
+                $0.accessibilityLabel == "Background filters"
                     && $0.accessibilityTraits.contains(.button)
             }
-
-            try await settle(
-                window,
-                title: ShareComposerCoachMark.editRail.title,
-                previousTitle: ShareComposerCoachMark.stats.title,
-                waitsForSheetDismissal: true
-            )
-            try Self.photograph(window, named: "03-edit-rail")
-
-            try activateAccessibilityElement(labelled: "Next", in: window)
-            try await settle(
-                window,
-                title: ShareComposerCoachMark.filters.title,
-                previousTitle: ShareComposerCoachMark.editRail.title
-            )
-            try Self.photograph(window, named: "04-filters")
-
-            // Dismissing the last mark has to hand the screen back: the dim goes, and the control
-            // the card just explained is reachable where VoiceOver is sent.
-            try activateAccessibilityElement(labelled: "Got it", in: window)
-            let afterDismissal = try await settledAccessibilityElements(under: window) { elements in
-                elements.contains {
-                    $0.accessibilityLabel == "Background filters"
-                        && $0.accessibilityTraits.contains(.button)
-                }
-                    && elements.contains {
-                        $0.accessibilityLabel == ShareComposerCoachMark.filters.title
-                    } == false
-            }
-            #expect(
-                afterDismissal.contains {
-                    $0.accessibilityLabel == "Background filters"
-                        && $0.accessibilityTraits.contains(.button)
-                }
-            )
-            #expect(afterDismissal.contains { $0.accessibilityLabel == "Skip" } == false)
+                && elements.contains {
+                    $0.accessibilityLabel == ShareComposerCoachMark.filters.title
+                } == false
         }
+        #expect(
+            afterDismissal.contains {
+                $0.accessibilityLabel == "Background filters"
+                    && $0.accessibilityTraits.contains(.button)
+            }
+        )
+        #expect(afterDismissal.contains { $0.accessibilityLabel == "Skip" } == false)
     }
 
     @Test(.bug(id: 491))
@@ -159,9 +151,10 @@ struct ShareComposerWalkthroughEvidenceTests {
         .modelContainer(fixture.container)
         .transaction { $0.disablesAnimations = true }
 
-        try await withHostedWindow(composer) { window in
+        try await RenderedScreen.host(composer, size: Self.screenSize) { screen in
+            let window = screen.window
             try await settle(window, title: expectedTitle)
-            try Self.photograph(window, named: "05-non-climb-source")
+            try screen.photograph(named: "05-non-climb-source")
             try activateAccessibilityElement(labelled: "Next", in: window)
             try await settle(window, label: "Camera Roll")
             let elements = accessibilityElements(under: window)
@@ -260,32 +253,6 @@ struct ShareComposerWalkthroughEvidenceTests {
         )
     }
 
-    private func withHostedWindow<Content: View>(
-        _ content: Content,
-        body: (UIWindow) async throws -> Void
-    ) async throws {
-        try await withAccessibilityAutomation {
-            let controller = UIHostingController(rootView: content)
-            controller.overrideUserInterfaceStyle = .dark
-            controller.view.frame = CGRect(origin: .zero, size: Self.screenSize)
-            let scene = UIApplication.shared.connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .first
-            let window = scene.map { UIWindow(windowScene: $0) }
-                ?? UIWindow(frame: CGRect(origin: .zero, size: Self.screenSize))
-            window.frame = CGRect(origin: .zero, size: Self.screenSize)
-            window.overrideUserInterfaceStyle = .dark
-            window.rootViewController = controller
-            window.makeKeyAndVisible()
-            defer {
-                window.isHidden = true
-                window.rootViewController = nil
-                window.windowScene = nil
-            }
-            try await body(window)
-        }
-    }
-
     /// Pages the real SwiftUI sheet until its lazy stat grid has materialized an individual stat.
     ///
     /// `accessibilityScroll` does not move a SwiftUI `ScrollView`, so drive its backing scroll view
@@ -359,22 +326,6 @@ struct ShareComposerWalkthroughEvidenceTests {
     private func isCompatibleStatButton(_ element: NSObject) -> Bool {
         element.accessibilityLabel?.hasSuffix("STEPS") == true
             && element.accessibilityTraits.contains(.button)
-    }
-
-    private static func photograph(_ window: UIWindow, named name: String) throws {
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.scale = 3
-        let image = UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { _ in
-            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-        }
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: "\(name).png")
-        try png.write(to: url)
-        #expect(png.count > 5_000)
-        print("evidence: \(url.path())")
     }
 }
 

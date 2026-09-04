@@ -7,11 +7,13 @@ import UIKit
 /// Reviewer-facing evidence for the four finalized share cards.
 ///
 /// The existing suites prove the pieces; this one drives the shipping path a
-/// climber actually takes — resolve the attempt's stats, ask the store which
-/// cards the data supports, render each one over real landmark artwork at the
+/// climber actually takes - resolve the attempt's stats, ask the store which
+/// cards the data supports, lay each one out over real landmark artwork at the
 /// export resolution, and push the chosen card back through
-/// `ShareComposerExporter` — and writes every frame out as a PNG so the card set
-/// can be looked at rather than described.
+/// `ShareComposerExporter` - and photographs every frame under
+/// `ASCEND_EVIDENCE_DIR`, so the card set can be looked at rather than
+/// described. Every measurement reads a 1x layout, which at the export size is
+/// the export itself, and holds facts rather than bitmaps (`RenderedScreen`).
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct FinalizedShareCardSetEvidenceTests {
@@ -33,13 +35,14 @@ struct FinalizedShareCardSetEvidenceTests {
 
         let context = Self.context(for: viewModel, standing: standing)
         for template in templates {
-            let image = try #require(Self.export(template, context: context), "\(template.id) rendered nothing")
-            #expect(image.size == Self.exportSize)
-            #expect(
-                abs(image.size.width / image.size.height - ShareCardFormat.aspectRatio) < 0.0001,
-                "\(template.id) did not export at the story aspect ratio"
-            )
-            Self.write(image, "01-ranked-\(template.id)")
+            try Self.withCardPixels(template, context: context) { pixels in
+                #expect(pixels.size == Self.exportSize)
+                #expect(
+                    abs(pixels.size.width / pixels.size.height - ShareCardFormat.aspectRatio) < 0.0001,
+                    "\(template.id) did not export at the story aspect ratio"
+                )
+            }
+            try Self.photograph(template, context: context, named: "01-ranked-\(template.id)")
         }
     }
 
@@ -56,8 +59,7 @@ struct FinalizedShareCardSetEvidenceTests {
         let templates = ShareCardTemplateStore(bundle: .main).templates(for: [.climb, .standing])
         let context = Self.context(for: viewModel, standing: standing)
         for template in templates {
-            let image = try #require(Self.export(template, context: context))
-            Self.write(image, "02-first-ascent-\(template.id)")
+            try Self.photograph(template, context: context, named: "02-first-ascent-\(template.id)")
         }
     }
 
@@ -80,10 +82,11 @@ struct FinalizedShareCardSetEvidenceTests {
                 ResolvedShareStanding(rank: scenario.rank, totalClimbers: scenario.field)
             )
             let viewModel = Self.rankedViewModel(rank: scenario.rank, total: scenario.field)
-            let image = try #require(
-                Self.export(template, context: Self.context(for: viewModel, standing: standing))
+            try Self.photograph(
+                template,
+                context: Self.context(for: viewModel, standing: standing),
+                named: "03-standing-\(scenario.name)-p\(standing.percentile)"
             )
-            Self.write(image, "03-standing-\(scenario.name)-p\(standing.percentile)")
         }
     }
 
@@ -101,17 +104,18 @@ struct FinalizedShareCardSetEvidenceTests {
             #expect(splits.stepQuintileRows.count == 5, "\(tower.name) did not produce five ranges")
 
             let standing = try #require(ResolvedShareStanding(rank: 4, totalClimbers: 1_284))
-            let image = try #require(
-                Self.export(template, context: Self.context(for: viewModel, standing: standing))
+            try Self.photograph(
+                template,
+                context: Self.context(for: viewModel, standing: standing),
+                named: "04-splits-\(tower.name)"
             )
-            Self.write(image, "04-splits-\(tower.name)")
         }
     }
 
     // MARK: - The wordmark band
 
     /// The lockup is drawn once, in the same place, on all four cards, and the
-    /// protected band under the content is where it lives. Cropping the band out
+    /// protected band under the content is where it lives. Reading the band out
     /// of each export and comparing the ink boxes is the only way to see that the
     /// position is genuinely identical rather than merely specified once.
     @Test
@@ -132,30 +136,31 @@ struct FinalizedShareCardSetEvidenceTests {
 
         // The renderer's clip leaves a partially-covered row where the card's
         // content meets the band. It is a sub-pixel seam, not content, but over
-        // a full-bleed photograph it is bright enough to read as ink — so the
+        // a full-bleed photograph it is bright enough to read as ink - so the
         // measurement starts just below it.
         let seamGuard: CGFloat = 6
+        let measured = CGRect(
+            x: band.minX,
+            y: band.minY + seamGuard,
+            width: band.width,
+            height: band.height - seamGuard
+        )
 
         var boxes: [String: CGRect] = [:]
-        var crops: [UIImage] = []
         for template in templates {
-            let image = try #require(Self.export(template, context: context))
-            let crop = try #require(Self.crop(image, to: band))
-            crops.append(crop)
-
-            let measured = try #require(Self.crop(image, to: CGRect(
-                x: band.minX,
-                y: band.minY + seamGuard,
-                width: band.width,
-                height: band.height - seamGuard
-            )))
-            var box = try #require(Self.inkBounds(of: measured), "\(template.id) drew no wordmark in the band")
-            box.origin.y += seamGuard
+            var box = try Self.withCardPixels(template, context: context) { pixels in
+                try #require(
+                    Self.inkBounds(of: pixels, in: measured),
+                    "\(template.id) drew no wordmark in the band"
+                )
+            }
+            // In the band's own coordinates, so the clearance from its top edge reads directly.
+            box.origin.y -= band.minY
             boxes[template.id] = box
 
-            // Centred, small, and clear of the band's top edge — the gap between
+            // Centred, small, and clear of the band's top edge - the gap between
             // the clipped content and the lockup is the protection.
-            let centreOffset = abs((box.midX) - Double(crop.size.width) / 2)
+            let centreOffset = abs(box.midX - band.width / 2)
             #expect(centreOffset < 4, "\(template.id) wordmark is off centre by \(centreOffset)px")
             #expect(box.height < bandHeight * 0.55, "\(template.id) wordmark outgrew its band")
             #expect(box.minY > 8, "\(template.id) wordmark touches the top of the protected band")
@@ -169,7 +174,18 @@ struct FinalizedShareCardSetEvidenceTests {
             #expect(abs(box.height - reference.height) < 2, "\(id) wordmark changed height")
         }
 
-        Self.write(try #require(Self.stack(crops)), "05-wordmark-band-result-poster-sticker-standing")
+        if RenderedScreen.isPhotographing {
+            let sheet = WordmarkBandProofSheet(
+                cards: templates.map { Self.card($0, context: context) },
+                band: band.size
+            )
+            try RenderedScreen.photograph(
+                sheet,
+                named: "finalized-05-wordmark-band-result-poster-sticker-standing",
+                scale: 1,
+                proposedSize: ProposedViewSize(sheet.size)
+            )
+        }
     }
 
     /// Result and Standing hug their content: the panel is sized by what it
@@ -201,11 +217,12 @@ struct FinalizedShareCardSetEvidenceTests {
                 let template = try #require(
                     store.templates(for: [.climb, .standing]).first { $0.id == id }
                 )
-                let image = try #require(Self.export(template, context: context))
-                let gap = try #require(
-                    Self.gapBelowLastContentRow(of: image),
-                    "\(id) (\(variant.name)) drew no content above the wordmark band"
-                )
+                let gap = try Self.withCardPixels(template, context: context) { pixels in
+                    try #require(
+                        Self.gapBelowLastContentRow(of: pixels),
+                        "\(id) (\(variant.name)) drew no content above the wordmark band"
+                    )
+                }
                 #expect(
                     gap <= maximumGap,
                     "\(id) (\(variant.name)) left \(gap)pt of dead space above the wordmark band"
@@ -243,8 +260,9 @@ struct FinalizedShareCardSetEvidenceTests {
                 let template = try #require(
                     store.templates(for: [.climb, .standing]).first { $0.id == id }
                 )
-                let image = try #require(Self.export(template, context: context))
-                let band = try #require(Self.tallestFlatBandAboveWordmark(of: image))
+                let band = try Self.withCardPixels(template, context: context) { pixels in
+                    try #require(Self.tallestFlatBandAboveWordmark(of: pixels))
+                }
                 #expect(
                     band <= maximumFlatBand,
                     "\(id) (\(variant.name)) left a \(band)pt band of nothing inside the card"
@@ -254,7 +272,7 @@ struct FinalizedShareCardSetEvidenceTests {
     }
 
     /// The card is a fixed design, so a reader at the largest accessibility size
-    /// gets the same pixels as one at the default — nothing can reflow into the
+    /// gets the same pixels as one at the default - nothing can reflow into the
     /// wordmark's band.
     @Test
     func dynamicTypeCannotReflowACardIntoTheWordmark() throws {
@@ -265,15 +283,17 @@ struct FinalizedShareCardSetEvidenceTests {
             ShareCardTemplateStore(bundle: .main).templates(for: [.climb]).first { $0.id == "result" }
         )
 
-        let large = try #require(Self.export(template, context: context, dynamicType: .large))
-        let accessibility = try #require(
-            Self.export(template, context: context, dynamicType: .accessibility5)
-        )
-        #expect(
-            try Self.differingPixelFraction(large, accessibility) == 0,
-            "the card reflowed under an accessibility text size"
-        )
-        Self.write(accessibility, "06-result-at-accessibility5")
+        // One card's pixels are held as a list while the other is laid out, so the two
+        // layouts never exist at once.
+        let whole = CGRect(origin: .zero, size: Self.exportSize)
+        let large = try Self.withCardPixels(template, context: context, dynamicType: .large) { pixels in
+            pixels.pixels(in: whole)
+        }
+        let differing = try Self.withCardPixels(template, context: context, dynamicType: .accessibility5) { pixels in
+            Self.differingPixelFraction(large, pixels.pixels(in: whole))
+        }
+        #expect(differing == 0, "the card reflowed under an accessibility text size")
+        try Self.photograph(template, context: context, dynamicType: .accessibility5, named: "06-result-at-accessibility5")
     }
 
     /// The smallest supported canvas still draws the whole card, wordmark
@@ -290,17 +310,16 @@ struct FinalizedShareCardSetEvidenceTests {
 
         // iPhone SE (3rd gen) portrait width, at the card's own aspect ratio.
         let size = CGSize(width: 320, height: (320 / ShareCardFormat.aspectRatio).rounded())
-        let image = try #require(Self.render(template, context: context, size: size))
-        #expect(image.size == size)
-
         let scale = size.width / ShareCardFormat.designSize.width
         let bandHeight = ShareCardTemplateView.wordmarkClearance * scale
-        let crop = try #require(
-            Self.crop(image, to: CGRect(x: 0, y: size.height - bandHeight, width: size.width, height: bandHeight))
-        )
-        let box = try #require(Self.inkBounds(of: crop), "the wordmark vanished on the smallest canvas")
-        #expect(abs(box.midX - Double(crop.size.width) / 2) < 3, "the wordmark drifted off centre")
-        Self.write(image, "07-standing-smallest-canvas-320pt")
+        let band = CGRect(x: 0, y: size.height - bandHeight, width: size.width, height: bandHeight)
+
+        let box = try Self.withCardPixels(template, context: context, size: size) { pixels -> CGRect in
+            #expect(pixels.size == size)
+            return try #require(Self.inkBounds(of: pixels, in: band), "the wordmark vanished on the smallest canvas")
+        }
+        #expect(abs(box.midX - size.width / 2) < 3, "the wordmark drifted off centre")
+        try Self.photograph(template, context: context, size: size, named: "07-standing-smallest-canvas-320pt")
     }
 
     // MARK: - The real export path
@@ -308,7 +327,7 @@ struct FinalizedShareCardSetEvidenceTests {
     /// The last mile: the chosen card becomes the composer's background and goes
     /// out through `ShareComposerExporter.renderImage`, the same call the share
     /// button makes. The export is full resolution and carries the card's own
-    /// lockup once — the canvas wordmark stands down for a recap.
+    /// lockup once - the canvas wordmark stands down for a recap.
     @Test
     func theComposerExportsTheChosenCardAtFullResolution() async throws {
         let viewModel = Self.rankedViewModel()
@@ -318,7 +337,7 @@ struct FinalizedShareCardSetEvidenceTests {
             ShareCardTemplateStore(bundle: .main).templates(for: [.climb, .standing])
                 .first { $0.id == "poster" }
         )
-        let card = try #require(Self.export(template, context: context))
+        let card = try #require(Self.exportImage(template, context: context))
 
         viewModel.background = .recap(card)
         #expect(!viewModel.shouldRenderCanvasWordmark, "a recap must not take a second wordmark")
@@ -326,7 +345,14 @@ struct FinalizedShareCardSetEvidenceTests {
 
         let exported = try #require(await ShareComposerExporter().renderImage(viewModel: viewModel))
         #expect(exported.size == Self.exportSize)
-        Self.write(exported, "08-composer-export-poster")
+        try RenderedScreen.photograph(
+            Image(uiImage: exported)
+                .resizable()
+                .frame(width: Self.exportSize.width, height: Self.exportSize.height),
+            named: "finalized-08-composer-export-poster",
+            scale: 1,
+            proposedSize: ProposedViewSize(Self.exportSize)
+        )
 
         // The canvas wordmark, had it drawn, would have landed in the band the
         // card already owns; the export must match the card it was handed.
@@ -425,99 +451,78 @@ struct FinalizedShareCardSetEvidenceTests {
 
     // MARK: - Rendering
 
-    private static func export(
+    /// The card as the exporter lays it out: full-bleed at `size`, at a fixed text size.
+    private static func card(
         _ template: ShareCardTemplate,
         context: ShareCardRenderContext,
+        size: CGSize = exportSize,
         dynamicType: DynamicTypeSize? = nil
-    ) -> UIImage? {
-        render(template, context: context, size: exportSize, dynamicType: dynamicType)
-    }
-
-    private static func render(
-        _ template: ShareCardTemplate,
-        context: ShareCardRenderContext,
-        size: CGSize,
-        dynamicType: DynamicTypeSize? = nil
-    ) -> UIImage? {
-        let card = ShareCardTemplateView(template: template, context: context, artwork: heroArtwork)
+    ) -> some View {
+        ShareCardTemplateView(template: template, context: context, artwork: heroArtwork)
             .frame(width: size.width, height: size.height)
             .clipped()
             .environment(\.dynamicTypeSize, dynamicType ?? .large)
-        let renderer = ImageRenderer(content: card)
-        renderer.proposedSize = ProposedViewSize(size)
+    }
+
+    /// Lays the card out at 1x - `size` is already the export's own resolution, so 1x is the
+    /// export itself - and hands `body` its pixels, released on return. Every pixel reader below
+    /// relies on that: at 1x a pixel is a point, so the card's coordinates need no conversion.
+    private static func withCardPixels<Result>(
+        _ template: ShareCardTemplate,
+        context: ShareCardRenderContext,
+        size: CGSize = exportSize,
+        dynamicType: DynamicTypeSize? = nil,
+        _ body: (PixelSampler) throws -> Result
+    ) throws -> Result {
+        try RenderedScreen.withOffscreenPixels(
+            of: card(template, context: context, size: size, dynamicType: dynamicType),
+            scale: 1,
+            proposedSize: ProposedViewSize(size),
+            body
+        )
+    }
+
+    /// The export as the app receives it, for the one test that hands the card back to the
+    /// composer as its recap background - a fixture the app consumes, not a bitmap a test reads.
+    private static func exportImage(
+        _ template: ShareCardTemplate,
+        context: ShareCardRenderContext
+    ) -> UIImage? {
+        let renderer = ImageRenderer(content: card(template, context: context))
+        renderer.proposedSize = ProposedViewSize(exportSize)
         renderer.scale = 1
         renderer.isOpaque = true
         return renderer.uiImage
     }
 
-    private static func crop(_ image: UIImage, to rect: CGRect) -> UIImage? {
-        guard let cgImage = image.cgImage?.cropping(to: rect) else { return nil }
-        return UIImage(cgImage: cgImage)
-    }
-
-    /// Stacks crops vertically with a hairline between them, so the four bands
-    /// can be compared in one glance.
-    private static func stack(_ images: [UIImage]) -> UIImage? {
-        guard let first = images.first else { return nil }
-        let gap: CGFloat = 6
-        let size = CGSize(
-            width: first.size.width,
-            height: images.reduce(0) { $0 + $1.size.height } + gap * CGFloat(images.count - 1)
+    /// Writes the card at its own resolution to `ASCEND_EVIDENCE_DIR`, and does nothing otherwise.
+    private static func photograph(
+        _ template: ShareCardTemplate,
+        context: ShareCardRenderContext,
+        size: CGSize = exportSize,
+        dynamicType: DynamicTypeSize? = nil,
+        named name: String
+    ) throws {
+        try RenderedScreen.photograph(
+            card(template, context: context, size: size, dynamicType: dynamicType),
+            named: "finalized-\(name)",
+            scale: 1,
+            proposedSize: ProposedViewSize(size)
         )
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        return UIGraphicsImageRenderer(size: size, format: format).image { renderer in
-            UIColor.systemPink.setFill()
-            renderer.fill(CGRect(origin: .zero, size: size))
-            var y: CGFloat = 0
-            for image in images {
-                image.draw(at: CGPoint(x: 0, y: y))
-                y += image.size.height + gap
-            }
-        }
     }
 
     // MARK: - Pixel readers
 
-    /// Bounding box of everything that reads as drawn against the crop's
-    /// dominant (background) colour.
+    /// Bounding box, in points, of everything inside `region` that reads as drawn
+    /// against the region's dominant (background) colour.
     ///
     /// The threshold is what makes this a lockup measurement rather than a noise
     /// measurement: clipping the card's content leaves a sub-pixel seam along the
     /// band's top edge that is invisible on screen but not byte-identical to the
-    /// background, and counting it would put every box's origin at y = 0.
-    private static func inkBounds(of image: UIImage, threshold: Int = 40) -> CGRect? {
-        let width = Int(image.size.width.rounded())
-        let height = Int(image.size.height.rounded())
-        guard let buffer = try? pixels(of: image, width: width, height: height) else { return nil }
-
-        var histogram: [UInt32: Int] = [:]
-        for index in stride(from: 0, to: buffer.count, by: 4) {
-            histogram[key(buffer, index), default: 0] += 1
-        }
-        guard let background = histogram.max(by: { $0.value < $1.value })?.key else { return nil }
-        let backgroundChannels = (
-            Int(background >> 16 & 0xFF), Int(background >> 8 & 0xFF), Int(background & 0xFF)
-        )
-
-        var minX = width, minY = height, maxX = -1, maxY = -1
-        for y in 0..<height {
-            for x in 0..<width {
-                let index = (y * width + x) * 4
-                let distance = max(
-                    abs(Int(buffer[index]) - backgroundChannels.0),
-                    abs(Int(buffer[index + 1]) - backgroundChannels.1),
-                    abs(Int(buffer[index + 2]) - backgroundChannels.2)
-                )
-                guard distance > threshold else { continue }
-                minX = min(minX, x)
-                maxX = max(maxX, x)
-                minY = min(minY, y)
-                maxY = max(maxY, y)
-            }
-        }
-        guard maxX >= minX, maxY >= minY else { return nil }
-        return CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
+    /// background, and counting it would put every box's origin at the band's top.
+    private static func inkBounds(of pixels: PixelSampler, in region: CGRect, threshold: Int = 40) -> CGRect? {
+        guard let background = dominantColour(of: pixels, in: region) else { return nil }
+        return pixels.bounds(in: region) { distance(from: $0, to: background) > threshold }
     }
 
     /// Design points between the lowest row of the card that draws anything and
@@ -527,14 +532,13 @@ struct FinalizedShareCardSetEvidenceTests {
     /// sampled from the strip immediately above the band - which the clearance
     /// guarantees is empty - and the scan walks up until a row departs from it.
     private static func gapBelowLastContentRow(
-        of image: UIImage,
+        of pixels: PixelSampler,
         threshold: Int = 40
     ) -> CGFloat? {
-        let width = Int(image.size.width.rounded())
-        let height = Int(image.size.height.rounded())
-        guard let buffer = try? pixels(of: image, width: width, height: height) else { return nil }
+        let width = pixels.width
+        let height = pixels.height
 
-        let scale = image.size.width / ShareCardFormat.designSize.width
+        let scale = pixels.size.width / ShareCardFormat.designSize.width
         // Clipping the card's content at the band leaves a sub-pixel seam that is
         // invisible on screen but not byte-identical to the fill under it.
         let seamGuard = 3
@@ -542,24 +546,13 @@ struct FinalizedShareCardSetEvidenceTests {
         guard bandTop > 0, bandTop <= height else { return nil }
 
         let sampleTop = max(bandTop - Int(4 * scale), 0)
-        var histogram: [UInt32: Int] = [:]
-        for y in sampleTop..<bandTop {
-            for x in 0..<width {
-                histogram[key(buffer, (y * width + x) * 4), default: 0] += 1
-            }
-        }
-        guard let background = histogram.max(by: { $0.value < $1.value })?.key else { return nil }
-        let channels = (Int(background >> 16 & 0xFF), Int(background >> 8 & 0xFF), Int(background & 0xFF))
+        guard let background = dominantColour(
+            of: pixels,
+            in: CGRect(x: 0, y: sampleTop, width: width, height: bandTop - sampleTop)
+        ) else { return nil }
 
         for y in stride(from: bandTop - 1, through: 0, by: -1) {
-            for x in 0..<width {
-                let index = (y * width + x) * 4
-                let distance = max(
-                    abs(Int(buffer[index]) - channels.0),
-                    abs(Int(buffer[index + 1]) - channels.1),
-                    abs(Int(buffer[index + 2]) - channels.2)
-                )
-                guard distance > threshold else { continue }
+            for x in 0..<width where distance(from: pixels.pixel(x: x, y: y), to: background) > threshold {
                 return CGFloat(bandTop + seamGuard - (y + 1)) / scale
             }
         }
@@ -573,37 +566,76 @@ struct FinalizedShareCardSetEvidenceTests {
     /// artwork never repeats a row, a gradient never repeats a row, and text
     /// and bars break the run the moment they start. Spacing between rows makes
     /// short runs; a reserved slot makes a long one.
-    private static func tallestFlatBandAboveWordmark(of image: UIImage) -> CGFloat? {
-        let width = Int(image.size.width.rounded())
-        let height = Int(image.size.height.rounded())
-        guard let buffer = try? pixels(of: image, width: width, height: height) else { return nil }
-
-        let scale = image.size.width / ShareCardFormat.designSize.width
+    private static func tallestFlatBandAboveWordmark(of pixels: PixelSampler) -> CGFloat? {
+        let scale = pixels.size.width / ShareCardFormat.designSize.width
         let bandTop = Int(
             (ShareCardFormat.designSize.height - ShareCardTemplateView.wordmarkClearance) * scale
         )
-        guard bandTop > 1, bandTop <= height else { return nil }
+        guard bandTop > 1, bandTop <= pixels.height else { return nil }
 
-        let stride = width * 4
+        func row(_ y: Int) -> [RGBA] {
+            pixels.pixels(in: CGRect(x: 0, y: y, width: pixels.width, height: 1))
+        }
+
         var tallest = 0
         var run = 1
+        var previous = row(0)
         for y in 1..<bandTop {
-            let current = buffer[(y * stride)..<((y + 1) * stride)]
-            let previous = buffer[((y - 1) * stride)..<(y * stride)]
-            if current.elementsEqual(previous) {
+            let current = row(y)
+            if current == previous {
                 run += 1
                 tallest = max(tallest, run)
             } else {
                 run = 1
             }
+            previous = current
         }
         return CGFloat(tallest) / scale
     }
 
-    private static func key(_ buffer: [UInt8], _ index: Int) -> UInt32 {
-        UInt32(buffer[index]) << 16 | UInt32(buffer[index + 1]) << 8 | UInt32(buffer[index + 2])
+    /// The most common colour inside `region`, in points.
+    private static func dominantColour(of pixels: PixelSampler, in region: CGRect) -> RGBA? {
+        var histogram: [UInt32: Int] = [:]
+        for pixel in pixels.pixels(in: region) {
+            histogram[key(pixel), default: 0] += 1
+        }
+        guard let background = histogram.max(by: { $0.value < $1.value })?.key else { return nil }
+        return RGBA(
+            red: UInt8(background >> 16 & 0xFF),
+            green: UInt8(background >> 8 & 0xFF),
+            blue: UInt8(background & 0xFF),
+            alpha: 255
+        )
     }
 
+    private static func key(_ pixel: RGBA) -> UInt32 {
+        UInt32(pixel.red) << 16 | UInt32(pixel.green) << 8 | UInt32(pixel.blue)
+    }
+
+    /// The largest per-channel difference between two colours, alpha ignored.
+    private static func distance(from pixel: RGBA, to reference: RGBA) -> Int {
+        max(
+            abs(Int(pixel.red) - Int(reference.red)),
+            abs(Int(pixel.green) - Int(reference.green)),
+            abs(Int(pixel.blue) - Int(reference.blue))
+        )
+    }
+
+    /// The share of positions whose colour differs between two same-sized captures.
+    private static func differingPixelFraction(_ lhs: [RGBA], _ rhs: [RGBA]) -> Double {
+        guard lhs.count == rhs.count, !lhs.isEmpty else { return 1 }
+        var differing = 0
+        for (left, right) in zip(lhs, rhs) where
+            left.red != right.red || left.green != right.green || left.blue != right.blue {
+            differing += 1
+        }
+        return Double(differing) / Double(lhs.count)
+    }
+
+    /// The same comparison for the two images the composer path deals in: the recap
+    /// fixture the app was handed and the export it returned. Both are the app's
+    /// `UIImage`s rather than a test's capture, so they are read here rather than
+    /// through `RenderedScreen`.
     private static func differingPixelFraction(_ lhs: UIImage, _ rhs: UIImage) throws -> Double {
         let width = Int(max(lhs.size.width, rhs.size.width).rounded())
         let height = Int(max(lhs.size.height, rhs.size.height).rounded())
@@ -638,15 +670,32 @@ struct FinalizedShareCardSetEvidenceTests {
     }
 
     private enum EvidenceError: Error { case noBitmapContext }
+}
 
-    // MARK: - Evidence
+/// The protected band of every card, stacked with a hairline between them so the
+/// four lockups can be compared in one glance. Built only to be photographed.
+private struct WordmarkBandProofSheet<Card: View>: View {
+    let cards: [Card]
+    let band: CGSize
 
-    private static func write(_ image: UIImage, _ name: String) {
-        guard let data = image.pngData() else { return }
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            .map { URL(filePath: $0) } ?? FileManager.default.temporaryDirectory
-        let url = directory.appending(path: "finalized-\(name).png")
-        try? data.write(to: url)
-        print("evidence: \(url.path())")
+    private static var gap: CGFloat { 6 }
+
+    var size: CGSize {
+        CGSize(
+            width: band.width,
+            height: band.height * CGFloat(cards.count) + Self.gap * CGFloat(max(cards.count - 1, 0))
+        )
+    }
+
+    var body: some View {
+        VStack(spacing: Self.gap) {
+            ForEach(Array(cards.enumerated()), id: \.offset) { _, card in
+                card
+                    .frame(width: band.width, height: band.height, alignment: .bottom)
+                    .clipped()
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .background(Color.pink)
     }
 }

@@ -10,9 +10,10 @@ import UIKit
 ///
 /// `ShareStatClusterPresetEvidenceTests` exports what the shared image looks
 /// like; nothing there shows the picker itself. This hosts the shipping
-/// `ShareComposerView` in a phone-sized window, walks it the way a climber does
-/// - pick a background, the add sheet opens on its own - and photographs the
-/// GROUPS grid, then taps a group and photographs the canvas it lands on.
+/// `ShareComposerView` in a phone-sized window through `RenderedScreen`, walks
+/// it the way a climber does - pick a background, the add sheet opens on its
+/// own - and photographs the GROUPS grid, then taps a group and photographs the
+/// canvas it lands on. Photographs are written only under `ASCEND_EVIDENCE_DIR`.
 ///
 /// The screens are the real ones: no stand-in sheet, no re-implemented tile.
 @MainActor
@@ -49,12 +50,12 @@ struct ShareStatClusterPickerEvidenceTests {
         )
         .modelContainer(container)
 
-        try await hostComposer(composer) { window, _ in
-            try await openTheAddSheet(in: window)
+        try await hostComposer(composer) { screen in
+            try await openTheAddSheet(on: screen)
 
             // A tile reads out everything it draws and ends on its own name, so
             // the labels below are also what a VoiceOver climber hears.
-            let sheetLabels = try await settledAccessibilityElements(under: window) {
+            let sheetLabels = try await settledAccessibilityElements(under: screen.window) {
                 $0.contains { $0.accessibilityLabel?.hasSuffix("HERO") == true }
             }.compactMap(\.accessibilityLabel)
             #expect(
@@ -64,14 +65,14 @@ struct ShareStatClusterPickerEvidenceTests {
                 },
                 "the add sheet did not show every group. Saw: \(sheetLabels)"
             )
-            try Self.photograph(window, named: "share-cluster-picker-1-groups-grid")
+            try screen.photograph(named: "share-cluster-picker-1-groups-grid")
 
             // Tapping a group drops it on the canvas as one sticker.
-            try activateAccessibilityElement(in: window) {
+            try activateAccessibilityElement(in: screen.window) {
                 $0.accessibilityLabel?.hasSuffix(", SPLITS") == true
             }
-            try await settle(window, seconds: 1.0)
-            try Self.photograph(window, named: "share-cluster-picker-2-splits-placed")
+            try await screen.settle(.turns(20))
+            try screen.photograph(named: "share-cluster-picker-2-splits-placed")
         }
     }
 
@@ -123,14 +124,14 @@ struct ShareStatClusterPickerEvidenceTests {
         )
         .modelContainer(container)
 
-        try await hostComposer(host) { window, _ in
-            try await awaitControl(labelled: "Recaps", in: window)
-            try activateAccessibilityElement(labelled: "Recaps", in: window)
+        try await hostComposer(host) { screen in
+            try await awaitControl(labelled: "Recaps", in: screen.window)
+            try activateAccessibilityElement(labelled: "Recaps", in: screen.window)
 
             // Waited for by content rather than by a clock: a read that lands before the grid has
             // drawn would pass the assertion below having pinned nothing, and that half is the
             // captain's reported symptom. The always-offered cards are what say the grid is up.
-            let beforeLabels = try await settledAccessibilityElements(under: window) {
+            let beforeLabels = try await settledAccessibilityElements(under: screen.window) {
                 Self.recapGridIsPopulated($0)
             }.compactMap(\.accessibilityLabel)
             #expect(
@@ -144,7 +145,7 @@ struct ShareStatClusterPickerEvidenceTests {
 
             pending.standing = await Self.fetchedStanding(workoutId: workoutId, in: frozenStore)
 
-            let afterLabels = try await settledAccessibilityElements(under: window) {
+            let afterLabels = try await settledAccessibilityElements(under: screen.window) {
                 $0.contains { $0.accessibilityLabel?.contains("Standing") == true }
             }.compactMap(\.accessibilityLabel)
             #expect(
@@ -152,55 +153,37 @@ struct ShareStatClusterPickerEvidenceTests {
                 "the standing landed and the Recaps tab still had no Standing card. Saw: \(afterLabels)"
             )
 
-            try await openTheAddSheet(in: window)
-            try await expectRankTile(in: window, from: "sharing a saved climb")
-            try Self.photograph(window, named: "share-cluster-picker-3-saved-climb-rank")
+            try await openTheAddSheet(on: screen)
+            try await expectRankTile(in: screen.window, from: "sharing a saved climb")
+            try screen.photograph(named: "share-cluster-picker-3-saved-climb-rank")
         }
     }
 
     // MARK: - Hosting
 
-    /// Hosts the shipping composer in a phone-sized window and hands `body` the live window, then
-    /// tears the window down however `body` ends.
+    /// Hosts the shipping composer in a phone-sized window through `RenderedScreen`, waits for
+    /// its tree to arrive, and hands `body` the live screen; the window is torn down however
+    /// `body` ends.
     private func hostComposer<Root: View>(
         _ root: Root,
-        _ body: (UIWindow, UIViewController) async throws -> Void
+        _ body: (HostedScreen) async throws -> Void
     ) async throws {
-        try await withAccessibilityAutomation {
-            let controller = UIHostingController(rootView: root)
-            controller.overrideUserInterfaceStyle = .dark
-            controller.view.frame = CGRect(origin: .zero, size: Self.screenSize)
-
-            let scene = UIApplication.shared.connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .first
-            let window = scene.map { UIWindow(windowScene: $0) }
-                ?? UIWindow(frame: CGRect(origin: .zero, size: Self.screenSize))
-            window.frame = CGRect(origin: .zero, size: Self.screenSize)
-            window.overrideUserInterfaceStyle = .dark
-            window.rootViewController = controller
-            window.makeKeyAndVisible()
-            defer {
-                window.isHidden = true
-                window.rootViewController = nil
-                window.windowScene = nil
-            }
-
-            _ = try await settledAccessibilityElements(under: window)
-            try await body(window, controller)
+        try await RenderedScreen.host(root, size: Self.screenSize) { screen in
+            _ = try await screen.elements()
+            try await body(screen)
         }
     }
 
     /// The climber picks the climb's own artwork as a background; the add sheet then opens by
     /// itself, which is where the groups live. Searched from the window rather than the hosting
     /// controller's view so a composer presented in a cover is reachable too.
-    private func openTheAddSheet(in window: UIWindow) async throws {
-        try activateAccessibilityElement(labelled: "Presets", in: window)
-        try await settle(window)
-        try activateAccessibilityElement(in: window) {
+    private func openTheAddSheet(on screen: HostedScreen) async throws {
+        try activateAccessibilityElement(labelled: "Presets", in: screen.window)
+        try await screen.settle(.turns(10))
+        try activateAccessibilityElement(in: screen.window) {
             $0.accessibilityLabel == Climb.preview.name && $0.accessibilityTraits.contains(.button)
         }
-        try await settle(window, seconds: 1.2)
+        try await screen.settle(.turns(24))
     }
 
     /// Waits for a control the composer only publishes once its own `.task` has run.
@@ -286,39 +269,6 @@ struct ShareStatClusterPickerEvidenceTests {
             BestEffortCacheMetadata.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
-    }
-
-    private func settle(_ window: UIWindow, seconds: TimeInterval = 0.5) async throws {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            window.setNeedsLayout()
-            window.layoutIfNeeded()
-            // Sleeping rather than spinning the run loop: the sheet's
-            // presentation and the composer's own `Task.sleep` both need the
-            // main actor free, not held by this loop.
-            try await Task.sleep(for: .milliseconds(30))
-        }
-    }
-
-    /// What the window is drawing right now, as PNG bytes.
-    private static func capture(_ window: UIWindow) throws -> Data {
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.scale = 3
-        let image = UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { _ in
-            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-        }
-        return try #require(image.pngData(), "UIImage produced no PNG data")
-    }
-
-    private static func photograph(_ window: UIWindow, named name: String) throws {
-        let png = try capture(window)
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: "\(name).png")
-        try png.write(to: url)
-        #expect(png.count > 5_000)
-        print("evidence: \(url.path())")
     }
 }
 

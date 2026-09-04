@@ -17,7 +17,8 @@ import UIKit
 /// the same phone after the restore.
 ///
 /// The backup documents are dumped alongside the image so a reviewer can read
-/// the exact per-user Firestore payload the rules test exercises.
+/// the exact per-user Firestore payload the rules test exercises. Both are
+/// written only when `ASCEND_EVIDENCE_DIR` is set (`RenderedScreen`).
 @MainActor
 struct RoutineCloudBackupEvidenceTests {
     /// Unique to this suite so it never collides with another suite's hydration
@@ -123,35 +124,21 @@ struct RoutineCloudBackupEvidenceTests {
             folderId: folder.id
         )
 
-        let image = try render(
+        try RenderedScreen.photograph(
             RoutineBackupProof(
                 beforeViewModel: beforeViewModel,
                 afterViewModel: afterViewModel,
                 restoredFolderName: restoredFolder.name,
                 restoredFolderColorHex: restoredFolder.colorHex
-            )
+            ),
+            named: "routine-cloud-backup-reinstall"
         )
-        try writeEvidence(image: image, named: "routine-cloud-backup-reinstall.png")
     }
 
-    // MARK: - Rendering
+    // MARK: - Evidence
 
-    private func render(_ view: some View) throws -> UIImage {
-        let renderer = ImageRenderer(content: view)
-        renderer.scale = 3
-        return try #require(renderer.uiImage, "ImageRenderer produced no image")
-    }
-
-    private func writeEvidence(image: UIImage, named name: String) throws {
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-        let url = try evidenceDirectory().appending(path: name)
-        try png.write(to: url)
-        #expect(png.count > 5_000)
-        print("Routine cloud backup evidence: \(url.path())")
-    }
-
-    /// Writes the exact documents the upload put in the backend, keyed by the
-    /// Firestore path they live at.
+    /// Proves the upload put every document in the backend, and writes them out keyed
+    /// by the Firestore path they live at - the dump only under `ASCEND_EVIDENCE_DIR`.
     private func writeBackupDocuments(
         backend: InMemoryUserRoutineBackend,
         routineIds: [UUID],
@@ -179,18 +166,14 @@ struct RoutineCloudBackupEvidenceTests {
             ]
         )
 
+        guard let directory = RenderedScreen.evidenceDirectory else { return }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .iso8601
-        let url = try evidenceDirectory().appending(path: "routine-cloud-backup-documents.json")
+        let url = directory.appending(path: "routine-cloud-backup-documents.json")
         try encoder.encode(dump).write(to: url)
         print("Routine cloud backup documents: \(url.path())")
-    }
-
-    private func evidenceDirectory() throws -> URL {
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        return URL(filePath: directory)
     }
 
     // MARK: - Fixtures
@@ -325,7 +308,7 @@ private struct RoutineBackupProof: View {
 
             if viewModel.hasMyRoutines {
                 // `RoutinesView` puts these cards in a `RoutineHorizontalRail`.
-                // The rail's `ScrollView` renders blank under `ImageRenderer`,
+                // The rail's `ScrollView` renders blank in an offscreen render,
                 // which defers scroll-content layout, so the rail's own `HStack`
                 // spacing is used directly here. The cards are the real ones,
                 // configured exactly as the screen configures them.

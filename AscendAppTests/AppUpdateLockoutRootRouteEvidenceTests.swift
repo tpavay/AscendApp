@@ -2,13 +2,13 @@ import Foundation
 import SwiftUI
 import Testing
 import UIKit
-import Vision
 @testable import AscendApp
 
-/// Reviewer-facing pixels for the climber the lockout used to miss: unentitled, on a stale build.
+/// Reviewer-facing evidence for the climber the lockout used to miss: unentitled, on a stale build.
 ///
 /// The resolver suite holds the ordering and the hosting suite proves the lockout's controls are
-/// operable. This photographs the screen the climber actually lands on, and drives it from the real
+/// operable. This hosts the screen the climber actually lands on, reads its copy off the
+/// accessibility tree (`RenderedScreen`), photographs it when `ASCEND_EVIDENCE_DIR` is set, and drives it from the real
 /// chain rather than from a hand-set verdict: a `RemoteFeatureFlagService` over a fake backend
 /// resolves ``AppVersionGateState``, the same ``AppRootRouteResolver`` `RootView` calls picks the
 /// route, and the harness renders whatever that route names - the paywall gate or the lockout - with
@@ -16,9 +16,6 @@ import Vision
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct AppUpdateLockoutRootRouteEvidenceTests {
-    private static let iPhone16ProSize = CGSize(width: 402, height: 874)
-
-
     /// The defect end to end. The same unentitled climber, the same session: with no floor the gate
     /// hands off to Superwall, and the moment an operator arms the floor the refusal takes the whole
     /// screen instead. Under the old sheet this climber kept the paywall and never saw the lockout.
@@ -47,10 +44,9 @@ struct AppUpdateLockoutRootRouteEvidenceTests {
         )
         controller.overrideUserInterfaceStyle = .dark
 
-        try await withHostedWindow(controller) { window in
-            try await settle(window)
-            let paywall = try await capture(window, named: "root-route-unentitled-01-paywall-gate")
-            let paywallText = try await recognizedText(in: paywall).lowercased()
+        try await RenderedScreen.host(controller) { screen in
+            let paywallText = try await screen.copy { $0.contains("choose your ascend plan") }
+            try screen.photograph(named: "root-route-unentitled-01-paywall-gate")
             #expect(paywallText.contains("choose your ascend plan"))
             #expect(!paywallText.contains("update required"))
 
@@ -65,10 +61,10 @@ struct AppUpdateLockoutRootRouteEvidenceTests {
                 await settles { gateState.isUpdateRequired },
                 "The armed floor never reached the gate state"
             )
-            try await settle(window)
+            try await screen.settle()
 
-            let lockout = try await capture(window, named: "root-route-unentitled-02-lockout")
-            let lockoutText = try await recognizedText(in: lockout).lowercased()
+            let lockoutText = try await screen.copy { $0.contains("update required") }
+            try screen.photograph(named: "root-route-unentitled-02-lockout")
             #expect(lockoutText.contains("update required"))
             #expect(lockoutText.contains("update on the app store"))
             // The paywall gate is gone from the screen, not merely covered by something over it.
@@ -113,12 +109,12 @@ struct AppUpdateLockoutRootRouteEvidenceTests {
         )
         controller.overrideUserInterfaceStyle = .dark
 
-        try await withHostedWindow(controller) { window in
+        try await RenderedScreen.host(controller) { screen in
             await service.waitForCurrentRefresh()
-            try await settle(window)
+            try await screen.settle()
 
-            let lockout = try await capture(window, named: "root-route-offline-cold-start-lockout")
-            let text = try await recognizedText(in: lockout).lowercased()
+            let text = try await screen.copy { $0.contains("update required") }
+            try screen.photograph(named: "root-route-offline-cold-start-lockout")
             #expect(text.contains("update required"))
             #expect(text.contains("this version is no longer supported"))
             #expect(text.contains("update on the app store"))
@@ -133,9 +129,7 @@ struct AppUpdateLockoutRootRouteEvidenceTests {
     /// whatever the climber is on, and it still carries the Later that dismisses it.
     @Test("The soft nudge still arrives as a dismissible sheet over the app", .bug(id: 429))
     func theSoftNudgeStillArrivesAsADismissibleSheet() async throws {
-        try await withAccessibilityAutomation {
-            try await exerciseTheSoftNudge()
-        }
+        try await exerciseTheSoftNudge()
     }
 
     private func exerciseTheSoftNudge() async throws {
@@ -161,7 +155,7 @@ struct AppUpdateLockoutRootRouteEvidenceTests {
         )
         controller.overrideUserInterfaceStyle = .dark
 
-        try await withHostedWindow(controller) { window in
+        try await RenderedScreen.host(controller) { screen in
             source.setAppVersionValues([
                 RemoteAppVersionParameter.minimumSupported.key: "0.9.0",
                 RemoteAppVersionParameter.recommended.key: "1.2.0"
@@ -174,10 +168,10 @@ struct AppUpdateLockoutRootRouteEvidenceTests {
                 await settles { controller.presentedViewController?.view.bounds.height ?? 0 > 0 },
                 "The recommendation never opened its sheet"
             )
-            try await settle(window)
+            try await screen.settle()
 
-            let nudge = try await capture(window, named: "root-route-soft-nudge-sheet")
-            let text = try await recognizedText(in: nudge).lowercased()
+            let text = try await screen.copy { $0.contains("a newer version is ready") }
+            try screen.photograph(named: "root-route-soft-nudge-sheet")
             #expect(text.contains("a newer version is ready"))
             #expect(text.contains("later"))
             // Still a sheet: the gate it opened over is visible behind it.
@@ -213,71 +207,6 @@ struct AppUpdateLockoutRootRouteEvidenceTests {
             if ContinuousClock.now >= deadline { return false }
             try? await Task.sleep(for: .milliseconds(20))
         }
-    }
-
-    private func withHostedWindow(
-        _ controller: UIViewController,
-        perform body: (UIWindow) async throws -> Void
-    ) async throws {
-        let windowScene = try #require(
-            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-        )
-        let window = UIWindow(windowScene: windowScene)
-        window.frame = CGRect(origin: .zero, size: Self.iPhone16ProSize)
-        window.overrideUserInterfaceStyle = .dark
-        window.backgroundColor = .black
-        window.rootViewController = controller
-
-        defer {
-            window.isHidden = true
-            window.rootViewController = nil
-            window.windowScene = nil
-        }
-
-        window.makeKeyAndVisible()
-        controller.view.setNeedsLayout()
-        controller.view.layoutIfNeeded()
-
-        try await body(window)
-    }
-
-    private func settle(_ window: UIWindow, turns: Int = 12) async throws {
-        for _ in 0..<turns {
-            window.setNeedsLayout()
-            window.layoutIfNeeded()
-            try await Task.sleep(for: .milliseconds(50))
-        }
-    }
-
-    @discardableResult
-    private func capture(_ window: UIWindow, named name: String) async throws -> UIImage {
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.scale = 3
-        let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
-            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-        }
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: "\(name).png")
-        try png.write(to: url)
-
-        #expect(png.count > 5_000)
-        print("ASCEND_EVIDENCE_FILE: \(url.path())")
-        return image
-    }
-
-    private func recognizedText(in image: UIImage) async throws -> String {
-        let cgImage = try #require(image.cgImage, "UIImage had no CGImage")
-        var request = RecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-
-        let observations = try await request.perform(on: cgImage)
-        return observations
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: " ")
     }
 }
 

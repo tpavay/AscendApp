@@ -13,9 +13,9 @@ import UIKit
 /// and an icon-only `headphones` control square with, and level with, Start Live Climb - at the
 /// default text size and at an accessibility one - opening the same device list on tap.
 ///
-/// Images land in `ASCEND_EVIDENCE_DIR` when it is set and in the test host's temporary
-/// directory otherwise; the path is logged either way. Nothing reads them back - these are
-/// evidence, not golden-image assertions.
+/// The screen is hosted through `RenderedScreen`; its photographs are taken at 3x only when
+/// `ASCEND_EVIDENCE_DIR` is set. Nothing reads them back - these are evidence, not golden-image
+/// assertions.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct ClimbDetailHeadphoneAffordanceEvidenceTests {
@@ -45,45 +45,45 @@ struct ClimbDetailHeadphoneAffordanceEvidenceTests {
 
     @Test("The overview is photographed with the glyph beside Start Live Climb and no worded card")
     func theOverviewIsPhotographed() async throws {
-        try await withHostedClimbDetail(dynamicTypeSize: .large) { window in
-            let labels = try await settledLabels(under: window)
+        try await withHostedClimbDetail(dynamicTypeSize: .large) { screen in
+            let labels = try await settledLabels(under: screen.window)
             #expect(labels.contains(Self.headphoneControlLabel))
             #expect(!labels.contains { $0.contains("How it works") })
 
-            try await photograph(window, named: "climb-detail-1-overview-default-text")
+            try await photograph(screen, named: "climb-detail-1-overview-default-text")
 
-            try await scrollToBottom(in: window)
-            try await photograph(window, named: "climb-detail-2-action-row-default-text")
+            try await scrollToBottom(in: screen.window)
+            try await photograph(screen, named: "climb-detail-2-action-row-default-text")
         }
     }
 
     @Test("The control is photographed staying square and level at an accessibility text size")
     func theControlIsPhotographedAtAccessibilityTextSize() async throws {
-        try await withHostedClimbDetail(dynamicTypeSize: .accessibility3) { window in
-            let labels = try await settledLabels(under: window)
+        try await withHostedClimbDetail(dynamicTypeSize: .accessibility3) { screen in
+            let labels = try await settledLabels(under: screen.window)
             #expect(labels.contains(Self.headphoneControlLabel))
 
-            try await scrollToBottom(in: window)
-            try await photograph(window, named: "climb-detail-3-action-row-accessibility3-text")
+            try await scrollToBottom(in: screen.window)
+            try await photograph(screen, named: "climb-detail-3-action-row-accessibility3-text")
         }
     }
 
     @Test("Tapping the glyph is photographed opening the compatible-headphones list")
     func theListIsPhotographedOpening() async throws {
-        try await withHostedClimbDetail(dynamicTypeSize: .large) { window in
-            _ = try await settledLabels(under: window)
-            try await scrollToBottom(in: window)
+        try await withHostedClimbDetail(dynamicTypeSize: .large) { screen in
+            _ = try await settledLabels(under: screen.window)
+            try await scrollToBottom(in: screen.window)
 
-            try activateAccessibilityElement(labelled: Self.headphoneControlLabel, in: window)
+            try activateAccessibilityElement(labelled: Self.headphoneControlLabel, in: screen.window)
 
             // The sheet is a separate presentation, so wait for its copy rather than the
             // screen's: the list is what the deleted card's "How it works" used to open.
-            let presented = try await settledAccessibilityElements(under: window) { elements in
+            let presented = try await settledAccessibilityElements(under: screen.window) { elements in
                 elements.contains { $0.accessibilityLabel?.contains("AirPods Pro 2") == true }
             }
             #expect(presented.compactMap(\.accessibilityLabel).contains { $0.contains("AirPods Pro 2") })
 
-            try await photograph(window, named: "climb-detail-4-compatible-headphones-sheet")
+            try await photograph(screen, named: "climb-detail-4-compatible-headphones-sheet")
         }
     }
 
@@ -126,76 +126,34 @@ struct ClimbDetailHeadphoneAffordanceEvidenceTests {
         return nil
     }
 
-    private func photograph(_ window: UIWindow, named name: String) async throws {
-        for _ in 0..<8 {
-            window.setNeedsLayout()
-            window.layoutIfNeeded()
-            try await Task.sleep(for: .milliseconds(40))
-        }
-
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.scale = 3
-        let image = UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { _ in
-            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-        }
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: "\(name).png")
-        try png.write(to: url)
-
-        #expect(png.count > 5_000)
-        print("Rendered Climb Detail headphone evidence: \(url.path())")
+    /// Lets a scroll or a presentation land before the camera fires; the photograph itself is
+    /// taken only under `ASCEND_EVIDENCE_DIR`.
+    private func photograph(_ screen: HostedScreen, named name: String) async throws {
+        try await screen.settle(.turns(8, interval: .milliseconds(40)))
+        try screen.photograph(named: name)
     }
 
     private func withHostedClimbDetail(
         dynamicTypeSize: DynamicTypeSize,
-        _ whileOnScreen: (UIWindow) async throws -> Void
+        _ whileOnScreen: (HostedScreen) async throws -> Void
     ) async throws {
         let container = try #require(Self.container, "This suite needs an in-memory container")
 
-        try await withAccessibilityAutomation {
-            let host = UIHostingController(
-                rootView: NavigationStack {
-                    ClimbDetailView(
-                        climb: .preview,
-                        climbService: Self.catalogService,
-                        leaderboardService: Self.leaderboardService
-                    )
-                }
-                .modelContainer(container)
-                .environment(ModerationStore.shared)
-                .environment(\.dynamicTypeSize, dynamicTypeSize)
-                .preferredColorScheme(.dark)
-            )
-
-            let scene = try #require(
-                UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first,
-                "test host app should expose a live UIWindowScene"
-            )
-            let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
-            let window = UIWindow(windowScene: scene)
-            window.frame = CGRect(origin: .zero, size: Self.screenSize)
-            window.overrideUserInterfaceStyle = .dark
-            window.backgroundColor = .black
-            window.rootViewController = host
-
-            defer {
-                window.isHidden = true
-                previousKeyWindow?.makeKey()
-                window.rootViewController = nil
-                window.windowScene = nil
+        try await RenderedScreen.host(
+            NavigationStack {
+                ClimbDetailView(
+                    climb: .preview,
+                    climbService: Self.catalogService,
+                    leaderboardService: Self.leaderboardService
+                )
             }
-
-            window.makeKeyAndVisible()
-            for _ in 0..<12 {
-                window.setNeedsLayout()
-                window.layoutIfNeeded()
-                try await Task.sleep(for: .milliseconds(50))
-            }
-
-            try await whileOnScreen(window)
+            .modelContainer(container)
+            .environment(ModerationStore.shared)
+            .environment(\.dynamicTypeSize, dynamicTypeSize)
+            .preferredColorScheme(.dark),
+            size: Self.screenSize
+        ) { screen in
+            try await whileOnScreen(screen)
         }
     }
 }

@@ -12,7 +12,8 @@ import UIKit
 /// stood in for; the geometry, the authoring and the drawing are the shipping ones.
 ///
 /// The static snapshots next door show the surface at rest. A timeline editor is its gestures,
-/// so these show the surface moving under a finger.
+/// so these show the surface moving under a finger. Each filmstrip is laid out at 1x for the
+/// size fact and photographed at 3x only under `ASCEND_EVIDENCE_DIR`.
 @MainActor
 struct RoutineTimelineDragEvidenceTests {
     /// The routine the design board is drawn with: 3:00, 4:00, 4:00 backward, 3:00, 4:00.
@@ -268,18 +269,10 @@ struct RoutineTimelineDragEvidenceTests {
     }
 
     private func renderEvidence(named name: String, content: some View) throws {
-        let renderer = ImageRenderer(content: content)
-        renderer.scale = 3
-
-        let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        try png.write(to: URL(filePath: directory).appending(path: "\(name).png"))
-
-        #expect(image.size.width > 0)
-        #expect(png.count > 5_000)
+        try RenderedScreen.withOffscreenPixels(of: content) { pixels in
+            #expect(pixels.size.width > 0)
+        }
+        try RenderedScreen.photograph(content, named: name)
     }
 
     // MARK: - Fixtures

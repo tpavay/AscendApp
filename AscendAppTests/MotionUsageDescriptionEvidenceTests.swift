@@ -1,14 +1,13 @@
 import Foundation
 import SwiftUI
 import Testing
-import UIKit
 @testable import AscendApp
 
 /// Visual evidence for the Motion & Fitness permission alert (#322).
 ///
 /// The message is the only part of that alert Ascend owns, and it is read straight from
-/// `Bundle.main` here - the built app bundle - so the PNG cannot drift from the string iOS will
-/// actually show. The chrome around it is a reproduction at the system alert's own metrics: 270pt
+/// `Bundle.main` here - the built app bundle - so the photograph cannot drift from the string iOS
+/// will actually show. The chrome around it is a reproduction at the system alert's own metrics: 270pt
 /// panel, SF at the alert's title and message sizes, and the title and buttons iOS supplies on
 /// device. That reproduction is deliberate - a live `UIAlertController` is presented in its own
 /// window and draws through a hierarchy neither `drawHierarchy` nor `layer.render(in:)` can reach
@@ -44,11 +43,11 @@ struct MotionUsageDescriptionEvidenceTests {
 
         let shippedAlert = try Self.renderAlert(
             message: shipped,
-            fileName: "motion-permission-alert-shipped.png"
+            fileName: "motion-permission-alert-shipped"
         )
         let previousAlert = try Self.renderAlert(
             message: Self.previousUsageDescription,
-            fileName: "motion-permission-alert-previous.png"
+            fileName: "motion-permission-alert-previous"
         )
 
         #expect(shippedAlert != previousAlert, "Both alerts rendered the same pixels")
@@ -61,69 +60,31 @@ struct MotionUsageDescriptionEvidenceTests {
         )
     }
 
-    @discardableResult
-    private static func renderAlert(message: String, fileName: String) throws -> Data {
-        let renderer = ImageRenderer(
-            content: MotionPermissionAlertProof(title: alertTitle, message: message)
-        )
-        renderer.scale = 3
+    /// The alert's pixels at 1x - a message that changed reads differently at any scale - with
+    /// the 3x photograph written only under `ASCEND_EVIDENCE_DIR`.
+    private static func renderAlert(message: String, fileName: String) throws -> [RGBA] {
+        let proof = MotionPermissionAlertProof(title: alertTitle, message: message)
 
-        let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
+        let pixels = try RenderedScreen.withOffscreenPixels(of: proof) { pixels -> [RGBA] in
+            // A capture that drew no panel is still a valid bitmap of the flat backdrop, so the
+            // proof that the alert is in the picture is that the picture is not one flat colour.
+            #expect(
+                luminanceSpread(of: pixels) > 0.05,
+                "\(fileName) rendered the bare backdrop instead of the alert"
+            )
+            return pixels.pixels(in: CGRect(origin: .zero, size: pixels.size))
+        }
+        try RenderedScreen.photograph(proof, named: fileName)
 
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        try png.write(to: URL(filePath: directory).appending(path: fileName))
-
-        #expect(png.count > 5_000, "\(fileName) rendered an implausibly small image")
-        // A capture that drew no panel is still a valid PNG of the flat backdrop, so the proof
-        // that the alert is in the picture is that the picture is not one flat colour.
-        #expect(
-            luminanceSpread(of: image) > 0.05,
-            "\(fileName) rendered the bare backdrop instead of the alert"
-        )
-
-        return png
+        return pixels
     }
 
-    /// The difference between the brightest and darkest cell of a coarse downsample of the capture.
+    /// The difference between the brightest and darkest pixel of the capture, on a 0...1 scale.
     /// A backdrop with nothing drawn over it scores zero; the alert's panel and white copy score
     /// far above the threshold.
-    private static func luminanceSpread(of image: UIImage) -> Double {
-        let side = 32
-        var pixels = [UInt8](repeating: 0, count: side * side * 4)
-
-        guard let cgImage = image.cgImage else {
-            return 0
-        }
-
-        pixels.withUnsafeMutableBytes { buffer in
-            let context = CGContext(
-                data: buffer.baseAddress,
-                width: side,
-                height: side,
-                bitsPerComponent: 8,
-                bytesPerRow: side * 4,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            )
-            context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: side, height: side))
-        }
-
-        var darkest = Double.greatestFiniteMagnitude
-        var brightest = -Double.greatestFiniteMagnitude
-
-        for index in stride(from: 0, to: pixels.count, by: 4) {
-            let red = Double(pixels[index])
-            let green = Double(pixels[index + 1])
-            let blue = Double(pixels[index + 2])
-            let luminance = (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255
-
-            darkest = min(darkest, luminance)
-            brightest = max(brightest, luminance)
-        }
-
-        return brightest - darkest
+    private static func luminanceSpread(of pixels: PixelSampler) -> Double {
+        let range = pixels.luminanceRange()
+        return (range.upperBound - range.lowerBound) / 255
     }
 }
 

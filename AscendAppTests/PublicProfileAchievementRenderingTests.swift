@@ -282,6 +282,8 @@ struct PublicProfileAchievementRenderingTests {
         #expect(secondPlace.accessibilityTraits.contains(.button))
     }
 
+    /// The crown draws at its shelf size - a 1x lay-out of the badge proves it puts paint down -
+    /// and the size-comparison sheet is photographed only under `ASCEND_EVIDENCE_DIR`.
     @Test
     func crownAndPrestigeTokensProduceReviewablePixels() throws {
         let tokens = ProfilePrestigeToken.tokens(
@@ -289,8 +291,17 @@ struct PublicProfileAchievementRenderingTests {
             surface: .ownProfile
         )
         let crown = try #require(tokens.first)
-        let renderer = ImageRenderer(
-            content: VStack(alignment: .leading, spacing: 24) {
+        #expect(crown.id == "top1")
+
+        try RenderedScreen.withOffscreenPixels(
+            of: ProfilePrestigeBadgeView(token: crown, imageSize: 54)
+        ) { pixels in
+            #expect(pixels.bounds { $0.alpha > 0 } != nil, "the crown drew nothing at 54pt")
+        }
+
+        guard RenderedScreen.isPhotographing else { return }
+        try RenderedScreen.photograph(
+            VStack(alignment: .leading, spacing: 24) {
                 Text("CROWN SIZE CHECK")
                     .font(.montserratBold(size: 14))
                     .foregroundStyle(.white)
@@ -332,16 +343,9 @@ struct PublicProfileAchievementRenderingTests {
             // Wide enough for all five ladder badges: the shelf scrolls in the app, but a
             // clipped evidence image proves nothing about the badge that fell off its edge.
             .frame(width: 500, height: 410, alignment: .topLeading)
-            .background(ProfileVisualStyle.background)
+            .background(ProfileVisualStyle.background),
+            named: "crown-and-prestige-tokens"
         )
-        renderer.scale = 3
-
-        let image = try #require(renderer.uiImage)
-        let png = try #require(image.pngData())
-        let url = URL.temporaryDirectory.appending(path: "crown-and-prestige-tokens.png")
-        try png.write(to: url, options: .atomic)
-
-        print("ASCEND_EVIDENCE_PNG \(url.path)")
     }
 
     /// The shelf is free-standing cut-out art on every badge. Template rendering would throw the
@@ -382,6 +386,8 @@ struct PublicProfileAchievementRenderingTests {
         }
     }
 
+    /// Each band badge puts paint down at both shelf sizes, read off a 1x lay-out; the
+    /// comparison sheet is photographed only under `ASCEND_EVIDENCE_DIR`.
     @Test
     func theBandBadgesProduceReviewablePixelsAtShelfSizes() throws {
         let tokens = ProfilePrestigeToken.tokens(
@@ -391,8 +397,23 @@ struct PublicProfileAchievementRenderingTests {
         let crown = try #require(tokens.first { $0.id == "top1" })
         let topTen = try #require(tokens.first { $0.id == "top10" })
         let topHundred = try #require(tokens.first { $0.id == "top100" })
-        let renderer = ImageRenderer(
-            content: VStack(alignment: .leading, spacing: 20) {
+
+        for token in [topTen, topHundred] {
+            for size in [CGFloat(46), CGFloat(54)] {
+                try RenderedScreen.withOffscreenPixels(
+                    of: ProfilePrestigeBadgeView(token: token, imageSize: size)
+                ) { pixels in
+                    #expect(
+                        pixels.bounds { $0.alpha > 0 } != nil,
+                        "\(token.id) drew nothing at \(Int(size))pt"
+                    )
+                }
+            }
+        }
+
+        guard RenderedScreen.isPhotographing else { return }
+        try RenderedScreen.photograph(
+            VStack(alignment: .leading, spacing: 20) {
                 Text("BAND BADGES ON THE SHELF")
                     .font(.montserratBold(size: 14))
                     .foregroundStyle(.white)
@@ -424,18 +445,13 @@ struct PublicProfileAchievementRenderingTests {
             }
             .padding(20)
             .frame(width: 420, height: 520, alignment: .topLeading)
-            .background(ProfileVisualStyle.background)
+            .background(ProfileVisualStyle.background),
+            named: "band-badges-at-shelf-sizes"
         )
-        renderer.scale = 3
-
-        let image = try #require(renderer.uiImage)
-        let png = try #require(image.pngData())
-        let url = URL.temporaryDirectory.appending(path: "band-badges-at-shelf-sizes.png")
-        try png.write(to: url, options: .atomic)
-
-        print("ASCEND_EVIDENCE_PNG \(url.path)")
     }
 
+    /// The podium seats the three entries on their own ranks; the crown row is photographed
+    /// only under `ASCEND_EVIDENCE_DIR`.
     @Test
     func podiumCrownSitsAboveTheChampionAvatarOnItsOwnRow() throws {
         let entries = [
@@ -457,30 +473,28 @@ struct PublicProfileAchievementRenderingTests {
                 isBlockListHydrated: true
             )
         }
-        let renderer = ImageRenderer(
-            content: LeaderboardPodiumView(
-                entries: ModeratedLeaderboardPodiumLayout.podiumEntries(from: entries),
-                metric: .climb
-            )
-            .padding(16)
-            .frame(width: 390, height: 260, alignment: .bottom)
-            .background(Color.black)
-            .environment(\.colorScheme, .dark)
+        let podiumEntries = ModeratedLeaderboardPodiumLayout.podiumEntries(from: entries)
+        #expect(podiumEntries.map(\.rank) == [1, 2, 3])
+
+        guard RenderedScreen.isPhotographing else { return }
+        try RenderedScreen.photograph(
+            LeaderboardPodiumView(entries: podiumEntries, metric: .climb)
+                .padding(16)
+                .frame(width: 390, height: 260, alignment: .bottom)
+                .background(Color.black)
+                .environment(\.colorScheme, .dark),
+            named: "podium-champion-crown-row"
         )
-        renderer.scale = 3
-
-        let image = try #require(renderer.uiImage)
-        let png = try #require(image.pngData())
-        let url = URL.temporaryDirectory.appending(path: "podium-champion-crown-row.png")
-        try png.write(to: url, options: .atomic)
-
-        print("ASCEND_EVIDENCE_PNG \(url.path)")
     }
 
+    /// The empty board hosted as it ships: the window is named as empty and the dare to take
+    /// first is on screen, read off the accessibility tree. Photographed only under
+    /// `ASCEND_EVIDENCE_DIR`.
     @Test
-    func unclaimedFirstPlaceSeatsTheCrownInsideTheOpenPedestal() throws {
-        let renderer = ImageRenderer(
-            content: LeaderboardEmptyBoardView(
+    func unclaimedFirstPlaceSeatsTheCrownInsideTheOpenPedestal() async throws {
+        let size = CGSize(width: 390, height: 340)
+        try await RenderedScreen.host(
+            LeaderboardEmptyBoardView(
                 period: LeaderboardPeriod(
                     timeFrame: .monthly,
                     key: "2026-M08",
@@ -489,22 +503,21 @@ struct PublicProfileAchievementRenderingTests {
                 ),
                 metric: .climb
             )
-            .frame(width: 390, height: 340, alignment: .top)
+            .frame(width: size.width, height: size.height, alignment: .top)
             .background(Color.black)
-            .environment(\.colorScheme, .dark)
-        )
-        renderer.scale = 3
-
-        let image = try #require(renderer.uiImage)
-        let png = try #require(image.pngData())
-        let url = URL.temporaryDirectory.appending(path: "leaderboard-empty-board-crown.png")
-        try png.write(to: url, options: .atomic)
-
-        print("ASCEND_EVIDENCE_PNG \(url.path)")
+            .environment(\.colorScheme, .dark),
+            size: size
+        ) { screen in
+            let text = try await screen.copy { $0.contains("take the first spot") }
+            #expect(text.contains("is empty"))
+            #expect(text.contains("take the first spot"))
+            try screen.photograph(named: "leaderboard-empty-board-crown")
+        }
     }
 
-    /// Alpha at the four corners, read out of a premultiplied buffer - CoreGraphics offers no
-    /// straight-alpha 8-bit context, and alpha itself is unaffected by the premultiply.
+    /// Alpha at the four corners of a catalogue asset, read out of a premultiplied buffer -
+    /// CoreGraphics offers no straight-alpha 8-bit context, and alpha itself is unaffected by
+    /// the premultiply. The asset is the app's own input, not a render.
     private func cornerAlpha(of image: CGImage) throws -> [UInt8] {
         let width = image.width
         let height = image.height
@@ -541,53 +554,29 @@ struct PublicProfileAchievementRenderingTests {
         )
     }
 
+    /// Hosts `section` under a labelled marker through `RenderedScreen` and returns the settled
+    /// accessibility tree once that marker has arrived.
     private func renderedElements(
         hosting section: some View
     ) async throws -> [NSObject] {
-        try await withAccessibilityAutomation {
-            let size = CGSize(width: 402, height: 300)
-            let controller = UIHostingController(
-                rootView: VStack(alignment: .leading, spacing: 30) {
-                    Text("Public profile test host")
-                        .accessibilityLabel("Public profile test host")
+        let size = CGSize(width: 402, height: 300)
+        return try await RenderedScreen.host(
+            VStack(alignment: .leading, spacing: 30) {
+                Text("Public profile test host")
+                    .accessibilityLabel("Public profile test host")
 
-                    section
-                }
-                .padding(20)
-                .frame(width: size.width, height: size.height, alignment: .topLeading)
-                .background(ProfileVisualStyle.background)
-            )
-            controller.overrideUserInterfaceStyle = .dark
-            controller.view.frame = CGRect(origin: .zero, size: size)
-
-            let scene = try #require(
-                UIApplication.shared.connectedScenes
-                    .compactMap { $0 as? UIWindowScene }
-                    .first,
-                "The hosted public profile needs an active window scene"
-            )
-            let window = UIWindow(windowScene: scene)
-            window.frame = controller.view.frame
-            window.overrideUserInterfaceStyle = .dark
-            window.rootViewController = controller
-            window.makeKeyAndVisible()
-            defer {
-                window.isHidden = true
-                window.rootViewController = nil
-                window.windowScene = nil
+                section
             }
-
-            controller.view.setNeedsLayout()
-            controller.view.layoutIfNeeded()
-
-            return try await settledAccessibilityElements(
-                under: controller.view,
-                until: { elements in
-                    elements.contains {
-                        $0.accessibilityLabel == "Public profile test host"
-                    }
+            .padding(20)
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .background(ProfileVisualStyle.background),
+            size: size
+        ) { screen in
+            try await screen.elements { elements in
+                elements.contains {
+                    $0.accessibilityLabel == "Public profile test host"
                 }
-            )
+            }
         }
     }
 }

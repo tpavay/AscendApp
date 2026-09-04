@@ -4,38 +4,24 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Pixel evidence for the second restore surface: the alert account settings raises when the
-/// climber taps Restore Purchases.
+/// Evidence for the second restore surface: the alert account settings raises when the climber
+/// taps Restore Purchases.
 ///
 /// `AccountView` owns its `RestorePurchasesViewModel` in a private `@State`, so the shipped screen
-/// cannot be seeded into a restore outcome from a test. What decides every pixel in that alert is
+/// cannot be seeded into a restore outcome from a test. What decides every word in that alert is
 /// the production `RestorePurchasesViewModel.Result`, so this hosts the same `.alert(item:)`
-/// presentation `AccountView` applies, seeded with each real `Result`, in a live `UIWindow` and
-/// photographs what iOS actually draws. `theAlertProofReadsItsCopyFromProduction` pins the rendered
-/// strings back to the production type so this proof cannot drift into its own copy.
+/// presentation `AccountView` applies, seeded with each real `Result`, in a live window through
+/// `RenderedScreen`, reads the presented alert's title and message back off UIKit, and photographs
+/// what iOS draws when `ASCEND_EVIDENCE_DIR` is set. `theAlertProofReadsItsCopyFromProduction` pins
+/// the strings back to the production type so this proof cannot drift into its own copy.
 @MainActor
+@Suite(.hostsAWindow)
 struct AccountRestoreAlertEvidenceTests {
     @Test
-    func rendersTheAccountRestoreAlertForEveryOutcome() throws {
-        let shots = try Self.outcomes.map { outcome in
-            (outcome, try Self.captureAlert(for: outcome.result))
+    func rendersTheAccountRestoreAlertForEveryOutcome() async throws {
+        for outcome in Self.outcomes {
+            try await Self.hostingAlert(for: outcome)
         }
-
-        let sheet = ImageRenderer(
-            content: AccountRestoreAlertProof(
-                shots: shots.map { .init(id: $0.0.id, caption: $0.0.caption, image: $0.1) }
-            )
-        )
-        sheet.scale = 2
-
-        let image = try #require(sheet.uiImage, "ImageRenderer produced no image")
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        try png.write(to: URL(filePath: directory).appending(path: "account-settings-restore-alerts.png"))
-
-        #expect(png.count > 5_000)
     }
 
     /// Every word the alert draws comes from the production result type - the proof supplies no copy
@@ -83,44 +69,37 @@ private extension AccountRestoreAlertEvidenceTests {
         )
     ]
 
-    /// Presents the alert in a live window and photographs the screen, because an alert is a UIKit
-    /// presentation rather than a subview - `ImageRenderer` alone would draw the empty screen behind it.
-    static func captureAlert(for result: RestorePurchasesViewModel.Result) throws -> UIImage {
-        let bounds = CGRect(x: 0, y: 0, width: 393, height: 852)
-        let window = UIWindow(frame: bounds)
-        window.windowScene = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first
-        window.rootViewController = UIHostingController(
-            rootView: AccountRestoreAlertHost(result: result)
-        )
-        window.makeKeyAndVisible()
-        defer { window.isHidden = true }
+    /// Presents the alert in a live window, because an alert is a UIKit presentation rather than a
+    /// subview - laid out off screen, only the empty screen behind it would exist. The presented
+    /// `UIAlertController` is the fact read back: its title and message are what iOS draws.
+    static func hostingAlert(for outcome: Outcome) async throws {
+        let controller = UIHostingController(rootView: AccountRestoreAlertHost(result: outcome.result))
 
-        // The presentation is driven by SwiftUI's state pipeline, so the run loop has to turn before
-        // the alert exists. Stop as soon as it is on screen rather than sleeping a fixed budget.
-        for _ in 0..<80 {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-            if window.rootViewController?.presentedViewController != nil { break }
-        }
-
-        try #require(
-            window.rootViewController?.presentedViewController != nil,
-            "The restore alert never presented"
-        )
-
-        // Presented is not yet drawn: the alert fades and scales in, and photographing mid-animation
-        // would produce a ghost of the copy rather than the copy. Let the transition settle first.
-        RunLoop.main.run(until: Date().addingTimeInterval(0.9))
-
-        // The alert is centred in the window, so the proof frames the band around it rather than
-        // a phone-height picture that is mostly empty backdrop.
-        let band = CGRect(x: 0, y: bounds.midY - 190, width: bounds.width, height: 380)
-        return UIGraphicsImageRenderer(size: band.size).image { _ in
-            window.drawHierarchy(
-                in: CGRect(origin: CGPoint(x: 0, y: -band.minY), size: bounds.size),
-                afterScreenUpdates: true
+        try await RenderedScreen.host(
+            controller,
+            size: CGSize(width: 393, height: 852),
+            // The presentation is driven by SwiftUI's state pipeline, so the run loop has to turn
+            // before the alert exists. Stop as soon as it is on screen rather than sleeping a budget.
+            settle: .until { _ in controller.presentedViewController != nil }
+        ) { screen in
+            let presented = try #require(
+                controller.presentedViewController,
+                "The restore alert never presented"
             )
+            let alert = try #require(
+                presented as? UIAlertController,
+                "SwiftUI's alert presents a UIAlertController; \(type(of: presented)) presented instead"
+            )
+            #expect(alert.title == outcome.result.title)
+            #expect(alert.message == outcome.result.message)
+
+            // Presented is not yet drawn: the alert fades and scales in, and photographing
+            // mid-animation would produce a ghost of the copy rather than the copy. Only a run that
+            // keeps the photograph waits for the transition to settle.
+            if RenderedScreen.isPhotographing {
+                try await screen.settle(.turns(18))
+                try screen.photograph(named: "account-settings-restore-alert-\(outcome.id)")
+            }
         }
     }
 }
@@ -147,49 +126,5 @@ private struct AccountRestoreAlertHost: View {
                     dismissButton: .default(Text("Done"))
                 )
             }
-    }
-}
-
-private struct AlertShot: Identifiable {
-    let id: String
-    let caption: String
-    let image: UIImage
-}
-
-private struct AccountRestoreAlertProof: View {
-    let shots: [AlertShot]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Account settings · restore alert per outcome")
-                .font(.montserratBold(size: 20))
-                .foregroundStyle(.white)
-
-            HStack(alignment: .top, spacing: 16) {
-                ForEach(shots) { shot in
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(shot.caption.uppercased())
-                            .font(.montserratSemiBold(size: 10))
-                            .foregroundStyle(Color.ascendAccent.opacity(0.9))
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Image(uiImage: shot.image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 300)
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    }
-                    .padding(14)
-                    .frame(width: 328)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(.white.opacity(0.05))
-                    )
-                }
-            }
-        }
-        .padding(28)
-        .background(Color.black)
     }
 }

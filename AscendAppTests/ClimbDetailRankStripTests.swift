@@ -46,22 +46,22 @@ struct ClimbDetailRankStripTests {
 
     private static let heroWidth: CGFloat = 353
     private static let heroHeight: CGFloat = 390
-    private static let renderScale: CGFloat = 2
 
     private static let artworkMarker = Color(.sRGB, red: 1, green: 0, blue: 0, opacity: 1)
 
+    /// One pixel per point across the hero card's vertical middle, read off a 1x capture: whether
+    /// a point is artwork or strip is a colour question, and a colour reads the same at any scale.
     private struct HeroMidRow {
-        let pixels: [UInt8]
-        let scale: CGFloat
+        let pixels: [RGBA]
 
         func artworkRatio(fromPoint: CGFloat, toPoint: CGFloat) -> Double {
-            let sampled = Int(fromPoint * scale)..<Int(toPoint * scale)
+            let sampled = Int(fromPoint)..<Int(toPoint)
             let artworkPixelCount = sampled.count(where: { x in
-                let offset = x * 4
-                return pixels[offset] > 150
-                    && pixels[offset + 1] < 30
-                    && pixels[offset + 2] < 30
-                    && pixels[offset + 3] > 240
+                let pixel = pixels[x]
+                return pixel.red > 150
+                    && pixel.green < 30
+                    && pixel.blue < 30
+                    && pixel.alpha > 240
             })
 
             return Double(artworkPixelCount) / Double(sampled.count)
@@ -69,29 +69,23 @@ struct ClimbDetailRankStripTests {
     }
 
     private func renderHeroMidRow(stripOrderText: String?) throws -> HeroMidRow {
-        let renderer = ImageRenderer(
-            content: ClimbDetailHeroCardFront(
-                climb: .preview,
-                subtitle: Climb.preview.displayLocation,
-                stripOrderText: stripOrderText
-            ) {
-                Self.artworkMarker
-            }
-            .frame(width: Self.heroWidth, height: Self.heroHeight)
-            .clipShape(RoundedRectangle(cornerRadius: 28))
-        )
-        renderer.scale = Self.renderScale
+        let hero = ClimbDetailHeroCardFront(
+            climb: .preview,
+            subtitle: Climb.preview.displayLocation,
+            stripOrderText: stripOrderText
+        ) {
+            Self.artworkMarker
+        }
+        .frame(width: Self.heroWidth, height: Self.heroHeight)
+        .clipShape(RoundedRectangle(cornerRadius: 28))
 
-        let image = try #require(renderer.uiImage, "ImageRenderer produced no hero artwork")
-        let bitmap = try #require(image.cgImage, "The hero render had no bitmap")
-        let pixels = try rgbaPixels(from: bitmap)
-        let y = bitmap.height / 2
-        let rowStart = y * bitmap.width * 4
-
-        return HeroMidRow(
-            pixels: Array(pixels[rowStart..<(rowStart + bitmap.width * 4)]),
-            scale: Self.renderScale
-        )
+        return try RenderedScreen.withOffscreenPixels(of: hero) { pixels in
+            HeroMidRow(
+                pixels: pixels.pixels(
+                    in: CGRect(x: 0, y: Self.heroHeight / 2, width: Self.heroWidth, height: 1)
+                )
+            )
+        }
     }
 
     private func makeViewModel(
@@ -116,30 +110,5 @@ struct ClimbDetailRankStripTests {
         }
 
         return viewModel
-    }
-
-    private func rgbaPixels(from bitmap: CGImage) throws -> [UInt8] {
-        var pixels = [UInt8](repeating: 0, count: bitmap.width * bitmap.height * 4)
-
-        try pixels.withUnsafeMutableBytes { bytes in
-            let context = try #require(
-                CGContext(
-                    data: bytes.baseAddress,
-                    width: bitmap.width,
-                    height: bitmap.height,
-                    bitsPerComponent: 8,
-                    bytesPerRow: bitmap.width * 4,
-                    space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-                ),
-                "Could not create a bitmap context for the hero render"
-            )
-            context.draw(
-                bitmap,
-                in: CGRect(x: 0, y: 0, width: bitmap.width, height: bitmap.height)
-            )
-        }
-
-        return pixels
     }
 }

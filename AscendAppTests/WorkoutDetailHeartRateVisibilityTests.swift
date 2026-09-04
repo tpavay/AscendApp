@@ -3,14 +3,14 @@ import SwiftData
 import SwiftUI
 import Testing
 import UIKit
-import Vision
 
 @testable import AscendApp
 
 /// Window-hosted coverage for Workout Detail's show-or-hide heart-rate contract.
 ///
-/// Each test mounts the shipping `WorkoutDetailView`, scrolls through every viewport, and OCRs
-/// what a climber can actually see.
+/// Each test mounts the shipping `WorkoutDetailView` through `RenderedScreen`, scrolls through
+/// every viewport, and reads the copy a climber can actually see at each one off the
+/// accessibility tree. A page is photographed only under `ASCEND_EVIDENCE_DIR`.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct WorkoutDetailHeartRateVisibilityTests {
@@ -29,7 +29,7 @@ struct WorkoutDetailHeartRateVisibilityTests {
         #expect(workout.avgHeartRate == nil)
         #expect(workout.heartRateTimeSeries.isEmpty)
 
-        let text = try await recognizedTextAcrossDetail(
+        let text = try await copyAcrossDetail(
             workout,
             evidenceName: "workout-detail-without-heart-rate"
         )
@@ -53,7 +53,7 @@ struct WorkoutDetailHeartRateVisibilityTests {
         workout.avgHeartRate = 139
         workout.maxHeartRate = 151
 
-        let text = try await recognizedTextAcrossDetail(
+        let text = try await copyAcrossDetail(
             workout,
             evidenceName: "workout-detail-with-heart-rate"
         )
@@ -76,69 +76,82 @@ struct WorkoutDetailHeartRateVisibilityTests {
         )
     }
 
-    private func recognizedTextAcrossDetail(
+    /// Everything the detail screen publishes across every scroll position a climber can reach,
+    /// lowercased and joined - the same walk the OCR pass made, read off the tree instead.
+    private func copyAcrossDetail(
         _ workout: Workout,
         evidenceName: String
     ) async throws -> String {
-        try await HostedWorkoutDetailScreen.run(for: workout) { screen in
-            var recognizedPages: [String] = []
-            var pages: [UIImage] = []
-            for offset in screen.pageOffsets {
-                screen.scroll(to: offset)
-                screen.settle(for: 0.08)
-                let shot = screen.screenshot()
-                pages.append(shot)
-                recognizedPages.append(try await recognizedText(in: shot))
+        let container = try Self.makeRetainedContainer()
+        container.mainContext.insert(workout)
+        try container.mainContext.save()
+
+        let detail = WorkoutDetailView(workout: workout, embedsInNavigationStack: false)
+            .environment(AuthenticationViewModel())
+            .environment(MediaUploadManager.shared)
+            .modelContainer(container)
+
+        return try await RenderedScreen.host(detail) { screen in
+            let scrollView = try #require(
+                Self.firstScrollView(in: screen.window),
+                "The no-photo Workout Detail layout should render a ScrollView"
+            )
+
+            var pages: [String] = []
+            for (index, offset) in Self.pageOffsets(of: scrollView).enumerated() {
+                scrollView.contentOffset = CGPoint(x: 0, y: offset)
+                try await screen.settle(.turns(2))
+                pages.append(try await screen.copy())
+                try screen.photograph(named: "\(evidenceName)-\(index + 1)")
             }
 
-            writeEvidence(pages: pages, named: evidenceName)
-
-            return recognizedPages.joined(separator: " ").lowercased()
+            return pages.joined(separator: " ")
         }
     }
 
-    /// Saves what the OCR above actually read, so a reviewer can see the screen rather than
-    /// take the assertions' word for it.
-    private func writeEvidence(pages: [UIImage], named name: String) {
-        guard let strip = horizontalStrip(of: pages), let png = strip.pngData() else { return }
+    /// Every scroll offset a climber can reach, first page through last.
+    private static func pageOffsets(of scrollView: UIScrollView) -> [CGFloat] {
+        let maximumOffset = max(scrollView.contentSize.height - scrollView.bounds.height, 0)
+        let pageStride = max(scrollView.bounds.height * 0.7, 1)
+        var offsets = Array(stride(from: CGFloat.zero, through: maximumOffset, by: pageStride))
+        if offsets.last != maximumOffset {
+            offsets.append(maximumOffset)
+        }
 
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: "\(name).png")
-        try? png.write(to: url)
-        print("Rendered Workout Detail evidence: \(url.path())")
+        return offsets
     }
 
-    private func horizontalStrip(of pages: [UIImage]) -> UIImage? {
-        guard let first = pages.first else { return nil }
+    private static func firstScrollView(in view: UIView) -> UIScrollView? {
+        if let scrollView = view as? UIScrollView {
+            return scrollView
+        }
 
-        let gutter: CGFloat = 16
-        let size = CGSize(
-            width: first.size.width * CGFloat(pages.count) + gutter * CGFloat(pages.count - 1),
-            height: first.size.height
+        for subview in view.subviews {
+            if let found = firstScrollView(in: subview) {
+                return found
+            }
+        }
+
+        return nil
+    }
+
+    /// `WorkoutDetailView` carries a `@Query`, and SwiftUI keeps observing SwiftData for a beat
+    /// after the host is torn down. A container that dies with the test is gone before that
+    /// observer is, and the observer then traps on the dangling reference the next time *any*
+    /// suite calls `ModelContext.save()`. Each run still gets its own store, so no suite renders
+    /// against another's fixtures - the same arrangement `HostedWorkoutDetailScreen` keeps.
+    private static var retainedContainers: [ModelContainer] = []
+
+    private static func makeRetainedContainer() throws -> ModelContainer {
+        let container = try ModelContainer(
+            for: Workout.self,
+            WorkoutSourceLink.self,
+            WorkoutParticipation.self,
+            BestEffortCacheEntry.self,
+            BestEffortCacheMetadata.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 2
-
-        return UIGraphicsImageRenderer(size: size, format: format).image { context in
-            UIColor.black.setFill()
-            context.fill(CGRect(origin: .zero, size: size))
-            for (index, page) in pages.enumerated() {
-                page.draw(
-                    at: CGPoint(x: (first.size.width + gutter) * CGFloat(index), y: 0)
-                )
-            }
-        }
-    }
-
-    private func recognizedText(in image: UIImage) async throws -> String {
-        let cgImage = try #require(image.cgImage, "The screenshot should have a CGImage")
-        var request = RecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-
-        return try await request.perform(on: cgImage)
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: " ")
+        retainedContainers.append(container)
+        return container
     }
 }

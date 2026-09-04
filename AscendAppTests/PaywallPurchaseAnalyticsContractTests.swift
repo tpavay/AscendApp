@@ -688,7 +688,8 @@ struct PaywallPurchaseAnalyticsContractTests {
             let controller = RevenueCatPurchaseController(
                 coordinator: { harness.restorer },
                 applySuperwallStatus: { _ in },
-                restoreService: harness.service
+                restoreService: harness.service,
+                restoreAnalyticsContext: { Self.hostedRestoreContext }
             )
 
             _ = await controller.restorePurchases()
@@ -705,7 +706,8 @@ struct PaywallPurchaseAnalyticsContractTests {
         let controller = RevenueCatPurchaseController(
             coordinator: { harness.restorer },
             applySuperwallStatus: { published.append($0) },
-            restoreService: harness.service
+            restoreService: harness.service,
+            restoreAnalyticsContext: { Self.hostedRestoreContext }
         )
 
         let result = await controller.restorePurchases()
@@ -1066,6 +1068,14 @@ private extension PaywallPurchaseAnalyticsContractTests {
         refreshFailure: MonetizationEntitlementRefreshFailure
     ) -> PurchaseHarness {
         PurchaseHarness(entitlementID: entitlementID, refresh: .unavailable(refreshFailure))
+    }
+
+    /// The Superwall Restore button's context with no hosted presentation owning the attempt. Injected
+    /// rather than defaulted: the production default reads `SuperwallPaywallPresenter.shared`'s
+    /// presented token, and a token another suite left on that process-wide presenter carries a
+    /// foreign identity the restore service refuses before the coordinator is asked.
+    static var hostedRestoreContext: AppAccessRestoreAnalyticsContext {
+        .hostedPaywall(placement: nil, presentationID: nil, gateAttemptID: nil)
     }
 
     static func makeRestoreHarness(

@@ -4,15 +4,18 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Renders the shipping sticker and template views and reads the pixels back.
+/// Lays the shipping sticker and template views out off screen and reads the pixels back.
 ///
 /// The tree-level tests prove the intent is carried; these prove it reaches the
-/// image. Both defects were invisible in the model — the settings were stored
-/// correctly and thrown away at draw time — so an assertion that stops at the
+/// image. Both defects were invisible in the model - the settings were stored
+/// correctly and thrown away at draw time - so an assertion that stops at the
 /// model would not have caught either one.
-/// Rendering four cards at 1080×2340 and reading every pixel back holds the main
-/// actor for long enough to starve a suite waiting on a hosted appearance
-/// transition, so this takes the same gate they do.
+///
+/// Every read goes through `RenderedScreen.withOffscreenPixels` at 1x - the cards
+/// were always compared at 1x - and keeps only the pixels it compares, never a
+/// bitmap. Rendering four cards at 1080x2340 and reading every pixel back still
+/// holds the main actor for long enough to starve a suite waiting on a hosted
+/// appearance transition, so this takes the same gate they do.
 @MainActor
 @Suite(.hostsAWindow)
 struct ShareCardRenderingTests {
@@ -23,20 +26,17 @@ struct ShareCardRenderingTests {
     /// Every pair must now differ.
     @Test
     func aCompositeStickerDrawsEachLabelPlacementDifferently() throws {
-        var images: [ShareCardLabelPlacement: UIImage] = [:]
+        var rasters: [ShareCardLabelPlacement: Raster] = [:]
         for placement in ShareCardLabelPlacement.allCases {
-            let image = try #require(
-                Self.render(Self.compositeSticker(placement: placement, layout: .column)),
-                "\(placement) rendered nothing"
-            )
-            images[placement] = image
-            Self.writeEvidence(image, named: "sticker-column-\(placement.rawValue)")
+            let sticker = Self.compositeSticker(placement: placement, layout: .column)
+            rasters[placement] = try Self.raster(sticker)
+            try Self.photograph(sticker, named: "sticker-column-\(placement.rawValue)")
         }
 
         for placement in ShareCardLabelPlacement.allCases where placement != .below {
-            let difference = try Self.differingPixelFraction(
-                try #require(images[.below]),
-                try #require(images[placement])
+            let difference = Self.differingPixelFraction(
+                try #require(rasters[.below]),
+                try #require(rasters[placement])
             )
             #expect(difference > 0.01, "\(placement) rendered the same as .below")
         }
@@ -47,16 +47,16 @@ struct ShareCardRenderingTests {
     /// whether the sticker holds one stat or three.
     @Test
     func leadingPlacementStaysWideWhateverTheMetricCount() throws {
-        let single = try #require(Self.renderSize(Self.sticker(placement: .leading, refs: [])))
-        let singleStacked = try #require(Self.renderSize(Self.sticker(placement: .above, refs: [])))
+        let single = try Self.renderSize(Self.sticker(placement: .leading, refs: []))
+        let singleStacked = try Self.renderSize(Self.sticker(placement: .above, refs: []))
         #expect(
             single.width / single.height > singleStacked.width / singleStacked.height,
             "a leading label makes a single metric wider than a stacked one"
         )
 
         let extras = [ShareStatRef(kind: .duration), ShareStatRef(kind: .calories)]
-        let composite = try #require(Self.renderSize(Self.sticker(placement: .leading, refs: extras, layout: .column)))
-        let compositeStacked = try #require(Self.renderSize(Self.sticker(placement: .above, refs: extras, layout: .column)))
+        let composite = try Self.renderSize(Self.sticker(placement: .leading, refs: extras, layout: .column))
+        let compositeStacked = try Self.renderSize(Self.sticker(placement: .above, refs: extras, layout: .column))
         #expect(
             composite.width / composite.height > compositeStacked.width / compositeStacked.height,
             "the same must hold once metrics are added and the arrangement changes"
@@ -65,22 +65,22 @@ struct ShareCardRenderingTests {
 
     // MARK: - Defect 2, at the pixel level
 
-    /// A date sticker must draw exactly what a label-less sticker draws — no
-    /// `DATE` under it — while a step count keeps its unit.
+    /// A date sticker must draw exactly what a label-less sticker draws - no
+    /// `DATE` under it - while a step count keeps its unit.
     @Test
     func aDateDrawsNoLabelAndAStepCountKeepsOne() throws {
         let date = ResolvedShareStat(kind: .date, label: "DATE", value: "May 28, 2026")
         let steps = ResolvedShareStat(kind: .steps, label: "STEPS", value: "2,096")
 
-        let dateAutomatic = try #require(Self.renderSize(Self.singleMetric(date, placement: .below)))
-        let dateSuppressed = try #require(Self.renderSize(Self.singleMetric(date, placement: .none)))
+        let dateAutomatic = try Self.renderSize(Self.singleMetric(date, placement: .below))
+        let dateSuppressed = try Self.renderSize(Self.singleMetric(date, placement: .none))
         #expect(
             abs(dateAutomatic.height - dateSuppressed.height) < 0.5,
             "a date must occupy exactly the height of a value with no label"
         )
 
-        let stepsAutomatic = try #require(Self.renderSize(Self.singleMetric(steps, placement: .below)))
-        let stepsSuppressed = try #require(Self.renderSize(Self.singleMetric(steps, placement: .none)))
+        let stepsAutomatic = try Self.renderSize(Self.singleMetric(steps, placement: .below))
+        let stepsSuppressed = try Self.renderSize(Self.singleMetric(steps, placement: .none))
         #expect(
             stepsAutomatic.height > stepsSuppressed.height + 4,
             "a step count must still draw its unit"
@@ -99,10 +99,10 @@ struct ShareCardRenderingTests {
         sticker.layout = .column
         let refs = sticker.statRefs
 
-        let withExemption = try #require(Self.renderSize(Self.view(
+        let withExemption = try Self.renderSize(Self.view(
             sticker: sticker,
             stats: [refs[0]: climbName, refs[1]: steps]
-        )))
+        ))
 
         // The same card with the exemption disabled is taller by exactly the
         // landmark label it would otherwise print.
@@ -110,10 +110,10 @@ struct ShareCardRenderingTests {
         forced.kind = .workoutName
         let workoutName = ResolvedShareStat(kind: .totals, label: "LANDMARK", value: "Empire State Building")
         let forcedRefs = forced.statRefs
-        let withLabel = try #require(Self.renderSize(Self.view(
+        let withLabel = try Self.renderSize(Self.view(
             sticker: forced,
             stats: [forcedRefs[0]: workoutName, forcedRefs[1]: steps]
-        )))
+        ))
 
         #expect(withLabel.height > withExemption.height + 4, "LANDMARK leaked into the composite")
     }
@@ -128,16 +128,20 @@ struct ShareCardRenderingTests {
         #expect(templates.count == 4, "the four finalized cards must all survive")
 
         let context = Self.templateContext()
+        let exportSize = CGSize(width: 1080, height: 2340)
         for template in templates {
             let view = ShareCardTemplateView(template: template, context: context)
                 .frame(width: 1080, height: 2340)
-            let image = try #require(Self.render(view, size: CGSize(width: 1080, height: 2340)),
-                                     "\(template.id) rendered nothing")
-            #expect(image.size.width == 1080 && image.size.height == 2340,
-                    "\(template.id) must export at story resolution")
-            #expect(try Self.nonBlankPixelFraction(image) > 0.02,
-                    "\(template.id) rendered a blank card")
-            Self.writeEvidence(image, named: template.id)
+            try RenderedScreen.withOffscreenPixels(
+                of: view,
+                proposedSize: ProposedViewSize(exportSize)
+            ) { pixels in
+                #expect(pixels.size.width == 1080 && pixels.size.height == 2340,
+                        "\(template.id) must export at story resolution")
+                #expect(Self.nonBlankPixelFraction(pixels) > 0.02,
+                        "\(template.id) rendered a blank card")
+            }
+            try Self.photograph(view, named: template.id, size: exportSize)
         }
     }
 
@@ -154,44 +158,43 @@ struct ShareCardRenderingTests {
             ShareStatRef(kind: .duration): ResolvedShareStat(kind: .duration, label: "DURATION", value: "22:10")
         ])
 
-        let rich = try #require(Self.render(
+        let rich = try Self.raster(
             ShareCardTemplateView(template: summit, context: full).frame(width: 390, height: 845),
             size: CGSize(width: 390, height: 845)
-        ))
-        let thin = try #require(Self.render(
+        )
+        let thin = try Self.raster(
             ShareCardTemplateView(template: summit, context: sparse).frame(width: 390, height: 845),
             size: CGSize(width: 390, height: 845)
-        ))
+        )
 
-        #expect(try Self.nonBlankPixelFraction(thin) > 0.02, "the card must still render")
-        #expect(try Self.differingPixelFraction(rich, thin) > 0.01, "missing stats must drop their cells")
+        #expect(Self.nonBlankPixelFraction(thin) > 0.02, "the card must still render")
+        #expect(Self.differingPixelFraction(rich, thin) > 0.01, "missing stats must drop their cells")
     }
 
     @Test
     func everyCardDrawsRankAndFirstAscentAsDifferentTreatments() throws {
         let templates = try ShareCardTemplateStore(bundle: .main).loadTemplates()
+        let cardSize = CGSize(width: 390, height: 845)
         for template in templates {
-            let ranked = try #require(Self.render(
+            let ranked = try Self.raster(
                 ShareCardTemplateView(template: template, context: Self.templateContext())
                     .frame(width: 390, height: 845),
-                size: CGSize(width: 390, height: 845)
-            ))
-            let firstAscent = try #require(Self.render(
-                ShareCardTemplateView(
-                    template: template,
-                    context: Self.templateContext(
-                        standing: ResolvedShareStanding(rank: 1, totalClimbers: 1)
-                    )
+                size: cardSize
+            )
+            let firstAscentCard = ShareCardTemplateView(
+                template: template,
+                context: Self.templateContext(
+                    standing: ResolvedShareStanding(rank: 1, totalClimbers: 1)
                 )
-                .frame(width: 390, height: 845),
-                size: CGSize(width: 390, height: 845)
-            ))
+            )
+            .frame(width: 390, height: 845)
+            let firstAscent = try Self.raster(firstAscentCard, size: cardSize)
 
             #expect(
-                try Self.differingPixelFraction(ranked, firstAscent) > 0.001,
+                Self.differingPixelFraction(ranked, firstAscent) > 0.001,
                 "\(template.id) did not change for First Ascent"
             )
-            Self.writeEvidence(firstAscent, named: "\(template.id)-first-ascent")
+            try Self.photograph(firstAscentCard, named: "\(template.id)-first-ascent", size: cardSize)
         }
     }
 
@@ -299,7 +302,7 @@ struct ShareCardRenderingTests {
                 ResolvedShareStat(kind: .avgHeartRate, label: "AVG BPM", value: "148"),
                 ResolvedShareStat(kind: .date, label: "DATE", value: "May 28, 2026"),
                 // The resolver publishes splits as a stat too, carrying the
-                // subtitle as its detail facet — which is what the Splits Poster
+                // subtitle as its detail facet - which is what the Splits Poster
                 // headline reads.
                 ResolvedShareStat(kind: .splits, label: splits.label, value: splits.value, detail: splits.subtitle)
             ],
@@ -310,44 +313,68 @@ struct ShareCardRenderingTests {
         )
     }
 
-    // MARK: - Rendering
+    // MARK: - Reading the render back
 
-    /// Drops a rendered card where a reviewer can look at it: in
-    /// `ASCEND_EVIDENCE_DIR` when it is set, the test host's temporary directory
-    /// otherwise. The path is printed so a run can lift the images out — the
-    /// fastest way to review a template edit, since templates are now data.
-    static func writeEvidence(_ image: UIImage, named name: String) {
-        guard let data = image.pngData() else { return }
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            .map { URL(filePath: $0) } ?? FileManager.default.temporaryDirectory
-        let url = directory.appending(path: "share-card-\(name).png")
-        try? data.write(to: url)
-        print("evidence: \(url.path())")
+    /// One 1x read of a card: its pixel grid, kept only as long as the comparison
+    /// that needs it.
+    struct Raster {
+        let width: Int
+        let height: Int
+        let samples: [RGBA]
+
+        /// Transparent black outside the grid, so two rasters of different sizes
+        /// compare over the larger one.
+        func pixel(x: Int, y: Int) -> RGBA {
+            guard x >= 0, y >= 0, x < width, y < height else {
+                return RGBA(red: 0, green: 0, blue: 0, alpha: 0)
+            }
+            return samples[y * width + x]
+        }
     }
 
-    static func render(_ view: some View, size: CGSize? = nil) -> UIImage? {
-        let renderer = ImageRenderer(content: view)
-        renderer.scale = 1
-        if let size { renderer.proposedSize = ProposedViewSize(size) }
-        return renderer.uiImage
+    static func raster(_ view: some View, size: CGSize? = nil) throws -> Raster {
+        try RenderedScreen.withOffscreenPixels(
+            of: view,
+            proposedSize: size.map { ProposedViewSize($0) }
+        ) { pixels in
+            Raster(
+                width: pixels.width,
+                height: pixels.height,
+                samples: pixels.pixels(in: CGRect(origin: .zero, size: pixels.size))
+            )
+        }
     }
 
-    static func renderSize(_ view: some View) -> CGSize? {
-        render(view)?.size
+    /// The size a card lays out at, in points, with nothing proposed to it.
+    static func renderSize(_ view: some View) throws -> CGSize {
+        try RenderedScreen.withOffscreenPixels(of: view) { $0.size }
     }
 
-    /// Fraction of pixels that differ between two same-sized renders.
-    static func differingPixelFraction(_ lhs: UIImage, _ rhs: UIImage) throws -> Double {
-        let width = Int(max(lhs.size.width, rhs.size.width).rounded())
-        let height = Int(max(lhs.size.height, rhs.size.height).rounded())
-        let left = try pixels(of: lhs, width: width, height: height)
-        let right = try pixels(of: rhs, width: width, height: height)
+    /// Drops a rendered card where a reviewer can look at it, at the 1x the cards
+    /// are compared at: in `ASCEND_EVIDENCE_DIR` when it is set, and nowhere
+    /// otherwise. The fastest way to review a template edit, since templates are
+    /// now data.
+    static func photograph(_ view: some View, named name: String, size: CGSize? = nil) throws {
+        try RenderedScreen.photograph(
+            view,
+            named: "share-card-\(name)",
+            scale: 1,
+            proposedSize: size.map { ProposedViewSize($0) }
+        )
+    }
+
+    /// Fraction of pixels that differ between two renders, over the larger grid
+    /// when the two laid out at different sizes.
+    static func differingPixelFraction(_ lhs: Raster, _ rhs: Raster) -> Double {
+        let width = max(lhs.width, rhs.width)
+        let height = max(lhs.height, rhs.height)
+        guard width > 0, height > 0 else { return 0 }
 
         var differing = 0
-        for index in stride(from: 0, to: left.count, by: 4) where
-            left[index] != right[index] || left[index + 1] != right[index + 1] ||
-            left[index + 2] != right[index + 2] || left[index + 3] != right[index + 3] {
-            differing += 1
+        for y in 0..<height {
+            for x in 0..<width where lhs.pixel(x: x, y: y) != rhs.pixel(x: x, y: y) {
+                differing += 1
+            }
         }
         return Double(differing) / Double(width * height)
     }
@@ -356,39 +383,31 @@ struct ShareCardRenderingTests {
     /// its background and nothing else. Sampled every fourth pixel: this is a
     /// coarse "did anything draw" check, and scanning two megapixels of every
     /// card would hold the main actor for no extra signal.
-    static func nonBlankPixelFraction(_ image: UIImage) throws -> Double {
-        let width = Int(image.size.width.rounded())
-        let height = Int(image.size.height.rounded())
-        let buffer = try pixels(of: image, width: width, height: height)
+    static func nonBlankPixelFraction(_ pixels: PixelSampler) -> Double {
+        nonBlankPixelFraction(width: pixels.width, height: pixels.height) { x, y in
+            pixels.pixel(x: x, y: y)
+        }
+    }
 
+    static func nonBlankPixelFraction(_ raster: Raster) -> Double {
+        nonBlankPixelFraction(width: raster.width, height: raster.height, raster.pixel)
+    }
+
+    private static func nonBlankPixelFraction(
+        width: Int,
+        height: Int,
+        _ pixel: (Int, Int) -> RGBA
+    ) -> Double {
         var histogram: [UInt32: Int] = [:]
         var sampled = 0
-        for index in stride(from: 0, to: buffer.count, by: 16) {
-            let key = UInt32(buffer[index]) << 16 | UInt32(buffer[index + 1]) << 8 | UInt32(buffer[index + 2])
+        for index in stride(from: 0, to: width * height, by: 4) {
+            let sample = pixel(index % width, index / width)
+            let key = UInt32(sample.red) << 16 | UInt32(sample.green) << 8 | UInt32(sample.blue)
             histogram[key, default: 0] += 1
             sampled += 1
         }
+        guard sampled > 0 else { return 0 }
         let dominant = histogram.values.max() ?? sampled
         return Double(sampled - dominant) / Double(sampled)
     }
-
-    private static func pixels(of image: UIImage, width: Int, height: Int) throws -> [UInt8] {
-        var buffer = [UInt8](repeating: 0, count: width * height * 4)
-        guard let cgImage = image.cgImage,
-              let context = CGContext(
-                data: &buffer,
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bytesPerRow: width * 4,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-              ) else {
-            throw RenderError.noBitmapContext
-        }
-        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
-        return buffer
-    }
-
-    enum RenderError: Error { case noBitmapContext }
 }

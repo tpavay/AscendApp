@@ -3,7 +3,6 @@ import SwiftData
 import SwiftUI
 import Testing
 import UIKit
-import Vision
 
 @testable import AscendApp
 
@@ -11,12 +10,12 @@ import Vision
 /// *after* the celebration instead of on top of it.
 ///
 /// A climb is recorded and saved through the real `LiveClimbSessionViewModel`, the shipping
-/// `LiveClimbSessionView` is hosted in a live window, and `DONE` is pressed through the same
-/// accessibility action a climber's tap produces. Two frames are captured: the summary as the
-/// climber earns it, and what the screen holds once they dismiss it.
+/// `LiveClimbSessionView` is hosted in a live window through `RenderedScreen`, and `DONE` is
+/// pressed through the same accessibility action a climber's tap produces. The screen is read
+/// off the accessibility tree at two moments: the summary as the climber earns it, and what the
+/// screen holds once they dismiss it.
 ///
-/// Images land in `ASCEND_EVIDENCE_DIR` when it is set and in the test host's temporary directory
-/// otherwise; the path is logged either way.
+/// Both moments are photographed when `ASCEND_EVIDENCE_DIR` is set, and not drawn otherwise.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct LiveClimbRatingPromptPlacementEvidenceTests {
@@ -48,21 +47,13 @@ struct LiveClimbRatingPromptPlacementEvidenceTests {
             "A first completed climb with no stored answer is exactly when Ascend asks"
         )
 
-        try await withAccessibilityAutomation {
-            let window = try makeHostedWindow(
-                LiveClimbSessionView(viewModel: viewModel)
-                    .environment(ModerationStore.shared)
-                    .modelContainer(container)
-            )
-            defer {
-                window.isHidden = true
-                window.rootViewController = nil
-                window.windowScene = nil
-            }
-
-            settle(window, for: 0.9)
-            let summaryFrame = screenshot(window)
-            let summaryText = try await recognizedText(in: summaryFrame)
+        try await RenderedScreen.host(
+            LiveClimbSessionView(viewModel: viewModel)
+                .environment(ModerationStore.shared)
+                .modelContainer(container)
+        ) { screen in
+            let summaryText = try await screen.copy { $0.contains("done") }
+            try screen.photograph(named: "live-climb-rating-prompt-01-summary-as-earned")
 
             #expect(
                 summaryText.contains("enjoying ascend") == false,
@@ -70,49 +61,40 @@ struct LiveClimbRatingPromptPlacementEvidenceTests {
             )
             #expect(summaryText.contains("done"))
 
-            _ = try await settledAccessibilityElements(under: window)
-            try activateAccessibilityElement(labelled: "DONE", in: window)
+            _ = try await screen.elements()
+            try activateAccessibilityElement(labelled: "DONE", in: screen.window)
 
             // The question is a presented controller, so waiting for it is a fact about the
             // screen rather than a guess at how long presentation takes on a busy host.
-            let alert = try await presentedAlert(in: window)
+            let alert = try await presentedAlert(in: screen)
             let question = try #require(alert as? UIAlertController, "The question is a UIKit alert")
             #expect(question.title == "Enjoying Ascend?")
             #expect(question.message == "If Ascend made this climb better, leave a quick rating.")
 
-            // The question is read off the alert rather than off the pixels: a live
-            // `UIAlertController` is presented in its own window and draws through a hierarchy
-            // neither `drawHierarchy` nor `layer.render(in:)` can reach in a test host with no
-            // screen, so a capture of it proves what machine the suite ran on rather than where
-            // Ascend asks. What the hosted window does own is the other half of this claim - that
-            // the earned result is already gone by the time the question is asked - and that is
-            // what it is photographed for.
-            settle(window, for: 0.3)
-            let promptFrame = screenshot(window)
-            let promptText = try await recognizedText(in: promptFrame)
-
-            #expect(
-                promptText.contains("splits") == false,
-                "The earned result must be off screen by the time the question is asked"
-            )
-
-            let elementsBehindTheQuestion = try await settledAccessibilityElements(under: window) {
-                $0.contains { element in element.accessibilityLabel == "DONE" } == false
+            // The question is read off the alert rather than off the hosted screen: a live
+            // `UIAlertController` is presented in its own window, outside the hierarchy this
+            // test hosts, so what it holds proves what machine the suite ran on rather than
+            // where Ascend asks. What the hosted window does own is the other half of this
+            // claim - that the earned result is already gone by the time the question is asked
+            // - and that is what it is read and photographed for.
+            let elementsBehindTheQuestion = try await screen.elements { elements in
+                elements.contains { element in element.accessibilityLabel == "DONE" } == false
             }
             #expect(
                 elementsBehindTheQuestion.contains { $0.accessibilityLabel == "DONE" } == false,
                 "The summary the climber just dismissed must not still be behind the question"
             )
 
-            try writeProofSheet(
-                [
-                    ("1 · Summary as the climber earns it - no rating question over it", summaryFrame),
-                    ("2 · DONE pressed - the earned result is gone before the question is asked", promptFrame),
-                ],
-                named: "live-climb-rating-prompt-follows-summary.png"
+            try await screen.settle(.turns(6))
+            let promptText = try await screen.copy { _ in true }
+            try screen.photograph(named: "live-climb-rating-prompt-02-after-done")
+
+            #expect(
+                promptText.contains("splits") == false,
+                "The earned result must be off screen by the time the question is asked"
             )
 
-            try await pressAnswer("No", presentedBy: alert, in: window)
+            try await pressAnswer("No", presentedBy: alert, in: screen)
         }
 
         #expect(
@@ -179,49 +161,23 @@ struct LiveClimbRatingPromptPlacementEvidenceTests {
         releaseState: .available
     )
 
-    // MARK: - Hosting
-
-    private static let screenSize = CGSize(width: 402, height: 874)
-
-    private func makeHostedWindow(_ content: some View) throws -> UIWindow {
-        let controller = UIHostingController(rootView: content)
-        controller.overrideUserInterfaceStyle = .dark
-
-        let scene = try #require(
-            UIApplication.shared.connectedScenes.first as? UIWindowScene,
-            "The test host app should expose a live window scene"
-        )
-        let window = UIWindow(windowScene: scene)
-        window.frame = CGRect(origin: .zero, size: Self.screenSize)
-        window.overrideUserInterfaceStyle = .dark
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-
-        return window
-    }
-
-    private func settle(_ window: UIWindow, for duration: TimeInterval) {
-        window.setNeedsLayout()
-        window.layoutIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(duration))
-        window.layoutIfNeeded()
-    }
+    // MARK: - The question
 
     /// Waits for the sentiment question to be really presented, rather than assuming a settle was
     /// long enough on a host that is running other suites at the same time.
-    private func presentedAlert(in window: UIWindow) async throws -> UIViewController {
+    private func presentedAlert(in screen: HostedScreen) async throws -> UIViewController {
         for _ in 0..<120 {
-            if let presented = window.rootViewController?.presentedViewController,
+            if let presented = screen.window.rootViewController?.presentedViewController,
                presented.isBeingPresented == false {
                 return presented
             }
 
-            settle(window, for: 0.05)
+            try await screen.settle(.turns(1))
             try await Task.sleep(for: .milliseconds(20))
         }
 
         return try #require(
-            window.rootViewController?.presentedViewController,
+            screen.window.rootViewController?.presentedViewController,
             "Pressing DONE on a first completed climb has to present the sentiment question"
         )
     }
@@ -236,7 +192,7 @@ struct LiveClimbRatingPromptPlacementEvidenceTests {
     private func pressAnswer(
         _ label: String,
         presentedBy alert: UIViewController,
-        in window: UIWindow
+        in screen: HostedScreen
     ) async throws {
         let controller = try #require(alert as? UIAlertController, "The question is a UIKit alert")
         let titles = controller.actions.map { $0.title ?? "untitled" }
@@ -257,81 +213,14 @@ struct LiveClimbRatingPromptPlacementEvidenceTests {
         typealias AlertActionHandler = @convention(block) (UIAlertAction) -> Void
         unsafeBitCast(handler, to: AlertActionHandler.self)(answer)
 
-        for _ in 0..<60 where window.rootViewController?.presentedViewController != nil {
-            settle(window, for: 0.05)
+        for _ in 0..<60 where screen.window.rootViewController?.presentedViewController != nil {
+            try await screen.settle(.turns(1))
             try await Task.sleep(for: .milliseconds(20))
         }
 
         #expect(
-            window.rootViewController?.presentedViewController == nil,
+            screen.window.rootViewController?.presentedViewController == nil,
             "Answering has to take the question away"
         )
-    }
-
-    private func screenshot(_ window: UIWindow) -> UIImage {
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 3
-
-        return UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { context in
-            if window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) == false {
-                window.layer.render(in: context.cgContext)
-            }
-        }
-    }
-
-    private func recognizedText(in image: UIImage) async throws -> String {
-        let cgImage = try #require(image.cgImage, "The screenshot should have a CGImage")
-        var request = RecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-
-        return try await request.perform(on: cgImage)
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: " ")
-            .lowercased()
-    }
-
-    // MARK: - Evidence
-
-    private func writeProofSheet(
-        _ frames: [(caption: String, image: UIImage)],
-        named name: String
-    ) throws {
-        let sheet = ImageRenderer(content: ProofSheet(frames: frames))
-        sheet.scale = 2
-        let image = try #require(sheet.uiImage, "ImageRenderer produced no image")
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: name)
-        try png.write(to: url)
-        #expect(png.count > 5_000)
-        print("Rendered rating-prompt placement evidence: \(url.path())")
-    }
-}
-
-private struct ProofSheet: View {
-    let frames: [(caption: String, image: UIImage)]
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 24) {
-            ForEach(Array(frames.enumerated()), id: \.offset) { _, frame in
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(frame.caption)
-                        .font(.montserratSemiBold(size: 12))
-                        .foregroundStyle(Color.ascendAccent)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(width: 402, alignment: .leading)
-
-                    Image(uiImage: frame.image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 402)
-                }
-            }
-        }
-        .padding(24)
-        .background(Color.black)
-        .environment(\.colorScheme, .dark)
     }
 }

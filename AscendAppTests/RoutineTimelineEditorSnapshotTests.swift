@@ -10,8 +10,11 @@ import UIKit
 /// them.
 ///
 /// The live editor is presented from a sheet behind auth, so this is the only way to put the
-/// drawn result in front of a reviewer.
+/// drawn result in front of a reviewer. Photographs are written only under `ASCEND_EVIDENCE_DIR`;
+/// the coach-mark cases host a real window through `RenderedScreen` and read frames off its
+/// accessibility tree.
 @MainActor
+@Suite(.hostsAWindow)
 struct RoutineTimelineEditorSnapshotTests {
     /// The plot inside a 402pt device: 20pt screen padding and 14pt card padding each side.
     private let plotWidth: CGFloat = 334
@@ -90,7 +93,7 @@ struct RoutineTimelineEditorSnapshotTests {
         )
     }
 
-    @Test(.hostsAWindow)
+    @Test
     func theWalkthroughSpotlightsTheTimeline() async throws {
         try await renderHostedCoachMarkEvidence(
             named: "routine-builder-coach-mark",
@@ -204,7 +207,7 @@ struct RoutineTimelineEditorSnapshotTests {
     /// The one-off mark, spotlighting the overview rather than the timeline, with a single
     /// dot and a single Got it. No ring around the strip: the working window is already a lime
     /// outline, and a second one around it read as a box in a box.
-    @Test(.hostsAWindow)
+    @Test
     func theWindowCoachMarkSpotlightsTheOverview() async throws {
         try await renderHostedCoachMarkEvidence(
             named: "routine-builder-window-coach-mark",
@@ -247,7 +250,7 @@ struct RoutineTimelineEditorSnapshotTests {
         targetRect: CGRect,
         surface: some View
     ) async throws {
-        let device = CGSize(width: 402, height: 874)
+        let device = RenderedScreen.iPhone16ProSize
         let root = ZStack(alignment: .top) {
             Color.black
 
@@ -264,26 +267,8 @@ struct RoutineTimelineEditorSnapshotTests {
         .frame(width: device.width, height: device.height)
         .transaction { $0.disablesAnimations = true }
 
-        try await withAccessibilityAutomation {
-            let controller = UIHostingController(rootView: root)
-            controller.overrideUserInterfaceStyle = .dark
-            controller.view.frame = CGRect(origin: .zero, size: device)
-            let scene = UIApplication.shared.connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .first
-            let window = scene.map { UIWindow(windowScene: $0) }
-                ?? UIWindow(frame: CGRect(origin: .zero, size: device))
-            window.frame = CGRect(origin: .zero, size: device)
-            window.overrideUserInterfaceStyle = .dark
-            window.rootViewController = controller
-            window.makeKeyAndVisible()
-            defer {
-                window.isHidden = true
-                window.rootViewController = nil
-                window.windowScene = nil
-            }
-
-            let elements = try await settledAccessibilityElements(under: window) { elements in
+        try await RenderedScreen.host(root, size: device) { screen in
+            let elements = try await screen.elements { elements in
                 elements.contains { $0.accessibilityLabel == presentation.title }
                     && elements.contains { $0.accessibilityLabel == presentation.message }
                     && elements.contains { element in
@@ -293,7 +278,7 @@ struct RoutineTimelineEditorSnapshotTests {
             }
 
             func frame(of element: NSObject) -> CGRect {
-                window.convert(element.accessibilityFrame, from: nil)
+                screen.window.convert(element.accessibilityFrame, from: nil)
             }
 
             let heading = try #require(
@@ -325,7 +310,7 @@ struct RoutineTimelineEditorSnapshotTests {
                 #expect(elements.contains { $0.accessibilityLabel == "Skip" } == false)
             }
 
-            let viewport = window.bounds.insetBy(dx: -0.5, dy: -0.5)
+            let viewport = screen.bounds.insetBy(dx: -0.5, dy: -0.5)
             for content in cardContents {
                 #expect(viewport.contains(content))
             }
@@ -342,39 +327,18 @@ struct RoutineTimelineEditorSnapshotTests {
             let contentHeight = cardContents.map(\.maxY).max().map { $0 - headingTop } ?? 0
             #expect(contentHeight < 260)
 
-            try photograph(window, named: name)
+            try screen.photograph(named: name)
         }
     }
 
-    private func photograph(_ window: UIWindow, named name: String) throws {
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.scale = 3
-        let image = UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { _ in
-            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-        }
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        try png.write(to: URL(filePath: directory).appending(path: "\(name).png"))
-
-        #expect(png.count > 5_000)
-    }
-
+    /// A 1x layout proves the surface laid out at all; the 3x photograph is written only when
+    /// `ASCEND_EVIDENCE_DIR` is set.
     private func renderEvidence(named name: String, content: some View) throws {
-        let renderer = ImageRenderer(content: content)
-        renderer.scale = 3
-
-        let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        try png.write(to: URL(filePath: directory).appending(path: "\(name).png"))
-
-        #expect(image.size.width > 0)
-        #expect(image.size.height > 0)
-        #expect(png.count > 5_000)
+        try RenderedScreen.withOffscreenPixels(of: content) { pixels in
+            #expect(pixels.size.width > 0)
+            #expect(pixels.size.height > 0)
+        }
+        try RenderedScreen.photograph(content, named: name)
     }
 }
 

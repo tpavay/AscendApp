@@ -4,13 +4,14 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Photographs the comparison's ACHIEVEMENTS section fed from two real `ProfileSnapshot`s, built
-/// the way `OtherUserProfileView` builds them, rather than from ladders assembled by hand.
+/// The comparison's ACHIEVEMENTS section fed from two real `ProfileSnapshot`s, built the way
+/// `OtherUserProfileView` builds them, rather than from ladders assembled by hand.
 ///
 /// The defect the captain found was at the call site: the screen held both snapshots and read the
-/// achievements off only one of them. Driving the section from `viewer.achievements` and
-/// `otherUser.achievements` here is the wiring under test, so a reviewer can see the viewer's own
-/// badges survive an opponent who holds none.
+/// achievements off only one of them. Driving the rows from `viewer.achievements` and
+/// `otherUser.achievements` here is the wiring under test. The section is hosted and photographed
+/// through `RenderedScreen` only when `ASCEND_EVIDENCE_DIR` is set, so a reviewer can see the
+/// viewer's own badges survive an opponent who holds none.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct PublicProfileAchievementSnapshotWiringEvidenceTests {
@@ -94,7 +95,7 @@ struct PublicProfileAchievementSnapshotWiringEvidenceTests {
     }
 
     @Test
-    func aChampionsOwnBadgesSurviveABrandNewOpponentsEmptySnapshot() throws {
+    func aChampionsOwnBadgesSurviveABrandNewOpponentsEmptySnapshot() async throws {
         let viewer = Self.snapshot(userId: "viewer", achievements: Self.championLadder)
         let otherUser = Self.snapshot(userId: "other", achievements: .empty)
 
@@ -106,7 +107,7 @@ struct PublicProfileAchievementSnapshotWiringEvidenceTests {
         #expect(viewerCounts == [3, 2, 1, 12, 41])
         #expect(rows.allSatisfy { $0.otherCount == 0 })
 
-        try Self.capture(
+        try await Self.photograph(
             name: "snapshot-wiring-champion-vs-new-climber",
             caption: "From two real ProfileSnapshots: the viewer's own ladder is read and drawn even though the other climber's snapshot is empty",
             viewer: viewer,
@@ -116,7 +117,7 @@ struct PublicProfileAchievementSnapshotWiringEvidenceTests {
     }
 
     @Test
-    func twoLoadedSnapshotsAttributeEveryCountToItsOwnSide() throws {
+    func twoLoadedSnapshotsAttributeEveryCountToItsOwnSide() async throws {
         let viewer = Self.snapshot(
             userId: "viewer",
             achievements: ProfileAchievementLadder(
@@ -129,7 +130,18 @@ struct PublicProfileAchievementSnapshotWiringEvidenceTests {
         )
         let otherUser = Self.snapshot(userId: "other", achievements: Self.championLadder)
 
-        try Self.capture(
+        // Ranks 1, 3 and 8 on the left; the champion's ladder on the right. Neither column reads
+        // off the other's snapshot.
+        let rows = ProfileAchievementCatalogue.comparisonEntries(
+            viewer: ProfileAchievementTally(ladder: viewer.achievements),
+            other: ProfileAchievementTally(ladder: otherUser.achievements)
+        )
+        let viewerCounts: [Int?] = rows.map { $0.viewerCount }
+        let otherCounts: [Int?] = rows.map { $0.otherCount }
+        #expect(viewerCounts == [1, 0, 1, 3, 3])
+        #expect(otherCounts == [3, 2, 1, 12, 41])
+
+        try await Self.photograph(
             name: "snapshot-wiring-two-loaded-climbers",
             caption: "Both snapshots loaded: your counts on the left, theirs on the right, one row per badge either side holds",
             viewer: viewer,
@@ -138,14 +150,18 @@ struct PublicProfileAchievementSnapshotWiringEvidenceTests {
         )
     }
 
-    private static func capture(
+    /// Hosts the captioned section at its fitted height and photographs it - only when this run
+    /// keeps photographs, since nothing here reads the screen back.
+    private static func photograph(
         name: String,
         caption: String,
         viewer: ProfileSnapshot,
         otherUser: ProfileSnapshot,
         isOtherLoading: Bool,
         width: CGFloat = 402
-    ) throws {
+    ) async throws {
+        guard RenderedScreen.isPhotographing else { return }
+
         let content = VStack(alignment: .leading, spacing: 14) {
             Text(caption)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
@@ -160,64 +176,21 @@ struct PublicProfileAchievementSnapshotWiringEvidenceTests {
         .environment(\.colorScheme, .dark)
 
         let host = UIHostingController(rootView: content)
-        host.overrideUserInterfaceStyle = .dark
 
-        let scene = try #require(
-            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first,
-            "test host app should expose a live UIWindowScene"
-        )
-        let window = UIWindow(windowScene: scene)
-        window.frame = CGRect(x: 0, y: 0, width: width, height: 500)
-        window.overrideUserInterfaceStyle = .dark
-        window.rootViewController = host
-        window.makeKeyAndVisible()
-        defer {
-            window.isHidden = true
-            window.rootViewController = nil
-            window.windowScene = nil
-        }
-
-        var fitted: CGFloat = 400
-        for _ in 0..<10 {
-            window.layoutIfNeeded()
-            CATransaction.flush()
-            RunLoop.current.run(until: Date())
-            fitted = host.sizeThatFits(
-                in: CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
-            ).height
-        }
-
-        window.frame = CGRect(x: 0, y: 0, width: width, height: ceil(fitted))
-        window.layoutIfNeeded()
-        CATransaction.flush()
-        RunLoop.current.run(until: Date())
-
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 3
-        let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image {
-            window.layer.render(in: $0.cgContext)
-        }
-
-        let data = try #require(image.pngData(), "No PNG data for \(name)")
-        let candidates = [
-            ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"],
-            NSTemporaryDirectory().appending("ascend-public-profile-evidence")
-        ].compactMap { $0 }
-
-        for directory in candidates {
-            let url = URL(filePath: directory).appending(path: "\(name).png")
-            do {
-                try FileManager.default.createDirectory(
-                    at: URL(filePath: directory),
-                    withIntermediateDirectories: true
-                )
-                try data.write(to: url)
-                print("ASCEND_EVIDENCE_PNG \(url.path)")
-                return
-            } catch {
-                continue
+        try await RenderedScreen.host(host, size: CGSize(width: width, height: 500)) { screen in
+            var fitted: CGFloat = 400
+            for _ in 0..<10 {
+                try await screen.settle(.turns(1))
+                fitted = host.sizeThatFits(
+                    in: CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+                ).height
             }
+
+            // Sized to the content so a row cannot fall off the bottom of its own evidence.
+            screen.window.frame = CGRect(x: 0, y: 0, width: width, height: ceil(fitted))
+            try await screen.settle(.turns(1))
+
+            try screen.photograph(named: name)
         }
-        Issue.record("No writable evidence directory for \(name)")
     }
 }

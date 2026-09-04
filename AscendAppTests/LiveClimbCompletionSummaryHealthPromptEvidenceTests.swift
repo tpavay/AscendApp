@@ -2,7 +2,6 @@ import SwiftData
 import SwiftUI
 import Testing
 import UIKit
-import Vision
 
 @testable import AscendApp
 
@@ -10,8 +9,9 @@ import Vision
 ///
 /// This hosts the shipping completion summary in a real phone-sized window with Health in the
 /// never-connected state and a climb carrying no heart rate - the exact conditions the connect
-/// offer used to appear under - so the screenshot proves the view says nothing about heart rate
-/// rather than relying on test setup to hide it.
+/// offer used to appear under - and reads the screen's copy off the accessibility tree
+/// (`RenderedScreen`), so the proof is that the view says nothing about heart rate rather than
+/// relying on test setup to hide it. The photograph is written only under `ASCEND_EVIDENCE_DIR`.
 @MainActor
 @Suite(.hostsAWindow)
 struct LiveClimbCompletionSummaryHealthPromptEvidenceTests {
@@ -58,70 +58,18 @@ struct LiveClimbCompletionSummaryHealthPromptEvidenceTests {
         )
         .modelContainer(container)
 
-        let image = try screenshot(of: screen)
-        let recognized = try await recognizedText(in: image)
+        try await RenderedScreen.host(screen, size: Self.screenSize) { hosted in
+            let recognized = try await hosted.copy { $0.contains("done") }
 
-        #expect(recognized.contains("no heart rate on this climb") == false)
-        #expect(recognized.contains("connect apple health") == false)
-        #expect(recognized.contains("heart rate") == false)
-        #expect(recognized.contains("share"))
-        #expect(recognized.contains("done"))
+            #expect(recognized.contains("no heart rate on this climb") == false)
+            #expect(recognized.contains("connect apple health") == false)
+            #expect(recognized.contains("heart rate") == false)
+            #expect(recognized.contains("share"))
+            #expect(recognized.contains("done"))
 
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory)
-            .appending(path: "live-climb-completion-summary-without-heart-rate-prompt.png")
-        try png.write(to: url)
-        #expect(png.count > 5_000)
-        print("Rendered prompt-free completion summary evidence: \(url.path())")
+            try hosted.photograph(named: "live-climb-completion-summary-without-heart-rate-prompt")
+        }
     }
 
     private static let screenSize = CGSize(width: 393, height: 852)
-
-    private func screenshot(of view: some View) throws -> UIImage {
-        let controller = UIHostingController(rootView: view)
-        controller.overrideUserInterfaceStyle = .dark
-        controller.view.frame = CGRect(origin: .zero, size: Self.screenSize)
-
-        let scene = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first
-        let window = scene.map { UIWindow(windowScene: $0) }
-            ?? UIWindow(frame: CGRect(origin: .zero, size: Self.screenSize))
-        window.frame = CGRect(origin: .zero, size: Self.screenSize)
-        window.overrideUserInterfaceStyle = .dark
-
-        defer {
-            window.isHidden = true
-            window.rootViewController = nil
-            window.windowScene = nil
-        }
-
-        window.rootViewController = controller
-        window.isHidden = false
-        controller.view.setNeedsLayout()
-        controller.view.layoutIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
-
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 3
-        return UIGraphicsImageRenderer(size: Self.screenSize, format: format).image { context in
-            if !window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) {
-                window.layer.render(in: context.cgContext)
-            }
-        }
-    }
-
-    private func recognizedText(in image: UIImage) async throws -> String {
-        let cgImage = try #require(image.cgImage, "UIImage had no CGImage")
-        var request = RecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-
-        return try await request.perform(on: cgImage)
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: " ")
-            .lowercased()
-    }
 }

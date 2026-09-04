@@ -2,19 +2,17 @@ import Foundation
 import SwiftUI
 import Testing
 import UIKit
-import Vision
 @testable import AscendApp
 
 /// Visual evidence for the ranking-and-ghost design the captain locked on
 /// 2026-09-01.
 ///
-/// Every image here is a screenshot of a shipping view hosted in a real
-/// `UIWindow` - `LiveClimbSummaryRankHeroView` and `LiveReplayLeaderboardPanel` -
-/// with the copy read back out of the pixels by Vision. Nothing is redrawn for
-/// the test.
+/// Every case hosts a shipping view in a real `UIWindow` -
+/// `LiveClimbSummaryRankHeroView` and `LiveReplayLeaderboardPanel` - through
+/// `RenderedScreen`, reads the copy back off the accessibility tree and the
+/// marker's position off a 1x capture. Nothing is redrawn for the test.
 ///
-/// PNGs land in `ASCEND_EVIDENCE_DIR` when set, the test host's temp dir
-/// otherwise; the path is logged either way.
+/// PNGs land in `ASCEND_EVIDENCE_DIR` when set and are not taken otherwise.
 @MainActor
 @Suite(.hostsAWindow)
 struct RankingGhostRenderEvidenceTests {
@@ -27,54 +25,66 @@ struct RankingGhostRenderEvidenceTests {
     /// read `1st` over `FASTEST OF 1 CLIMBER`.
     @Test
     func aSoloSlowerRepeatShowsItsPlacingAmongTheClimbersOwnClimbs() async throws {
-        let image = try screenshot(of: heroPanel(
-            standing: Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
-            personalPlacing: PersonalClimbPlacing(ordinal: 2, total: 5),
-            moment: .freshCompletion
-        ))
-        let text = try await recognizedText(in: image)
+        try await RenderedScreen.host(
+            heroPanel(
+                standing: Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
+                personalPlacing: PersonalClimbPlacing(ordinal: 2, total: 5),
+                moment: .freshCompletion
+            ),
+            size: Self.screenSize
+        ) { screen in
+            let text = try await screen.copy()
 
-        #expect(text.contains("of your 5 climbs"))
-        #expect(!text.contains("climber"))
-        #expect(!text.contains("fastest"))
-        #expect(!text.contains("rank you just earned"))
+            #expect(text.contains("of your 5 climbs"))
+            #expect(!text.contains("climber"))
+            #expect(!text.contains("fastest"))
+            #expect(!text.contains("rank you just earned"))
 
-        try writeEvidence(image: image, named: "finish-card-solo-slower-repeat.png")
+            try screen.photograph(named: "finish-card-solo-slower-repeat")
+        }
     }
 
     /// The same component when the repeat was faster. One ordinal covers improved
     /// and not-improved, so there is no separate personal-best card.
     @Test
     func aSoloPersonalBestUsesTheSameCard() async throws {
-        let image = try screenshot(of: heroPanel(
-            standing: Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
-            personalPlacing: PersonalClimbPlacing(ordinal: 1, total: 5),
-            moment: .freshCompletion
-        ))
-        let text = try await recognizedText(in: image)
+        try await RenderedScreen.host(
+            heroPanel(
+                standing: Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
+                personalPlacing: PersonalClimbPlacing(ordinal: 1, total: 5),
+                moment: .freshCompletion
+            ),
+            size: Self.screenSize
+        ) { screen in
+            let text = try await screen.copy()
 
-        #expect(text.contains("of your 5 climbs"))
-        #expect(!text.contains("climber"))
+            #expect(text.contains("of your 5 climbs"))
+            #expect(!text.contains("climber"))
 
-        try writeEvidence(image: image, named: "finish-card-solo-personal-best.png")
+            try screen.photograph(named: "finish-card-solo-personal-best")
+        }
     }
 
     /// The First Ascent card: the gold flag and the claim, and nothing else.
     @Test
     func aFirstAscentCardIsTheFlagAndTheClaim() async throws {
-        let image = try screenshot(of: heroPanel(
-            standing: Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
-            personalPlacing: PersonalClimbPlacing(ordinal: 1, total: 1),
-            claimsFirstAscent: true,
-            moment: .freshCompletion
-        ))
-        let text = try await recognizedText(in: image)
+        try await RenderedScreen.host(
+            heroPanel(
+                standing: Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
+                personalPlacing: PersonalClimbPlacing(ordinal: 1, total: 1),
+                claimsFirstAscent: true,
+                moment: .freshCompletion
+            ),
+            size: Self.screenSize
+        ) { screen in
+            let text = try await screen.copy()
 
-        #expect(text.contains("first ascent claimed"))
-        #expect(!text.contains("climber"))
-        #expect(!text.contains("of your"))
+            #expect(text.contains("first ascent claimed"))
+            #expect(!text.contains("climber"))
+            #expect(!text.contains("of your"))
 
-        try writeEvidence(image: image, named: "finish-card-first-ascent.png")
+            try screen.photograph(named: "finish-card-first-ascent")
+        }
     }
 
     /// The same card reopened from Workout Detail after the climber has gone back
@@ -82,35 +92,43 @@ struct RankingGhostRenderEvidenceTests {
     /// identical - it used to become `4TH OF YOUR 4 CLIMBS`.
     @Test
     func aFirstAscentCardStillRendersAfterTheClimberReturnsToTheTower() async throws {
-        let image = try screenshot(of: heroPanel(
-            standing: Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
-            personalPlacing: PersonalClimbPlacing(ordinal: 4, total: 4),
-            claimsFirstAscent: true,
-            moment: .retrospective
-        ))
-        let text = try await recognizedText(in: image)
+        try await RenderedScreen.host(
+            heroPanel(
+                standing: Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
+                personalPlacing: PersonalClimbPlacing(ordinal: 4, total: 4),
+                claimsFirstAscent: true,
+                moment: .retrospective
+            ),
+            size: Self.screenSize
+        ) { screen in
+            let text = try await screen.copy()
 
-        #expect(text.contains("first ascent claimed"))
-        #expect(!text.contains("of your 4 climbs"))
+            #expect(text.contains("first ascent claimed"))
+            #expect(!text.contains("of your 4 climbs"))
 
-        try writeEvidence(image: image, named: "finish-card-first-ascent-reopened.png")
+            try screen.photograph(named: "finish-card-first-ascent-reopened")
+        }
     }
 
     /// A real field of climbers keeps the leaderboard rank in the hero, with the
     /// field named beneath it exactly as it ships today.
     @Test
     func aRealFieldKeepsTheLeaderboardRankInTheHero() async throws {
-        let image = try screenshot(of: heroPanel(
-            standing: Hero.Standing(rank: 2, total: 2, basis: .atCompletion),
-            personalPlacing: PersonalClimbPlacing(ordinal: 2, total: 5),
-            moment: .freshCompletion
-        ))
-        let text = try await recognizedText(in: image)
+        try await RenderedScreen.host(
+            heroPanel(
+                standing: Hero.Standing(rank: 2, total: 2, basis: .atCompletion),
+                personalPlacing: PersonalClimbPlacing(ordinal: 2, total: 5),
+                moment: .freshCompletion
+            ),
+            size: Self.screenSize
+        ) { screen in
+            let text = try await screen.copy()
 
-        #expect(text.contains("fastest of 2 climbers"))
-        #expect(!text.contains("of your 5 climbs"))
+            #expect(text.contains("fastest of 2 climbers"))
+            #expect(!text.contains("of your 5 climbs"))
 
-        try writeEvidence(image: image, named: "finish-card-rival-repeat.png")
+            try screen.photograph(named: "finish-card-rival-repeat")
+        }
     }
 
     // MARK: - The live board
@@ -123,21 +141,28 @@ struct RankingGhostRenderEvidenceTests {
     /// the visible gap between them mean anything.
     @Test
     func theLiveBoardMarksThePreviousBestInsideTheClimbersOwnRow() async throws {
-        let image = try screenshot(of: leaderboardPanel(currentSteps: 347, markerSteps: 414))
-        let text = try await recognizedText(in: image)
+        try await RenderedScreen.host(
+            leaderboardPanel(currentSteps: 347, markerSteps: 414),
+            size: Self.screenSize
+        ) { screen in
+            let text = try await screen.copy()
 
-        let markerX = try #require(markerColumnX(in: image), "no marker line was drawn")
-        #expect(abs(markerX - expectedMarkerX(steps: 414)) <= 6)
+            let markerX = try #require(
+                try screen.withPixels(markerColumnX),
+                "no marker line was drawn"
+            )
+            #expect(abs(markerX - expectedMarkerX(steps: 414)) <= 6)
 
-        #expect(text.contains("347"))
-        // Nothing states the gap. The visible distance is the whole message.
-        #expect(!text.contains("catch"))
-        #expect(!text.contains("steps ahead"))
-        #expect(!text.contains("behind"))
-        // The best is not a row: it takes no rank cell and shows no step count.
-        #expect(!text.contains("414"))
+            #expect(text.contains("347"))
+            // Nothing states the gap. The visible distance is the whole message.
+            #expect(!text.contains("catch"))
+            #expect(!text.contains("steps ahead"))
+            #expect(!text.contains("behind"))
+            // The best is not a row: it takes no rank cell and shows no step count.
+            #expect(!text.contains("414"))
 
-        try writeEvidence(image: image, named: "live-board-previous-best-behind.png")
+            try screen.photograph(named: "live-board-previous-best-behind")
+        }
     }
 
     /// The same board once the climber has passed their own best. The line is in
@@ -146,30 +171,54 @@ struct RankingGhostRenderEvidenceTests {
     /// held one.
     @Test
     func passingThePreviousBestChangesTheGapAndNothingElse() async throws {
-        let behind = try screenshot(of: leaderboardPanel(currentSteps: 347, markerSteps: 414))
-        let image = try screenshot(of: leaderboardPanel(currentSteps: 470, markerSteps: 414))
-        let text = try await recognizedText(in: image)
+        let behindMarkerX = try #require(
+            try await RenderedScreen.host(
+                leaderboardPanel(currentSteps: 347, markerSteps: 414),
+                size: Self.screenSize
+            ) { screen in
+                try screen.withPixels(markerColumnX)
+            }
+        )
 
-        let behindMarkerX = try #require(markerColumnX(in: behind))
-        let passedMarkerX = try #require(markerColumnX(in: image), "no marker line was drawn")
-        #expect(abs(passedMarkerX - behindMarkerX) <= 2)
-        #expect(abs(passedMarkerX - expectedMarkerX(steps: 414)) <= 6)
+        try await RenderedScreen.host(
+            leaderboardPanel(currentSteps: 470, markerSteps: 414),
+            size: Self.screenSize
+        ) { screen in
+            let text = try await screen.copy()
 
-        #expect(text.contains("470"))
-        #expect(!text.contains("catch"))
-        #expect(!text.contains("414"))
+            let passedMarkerX = try #require(
+                try screen.withPixels(markerColumnX),
+                "no marker line was drawn"
+            )
+            #expect(abs(passedMarkerX - behindMarkerX) <= 2)
+            #expect(abs(passedMarkerX - expectedMarkerX(steps: 414)) <= 6)
 
-        try writeEvidence(image: image, named: "live-board-previous-best-passed.png")
+            #expect(text.contains("470"))
+            #expect(!text.contains("catch"))
+            #expect(!text.contains("414"))
+
+            try screen.photograph(named: "live-board-previous-best-passed")
+        }
     }
 
     /// Early in the race both the climber and their best are near the start, so
     /// the marker sits over the row's leading chrome. Evidence that the state is
-    /// legible rather than assumed.
+    /// legible rather than assumed: the line is still found where the best
+    /// reached, over that chrome.
     @Test
     func theMarkerStaysLegibleEarlyInTheRace() async throws {
-        let image = try screenshot(of: leaderboardPanel(currentSteps: 22, markerSteps: 48))
+        try await RenderedScreen.host(
+            leaderboardPanel(currentSteps: 22, markerSteps: 48),
+            size: Self.screenSize
+        ) { screen in
+            let markerX = try #require(
+                try screen.withPixels { markerColumnX(in: $0, from: 0) },
+                "no marker line was drawn over the leading chrome"
+            )
+            #expect(abs(markerX - expectedMarkerX(steps: 48)) <= 6)
 
-        try writeEvidence(image: image, named: "live-board-previous-best-early.png")
+            try screen.photograph(named: "live-board-previous-best-early")
+        }
     }
 
     // MARK: - The Just Me rail
@@ -179,28 +228,30 @@ struct RankingGhostRenderEvidenceTests {
     /// No step count, no delta, no comparison sentence.
     @Test
     func theJustMeRailCarriesTheSameMarkerTurnedOnItsSide() async throws {
-        let image = try screenshot(
-            of: LiveClimbProgressRail(
-                progress: 347.0 / 551,
-                previousBestProgress: 414.0 / 551,
-                summitSteps: 551
-            )
-            .frame(width: 64)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.vertical, 24)
-            .background(Color.black)
-        )
-        let text = try await recognizedText(in: image)
+        try await RenderedScreen.host(
+            LiveClimbProgressRail(
+                    progress: 347.0 / 551,
+                    previousBestProgress: 414.0 / 551,
+                    summitSteps: 551
+                )
+                .frame(width: 64)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.vertical, 24)
+                .background(Color.black),
+            size: Self.screenSize
+        ) { screen in
+            let text = try await screen.copy()
 
-        #expect(text.contains("summit"))
-        #expect(text.contains("551"))
-        #expect(text.contains("start"))
-        // The marker states no number of its own.
-        #expect(!text.contains("414"))
-        #expect(!text.contains("347"))
-        #expect(!text.contains("catch"))
+            #expect(text.contains("summit"))
+            #expect(text.contains("551"))
+            #expect(text.contains("start"))
+            // The marker states no number of its own.
+            #expect(!text.contains("414"))
+            #expect(!text.contains("347"))
+            #expect(!text.contains("catch"))
 
-        try writeEvidence(image: image, named: "just-me-rail-previous-best.png")
+            try screen.photograph(named: "just-me-rail-previous-best")
+        }
     }
 
     // MARK: - Measuring the marker
@@ -218,38 +269,23 @@ struct RankingGhostRenderEvidenceTests {
     /// white the panel draws is the marker itself: the rank cell and the step
     /// count are lime, the `YOU` pill is black on lime, and the climber's name
     /// sits well to the left of the band.
-    private func markerColumnX(in image: UIImage) -> CGFloat? {
-        guard let cgImage = image.cgImage else { return nil }
+    private func markerColumnX(in pixels: PixelSampler) -> CGFloat? {
+        markerColumnX(in: pixels, from: Self.screenSize.width * 0.45)
+    }
 
-        let scale = Int(image.scale)
-        let width = cgImage.width
-        let bytesPerPixel = 4
-        let bytesPerRow = width * bytesPerPixel
-        var pixels = [UInt8](repeating: 0, count: bytesPerRow * cgImage.height)
-
-        guard let context = CGContext(
-            data: &pixels,
-            width: width,
-            height: cgImage.height,
-            bitsPerComponent: 8,
-            bytesPerRow: bytesPerRow,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return nil }
-
-        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: cgImage.height))
-
-        let firstColumn = Int(Self.screenSize.width * 0.45) * scale
+    /// The x of the tallest near-white vertical run inside the row band, scanned
+    /// from `firstColumn` (points) to the trailing edge. Read off a 1x capture:
+    /// a stroked 2pt line is two pixels wide there, and a column position does
+    /// not need more.
+    private func markerColumnX(in pixels: PixelSampler, from firstColumn: CGFloat) -> CGFloat? {
+        let scale = pixels.scale
         var tallest = (column: -1, height: 0)
 
-        for column in firstColumn..<width {
+        for column in Int(firstColumn * scale)..<pixels.width {
             var height = 0
-            for row in (Self.rowBandTop * scale)..<(Self.rowBandBottom * scale) {
-                let offset = row * bytesPerRow + column * bytesPerPixel
-                let isNearWhite = pixels[offset] > 200
-                    && pixels[offset + 1] > 200
-                    && pixels[offset + 2] > 200
-                if isNearWhite { height += 1 }
+            for row in Int(CGFloat(Self.rowBandTop) * scale)..<Int(CGFloat(Self.rowBandBottom) * scale)
+            where pixels.pixel(x: column, y: row).isNearWhite {
+                height += 1
             }
             if height > tallest.height {
                 tallest = (column, height)
@@ -257,10 +293,10 @@ struct RankingGhostRenderEvidenceTests {
         }
 
         // A stroked 2pt line fills most of the band; a stacked letter does not.
-        let bandHeight = (Self.rowBandBottom - Self.rowBandTop) * scale
+        let bandHeight = Int(CGFloat(Self.rowBandBottom - Self.rowBandTop) * scale)
         guard tallest.column >= 0, tallest.height > bandHeight / 2 else { return nil }
 
-        return CGFloat(tallest.column) / CGFloat(scale)
+        return CGFloat(tallest.column) / scale
     }
 
     /// A band comfortably inside the single row this panel draws, below the
@@ -334,70 +370,4 @@ struct RankingGhostRenderEvidenceTests {
     }
 
     private static let screenSize = CGSize(width: 393, height: 400)
-
-    private func screenshot(of view: some View) throws -> UIImage {
-        let controller = UIHostingController(rootView: view)
-        controller.overrideUserInterfaceStyle = .dark
-        controller.view.frame = CGRect(origin: .zero, size: Self.screenSize)
-
-        // A window with no scene is never handed to the render server, and
-        // `drawHierarchy` then captures an empty surface - so borrow the test
-        // host's own scene.
-        let scene = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first
-        let window = scene.map { UIWindow(windowScene: $0) }
-            ?? UIWindow(frame: CGRect(origin: .zero, size: Self.screenSize))
-        window.frame = CGRect(origin: .zero, size: Self.screenSize)
-        window.overrideUserInterfaceStyle = .dark
-
-        defer {
-            window.isHidden = true
-            window.rootViewController = nil
-            window.windowScene = nil
-        }
-
-        window.rootViewController = controller
-        // Visible but never key: this capture is synchronous and shares the scene
-        // with the other window-hosting evidence suites.
-        window.isHidden = false
-
-        controller.view.setNeedsLayout()
-        controller.view.layoutIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
-
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 3
-        let renderer = UIGraphicsImageRenderer(size: Self.screenSize, format: format)
-        return renderer.image { context in
-            if !window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) {
-                window.layer.render(in: context.cgContext)
-            }
-        }
-    }
-
-    private func recognizedText(in image: UIImage) async throws -> String {
-        let cgImage = try #require(image.cgImage, "UIImage had no CGImage")
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-
-        try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
-
-        let observations = request.results ?? []
-        return observations
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: " ")
-            .lowercased()
-    }
-
-    private func writeEvidence(image: UIImage, named name: String) throws {
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: name)
-        try png.write(to: url)
-        #expect(png.count > 5_000)
-        print("Rendered ranking-ghost evidence: \(url.path())")
-    }
 }

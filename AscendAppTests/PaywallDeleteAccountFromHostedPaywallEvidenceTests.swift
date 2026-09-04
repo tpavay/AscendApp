@@ -2,14 +2,14 @@ import Foundation
 import SwiftUI
 import Testing
 import UIKit
-import Vision
 @testable import AscendApp
 
-/// Reviewer-facing pixels for the control that did nothing: a locked-out climber taps
+/// Reviewer-facing evidence for the control that did nothing: a locked-out climber taps
 /// `DELETE ACCOUNT` on the hosted paywall and lands on Ascend's own deletion dialog.
 ///
-/// The contract suites next door prove the wiring in source. This drives the real chain and
-/// photographs what the climber sees: the production ``SuperwallPaywallPresenter`` takes the
+/// The contract suites next door prove the wiring in source. This drives the real chain through
+/// `RenderedScreen`, photographs what the climber sees when `ASCEND_EVIDENCE_DIR` is set, and
+/// reads the screen back: the production ``SuperwallPaywallPresenter`` takes the
 /// `delete_account` custom action, owns the dismissal itself, and the outcome reaches the real
 /// ``AppAccessPaywallPlaceholderView`` coordinator, which opens the real
 /// ``DeleteAccountConfirmationView``.
@@ -20,29 +20,33 @@ import Vision
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct PaywallDeleteAccountFromHostedPaywallEvidenceTests {
-    private static let iPhone16ProSize = CGSize(width: 402, height: 874)
-
     /// The defect, end to end. Under the old code this tap resolved to `.undifferentiated`, nothing
     /// was chained after it, and the paywall did not even close.
+    ///
+    /// Read by OCR rather than off the accessibility tree: this test's contract is that every
+    /// line of the deletion dialog Apple requires - the title, the billed-by-Apple warning, the
+    /// typed confirmation step - is legibly on the screen the climber lands on, not merely
+    /// published by it.
     @Test("DELETE ACCOUNT on the hosted paywall opens Ascend's deletion dialog", .bug(id: 558))
     func theHostedControlOpensTheDeletionDialog() async throws {
-        try await withAccessibilityAutomation {
-            let harness = GateHarness()
-            let controller = UIHostingController(
-                rootView: harness.view
-                    .modelContainer(for: AscendLocalStore.models, inMemory: true)
-            )
-            controller.overrideUserInterfaceStyle = .dark
+        let harness = GateHarness()
+        let controller = UIHostingController(
+            rootView: harness.view
+                .modelContainer(for: AscendLocalStore.models, inMemory: true)
+        )
+        controller.overrideUserInterfaceStyle = .dark
 
-            try await withHostedWindow(controller) { window in
+        try await withAnimationsDisabled {
+            try await RenderedScreen.host(controller, settle: .turns(1)) { screen in
                 #expect(
                     await settles { harness.isHostedPaywallPresented },
                     "The gate never registered the hosted paywall"
                 )
                 harness.markHostedPaywallShown()
-                try await settle(window)
+                try await screen.settle()
 
-                let paywall = try await capture(window, named: "delete-account-01-hosted-paywall")
+                let paywallText = try await screen.recognizedText(scale: 3)
+                try screen.photograph(named: "delete-account-01-hosted-paywall")
 
                 // The tap, through the same activation VoiceOver uses.
                 try activateAccessibilityElement(labelled: "DELETE ACCOUNT", in: controller.view)
@@ -56,13 +60,12 @@ struct PaywallDeleteAccountFromHostedPaywallEvidenceTests {
                     await settles { controller.presentedViewController != nil },
                     "The deletion dialog never opened"
                 )
-                try await settle(window)
+                try await screen.settle()
 
-                let dialog = try await capture(window, named: "delete-account-02-deletion-dialog")
+                let dialogText = try await screen.recognizedText(scale: 3)
+                try screen.photograph(named: "delete-account-02-deletion-dialog")
 
-                let paywallText = try await recognizedText(in: paywall)
                 #expect(paywallText.contains("delete account"))
-                let dialogText = try await recognizedText(in: dialog)
                 #expect(dialogText.contains("delete account"))
                 #expect(dialogText.contains("permanently delete your account"))
                 // Apple's own requirement, still on the screen this route reaches.
@@ -86,13 +89,11 @@ struct PaywallDeleteAccountFromHostedPaywallEvidenceTests {
                     "Cancelling the deletion never reopened the hosted paywall"
                 )
                 harness.markHostedPaywallShown()
-                try await settle(window)
+                try await screen.settle()
 
-                let reopened = try await capture(
-                    window,
-                    named: "delete-account-03-paywall-reopened-after-cancel"
-                )
-                #expect(try await recognizedText(in: reopened).contains("delete account"))
+                let reopenedText = try await screen.recognizedText(scale: 3)
+                try screen.photograph(named: "delete-account-03-paywall-reopened-after-cancel")
+                #expect(reopenedText.contains("delete account"))
                 #expect(harness.hostedPresentationSources.last == "account_deletion_dismissed")
             }
         }
@@ -101,27 +102,31 @@ struct PaywallDeleteAccountFromHostedPaywallEvidenceTests {
     /// The one sheet that could have deferred the deletion dialog is the soft update nudge, which
     /// shares the root's modifier level (#429). It yields: a climber asking to delete their account
     /// outranks a recommended update, and the gate has already given up its paywall to ask.
+    ///
+    /// Which sheet is on the screen is a fact the accessibility tree answers, so this reads
+    /// `screen.copy()`.
     @Test("A live update nudge yields so the deletion dialog still opens", .bug(id: 558))
     func theSoftNudgeYieldsToTheDeletionDialog() async throws {
-        try await withAccessibilityAutomation {
-            let harness = GateHarness(updatePresentation: .recommended)
-            let controller = UIHostingController(
-                rootView: harness.view
-                    .modelContainer(for: AscendLocalStore.models, inMemory: true)
-            )
-            controller.overrideUserInterfaceStyle = .dark
+        let harness = GateHarness(updatePresentation: .recommended)
+        let controller = UIHostingController(
+            rootView: harness.view
+                .modelContainer(for: AscendLocalStore.models, inMemory: true)
+        )
+        controller.overrideUserInterfaceStyle = .dark
 
-            try await withHostedWindow(controller) { window in
+        try await withAnimationsDisabled {
+            try await RenderedScreen.host(controller, settle: .turns(1)) { screen in
                 #expect(await settles { harness.isHostedPaywallPresented })
                 harness.markHostedPaywallShown()
                 #expect(
                     await settles { controller.presentedViewController != nil },
                     "The recommendation never opened its nudge sheet"
                 )
-                try await settle(window)
+                try await screen.settle()
 
-                let nudge = try await capture(window, named: "delete-account-04-nudge-over-gate")
-                #expect(try await recognizedText(in: nudge).contains("newer version is ready"))
+                let nudgeText = try await screen.copy { $0.contains("newer version is ready") }
+                try screen.photograph(named: "delete-account-04-nudge-over-gate")
+                #expect(nudgeText.contains("newer version is ready"))
 
                 try activateAccessibilityElement(labelled: "DELETE ACCOUNT", in: controller.view)
 
@@ -133,13 +138,10 @@ struct PaywallDeleteAccountFromHostedPaywallEvidenceTests {
                     await settles { harness.isDeletionDialogPresented },
                     "The deletion dialog never replaced the nudge"
                 )
-                try await settle(window)
+                try await screen.settle()
 
-                let dialog = try await capture(
-                    window,
-                    named: "delete-account-05-deletion-dialog-after-nudge-yield"
-                )
-                let text = try await recognizedText(in: dialog)
+                let text = try await screen.copy { $0.contains("permanently delete your account") }
+                try screen.photograph(named: "delete-account-05-deletion-dialog-after-nudge-yield")
                 #expect(text.contains("permanently delete your account"))
                 #expect(
                     !text.contains("newer version is ready"),
@@ -163,73 +165,14 @@ struct PaywallDeleteAccountFromHostedPaywallEvidenceTests {
         }
     }
 
-    private func withHostedWindow(
-        _ controller: UIViewController,
-        perform body: (UIWindow) async throws -> Void
-    ) async throws {
-        let windowScene = try #require(
-            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-        )
-        let window = UIWindow(windowScene: windowScene)
-        window.frame = CGRect(origin: .zero, size: Self.iPhone16ProSize)
-        window.overrideUserInterfaceStyle = .dark
-        window.backgroundColor = .black
-        window.rootViewController = controller
-
+    /// Sheets present and dismiss without animating, so a poll above measures the outcome
+    /// rather than the transition's timing on a busy host.
+    private func withAnimationsDisabled(_ body: () async throws -> Void) async throws {
         let animationsWereEnabled = UIView.areAnimationsEnabled
         UIView.setAnimationsEnabled(false)
-        defer {
-            UIView.setAnimationsEnabled(animationsWereEnabled)
-            window.isHidden = true
-            window.rootViewController = nil
-            window.windowScene = nil
-        }
+        defer { UIView.setAnimationsEnabled(animationsWereEnabled) }
 
-        window.makeKeyAndVisible()
-        controller.view.setNeedsLayout()
-        controller.view.layoutIfNeeded()
-
-        try await body(window)
-    }
-
-    private func settle(_ window: UIWindow, turns: Int = 8) async throws {
-        for _ in 0..<turns {
-            window.setNeedsLayout()
-            window.layoutIfNeeded()
-            try await Task.sleep(for: .milliseconds(30))
-        }
-    }
-
-    @discardableResult
-    private func capture(_ window: UIWindow, named name: String) async throws -> UIImage {
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.scale = 3
-        let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
-            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-        }
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: "\(name).png")
-        try png.write(to: url)
-
-        #expect(png.count > 5_000)
-        print("ASCEND_EVIDENCE_FILE: \(url.path())")
-        return image
-    }
-
-    /// Lowercased, so a caller reads copy rather than casing.
-    private func recognizedText(in image: UIImage) async throws -> String {
-        let cgImage = try #require(image.cgImage, "UIImage had no CGImage")
-        var request = RecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-
-        return try await request.perform(on: cgImage)
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: " ")
-            .lowercased()
+        try await body()
     }
 }
 

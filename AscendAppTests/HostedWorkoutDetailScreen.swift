@@ -9,9 +9,10 @@ import UIKit
 /// Hosts the shipping `WorkoutDetailView` in the test host app's live window scene.
 ///
 /// A detached window has no display link, so SwiftUI never runs its update loop in one and every
-/// measurement taken there reads as free. Both the scroll-cost drive and the pixel-level
-/// visibility proofs need the real scene, so the mounting - and its load-bearing teardown order -
-/// lives here once rather than in each suite.
+/// measurement taken there reads as free. The scroll-cost drive needs the real scene and a
+/// synchronous run-loop settle that `RenderedScreen` deliberately does not offer, so this mounting -
+/// and its load-bearing teardown order - stays beside it. It captures nothing: a screen read as
+/// facts goes through `RenderedScreen`.
 @MainActor
 struct HostedWorkoutDetailScreen {
     let window: UIWindow
@@ -46,24 +47,37 @@ struct HostedWorkoutDetailScreen {
         // Detaching from the scene is what dismantles the content. Hiding is not enough: a window
         // still attached keeps `WorkoutDetailView`'s `@Query` observing SwiftData after this test's
         // container has gone quiet, and that observer then traps on the next save any other suite
-        // performs, taking the whole test process down.
-        defer {
+        // performs, taking the whole test process down. The dismantling also needs a beat of the
+        // run loop before the next save, or that observer hangs the save instead
+        // (`RenderedScreen.dismantle` has the measurement).
+        func dismantle() async {
             window.isHidden = true
             previousKeyWindow?.makeKey()
             window.rootViewController = nil
             window.windowScene = nil
+            for _ in 0..<2 {
+                await Task.yield()
+                try? await Task.sleep(for: .milliseconds(20))
+            }
         }
 
         settle(window, for: settleDuration)
 
-        let scrollView = try #require(
-            firstScrollView(in: window),
-            "The no-photo Workout Detail layout should render a ScrollView"
-        )
-
-        return try await body(
-            HostedWorkoutDetailScreen(window: window, scrollView: scrollView)
-        )
+        let result: Value
+        do {
+            let scrollView = try #require(
+                firstScrollView(in: window),
+                "The no-photo Workout Detail layout should render a ScrollView"
+            )
+            result = try await body(
+                HostedWorkoutDetailScreen(window: window, scrollView: scrollView)
+            )
+        } catch {
+            await dismantle()
+            throw error
+        }
+        await dismantle()
+        return result
     }
 
     /// Runs the render loop far enough that SwiftUI has applied the invalidations the last change
@@ -102,16 +116,6 @@ struct HostedWorkoutDetailScreen {
         }
 
         return offsets
-    }
-
-    func screenshot() -> UIImage {
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 3
-        return UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { context in
-            if window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) == false {
-                window.layer.render(in: context.cgContext)
-            }
-        }
     }
 
     /// `WorkoutDetailView` carries a `@Query`, and SwiftUI keeps observing SwiftData for a beat

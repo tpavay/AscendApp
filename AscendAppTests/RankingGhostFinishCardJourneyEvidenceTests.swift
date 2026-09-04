@@ -3,7 +3,6 @@ import SwiftData
 import SwiftUI
 import Testing
 import UIKit
-import Vision
 @testable import AscendApp
 
 /// End-to-end visual evidence for the ranking-and-ghost finish card: the whole
@@ -17,8 +16,9 @@ import Vision
 /// `FrozenCompletionRankStore`. The two cases differ only in the field size the
 /// server froze, which is exactly what the governing rule turns on.
 ///
-/// PNGs land in `ASCEND_EVIDENCE_DIR` when set, the test host's temp dir
-/// otherwise; the path is logged either way.
+/// The copy is read back off the accessibility tree of the hosted screen
+/// (`RenderedScreen`); PNGs land in `ASCEND_EVIDENCE_DIR` when set and are not
+/// taken otherwise.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct RankingGhostFinishCardJourneyEvidenceTests {
@@ -68,7 +68,7 @@ struct RankingGhostFinishCardJourneyEvidenceTests {
         let text = try await finishCard(
             frozenRank: 1,
             frozenFieldSize: 1,
-            named: "finish-card-journey-solo-slower-repeat.png"
+            named: "finish-card-journey-solo-slower-repeat"
         )
 
         // The hero: the ordinal, over the climber's own field.
@@ -97,7 +97,7 @@ struct RankingGhostFinishCardJourneyEvidenceTests {
         let text = try await finishCard(
             frozenRank: 2,
             frozenFieldSize: 4,
-            named: "finish-card-journey-rival-repeat.png"
+            named: "finish-card-journey-rival-repeat"
         )
 
         // The hero is the leaderboard standing over the real field.
@@ -112,8 +112,8 @@ struct RankingGhostFinishCardJourneyEvidenceTests {
     // MARK: - Building the surface
 
     /// Seeds the climber's five completions of the tower, freezes one server
-    /// standing for the run being placed, renders the shipping summary, and
-    /// returns the copy read back off the pixels.
+    /// standing for the run being placed, hosts the shipping summary, and
+    /// returns the copy read back off its accessibility tree.
     private func finishCard(
         frozenRank: Int,
         frozenFieldSize: Int,
@@ -200,7 +200,7 @@ struct RankingGhostFinishCardJourneyEvidenceTests {
             contextKey: leaderboardContext.contextKey
         )
 
-        let image = try await hostAndCapture(
+        return try await hostedCopy(
             LiveClimbCompletionSummaryView(
                 climb: Self.stPeters,
                 workout: workout,
@@ -212,11 +212,9 @@ struct RankingGhostFinishCardJourneyEvidenceTests {
                 onDone: { _ in }
             )
             .modelContainer(container),
-            settleSeconds: 0.6
+            settleSeconds: 0.6,
+            photographedAs: name
         )
-
-        try writeEvidence(image: image, named: name)
-        return try await recognizedText(in: image)
     }
 
     private static let metadataJSON = """
@@ -247,79 +245,35 @@ struct RankingGhostFinishCardJourneyEvidenceTests {
         configurations: ModelConfiguration(isStoredInMemoryOnly: true)
     )
 
-    // MARK: - Capture
+    // MARK: - Reading the hosted screen back
 
-    private func hostAndCapture(_ view: some View, settleSeconds: Double) async throws -> UIImage {
-        let bounds = CGRect(x: 0, y: 0, width: 402, height: 874)
-        let scene = try #require(
-            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first,
-            "The test host app must have a window scene to render into"
-        )
-        let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
-        let window = UIWindow(windowScene: scene)
-        window.frame = bounds
-
-        defer {
-            window.isHidden = true
-            previousKeyWindow?.makeKey()
-            window.rootViewController = nil
-            window.windowScene = nil
-        }
-
+    /// Hosts the summary in a real window so its `.task` runs, waits for UIKit to finish the
+    /// appearance transition (a guessed interval is what flakes on a loaded runner), lets the
+    /// placing resolve, and reads the copy off the tree. Photographed only when
+    /// `ASCEND_EVIDENCE_DIR` is set.
+    private func hostedCopy(
+        _ view: some View,
+        settleSeconds: Double,
+        photographedAs name: String
+    ) async throws -> String {
         let host = JourneyAppearanceTrackingHostingController(
             rootView: AnyView(view.environment(\.colorScheme, .dark))
         )
-        host.view.frame = bounds
-        window.rootViewController = host
-        window.makeKeyAndVisible()
-        host.view.setNeedsLayout()
-        host.view.layoutIfNeeded()
 
-        try await waitUntilAppeared(host)
+        return try await RenderedScreen.host(
+            host,
+            settle: .until(turns: 12_000, interval: .milliseconds(5)) { _ in host.hasAppeared }
+        ) { screen in
+            #expect(host.hasAppeared, "The hosted summary never finished its appearance transition")
 
-        if settleSeconds > 0 {
-            try await Task.sleep(for: .seconds(settleSeconds))
+            if settleSeconds > 0 {
+                try await Task.sleep(for: .seconds(settleSeconds))
+            }
+
+            let text = try await screen.copy { $0.contains("2nd") }
+            try screen.photograph(named: name)
+            return text
         }
-
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 3
-        return UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in
-            window.drawHierarchy(in: bounds, afterScreenUpdates: true)
-        }
-    }
-
-    private func waitUntilAppeared(_ host: JourneyAppearanceTrackingHostingController) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(60))
-        while host.hasAppeared == false, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(5))
-        }
-
-        #expect(host.hasAppeared, "The hosted summary never finished its appearance transition")
-    }
-
-    // MARK: - Reading the rendered pixels back
-
-    private func recognizedText(in image: UIImage) async throws -> String {
-        let cgImage = try #require(image.cgImage, "UIImage had no CGImage")
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-
-        try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
-
-        return (request.results ?? [])
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: " ")
-            .lowercased()
-    }
-
-    private func writeEvidence(image: UIImage, named name: String) throws {
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: name)
-        try png.write(to: url)
-        print("Rendered ranking-ghost evidence: \(url.path())")
     }
 }
 

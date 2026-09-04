@@ -3,12 +3,11 @@ import Foundation
 import SwiftData
 import SwiftUI
 import Testing
-import UIKit
 @testable import AscendApp
 
 /// Renders the heart-rate surfaces a signed-in user actually sees on a clean device after the
 /// durable sidecar round trip, so the restore behaviour can be reviewed visually rather than only
-/// through assertions. Writes PNGs to `ASCEND_EVIDENCE_DIR` when set.
+/// through assertions. Writes PNGs to `ASCEND_EVIDENCE_DIR` when set, and renders nothing otherwise.
 @MainActor
 struct WorkoutHeartRateRestoreEvidenceTests {
     @Test
@@ -244,6 +243,7 @@ struct WorkoutHeartRateRestoreEvidenceTests {
         return ModelContext(container)
     }
 
+    /// The captioned surface, photographed at 3x only when `ASCEND_EVIDENCE_DIR` is set.
     private static func render(
         name: String,
         caption: String,
@@ -260,34 +260,7 @@ struct WorkoutHeartRateRestoreEvidenceTests {
         .background(Color.black)
         .environment(\.colorScheme, .dark)
 
-        let renderer = ImageRenderer(content: framed)
-        renderer.scale = 3
-
-        guard let image = renderer.uiImage, let data = image.pngData() else {
-            Issue.record("ImageRenderer produced no output for \(name)")
-            return
-        }
-
-        let candidates = [
-            ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"],
-            NSTemporaryDirectory().appending("ascend-hr-restore-evidence")
-        ].compactMap { $0 }
-
-        for directory in candidates {
-            let url = URL(filePath: directory).appending(path: "\(name).png")
-            do {
-                try FileManager.default.createDirectory(
-                    at: URL(filePath: directory),
-                    withIntermediateDirectories: true
-                )
-                try data.write(to: url)
-                print("ASCEND_EVIDENCE_PNG \(url.path)")
-                return
-            } catch {
-                continue
-            }
-        }
-        Issue.record("No writable evidence directory for \(name)")
+        try RenderedScreen.photograph(framed, named: name)
     }
 }
 
