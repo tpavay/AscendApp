@@ -18,6 +18,7 @@ struct AppAccessPaywallPlaceholderSnapshotTests {
     @Test
     func evidenceCoversEveryRealGatePhaseAcrossAppearanceDeviceAndTextVariants() async throws {
         #expect(gateScenarios.map(\.phase) == AppAccessGatePhase.allCases)
+        #expect(assertedSurfaces.map(\.id) == ["compact-dark", "accessibility-dark"])
 
         let surfaces = RenderedScreen.isPhotographing ? evidenceSurfaces : assertedSurfaces
         for surface in surfaces {

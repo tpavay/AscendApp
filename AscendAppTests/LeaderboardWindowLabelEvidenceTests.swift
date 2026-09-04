@@ -31,7 +31,7 @@ struct LeaderboardWindowLabelEvidenceTests {
         #expect(period.windowLabel.contains("-"))
 
         try await hostAndPhotograph(
-            leaderboard(initialTimeFrame: .weekly),
+            try leaderboard(initialTimeFrame: .weekly),
             showing: period.windowLabel,
             named: "leaderboard-window-label-weekly",
             height: 620
@@ -46,7 +46,7 @@ struct LeaderboardWindowLabelEvidenceTests {
         #expect(period.windowSubject == period.windowLabel)
 
         try await hostAndPhotograph(
-            leaderboard(initialTimeFrame: .monthly),
+            try leaderboard(initialTimeFrame: .monthly),
             showing: period.windowLabel,
             named: "leaderboard-window-label-monthly-empty",
             height: 620
@@ -64,7 +64,7 @@ struct LeaderboardWindowLabelEvidenceTests {
         #expect(period.windowLabel.contains(String(year)))
 
         try await hostAndPhotograph(
-            leaderboard(initialTimeFrame: .yearly),
+            try leaderboard(initialTimeFrame: .yearly),
             showing: period.windowLabel,
             named: "leaderboard-window-label-yearly",
             height: 620
@@ -91,14 +91,14 @@ struct LeaderboardWindowLabelEvidenceTests {
     /// Hosts the shipping board in a real window so the scroll content lays out, proves the
     /// window label reached the screen, and photographs it when this run keeps photographs.
     private func hostAndPhotograph<Content: View>(
-        _ view: @autoclosure () throws -> Content,
+        _ view: Content,
         showing windowLabel: String,
         named name: String,
         height: CGFloat
     ) async throws {
         let size = CGSize(width: 390, height: height)
         try await RenderedScreen.host(
-            try view()
+            view
                 .frame(width: size.width, height: size.height, alignment: .top)
                 .background(Color.black)
                 .environment(\.colorScheme, .dark),

@@ -29,12 +29,15 @@
 # them, OCR only for legibility, and the 3x photograph only when
 # `ASCEND_EVIDENCE_DIR` is set. Isolated per suite, the heaviest render suite
 # is now ~1,100 MB (the Sentry mask proof, which still photographs by design)
-# and the median ~640. The whole remainder in one host - 1,994 tests, every
-# suite but the movie export - peaked at 2,090 MB in parallel and
-# 1,708-2,109 MB across three serial runs, against 2,929 MB parallel before the helper and a
-# run that never finished at all. So the plan is two passes: the movie host,
-# and everything else. Each pass beyond that is ~2 minutes of host launch
-# bought for no memory the runner needs.
+# and the median ~640. The whole remainder in one serial host - 1,995 tests,
+# every suite but the movie export, all passed - took 291 s and peaked at
+# 2,041 MB, measured 2026-09-04 at 9d2cbcb5 with the same sampler, against
+# 2,929 MB parallel before the helper and a run that never finished at all
+# (the 2,090 MB parallel and 1,708-2,109 MB serial peaks of 2026-09-03 were
+# taken before nine hosted screens were restored to the paywall gate and the
+# leaderboard window-label suites). So the plan is two passes: the movie
+# host, and everything else. Each pass beyond that is ~2 minutes of host
+# launch bought for no memory the runner needs.
 #
 # The one suite that still gets its own host is
 # `ShareComposerBackgroundFillEvidenceTests` (2,200-2,350 MB): three of its

@@ -98,7 +98,9 @@ export function namedSuites() {
  * movie host that is because its tests each hold most of the runner and Swift
  * Testing would start them at once. For the remainder it is a measurement,
  * not a guess: the whole remainder in one host on 2026-09-03 took 377 s
- * parallel and 378 s serial and peaked at 2,090 MB against 2,109 MB, because
+ * parallel and 378 s serial and peaked at 2,090 MB against 2,109 MB (measured
+ * before nine hosted screens were restored; re-measured serial on 2026-09-04
+ * at 9d2cbcb5 it took 291 s and peaked at 2,041 MB over 1,995 tests), because
  * every hosting suite already serialises on the `.hostsAWindow` gate and the
  * logic suites are milliseconds each - so parallelism bought nothing, and
  * what it cost was real: a hosted test's reported duration was mostly its
