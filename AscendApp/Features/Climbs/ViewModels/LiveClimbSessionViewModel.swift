@@ -406,9 +406,9 @@ final class LiveClimbSessionViewModel {
     /// Where this climber's previous best on this climb had reached at this
     /// moment, in steps, or nil when they have never finished it.
     ///
-    /// The board withdrew that completion from the standings, so this is all that
-    /// is left of it: a position for the `BEST` marker. It is never ranked, never
-    /// counted in the field size, and never accompanied by a number.
+    /// The board ranks nothing off that completion, so inside the live row this
+    /// is all there is of it: a position for the `BEST` marker. It is never
+    /// ranked, never counted in the field size, and never accompanied by a number.
     var previousBestStepsAtBucket: Int? {
         leaderboardWindow?.previousBestStepsAtBucket(
             currentElapsedSeconds: Int(displayedDuration.rounded(.down))

@@ -862,16 +862,14 @@ function touchedReplayPayloads(
 }
 
 /**
- * Whether a context races one row per climber rather than one per attempt.
+ * Whether a context's frozen standing counts climbers rather than attempts.
  *
- * Per-climb and per-routine-template contexts collapse repeats. A per-climb
- * board reaches the same step target every time, so the fastest attempt is
- * genuinely that climber's best; a routine board fixes the clock, so the
- * highest-steps attempt is theirs. An open Just Climb session has no target and
- * publishes on any stop with steps, so its shortest attempt is the one the
- * climber quit earliest: their weakest curve, not their best. Contexts outside
- * the allowlist carry no flag at all, so nothing can filter them into a wrong
- * winner.
+ * That is all it decides now. Every context type carries `isBestForUser` and
+ * every live-race read filters on it (settled by the captain on 2026-09-02),
+ * so this predicate gates neither `seedBestForUser` nor
+ * `reconcileUserBestEntries`; it shapes `readCompletionField` and
+ * `ownLeadingFinisherCount` only. Widening it changes write-once
+ * `completionSnapshots` arithmetic, which is a separate decision.
  * @param {LiveReplayIndexPayload} payload Replay payload.
  * @return {boolean} True when the context collapses repeat finishers.
  */

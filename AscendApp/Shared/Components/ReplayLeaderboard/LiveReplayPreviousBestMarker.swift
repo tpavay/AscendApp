@@ -6,10 +6,11 @@ import SwiftUI
 /// `ghost-marker-line-geometry` and `marker-label-fade-and-ordinal-accent`. Four
 /// properties are the design, not styling:
 ///
-/// - **It is not a row.** No rank cell, not tappable, never counted in the rank
-///   or the field size. The withdrawal happens upstream, in
-///   `LiveReplayLeaderboardWindow.opponentRows`; by the time the board renders,
-///   the previous best exists only as this position.
+/// - **It is not a leaderboard row.** No rank cell, not tappable, never counted
+///   in the rank or the field size. The completion it stands for is still on the
+///   board as the viewer's ghost row (`LiveReplayLeaderboardRow.isViewerGhost`),
+///   which the rank column skips; inside the live row it exists only as this
+///   position.
 /// - **It is a single line, never a two-sided box.** The progress fill passes one
 ///   edge cleanly instead of straddling a box through an ambiguous half-passed
 ///   state. The line sits to the *left* of the word, which reads in vertical
