@@ -11,9 +11,18 @@ struct LiveReplayPersonalPlacing: Equatable, Sendable {
     let placing: Int
     let total: Int
 
-    /// A climber standing on a board they have never finished. Their first run
-    /// is first of one by construction, and no read is needed to know it.
-    static let firstClimb = LiveReplayPersonalPlacing(placing: 1, total: 1)
+    /// Places the run on the machine among the climber's published attempts
+    /// here, or nil where they have none. First of one cannot fall, so it is
+    /// not a result - the rule that keeps `1ST OF 1 CLIMBER` off every board -
+    /// and a first run states nothing rather than a hollow ordinal.
+    static func counted(publishedAttempts: Int, ahead: Int) -> LiveReplayPersonalPlacing? {
+        guard publishedAttempts > 0 else { return nil }
+
+        return LiveReplayPersonalPlacing(
+            placing: max(ahead, 0) + 1,
+            total: publishedAttempts + 1
+        )
+    }
 
     /// The population this placing counted, always named beside the number.
     var fieldLabel: String {

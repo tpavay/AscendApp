@@ -43,6 +43,12 @@ import {realpathSync} from "node:fs";
 import {fileURLToPath} from "node:url";
 import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
+import {
+  createBatchWriter,
+  createProgressReporter,
+  listDocumentsAcross,
+  withRetry,
+} from "./lib/firestore-bulk.mjs";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
@@ -64,8 +70,6 @@ const SPLIT_BUCKETS_COLLECTION = "splitBuckets";
 const ENTRIES_COLLECTION = "entries";
 const BUCKET_ZERO_DOC_ID = "0";
 export const MAX_REPLAY_SPLIT_CHECKPOINTS = 360;
-const FIRESTORE_NOT_FOUND_CODE = 5;
-const BULK_WRITER_MAX_ATTEMPTS = 3;
 const PROJECT_ALIASES = new Map([
   ["dev", DEV_PROJECT_ID],
   ["staging", STAGING_PROJECT_ID],
@@ -106,9 +110,9 @@ async function main() {
       `Attempts demoted: ${result.attemptsDemoted}`,
       `Attempts with unknown bucket span: ${result.attemptsWithUnknownSpan}`,
       `Entry writes expected to land (estimate): ${result.entryWritesExpected}`,
-      `Entry writes attempted (upper bound): ${result.entryWritesPlanned}`,
-      `Entry writes applied: ${result.entryWritesApplied}`,
-      `Entry writes skipped (bucket absent): ${result.entryWritesSkipped}`,
+      `Buckets swept (upper bound): ${result.entryWritesPlanned}`,
+      `${args.dryRun ? "Entry writes that would be applied" : "Entry writes applied"}: ${result.entryWritesApplied}`,
+      `Buckets skipped (entry absent): ${result.entryWritesSkipped}`,
       `Entry writes failed: ${result.entryWritesFailed}`,
       `Attempts unreadable: ${result.attemptsSkipped}`,
     ].join("\n")
@@ -253,12 +257,12 @@ async function backfillBestPerUserFlags(firestore, options) {
 
   const leaderboardRefs = options.contextKey ?
     [firestore.collection(LIVE_REPLAY_COLLECTION).doc(options.contextKey)] :
-    (await firestore.collection(LIVE_REPLAY_COLLECTION).get()).docs.map(
-      (doc) => doc.ref
-    );
+    await listDocumentsAcross([firestore.collection(LIVE_REPLAY_COLLECTION)]);
 
   for (const leaderboardRef of leaderboardRefs) {
-    const summarySnapshot = await leaderboardRef.get();
+    const summarySnapshot = await withRetry(() => leaderboardRef.get(), {
+      description: `read of ${leaderboardRef.path}`,
+    });
     if (!summarySnapshot.exists) {
       continue;
     }
@@ -319,11 +323,13 @@ async function backfillContext(
   counters,
   contextType
 ) {
-  const entriesSnapshot = await leaderboardRef
+  const bucketZeroEntries = leaderboardRef
     .collection(SPLIT_BUCKETS_COLLECTION)
     .doc(BUCKET_ZERO_DOC_ID)
-    .collection(ENTRIES_COLLECTION)
-    .get();
+    .collection(ENTRIES_COLLECTION);
+  const entriesSnapshot = await withRetry(() => bucketZeroEntries.get(), {
+    description: `read of ${bucketZeroEntries.path}`,
+  });
   const attemptsByUserId = new Map();
 
   for (const doc of entriesSnapshot.docs) {
@@ -364,6 +370,13 @@ async function backfillContext(
 
 /**
  * Writes flag updates across every bucket each attempt published into.
+ *
+ * The buckets an attempt actually occupies are listed first and only those are
+ * written, because the writes go through `db.batch()` commits and a batch is
+ * atomic: one `update()` against a bucket the attempt never published into
+ * would fail the whole commit with NOT_FOUND and drop every sibling write.
+ * Listing keeps absent buckets absent - never a flag-only row the counts would
+ * see - and makes a dry run report exactly what a write run will touch.
  * @param {FirebaseFirestore.Firestore} firestore Firestore instance.
  * @param {FirebaseFirestore.DocumentReference} leaderboardRef Context document.
  * @param {object[]} updates Attempt flag updates.
@@ -377,58 +390,113 @@ async function applyEntryUpdates(
   options,
   counters
 ) {
+  let bucketSpan = 0;
+
   for (const update of updates) {
     counters.entryWritesPlanned += update.splitBucketCount;
     counters.entryWritesExpected += update.estimatedEntryCount;
+    bucketSpan = Math.max(bucketSpan, update.splitBucketCount);
 
     if (!update.hasKnownBucketSpan) {
       counters.attemptsWithUnknownSpan += 1;
     }
   }
 
-  if (options.dryRun) {
+  if (updates.length === 0) {
     return;
   }
 
-  // BulkWriter rather than a batch: a batch is atomic, so one entry deleted
-  // mid-run would drop every other write with it.
-  const writer = firestore.bulkWriter();
-  writer.onWriteError((error) => {
-    if (error.code === FIRESTORE_NOT_FOUND_CODE) {
-      return false;
-    }
+  const existingEntryIds = await existingEntryIdsByBucket(
+    leaderboardRef,
+    bucketSpan
+  );
+  const plan = entryWritePlan(updates, existingEntryIds);
+  counters.entryWritesSkipped += plan.skipped;
 
-    return error.failedAttempts < BULK_WRITER_MAX_ATTEMPTS;
+  if (options.dryRun) {
+    counters.entryWritesApplied += plan.writes.length;
+    return;
+  }
+
+  const progress = createProgressReporter({
+    label: `flags ${leaderboardRef.id}`,
+    total: plan.writes.length,
+    unit: "entries",
   });
+  const writer = createBatchWriter(firestore, {progress});
+
+  for (const write of plan.writes) {
+    writer.update(
+      leaderboardRef
+        .collection(SPLIT_BUCKETS_COLLECTION)
+        .doc(String(write.bucketIndex))
+        .collection(ENTRIES_COLLECTION)
+        .doc(write.workoutId),
+      {isBestForUser: write.isBestForUser}
+    );
+  }
+
+  try {
+    await writer.drain();
+  } catch (error) {
+    counters.entryWritesFailed += plan.writes.length - progress.count();
+    counters.firstWriteError ??= String(error);
+  } finally {
+    counters.entryWritesApplied += progress.finish();
+  }
+}
+
+/**
+ * The entry document IDs present in each split bucket of one context.
+ * @param {FirebaseFirestore.DocumentReference} leaderboardRef Context document.
+ * @param {number} bucketSpan Buckets to list, from zero.
+ * @return {Promise<Map<number, Set<string>>>} Entry IDs keyed by bucket index.
+ */
+async function existingEntryIdsByBucket(leaderboardRef, bucketSpan) {
+  const collections = Array.from({length: bucketSpan}, (_unused, index) =>
+    leaderboardRef
+      .collection(SPLIT_BUCKETS_COLLECTION)
+      .doc(String(index))
+      .collection(ENTRIES_COLLECTION)
+  );
+  const existing = new Map();
+
+  for (const entryRef of await listDocumentsAcross(collections)) {
+    const bucketIndex = Number(entryRef.parent.parent.id);
+    const ids = existing.get(bucketIndex) ?? new Set();
+    ids.add(entryRef.id);
+    existing.set(bucketIndex, ids);
+  }
+
+  return existing;
+}
+
+/**
+ * Resolves attempt flag updates to the bucket entries that actually exist.
+ * @param {object[]} updates Attempt flag updates.
+ * @param {Map<number, Set<string>>} existingEntryIds Entry IDs keyed by bucket index.
+ * @return {{writes: object[], skipped: number}} Entry writes to commit, and
+ *   the swept buckets holding no entry for the attempt.
+ */
+export function entryWritePlan(updates, existingEntryIds) {
+  const writes = [];
+  let skipped = 0;
 
   for (const update of updates) {
     for (let index = 0; index < update.splitBucketCount; index += 1) {
-      const entryRef = leaderboardRef
-        .collection(SPLIT_BUCKETS_COLLECTION)
-        .doc(String(index))
-        .collection(ENTRIES_COLLECTION)
-        .doc(update.workoutId);
-
-      // update() rather than set(): a bucket this attempt never published into
-      // must stay absent, not appear as a flag-only row the counts would see.
-      writer
-        .update(entryRef, {isBestForUser: update.isBestForUser})
-        .then(() => {
-          counters.entryWritesApplied += 1;
-        })
-        .catch((error) => {
-          if (isNotFoundWriteError(error)) {
-            counters.entryWritesSkipped += 1;
-            return;
-          }
-
-          counters.entryWritesFailed += 1;
-          counters.firstWriteError ??= String(error);
+      if (existingEntryIds.get(index)?.has(update.workoutId)) {
+        writes.push({
+          bucketIndex: index,
+          workoutId: update.workoutId,
+          isBestForUser: update.isBestForUser,
         });
+      } else {
+        skipped += 1;
+      }
     }
   }
 
-  await writer.close();
+  return {writes, skipped};
 }
 
 /*
@@ -641,15 +709,4 @@ function positiveIntegerValue(value) {
   }
 
   return value;
-}
-
-/**
- * Skips writes to buckets an attempt never published into.
- * @param {unknown} error Rejected BulkWriter write error.
- * @return {boolean} Whether the write failed because the entry is absent.
- */
-function isNotFoundWriteError(error) {
-  return typeof error === "object" &&
-    error !== null &&
-    error.code === FIRESTORE_NOT_FOUND_CODE;
 }

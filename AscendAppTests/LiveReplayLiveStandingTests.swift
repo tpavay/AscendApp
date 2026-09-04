@@ -29,17 +29,30 @@ struct LiveReplayLiveStandingTests {
         #expect(standing.ownClimbs?.fieldLabel == "OF YOUR 2 CLIMBS")
     }
 
+    /// First of one cannot fall, so it is not a result - the same rule that
+    /// keeps `1ST OF 1 CLIMBER` off every board. A first run here states
+    /// nothing rather than a hollow ordinal, on the panel and the Lock Screen.
     @Test
-    func aFirstEverClimbOnAnEmptyBoardIsFirstOfOneOfTheirOwn() {
+    func aFirstEverClimbOnAnEmptyBoardStatesNoPlacingAtAll() {
+        #expect(LiveReplayPersonalPlacing.counted(publishedAttempts: 0, ahead: 0) == nil)
+
         let standing = LiveReplayLiveStanding.resolve(
             field: nil,
-            ownClimbs: .firstClimb,
+            ownClimbs: LiveReplayPersonalPlacing.counted(publishedAttempts: 0, ahead: 0),
             isSoleClimber: true
         )
 
         #expect(!standing.showsLeaderboardRank)
-        #expect(standing.ownClimbs?.ordinalText == 1.rankOrdinalText)
-        #expect(standing.ownClimbs?.fieldLabel == "OF YOUR 1 CLIMB")
+        #expect(standing.ownClimbs == nil)
+        #expect(standing.field == nil)
+    }
+
+    @Test
+    func aRepeatClimbIsPlacedAmongEveryRunIncludingItself() {
+        let placing = LiveReplayPersonalPlacing.counted(publishedAttempts: 4, ahead: 1)
+
+        #expect(placing == LiveReplayPersonalPlacing(placing: 2, total: 5))
+        #expect(placing?.fieldLabel == "OF YOUR 5 CLIMBS")
     }
 
     @Test
@@ -97,8 +110,8 @@ struct LiveReplayLiveStandingTests {
     }
 
     @Test
-    func aPlacingNamesItsFieldInTheSingularForOneClimb() {
-        #expect(LiveReplayPersonalPlacing(placing: 1, total: 1).fieldLabel == "OF YOUR 1 CLIMB")
+    func aPlacingNamesTheFieldItCounted() {
+        #expect(LiveReplayPersonalPlacing(placing: 2, total: 2).fieldLabel == "OF YOUR 2 CLIMBS")
         #expect(LiveReplayPersonalPlacing(placing: 3, total: 4).fieldLabel == "OF YOUR 4 CLIMBS")
     }
 
@@ -195,6 +208,26 @@ struct LiveReplayLiveStandingTests {
         #expect(state.standingSecondaryLabel == nil)
     }
 
+    /// A Live Activity started by the previous binary is still on the Lock
+    /// Screen when the app updates, and its stored state predates the own-climbs
+    /// field. A state that fails to decode is one `activities` omits and the
+    /// manager can never end, so the old shape has to keep reading.
+    @Test
+    func aLiveActivityStateWrittenBeforeOwnClimbsExistedStillDecodes() throws {
+        let legacy = Data("""
+        {"steps":497,"rank":2,"rankTotal":27,"durationSeconds":350,"progress":0.9,"status":"recording","updatedAt":787957195}
+        """.utf8)
+
+        let state = try JSONDecoder().decode(
+            LiveClimbActivityAttributes.ContentState.self,
+            from: legacy
+        )
+
+        #expect(state.ownClimbs == nil)
+        #expect(state.standingDetailLabel == "#2 of 27 climbers")
+        #expect(state.standingSecondaryLabel == nil)
+    }
+
     @Test
     func aLockScreenWithNothingMeasuredStatesNoOrdinalAtAll() {
         let state = activityState(rank: nil, rankTotal: 0, ownClimbs: nil)
@@ -221,8 +254,7 @@ struct LiveReplayLiveStandingTests {
             steps: 497,
             rank: rank,
             rankTotal: rankTotal,
-            ownClimbsPlacing: ownClimbs?.placing,
-            ownClimbsTotal: ownClimbs?.total ?? 0,
+            ownClimbs: ownClimbs.map { .init(placing: $0.placing, total: $0.total) },
             durationSeconds: 350,
             progress: 0.9,
             status: .recording,

@@ -1,13 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+import {fileURLToPath} from "node:url";
 
 import {
   MAX_REPLAY_SPLIT_CHECKPOINTS,
   bestAttemptWorkoutId,
   bestForUserFlagUpdates,
+  entryWritePlan,
   ranksOnSteps,
   userAttemptEntry,
 } from "../backfill-live-replay-best-per-user.mjs";
+
+const SCRIPT_SOURCE = readFileSync(
+  fileURLToPath(new URL("../backfill-live-replay-best-per-user.mjs", import.meta.url)),
+  "utf8"
+);
 
 // The runbook makes running this against production a release step, and the
 // flag it writes is what every live-race read filters on: a wrong winner is a
@@ -231,4 +239,65 @@ test("a row with no stored span sweeps every checkpoint and reports the span as 
   assert.equal(entry.splitBucketCount, MAX_REPLAY_SPLIT_CHECKPOINTS);
   assert.equal(entry.hasKnownBucketSpan, false);
   assert.equal(entry.estimatedEntryCount, 13);
+});
+
+// A legacy attempt sweeps every checkpoint because its span is unknown, and the
+// writes go through atomic batches: one update against a bucket the attempt
+// never reached would fail the whole commit. So the plan is cut to the entries
+// that exist, and an absent bucket is skipped rather than created or written.
+test("only buckets that hold the attempt are written, absent ones are skipped", () => {
+  const updates = [
+    {workoutId: "legacy", splitBucketCount: MAX_REPLAY_SPLIT_CHECKPOINTS, isBestForUser: true},
+    {workoutId: "spanned", splitBucketCount: 3, isBestForUser: false},
+  ];
+  const existing = new Map([
+    [0, new Set(["legacy", "spanned"])],
+    [1, new Set(["spanned"])],
+    [2, new Set(["spanned", "someone-else"])],
+    [7, new Set(["legacy"])],
+  ]);
+
+  const plan = entryWritePlan(updates, existing);
+
+  assert.deepEqual(plan.writes, [
+    {bucketIndex: 0, workoutId: "legacy", isBestForUser: true},
+    {bucketIndex: 7, workoutId: "legacy", isBestForUser: true},
+    {bucketIndex: 0, workoutId: "spanned", isBestForUser: false},
+    {bucketIndex: 1, workoutId: "spanned", isBestForUser: false},
+    {bucketIndex: 2, workoutId: "spanned", isBestForUser: false},
+  ]);
+  assert.equal(plan.skipped, MAX_REPLAY_SPLIT_CHECKPOINTS - 2);
+});
+
+test("a bucket that exists but holds nothing of the attempt is skipped too", () => {
+  const plan = entryWritePlan(
+    [{workoutId: "mine", splitBucketCount: 2, isBestForUser: true}],
+    new Map([[0, new Set(["mine"])], [1, new Set(["theirs"])]])
+  );
+
+  assert.deepEqual(plan.writes, [{bucketIndex: 0, workoutId: "mine", isBestForUser: true}]);
+  assert.equal(plan.skipped, 1);
+});
+
+// This is the release step firstmate runs by hand before an archive, and a
+// `BulkWriter.close()` that never settles is indistinguishable from a working
+// run. Every Firestore call has to carry a deadline, which only the shared bulk
+// module supplies.
+test("the backfill writes through the bounded bulk module, never BulkWriter", () => {
+  assert.ok(
+    SCRIPT_SOURCE.includes('from "./lib/firestore-bulk.mjs"'),
+    "the backfill no longer imports scripts/lib/firestore-bulk.mjs"
+  );
+  assert.ok(
+    !/bulkWriter\(/.test(SCRIPT_SOURCE),
+    "the backfill reached for db.bulkWriter() again"
+  );
+  assert.ok(
+    /createBatchWriter\(firestore, \{progress\}\)/.test(SCRIPT_SOURCE),
+    "the write phase does not commit through the worker-pool batch writer"
+  );
+  assert.ok(
+    !/await (leaderboardRef|bucketZeroEntries|firestore\.collection\([^)]*\))\.get\(\)/.test(SCRIPT_SOURCE),
+    "a read awaits Firestore without a deadline"
+  );
 });

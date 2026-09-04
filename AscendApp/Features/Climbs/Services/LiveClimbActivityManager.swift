@@ -141,8 +141,7 @@ final class LiveClimbActivityManager {
                 steps: $0.steps,
                 rank: $0.rank,
                 rankTotal: $0.rankTotal,
-                ownClimbsPlacing: $0.ownClimbsPlacing,
-                ownClimbsTotal: $0.ownClimbsTotal,
+                ownClimbs: $0.ownClimbs,
                 durationSeconds: $0.durationSeconds,
                 progress: $0.progress,
                 status: status,
@@ -183,8 +182,7 @@ final class LiveClimbActivityManager {
             steps: state.steps,
             rank: state.rank,
             rankTotal: state.rankTotal,
-            ownClimbsPlacing: state.ownClimbsPlacing,
-            ownClimbsTotal: state.ownClimbsTotal,
+            ownClimbs: state.ownClimbs,
             durationSeconds: state.durationSeconds,
             progress: state.progress,
             status: status,
@@ -209,8 +207,7 @@ final class LiveClimbActivityManager {
             steps: lastState.steps,
             rank: lastState.rank,
             rankTotal: lastState.rankTotal,
-            ownClimbsPlacing: lastState.ownClimbsPlacing,
-            ownClimbsTotal: lastState.ownClimbsTotal,
+            ownClimbs: lastState.ownClimbs,
             durationSeconds: lastState.durationSeconds,
             progress: lastState.progress,
             status: lastState.status,
@@ -229,8 +226,7 @@ final class LiveClimbActivityManager {
         if state.steps != lastState.steps ||
             state.rank != lastState.rank ||
             state.rankTotal != lastState.rankTotal ||
-            state.ownClimbsPlacing != lastState.ownClimbsPlacing ||
-            state.ownClimbsTotal != lastState.ownClimbsTotal ||
+            state.ownClimbs != lastState.ownClimbs ||
             state.status != lastState.status ||
             state.climbPhotoURLString != lastState.climbPhotoURLString {
             return true
@@ -258,8 +254,7 @@ final class LiveClimbActivityManager {
             steps: max(steps, 0),
             rank: rank,
             rankTotal: max(rankTotal, 0),
-            ownClimbsPlacing: ownClimbs?.placing,
-            ownClimbsTotal: ownClimbs?.total ?? 0,
+            ownClimbs: ownClimbs.map { .init(placing: $0.placing, total: $0.total) },
             durationSeconds: max(Int(duration.rounded(.down)), 0),
             progress: min(max(progress, 0), 1),
             status: status,

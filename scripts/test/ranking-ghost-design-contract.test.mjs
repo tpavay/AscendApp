@@ -491,3 +491,31 @@ test("the climber's own cached row is scoped to them and dropped with the sessio
     "nothing clears the climber's cached row when their session ends",
   );
 });
+
+test("a first climb on a board states no own-climbs placing", () => {
+  const standing = read(
+    "AscendApp/Shared/Services/LiveReplayLeaderboard/LiveReplayLiveStanding.swift",
+  );
+  const repository = read(
+    "AscendApp/Shared/Repositories/Firebase/" +
+      "FirestoreLiveReplayLeaderboardRepository.swift",
+  );
+
+  // First of one cannot fall, so it is not a result - the same rule that keeps
+  // `1ST OF 1 CLIMBER` off every board. The placing stays nil until the climber
+  // has a run here to be placed against, and a nil placing renders nothing.
+  assert.ok(
+    !standing.includes("firstClimb"),
+    "a first climb is spelled as a placing of one again",
+  );
+  assert.ok(
+    /static func counted\(publishedAttempts: Int, ahead: Int\) -> LiveReplayPersonalPlacing\? \{\s*\n\s*guard publishedAttempts > 0 else \{ return nil \}/.test(
+      standing,
+    ),
+    "a placing is counted for a climber with no published attempt here",
+  );
+  assert.ok(
+    /guard published > 0 else \{ return nil \}/.test(repository),
+    "the repository states a placing for a climber with no run on the board",
+  );
+});

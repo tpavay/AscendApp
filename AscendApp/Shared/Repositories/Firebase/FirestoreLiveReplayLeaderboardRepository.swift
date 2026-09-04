@@ -1489,16 +1489,17 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     /// on the board at all.
     ///
     /// The denominator is the session-cached count of their published attempts,
-    /// so a climber with no run here is first of one without a further read, and
-    /// a repeat climber pays the two ahead counts per tick and nothing else.
+    /// so a climber with no run here states no placing without a further read -
+    /// first of one cannot fall, so it is not a result - and a repeat climber
+    /// pays the two ahead counts per tick and nothing else.
     private func ownClimbPlacing(
         context: LiveReplayLeaderboardContext,
         userId: String,
         bucketIndex: Int,
         currentSteps: Int
-    ) async throws -> LiveReplayPersonalPlacing {
+    ) async throws -> LiveReplayPersonalPlacing? {
         let published = try await publishedAttemptCount(context: context, userId: userId)
-        guard published > 0 else { return .firstClimb }
+        guard published > 0 else { return nil }
 
         async let runningAhead = countOf(
             ownEntries(context: context, bucketIndex: bucketIndex, userId: userId)
@@ -1513,10 +1514,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
 
         let ahead = try await runningAhead + (try await finishedAhead)
 
-        return LiveReplayPersonalPlacing(
-            placing: ahead + 1,
-            total: published + 1
-        )
+        return .counted(publishedAttempts: published, ahead: ahead)
     }
 
     private func ownFinishedAheadCount(

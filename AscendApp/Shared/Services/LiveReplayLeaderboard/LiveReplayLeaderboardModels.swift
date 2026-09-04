@@ -496,21 +496,10 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     /// existing value - and a ghost's rank has to be absent rather than a number
     /// somebody could read as a placing.
     func settingRank(_ rank: Int?) -> LiveReplayLeaderboardRow {
-        LiveReplayLeaderboardRow(
-            id: id,
+        replacing(
             rank: rank,
-            unresolvedIdentity: unresolvedIdentity,
             stepsAtBucket: stepsAtBucket,
-            finalSteps: finalSteps,
             deltaFromUser: deltaFromUser,
-            isCurrentUser: isCurrentUser,
-            isLiveAttempt: isLiveAttempt,
-            isPersonalBest: isPersonalBest,
-            completionDurationSeconds: completionDurationSeconds,
-            userId: userId,
-            gender: gender,
-            age: age,
-            locationCity: locationCity,
             isTied: isTied
         )
     }
@@ -574,13 +563,29 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         deltaFromUser: Int? = nil,
         isTied: Bool? = nil
     ) -> LiveReplayLeaderboardRow {
+        replacing(
+            rank: rank ?? self.rank,
+            stepsAtBucket: stepsAtBucket ?? self.stepsAtBucket,
+            deltaFromUser: deltaFromUser ?? self.deltaFromUser,
+            isTied: isTied ?? self.isTied
+        )
+    }
+
+    /// The one place the row's fields are re-spelled: every copy-with-change
+    /// goes through here so a new field is added to a single initializer list.
+    private func replacing(
+        rank: Int?,
+        stepsAtBucket: Int,
+        deltaFromUser: Int,
+        isTied: Bool
+    ) -> LiveReplayLeaderboardRow {
         LiveReplayLeaderboardRow(
             id: id,
-            rank: rank ?? self.rank,
+            rank: rank,
             unresolvedIdentity: unresolvedIdentity,
-            stepsAtBucket: stepsAtBucket ?? self.stepsAtBucket,
+            stepsAtBucket: stepsAtBucket,
             finalSteps: finalSteps,
-            deltaFromUser: deltaFromUser ?? self.deltaFromUser,
+            deltaFromUser: deltaFromUser,
             isCurrentUser: isCurrentUser,
             isLiveAttempt: isLiveAttempt,
             isPersonalBest: isPersonalBest,
@@ -589,7 +594,7 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
             gender: gender,
             age: age,
             locationCity: locationCity,
-            isTied: isTied ?? self.isTied
+            isTied: isTied
         )
     }
 

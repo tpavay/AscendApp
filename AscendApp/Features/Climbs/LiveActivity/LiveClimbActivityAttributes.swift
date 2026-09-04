@@ -11,13 +11,23 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
         /// Where this run places among the climber's own climbs of this board.
         /// The only thing a solo board can substantiate, and what it states
         /// instead of an ordinal nothing measured.
-        var ownClimbsPlacing: Int?
-        var ownClimbsTotal: Int
+        ///
+        /// One optional pair rather than two fields: a Live Activity started by
+        /// an older binary is still on the Lock Screen when the app updates, and
+        /// a stored state missing this key has to decode as "nothing measured"
+        /// rather than fail - a state that cannot decode is one `activities`
+        /// omits and the manager can never end.
+        var ownClimbs: OwnClimbsPlacing?
         var durationSeconds: Int
         var progress: Double
         var status: LiveClimbActivityStatus
         var climbPhotoURLString: String?
         var updatedAt: Date
+
+        struct OwnClimbsPlacing: Codable, Hashable, Sendable {
+            var placing: Int
+            var total: Int
+        }
 
         var clampedProgress: Double {
             min(max(progress, 0), 1)
@@ -35,8 +45,8 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
                 return "#\(rank)"
             }
 
-            guard let ownClimbsPlacing else { return "--" }
-            return Self.ordinalText(ownClimbsPlacing)
+            guard let ownClimbs else { return "--" }
+            return Self.ordinalText(ownClimbs.placing)
         }
 
         /// The noun alone, never the count: this renders in the Dynamic Island's
@@ -49,11 +59,11 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
                 return "climbers"
             }
 
-            return ownClimbsPlacing == nil ? "rank" : "your climbs"
+            return ownClimbs == nil ? "rank" : "your climbs"
         }
 
         var standingTitle: String {
-            rank == nil && ownClimbsPlacing != nil ? "Your climbs" : "Rank"
+            rank == nil && ownClimbs != nil ? "Your climbs" : "Rank"
         }
 
         var compactStepsLabel: String {
@@ -102,10 +112,10 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
         }
 
         private var ownClimbsDetailLabel: String? {
-            guard let ownClimbsPlacing else { return nil }
+            guard let ownClimbs else { return nil }
 
-            let total = max(ownClimbsTotal, ownClimbsPlacing)
-            return "\(Self.ordinalText(ownClimbsPlacing)) of your \(Self.climbField(total))"
+            let total = max(ownClimbs.total, ownClimbs.placing)
+            return "\(Self.ordinalText(ownClimbs.placing)) of your \(Self.climbField(total))"
         }
 
         /// Spelled here rather than through the app's shared helper because the
