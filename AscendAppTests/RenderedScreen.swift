@@ -53,9 +53,8 @@ enum RenderedScreen {
         settle: Settle = .turns(12),
         _ body: @MainActor (HostedScreen) async throws -> Result
     ) async throws -> Result {
-        let controller = UIHostingController(rootView: view)
-        return try await host(
-            controller,
+        try await host(
+            HelperOwned(UIHostingController(rootView: view)),
             size: size,
             interfaceStyle: interfaceStyle,
             settle: settle,
@@ -71,6 +70,31 @@ enum RenderedScreen {
         settle: Settle = .turns(12),
         _ body: @MainActor (HostedScreen) async throws -> Result
     ) async throws -> Result {
+        // The caller's frame keeps this controller alive past the wait below, so there is nothing
+        // to wait for beyond the run-loop turns SwiftUI needs to let go of the window.
+        try await host(HelperOwned(controller, isOwnedByCaller: true), size: size, interfaceStyle: interfaceStyle, settle: settle, body)
+    }
+
+    /// A hosting controller and whether the helper is the only thing holding it. The strong
+    /// reference is dropped before `dismantle` waits, so a helper-made controller can actually
+    /// deallocate inside that wait - with the reference held in a parameter it never could, and
+    /// the wait measured nothing.
+    private final class HelperOwned {
+        var controller: UIViewController?
+        let isOwnedByCaller: Bool
+        init(_ controller: UIViewController, isOwnedByCaller: Bool = false) {
+            self.controller = controller
+            self.isOwnedByCaller = isOwnedByCaller
+        }
+    }
+
+    private static func host<Result>(
+        _ owned: HelperOwned,
+        size: CGSize,
+        interfaceStyle: UIUserInterfaceStyle,
+        settle: Settle,
+        _ body: @MainActor (HostedScreen) async throws -> Result
+    ) async throws -> Result {
         let bounds = CGRect(origin: .zero, size: size)
         // A window with no scene is never handed to the render server, and `drawHierarchy` then
         // captures an empty surface - so borrow the test host's own scene.
@@ -81,27 +105,40 @@ enum RenderedScreen {
         window.frame = bounds
         window.overrideUserInterfaceStyle = interfaceStyle
         window.backgroundColor = interfaceStyle == .light ? .white : .black
-        controller.overrideUserInterfaceStyle = interfaceStyle
-        controller.view.frame = bounds
-        window.rootViewController = controller
 
-        window.makeKeyAndVisible()
-        controller.view.setNeedsLayout()
-        controller.view.layoutIfNeeded()
-        window.layoutIfNeeded()
+        // The strong reference to the controller lives only inside `mount`, so that once `body`
+        // has returned and `owned` has let go, the dismantle wait below is waiting on the last
+        // reference the helper holds rather than on its own local.
+        weak var hosted: UIViewController?
+        func mount() async throws -> Result {
+            let controller = owned.controller!
+            hosted = controller
+            controller.overrideUserInterfaceStyle = interfaceStyle
+            controller.view.frame = bounds
+            window.rootViewController = controller
 
-        weak var hosted = controller
-        let result: Result
-        do {
-            result = try await withAccessibilityAutomation {
+            window.makeKeyAndVisible()
+            controller.view.setNeedsLayout()
+            controller.view.layoutIfNeeded()
+            window.layoutIfNeeded()
+
+            return try await withAccessibilityAutomation {
                 try await Self.settle(window, settle)
                 return try await body(HostedScreen(window: window, root: controller.view))
             }
+        }
+
+        let waitsForDeallocation = !owned.isOwnedByCaller
+        let result: Result
+        do {
+            result = try await mount()
         } catch {
-            await dismantle(window, waitingFor: hosted)
+            owned.controller = nil
+            await dismantle(window, waitingFor: waitsForDeallocation ? hosted : nil)
             throw error
         }
-        await dismantle(window, waitingFor: hosted)
+        owned.controller = nil
+        await dismantle(window, waitingFor: waitsForDeallocation ? hosted : nil)
         return result
     }
 
@@ -114,13 +151,21 @@ enum RenderedScreen {
     /// one-host runs of the whole suite wedged exactly there, ~250 suites in, with the host alive
     /// at 0% CPU: the silent-hang signature `iOS Verify (Staging)` shows. Two run-loop turns cost
     /// 40 ms a host and give the observer its beat.
-    private static func dismantle(_ window: UIWindow, waitingFor hosted: UIViewController?) async {
+    private static func dismantle(_ window: consuming UIWindow, waitingFor hosted: UIViewController?) async {
         window.isHidden = true
         window.rootViewController = nil
         window.windowScene = nil
+        // The window keeps a hand on the controller it just hosted until it is itself released,
+        // so it is let go here, before the wait, rather than when the caller's frame unwinds.
+        _ = consume window
         // Two turns at least; up to half a second for the hosting controller the helper built to
         // actually deallocate, which is when SwiftUI drops its `@Query` observers. A controller the
-        // caller built and still holds never deallocates here, so the wait is bounded.
+        // caller built and still holds cannot deallocate here (`hosted` is nil then), so the wait
+        // is bounded. A `@Query` that outlives this wait anyway is why every container a hosted
+        // screen reads comes from `RetainedModelContainer`.
+        // UIKit lets go of the controller on its own schedule after the window is gone - measured
+        // at the return of `host`, not inside this wait, so a controller still alive here is not a
+        // leak and is not reported as one.
         for turn in 0..<25 {
             await Task.yield()
             try? await Task.sleep(for: .milliseconds(20))
@@ -274,13 +319,60 @@ struct HostedScreen {
         reading budget: Int = 250,
         until isReady: ([OnScreenText]) -> Bool = { $0.isEmpty == false }
     ) async throws -> [OnScreenText] {
-        let elements = try await settledAccessibilityElements(under: window, reading: budget) { elements in
-            isReady(Self.onScreenTexts(from: elements, in: window.bounds))
+        // The tree and the pixels arrive on different schedules: a label is published the
+        // moment SwiftUI commits it and painted a beat later, and under a busy main actor that
+        // beat stretches. So a read that returned the first non-empty tree - the way the walk
+        // alone did - handed back a screen with its options mid-fade and dropped exactly the
+        // labels still animating in. Each read here walks the tree, captures once at 1x, and
+        // keeps only what is painted; the read is ready when the caller's predicate holds on
+        // the painted set AND every published text is painted, or when the painted set has
+        // stopped changing for a while - a label that stays unpainted is not arriving, and the
+        // caller's assertion is what should say so, at the cost of a short wait rather than
+        // the whole budget.
+        var remainingReads = max(1, budget)
+        var stableReads = 0
+        var lastPainted: [String] = []
+        var elements: [NSObject] = []
+        var published: [OnScreenText] = []
+        var painted: [OnScreenText] = []
+
+        while true {
+            elements = accessibilityElements(under: window)
+            published = Self.onScreenTexts(from: elements, in: window.bounds)
+            painted = try withPixels { pixels in published.filter { pixels.hasInk(in: $0.frame) } }
+            remainingReads -= 1
+
+            let names = painted.map(\.text)
+            stableReads = names == lastPainted ? stableReads + 1 : 0
+            lastPainted = names
+
+            let ready = isReady(painted)
+            if ready, painted.count == published.count { break }
+            if ready, stableReads >= Self.stableReadsBeforeAcceptingUnpainted { break }
+            if remainingReads == 0 { break }
+
+            window.setNeedsLayout()
+            window.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(20))
         }
-        let texts = try withPixels { pixels in
-            Self.onScreenTexts(from: elements, in: window.bounds).filter { pixels.hasInk(in: $0.frame) }
+
+        if painted.count < published.count {
+            let unpainted = published.filter { text in !painted.contains { $0.frame == text.frame && $0.text == text.text } }
+            let report = try withPixels { pixels in
+                unpainted.map { text in
+                    "\(text.text) frame=\(text.frame.integral) \(pixels.inkReport(in: text.frame))"
+                }
+            }
+            print("RenderedScreen: \(unpainted.count) published text(s) never painted: \(report) window=\(window.frame.integral) screen=\(window.screen.bounds.integral) key=\(window.isKeyWindow)")
+            if let directory = ProcessInfo.processInfo.environment["ASCEND_PAINT_DEBUG_DIR"] {
+                let url = URL(filePath: directory, directoryHint: .isDirectory)
+                    .appending(path: "unpainted-\(Int(Date().timeIntervalSince1970 * 1000)).png")
+                try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? capture(scale: 1).pngData()?.write(to: url)
+                print("RenderedScreen: capture written to \(url.path())")
+            }
         }
-        if texts.isEmpty, !isReady(texts) {
+        if painted.isEmpty, !isReady(painted) {
             Issue.record(
                 """
                 The hosted screen published no on-screen text within \(budget) reads and the read \
@@ -289,8 +381,14 @@ struct HostedScreen {
                 """
             )
         }
-        return texts
+        return painted
     }
+
+    /// How many consecutive reads the painted set must hold still before a read that is
+    /// otherwise ready stops waiting for the texts the tree publishes but the screen has not
+    /// painted. Twenty-five reads is over half a second on a quiet host - longer than a SwiftUI
+    /// default animation - and a good deal more under contention, which is when it matters.
+    private static let stableReadsBeforeAcceptingUnpainted = 25
 
     /// The screen's copy the way OCR used to hand it back: every on-screen label and value,
     /// lowercased, joined with spaces. `copy().contains("...")` is the presence proof;
@@ -514,22 +612,45 @@ struct PixelSampler {
 
     /// Whether `rect` (points) holds glyph-like ink: pixels whose luma differs from the region's
     /// median by more than `contrast`, making up more than `fraction` of the region. A painted
-    /// label has them; a control whose text was pushed off screen or clipped away is a flat fill.
-    /// Regions too small to hold a glyph count as painted.
+    /// label has them; a control whose text was pushed off screen, clipped away, or drawn behind
+    /// something opaque is a flat fill. Regions too small to hold a glyph count as painted.
     ///
-    /// The region is inset by 15% a side first: a control's rounded corners and hairline border
-    /// are contrast too, and a flat lime button with its text clipped away read as inked on its
-    /// corners alone until they were excluded.
-    func hasInk(in rect: CGRect, contrast: Double = 40, fraction: Double = 0.005) -> Bool {
-        let onScreen = rect.intersection(CGRect(origin: .zero, size: size))
-        guard !onScreen.isNull, onScreen.width >= 4, onScreen.height >= 4 else { return true }
-        let region = onScreen.insetBy(dx: onScreen.width * 0.15, dy: onScreen.height * 0.15)
-        guard region.width >= 2, region.height >= 2 else { return true }
+    /// The region is the frame less what a control paints that is not its text: a hairline
+    /// border (5 pt off each side) and the arcs of its rounded corners, which intrude along the
+    /// top and bottom edges only (a quarter of the height off each). A flat lime capsule with its
+    /// text clipped away read as inked on its corners alone until those were excluded - and a 15%
+    /// inset on every side, the first cut at that, discarded exactly the pixels a short left-aligned
+    /// label lives in: "Male" and "Other" in a 336 pt option row were flat fills, "Female" and
+    /// "Prefer not to say" spilled past the margin and passed. `contrast` sits low enough for
+    /// dimmed copy - a disabled control's label at a third of full opacity - and far above the
+    /// noise of a flat fill.
+    func hasInk(in rect: CGRect, contrast: Double = 20, fraction: Double = 0.005) -> Bool {
+        guard let region = Self.inkRegion(of: rect, in: size) else { return true }
         let lumas = pixels(in: region).map(\.luminance)
         guard lumas.count >= 16 else { return true }
         let median = lumas.sorted()[lumas.count / 2]
         let inked = lumas.reduce(0) { abs($1 - median) > contrast ? $0 + 1 : $0 }
         return Double(inked) / Double(lumas.count) > fraction
+    }
+
+    /// The part of `rect` (points) `hasInk` reads, or nil when the frame is too small to judge.
+    static func inkRegion(of rect: CGRect, in size: CGSize) -> CGRect? {
+        let onScreen = rect.intersection(CGRect(origin: .zero, size: size))
+        guard !onScreen.isNull, onScreen.width >= 14, onScreen.height >= 8 else { return nil }
+        let region = onScreen.insetBy(dx: 5, dy: onScreen.height * 0.25)
+        guard region.width >= 4, region.height >= 2 else { return nil }
+        return region
+    }
+
+    /// What `hasInk` saw in `rect`, for a diagnostic line.
+    func inkReport(in rect: CGRect, contrast: Double = 20) -> String {
+        guard let region = Self.inkRegion(of: rect, in: size) else { return "too-small-or-off-screen" }
+        let lumas = pixels(in: region).map(\.luminance)
+        guard !lumas.isEmpty else { return "empty-region" }
+        let sorted = lumas.sorted()
+        let median = sorted[sorted.count / 2]
+        let inked = lumas.reduce(0) { abs($1 - median) > contrast ? $0 + 1 : $0 }
+        return "region=\(region.integral) median=\(Int(median)) range=\(Int(sorted.first!))...\(Int(sorted.last!)) ink=\(inked)/\(lumas.count)"
     }
 
     /// The pixel bounds of everything in `rect` (points) satisfying `predicate`, in points, or

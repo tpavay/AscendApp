@@ -350,14 +350,7 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
     // MARK: - Rendering
 
     private static func makeContainer() throws -> ModelContainer {
-        try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            WorkoutSyncOutboxEntry.self,
-            PendingWorkoutDeletion.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, WorkoutSyncOutboxEntry.self, PendingWorkoutDeletion.self)
     }
 
     /// A plausible stepper series: warm-up, working effort, a push, then a cool-down.

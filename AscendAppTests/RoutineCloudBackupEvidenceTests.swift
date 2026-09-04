@@ -179,12 +179,7 @@ struct RoutineCloudBackupEvidenceTests {
     // MARK: - Fixtures
 
     private func makeModelContext() throws -> ModelContext {
-        let container = try ModelContainer(
-            for: Routine.self,
-            RoutineFolder.self,
-            PendingRoutineDeletion.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        let container = try RetainedModelContainer.inMemory(for: Routine.self, RoutineFolder.self, PendingRoutineDeletion.self)
         return ModelContext(container)
     }
 

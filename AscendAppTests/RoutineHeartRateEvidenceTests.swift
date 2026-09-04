@@ -85,13 +85,7 @@ struct RoutineHeartRateEvidenceTests {
     }
 
     private func makeHarness(startedAt: Date, strapBeats: [Int]) throws -> Harness {
-        let container = try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            ActiveHeadphoneWorkoutDraft.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, ActiveHeadphoneWorkoutDraft.self)
         let modelContext = ModelContext(container)
         let routine = Routine(
             id: UUID(uuidString: "41414141-4141-4141-4141-414141414141")!,

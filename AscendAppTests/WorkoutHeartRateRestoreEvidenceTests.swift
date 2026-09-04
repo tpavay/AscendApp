@@ -232,14 +232,7 @@ struct WorkoutHeartRateRestoreEvidenceTests {
     }
 
     private static func makeContext() throws -> ModelContext {
-        let container = try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            ClimbAttempt.self,
-            PendingWorkoutDeletion.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, ClimbAttempt.self, PendingWorkoutDeletion.self)
         return ModelContext(container)
     }
 

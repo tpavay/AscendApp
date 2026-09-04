@@ -70,13 +70,7 @@ struct LeaderboardWindowLabelEvidenceTests {
     // MARK: - Fixtures
 
     private func leaderboard(initialTimeFrame: LeaderboardTimeFrame) throws -> some View {
-        let container = try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            LeaderboardStats.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, LeaderboardStats.self)
 
         return NavigationStack {
             LeaderboardView(initialTimeFrame: initialTimeFrame, viewSource: .tab)

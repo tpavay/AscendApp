@@ -260,15 +260,7 @@ struct ShareStatClusterPickerEvidenceTests {
     }
 
     private static func makeContainer() throws -> ModelContainer {
-        try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            ClimbAttempt.self,
-            BestEffortCacheEntry.self,
-            BestEffortCacheMetadata.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, ClimbAttempt.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self)
     }
 }
 

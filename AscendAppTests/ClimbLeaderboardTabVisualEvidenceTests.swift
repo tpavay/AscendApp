@@ -17,8 +17,9 @@ import UIKit
 /// `CrossUserIdentityAdapter`, so the YOU pill lights from the same `isCurrentUser` the app uses.
 ///
 /// Drawn through a live `UIWindow` (`RenderedScreen`) rather than `ImageRenderer`, which draws
-/// asset-catalogue art in a nested layout as blank - and only when `ASCEND_EVIDENCE_DIR` is set.
-/// Every case first pins, from the rows it builds, the fact its photograph is meant to show.
+/// asset-catalogue art in a nested layout as blank. Every case reads the fact its photograph is
+/// meant to show off the hosted page's accessibility tree, so the run proves it on CI where no
+/// photograph is kept; the photograph itself is written only when `ASCEND_EVIDENCE_DIR` is set.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct ClimbLeaderboardTabVisualEvidenceTests {
@@ -30,15 +31,20 @@ struct ClimbLeaderboardTabVisualEvidenceTests {
     @Test
     func soleFinisherSeesOneRowAndNoDuplicateSummary() async throws {
         let rows = [Self.row(id: "you", rank: 1, name: "Tyler P.", seconds: 126, isCurrentUser: true)]
-        // The board is the climber's own row and nothing else, so there is no second place for
-        // the rank and time to be repeated.
-        #expect(rows.map(\.isCurrentUser) == [true])
 
-        try await Self.photograph(
+        let texts = try await Self.host(
             name: "climb-leaderboard-tab-sole-finisher",
             caption: "Raced it, only finisher: one row, YOU pill, rank and time stated once",
             proof: ClimbLeaderboardPageProof(rows: rows, firstAscent: Self.firstAscent(name: "John Smith"))
         )
+        let copy = Self.joined(texts)
+        // The board is the climber's own row and nothing else: their name and their time are each
+        // on the page exactly once, the YOU pill marks the row, and the "Your best" card that used
+        // to repeat the same two numbers above it is gone.
+        #expect(Self.count(of: "tyler p.", in: texts) == 1, "expected one row for the climber in: \(copy)")
+        #expect(Self.count(of: "2:06", in: texts) == 1, "expected the time stated once in: \(copy)")
+        #expect(Self.count(of: "you", in: texts, exactly: true) == 1, "expected one YOU pill in: \(copy)")
+        #expect(!copy.contains("your best"), "the duplicated card is back: \(copy)")
     }
 
     /// The same climber further down a real field. Their row is the only place their time and rank
@@ -52,14 +58,22 @@ struct ClimbLeaderboardTabVisualEvidenceTests {
             Self.row(id: "4", rank: 4, name: "Tyler P.", seconds: 126, isCurrentUser: true),
             Self.row(id: "5", rank: 5, name: "Owen B.", seconds: 140)
         ]
-        // The YOU pill lights from `isCurrentUser`, and exactly one row carries it: the fourth.
-        #expect(rows.filter(\.isCurrentUser).map(\.rank) == [4])
-
-        try await Self.photograph(
+        let texts = try await Self.host(
             name: "climb-leaderboard-tab-raced",
             caption: "Raced it, mid-field: the YOU pill is the only marker of your own row",
             proof: ClimbLeaderboardPageProof(rows: rows, firstAscent: Self.firstAscent(name: "John Smith"))
         )
+        let copy = Self.joined(texts)
+        // Exactly one YOU pill on the page, and it sits on the climber's own row: level with
+        // "Tyler P." and with no other name's row.
+        let pills = texts.filter { $0.text.lowercased() == "you" }
+        let ownRow = try #require(texts.first { $0.text.localizedCaseInsensitiveContains("Tyler P.") }, "\(copy)")
+        #expect(pills.count == 1, "expected one YOU pill in: \(copy)")
+        #expect(
+            pills.allSatisfy { ownRow.frame.minY <= $0.frame.midY && $0.frame.midY <= ownRow.frame.maxY },
+            "the YOU pill is not level with the climber's own row: \(pills.map(\.frame)) against \(ownRow.frame)"
+        )
+        #expect(Self.count(of: "marcus t.", in: texts) == 1 && Self.count(of: "owen b.", in: texts) == 1, "\(copy)")
     }
 
     /// Never raced it. The removed card never rendered in this state, so the only question the
@@ -73,14 +87,20 @@ struct ClimbLeaderboardTabVisualEvidenceTests {
             Self.row(id: "4", rank: 4, name: "Owen B.", seconds: 140)
         ]
         let proof = ClimbLeaderboardPageProof(rows: rows, firstAscent: Self.firstAscent(name: "John Smith"))
-        // Nothing on the board is the climber's, and the First Ascent line still leads into it.
-        #expect(!rows.contains(where: \.isCurrentUser) && proof.showsFirstAscentLine)
 
-        try await Self.photograph(
+        let texts = try await Self.host(
             name: "climb-leaderboard-tab-not-raced",
             caption: "Never raced it: First Ascent line runs straight into the board, no gap left behind",
             proof: proof
         )
+        let copy = Self.joined(texts)
+        // Nothing on the board is the climber's - no YOU pill anywhere - and the First Ascent line
+        // sits directly above the first row, with nothing but its own height between them.
+        #expect(Self.count(of: "you", in: texts, exactly: true) == 0, "a YOU pill on a board the climber never raced: \(copy)")
+        let firstAscent = try #require(texts.first { $0.text.localizedCaseInsensitiveContains("First Ascent: John Smith") }, "\(copy)")
+        let firstRow = try #require(texts.first { $0.text.localizedCaseInsensitiveContains("Marcus T.") }, "\(copy)")
+        #expect(firstRow.frame.minY > firstAscent.frame.minY, "the board is not below the First Ascent line: \(copy)")
+        #expect(firstRow.frame.minY - firstAscent.frame.maxY < 60, "a gap opened where the removed card used to sit: \(firstAscent.frame) -> \(firstRow.frame)")
     }
 
     /// Nobody has raced it. No First Ascent holder, so the line is absent and the empty state is
@@ -88,13 +108,16 @@ struct ClimbLeaderboardTabVisualEvidenceTests {
     @Test
     func unclaimedClimbStillDaresTheFirstFinisher() async throws {
         let proof = ClimbLeaderboardPageProof(rows: [], firstAscent: nil)
-        #expect(proof.daresTheFirstFinisher)
 
-        try await Self.photograph(
+        let texts = try await Self.host(
             name: "climb-leaderboard-tab-unclaimed",
             caption: "Nobody has finished: no First Ascent line, the empty state dares you",
             proof: proof
         )
+        let copy = Self.joined(texts)
+        #expect(!copy.contains("first ascent:"), "a First Ascent holder on an unclaimed climb: \(copy)")
+        #expect(copy.contains("no completed times yet."), "\(copy)")
+        #expect(copy.contains("first ascent open. the first finisher claims it forever."), "\(copy)")
     }
 
     // MARK: - Fixtures
@@ -141,19 +164,17 @@ struct ClimbLeaderboardTabVisualEvidenceTests {
         )
     }
 
-    // MARK: - Photograph
+    // MARK: - Hosting
 
-    /// Hosts the captioned page and photographs it - only when `ASCEND_EVIDENCE_DIR` is set, since
-    /// the photograph is all the hosting is for. The page hugs its rows, so the window is shrunk
-    /// to the content's own height once it has laid out.
-    private static func photograph(
+    /// Hosts the captioned page, shrunk to its content's own height once it has laid out, hands
+    /// back every piece of copy on it with its frame, and photographs it when this run keeps
+    /// photographs.
+    private static func host(
         name: String,
         caption: String,
         proof: ClimbLeaderboardPageProof,
         width: CGFloat = 402
-    ) async throws {
-        guard RenderedScreen.isPhotographing else { return }
-
+    ) async throws -> [OnScreenText] {
         let content = VStack(alignment: .leading, spacing: 14) {
             Text(caption)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
@@ -170,15 +191,27 @@ struct ClimbLeaderboardTabVisualEvidenceTests {
         let host = UIHostingController(rootView: content)
         host.overrideUserInterfaceStyle = .dark
 
-        try await RenderedScreen.host(host, size: CGSize(width: width, height: 500)) { screen in
+        return try await RenderedScreen.host(host, size: CGSize(width: width, height: 500)) { screen in
             let fitted = host.sizeThatFits(
                 in: CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
             ).height
             screen.window.frame = CGRect(x: 0, y: 0, width: width, height: ceil(fitted))
             try await screen.settle()
 
+            // The caption names what the page should show, so it is not part of the page's copy.
+            let texts = try await screen.texts().filter { !$0.text.hasPrefix(caption) }
             try screen.photograph(named: name)
+            return texts
         }
+    }
+
+    private static func joined(_ texts: [OnScreenText]) -> String {
+        texts.map(\.text).joined(separator: " ").lowercased()
+    }
+
+    /// How many on-screen texts contain `fragment` - or, with `exactly`, are `fragment`.
+    private static func count(of fragment: String, in texts: [OnScreenText], exactly: Bool = false) -> Int {
+        texts.filter { exactly ? $0.text.lowercased() == fragment : $0.text.lowercased().contains(fragment) }.count
     }
 }
 

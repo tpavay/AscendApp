@@ -293,11 +293,7 @@ struct RoutineTimelineDragEvidenceTests {
     }
 
     private func makeModelContext() throws -> ModelContext {
-        let container = try ModelContainer(
-            for: Routine.self,
-            RoutineFolder.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        let container = try RetainedModelContainer.inMemory(for: Routine.self, RoutineFolder.self)
         return ModelContext(container)
     }
 }

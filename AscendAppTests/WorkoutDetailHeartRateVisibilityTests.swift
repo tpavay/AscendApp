@@ -135,23 +135,8 @@ struct WorkoutDetailHeartRateVisibilityTests {
         return nil
     }
 
-    /// `WorkoutDetailView` carries a `@Query`, and SwiftUI keeps observing SwiftData for a beat
-    /// after the host is torn down. A container that dies with the test is gone before that
-    /// observer is, and the observer then traps on the dangling reference the next time *any*
-    /// suite calls `ModelContext.save()`. Each run still gets its own store, so no suite renders
-    /// against another's fixtures - the same arrangement `HostedWorkoutDetailScreen` keeps.
-    private static var retainedContainers: [ModelContainer] = []
-
+    /// Retained for the process: the detail screen carries a `@Query` (`RetainedModelContainer`).
     private static func makeRetainedContainer() throws -> ModelContainer {
-        let container = try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            BestEffortCacheEntry.self,
-            BestEffortCacheMetadata.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
-        retainedContainers.append(container)
-        return container
+        try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self)
     }
 }

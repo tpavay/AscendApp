@@ -288,10 +288,7 @@ struct LeaderboardAnalyticsEventTests {
     private static let oneTurn = RenderedScreen.Settle.turns(1, interval: .milliseconds(10))
 
     private func mainTabView(tabRouter: TabRouter) throws -> some View {
-        let container = try ModelContainer(
-            for: AscendLocalStore.schema,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        let container = try RetainedModelContainer.inMemory(schema: AscendLocalStore.schema)
 
         return MainTabView(tabRouter: tabRouter)
             .environment(AuthenticationViewModel())

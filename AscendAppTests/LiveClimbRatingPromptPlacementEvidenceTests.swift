@@ -24,15 +24,7 @@ struct LiveClimbRatingPromptPlacementEvidenceTests {
         AppStoreRatingManager.shared.resetPromptState()
         defer { AppStoreRatingManager.shared.resetPromptState() }
 
-        let container = try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            ClimbAttempt.self,
-            BestEffortCacheEntry.self,
-            BestEffortCacheMetadata.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, ClimbAttempt.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self)
         let context = container.mainContext
 
         let viewModel = try await recordAndSaveAClimb(in: context)

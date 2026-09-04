@@ -21,15 +21,7 @@ struct LiveClimbCompletionSummaryHealthPromptEvidenceTests {
         HealthKitSyncState.hasRequestedAuthorization = false
         defer { HealthKitSyncState.hasRequestedAuthorization = previousAuthorizationState }
 
-        let container = try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            ClimbAttempt.self,
-            BestEffortCacheEntry.self,
-            BestEffortCacheMetadata.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, ClimbAttempt.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self)
         let context = ModelContext(container)
         let workout = Workout(
             name: "CN Tower Live Climb",
