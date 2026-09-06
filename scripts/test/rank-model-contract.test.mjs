@@ -28,7 +28,6 @@ const MODEL_HEADING = "## The rank model";
 
 const RANK_REPOSITORY =
   "AscendApp/Shared/Repositories/Firebase/FirestoreLiveReplayLeaderboardRepository.swift";
-const LEADERBOARD_FUNCTION = "functions/src/liveReplayLeaderboard.ts";
 const CONTEXT_FILE =
   "AscendApp/Shared/Services/LiveReplayLeaderboard/LiveReplayLeaderboardContext.swift";
 
@@ -217,27 +216,14 @@ const SUPERSEDED_ATTEMPT_COUNTING = [
  * held by presence only.
  */
 const DISCLOSED_GAPS = [
-  {
-    what: "the server's frozen standing",
-    file: LEADERBOARD_FUNCTION,
-    declaration: "function frozenCompletionStanding(",
-    closing: "\n}\n",
-    probes: ["reading.attemptCount"],
-    disclosure: [
-      "`frozenCompletionStanding`",
-      LEADERBOARD_FUNCTION,
-      "`reading.attemptCount`",
-    ],
-    alsoDisclosedIn: [
-      {
-        file: ".claude/skills/ascend-live-climbs/SKILL.md",
-        phrases: [
-          "the numerator counts bucket-0 entries and the population is `reading.attemptCount`",
-          "`frozenCompletionStanding` still picks the frozen population from the same allowlist",
-        ],
-      },
-    ],
-  },
+  // The frozen standing's attempt-counting branch (frozenCompletionStanding /
+  // reading.attemptCount) lived here until 2026-09-06. It never closed by the
+  // code changing: the captain settled Option A - the frozen stamp and the
+  // field-size line stay scoped to `collapsesRepeatFinishers`, attempt-counted
+  // on a board that races them, permanently. That is a decided rule now
+  // documented directly in the rank model, not a defect awaiting a fix, so it
+  // does not belong in this list - DISCLOSED_GAPS is only for a rule the
+  // captain decided where the code is still expected to change to match it.
   {
     what: "the summary's pre-freeze standing",
     file: RANK_REPOSITORY,
@@ -277,29 +263,14 @@ const GAP_CLOSED = "closed";
  * every phrase must stay present inside the open-question passage, so it can
  * neither be deleted quietly nor moved under a "decided" marker.
  */
-const OPEN_QUESTIONS = [
-  {
-    what: "what the field-size line beneath an attempts board counts",
-    phrases: [
-      "*Open question, not yet decided.*",
-      "what the field-size line beneath those rows counts is not yet settled",
-      "Either it counts climbers and stops matching the rows above it, or those two surfaces stop sharing one noun.",
-      "Today one derivation, `LiveReplayLeaderboardContextType.fieldPopulation`, feeds both the line and the hero.",
-      "part of the question rather than a gap, so no test or sentence may call it superseded until the captain has answered",
-      "`justClimb.fieldPopulation == .completions`",
-      "`theSameHeroSaysCompletionsWhereTheContextRacesAttempts`",
-      "the captain answers it; it is not to be guessed at implementation time",
-    ],
-    alsoStatedIn: [
-      {
-        file: ".claude/skills/ascend-live-climbs/SKILL.md",
-        phrases: [
-          "`LiveReplayLeaderboardContextType.fieldPopulation` takes the field-size noun from it, which is the open question The rank model states and nobody has answered",
-        ],
-      },
-    ],
-  },
-];
+// "What the field-size line beneath an attempts board counts" lived here until
+// 2026-09-06, when the captain answered it (Option A, scoped to boards that
+// collapse repeats) and the answer was written into the rank model. Retirement
+// is a human step, per the doc comment above: the passage, the pointer
+// sentence in ascend-live-climbs/SKILL.md, and this entry all left together in
+// the same change. Empty rather than deleted, so the next open question has
+// a home and the test below stays exercised.
+const OPEN_QUESTIONS = [];
 
 const OPEN_QUESTION_MARKER = "*Open question, not yet decided.*";
 const DECIDED_MARKER = "Decided and being built, not yet shipping.";
@@ -493,6 +464,11 @@ test("a statement the code does not yet keep says so, and stops once the code ke
 });
 
 test("an open question stays stated as a question until the captain answers it", () => {
+  // No open question is currently tracked. The marker itself is not required
+  // to exist with nothing left for it to introduce - it is reintroduced, and
+  // this early return dropped, the moment OPEN_QUESTIONS gains an entry.
+  if (OPEN_QUESTIONS.length === 0) return;
+
   const section = modelSection();
   const passageStart = section.indexOf(OPEN_QUESTION_MARKER);
   assert.notEqual(passageStart, -1, `${MODEL_SKILL} lost the "${OPEN_QUESTION_MARKER}" passage`);
