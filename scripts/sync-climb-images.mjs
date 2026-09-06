@@ -5,7 +5,7 @@
  *
  * Audits, diffs, uploads, and syncs climb artwork (climb-images/) across the
  * dev, staging, and production Firebase Storage buckets. Climb images are
- * remote-only content — the app ships no artwork — so every environment's
+ * remote-only content - the app ships no artwork - so every environment's
  * bucket must carry the images its hosted catalog references.
  *
  * Unlike the fixture seeders, production is a legitimate TARGET here (this is
@@ -36,11 +36,11 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 const CATALOG_PATH = resolve(REPO_ROOT, "web/public/climbs/catalog-v1.json");
 
-const IMAGE_PREFIX = "climb-images/";
-const IMAGE_SIZES = ["hero", "card", "thumb"];
+export const IMAGE_PREFIX = "climb-images/";
+export const IMAGE_SIZES = ["hero", "card", "thumb"];
 const IMAGE_CONTENT_TYPE = "image/heic";
-// Versioned paths are immutable — a new image set bumps imageSetVersion and
-// gets a new path — so clients and CDNs may cache aggressively.
+// Versioned paths are immutable - a new image set bumps imageSetVersion and
+// gets a new path - so clients and CDNs may cache aggressively.
 const IMAGE_CACHE_CONTROL = "public, max-age=604800, immutable";
 
 const apps = new Map();
@@ -106,18 +106,49 @@ function loadCatalog() {
   return JSON.parse(readFileSync(CATALOG_PATH, "utf-8"));
 }
 
+/**
+ * The paths the app will actually try for one variant, in the order it tries
+ * them. This mirrors `FirebaseClimbImageRepository.candidateRemotePaths`: the
+ * versioned path first, then the unversioned legacy path. An audit that only
+ * knew the versioned path would report a legacy-served climb as MISSING, and a
+ * gate that cries wolf is a gate somebody turns off.
+ */
+export function candidateObjectPaths(climb, size) {
+  const version = climb.imageSetVersion ?? 1;
+  return [
+    `${IMAGE_PREFIX}${climb.id}/v${version}/${size}.heic`,
+    `${IMAGE_PREFIX}${climb.id}/${size}.heic`,
+  ];
+}
+
 function expectedObjectPaths(catalog) {
   const paths = new Map();
   for (const climb of catalog.climbs ?? catalog) {
-    const version = climb.imageSetVersion ?? 1;
     for (const size of IMAGE_SIZES) {
-      paths.set(
-        `${IMAGE_PREFIX}${climb.id}/v${version}/${size}.heic`,
-        {climbId: climb.id, releaseState: climb.releaseState, size}
-      );
+      paths.set(candidateObjectPaths(climb, size)[0], {
+        climbId: climb.id,
+        releaseState: climb.releaseState,
+        size,
+      });
     }
   }
   return paths;
+}
+
+/**
+ * What the app would find for one climb. A climb is only publishable when every
+ * variant resolves: a hero with no card renders worse than a climb with no
+ * artwork at all, because the card is the surface people browse.
+ */
+export function resolveClimbImageSet(climb, actual) {
+  const found = [];
+  const missing = [];
+  for (const size of IMAGE_SIZES) {
+    const hit = candidateObjectPaths(climb, size).find((path) => actual.has(path));
+    if (hit) found.push({size, path: hit});
+    else missing.push(size);
+  }
+  return {climb, found, missing, complete: missing.length === 0};
 }
 
 async function listImageObjects(projectId) {
@@ -141,34 +172,60 @@ function formatBytes(bytes) {
 async function commandAudit(flags) {
   const projectId = requireProject(flags, "project");
   const catalog = loadCatalog();
+  const climbs = catalog.climbs ?? catalog;
   const expected = expectedObjectPaths(catalog);
   const actual = await listImageObjects(projectId);
 
-  const missing = [];
-  for (const [path, info] of expected) {
-    if (!actual.has(path)) {
-      missing.push({path, ...info});
-    }
+  // A control probe, not decoration. A listing that failed and a bucket that is
+  // empty both produce an empty map, and reporting the second when it was the
+  // first is how a green audit gets published over a bucket nobody could read.
+  if (actual.size === 0) {
+    process.exitCode = 1;
+    console.log(
+      `Climb image audit - ${seedEnvironmentName(projectId)} (${projectId})\n` +
+        `  Listed ZERO objects under ${IMAGE_PREFIX}. Refusing to call that a verified ` +
+        "empty bucket: an unauthorized or misrouted listing looks identical."
+    );
+    return;
   }
+
+  const sets = climbs.map((climb) => resolveClimbImageSet(climb, actual));
+  const incompleteAvailable = sets.filter(
+    (set) => set.climb.releaseState === "available" && !set.complete
+  );
+  const incompleteOther = sets.filter(
+    (set) => set.climb.releaseState !== "available" && !set.complete
+  );
   const orphans = [...actual.keys()].filter((path) => !expected.has(path));
 
-  console.log(`Climb image audit — ${seedEnvironmentName(projectId)} (${projectId})`);
-  console.log(`  catalog climbs: ${expected.size / IMAGE_SIZES.length}`);
+  console.log(`Climb image audit - ${seedEnvironmentName(projectId)} (${projectId})`);
+  console.log(`  catalog climbs: ${sets.length}`);
   console.log(`  objects in bucket under ${IMAGE_PREFIX}: ${actual.size}`);
-  console.log(`  missing expected objects: ${missing.length}`);
-  for (const item of missing) {
-    console.log(`    MISSING [${item.releaseState}] ${item.path}`);
+  console.log(
+    `  AVAILABLE climbs: ${sets.filter((set) => set.climb.releaseState === "available").length}` +
+      ` (${incompleteAvailable.length} without a complete image set)`
+  );
+  for (const set of incompleteAvailable) {
+    const state = set.found.length === 0 ? "NO IMAGES" : `PARTIAL (${set.found.length}/3)`;
+    console.log(`    ${state} ${set.climb.id} - missing ${set.missing.join(", ")}`);
+  }
+  console.log(`  unreleased climbs without a complete set: ${incompleteOther.length}`);
+  for (const set of incompleteOther) {
+    console.log(`    [${set.climb.releaseState}] ${set.climb.id} - missing ${set.missing.join(", ")}`);
   }
   console.log(`  objects not referenced by current catalog: ${orphans.length}`);
   for (const path of orphans) {
     console.log(`    EXTRA ${path}`);
   }
 
-  const missingAvailable = missing.filter((item) => item.releaseState === "available");
-  if (missingAvailable.length > 0) {
+  if (incompleteAvailable.length > 0) {
     process.exitCode = 1;
     console.log(
-      `\n${missingAvailable.length} image(s) missing for AVAILABLE climbs — these render as placeholders in the app.`
+      `\n${incompleteAvailable.length} AVAILABLE climb(s) lack a complete image set in ` +
+        `${seedEnvironmentName(projectId)}. Every one of them renders as an empty card on the ` +
+        "browse surface. Publish the artwork before publishing the catalog:\n" +
+        `  node scripts/sync-climb-images.mjs sync --from staging --to ${seedEnvironmentName(projectId)}` +
+        `${projectId === PRODUCTION_PROJECT_ID ? " --confirm-production" : ""}`
     );
   }
 }
@@ -235,7 +292,7 @@ async function commandSync(flags) {
   );
 
   if (plan.length === 0) {
-    console.log("Nothing to copy — target is up to date.");
+    console.log("Nothing to copy - target is up to date.");
     return;
   }
 
@@ -245,8 +302,13 @@ async function commandSync(flags) {
     console.log(`  ${dryRun ? "would copy" : "copying"} ${item.path}`);
     if (dryRun) continue;
     await sourceBucket.file(item.path).copy(targetBucket.file(item.path));
+    // contentType is pinned rather than inherited. A copy carries the source
+    // object's metadata, so a source uploaded through the console with a
+    // guessed type would propagate that guess into production, where the app
+    // decodes the bytes as HEIC or shows nothing.
     await targetBucket.file(item.path).setMetadata({
       cacheControl: IMAGE_CACHE_CONTROL,
+      contentType: IMAGE_CONTENT_TYPE,
     });
   }
 
@@ -332,7 +394,11 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error.message ?? error);
-  process.exit(1);
-});
+// Guarded so the contract test can import the path helpers without the CLI
+// running - the helpers are the half that must not drift from the app.
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error.message ?? error);
+    process.exit(1);
+  });
+}

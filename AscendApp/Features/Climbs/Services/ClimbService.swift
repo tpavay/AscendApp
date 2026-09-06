@@ -223,6 +223,105 @@ final class ClimbService {
         )
     }
 
+    /// This climber's completion history on one climb, with the completion that
+    /// produced `workoutId` taken out of it, or nil when the store could not be
+    /// read.
+    ///
+    /// Nil is not an empty history. A read that failed says nothing about how
+    /// many times this tower has been climbed, and a caller that turned it into
+    /// "no other completions" put `1st / OF YOUR 1 CLIMB` on a card the design
+    /// spends on the First Ascent flag instead. The summary waits on nil.
+    ///
+    /// The attempt being placed is excluded here so the caller owns exactly one
+    /// copy of it: `PersonalClimbPlacing` adds it back as the one it is ranking,
+    /// which is what keeps it from double-counting or dropping itself.
+    ///
+    /// Bounded by climb and status in the predicate rather than filtered after a
+    /// full fetch: a completion summary reads this from its `.task`, so the cost
+    /// has to track the climber's history on one tower and not their whole store.
+    func personalCompletionHistory(
+        forClimbId climbId: String,
+        workoutId: UUID,
+        completedAt: Date,
+        modelContext: ModelContext
+    ) -> PersonalClimbCompletionHistory? {
+        let completedRawValue = ClimbAttemptStatus.completed.rawValue
+        let descriptor = FetchDescriptor<ClimbAttempt>(
+            predicate: #Predicate { attempt in
+                attempt.climbId == climbId && attempt.statusRawValue == completedRawValue
+            }
+        )
+
+        guard let attempts = try? modelContext.fetch(descriptor) else { return nil }
+
+        let placedWorkoutId = workoutId.uuidString
+        var otherCompletionsCount = 0
+        var otherDurations: [Int] = []
+        var otherCompletionDates: [Date] = []
+        var namesPlacedWorkout = false
+        var collapsedCompletions = 0
+        var unmeasuredCompletions = 0
+
+        for attempt in attempts {
+            // A stored row stands for `sessionsCount` completions: exactly one
+            // for an attempt this device recorded or restored workout by workout,
+            // and every completion the server projection reported for a row
+            // `ClimbCompletionRepository.reconcile` had to rebuild without them.
+            // A row holding more completions than it can name workouts for is
+            // that stand-in, and it is the only thing that makes the evidence
+            // partial.
+            let completions = max(attempt.sessionsCount, 1)
+            collapsedCompletions += max(completions - attempt.appliedWorkoutIds.count, 0)
+
+            if attempt.appliedWorkoutIds.contains(placedWorkoutId) {
+                namesPlacedWorkout = true
+                otherCompletionsCount += completions - 1
+                continue
+            }
+
+            otherCompletionsCount += completions
+            let duration = attempt.bestCompletionDurationSeconds ?? attempt.accumulatedDurationSeconds
+            if duration > 0 {
+                otherDurations.append(duration)
+            } else {
+                unmeasuredCompletions += 1
+            }
+            otherCompletionDates.append(Self.completionDate(for: attempt))
+        }
+
+        // A stand-in row names only the climber's best workout, so a completion
+        // it holds but cannot name would be counted twice - once inside the row
+        // and once as the attempt being placed. It is the only row that could be
+        // holding it, so it gives the completion up.
+        if !namesPlacedWorkout, collapsedCompletions > 0 {
+            otherCompletionsCount = max(otherCompletionsCount - 1, 0)
+        }
+
+        // A stand-in hides durations AND dates; a completion this device recorded
+        // without a usable duration hides only its duration, and its date is
+        // still exact. So the placing's evidence answers to both, and the First
+        // Ascent claim answers only to the stand-in that could be concealing an
+        // earlier run.
+        let hidesDurations = collapsedCompletions > 0 || unmeasuredCompletions > 0
+
+        return PersonalClimbCompletionHistory(
+            otherCompletionsCount: otherCompletionsCount,
+            otherCompletionDurationsSeconds: otherDurations,
+            durationEvidence: hidesDurations ? .partial : .complete,
+            isEarliestCompletionHere: collapsedCompletions == 0 &&
+                otherCompletionDates.allSatisfy { $0 >= completedAt },
+            globalCompletionOrder: attempts.compactMap(\.globalCompletionOrder).min()
+        )
+    }
+
+    /// When a row's completion landed. Deliberately not `attemptSortDate`, which
+    /// prefers `endedAt` - a row rebuilt after a reinstall anchors `endedAt` to
+    /// the climber's LATEST completion, so reading it would say their whole
+    /// history on the tower happened last.
+    private static func completionDate(for attempt: ClimbAttempt) -> Date {
+        attempt.completedAt ?? attempt.endedAt ?? attempt.startedAt
+    }
+
     func mirrorFinisherStatus(
         _ status: LiveReplayFinisherStatus,
         for climb: Climb,

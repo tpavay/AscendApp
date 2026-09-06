@@ -8,7 +8,8 @@ import UIKit
 /// matter how often the surface redraws, moving between tabs reports the tab arrived at, and
 /// a modal closed and opened again is two visits rather than one.
 ///
-/// Hosts real windows, so it takes the same gate every other hosting suite takes.
+/// Hosts real windows through `RenderedScreen`, so it takes the same gate every other hosting
+/// suite takes. Nothing here is photographed: the facts are the events the sink received.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct RouteScreenViewEvidenceTests {
@@ -21,23 +22,22 @@ struct RouteScreenViewEvidenceTests {
         let telemetry = makeTestTelemetry(sink: sink)
         let redraws = RedrawCounter()
 
-        let window = hostWindow(
+        try await host(
             ScreenHarness(screen: .climbDetail, redraws: redraws, telemetry: telemetry)
-        )
-        defer { teardown(window) }
+        ) { screen in
+            let emitted = try await pump(screen) { sink.screenCount(of: .climbDetail) == 1 }
+            #expect(emitted)
 
-        let emitted = try await pump(window) { sink.screenCount(of: .climbDetail) == 1 }
-        #expect(emitted)
+            let before = redraws.count
+            redraws.revision += 1
+            let rerendered = try await pump(screen) { redraws.count > before }
+            #expect(rerendered)
 
-        let before = redraws.count
-        redraws.revision += 1
-        let rerendered = try await pump(window) { redraws.count > before }
-        #expect(rerendered)
+            try await drain(screen)
 
-        try await drain(window)
-
-        #expect(sink.screenCount(of: .climbDetail) == 1)
-        #expect(sink.screens.first?.screenClass == TelemetryScreenName.climbDetail.screenClass)
+            #expect(sink.screenCount(of: .climbDetail) == 1)
+            #expect(sink.screens.first?.screenClass == TelemetryScreenName.climbDetail.screenClass)
+        }
     }
 
     /// Switching tabs is the most common navigation in the app, and the one a container-level
@@ -48,25 +48,24 @@ struct RouteScreenViewEvidenceTests {
         let telemetry = makeTestTelemetry(sink: sink)
         let router = TabRouter()
 
-        let window = hostWindow(TabHarness(router: router, telemetry: telemetry))
-        defer { teardown(window) }
+        try await host(TabHarness(router: router, telemetry: telemetry)) { screen in
+            #expect(try await pump(screen) { sink.screenCount(of: .home) == 1 })
 
-        #expect(try await pump(window) { sink.screenCount(of: .home) == 1 })
+            router.select(.leaderboard, reason: .tabBarTap)
+            #expect(try await pump(screen) { sink.screenCount(of: .leaderboard) == 1 })
 
-        router.select(.leaderboard, reason: .tabBarTap)
-        #expect(try await pump(window) { sink.screenCount(of: .leaderboard) == 1 })
+            router.select(.profile, reason: .tabBarTap)
+            #expect(try await pump(screen) { sink.screenCount(of: .profile) == 1 })
 
-        router.select(.profile, reason: .tabBarTap)
-        #expect(try await pump(window) { sink.screenCount(of: .profile) == 1 })
+            // Coming back is a visit too: the tab was unmounted while it was hidden.
+            router.select(.home, reason: .tabBarTap)
+            #expect(try await pump(screen) { sink.screenCount(of: .home) == 2 })
 
-        // Coming back is a visit too: the tab was unmounted while it was hidden.
-        router.select(.home, reason: .tabBarTap)
-        #expect(try await pump(window) { sink.screenCount(of: .home) == 2 })
+            try await drain(screen)
 
-        try await drain(window)
-
-        #expect(sink.screenCount(of: .routines) == 0)
-        #expect(sink.screens.allSatisfy { $0.name != "main_app" })
+            #expect(sink.screenCount(of: .routines) == 0)
+            #expect(sink.screens.allSatisfy { $0.name != "main_app" })
+        }
     }
 
     /// The guard belongs to the view instance, so a sheet dismissed and presented again is a
@@ -78,24 +77,27 @@ struct RouteScreenViewEvidenceTests {
         let telemetry = makeTestTelemetry(sink: sink)
         let presentation = SheetPresentation()
 
-        let window = hostWindow(
+        try await host(
             SheetHarness(presentation: presentation, telemetry: telemetry)
-        )
-        defer { teardown(window) }
+        ) { screen in
+            presentation.isPresented = true
+            #expect(try await pump(screen) { sink.screenCount(of: .justClimbSetup) == 1 })
 
-        presentation.isPresented = true
-        #expect(try await pump(window) { sink.screenCount(of: .justClimbSetup) == 1 })
+            // A real presentation takes a real dismissal: re-presenting before the modal is gone
+            // is a state the climber cannot reach, and UIKit swallows it.
+            presentation.isPresented = false
+            #expect(
+                try await pump(screen) {
+                    screen.window.rootViewController?.presentedViewController == nil
+                }
+            )
 
-        // A real presentation takes a real dismissal: re-presenting before the modal is gone
-        // is a state the climber cannot reach, and UIKit swallows it.
-        presentation.isPresented = false
-        #expect(try await pump(window) { window.rootViewController?.presentedViewController == nil })
+            try await drain(screen)
+            #expect(sink.screenCount(of: .justClimbSetup) == 1)
 
-        try await drain(window)
-        #expect(sink.screenCount(of: .justClimbSetup) == 1)
-
-        presentation.isPresented = true
-        #expect(try await pump(window) { sink.screenCount(of: .justClimbSetup) == 2 })
+            presentation.isPresented = true
+            #expect(try await pump(screen) { sink.screenCount(of: .justClimbSetup) == 2 })
+        }
     }
 
     /// Entering the app is the first hop of every session, and the one route change that lands
@@ -108,20 +110,19 @@ struct RouteScreenViewEvidenceTests {
         let telemetry = makeTestTelemetry(sink: sink)
         let route = RouteBox()
 
-        let window = hostWindow(RouteHarness(route: route, telemetry: telemetry))
-        defer { teardown(window) }
+        try await host(RouteHarness(route: route, telemetry: telemetry)) { screen in
+            #expect(try await pump(screen) { sink.screenCount(of: .appAccessGate) == 1 })
 
-        #expect(try await pump(window) { sink.screenCount(of: .appAccessGate) == 1 })
+            route.route = .mainApp
+            #expect(try await pump(screen) { sink.screenCount(of: .home) == 1 })
 
-        route.route = .mainApp
-        #expect(try await pump(window) { sink.screenCount(of: .home) == 1 })
+            try await drain(screen)
 
-        try await drain(window)
-
-        // The gate is behind the climber, and the container it handed off to is not a screen.
-        #expect(sink.screenCount(of: .home) == 1)
-        #expect(sink.screenCount(of: .appAccessGate) == 1)
-        #expect(sink.screens.allSatisfy { $0.name != "main_app" })
+            // The gate is behind the climber, and the container it handed off to is not a screen.
+            #expect(sink.screenCount(of: .home) == 1)
+            #expect(sink.screenCount(of: .appAccessGate) == 1)
+            #expect(sink.screens.allSatisfy { $0.name != "main_app" })
+        }
     }
 
     /// Every root route resolves to a decision, and the container resolves to no event.
@@ -155,46 +156,38 @@ struct RouteScreenViewEvidenceTests {
         #expect(Set(names).count == names.count)
     }
 
-    // MARK: - Rendering
+    // MARK: - Hosting
 
-    /// Borrows the host's window scene rather than standing a scene-less window up.
+    /// `RenderedScreen` borrows the host's window scene rather than standing a scene-less
+    /// window up.
     ///
     /// Not cosmetic: a window off the scene never mounts a `TabView` that *arrives* after the
     /// first render - no tab bar controller, no tab root, no `body` call - while one that was
     /// there from the first render mounts fine. That asymmetry reads as a missing screen view
     /// on the app's most common entry, and it cost this suite a false alarm once already.
-    private func hostWindow(_ view: some View) -> UIWindow {
-        let size = CGSize(width: 390, height: 640)
-        let controller = UIHostingController(rootView: view)
-        controller.view.frame = CGRect(origin: .zero, size: size)
-
-        let window = UIWindow(frame: controller.view.frame)
-        window.windowScene = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        return window
-    }
-
-    private func teardown(_ window: UIWindow) {
-        window.resignKey()
-        window.isHidden = true
-        window.rootViewController = nil
-        window.windowScene = nil
+    private func host(
+        _ view: some View,
+        _ body: @MainActor (HostedScreen) async throws -> Void
+    ) async throws {
+        try await RenderedScreen.host(
+            view,
+            size: CGSize(width: 390, height: 640),
+            settle: .turns(1),
+            body
+        )
     }
 
     /// Drives layout until the condition holds, so a slow machine costs latency rather than a
     /// red build.
     @discardableResult
     private func pump(
-        _ window: UIWindow,
+        _ screen: HostedScreen,
         iterations: Int = 200,
         until isSatisfied: () -> Bool
     ) async throws -> Bool {
         for _ in 0..<iterations {
-            window.setNeedsLayout()
-            window.layoutIfNeeded()
+            screen.window.setNeedsLayout()
+            screen.window.layoutIfNeeded()
 
             if isSatisfied() {
                 return true
@@ -208,8 +201,8 @@ struct RouteScreenViewEvidenceTests {
 
     /// A bounded drain for the assertions that something did NOT happen - there is no
     /// condition to wait on, only a window in which it could have.
-    private func drain(_ window: UIWindow, iterations: Int = 12) async throws {
-        _ = try await pump(window, iterations: iterations) { false }
+    private func drain(_ screen: HostedScreen, iterations: Int = 12) async throws {
+        _ = try await pump(screen, iterations: iterations) { false }
     }
 }
 

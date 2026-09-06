@@ -22,13 +22,11 @@ struct CoachMarkOverlayAccessibilityTests {
         }
         let presentations = sharePresentations + [RoutineBuilderCoachMark.timeline.presentation]
 
-        try await withAccessibilityAutomation {
-            for (index, presentation) in presentations.enumerated() {
-                try await verifyAccessibilityLayout(
-                    of: presentation,
-                    photographedAs: "dynamic-type-a5-\(index)"
-                )
-            }
+        for (index, presentation) in presentations.enumerated() {
+            try await verifyAccessibilityLayout(
+                of: presentation,
+                photographedAs: "dynamic-type-a5-\(index)"
+            )
         }
     }
 
@@ -52,27 +50,11 @@ struct CoachMarkOverlayAccessibilityTests {
         )
         .frame(width: Self.screenSize.width, height: Self.screenSize.height)
 
-        try await withAccessibilityAutomation {
-            let controller = UIHostingController(rootView: root)
-            controller.view.frame = CGRect(origin: .zero, size: Self.screenSize)
-            let scene = UIApplication.shared.connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .first
-            let window = scene.map { UIWindow(windowScene: $0) }
-                ?? UIWindow(frame: CGRect(origin: .zero, size: Self.screenSize))
-            window.frame = CGRect(origin: .zero, size: Self.screenSize)
-            window.rootViewController = controller
-            window.makeKeyAndVisible()
-            defer {
-                window.isHidden = true
-                window.rootViewController = nil
-                window.windowScene = nil
-            }
-
-            let elements = try await settledAccessibilityElements(under: window) { elements in
+        try await RenderedScreen.host(root, size: Self.screenSize) { screen in
+            let elements = try await settledAccessibilityElements(under: screen.window) { elements in
                 elements.contains { $0.accessibilityLabel == presentation.title }
             }
-            let handled = ([window as NSObject] + elements).contains { element in
+            let handled = ([screen.window as NSObject] + elements).contains { element in
                 element.accessibilityPerformEscape()
             }
             #expect(handled)
@@ -80,6 +62,10 @@ struct CoachMarkOverlayAccessibilityTests {
         }
     }
 
+    /// The frames prove the card and its actions stay reachable at Accessibility 5 - frames are
+    /// scale-free, so nothing here needs a bitmap. The photograph, written only when
+    /// `ASCEND_EVIDENCE_DIR` is set, shows the chrome around them is still readable rather than
+    /// merely present.
     private func verifyAccessibilityLayout(
         of presentation: CoachMarkPresentation,
         photographedAs name: String? = nil
@@ -98,78 +84,45 @@ struct CoachMarkOverlayAccessibilityTests {
         .environment(\.dynamicTypeSize, .accessibility5)
         .transaction { $0.disablesAnimations = true }
 
-        let controller = UIHostingController(rootView: root)
-        controller.overrideUserInterfaceStyle = .dark
-        controller.view.frame = CGRect(origin: .zero, size: Self.screenSize)
-        let scene = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first
-        let window = scene.map { UIWindow(windowScene: $0) }
-            ?? UIWindow(frame: CGRect(origin: .zero, size: Self.screenSize))
-        window.frame = CGRect(origin: .zero, size: Self.screenSize)
-        window.overrideUserInterfaceStyle = .dark
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        defer {
-            window.isHidden = true
-            window.rootViewController = nil
-            window.windowScene = nil
-        }
+        try await RenderedScreen.host(root, size: Self.screenSize) { screen in
+            let window = screen.window
+            let elements: [NSObject] = try await settledAccessibilityElements(under: window) { elements in
+                elements.contains { $0.accessibilityLabel == presentation.title }
+                    && elements.contains { $0.accessibilityLabel == "Skip" }
+                    && elements.contains { $0.accessibilityLabel == presentation.primaryActionTitle }
+            }
+            let viewport = window.convert(window.bounds, to: nil).insetBy(dx: -0.5, dy: -0.5)
 
-        let elements: [NSObject] = try await settledAccessibilityElements(under: window) { elements in
-            elements.contains { $0.accessibilityLabel == presentation.title }
-                && elements.contains { $0.accessibilityLabel == "Skip" }
-                && elements.contains { $0.accessibilityLabel == presentation.primaryActionTitle }
-        }
-        let viewport = window.convert(window.bounds, to: nil).insetBy(dx: -0.5, dy: -0.5)
-
-        let heading = try #require(
-            elements.filter { $0.accessibilityLabel == presentation.title }.first,
-            "The coach-mark heading was not reachable"
-        )
-        #expect(viewport.contains(heading.accessibilityFrame))
-
-        let message = try #require(
-            elements.filter { $0.accessibilityLabel == presentation.message }.first,
-            "The coach-mark message was not reachable"
-        )
-        #expect(viewport.intersects(message.accessibilityFrame))
-
-        for label in ["Skip", presentation.primaryActionTitle] {
-            let actionMatch = elements.filter { element in
-                element.accessibilityLabel == label
-                    && element.accessibilityTraits.contains(.button)
-            }.first
-            let action = try #require(
-                actionMatch,
-                "The \(label) action was not reachable for \(presentation.title)"
+            let heading = try #require(
+                elements.filter { $0.accessibilityLabel == presentation.title }.first,
+                "The coach-mark heading was not reachable"
             )
-            #expect(viewport.contains(action.accessibilityFrame))
-            #expect(action.accessibilityFrame.width >= 44)
-            #expect(action.accessibilityFrame.height >= 44)
-        }
+            #expect(viewport.contains(heading.accessibilityFrame))
 
-        if let name {
-            try photograph(window, named: name)
-        }
-    }
+            let message = try #require(
+                elements.filter { $0.accessibilityLabel == presentation.message }.first,
+                "The coach-mark message was not reachable"
+            )
+            #expect(viewport.intersects(message.accessibilityFrame))
 
-    /// The frames above prove the card and its actions stay reachable at Accessibility 5. The
-    /// picture proves the chrome around them is still readable rather than merely present.
-    private func photograph(_ window: UIWindow, named name: String) throws {
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.scale = 3
-        let image = UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { _ in
-            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-        }
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
+            for label in ["Skip", presentation.primaryActionTitle] {
+                let actionMatch = elements.filter { element in
+                    element.accessibilityLabel == label
+                        && element.accessibilityTraits.contains(.button)
+                }.first
+                let action = try #require(
+                    actionMatch,
+                    "The \(label) action was not reachable for \(presentation.title)"
+                )
+                #expect(viewport.contains(action.accessibilityFrame))
+                #expect(action.accessibilityFrame.width >= 44)
+                #expect(action.accessibilityFrame.height >= 44)
+            }
 
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: "\(name).png")
-        try png.write(to: url)
-        #expect(png.count > 5_000)
-        print("evidence: \(url.path())")
+            if let name {
+                try screen.photograph(named: name)
+            }
+        }
     }
 }
 

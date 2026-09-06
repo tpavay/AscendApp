@@ -14,15 +14,19 @@ struct LiveClimbSummaryRankHeroTests {
     typealias Hero = LiveClimbSummaryRankHero
 
     /// Captain-reproduced on CN Tower, 2026-07-31: staging held a frozen snapshot
-    /// of rank 1 / completedCount 1 while the climb detail counted 50 published
-    /// completions. The hero read "1st of 1 / LIVE CLIMB COMPLETE", which invites
-    /// the reader to compare it with 50.
+    /// while the climb detail counted 50 published completions. The hero read
+    /// "1st of 12 / LIVE CLIMB COMPLETE", which invites the reader to compare it
+    /// with 50.
+    ///
+    /// The field here is deliberately a real one. A frozen standing over a field
+    /// of *one* no longer renders a rank at all - see
+    /// `LiveClimbSummaryHeroGoverningRuleTests`.
     @Test
     func frozenStandingNamesItselfInsteadOfClaimingTheSessionCompleted() throws {
         let hero = try #require(Hero.make(
             isClimbContext: true,
             standings: [
-                Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
+                Hero.Standing(rank: 1, total: 12, basis: .atCompletion),
                 Hero.Standing(rank: 37, total: 50, basis: .current)
             ],
             sync: publishedSync(),
@@ -30,7 +34,7 @@ struct LiveClimbSummaryRankHeroTests {
         ))
 
         #expect(hero.value == .rank(1))
-        #expect(hero.total == 1)
+        #expect(hero.total == 12)
         #expect(hero.detail == "RANK WHEN YOU FINISHED")
         #expect(hero.detail != "LIVE CLIMB COMPLETE")
         #expect(hero.detail != "CURRENT LEADERBOARD RANK")
@@ -41,7 +45,7 @@ struct LiveClimbSummaryRankHeroTests {
         let hero = try #require(Hero.make(
             isClimbContext: true,
             standings: [
-                Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
+                Hero.Standing(rank: 1, total: 12, basis: .atCompletion),
                 Hero.Standing(rank: 1, total: 50, basis: .current)
             ],
             sync: publishedSync(),
@@ -49,7 +53,7 @@ struct LiveClimbSummaryRankHeroTests {
         ))
 
         #expect(hero.standing?.basis == .atCompletion)
-        #expect(hero.total == 1)
+        #expect(hero.total == 12)
     }
 
     /// The captain's rule: 21st of 64 stays 21st of 64. However many climbers
@@ -86,6 +90,73 @@ struct LiveClimbSummaryRankHeroTests {
         #expect(hero.value == .rank(21))
         #expect(hero.total == 64)
         #expect(hero.detail == "CURRENT LEADERBOARD RANK")
+    }
+
+    /// The noun follows the number that is on screen, not the board it sits on.
+    /// An open Just Climb freezes its stamp over completed attempts and
+    /// recomputes over climbers, so one context type answers with both nouns
+    /// depending on which standing won precedence.
+    @Test
+    func theFieldNounFollowsTheBasisOnShow() throws {
+        let frozen = try #require(Hero.make(
+            isClimbContext: false,
+            standings: [Hero.Standing(rank: 13, total: 41, basis: .atCompletion)],
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        ))
+        let recomputed = try #require(Hero.make(
+            isClimbContext: false,
+            standings: [Hero.Standing(rank: 6, total: 16, basis: .current)],
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        ))
+
+        #expect(frozen.fieldPopulation(on: .justClimb) == .completions)
+        #expect(recomputed.fieldPopulation(on: .justClimb) == .climbers)
+    }
+
+    /// Load-bearing, not cosmetic. The captain accepted a Just Climb summary
+    /// counting climbers while Climb Detail lists every completion *because* the
+    /// rank card says CLIMBERS out loud - that noun is what disambiguates the two
+    /// totals, so it may not change without reopening the decision. Fails if
+    /// `recomputedFieldPopulation` is ever tidied back into deriving from
+    /// `collapsesRepeatFinishers`, which would silently make these boards say
+    /// COMPLETIONS over a climber count.
+    @Test(arguments: [
+        LiveReplayLeaderboardContextType.justClimb,
+        LiveReplayLeaderboardContextType.routine
+    ])
+    func aRecomputedStandingOnAnAttemptBoardNamesClimbers(
+        type: LiveReplayLeaderboardContextType
+    ) throws {
+        let recomputed = try #require(Hero.make(
+            isClimbContext: false,
+            standings: [Hero.Standing(rank: 6, total: 16, basis: .current)],
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        ))
+
+        #expect(type.collapsesRepeatFinishers == false)
+        #expect(recomputed.fieldPopulation(on: type) == .climbers)
+    }
+
+    @Test
+    func aCollapsingBoardNamesClimbersOnEitherBasis() throws {
+        let frozen = try #require(Hero.make(
+            isClimbContext: true,
+            standings: [Hero.Standing(rank: 2, total: 2, basis: .atCompletion)],
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        ))
+        let recomputed = try #require(Hero.make(
+            isClimbContext: true,
+            standings: [Hero.Standing(rank: 2, total: 2, basis: .current)],
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        ))
+
+        #expect(frozen.fieldPopulation(on: .liveClimb) == .climbers)
+        #expect(recomputed.fieldPopulation(on: .liveClimb) == .climbers)
     }
 
     @Test
@@ -148,35 +219,36 @@ struct LiveClimbSummaryRankHeroTests {
         #expect(Hero.Standing(rank: nil, total: 50, basis: .current) == nil)
     }
 
-    // MARK: - Moment
+    // MARK: - The frozen basis
 
-    /// The frozen basis still names itself when the summary *is* the moment - it
-    /// just says so in the present tense.
+    /// The frozen basis reads the same the instant a climb ends as it does a
+    /// month later, because both tenses describe the same number: the rank that
+    /// climb's own time earned on the day it landed. The completion-moment
+    /// variant said "RANK YOU JUST EARNED" and bought nothing over this, so it
+    /// went along with the `Moment` branch that existed only to choose it.
     @Test
-    func freshCompletionUsesThePresentTenseFrozenCopy() throws {
+    func theFrozenBasisReadsTheSameInBothMoments() throws {
         let hero = try #require(Hero.make(
             isClimbContext: true,
-            moment: .freshCompletion,
-            standings: [Hero.Standing(rank: 1, total: 1, basis: .atCompletion)],
+            standings: [Hero.Standing(rank: 4, total: 12, basis: .atCompletion)],
             sync: publishedSync(),
             copy: Hero.Copy()
         ))
 
-        #expect(hero.detail == "RANK YOU JUST EARNED")
+        #expect(hero.detail == "RANK WHEN YOU FINISHED")
+        #expect(hero.detail != "RANK YOU JUST EARNED")
     }
 
     @Test
-    func theMomentOnlyChangesTheFrozenBasis() throws {
+    func theOtherBasesNameTheirOwnPopulation() throws {
         let current = try #require(Hero.make(
             isClimbContext: true,
-            moment: .freshCompletion,
             standings: [Hero.Standing(rank: 9, total: 40, basis: .current)],
             sync: publishedSync(),
             copy: Hero.Copy()
         ))
         let session = try #require(Hero.make(
             isClimbContext: false,
-            moment: .freshCompletion,
             standings: [Hero.Standing(rank: 9, total: 40, basis: .liveSession)],
             sync: publishedSync(),
             copy: Hero.Copy(completedDetailOverride: "ROUTINE COMPLETE")
@@ -184,18 +256,6 @@ struct LiveClimbSummaryRankHeroTests {
 
         #expect(current.detail == "CURRENT LEADERBOARD RANK")
         #expect(session.detail == "ROUTINE COMPLETE")
-    }
-
-    @Test
-    func summariesAreRetrospectiveUnlessTheCallerSaysOtherwise() throws {
-        let hero = try #require(Hero.make(
-            isClimbContext: true,
-            standings: [Hero.Standing(rank: 1, total: 1, basis: .atCompletion)],
-            sync: publishedSync(),
-            copy: Hero.Copy()
-        ))
-
-        #expect(hero.detail == "RANK WHEN YOU FINISHED")
     }
 
     // MARK: - In-session standings

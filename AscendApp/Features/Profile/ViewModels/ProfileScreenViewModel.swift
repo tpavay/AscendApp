@@ -6,7 +6,9 @@ import SwiftData
 @Observable
 final class ProfileScreenViewModel {
     var standings: [ProfileStanding] = []
-    var achievements: ProfileAchievementLadder = .empty
+    /// Unreadable until a load says otherwise: nothing has been read yet, and a zero here would
+    /// be a claim about a climber's record rather than an absence of one.
+    var achievements: ProfileAchievementLadder = .unreadable
     var firstAscentsHeld: [ProfileFirstAscentSummary] = []
     var openFirstAscents: [ProfileFirstAscentSummary] = []
     var otherUserSnapshot: ProfileSnapshot?
@@ -145,7 +147,9 @@ final class ProfileScreenViewModel {
             otherUserSnapshot = ProfileSnapshotBuilder.makeRemoteSnapshot(
                 demographics: otherUserDemographics(userId: userId),
                 stats: .empty,
-                achievements: .empty,
+                // Nobody read this climber's ladder, so it must not report zeroes: the
+                // comparison would ghost badges they may well hold.
+                achievements: .unreadable,
                 standings: [],
                 workoutSummaries: [],
                 firstAscentsHeld: [],
@@ -241,7 +245,7 @@ final class ProfileScreenViewModel {
             let stats = try await profileRepository.fetchStats(userId: userId)
             return ProfileAchievementLadder(bandedCounters: stats?.achievementCounts ?? .zero)
         } catch {
-            return .empty
+            return .unreadable
         }
     }
 

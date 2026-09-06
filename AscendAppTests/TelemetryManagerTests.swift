@@ -6,10 +6,208 @@
 //
 
 import Foundation
+@preconcurrency import FirebaseFunctions
 import Testing
 @testable import AscendApp
 
 struct TelemetryManagerTests {
+    @Test
+    func accountBoundDeliveryNeverCrossesTheSinkIdentity() {
+        let sink = IdentityAttributingTelemetrySink()
+        let telemetry = TelemetryManager(
+            sinks: [sink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            buildMetadata: Self.stagingBuildMetadata,
+            identityStore: makeTestIdentityStore()
+        )
+        telemetry.configure()
+        telemetry.setUserId("climber-a")
+
+        let deliveredForA = telemetry.track(
+            TelemetryRecord(name: "purchase_started"),
+            ifIdentifiedAs: "climber-a"
+        )
+        telemetry.setUserId("climber-b")
+        let staleADeliveredToB = telemetry.track(
+            TelemetryRecord(
+                name: "purchase_completed",
+                parameters: ["identity_match": .bool(false)]
+            ),
+            ifIdentifiedAs: "climber-a"
+        )
+        let deliveredForB = telemetry.track(
+            TelemetryRecord(name: "restore_started"),
+            ifIdentifiedAs: "climber-b"
+        )
+        _ = telemetry.clearUserId()
+        let signedOutDelivery = telemetry.track(
+            TelemetryRecord(name: "restore_completed"),
+            ifIdentifiedAs: "climber-b"
+        )
+
+        #expect(deliveredForA)
+        #expect(staleADeliveredToB == false)
+        #expect(deliveredForB)
+        #expect(signedOutDelivery == false)
+        #expect(sink.attributions.map(\.name) == ["purchase_started", "restore_started"])
+        #expect(sink.attributions.map(\.userID) == ["climber-a", "climber-b"])
+        for attribution in sink.attributions {
+            #expect(attribution.parameters["user_id"] == nil)
+        }
+    }
+
+    @Test
+    func guardedDeliveryAndIdentityMutationAreAtomicInBothWinnerOrders() async {
+        let deliveryFirstSink = BlockingIdentityAttributingTelemetrySink(blockPoint: .record)
+        let deliveryLane = ControlledTelemetryDeliveryLane()
+        let deliveryFirstTelemetry = Self.makeTelemetry(
+            sink: deliveryFirstSink,
+            deliveryLane: deliveryLane
+        )
+        deliveryFirstTelemetry.setUserId("climber-a")
+
+        let deliveryTask = Task.detached {
+            deliveryFirstTelemetry.track(
+                TelemetryRecord(name: "purchase_completed"),
+                ifIdentifiedAs: "climber-a"
+            )
+        }
+        await Task.detached { deliveryFirstSink.waitUntilBlocked() }.value
+        deliveryLane.armNextEntryObservation()
+        let mutationTask = Task.detached {
+            deliveryFirstTelemetry.setUserId("climber-b")
+        }
+        let mutationWaitedOnTheOccupiedLane = await Task.detached {
+            deliveryLane.waitForObservedEntry()
+        }.value
+        #expect(mutationWaitedOnTheOccupiedLane)
+        deliveryFirstSink.releaseBlockedCall()
+
+        #expect(await deliveryTask.value)
+        await mutationTask.value
+        #expect(deliveryFirstSink.attributions.map(\.userID) == ["climber-a"])
+
+        let identityFirstSink = BlockingIdentityAttributingTelemetrySink(
+            blockPoint: .identify(userID: "climber-b")
+        )
+        let identityFirstTelemetry = Self.makeTelemetry(sink: identityFirstSink)
+        identityFirstTelemetry.setUserId("climber-a")
+
+        let identityTask = Task.detached {
+            identityFirstTelemetry.setUserId("climber-b")
+        }
+        await Task.detached { identityFirstSink.waitUntilBlocked() }.value
+        let staleDeliveryTask = Task.detached {
+            identityFirstTelemetry.track(
+                TelemetryRecord(name: "restore_completed"),
+                ifIdentifiedAs: "climber-a"
+            )
+        }
+        identityFirstSink.releaseBlockedCall()
+
+        await identityTask.value
+        #expect(await staleDeliveryTask.value == false)
+        #expect(identityFirstSink.attributions.isEmpty)
+    }
+
+    @Test
+    func lifecycleRecorderBuildsAnOwnerBoundEnvelopeAndRejectsStalePreflight() throws {
+        let envelope = try LifecycleEventRecorder.makeCallableEnvelope(
+            type: "paywall_shown",
+            payload: ["placement": "app_access_gate"],
+            currentUserID: "climber-a",
+            expectedUserID: "climber-a"
+        )
+        #expect(
+            envelope["deliverySchemaVersion"] as? Int
+                == LifecycleEventRecorder.ownerBoundDeliverySchemaVersion
+        )
+        #expect(envelope["expectedUserID"] as? String == "climber-a")
+        #expect(envelope["type"] as? String == "paywall_shown")
+        let payload = try #require(envelope["payload"] as? [String: Any])
+        #expect(payload["placement"] as? String == "app_access_gate")
+        #expect(payload["deliverySchemaVersion"] == nil)
+        #expect(payload["expectedUserID"] == nil)
+
+        #expect(throws: LifecycleEventRecorderError.identityChanged) {
+            try LifecycleEventRecorder.makeCallableEnvelope(
+                type: "paywall_shown",
+                payload: ["placement": "app_access_gate"],
+                currentUserID: "climber-b",
+                expectedUserID: "climber-a"
+            )
+        }
+        #expect(throws: LifecycleEventRecorderError.signedOut) {
+            try LifecycleEventRecorder.makeCallableEnvelope(
+                type: "paywall_shown",
+                payload: ["placement": "app_access_gate"],
+                currentUserID: nil,
+                expectedUserID: "climber-a"
+            )
+        }
+    }
+
+    @Test(.bug(id: 554))
+    func structuredLifecycleOwnerMismatchIsSuppressedForTheCurrentAccount() {
+        let reporter = RecordingCrashlyticsReporter()
+        let telemetry = Self.makeTelemetry(reporter: reporter)
+        telemetry.setUserId("climber-a")
+
+        let ownerRefusal = NSError(
+            domain: FunctionsErrorDomain,
+            code: FunctionsErrorCode.permissionDenied.rawValue,
+            userInfo: [
+                FunctionsErrorDetailsKey: [
+                    "deliverySchemaVersion": 2,
+                    "reason": LifecycleEventRecorder.ownerMismatchReason
+                ]
+            ]
+        )
+        LifecycleEventRecorder.handleRecordFailure(
+            ownerRefusal,
+            type: "paywall_shown",
+            expectedUserID: "climber-a",
+            telemetry: telemetry
+        )
+
+        #expect(reporter.recordedErrors.isEmpty)
+    }
+
+    @Test(.bug(id: 554))
+    func unrelatedLifecycleFailureForThePreviousAccountIsNotReportedUnderTheNextAccount() {
+        let reporter = RecordingCrashlyticsReporter()
+        let telemetry = Self.makeTelemetry(reporter: reporter)
+        telemetry.setUserId("climber-a")
+        telemetry.setUserId("climber-b")
+
+        LifecycleEventRecorder.handleRecordFailure(
+            Self.makeUnrelatedLifecyclePermissionError(),
+            type: "paywall_shown",
+            expectedUserID: "climber-a",
+            telemetry: telemetry
+        )
+
+        #expect(reporter.recordedErrors.isEmpty)
+    }
+
+    @Test(.bug(id: 554))
+    func unrelatedLifecycleFailureReportsOnceForTheCurrentAccount() {
+        let reporter = RecordingCrashlyticsReporter()
+        let telemetry = Self.makeTelemetry(reporter: reporter)
+        telemetry.setUserId("climber-b")
+
+        LifecycleEventRecorder.handleRecordFailure(
+            Self.makeUnrelatedLifecyclePermissionError(),
+            type: "paywall_shown",
+            expectedUserID: "climber-b",
+            telemetry: telemetry
+        )
+
+        #expect(reporter.recordedErrors.count == 1)
+        #expect(reporter.recordedErrors.first?.code == "lifecycle_event_record_failed")
+    }
+
     @Test
     func trackRoutesRecordsToMatchingDestinations() {
         let analyticsSink = InMemoryTelemetrySink(destination: .analytics)
@@ -18,7 +216,8 @@ struct TelemetryManagerTests {
             sinks: [analyticsSink, crashlyticsSink],
             crashlyticsReporter: NoopCrashlyticsReporter(),
             collectionEnabledOverride: true,
-            buildMetadata: Self.stagingBuildMetadata
+            buildMetadata: Self.stagingBuildMetadata,
+            identityStore: makeTestIdentityStore()
         )
 
         telemetry.configure()
@@ -75,7 +274,8 @@ struct TelemetryManagerTests {
                 appVersion: "",
                 buildNumber: "",
                 bundleIdentifier: "com.tylerpavay.AscendApp"
-            )
+            ),
+            identityStore: makeTestIdentityStore()
         )
 
         telemetry.configure()
@@ -120,7 +320,8 @@ struct TelemetryManagerTests {
         let telemetry = TelemetryManager(
             sinks: [analyticsSink],
             crashlyticsReporter: NoopCrashlyticsReporter(),
-            collectionEnabledOverride: false
+            collectionEnabledOverride: false,
+            identityStore: makeTestIdentityStore()
         )
 
         telemetry.configure()
@@ -130,6 +331,44 @@ struct TelemetryManagerTests {
         #expect(analyticsSink.collectionEnabledValues == [false])
         #expect(analyticsSink.records.isEmpty)
         #expect(analyticsSink.screens.isEmpty)
+    }
+
+    /// Not only Mixpanel: a Release binary on a simulator carries the shipped Firebase plist and
+    /// the shipped Sentry DSN too, so the whole manager goes quiet rather than one sink. The check
+    /// sits above the launch-argument overrides on purpose - production is measured, never
+    /// rehearsed, and no flag may re-open it.
+    @Test
+    func aProductionBuildOnASimulatorCollectsNothingAtAll() throws {
+        let suiteName = "TelemetryManagerTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let suppressed = TelemetryManager.shouldEnableCollection(
+            arguments: ["AscendApp", "-TelemetryEnabled"],
+            environment: [:],
+            userDefaults: defaults,
+            buildMetadata: Self.productionBuildMetadata,
+            runtime: TelemetryRuntimeEnvironment(isSimulator: true)
+        )
+        let onACustomersPhone = TelemetryManager.shouldEnableCollection(
+            arguments: ["AscendApp", "-TelemetryEnabled"],
+            environment: [:],
+            userDefaults: defaults,
+            buildMetadata: Self.productionBuildMetadata,
+            runtime: TelemetryRuntimeEnvironment(isSimulator: false)
+        )
+        let stagingOnASimulator = TelemetryManager.shouldEnableCollection(
+            arguments: ["AscendApp", "-TelemetryEnabled"],
+            environment: [:],
+            userDefaults: defaults,
+            buildMetadata: Self.stagingBuildMetadata,
+            runtime: TelemetryRuntimeEnvironment(isSimulator: true)
+        )
+
+        #expect(suppressed == false)
+        #expect(onACustomersPhone)
+        #expect(stagingOnASimulator)
     }
 
     #if DEBUG
@@ -251,4 +490,54 @@ struct TelemetryManagerTests {
         buildNumber: "456",
         bundleIdentifier: "com.tylerpavay.AscendApp.staging"
     )
+
+    private static let productionBuildMetadata = TelemetryBuildMetadata(
+        appEnvironment: "production",
+        buildConfig: "release",
+        appVersion: "1.0",
+        buildNumber: "2026082101",
+        bundleIdentifier: "com.tylerpavay.AscendApp"
+    )
+}
+
+private extension TelemetryManagerTests {
+    static func makeUnrelatedLifecyclePermissionError() -> NSError {
+        NSError(
+            domain: FunctionsErrorDomain,
+            code: FunctionsErrorCode.permissionDenied.rawValue,
+            userInfo: [
+                FunctionsErrorDetailsKey: ["reason": "firestore_rule_rejected"]
+            ]
+        )
+    }
+
+    static func makeTelemetry(
+        sink: any TelemetrySink,
+        deliveryLane: any TelemetryDeliveryLaning = LockedTelemetryDeliveryLane()
+    ) -> TelemetryManager {
+        let telemetry = TelemetryManager(
+            sinks: [sink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            buildMetadata: stagingBuildMetadata,
+            identityStore: makeTestIdentityStore(),
+            deliveryLane: deliveryLane
+        )
+        telemetry.configure()
+        return telemetry
+    }
+
+    static func makeTelemetry(
+        reporter: any CrashlyticsReporting
+    ) -> TelemetryManager {
+        let telemetry = TelemetryManager(
+            sinks: [],
+            crashlyticsReporter: reporter,
+            collectionEnabledOverride: true,
+            buildMetadata: stagingBuildMetadata,
+            identityStore: makeTestIdentityStore()
+        )
+        telemetry.configure()
+        return telemetry
+    }
 }

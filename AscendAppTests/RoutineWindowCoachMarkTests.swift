@@ -177,8 +177,9 @@ struct RoutineBuilderCoachMarkAnchorTests {
         #expect(Set(resolved.keys) == [.timeline, .stepControl, .add])
     }
 
-    /// Renders the probe through the same `ImageRenderer` the evidence tests use, which runs a
-    /// real layout pass, and reports what `overlayPreferenceValue` actually received.
+    /// Lays the probe out off screen through the same `RenderedScreen` path the evidence tests
+    /// use, which runs a real layout pass, and reports what `overlayPreferenceValue` actually
+    /// received. The pixels themselves are never read.
     private static func resolveTargets(
         @ViewBuilder content: () -> some View
     ) throws -> [RoutineBuilderCoachMarkTarget: CGRect] {
@@ -195,8 +196,7 @@ struct RoutineBuilderCoachMarkAnchorTests {
             }
             .frame(width: 402, height: 874)
 
-        let renderer = ImageRenderer(content: probe)
-        _ = try #require(renderer.uiImage, "ImageRenderer produced no image")
+        try RenderedScreen.withOffscreenPixels(of: probe) { _ in }
 
         return try #require(recorder.rects, "The coach mark overlay was never handed any anchors")
     }
@@ -207,7 +207,7 @@ private final class AnchorRecorder {
     var rects: [RoutineBuilderCoachMarkTarget: CGRect]?
 }
 
-/// Reports from `body`, because `ImageRenderer` evaluates bodies but runs no lifecycle.
+/// Reports from `body`, because an off-screen layout evaluates bodies but runs no lifecycle.
 @MainActor
 private struct AnchorReporter: View {
     let recorder: AnchorRecorder

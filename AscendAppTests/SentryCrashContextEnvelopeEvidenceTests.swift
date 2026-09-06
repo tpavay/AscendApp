@@ -57,8 +57,8 @@ import UIKit
 /// found, and the attachments that left - so which half of the rule a given run
 /// proved is in the record rather than inferred from a green tick.
 ///
-/// Artifacts land in `ASCEND_EVIDENCE_DIR` when it is set, and in the test
-/// host's temporary directory otherwise.
+/// Artifacts are written only when `ASCEND_EVIDENCE_DIR` is set
+/// (`RenderedScreen.evidenceDirectory`); the run log line is kept either way.
 @MainActor
 @Suite(.serialized, .hostsAWindow, .ownsTheSentrySDK)
 struct SentryCrashContextEnvelopeEvidenceTests {
@@ -157,12 +157,13 @@ struct SentryCrashContextEnvelopeEvidenceTests {
 
         // The attachments are of the screen that was up, not of an empty window
         // a later change could leave behind: the picture is the window's own
-        // size, and the tree names the mask marker the chart carries.
-        let screenshot = try #require(
-            severeEnvelope.attachments.first { $0.filename == "screenshot.png" }.flatMap { UIImage(data: $0.payload) },
+        // size, and the tree names the mask marker the chart carries. The size
+        // is read off the PNG's header; nothing here decodes the picture.
+        let screenshotSize = try #require(
+            severeEnvelope.attachments.first { $0.filename == "screenshot.png" }.flatMap { Self.pngPixelSize(of: $0.payload) },
             "the screenshot attachment is not a readable PNG"
         )
-        #expect(screenshot.size == window.bounds.size, "the screenshot is not of the window that was up")
+        #expect(screenshotSize == window.bounds.size, "the screenshot is not of the window that was up")
 
         #expect(
             hierarchy.contains("SentryMaskedRegionView"),
@@ -347,6 +348,25 @@ struct SentryCrashContextEnvelopeEvidenceTests {
         throw CancellationError()
     }
 
+    /// The pixel size a PNG declares in its IHDR chunk - always the first chunk,
+    /// at a fixed offset - read without decoding the picture. The SDK writes its
+    /// screenshot at 1x, so the pixel size is the window's point size.
+    private static func pngPixelSize(of png: Data) -> CGSize? {
+        // 8-byte signature, then the IHDR chunk: 4-byte length, "IHDR", width,
+        // height - the two dimensions as big-endian 32-bit words.
+        let header = [UInt8](png.prefix(24))
+        guard header.count == 24,
+              Array(header[0..<8]) == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A],
+              Array(header[12..<16]) == Array("IHDR".utf8)
+        else { return nil }
+
+        func word(at offset: Int) -> Int {
+            header[offset..<(offset + 4)].reduce(0) { ($0 << 8) | Int($1) }
+        }
+
+        return CGSize(width: word(at: 16), height: word(at: 20))
+    }
+
     private static func storedEnvelopes(in cache: URL) -> [StoredEnvelope] {
         let files = FileManager.default
             .enumerator(at: cache, includingPropertiesForKeys: nil)?
@@ -421,7 +441,7 @@ struct SentryCrashContextEnvelopeEvidenceTests {
         severe: StoredEnvelope,
         photographedHost: Bool
     ) throws {
-        let directory = evidenceDirectory
+        guard let directory = RenderedScreen.evidenceDirectory else { return }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         let picture = photographedHost
@@ -472,10 +492,5 @@ struct SentryCrashContextEnvelopeEvidenceTests {
         }
 
         print("crash context evidence: \(directory.path())")
-    }
-
-    private static var evidenceDirectory: URL {
-        ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"].map { URL(filePath: $0) }
-            ?? URL.temporaryDirectory.appending(path: "sentry-crash-context-evidence")
     }
 }

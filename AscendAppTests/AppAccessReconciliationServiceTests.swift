@@ -113,7 +113,7 @@ struct AppAccessReconciliationServiceTests {
     }
 
     @Test
-    func overlappingCallersNeverLeaveAStaleInFlightMarker() async {
+    func overlappingForcedCallersJoinOneRequestAndClearTheInFlightMarker() async {
         let invoker = ReconciliationInvokerSpy(outcomes: [.active, .active, .active])
         let clock = TestClock()
         let service = makeService(invoker: invoker, clock: clock)
@@ -123,7 +123,10 @@ struct AppAccessReconciliationServiceTests {
         _ = await (first, second)
 
         await service.reconcileAppAccess(force: false)
+        #expect(invoker.callCount == 1)
 
+        clock.advance(by: 301)
+        await service.reconcileAppAccess(force: false)
         #expect(invoker.callCount == 2)
     }
 
@@ -144,16 +147,39 @@ struct AppAccessReconciliationServiceTests {
     @Test
     func aDifferentSignedInUserIsAlwaysReconciled() async {
         let invoker = ReconciliationInvokerSpy(outcomes: [.active, .active])
-        var userID = "user-a"
+        let user = ReconciliationUserBox(value: "user-a")
         let service = AppAccessReconciliationService(
             invoker: invoker,
-            currentUserID: { userID },
+            currentUserID: { user.value },
             clock: { Date(timeIntervalSince1970: 0) }
         )
 
         await service.reconcileAppAccess(force: false)
-        userID = "user-b"
+        user.value = "user-b"
         await service.reconcileAppAccess(force: false)
+
+        #expect(invoker.callCount == 2)
+    }
+
+    @Test
+    func aForcedNewUserWaitsForTheOldRequestThenRunsTheirOwnReconciliation() async {
+        let invoker = SuspendingReconciliationInvoker()
+        let user = ReconciliationUserBox(value: "user-a")
+        let service = AppAccessReconciliationService(
+            invoker: invoker,
+            currentUserID: { user.value },
+            clock: { Date(timeIntervalSince1970: 0) }
+        )
+
+        async let userA: Void = service.reconcileAppAccess(force: true)
+        await invoker.waitUntilCallCount(1)
+
+        user.value = "user-b"
+        async let userB: Void = service.reconcileAppAccess(force: true)
+        invoker.completeNext(with: .active)
+        await invoker.waitUntilCallCount(2)
+        invoker.completeNext(with: .active)
+        _ = await (userA, userB)
 
         #expect(invoker.callCount == 2)
     }
@@ -198,5 +224,41 @@ private final class ReconciliationInvokerSpy: AppAccessReconciliationInvoking {
         }
 
         return outcomes.isEmpty ? .active : outcomes.removeFirst()
+    }
+}
+
+@MainActor
+private final class ReconciliationUserBox {
+    var value: String
+
+    init(value: String) {
+        self.value = value
+    }
+}
+
+@MainActor
+private final class SuspendingReconciliationInvoker: AppAccessReconciliationInvoking {
+    private(set) var callCount = 0
+    private var completions: [CheckedContinuation<AppAccessReconciliationOutcome, Never>] = []
+    private var callObservers: [CheckedContinuation<Void, Never>] = []
+
+    func invokeReconciliation() async -> AppAccessReconciliationOutcome {
+        callCount += 1
+        callObservers.forEach { $0.resume() }
+        callObservers = []
+        return await withCheckedContinuation { completions.append($0) }
+    }
+
+    func waitUntilCallCount(_ expected: Int) async {
+        guard callCount < expected else { return }
+        await withCheckedContinuation { callObservers.append($0) }
+        if callCount < expected {
+            await waitUntilCallCount(expected)
+        }
+    }
+
+    func completeNext(with outcome: AppAccessReconciliationOutcome) {
+        guard !completions.isEmpty else { return }
+        completions.removeFirst().resume(returning: outcome)
     }
 }

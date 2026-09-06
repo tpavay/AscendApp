@@ -80,7 +80,10 @@ struct ProfileAchievementLadderTests {
             ]
         )
 
-        let tokens = ProfilePrestigeToken.leaderboardTokens(for: ladder)
+        let tokens = ProfilePrestigeToken.tokens(
+            for: ProfileAchievementTally(ladder: ladder),
+            surface: .ownProfile
+        )
 
         #expect(tokens.map(\.id) == ["top1", "place2", "place3", "top10", "top100"])
         #expect(tokens.map(\.label) == ["CHAMPION", "#2", "#3", "TOP 10", "TOP 100"])
@@ -95,7 +98,10 @@ struct ProfileAchievementLadderTests {
             ]
         )
 
-        let tokens = ProfilePrestigeToken.leaderboardTokens(for: ladder)
+        let tokens = ProfilePrestigeToken.tokens(
+            for: ProfileAchievementTally(ladder: ladder),
+            surface: .ownProfile
+        )
 
         #expect(tokens.contains { $0.id == "place2" } == false)
         #expect(tokens.contains { $0.id == "place3" })
@@ -107,7 +113,10 @@ struct ProfileAchievementLadderTests {
             bandedCounters: ProfileAchievementCounts(top1: 1, top3: 9, top10: 14, top100: 30)
         )
 
-        let tokens = ProfilePrestigeToken.leaderboardTokens(for: ladder)
+        let tokens = ProfilePrestigeToken.tokens(
+            for: ProfileAchievementTally(ladder: ladder),
+            surface: .ownProfile
+        )
 
         #expect(tokens.map(\.id) == ["top1", "top10", "top100"])
     }
@@ -118,7 +127,10 @@ struct ProfileAchievementLadderTests {
             records: [record(id: "a", type: .monthlyTop3, rank: 2)]
         )
 
-        let tokens = ProfilePrestigeToken.leaderboardTokens(for: ladder)
+        let tokens = ProfilePrestigeToken.tokens(
+            for: ProfileAchievementTally(ladder: ladder),
+            surface: .ownProfile
+        )
 
         #expect(ladder.counts.top3 == 1)
         #expect(tokens.contains { $0.label == "TOP 3" } == false)

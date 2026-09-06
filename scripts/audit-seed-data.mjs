@@ -13,6 +13,10 @@ import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {getFirestore, Timestamp, FieldValue} from "firebase-admin/firestore";
+import {runPool, withRetry} from "./lib/firestore-bulk.mjs";
+
+/** Reads in flight at once during an audit. */
+const AUDIT_READ_CONCURRENCY = 32;
 import {
   assertSeedableProject,
   defaultSeedPackId,
@@ -165,12 +169,20 @@ function loadCatalog() {
 async function auditProfiles(db, failures) {
   let documentsChecked = 0;
 
-  for (const userId of expectedProfileUserIds()) {
+  // Read every persona's four documents at once. Serially this was 48 round
+  // trips before the audit reported anything, on a command whose whole job is to
+  // answer quickly enough that people run it.
+  const personas = await inOrder(expectedProfileUserIds(), async (userId) => {
     const userRef = db.collection("users").doc(userId);
-    const userSnapshot = await userRef.get();
-    const publicSnapshot = await userRef.collection("public_profile").doc("current").get();
-    const statsSnapshot = await userRef.collection("profile_stats").doc("current").get();
-    const workoutsSnapshot = await userRef.collection("profile_workouts").get();
+    const [userSnapshot, publicSnapshot, statsSnapshot, workoutsSnapshot] = await Promise.all([
+      read(userRef), read(userRef.collection("public_profile").doc("current")),
+      read(userRef.collection("profile_stats").doc("current")),
+      read(userRef.collection("profile_workouts")),
+    ]);
+    return {userId, userRef, userSnapshot, publicSnapshot, statsSnapshot, workoutsSnapshot};
+  });
+
+  for (const {userId, userSnapshot, publicSnapshot, statsSnapshot, workoutsSnapshot} of personas) {
 
     documentsChecked += 3 + workoutsSnapshot.size;
 
@@ -234,8 +246,10 @@ async function auditLeaderboard(db, catalog, failures) {
   const expectedIds = new Set(expectedWrites.map((item) => item.ref.id));
   let checked = 0;
 
-  for (const writeItem of expectedWrites) {
-    const snapshot = await writeItem.ref.get();
+  const expectedSnapshots = await inOrder(expectedWrites, (writeItem) => read(writeItem.ref));
+
+  for (const [writeIndex, writeItem] of expectedWrites.entries()) {
+    const snapshot = expectedSnapshots[writeIndex];
     const path = `leaderboard_stats/${writeItem.ref.id}`;
     const data = expectDocument(snapshot, path, failures);
     if (!data) continue;
@@ -271,28 +285,23 @@ async function auditLeaderboard(db, catalog, failures) {
     }
   }
 
-  for (const docId of expectedLeaderboardDocIds(seededAt)) {
-    if (expectedIds.has(docId)) continue;
-    const snapshot = await db.collection("leaderboard_stats").doc(docId).get();
-    if (snapshot.exists) {
-      failures.push(`leaderboard_stats/${docId} should not exist for a zero-step seeded user`);
-    }
-  }
+  const mustNotExist = [
+    ...expectedLeaderboardDocIds(seededAt)
+      .filter((docId) => !expectedIds.has(docId))
+      .map((docId) => [docId, "should not exist for a zero-step seeded user"]),
+    ...LEGACY_LEADERBOARD_USER_IDS.flatMap((userId) => LEGACY_TIME_FRAMES.map((timeFrame) =>
+      [`${userId}_${timeFrame}`, "is legacy orphan leaderboard data; clear/reseed leaderboard"])),
+    ...legacyLeaderboardDocIds()
+      .map((docId) => [docId, "is legacy profile leaderboard data; clear/reseed leaderboard"]),
+  ];
+  const orphanSnapshots = await inOrder(
+    mustNotExist,
+    ([docId]) => read(db.collection("leaderboard_stats").doc(docId))
+  );
 
-  for (const userId of LEGACY_LEADERBOARD_USER_IDS) {
-    for (const timeFrame of LEGACY_TIME_FRAMES) {
-      const docId = `${userId}_${timeFrame}`;
-      const snapshot = await db.collection("leaderboard_stats").doc(docId).get();
-      if (snapshot.exists) {
-        failures.push(`leaderboard_stats/${docId} is legacy orphan leaderboard data; clear/reseed leaderboard`);
-      }
-    }
-  }
-
-  for (const docId of legacyLeaderboardDocIds()) {
-    const snapshot = await db.collection("leaderboard_stats").doc(docId).get();
-    if (snapshot.exists) {
-      failures.push(`leaderboard_stats/${docId} is legacy profile leaderboard data; clear/reseed leaderboard`);
+  for (const [index, [docId, complaint]] of mustNotExist.entries()) {
+    if (orphanSnapshots[index].exists) {
+      failures.push(`leaderboard_stats/${docId} ${complaint}`);
     }
   }
 
@@ -365,7 +374,10 @@ async function auditLiveReplay(db, projectId, failures) {
   }
 
   let bucketZeroEntries = 0;
-  for (const doc of snapshot.docs) {
+  const bucketZeroByIndex = await inOrder(snapshot.docs, (doc) =>
+    read(doc.ref.collection("splitBuckets").doc("0").collection("entries")));
+
+  for (const [summaryIndex, doc] of snapshot.docs.entries()) {
     const data = doc.data();
     const path = `${LIVE_REPLAY_COLLECTION}/${doc.id}`;
     requirePresent(data, "contextType", path, failures);
@@ -375,7 +387,7 @@ async function auditLiveReplay(db, projectId, failures) {
     requirePresent(data, "replayEntryCount", path, failures);
     requirePresent(data, "bucketIntervalSeconds", path, failures);
 
-    const bucketZero = await doc.ref.collection("splitBuckets").doc("0").collection("entries").get();
+    const bucketZero = bucketZeroByIndex[summaryIndex];
     bucketZeroEntries += bucketZero.size;
 
     // Read off the counts and the holder, never off activityTier: the seed
@@ -564,3 +576,33 @@ main().catch((error) => {
   console.error(error);
   process.exit(1);
 });
+
+/**
+ * Reads one document or collection under a deadline.
+ *
+ * The audit is a read-only command people are meant to run often, so it has the
+ * same rule as the seeds: no call without a clock on it.
+ * @param {object} ref Document or collection reference.
+ * @return {Promise<object>} Snapshot.
+ */
+function read(ref) {
+  return withRetry(() => ref.get(), {description: `get(${ref.path})`});
+}
+
+/**
+ * Maps over items concurrently and returns the results in the original order.
+ *
+ * Order matters: the audit's value is a stable list of failures somebody can
+ * diff between runs, and a pool that appends as it finishes reorders them.
+ * @param {T[]} items Work items.
+ * @param {(item: T, index: number) => Promise<R>} worker Per-item work.
+ * @return {Promise<R[]>} Results, indexed as the input was.
+ * @template T, R
+ */
+async function inOrder(items, worker) {
+  const results = new Array(items.length);
+  await runPool(items, AUDIT_READ_CONCURRENCY, async (item, index) => {
+    results[index] = await worker(item, index);
+  });
+  return results;
+}

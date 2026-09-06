@@ -44,7 +44,7 @@ enum ProfileAchievementType: String, CaseIterable {
     }
 }
 
-enum ProfileAchievementRankBand: String, Identifiable {
+enum ProfileAchievementRankBand: String, Identifiable, Sendable {
     case top1
     case top3
     case top10
@@ -124,14 +124,6 @@ struct ProfileAchievementCounts: Equatable {
     var top100: Int
 
     static let zero = ProfileAchievementCounts(top1: 0, top3: 0, top10: 0, top100: 0)
-
-    var total: Int {
-        top1 + top3 + top10 + top100
-    }
-
-    var hasAny: Bool {
-        total > 0
-    }
 
     init(top1: Int, top3: Int, top10: Int, top100: Int) {
         self.top1 = max(top1, 0)

@@ -1,7 +1,6 @@
 import SwiftUI
 import Testing
 import UIKit
-import Vision
 @testable import AscendApp
 
 /// Reviewer-facing visual evidence for the 2026 World Tour catalogue additions.
@@ -9,19 +8,23 @@ import Vision
 /// The catalogue is data, but a climber meets it as pixels: a raceable preview card
 /// when they tap a pin on the globe, a locked "Coming Soon" card for the venue whose
 /// course distance is still unpublished, and a category placeholder whenever artwork
-/// is unavailable. These tests render the shipped views against the shipped catalogue
-/// file, read the rendered text back with Vision, and write reviewable proof sheets.
+/// is unavailable. These tests host the shipped views against the shipped catalogue
+/// file, read the copy back off the accessibility tree (`RenderedScreen`), and write
+/// reviewable proof sheets when `ASCEND_EVIDENCE_DIR` is set.
 @MainActor
+@Suite(.hostsAWindow)
 struct WorldTour2026CatalogueEvidenceTests {
     @Test
     func newVenuesRenderTheReleaseStateTheCatalogueShipsThemAt() async throws {
         let showcase = try Self.showcase()
 
         for climb in showcase {
-            let card = try renderCard(for: climb)
-            let text = try await recognizedText(in: card)
+            let city = climb.city.lowercased()
+            let text = try await RenderedScreen.host(cardContent(for: climb)) { screen in
+                try await screen.copy { $0.contains(city) }
+            }
 
-            #expect(text.contains(climb.city.lowercased()), "\(climb.id) lost its location")
+            #expect(text.contains(city), "\(climb.id) lost its location")
 
             if climb.releaseState == .available {
                 #expect(
@@ -40,9 +43,10 @@ struct WorldTour2026CatalogueEvidenceTests {
             }
         }
 
-        try writeEvidence(
-            image: try renderSheet(PreviewCardProof(climbs: showcase)),
-            named: "world-tour-2026-preview-cards.png"
+        try RenderedScreen.photograph(
+            PreviewCardProof(climbs: showcase),
+            named: "world-tour-2026-preview-cards",
+            scale: 2
         )
     }
 
@@ -51,23 +55,26 @@ struct WorldTour2026CatalogueEvidenceTests {
         let staircase = try Self.climb(id: "sommerbergbahn-stair")
         #expect(staircase.category == "staircase")
 
-        // Hosted in a window rather than flattened, so the artwork's own load pass runs
-        // and the sheet shows the settled placeholder a climber sees, not a spinner.
-        let sheet = try await hostedSnapshot(
-            of: StaircasePlaceholderProof(staircase: staircase),
+        // Hosted in a window rather than laid out flat, so the artwork's own load pass runs
+        // and the tree holds the settled placeholder a climber sees, not a spinner.
+        let copy = try await RenderedScreen.host(
+            StaircasePlaceholderProof(staircase: staircase),
             size: CGSize(width: 460, height: 420)
-        )
+        ) { screen in
+            let copy = try await screen.copy { $0.contains("sommerbergbahn") }
+            try screen.photograph(named: "world-tour-2026-staircase-placeholder", scale: 2)
+            return copy
+        }
         // The hero placeholder wraps the name across lines, so compare without spacing.
-        let text = try await recognizedText(in: sheet).replacing(" ", with: "")
+        let text = copy.replacing(" ", with: "")
         #expect(text.contains("sommerbergbahn"))
 
         // The two panels differ only by category, so identical pixels would mean the
-        // "staircase" case never fired and the default building symbol was drawn.
-        let staircasePanel = try renderPanel(for: staircase)
-        let asSkyscraper = try renderPanel(for: staircase.recategorised(as: "skyscraper"))
-        #expect(try #require(staircasePanel.pngData()) != #require(asSkyscraper.pngData()))
-
-        try writeEvidence(image: sheet, named: "world-tour-2026-staircase-placeholder.png")
+        // "staircase" case never fired and the default building symbol was drawn. Each
+        // panel is read at 1x and released before the other is laid out.
+        let staircasePanel = try panelPixels(for: staircase)
+        let asSkyscraper = try panelPixels(for: staircase.recategorised(as: "skyscraper"))
+        #expect(staircasePanel != asSkyscraper)
     }
 
     @Test
@@ -76,106 +83,51 @@ struct WorldTour2026CatalogueEvidenceTests {
         #expect(additions.count == 29)
         #expect(additions.count(where: { $0.releaseState == .available }) == 28)
 
-        let sheet = try renderSheet(AdditionRosterProof(climbs: additions))
-        let text = try await recognizedText(in: sheet)
+        let roster = AdditionRosterProof(climbs: additions)
+        // The roster is wider than a phone, so it is hosted in a window of its own width,
+        // tall enough to hold every row.
+        let text = try await RenderedScreen.host(
+            roster.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top),
+            size: CGSize(width: 930, height: 1_300)
+        ) { screen in
+            try await screen.copy { $0.contains("no published course distance") }
+        }
 
         #expect(text.contains("ping an finance centre") || text.contains("ping an"))
         #expect(text.contains("no published course distance"))
 
-        try writeEvidence(image: sheet, named: "world-tour-2026-addition-roster.png")
+        try RenderedScreen.photograph(roster, named: "world-tour-2026-addition-roster", scale: 2)
     }
 
-    // MARK: - Rendering
+    // MARK: - Hosting the shipped views
 
-    private func renderSheet(_ content: some View) throws -> UIImage {
-        let renderer = ImageRenderer(content: content)
-        renderer.scale = 2
-        return try #require(renderer.uiImage, "ImageRenderer produced no image")
-    }
-
-    private func renderCard(for climb: Climb) throws -> UIImage {
-        let renderer = ImageRenderer(
-            content: ClimbPreviewCardView(
-                summary: ClimbPreviewSummary(climb: climb, isCompleted: false),
-                onSelect: {},
-                onClose: {}
-            )
-            .frame(width: 361)
-            .padding(16)
-            .background(Color.black)
-            .environment(\.colorScheme, .dark)
+    private func cardContent(for climb: Climb) -> some View {
+        ClimbPreviewCardView(
+            summary: ClimbPreviewSummary(climb: climb, isCompleted: false),
+            onSelect: {},
+            onClose: {}
         )
-        renderer.scale = 3
-        return try #require(renderer.uiImage, "ImageRenderer produced no card image")
+        .frame(width: 361)
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color.black)
+        .environment(\.colorScheme, .dark)
     }
 
-    private func renderPanel(for climb: Climb) throws -> UIImage {
-        let renderer = ImageRenderer(
-            content: ClimbArtworkView(
+    /// Every pixel of the hero placeholder for `climb`, laid out off screen. A colour
+    /// comparison reads the same at 1x, so that is the scale it takes.
+    private func panelPixels(for climb: Climb) throws -> [RGBA] {
+        try RenderedScreen.withOffscreenPixels(
+            of: ClimbArtworkView(
                 climb: climb,
                 variant: .hero,
                 imageRepository: MissingArtworkRepository()
             )
             .frame(width: 200, height: 200)
             .environment(\.colorScheme, .dark)
-        )
-        renderer.scale = 2
-        return try #require(renderer.uiImage, "ImageRenderer produced no placeholder image")
-    }
-
-    /// Hosts the sheet in an offscreen window so the artwork's own `.task` runs and the
-    /// settled placeholder is what gets captured.
-    ///
-    /// The window is deliberately never made key and the capture goes through the layer
-    /// rather than `drawHierarchy`: this suite suspends while SwiftUI settles, and a key
-    /// window left on top across those suspensions is what the other hosting suites draw
-    /// into instead of their own.
-    private func hostedSnapshot(of view: some View, size: CGSize) async throws -> UIImage {
-        let controller = UIHostingController(rootView: view.frame(width: size.width, height: size.height))
-        controller.overrideUserInterfaceStyle = .dark
-        controller.view.frame = CGRect(origin: .zero, size: size)
-
-        let window = UIWindow(frame: controller.view.frame)
-        window.overrideUserInterfaceStyle = .dark
-        window.rootViewController = controller
-        window.isHidden = false
-        defer {
-            window.isHidden = true
-            window.rootViewController = nil
+        ) { pixels in
+            pixels.pixels(in: CGRect(origin: .zero, size: pixels.size))
         }
-
-        for _ in 0..<12 {
-            await Task.yield()
-            controller.view.setNeedsLayout()
-            controller.view.layoutIfNeeded()
-        }
-
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 2
-        return UIGraphicsImageRenderer(size: size, format: format).image { context in
-            controller.view.layer.render(in: context.cgContext)
-        }
-    }
-
-    private func recognizedText(in image: UIImage) async throws -> String {
-        let cgImage = try #require(image.cgImage, "UIImage had no CGImage")
-        var request = RecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-
-        let observations = try await request.perform(on: cgImage)
-        return observations
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: " ")
-            .lowercased()
-    }
-
-    private func writeEvidence(image: UIImage, named name: String) throws {
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        try png.write(to: URL(filePath: directory).appending(path: name))
-        #expect(png.count > 5_000)
     }
 
     // MARK: - The shipped catalogue

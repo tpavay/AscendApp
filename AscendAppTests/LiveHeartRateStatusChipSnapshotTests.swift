@@ -7,18 +7,14 @@ import UIKit
 struct LiveHeartRateStatusChipSnapshotTests {
     @Test("Live header renders every chest-strap state")
     func rendersEveryStatus() throws {
-        let renderer = ImageRenderer(content: statusProof)
-        renderer.scale = 3
+        // Laid out at 1x for the size facts; the 3x photograph is written only under
+        // `ASCEND_EVIDENCE_DIR`.
+        try RenderedScreen.withOffscreenPixels(of: statusProof) { pixels in
+            #expect(pixels.size.width > 0)
+            #expect(pixels.size.height > 0)
+        }
 
-        let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-        let url = URL(filePath: NSTemporaryDirectory())
-            .appending(path: "live-heart-rate-statuses.png")
-        try png.write(to: url)
-
-        #expect(image.size.width > 0)
-        #expect(image.size.height > 0)
-        #expect(png.count > 5_000)
+        try RenderedScreen.photograph(statusProof, named: "live-heart-rate-statuses")
     }
 
     private var statusProof: some View {

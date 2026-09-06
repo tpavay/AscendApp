@@ -10,6 +10,8 @@ enum RevenueCatAnalyticsErrorType: String, Sendable {
     case network
     case noActiveEntitlement = "no_active_entitlement"
     case purchaseNotAllowed = "purchase_not_allowed"
+    case restoreCancelled = "restore_cancelled"
+    case restoreTimedOut = "restore_timed_out"
     case receipt
     case store
     case unknown

@@ -10,7 +10,6 @@ struct ProfilePrestigeBadgeView: View {
     var body: some View {
         VStack(spacing: 8) {
             artwork
-                .shadow(color: token.tint.opacity(0.26), radius: 6, y: 2)
 
             Text(token.count.formatted(.number.grouping(.automatic)))
                 .font(.montserratBold(size: 20))
@@ -29,9 +28,10 @@ struct ProfilePrestigeBadgeView: View {
     }
 
     private var artwork: some View {
-        Image(token.asset)
-            .resizable()
-            .scaledToFit()
-            .frame(width: imageSize, height: imageSize)
+        ProfilePrestigeBadgeArtwork(
+            asset: token.asset,
+            tint: token.tint,
+            size: imageSize
+        )
     }
 }

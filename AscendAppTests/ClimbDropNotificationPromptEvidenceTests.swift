@@ -4,18 +4,16 @@ import UIKit
 import UserNotifications
 @testable import AscendApp
 
-/// Reviewer-facing photographs of the two surfaces that ask a climber to turn climb-drop
+/// Reviewer-facing evidence for the two surfaces that ask a climber to turn climb-drop
 /// notifications on: Profile Achievements and the Climbs Collection.
 ///
 /// `ClimbDropNotificationPromptHostingTests` proves the prompt's visibility with the accessibility
-/// tree; these tests put the same hosted screens in front of a camera so the report shows what a
-/// climber sees. The grant transition is photographed inside one mounted window - the screen is
-/// never rebuilt between the before and after frames, which is exactly the "without a relaunch"
-/// claim.
+/// tree; these tests host the same screens through `RenderedScreen` and drive the live transitions
+/// on them. The grant transition happens inside one mounted window - the screen is never rebuilt
+/// between the before and after frames, which is exactly the "without a relaunch" claim.
 ///
-/// Images land in `ASCEND_EVIDENCE_DIR` when it is set and in the test host's temporary directory
-/// otherwise; the path is logged either way. Nothing reads them back - these are evidence, not
-/// golden-image assertions.
+/// Photographs are written to `ASCEND_EVIDENCE_DIR` when it is set and not taken otherwise. Nothing
+/// reads them back - these are evidence, not golden-image assertions.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct ClimbDropNotificationPromptEvidenceTests {
@@ -34,19 +32,18 @@ struct ClimbDropNotificationPromptEvidenceTests {
         let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
         await state.refresh()
 
-        try await withHostedSurface(surface, notificationState: state) { root in
-            await settle(root)
-            #expect(isPromptOnScreen(in: root))
-            try await photograph(root, named: "\(surface.slug)-1-not-yet-asked")
+        try await withHostedSurface(surface, notificationState: state) { screen in
+            #expect(isPromptOnScreen(in: screen.root))
+            try screen.photograph(named: "\(surface.slug)-1-not-yet-asked")
 
             // The climber taps the CTA on the screen that is already up.
-            try activateAccessibilityElement(labelled: "Turn on notifications", in: root)
-            await settle(root)
+            try activateAccessibilityElement(labelled: "Turn on notifications", in: screen.root)
+            try await screen.settle()
 
             #expect(client.enableCount == 1)
             #expect(state.isEnabled)
-            #expect(isPromptOnScreen(in: root) == false)
-            try await photograph(root, named: "\(surface.slug)-2-after-granting")
+            #expect(isPromptOnScreen(in: screen.root) == false)
+            try screen.photograph(named: "\(surface.slug)-2-after-granting")
         }
     }
 
@@ -57,34 +54,37 @@ struct ClimbDropNotificationPromptEvidenceTests {
     )
     func theEnabledFirstRenderIsPhotographed(surface: EvidencePromptSurface) async throws {
         // The captain's state: iOS permission allowed and the climb-drop preference on. The status
-        // is deliberately left unresolved so the very first frame is the one under the camera.
+        // is deliberately left unresolved so the very first frame is the one under scrutiny.
         let client = EvidenceClimbDropNotificationStateClient(
             authorizationStatus: .authorized,
             isPreferenceEnabled: true
         )
         let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
 
-        try await withHostedSurface(surface, notificationState: state) { root in
+        // No settle before the first read: the frames under test are the first ones the screen
+        // draws, and a settled screen would have already corrected a flash.
+        try await withHostedSurface(surface, notificationState: state, settle: .turns(0)) { screen in
             // Every frame from the first one on, not just the settled one: a prompt that flashes
             // and then corrects itself is the defect, not the fix.
             for _ in 0..<8 {
-                #expect(isPromptOnScreen(in: root) == false)
+                #expect(isPromptOnScreen(in: screen.root) == false)
                 await Task.yield()
-                root.setNeedsLayout()
-                root.layoutIfNeeded()
+                screen.root.setNeedsLayout()
+                screen.root.layoutIfNeeded()
             }
 
             // The screen did publish a tree over those passes, so the absence above is a reading
             // rather than an empty one.
-            #expect(accessibilityElements(under: root).isEmpty == false)
-            try await photograph(root, named: "\(surface.slug)-3-enabled-first-render")
+            #expect(accessibilityElements(under: screen.root).isEmpty == false)
+            try await screen.settle()
+            try screen.photograph(named: "\(surface.slug)-3-enabled-first-render")
 
             await state.refresh()
-            await settle(root)
+            try await screen.settle()
 
             #expect(state.isEnabled)
-            #expect(isPromptOnScreen(in: root) == false)
-            try await photograph(root, named: "\(surface.slug)-4-enabled-after-refresh")
+            #expect(isPromptOnScreen(in: screen.root) == false)
+            try screen.photograph(named: "\(surface.slug)-4-enabled-after-refresh")
         }
     }
 
@@ -101,10 +101,9 @@ struct ClimbDropNotificationPromptEvidenceTests {
         let deniedState = ClimbDropNotificationState(client: denied, observesEnvironmentChanges: false)
         await deniedState.refresh()
 
-        try await withHostedSurface(surface, notificationState: deniedState) { root in
-            await settle(root)
-            #expect(isPromptOnScreen(in: root))
-            try await photograph(root, named: "\(surface.slug)-5-denied")
+        try await withHostedSurface(surface, notificationState: deniedState) { screen in
+            #expect(isPromptOnScreen(in: screen.root))
+            try screen.photograph(named: "\(surface.slug)-5-denied")
         }
 
         // Allowed in iOS, but the climb-drop preference itself is off: still a real ask.
@@ -118,10 +117,9 @@ struct ClimbDropNotificationPromptEvidenceTests {
         )
         await preferenceOffState.refresh()
 
-        try await withHostedSurface(surface, notificationState: preferenceOffState) { root in
-            await settle(root)
-            #expect(isPromptOnScreen(in: root))
-            try await photograph(root, named: "\(surface.slug)-6-allowed-but-preference-off")
+        try await withHostedSurface(surface, notificationState: preferenceOffState) { screen in
+            #expect(isPromptOnScreen(in: screen.root))
+            try screen.photograph(named: "\(surface.slug)-6-allowed-but-preference-off")
         }
     }
 
@@ -143,22 +141,21 @@ struct ClimbDropNotificationPromptEvidenceTests {
         let state = ClimbDropNotificationState(client: client)
         await state.refresh()
 
-        try await withHostedSurface(surface, notificationState: state) { root in
-            await settle(root)
+        try await withHostedSurface(surface, notificationState: state) { screen in
             #expect(state.isBlockedBySystemSettings)
-            #expect(isPromptOnScreen(in: root))
-            try await photograph(root, named: "\(surface.slug)-7-blocked-before-leaving")
+            #expect(isPromptOnScreen(in: screen.root))
+            try screen.photograph(named: "\(surface.slug)-7-blocked-before-leaving")
 
             client.simulateSystemSettingsGrant()
             NotificationCenter.default.post(
                 name: UIApplication.willEnterForegroundNotification,
                 object: nil
             )
-            await settle(root)
+            try await screen.settle()
 
             #expect(state.isEnabled)
-            #expect(isPromptOnScreen(in: root) == false)
-            try await photograph(root, named: "\(surface.slug)-8-after-returning-from-ios-settings")
+            #expect(isPromptOnScreen(in: screen.root) == false)
+            try screen.photograph(named: "\(surface.slug)-8-after-returning-from-ios-settings")
         }
     }
 
@@ -171,8 +168,12 @@ struct ClimbDropNotificationPromptEvidenceTests {
         let allowedState = ClimbDropNotificationState(client: allowed, observesEnvironmentChanges: false)
         await allowedState.refresh()
 
-        try await withHostedSettings(notificationState: allowedState) { root in
-            try await photograph(root, named: "push-settings-1-allowed-and-on")
+        try await withHostedSettings(notificationState: allowedState) { screen in
+            let text = try await screen.copy { $0.contains("new climb drops") }
+            #expect(allowedState.isEnabled)
+            // The row reports a deliverable preference, not a blocked one.
+            #expect(!text.contains("notifications are off in ios"))
+            try screen.photograph(named: "push-settings-1-allowed-and-on")
         }
 
         let blocked = EvidenceClimbDropNotificationStateClient(
@@ -182,9 +183,11 @@ struct ClimbDropNotificationPromptEvidenceTests {
         let blockedState = ClimbDropNotificationState(client: blocked, observesEnvironmentChanges: false)
         await blockedState.refresh()
 
-        try await withHostedSettings(notificationState: blockedState) { root in
+        try await withHostedSettings(notificationState: blockedState) { screen in
             #expect(blockedState.isBlockedBySystemSettings)
-            try await photograph(root, named: "push-settings-2-blocked-by-ios")
+            let text = try await screen.copy { $0.contains("notifications are off in ios") }
+            #expect(text.contains("notifications are off in ios"))
+            try screen.photograph(named: "push-settings-2-blocked-by-ios")
         }
     }
 
@@ -193,85 +196,34 @@ struct ClimbDropNotificationPromptEvidenceTests {
     private func withHostedSurface(
         _ surface: EvidencePromptSurface,
         notificationState: ClimbDropNotificationState,
-        _ whileOnScreen: (UIView) async throws -> Void
+        settle: RenderedScreen.Settle = .turns(12),
+        _ whileOnScreen: @MainActor (HostedScreen) async throws -> Void
     ) async throws {
-        try await host(
-            EvidencePromptSurfaceHarness(surface: surface, notificationState: notificationState),
+        try await RenderedScreen.host(
+            EvidencePromptSurfaceHarness(surface: surface, notificationState: notificationState)
+                .frame(width: RenderedScreen.iPhone16ProSize.width, height: RenderedScreen.iPhone16ProSize.height),
+            settle: settle,
             whileOnScreen
         )
     }
 
     private func withHostedSettings(
         notificationState: ClimbDropNotificationState,
-        _ whileOnScreen: (UIView) async throws -> Void
+        _ whileOnScreen: @MainActor (HostedScreen) async throws -> Void
     ) async throws {
-        try await host(
+        try await RenderedScreen.host(
             NavigationStack {
                 NotificationSettingsView(notificationState: notificationState)
-            },
+            }
+            .frame(width: RenderedScreen.iPhone16ProSize.width, height: RenderedScreen.iPhone16ProSize.height),
             whileOnScreen
         )
-    }
-
-    private func host(
-        _ view: some View,
-        _ whileOnScreen: (UIView) async throws -> Void
-    ) async throws {
-        try await withAccessibilityAutomation {
-            let size = CGSize(width: 402, height: 874)
-            let controller = UIHostingController(rootView: view.frame(width: size.width, height: size.height))
-            controller.overrideUserInterfaceStyle = .dark
-            controller.view.frame = CGRect(origin: .zero, size: size)
-
-            let window = UIWindow(frame: controller.view.frame)
-            window.overrideUserInterfaceStyle = .dark
-            window.rootViewController = controller
-            window.makeKeyAndVisible()
-            defer { window.isHidden = true }
-
-            controller.view.setNeedsLayout()
-            controller.view.layoutIfNeeded()
-
-            try await whileOnScreen(controller.view)
-        }
-    }
-
-    private func settle(_ view: UIView) async {
-        for _ in 0..<8 {
-            await Task.yield()
-            view.setNeedsLayout()
-            view.layoutIfNeeded()
-        }
     }
 
     private func isPromptOnScreen(in root: UIView) -> Bool {
         accessibilityElements(under: root).contains {
             $0.accessibilityLabel == "Turn on notifications"
         }
-    }
-
-    private func photograph(_ view: UIView, named name: String) async throws {
-        // Fonts, strokes and the toggle knob need a few passes before the frame is final.
-        for _ in 0..<8 {
-            view.setNeedsLayout()
-            view.layoutIfNeeded()
-            try await Task.sleep(for: .milliseconds(40))
-        }
-
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.scale = 3
-        let image = UIGraphicsImageRenderer(size: view.bounds.size, format: format).image { _ in
-            view.drawHierarchy(in: view.bounds, afterScreenUpdates: true)
-        }
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: "\(name).png")
-        try png.write(to: url)
-
-        #expect(png.count > 5_000)
-        print("Rendered climb-drop notification evidence: \(url.path())")
     }
 }
 

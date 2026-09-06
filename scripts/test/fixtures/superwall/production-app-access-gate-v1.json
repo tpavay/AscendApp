@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-29T22:00:00Z",
+  "environment": "production",
+  "placement": "app_access_gate",
+  "staticConfig": {
+    "build_id": "yCMwlg0ArC-RkOeJ6P7wr",
+    "trigger_options": [
+      {
+        "event_name": "app_access_gate",
+        "rules": [
+          {
+            "variants": [
+              {
+                "percentage": 100,
+                "variant_type": "TREATMENT",
+                "variant_id": "555004",
+                "paywall_identifier": "new-paywall-a6dc-2026-06-11"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "paywall_responses": [
+      {
+        "id": "232372",
+        "identifier": "new-paywall-a6dc-2026-06-11",
+        "url": "https://user-content.superwalleditor.com/runtime/sha/c8d502b67153/store/document/odpvyL4GHznbb1E4cghT4?sw_cache_key=1787003399088",
+        "products_v2": [
+          {
+            "store_product": {"product_identifier": "ascend_yearly"},
+            "entitlements": [{"identifier": "ascend_membership"}]
+          },
+          {
+            "store_product": {"product_identifier": "ascend_monthly"},
+            "entitlements": [{"identifier": "ascend_membership"}]
+          }
+        ]
+      }
+    ]
+  },
+  "runtimeStore": {
+    "paywall_product:monthly": {},
+    "paywall_product:yearly": {},
+    "state:products.monthly.identifier": {},
+    "state:products.yearly.identifier": {},
+    "node:purchase": {
+      "properties": {
+        "prop:click-behavior": {
+          "value": {
+            "clickActions": [
+              {
+                "action": {
+                  "type": "purchase",
+                  "reference": {"type": "by-selected"},
+                  "onPurchase": [{"action": {"type": "close"}}],
+                  "onAbandon": [
+                    {"action": {"type": "set-state", "stateId": "state:"}}
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "node:close": {
+      "properties": {
+        "prop:click-behavior": {
+          "value": {"clickActions": [{"action": {"type": "close"}}]}
+        }
+      }
+    }
+  }
+}

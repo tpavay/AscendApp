@@ -47,24 +47,13 @@ struct PrestigeSection: View {
     }
 
     private var tokens: [ProfilePrestigeToken] {
-        var result: [ProfilePrestigeToken] = []
-
-        if !held.isEmpty {
-            result.append(
-                ProfilePrestigeToken(
-                    id: "first-ascents",
-                    asset: "FirstAscentBadgeDetailed",
-                    tint: ProfileVisualStyle.gold,
-                    count: held.count,
-                    label: held.count == 1 ? "First Ascent" : "First Ascents",
-                    historyFilter: nil
-                )
-            )
-        }
-
-        result.append(contentsOf: ProfilePrestigeToken.leaderboardTokens(for: achievements))
-
-        return result
+        ProfilePrestigeToken.tokens(
+            for: ProfileAchievementTally(
+                ladder: achievements,
+                firstAscentsHeld: held.count
+            ),
+            surface: .ownProfile
+        )
     }
 
     @ViewBuilder

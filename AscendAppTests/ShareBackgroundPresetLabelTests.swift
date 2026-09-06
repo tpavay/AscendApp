@@ -42,26 +42,8 @@ struct ShareBackgroundPresetLabelTests {
         )
         .transaction { $0.disablesAnimations = true }
 
-        try await withAccessibilityAutomation {
-            let controller = UIHostingController(rootView: picker)
-            controller.overrideUserInterfaceStyle = .dark
-            controller.view.frame = CGRect(origin: .zero, size: Self.screenSize)
-
-            let scene = UIApplication.shared.connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .first
-            let window = scene.map { UIWindow(windowScene: $0) }
-                ?? UIWindow(frame: CGRect(origin: .zero, size: Self.screenSize))
-            window.frame = CGRect(origin: .zero, size: Self.screenSize)
-            window.overrideUserInterfaceStyle = .dark
-            window.rootViewController = controller
-            window.makeKeyAndVisible()
-            defer {
-                window.isHidden = true
-                window.rootViewController = nil
-                window.windowScene = nil
-            }
-
+        try await RenderedScreen.host(picker, size: Self.screenSize) { screen in
+            let window = screen.window
             _ = try await settledAccessibilityElements(under: window) { elements in
                 elements.contains { $0.accessibilityLabel == "Presets" }
             }

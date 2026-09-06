@@ -18,22 +18,28 @@ struct LockedOutSubscriberRecoveryContractTests {
             at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
         )
 
-        #expect(gate.contains("onDeleteAccount: @escaping () -> Void"))
+        #expect(gate.contains("onDeleteAccount: @escaping @MainActor () -> Void"))
         #expect(gate.contains("Button(action: onDeleteAccount)"))
         #expect(gate.contains("Text(\"Delete account\")"))
         #expect(gate.contains(".accessibilityIdentifier(\"appAccessDeleteAccount\")"))
+        // The hosted Superwall paywall covers this screen for most of a locked-out climber's
+        // session, and its own DELETE ACCOUNT control has to reach the same dialog. One closure
+        // serves both, so the two routes cannot drift to different destinations.
+        #expect(gate.contains("onRequestAccountDeletion: onDeleteAccount"))
     }
 
-    /// Signing back in with the same Apple ID returns to this same screen, so a sign-out control
-    /// solves nothing and only offers an escape that is not one.
+    /// A wrong-account subscriber must be able to leave the gate and authenticate as the Apple ID
+    /// that owns the subscription.
     @Test
-    func theAppAccessGateOffersNoSignOut() throws {
+    func theAppAccessGateOffersSignOutForWrongAccountRecovery() throws {
         let gate = try source(
             at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
         )
 
-        #expect(!gate.localizedCaseInsensitiveContains("signOut"))
-        #expect(!gate.localizedCaseInsensitiveContains("sign out"))
+        #expect(gate.contains("onSignOut: @escaping () -> Void"))
+        #expect(gate.contains("Button(action: onSignOut)"))
+        #expect(gate.contains("Text(\"Sign Out\")"))
+        #expect(gate.contains(".accessibilityIdentifier(\"appAccessSignOut\")"))
     }
 
     /// The deletion link stays subordinate to subscribe and restore: it is the way out, not the
@@ -44,7 +50,7 @@ struct LockedOutSubscriberRecoveryContractTests {
             at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
         )
 
-        let restoreIndex = try #require(gate.range(of: "Button(action: restorePurchases)")).lowerBound
+        let restoreIndex = try #require(gate.range(of: "coordinator.restore()")).lowerBound
         let deleteIndex = try #require(gate.range(of: "Button(action: onDeleteAccount)")).lowerBound
         #expect(restoreIndex < deleteIndex, "Deletion must sit beneath Restore Purchases")
 
@@ -53,7 +59,7 @@ struct LockedOutSubscriberRecoveryContractTests {
         #expect(linkBlock.contains("montserratMedium(size: 13)"))
         #expect(!linkBlock.contains("Color.ascendAccent"))
         // A 44pt row keeps the quiet type from shrinking the tap target below the HIG minimum.
-        #expect(linkBlock.contains(".frame(height: 44)"))
+        #expect(linkBlock.contains("minHeight: 44"))
     }
 
     /// The lockout resolves above the entitlement gate and absorbs the whole app, so the same
@@ -85,14 +91,51 @@ struct LockedOutSubscriberRecoveryContractTests {
                 .map { String(root[$0.lowerBound...].prefix(200)) }
         )
         #expect(action.contains("guard authVM.user != nil else { return nil }"))
-        #expect(action.contains("isShowingGateAccountDeletion = true"))
+        #expect(action.contains("presentGateAccountDeletion()"))
     }
 
     @Test
     func theRootRouteWiresTheGateToTheRealDeletionSheet() throws {
         let root = try source(at: "AscendApp/App/RootView.swift")
 
-        #expect(root.contains("onDeleteAccount: { isShowingGateAccountDeletion = true }"))
+        #expect(root.contains("onDeleteAccount: { presentGateAccountDeletion() }"))
+        // One presenter for both routes, and the deletion sheet has to actually open: the gate has
+        // already dismissed its hosted paywall by the time it asks. The soft update nudge is the
+        // only other sheet at this modifier level, so it yields rather than deferring the request
+        // (#429), and the handoff runs from its own `onDismiss` so the nudge is provably gone
+        // before the deletion sheet is raised.
+        let presenter = try #require(
+            root
+                .range(of: "private func presentGateAccountDeletion() {")
+                .map { String(root[$0.lowerBound...].prefix(480)) }
+        )
+        #expect(presenter.contains("appVersionGateState.dismissRecommended()"))
+        #expect(presenter.contains("isGateAccountDeletionWaitingOnNudge = true"))
+        #expect(presenter.contains("isShowingGateAccountDeletion = true"))
+        // A non-nil `nudgePresentation` is a request to present, not proof SwiftUI honoured it, so
+        // the yield is keyed to the sheet's own body reporting itself on screen. Waiting on a
+        // dismissal that can never arrive would swallow the request Guideline 5.1.1(v) requires.
+        #expect(
+            presenter.contains("guard isNudgeSheetPresented else {"),
+            "the nudge may only be waited on when it is actually presented"
+        )
+        #expect(!presenter.contains("appVersionGateState.nudgePresentation != nil"))
+        #expect(root.contains(".onAppear { isNudgeSheetPresented = true }"))
+        #expect(
+            root.contains("onDismiss: presentGateAccountDeletionWaitingOnNudge"),
+            "the nudge must hand the deletion request on once it is actually gone"
+        )
+        // The second continuation: a nudge cleared without ever being presented produces no
+        // dismissal, so the request is handed on from the item reaching nil instead.
+        let strandGuard = try #require(
+            root
+                .range(of: ".onChange(of: appVersionGateState.nudgePresentation)")
+                .map { String(root[$0.lowerBound...].prefix(240)) }
+        )
+        #expect(strandGuard.contains("guard presentation == nil, !isNudgeSheetPresented else { return }"))
+        #expect(strandGuard.contains("presentGateAccountDeletionWaitingOnNudge()"))
+        // Nothing may report a refusal the gate would have nowhere to render.
+        #expect(!root.contains("presentGateAccountDeletion() -> Bool"))
         #expect(root.contains(".sheet(isPresented: $isShowingGateAccountDeletion"))
         #expect(root.contains("DeleteAccountConfirmationView("))
         #expect(root.contains("onAccountDeleted: {}"))

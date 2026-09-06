@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import AscendApp
 
@@ -329,7 +330,12 @@ struct OnboardingScreenViewCoverageTests {
     func everyVisibleOnboardingScreenEmitsExactlyOnce() {
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let telemetry = makeTestTelemetry(sink: sink)
-        var recorder = OnboardingScreenViewRecorder()
+        let suiteName = "OnboardingScreenViewCoverageTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        let recorder = OnboardingScreenViewRecorder(
+            lifecycle: OnboardingFlowAnalyticsCoordinator(userDefaults: defaults, telemetry: telemetry)
+        )
         let contexts = canonicalVisibleContexts()
 
         for context in contexts {

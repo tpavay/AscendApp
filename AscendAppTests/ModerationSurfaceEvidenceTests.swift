@@ -5,27 +5,29 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Visual evidence for the Guideline 1.2 moderation tooling: what a climber
-/// actually sees when they open the profile overflow menu, report a profile,
-/// block a climber, and manage that block from Settings.
+/// Evidence for the Guideline 1.2 moderation tooling: what a climber actually
+/// sees when they open the profile overflow menu, report a profile, block a
+/// climber, and manage that block from Settings.
 ///
-/// Every image below is rendered from the *shipping* views - `ReportProfileSheet`,
+/// Every photograph below is of the *shipping* views - `ReportProfileSheet`,
 /// `PostBlockReportSheet`, `ModerationReasonPicker`, `BlockedClimbersView`,
 /// `ReplayCompletionLeaderboardView`, `LeaderboardRow`, `ProfileModerationMenu` -
-/// hosted in a real `UIWindow` so `AsyncImage` resolves the climber photo before
-/// the snapshot is taken. `ImageRenderer` alone renders an unresolved
-/// `AsyncImage` as its placeholder, which would hide the very thing a block is
-/// supposed to change.
+/// hosted in a real `UIWindow` through `RenderedScreen` so `AsyncImage` resolves
+/// the climber photo before the photograph is taken. `ImageRenderer` alone
+/// renders an unresolved `AsyncImage` as its placeholder, which would hide the
+/// very thing a block is supposed to change.
 ///
 /// Known limitation: SwiftUI expands a `Menu` only in response to a real tap, and
 /// this project has no UI-test target, so the *open* Block/Report menu cannot be
 /// photographed here. The closed affordance is shown in place on the profile top
 /// bar, and the two sheets that menu presents are each captured in full.
 ///
-/// Images land in `ASCEND_EVIDENCE_DIR` when it is set and in the test host's
-/// temporary directory otherwise; the path is logged either way. Nothing reads
-/// them back - these are evidence, not golden-image assertions.
+/// The assertions are on the adapters, the store and the hosted tree; the
+/// photographs land in `ASCEND_EVIDENCE_DIR` when it is set and are not taken
+/// otherwise. Nothing reads them back - these are evidence, not golden-image
+/// assertions.
 @MainActor
+@Suite(.hostsAWindow)
 struct ModerationSurfaceEvidenceTests {
     private struct ReportCall: Equatable, Sendable {
         let reporterUserId: String
@@ -124,12 +126,12 @@ struct ModerationSurfaceEvidenceTests {
         #expect(blockedRow.demographicSummaryText == visibleRow.demographicSummaryText)
         #expect(blockedRow.demographicSummaryText == "F · 34 · Austin")
 
-        try await snapshot(
+        try await photograph(
             completionBoard(rows: visible),
             named: "moderation-completion-leaderboard-before-block",
             height: 470
         )
-        try await snapshot(
+        try await photograph(
             completionBoard(rows: afterBlock),
             named: "moderation-completion-leaderboard-after-block",
             height: 470
@@ -166,7 +168,7 @@ struct ModerationSurfaceEvidenceTests {
         #expect(blockedEntry.rank == 2)
         #expect(blockedEntry.formattedValue == 21_940.formatted())
 
-        try await snapshot(
+        try await photograph(
             VStack(alignment: .leading, spacing: 22) {
                 labelledRows("BEFORE BLOCK", entries: visible)
                 labelledRows("AFTER BLOCK", entries: afterBlock)
@@ -185,7 +187,7 @@ struct ModerationSurfaceEvidenceTests {
     func reportingRequiresAReasonBeforeItCanBeSent() async throws {
         #expect(ModerationReportReason.allCases.count == 7)
 
-        try await snapshot(
+        try await photograph(
             ReportProfileSheet(
                 isSubmitting: false,
                 onCancel: {},
@@ -195,7 +197,7 @@ struct ModerationSurfaceEvidenceTests {
             height: 800
         )
 
-        try await snapshot(
+        try await photograph(
             ModerationSheetScaffold(
                 title: "Report profile",
                 message: "Choose a reason. Reporting sends this profile to Ascend for review."
@@ -233,7 +235,7 @@ struct ModerationSurfaceEvidenceTests {
         #expect(reportsAfterBlock.isEmpty)
         #expect(store.blockedUserIds == Set([Self.blockedUserId]))
 
-        try await snapshot(
+        try await photograph(
             PostBlockReportSheet(
                 isSubmitting: false,
                 onDone: {},
@@ -285,7 +287,7 @@ struct ModerationSurfaceEvidenceTests {
         #expect(store.blockedClimbers.count == 2)
         #expect(store.isBlockListHydrated)
 
-        try await snapshot(
+        try await photograph(
             NavigationStack {
                 BlockedClimbersView()
                     .environment(AuthenticationViewModel())
@@ -298,7 +300,7 @@ struct ModerationSurfaceEvidenceTests {
         let emptyStore = ModerationStore(repository: RepositorySpy())
         await emptyStore.hydrate(for: Self.viewerUserId)
 
-        try await snapshot(
+        try await photograph(
             NavigationStack {
                 BlockedClimbersView()
                     .environment(AuthenticationViewModel())
@@ -312,30 +314,38 @@ struct ModerationSurfaceEvidenceTests {
     // MARK: - The single entry point
 
     /// The one sanctioned placement: an overflow control on the other-user
-    /// profile top bar. Rendered as the real `ProfileModerationMenu`, in the same
+    /// profile top bar. Hosted as the real `ProfileModerationMenu`, in the same
     /// bar layout `OtherUserProfileView` builds it into (that bar is `private`, so
-    /// its chrome is reproduced verbatim from source around the shipping menu).
+    /// its chrome is reproduced verbatim from source around the shipping menu),
+    /// and found on the tree by the label the menu publishes.
     @Test
     func profileTopBarCarriesTheOverflowMenu() async throws {
         let store = ModerationStore(repository: RepositorySpy())
         await store.hydrate(for: Self.viewerUserId)
 
-        try await snapshot(
-            VStack(spacing: 0) {
-                ProfileTopBarEvidence(reportedUserId: Self.blockedUserId)
-                    .environment(AuthenticationViewModel())
-                    .environment(store)
+        let size = CGSize(width: 390, height: 130)
+        try await RenderedScreen.host(
+            hosted(
+                VStack(spacing: 0) {
+                    ProfileTopBarEvidence(reportedUserId: Self.blockedUserId)
+                        .environment(AuthenticationViewModel())
+                        .environment(store)
 
-                Text("Tapping the ellipsis opens Block / Report.")
-                    .font(.montserratRegular(size: 12))
-                    .foregroundStyle(.white.opacity(0.5))
-                    .padding(.top, 18)
+                    Text("Tapping the ellipsis opens Block / Report.")
+                        .font(.montserratRegular(size: 12))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .padding(.top, 18)
 
-                Spacer(minLength: 0)
-            },
-            named: "moderation-profile-entry-point",
-            height: 130
-        )
+                    Spacer(minLength: 0)
+                },
+                size: size
+            ),
+            size: size
+        ) { screen in
+            let text = try await screen.copy { $0.contains("profile actions") }
+            #expect(text.contains("profile actions"), "the overflow menu is not on the bar")
+            try screen.photograph(named: "moderation-profile-entry-point")
+        }
     }
 
     // MARK: - Fixtures
@@ -439,7 +449,7 @@ struct ModerationSurfaceEvidenceTests {
 
     /// A real climber photo from the seed fixtures, copied where the simulator
     /// can load it as a `file:` URL. A remote URL would never resolve inside a
-    /// snapshot, and the masked-photo claim needs a visible photo to mask.
+    /// hosted screen, and the masked-photo claim needs a visible photo to mask.
     private func climberPhotoURL() throws -> URL {
         let source = URL(filePath: #filePath)
             .deletingLastPathComponent()
@@ -453,56 +463,29 @@ struct ModerationSurfaceEvidenceTests {
         return destination
     }
 
-    // MARK: - Rendering
+    // MARK: - Hosting
+
+    /// The view in the phone-width, black, dark-scheme frame every photograph here shares.
+    private func hosted(_ view: some View, size: CGSize) -> some View {
+        view
+            .frame(width: size.width, height: size.height, alignment: .top)
+            .background(Color.black)
+            .environment(\.colorScheme, .dark)
+    }
 
     /// Hosts the view in a real window so asynchronous image loading completes,
-    /// then captures what is on screen.
-    private func snapshot(
+    /// then photographs what is on screen - only when this run keeps photographs.
+    private func photograph(
         _ view: some View,
         named name: String,
         height: CGFloat
     ) async throws {
+        guard RenderedScreen.isPhotographing else { return }
+
         let size = CGSize(width: 390, height: height)
-        let controller = UIHostingController(
-            rootView: view
-                .frame(width: size.width, height: size.height, alignment: .top)
-                .background(Color.black)
-                .environment(\.colorScheme, .dark)
-        )
-        controller.overrideUserInterfaceStyle = .dark
-        controller.view.frame = CGRect(origin: .zero, size: size)
-        controller.view.backgroundColor = .black
-
-        let window = UIWindow(frame: controller.view.frame)
-        window.overrideUserInterfaceStyle = .dark
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        defer { window.isHidden = true }
-
-        // Let layout settle and any AsyncImage finish loading.
-        for _ in 0..<12 {
-            controller.view.setNeedsLayout()
-            controller.view.layoutIfNeeded()
-            try await Task.sleep(for: .milliseconds(50))
+        try await RenderedScreen.host(hosted(view, size: size), size: size) { screen in
+            try screen.photograph(named: name)
         }
-
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.scale = 3
-        let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            controller.view.drawHierarchy(
-                in: controller.view.bounds,
-                afterScreenUpdates: true
-            )
-        }
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: "\(name).png")
-        try png.write(to: url)
-
-        #expect(png.count > 5_000)
-        print("Rendered moderation evidence: \(url.path())")
     }
 }
 

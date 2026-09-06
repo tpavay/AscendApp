@@ -4,6 +4,7 @@ struct AnalyticsConfiguration: Equatable {
     enum ValidationError: Error, Equatable {
         case incompleteDestination
         case environmentProjectMismatch
+        case simulatorCannotReachProduction
     }
 
     static let live = AnalyticsConfiguration()
@@ -26,7 +27,10 @@ struct AnalyticsConfiguration: Equatable {
     /// Takes a validated envelope so the environment and build configuration
     /// have already been proven to agree; this only maps the environment to the
     /// one Mixpanel project allowed to receive it.
-    func validatedMixpanelToken(for envelope: TelemetryEnvelope) throws -> String? {
+    func validatedMixpanelToken(
+        for envelope: TelemetryEnvelope,
+        runtime: TelemetryRuntimeEnvironment = .current
+    ) throws -> String? {
         guard mixpanelToken != nil || mixpanelProjectID != nil else {
             return nil
         }
@@ -43,6 +47,14 @@ struct AnalyticsConfiguration: Equatable {
 
         guard mixpanelProjectID == expectedProjectID else {
             throw ValidationError.environmentProjectMismatch
+        }
+
+        // The environment/project pair agreeing is not enough on its own: a Release binary
+        // compiled for the simulator SDK reports `production` exactly like a customer's, so the
+        // build configuration cannot separate a rehearsal from a real climber. Production numbers
+        // describe people who bought the app; staging is where a session is reproduced.
+        guard envelope.appEnvironment != "production" || runtime.isSimulator == false else {
+            throw ValidationError.simulatorCannotReachProduction
         }
 
         return mixpanelToken

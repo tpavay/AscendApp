@@ -49,6 +49,35 @@ export function mixpanelConfigurationsFromProject(project) {
   return configurations;
 }
 
+/**
+ * Why one resolved configuration does not match its own contract: an
+ * unexpanded or wrong project ID, an unexpanded token, or a token that belongs
+ * to another project. Distinctness across configurations is a property of all
+ * three together and lives in `mixpanelConfigurationReasons`.
+ */
+export function mixpanelDestinationReasons(name, configuration) {
+  const contract = MIXPANEL_CONFIGURATION_CONTRACTS.get(name);
+  if (!contract) {
+    return [`${name} is not a configuration with a Mixpanel destination contract.`];
+  }
+
+  const reasons = [];
+
+  if (!isExpandedValue(configuration.projectID)) {
+    reasons.push(`${name} has no expanded Mixpanel project ID.`);
+  } else if (configuration.projectID !== contract.projectID) {
+    reasons.push(`${name} targets the wrong Mixpanel project ID.`);
+  }
+
+  if (!isExpandedValue(configuration.token)) {
+    reasons.push(`${name} has no expanded Mixpanel token.`);
+  } else if (tokenDigest(configuration.token) !== contract.tokenSHA256) {
+    reasons.push(`${name} carries a token that does not belong to its configured project.`);
+  }
+
+  return reasons;
+}
+
 export function mixpanelConfigurationReasons(configurations) {
   const reasons = [];
   const expectedNames = [...MIXPANEL_CONFIGURATION_CONTRACTS.keys()].sort();
@@ -61,26 +90,17 @@ export function mixpanelConfigurationReasons(configurations) {
   const tokens = [];
   const projectIDs = [];
 
-  for (const [name, contract] of MIXPANEL_CONFIGURATION_CONTRACTS) {
+  for (const name of MIXPANEL_CONFIGURATION_CONTRACTS.keys()) {
     const configuration = configurations.get(name);
     if (!configuration) continue;
 
-    if (!isExpandedValue(configuration.projectID)) {
-      reasons.push(`${name} has no expanded Mixpanel project ID.`);
-    } else {
-      projectIDs.push(configuration.projectID);
-      if (configuration.projectID !== contract.projectID) {
-        reasons.push(`${name} targets the wrong Mixpanel project ID.`);
-      }
-    }
+    reasons.push(...mixpanelDestinationReasons(name, configuration));
 
-    if (!isExpandedValue(configuration.token)) {
-      reasons.push(`${name} has no expanded Mixpanel token.`);
-    } else {
+    if (isExpandedValue(configuration.projectID)) {
+      projectIDs.push(configuration.projectID);
+    }
+    if (isExpandedValue(configuration.token)) {
       tokens.push(configuration.token);
-      if (tokenDigest(configuration.token) !== contract.tokenSHA256) {
-        reasons.push(`${name} carries a token that does not belong to its configured project.`);
-      }
     }
   }
 

@@ -15,6 +15,11 @@ Keep `firebase-admin` on the latest 13.x release until a dedicated 14.x migratio
 The 13.x tree still requests `uuid` 9 through Google Cloud clients, so `functions/package.json` overrides `uuid` to `^11.1.1`.
 Those clients exercise the unchanged `v4` API, and dropping the override reintroduces the buffer-bounds advisory.
 
+Express 4 declares `qs` as `~6.15.1`, a range that cannot admit the patched 6.16.0 and for which no 6.15.x patch release exists, so `functions/package.json` overrides `qs` to `^6.16.0`.
+Dropping the override reintroduces the bracket-key array-limit bypass (GHSA-x5fp-wj9c-mxmx) and the attacker-controlled `isBuffer` denial of service (GHSA-4mjr-xmp4-gh2g), which fail the audit gate on every backend pull request.
+Do not clear those advisories by bumping `firebase-functions` instead: 7.3.2 moves to Express 5, whose default `query parser` is `simple` rather than the `qs`-backed `extended`, so a security patch would silently change how every `onRequest` handler parses its own query string.
+Remove the override once the resolved Express line declares a `qs` range that admits only 6.16.0 or later.
+
 Lint runs on ESLint 10 flat config (`functions/eslint.config.mjs`) with `typescript-eslint`.
 ESLint 8 and 9 both resolve `minimatch` 3, whose only available `brace-expansion` line is vulnerable to the unbounded-expansion DoS advisory; ESLint 10 is the first release whose tree resolves the patched `brace-expansion` 5.
 `eslint-config-google` and `eslint-plugin-import` were dropped in the same move: the former is eslintrc-only and unmaintained, and the latter still pins `minimatch` 3.

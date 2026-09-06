@@ -18,15 +18,35 @@ protocol EntitlementServicing: AnyObject {
     ///   from this must never read `entitlementState` when the refresh reports `.unavailable`.
     @discardableResult
     func refreshCustomerInfo(waitsForPendingIdentity: Bool) async -> MonetizationEntitlementRefresh
-    func prepareIdentity(userId: String) -> MonetizationIdentityTransition
-    func identify(userId: String, transition: MonetizationIdentityTransition) async
+    func prepareIdentity(_ customer: MonetizationCustomerIdentity) -> MonetizationIdentityTransition
+    func identify(
+        _ customer: MonetizationCustomerIdentity,
+        transition: MonetizationIdentityTransition
+    ) async
     func prepareIdentityReset() -> MonetizationIdentityTransition
     func resetIdentity(transition: MonetizationIdentityTransition) async
     func retryIdentityResolution() async
-    /// - Returns: The state RevenueCat resolved for the restore, which is authoritative even when
-    ///   a pending identity transition refuses to let it become `entitlementState`.
+    /// Accepts a RevenueCat answer only when it still belongs to the exact settled identity that
+    /// started the transaction.
+    @discardableResult
+    func adoptTransactionState(
+        _ state: MonetizationEntitlementState,
+        for identity: MonetizationIdentityTransition
+    ) -> Bool
+
+    /// - Returns: The state RevenueCat resolved for the restore after it has been adopted for the
+    ///   exact identity that started the operation.
+    @discardableResult
+    func restorePurchases(
+        for identity: MonetizationIdentityTransition
+    ) async throws -> MonetizationEntitlementState
     @discardableResult
     func restorePurchases() async throws -> MonetizationEntitlementState
+
+    /// Publishes identity-guarded entitlement changes to presentation-only consumers.
+    func setEntitlementStateObserver(
+        _ observer: (@MainActor (MonetizationEntitlementState) -> Void)?
+    )
 }
 
 extension EntitlementServicing {
@@ -36,5 +56,22 @@ extension EntitlementServicing {
     @discardableResult
     func refreshCustomerInfo() async -> MonetizationEntitlementRefresh {
         await refreshCustomerInfo(waitsForPendingIdentity: false)
+    }
+
+    func setEntitlementStateObserver(
+        _ observer: (@MainActor (MonetizationEntitlementState) -> Void)?
+    ) { }
+
+    func adoptTransactionState(
+        _ state: MonetizationEntitlementState,
+        for identity: MonetizationIdentityTransition
+    ) -> Bool {
+        false
+    }
+
+    func restorePurchases(
+        for identity: MonetizationIdentityTransition
+    ) async throws -> MonetizationEntitlementState {
+        try await restorePurchases()
     }
 }

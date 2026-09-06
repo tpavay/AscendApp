@@ -153,7 +153,11 @@ node scripts/sync-climb-images.mjs sync --from staging --to production --confirm
 
 Writes to production require `--confirm-production`. Sync copies only missing/changed objects (md5 compare) and never deletes. When adding a climb: upload images to dev/staging first, validate in-app, then sync to production alongside (or before) the catalog deploy that references them.
 
-`releaseState` is not per-environment: one catalogue file deploys to dev, staging, and production, so promoting a climb to `available` commits every environment to having its artwork. Audit the production bucket before that deploy, not after it.
+`audit` fails when any `available` climb lacks a **complete** hero/card/thumb set - a partial set reads worse than none, because the card is the browse surface. It honors the same versioned-then-legacy fallback the app does (`FirebaseClimbImageRepository.candidateRemotePaths`), and it refuses to read a zero-object listing as a verified-empty bucket.
+
+`releaseState` is not per-environment: one catalogue file deploys to dev, staging, and production, so promoting a climb to `available` commits every environment to having its artwork. **Images are not per-environment content and no deploy moves them** - they are copied bucket to bucket by this tool alone.
+
+That instruction used to live here as prose, and prose lost. On 2026-08-10 #467 promoted 28 World Tour venues to `available`; their artwork had been uploaded to dev and staging only, and production had last received images in a single manual bulk copy on 2026-07-06. Twenty-eight of the 58 browsable climbs rendered as empty cards for fifteen days, through launch. `deploy-production.yml` now runs `audit --project production` immediately before the Hosting deploy, so the catalogue cannot publish past missing artwork; `scripts/test/climb-image-publication.test.mjs` pins that ordering.
 
 ## Workflow
 
@@ -168,8 +172,14 @@ Writes to production require `--confirm-production`. Sync copies only missing/ch
    To seed the climb with an open First Ascent slot instead of synthetic traffic, use `FIRST_ASCENT_OPEN_CLIMBS` in the same file and follow the constraints documented on that list.
    Every seeded ID - there and in `scripts/seed/fixtures/profile-fixtures.mjs` - must be `available`, or it strands state no surface can reach; `scripts/test/live-replay-first-ascent.test.mjs` fails on one. The reverse is not required: an available climb with no fixture is just unseeded.
    Retiring or deleting a climb therefore means re-pointing any fixture that named it.
-9. Validate JSON and schema by decoding both catalog files.
-10. Build web before deploying hosted catalog content.
+9. If the change moves a climb's `releaseState`, update the ledgers that pin the catalogue's shape.
+   `AscendAppTests/ClimbCatalogCurationTests.swift` hardcodes the available/hidden/comingSoon distribution and the exact `comingSoon` id set.
+   `scripts/test/live-replay-climb-tiers.test.mjs` pins the profile's open First Ascent preview, which `ProfileFirstAscentService` fills in catalog order and caps at four, so a newly opened climb that sorts early pushes one out.
+   `docs/climb-real-stair-counts.md` carries the null-`realStairCount` tallies and `docs/staging-content-capture.md` the open-slot count.
+   `docs/app-store-racing-repositioning-proposal.md` pins the `available` count in its App Store claim evidence table.
+   These are ledgers of what the catalogue holds, so they move with it - never the other way round.
+10. Validate JSON and schema by decoding both catalog files.
+11. Build web before deploying hosted catalog content.
 
 ## Validation Commands
 
@@ -194,7 +204,7 @@ npm --prefix web run build
 If changing Swift behavior or unsure about schema compatibility, run:
 
 ```bash
-xcodebuild -scheme AscendApp -configuration Debug -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+xcodebuild -scheme AscendApp -configuration Debug -destination 'generic/platform=iOS' -derivedDataPath "$PWD/.build/dd" CODE_SIGNING_ALLOWED=NO build
 ```
 
 ## Promoting To Available Sends A Push

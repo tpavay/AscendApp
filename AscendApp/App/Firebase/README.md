@@ -25,4 +25,4 @@ Files the script looks for in that source folder, linking only the ones missing 
 - `GoogleService-Info-Staging.plist`
 - `GoogleService-Info-Production.plist`
 
-Regression coverage lives in `scripts/test/link-firebase-plists.test.mjs` (`node --test scripts/test/*.test.mjs`).
+Regression coverage lives in `scripts/test/link-firebase-plists.test.mjs` (`node --test scripts/test/*.test.mjs`, which needs `npm --prefix scripts ci` first).

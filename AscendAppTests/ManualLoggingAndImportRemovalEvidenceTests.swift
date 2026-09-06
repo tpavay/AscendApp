@@ -4,19 +4,20 @@ import SwiftData
 import SwiftUI
 import Testing
 import UIKit
-import Vision
 @testable import AscendApp
 
 /// Reviewer-facing proof that manual logging and Apple Health workout import are gone from every
 /// surface a climber can reach, and that Apple Health enrichment survived the removal (#437).
 ///
-/// Every picture here is drawn from the shipped view, not a stand-in, and every claim about copy is
-/// read back off the rendered pixels with Vision rather than asserted against a string constant -
-/// a string a screen no longer shows would still pass a string comparison.
+/// Every surface here is the shipped view, not a stand-in, hosted in a live window through
+/// `RenderedScreen`, and every claim about copy is read back off the screen's accessibility tree
+/// rather than asserted against a string constant - a string a screen no longer shows would still
+/// pass a string comparison, and a label the tree no longer publishes is exactly what "gone from
+/// every surface" means.
 ///
-/// Writes PNGs to `ASCEND_EVIDENCE_DIR`.
+/// Photographs are written to `ASCEND_EVIDENCE_DIR` when it is set and not taken otherwise.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .hostsAWindow)
 struct ManualLoggingAndImportRemovalEvidenceTests {
     /// Words that would mean the removal is incomplete, checked as whole words so "Manage" cannot
     /// read as "manual" and "Imported" cannot hide inside a longer token.
@@ -112,8 +113,8 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
 
     // MARK: - The screens
 
-    /// Photographs every surface that used to carry a logging or import affordance, then reads the
-    /// copy back off the pixels.
+    /// Hosts every surface that used to carry a logging or import affordance, and reads the copy
+    /// back off its accessibility tree.
     @Test("No climber-facing surface offers manual logging or an Apple Health import")
     func climberFacingSurfacesPromiseNoLoggingOrImport() async throws {
         let snapshot = HealthKitSyncStateSnapshot.capture()
@@ -126,43 +127,42 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
         let container = try Self.makeContainer()
 
         // Home -> START. "Log Manual Workout" was the fourth row.
-        let startSheet = try Self.render(
+        let startText = try await Self.hostedCopy(
             HomeStartActionSheet(onSelect: { _ in })
                 .frame(width: 402),
-            width: 402
-        )
+            photographedAs: "01-home-start-sheet"
+        ) { $0.contains("just climb") }
 
         // Climbs tab, nothing recorded yet. Used to read "Tap the + button to log your first workout".
-        let emptyState = try Self.render(
+        let emptyText = try await Self.hostedCopy(
             WorkoutListEmptyStateView(effectiveColorScheme: .dark)
                 .frame(width: 402, height: 360)
                 .background(Color.black),
-            width: 402
-        )
+            photographedAs: "02-climbs-empty-state"
+        ) { $0.contains("no climbs yet") }
 
         // Settings -> Integrations, never connected. The card used to sell importing.
         //
-        // The card rather than the whole `IntegrationsView`: the screen wraps its cards in a
-        // `ScrollView`, which `ImageRenderer` draws as an empty box. The card is the shipped view
-        // either way, and it is the one that carried the copy.
+        // The card rather than the whole `IntegrationsView`: the card is the shipped view either
+        // way, and it is the one that carried the copy.
         HealthKitSyncState.hasRequestedAuthorization = false
         HealthKitAuthorizationClient.shared.isHealthDataAvailable = true
-        let integrationsNeverConnected = try Self.render(
+        let neverConnectedText = try await Self.hostedCopy(
             Self.integrationsScreenBody(container: container),
-            width: 402
-        )
+            photographedAs: "03-apple-health-card-never-connected"
+        ) { $0.contains("apple health") }
 
         // The same screen once Health is connected: the promise that survived the removal.
         HealthKitSyncState.hasRequestedAuthorization = true
         HealthKitAuthorizationClient.shared.authorizationRequestStatus = .unnecessary
-        let integrationsConnected = try Self.render(
+        let connectedText = try await Self.hostedCopy(
             Self.integrationsScreenBody(container: container),
-            width: 402
-        )
+            photographedAs: "04-apple-health-card-connected"
+        ) { $0.contains("connected") }
 
         // Manage sheet: the auto-import toggle and "Review workouts" are gone, one enrichment
         // action is left.
-        let manageSheet = try Self.render(
+        let manageText = try await Self.hostedCopy(
             AppleHealthManageSheet(
                 isPresented: .constant(true),
                 onCheckNow: {},
@@ -170,58 +170,46 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
             )
             .frame(width: 402)
             .background(Color.black),
-            width: 402
-        )
+            photographedAs: "05-apple-health-manage-sheet"
+        ) { $0.contains("check for heart rate now") }
 
-        let surfaces: [(name: String, caption: String, image: UIImage)] = [
-            ("01-home-start-sheet", "Home · START - three sensor flows, no manual entry", startSheet),
-            ("02-climbs-empty-state", "Climbs · empty - no \"+ to log your first workout\"", emptyState),
-            ("03-apple-health-card-never-connected", "Integrations · Apple Health card, never connected", integrationsNeverConnected),
-            ("04-apple-health-card-connected", "Integrations · Apple Health card, connected - enrichment only", integrationsConnected),
-            ("05-apple-health-manage-sheet", "Apple Health · Manage - no auto-import toggle", manageSheet),
+        let surfaces: [(name: String, text: String)] = [
+            ("01-home-start-sheet", startText),
+            ("02-climbs-empty-state", emptyText),
+            ("03-apple-health-card-never-connected", neverConnectedText),
+            ("04-apple-health-card-connected", connectedText),
+            ("05-apple-health-manage-sheet", manageText),
         ]
 
         for surface in surfaces {
-            let text = try await Self.recognizedText(in: surface.image)
-            let offenders = Self.forbiddenWords.intersection(Self.words(in: text)).sorted()
+            let offenders = Self.forbiddenWords.intersection(Self.words(in: surface.text)).sorted()
             #expect(
                 offenders.isEmpty,
-                "\(surface.name) still shows \(offenders.joined(separator: ", ")) - read back as: \(text)"
+                "\(surface.name) still shows \(offenders.joined(separator: ", ")) - read back as: \(surface.text)"
             )
-            try Self.write(surface.image, named: "\(surface.name).png")
         }
 
         // The screens are actually the screens, not blanks that trivially contain no bad words.
-        let startText = try await Self.recognizedText(in: startSheet)
         #expect(startText.contains("just climb"))
         #expect(startText.contains("race a landmark"))
         #expect(startText.contains("run a routine"))
 
-        let emptyText = try await Self.recognizedText(in: emptyState)
         #expect(emptyText.contains("no climbs yet"))
 
         // The boundary this change had to hold: Health is still connectable, and it is still
         // described as attaching heart rate to a climb the climber ran in Ascend.
-        let neverConnectedText = try await Self.recognizedText(in: integrationsNeverConnected)
         #expect(neverConnectedText.contains("apple health"))
         #expect(neverConnectedText.contains("connect"))
         #expect(neverConnectedText.contains("heart rate"))
 
-        let connectedText = try await Self.recognizedText(in: integrationsConnected)
         #expect(connectedText.contains("connected"))
         #expect(connectedText.contains("heart rate"))
 
-        let manageText = try await Self.recognizedText(in: manageSheet)
         #expect(manageText.contains("check for heart rate now"))
         #expect(manageText.contains("manage health permissions"))
-
-        try Self.write(
-            try Self.renderProofSheet(surfaces.map { ($0.caption, $0.image) }),
-            named: "00-removal-proof-sheet.png"
-        )
     }
 
-    /// The boundary the removal had to hold, drawn rather than asserted.
+    /// The boundary the removal had to hold, hosted rather than asserted.
     ///
     /// A climb Ascend recorded itself, with no heart rate on it, run through the real enrichment
     /// coordinator with Health answering over that climb's own window - and the same climb after,
@@ -277,7 +265,9 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
             #expect(climb.caloriesBurned == 232)
             #expect(climb.heartRateTimeSeries.count > 1)
 
-            let afterChart = try Self.render(
+            // The chart's Avg and Max are the header's own labels, so the tree carries the attached
+            // numbers; only the trace itself is drawn.
+            let chartText = try await Self.hostedCopy(
                 HeartRateChartView(
                     heartRateData: climb.heartRateTimeSeries,
                     workoutStartTime: climb.date,
@@ -286,19 +276,10 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
                     maxHeartRateBpm: climb.maxHeartRate
                 )
                 .padding(20),
-                width: 402
-            )
-
-            let chartText = try await Self.recognizedText(in: afterChart)
+                photographedAs: "07-enrichment-still-attaches-heart-rate"
+            ) { $0.contains("148") }
             #expect(chartText.contains("148"), "the attached average is not on the chart - read back as: \(chartText)")
             #expect(chartText.contains("174"), "the attached maximum is not on the chart - read back as: \(chartText)")
-
-            try Self.write(
-                try Self.renderProofSheet([
-                    ("After · one enrichment pass over the climb's own window", afterChart),
-                ]),
-                named: "07-enrichment-still-attaches-heart-rate.png"
-            )
         }
     }
 
@@ -356,27 +337,20 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
         .background(Color.black)
         .modelContainer(container)
 
-        let image = try Self.render(list, width: 402)
-        let text = try await Self.recognizedText(in: image)
+        let text = try await Self.hostedCopy(
+            list,
+            photographedAs: "06-legacy-sourced-climbs-still-render"
+        ) { $0.contains("3,042 steps") }
 
         #expect(text.contains("2,410 steps"), "the hand-logged climb lost its numbers - read back as: \(text)")
         #expect(text.contains("3,128 steps"), "the imported climb lost its numbers - read back as: \(text)")
         #expect(text.contains("3,042 steps"))
-
-        try Self.write(image, named: "06-legacy-sourced-climbs-still-render.png")
     }
 
     // MARK: - Rendering
 
     private static func makeContainer() throws -> ModelContainer {
-        try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            WorkoutSyncOutboxEntry.self,
-            PendingWorkoutDeletion.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, WorkoutSyncOutboxEntry.self, PendingWorkoutDeletion.self)
     }
 
     /// A plausible stepper series: warm-up, working effort, a push, then a cool-down.
@@ -402,36 +376,25 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
         .modelContainer(container)
     }
 
-    private static func render(_ content: some View, width: CGFloat) throws -> UIImage {
-        let renderer = ImageRenderer(
-            content: content
-                .frame(width: width)
+    /// Hosts `content` at phone width on a black screen, dark, and hands back its on-screen copy
+    /// once `isReady` holds - lowercased and space-joined, the way OCR used to. Photographed only
+    /// when `ASCEND_EVIDENCE_DIR` is set.
+    private static func hostedCopy(
+        _ content: some View,
+        photographedAs name: String,
+        until isReady: @escaping (String) -> Bool = { $0.isEmpty == false }
+    ) async throws -> String {
+        try await RenderedScreen.host(
+            content
+                .frame(width: 402)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .background(Color.black)
                 .environment(\.colorScheme, .dark)
-        )
-        renderer.scale = 3
-        return try #require(renderer.uiImage, "ImageRenderer produced no image")
-    }
-
-    private static func renderProofSheet(_ surfaces: [(caption: String, image: UIImage)]) throws -> UIImage {
-        let renderer = ImageRenderer(content: RemovalProofSheet(surfaces: surfaces))
-        renderer.scale = 2
-        return try #require(renderer.uiImage, "ImageRenderer produced no proof sheet")
-    }
-
-    // MARK: - Reading the rendered pixels back
-
-    private static func recognizedText(in image: UIImage) async throws -> String {
-        let cgImage = try #require(image.cgImage, "UIImage had no CGImage")
-        var request = RecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-
-        let observations = try await request.perform(on: cgImage)
-        return observations
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: " ")
-            .lowercased()
+        ) { screen in
+            let text = try await screen.copy(until: isReady)
+            try screen.photograph(named: name)
+            return text
+        }
     }
 
     private static func words(in text: String) -> Set<String> {
@@ -440,58 +403,10 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
 
     // MARK: - Evidence
 
-    private static func evidenceDirectory() -> URL {
-        URL(filePath: ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"] ?? NSTemporaryDirectory())
-    }
-
-    private static func write(_ image: UIImage, named name: String) throws {
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-        try png.write(to: evidenceDirectory().appending(path: name))
-        #expect(png.count > 5_000)
-    }
-
+    /// Written beside the photographs, and only when this run keeps them.
     private static func writeText(_ text: String, named name: String) throws {
-        try Data(text.utf8).write(to: evidenceDirectory().appending(path: name))
-    }
-}
-
-/// One contact sheet a reviewer can scan in a single pass, captioned with what each screen used to
-/// carry.
-private struct RemovalProofSheet: View {
-    let surfaces: [(caption: String, image: UIImage)]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Manual logging and Apple Health import removed (#437)")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(.white)
-                Text("Every screen below is the shipped view. Apple Health still connects, and still attaches heart rate to a climb run in Ascend.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.62))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            ForEach(Array(surfaces.enumerated()), id: \.offset) { _, surface in
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(surface.caption)
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.7))
-                    Image(uiImage: surface.image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 402)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(.white.opacity(0.14), lineWidth: 1)
-                        )
-                }
-            }
-        }
-        .padding(24)
-        .frame(width: 450, alignment: .leading)
-        .background(Color(white: 0.05))
-        .environment(\.colorScheme, .dark)
+        guard let directory = RenderedScreen.evidenceDirectory else { return }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: directory.appending(path: name))
     }
 }

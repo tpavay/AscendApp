@@ -18,7 +18,7 @@ final class AppAccessReconciliationService: AppAccessReconciling {
     private let failureSpacing: TimeInterval
     private var backoffUserID: String?
     private var nextAttemptAt: Date?
-    private var inFlight: (requestID: UInt64, task: Task<Void, Never>)?
+    private var inFlight: (requestID: UInt64, userID: String, task: Task<Void, Never>)?
     private var lastRequestID: UInt64 = 0
 
     init(
@@ -38,13 +38,19 @@ final class AppAccessReconciliationService: AppAccessReconciling {
     }
 
     func reconcileAppAccess(force: Bool) async {
-        guard let userID = currentUserID() else { return }
+        while let existing = inFlight {
+            await existing.task.value
+            if inFlight?.requestID == existing.requestID {
+                inFlight = nil
+            }
 
-        if let inFlight {
-            await inFlight.task.value
-            if !force { return }
+            guard let currentUserID = currentUserID() else { return }
+            if existing.userID == currentUserID {
+                return
+            }
         }
 
+        guard let userID = currentUserID() else { return }
         guard force || shouldReconcile(userID: userID) else { return }
 
         lastRequestID &+= 1
@@ -52,7 +58,7 @@ final class AppAccessReconciliationService: AppAccessReconciling {
         let task = Task { [weak self] () -> Void in
             await self?.performReconciliation(userID: userID)
         }
-        inFlight = (requestID, task)
+        inFlight = (requestID, userID, task)
         await task.value
         // Only the request that installed the marker may clear it, or an overlapping caller's
         // marker is erased and a third caller starts a duplicate call it would have joined.

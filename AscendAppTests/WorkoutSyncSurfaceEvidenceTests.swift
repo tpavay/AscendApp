@@ -4,12 +4,13 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Renders every state of the sync row the climber can actually reach, so the surface can be
-/// reviewed visually rather than only through assertions. Writes PNGs to `ASCEND_EVIDENCE_DIR`.
+/// Photographs every state of the sync row the climber can actually reach, so the surface can be
+/// reviewed visually rather than only through assertions. The PNGs are written only when
+/// `ASCEND_EVIDENCE_DIR` is set; every run still proves each state lays out to a row at all.
 ///
-/// One caveat worth knowing before reading the output: `ImageRenderer` cannot snapshot
-/// `ProgressView`, so the retrying state's spinner appears as a placeholder glyph in the PNG. The
-/// app draws a real spinner there, and Reduce Motion drops it.
+/// One caveat worth knowing before reading the output: the photograph is an offscreen render,
+/// which cannot snapshot `ProgressView`, so the retrying state's spinner appears as a placeholder
+/// glyph in the PNG. The app draws a real spinner there, and Reduce Motion drops it.
 @MainActor
 struct WorkoutSyncSurfaceEvidenceTests {
     @Test
@@ -17,22 +18,21 @@ struct WorkoutSyncSurfaceEvidenceTests {
         let states: [(String, String, WorkoutSyncPresentation)] = [
             ("01-syncing-quiet", "Quiet automatic series - no control, nothing to do", .syncing),
             ("02-couldnt-sync", "State 1: stopped, TRY AGAIN live", .couldNotSync),
-            ("03-syncing-after-tap", "State 2: tapped - control disabled, row unchanged (ImageRenderer cannot snapshot ProgressView; the glyph is its placeholder, the app draws a spinner)", .couldNotSyncRetrying),
+            ("03-syncing-after-tap", "State 2: tapped - control disabled, row unchanged (an offscreen render cannot snapshot ProgressView; the glyph is its placeholder, the app draws a spinner)", .couldNotSyncRetrying),
             ("04-failed-again", "State 3: refused again - identical to state 1, by design", .couldNotSync),
             ("05-offline", "Offline: the fact is unchanged, the action is dead", .couldNotSyncOffline),
             ("06-synced", "State 4: landed - the only state that disappears", .synced)
         ]
 
         for (name, caption, presentation) in states {
-            try Self.render(
-                name: name,
-                caption: caption,
-                content: WorkoutSyncStatusRow(
-                    presentation: presentation,
-                    effectiveColorScheme: .dark,
-                    onRetry: {}
-                )
+            let row = WorkoutSyncStatusRow(
+                presentation: presentation,
+                effectiveColorScheme: .dark,
+                onRetry: {}
             )
+            #expect(Self.layoutHeight(of: row) > 0, "\(name) drew nothing")
+
+            try Self.photograph(name: name, caption: caption, content: row)
         }
     }
 
@@ -56,12 +56,12 @@ struct WorkoutSyncSurfaceEvidenceTests {
             #expect(presentation.showsRow, "\(presentation) has something to say.")
         }
 
-        let hiddenHeight = Self.renderedHeight(of: WorkoutSyncStatusRow(
+        let hiddenHeight = Self.layoutHeight(of: WorkoutSyncStatusRow(
             presentation: .hidden,
             effectiveColorScheme: .dark,
             onRetry: {}
         ))
-        let visibleHeight = Self.renderedHeight(of: WorkoutSyncStatusRow(
+        let visibleHeight = Self.layoutHeight(of: WorkoutSyncStatusRow(
             presentation: .couldNotSync,
             effectiveColorScheme: .dark,
             onRetry: {}
@@ -71,15 +71,18 @@ struct WorkoutSyncSurfaceEvidenceTests {
         #expect(hiddenHeight == 0, "A hidden row must draw nothing at all.")
     }
 
-    /// Zero for content that draws nothing - `ImageRenderer` produces no image for an empty view,
-    /// which is the same answer as a zero-height one for the question being asked here. The
-    /// visible case proves the renderer works, so a nil cannot pass vacuously.
-    @MainActor
-    private static func renderedHeight(of content: some View) -> CGFloat {
-        ImageRenderer(content: content.frame(width: 402)).uiImage?.size.height ?? 0
+    /// The height the row lays out to at phone width, asked of a hosting controller rather than
+    /// read off a bitmap. A body that draws nothing measures zero, which is the same answer as a
+    /// zero-height one for the question being asked here. The visible case proves the measurement
+    /// works, so a zero cannot pass vacuously.
+    private static func layoutHeight(of content: some View) -> CGFloat {
+        UIHostingController(rootView: content.frame(width: 402))
+            .sizeThatFits(in: CGSize(width: 402, height: CGFloat.greatestFiniteMagnitude))
+            .height
     }
 
-    private static func render(
+    /// The captioned proof of one state, written to `ASCEND_EVIDENCE_DIR` and nowhere else.
+    private static func photograph(
         name: String,
         caption: String,
         content: some View
@@ -95,33 +98,6 @@ struct WorkoutSyncSurfaceEvidenceTests {
         .background(Color.black)
         .environment(\.colorScheme, .dark)
 
-        let renderer = ImageRenderer(content: framed)
-        renderer.scale = 3
-
-        guard let image = renderer.uiImage, let data = image.pngData() else {
-            Issue.record("ImageRenderer produced no output for \(name)")
-            return
-        }
-
-        let candidates = [
-            ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"],
-            NSTemporaryDirectory().appending("ascend-sync-surface-evidence")
-        ].compactMap { $0 }
-
-        for directory in candidates {
-            let url = URL(filePath: directory).appending(path: "\(name).png")
-            do {
-                try FileManager.default.createDirectory(
-                    at: URL(filePath: directory),
-                    withIntermediateDirectories: true
-                )
-                try data.write(to: url)
-                print("ASCEND_EVIDENCE_PNG \(url.path)")
-                return
-            } catch {
-                continue
-            }
-        }
-        Issue.record("No writable evidence directory for \(name)")
+        try RenderedScreen.photograph(framed, named: name)
     }
 }

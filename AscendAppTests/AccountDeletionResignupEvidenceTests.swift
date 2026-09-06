@@ -13,11 +13,11 @@ import UIKit
 /// different-climber control - reading the live SwiftData schema, the real `SettingsManager`, and
 /// the shipped ownership guard rather than a narrowed copy of any of them.
 ///
-/// The PNG is the other half: the wall the replacement account must never see, rendered from the
-/// real `AccountDataConflictView` so its copy and its one action are visible rather than asserted.
+/// The PNG is the other half: the wall the replacement account must never see, photographed from
+/// the real `AccountDataConflictView` so its copy and its one action are visible rather than
+/// asserted.
 ///
-/// Both artifacts land in `ASCEND_EVIDENCE_DIR` when it is set, and in the test host's temporary
-/// directory otherwise.
+/// Both artifacts are written only when `ASCEND_EVIDENCE_DIR` is set (`RenderedScreen`).
 @MainActor
 struct AccountDeletionResignupEvidenceTests {
 
@@ -203,8 +203,9 @@ struct AccountDeletionResignupEvidenceTests {
         #expect(survivingWork.first?.ownerUserId == "climber-a")
         #expect(survivingWork.first?.remoteSyncStatus == .pendingUpsert)
 
-        let url = try transcript.write(named: "account-deletion-resignup-transcript.txt")
-        #expect(FileManager.default.fileExists(atPath: url.path()))
+        if let url = try transcript.write(named: "account-deletion-resignup-transcript.txt") {
+            #expect(FileManager.default.fileExists(atPath: url.path()))
+        }
     }
 
     @Test("The blocking wall's copy and its one resolving action", .bug(id: 389))
@@ -232,19 +233,13 @@ struct AccountDeletionResignupEvidenceTests {
         }
 
         // The real view, driven by a real conflict, so the PNG is the surface a blocked climber
-        // actually sees rather than a re-typed copy of its markup.
-        let renderer = ImageRenderer(content: AccountDataConflictWallProof(conflict: conflict))
-        renderer.scale = 2
-
-        let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let url = URL(filePath: Transcript.evidenceDirectory)
-            .appending(path: "account-data-mismatch-wall.png")
-        try png.write(to: url)
-
-        #expect(image.size.width > 0)
-        #expect(png.count > 5_000)
+        // actually sees rather than a re-typed copy of its markup. Its size is a 1x fact; the
+        // photograph is taken only under `ASCEND_EVIDENCE_DIR`.
+        let proof = AccountDataConflictWallProof(conflict: conflict)
+        try RenderedScreen.withOffscreenPixels(of: proof) { pixels in
+            #expect(pixels.size.width > 0)
+        }
+        try RenderedScreen.photograph(proof, named: "account-data-mismatch-wall", scale: 2)
     }
 
     private static let notificationsKey = "climbDropNotificationsEnabled.v1"
@@ -281,10 +276,6 @@ private struct AccountDataConflictWallProof: View {
 
 private struct Transcript {
     private var lines: [String] = []
-
-    static var evidenceDirectory: String {
-        ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"] ?? NSTemporaryDirectory()
-    }
 
     mutating func title(_ text: String) {
         lines.append(text)
@@ -340,8 +331,13 @@ private struct Transcript {
         }
     }
 
-    func write(named filename: String) throws -> URL {
-        let url = URL(filePath: Self.evidenceDirectory).appending(path: filename)
+    /// Writes the transcript beside the photograph, and nothing at all when `ASCEND_EVIDENCE_DIR`
+    /// is unset - the run's assertions are what CI keeps.
+    @MainActor
+    func write(named filename: String) throws -> URL? {
+        guard let directory = RenderedScreen.evidenceDirectory else { return nil }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: filename)
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
         return url
     }

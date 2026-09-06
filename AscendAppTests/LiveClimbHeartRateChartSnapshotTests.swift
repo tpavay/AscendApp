@@ -5,7 +5,9 @@ import UIKit
 
 @testable import AscendApp
 
-/// Visual evidence that a populated heart-rate trace still renders at every supported density.
+/// Evidence that a populated heart-rate trace still renders at every supported density: the data
+/// set behind the chart keeps every reading at each density, and the proof sheet is photographed
+/// when `ASCEND_EVIDENCE_DIR` is set.
 @MainActor
 struct LiveClimbHeartRateChartSnapshotTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -78,16 +80,26 @@ struct LiveClimbHeartRateChartSnapshotTests {
                 == "Your wearable logged 2 readings for this climb - too few to chart"
         )
 
-        let renderer = ImageRenderer(content: HeartRateDensityProof(cases: densities))
-        renderer.scale = 3
-        let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        try png.write(
-            to: URL(filePath: directory).appending(path: "heart-rate-series-densities.png")
-        )
-        #expect(png.count > 5_000)
+        // None of these densities reaches the thinning budget, so every reading the wearable
+        // logged is a mark the chart plots.
+        for density in densities {
+            let dataSet = HeartRateChartDataSet(
+                samples: density.samples,
+                workoutStartTime: density.start,
+                workoutDuration: density.duration
+            )
+            #expect(
+                dataSet.points.count == density.samples.count,
+                "\(density.id): \(density.samples.count) readings became \(dataSet.points.count) marks"
+            )
+        }
+
+        if RenderedScreen.isPhotographing {
+            try RenderedScreen.photograph(
+                HeartRateDensityProof(cases: densities),
+                named: "heart-rate-series-densities"
+            )
+        }
     }
 }
 

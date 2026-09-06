@@ -82,7 +82,8 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
     )
 
     case flowStarted(context: OnboardingAnalyticsContext, resume: Bool)
-    case screenViewed(context: OnboardingAnalyticsContext, resume: Bool = false)
+    case screenViewed(context: OnboardingAnalyticsContext)
+    case flowResumed(context: OnboardingAnalyticsContext)
     case screenCompleted(
         context: OnboardingAnalyticsContext,
         inputType: String,
@@ -116,15 +117,22 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                 context: context,
                 parameters: ["resume": .bool(resume)]
             )
-        case .screenViewed(let context, let resume):
+        case .screenViewed(let context):
             return makeRecord(
                 name: "onboarding_screen_viewed",
                 context: context,
                 parameters: [
                     "screen_id": .string(context.stepID),
-                    "resume": .bool(resume),
                     "viewed": .bool(true)
                 ]
+            )
+        case .flowResumed(let context):
+            // A step reports its view once per pass, so an interrupted climber's return no longer
+            // shows up as a re-emitted view. This is that signal, once per launch that resumes.
+            return makeRecord(
+                name: "onboarding_flow_resumed",
+                context: context,
+                parameters: ["screen_id": .string(context.stepID)]
             )
         case .screenCompleted(let context, let inputType, let properties):
             var parameters: [String: TelemetryValue] = [

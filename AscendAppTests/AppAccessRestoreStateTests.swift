@@ -28,7 +28,7 @@ struct AppAccessRestoreStateTests {
         #expect(AppAccessRestoreState.idle.buttonTitle(isRevenueCatConfigured: true) == "Restore Purchases")
         #expect(AppAccessRestoreState.restoring.buttonTitle(isRevenueCatConfigured: true) == "Restoring...")
         #expect(AppAccessRestoreState.restored.buttonTitle(isRevenueCatConfigured: true) == "Restored")
-        #expect(AppAccessRestoreState.failed.buttonTitle(isRevenueCatConfigured: true) == "Restore Failed")
+        #expect(AppAccessRestoreState.failed.buttonTitle(isRevenueCatConfigured: true) == "Try Restore Again")
     }
 
     /// A conclusive negative leaves the control on its ordinary action label so the climber can
@@ -49,10 +49,13 @@ struct AppAccessRestoreStateTests {
         #expect(AppAccessRestoreState.idle.statusMessage == nil)
         #expect(AppAccessRestoreState.restoring.statusMessage == nil)
         #expect(AppAccessRestoreState.restored.statusMessage == nil)
-        #expect(AppAccessRestoreState.noPurchasesFound.statusMessage == "No purchases found to restore.")
+        #expect(
+            AppAccessRestoreState.noPurchasesFound.statusMessage
+                == "No active Ascend subscription was found for this Apple ID."
+        )
         #expect(
             AppAccessRestoreState.failed.statusMessage
-                == "Ascend couldn't restore your purchases. Check your connection and try again."
+                == "Apple could not finish the restore. Try again or contact support."
         )
     }
 

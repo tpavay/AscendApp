@@ -167,6 +167,13 @@ struct ModeratedReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     let finalSteps: Int
     let deltaFromUser: Int
     let isCurrentUser: Bool
+    /// The viewer's attempt in progress, as opposed to every completion of
+    /// theirs the board already carries. Both are `isCurrentUser`.
+    let isLiveAttempt: Bool
+    /// Mirrors `LiveReplayLeaderboardRow.isViewerGhost` by construction rather
+    /// than re-deriving it, so the rule for which rows carry no rank has one
+    /// definition.
+    let isViewerGhost: Bool
     let isPersonalBest: Bool
     let completionDurationSeconds: TimeInterval?
     let userId: String?
@@ -186,6 +193,8 @@ struct ModeratedReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         finalSteps = source.finalSteps
         deltaFromUser = source.deltaFromUser
         isCurrentUser = source.isCurrentUser
+        isLiveAttempt = source.isLiveAttempt
+        isViewerGhost = source.isViewerGhost
         isPersonalBest = source.isPersonalBest
         completionDurationSeconds = source.completionDurationSeconds
         userId = source.userId

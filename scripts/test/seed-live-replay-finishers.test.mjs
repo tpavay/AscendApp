@@ -69,12 +69,15 @@ test("the seed writes a finisher for every board it seeds entries onto", () => {
 
   // Seeded dev and staging boards carried entries and no finishers at all, so a
   // finishers-based numerator read every one of them as an empty field. Both
-  // contexts the seed publishes into have to write one.
-  assert.match(source, /finishersCollection\(db, plan\.climb\.id\)\n?\s*\.doc/);
-  assert.match(source, /justClimbFinishersCollection\(db\)\.doc/);
+  // contexts the seed publishes into have to write one - which they now do
+  // through a single writer, so what this pins is that both contexts reach it.
+  assert.match(source, /finishersRef: finishersCollection\(db, plan\.climb\.id\)/);
+  assert.match(source, /finishersRef: justClimbFinishersCollection\(db\)/);
+  assert.match(source, /context\.finishersRef\.doc\(attempt\.userId\)/);
   // And clearing a pack has to take them back out, or a re-seed leaves a
   // stranded climber ahead of the next one.
-  assert.match(source, /clearOpenFirstAscentFinishers\(/);
+  assert.match(source, /doomedFinishers/);
+  assert.match(source, /finishers\.filter\(\(document\) => isSyntheticUserId\(document\.id\)\)/);
 });
 
 test("the seed's best-metric fields are the ones the Cloud Function counts", () => {

@@ -3,21 +3,20 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Reviewer-facing photographs of the two surfaces this consent change ships:
+/// Reviewer-facing evidence for the two surfaces this consent change ships:
 /// the Email preference screen in each of its states, and the onboarding
 /// notifications step carrying the pre-ticked email checkbox.
 ///
-/// `EmailPreferencesScreenSnapshotTests` reads its renders back with Vision and
-/// therefore uses `ImageRenderer`, which cannot rasterize the UIKit control
-/// behind `Toggle` - the switch is a placeholder glyph there. Hosting the
-/// shipping `EmailPreferencesView` in a real `UIWindow` photographs the actual
-/// switch, so which way it is pointing is visible rather than only asserted.
-/// The whole screen is captured, navigation chrome included, exactly as a
-/// climber arriving from Settings sees it.
+/// `EmailPreferencesScreenSnapshotTests` reads the content view's copy off the
+/// accessibility tree. Hosting the shipping `EmailPreferencesView` in a real
+/// `UIWindow` through `RenderedScreen` puts the actual UIKit-backed switch on
+/// screen, so which way it is pointing is visible in the photograph rather than
+/// only asserted. The whole screen is hosted, navigation chrome included,
+/// exactly as a climber arriving from Settings sees it.
 ///
-/// Images land in `ASCEND_EVIDENCE_DIR` when it is set and in the test host's
-/// temporary directory otherwise; the path is logged either way. Nothing reads
-/// them back - these are evidence, not golden-image assertions.
+/// Photographs land in `ASCEND_EVIDENCE_DIR` when it is set and are not taken
+/// otherwise. Nothing reads them back - the assertions are on the view models
+/// and on the copy the hosted screen publishes.
 @Suite(.serialized, .hostsAWindow)
 @MainActor
 struct EmailPreferenceLiveWindowEvidenceTests {
@@ -51,7 +50,7 @@ struct EmailPreferenceLiveWindowEvidenceTests {
         // would be one no climber can ever be looking at.
         let offlineService = EvidenceEmailPreferencesService(storedConsent: .granted)
         let saveFailed = EmailPreferencesViewModel(service: offlineService)
-        try await snapshot(
+        let saveFailedCopy = try await snapshot(
             EmailPreferencesView(viewModel: saveFailed),
             named: "email-screen-save-failed"
         ) {
@@ -60,6 +59,7 @@ struct EmailPreferenceLiveWindowEvidenceTests {
         }
         #expect(saveFailed.isLifecycleEmailsEnabled)
         #expect(saveFailed.errorMessage == "Couldn't save. Check your connection.")
+        #expect(saveFailedCopy.contains("couldn't save"))
 
         // Nobody has ever answered: the switch reads off rather than claiming a
         // consent that was never given.
@@ -78,16 +78,17 @@ struct EmailPreferenceLiveWindowEvidenceTests {
     @Test
     func theEmailScreenIsReachableFromNotificationSettings() async throws {
         // The definition of done is that a climber can find this preference and
-        // change it, so the row that gets them there is photographed in place.
-        try await snapshot(
+        // change it, so the screen that gets them there is photographed in place.
+        let copy = try await snapshot(
             NotificationSettingsView(),
             named: "notification-settings-email-row"
         )
+        #expect(copy.contains("new climb drops"))
     }
 
     @Test
     func theOnboardingStepIsPhotographedWithItsPreTickedBox() async throws {
-        try await snapshot(
+        let copy = try await snapshot(
             PostAuthOnboardingFlowView(
                 stage: .notifications,
                 onBack: {},
@@ -97,69 +98,42 @@ struct EmailPreferenceLiveWindowEvidenceTests {
             named: "onboarding-notifications-step",
             wrapInNavigationStack: false
         )
+        #expect(copy.contains("email me when climbs drop"))
     }
 
-    // MARK: - Rendering
+    // MARK: - Hosting
 
-    /// Hosts the shipping view in a real window at iPhone 16 Pro size and
-    /// captures what is on screen, so UIKit-backed controls render for real.
+    /// Hosts the shipping view in a real window at iPhone 16 Pro size, so
+    /// UIKit-backed controls render for real, runs `whileOnScreen` against the
+    /// settled screen, photographs it when `ASCEND_EVIDENCE_DIR` is set, and
+    /// hands back the copy the screen publishes.
+    @discardableResult
     private func snapshot(
         _ view: some View,
         named name: String,
         wrapInNavigationStack: Bool = true,
         whileOnScreen: (() async -> Void)? = nil
-    ) async throws {
-        let size = CGSize(width: 402, height: 874)
+    ) async throws -> String {
+        let size = RenderedScreen.iPhone16ProSize
         let hosted = AnyView(
             wrapInNavigationStack ? AnyView(NavigationStack { view }) : AnyView(view)
         )
-        let controller = UIHostingController(
-            rootView: hosted
+
+        return try await RenderedScreen.host(
+            hosted
                 .frame(width: size.width, height: size.height, alignment: .top)
-                .environment(\.colorScheme, .dark)
-        )
-        controller.overrideUserInterfaceStyle = .dark
-        controller.view.frame = CGRect(origin: .zero, size: size)
-
-        let window = UIWindow(frame: controller.view.frame)
-        window.overrideUserInterfaceStyle = .dark
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        defer { window.isHidden = true }
-
-        for _ in 0..<12 {
-            controller.view.setNeedsLayout()
-            controller.view.layoutIfNeeded()
-            try await Task.sleep(for: .milliseconds(50))
-        }
-
-        if let whileOnScreen {
-            await whileOnScreen()
-
-            for _ in 0..<6 {
-                controller.view.setNeedsLayout()
-                controller.view.layoutIfNeeded()
-                try await Task.sleep(for: .milliseconds(50))
+                .environment(\.colorScheme, .dark),
+            size: size
+        ) { screen in
+            if let whileOnScreen {
+                await whileOnScreen()
+                try await screen.settle(.turns(6))
             }
+
+            let copy = try await screen.copy()
+            try screen.photograph(named: name)
+            return copy
         }
-
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.scale = 3
-        let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            controller.view.drawHierarchy(
-                in: controller.view.bounds,
-                afterScreenUpdates: true
-            )
-        }
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: "\(name).png")
-        try png.write(to: url)
-
-        #expect(png.count > 5_000)
-        print("Rendered email consent evidence: \(url.path())")
     }
 }
 

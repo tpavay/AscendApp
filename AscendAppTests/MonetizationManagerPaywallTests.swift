@@ -26,6 +26,29 @@ private struct OnboardingLifecycleFixture {
 
 @MainActor
 struct MonetizationManagerPaywallTests {
+    #if DEBUG
+    @Test
+    func debugGateOverrideCanBeClearedFromTheLockedRecoverySurface() {
+        let defaults = UserDefaults(suiteName: "DebugGateOverride-\(UUID().uuidString)")!
+        let manager = MonetizationManager(
+            configuration: MonetizationConfiguration(infoDictionary: [
+                MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "YES"
+            ]),
+            entitlementService: EntitlementServiceStub(entitlementState: .inactive),
+            paywallPresenter: PaywallPresenterSpy(),
+            userDefaults: defaults
+        )
+
+        manager.setDebugForcesAppAccessPaywall(true)
+        #expect(manager.debugForcesAppAccessPaywall)
+        #expect(!manager.allowsUnentitledAppAccessForRouting)
+
+        manager.setDebugForcesAppAccessPaywall(false)
+        #expect(!manager.debugForcesAppAccessPaywall)
+        #expect(manager.allowsUnentitledAppAccessForRouting)
+    }
+    #endif
+
     @Test
     func gatesAccessWithoutAnEntitlementWhenBuildSettingIsDisabled() {
         let manager = MonetizationManager(
@@ -235,6 +258,32 @@ struct MonetizationManagerPaywallTests {
         #expect(manager.onboardingCompletionReasonForActiveAccess == .restore)
     }
 
+    /// The manager owns the paywall and onboarding side of an identity change, but it is not the
+    /// place where the customer record is narrowed to an id. Whatever the sign-in supplied has to
+    /// reach the entitlement service intact, or RevenueCat never learns who the customer is.
+    @Test
+    func preparingAnIdentityForwardsTheWholeCustomerToTheEntitlementService() {
+        let fixture = OnboardingLifecycleFixture()
+        defer { fixture.cleanUp() }
+
+        let entitlementService = EntitlementServiceStub()
+        let manager = MonetizationManager(
+            entitlementService: entitlementService,
+            paywallPresenter: PaywallPresenterSpy(),
+            onboardingLifecycle: fixture.makeLifecycle()
+        )
+
+        manager.prepareIdentity(
+            MonetizationCustomerIdentity(userID: "climber-a", email: "a@example.com")
+        )
+
+        #expect(
+            entitlementService.preparedCustomers == [
+                MonetizationCustomerIdentity(userID: "climber-a", email: "a@example.com")
+            ]
+        )
+    }
+
     /// A second account replaces the pass outright, and the grant provenance is part of that pass,
     /// so nothing the previous climber's paywall did may attribute the next climber's access.
     @Test
@@ -250,11 +299,11 @@ struct MonetizationManagerPaywallTests {
             onboardingLifecycle: fixture.makeLifecycle()
         )
 
-        manager.prepareIdentity(userId: "climber-a")
+        manager.prepareIdentity(.climber("climber-a"))
         manager.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
         paywallPresenter.send(.purchased)
 
-        manager.prepareIdentity(userId: "climber-b")
+        manager.prepareIdentity(.climber("climber-b"))
         entitlementService.setEntitlementState(.active(["app_access"]))
 
         #expect(manager.onboardingCompletionReasonForActiveAccess == .existingEntitlement)
@@ -263,7 +312,7 @@ struct MonetizationManagerPaywallTests {
     /// The paywall screen view is the one step the monetization layer owns, so it has to read the
     /// resume marker from the injected lifecycle rather than from device-wide state.
     @Test
-    func paywallScreenViewReadsTheResumeMarkerFromTheInjectedLifecycle() {
+    func paywallScreenViewIsClaimedOncePerInjectedPass() {
         let suiteName = "MonetizationManagerPaywallTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
@@ -271,6 +320,7 @@ struct MonetizationManagerPaywallTests {
 
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("test-user")
         let lifecycle = OnboardingFlowAnalyticsCoordinator(
             userDefaults: defaults,
             telemetry: telemetry
@@ -287,11 +337,21 @@ struct MonetizationManagerPaywallTests {
         )
         manager.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
 
-        let paywallView = sink.records.first {
+        let paywallViews = sink.records.filter {
             $0.name == "onboarding_screen_viewed"
                 && $0.parameters["screen_id"] == .string("paywall")
         }
-        #expect(paywallView?.parameters["resume"] == .bool(true))
+        // The view is claimed from the injected pass, and a second presentation re-emits nothing.
+        #expect(paywallViews.count == 1)
+        #expect(paywallViews.first?.parameters["resume"] == nil)
+
+        manager.presentPaywall(.appAccessGate, params: ["source": "paywall_placeholder_retry"])
+        #expect(
+            sink.records.filter {
+                $0.name == "onboarding_screen_viewed"
+                    && $0.parameters["screen_id"] == .string("paywall")
+            }.count == 1
+        )
     }
 
     @Test
@@ -316,10 +376,12 @@ struct MonetizationManagerPaywallTests {
         let paywallPresenter = PaywallPresenterSpy()
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("test-user")
         let manager = MonetizationManager(
             entitlementService: EntitlementServiceStub(),
             paywallPresenter: paywallPresenter,
-            telemetry: telemetry
+            telemetry: telemetry,
+            onboardingLifecycle: makeScratchOnboardingLifecycle(telemetry: telemetry)
         )
 
         manager.presentPaywall(
@@ -345,20 +407,24 @@ struct MonetizationManagerPaywallTests {
     @Test
     func aNewIdentityStartsAFreshPaywallScreenViewPass() async {
         let sink = InMemoryTelemetrySink(destination: .analytics)
+        let telemetry = makeTestTelemetry(sink: sink)
         let manager = MonetizationManager(
             entitlementService: EntitlementServiceStub(),
             paywallPresenter: PaywallPresenterSpy(),
-            telemetry: makeTestTelemetry(sink: sink)
+            telemetry: telemetry,
+            onboardingLifecycle: makeScratchOnboardingLifecycle(telemetry: telemetry)
         )
 
-        let firstIdentity = manager.prepareIdentity(userId: "user-a")
-        await manager.identify(userId: "user-a", transition: firstIdentity)
+        let firstIdentity = manager.prepareIdentity(.climber("user-a"))
+        await manager.identify(.climber("user-a"), transition: firstIdentity)
+        telemetry.setUserId("user-a")
         manager.presentPaywall(.onboardingPaywall)
         manager.presentPaywall(.onboardingPaywall)
         let reset = manager.prepareIdentityReset()
         await manager.resetIdentity(transition: reset)
-        let secondIdentity = manager.prepareIdentity(userId: "user-b")
-        await manager.identify(userId: "user-b", transition: secondIdentity)
+        let secondIdentity = manager.prepareIdentity(.climber("user-b"))
+        await manager.identify(.climber("user-b"), transition: secondIdentity)
+        telemetry.setUserId("user-b")
         manager.presentPaywall(.onboardingPaywall)
 
         let onboardingViews = sink.records.filter { $0.name == "onboarding_screen_viewed" }
@@ -370,17 +436,20 @@ struct MonetizationManagerPaywallTests {
     @Test
     func repeatIdentifyForTheSameUserKeepsThePaywallScreenViewDeduped() async {
         let sink = InMemoryTelemetrySink(destination: .analytics)
+        let telemetry = makeTestTelemetry(sink: sink)
         let manager = MonetizationManager(
             entitlementService: EntitlementServiceStub(),
             paywallPresenter: PaywallPresenterSpy(),
-            telemetry: makeTestTelemetry(sink: sink)
+            telemetry: telemetry,
+            onboardingLifecycle: makeScratchOnboardingLifecycle(telemetry: telemetry)
         )
 
-        let firstIdentity = manager.prepareIdentity(userId: "user-a")
-        await manager.identify(userId: "user-a", transition: firstIdentity)
+        let firstIdentity = manager.prepareIdentity(.climber("user-a"))
+        await manager.identify(.climber("user-a"), transition: firstIdentity)
+        telemetry.setUserId("user-a")
         manager.presentPaywall(.onboardingPaywall)
-        let repeatedIdentity = manager.prepareIdentity(userId: "user-a")
-        await manager.identify(userId: "user-a", transition: repeatedIdentity)
+        let repeatedIdentity = manager.prepareIdentity(.climber("user-a"))
+        await manager.identify(.climber("user-a"), transition: repeatedIdentity)
         manager.presentPaywall(.onboardingPaywall)
 
         #expect(sink.records.filter { $0.name == "onboarding_screen_viewed" }.count == 1)
@@ -419,7 +488,7 @@ struct MonetizationManagerPaywallTests {
         await manager.resetIdentity(transition: reset)
 
         entitlementService.identityResolution = .active(["app_access"])
-        let signIn = manager.prepareIdentity(userId: "returning-subscriber")
+        let signIn = manager.prepareIdentity(.climber("returning-subscriber"))
 
         let resolvingRoute = AppRootRouteResolver.resolve(
             updatePresentation: nil,
@@ -439,7 +508,7 @@ struct MonetizationManagerPaywallTests {
         #expect(paywallPresenter.registeredPlacement == nil)
 
         await manager.identify(
-            userId: "returning-subscriber",
+            .climber("returning-subscriber"),
             transition: signIn
         )
 
@@ -554,6 +623,7 @@ final class PaywallPresenterSpy: PaywallPresenting {
     private(set) var registeredPlacement: SuperwallPlacement?
     private(set) var registeredSource: String?
     private(set) var registrations: [SuperwallPlacement] = []
+    private(set) var subscriptionStatuses: [Set<String>] = []
     private var outcomeHandler: (@MainActor (PaywallPresentationOutcome) -> Void)?
 
     init(isConfigured: Bool = true) {
@@ -568,6 +638,10 @@ final class PaywallPresenterSpy: PaywallPresenting {
     func identify(userId: String) {}
 
     func resetIdentity() {}
+
+    func updateSubscriptionStatus(entitlementIDs: Set<String>) {
+        subscriptionStatuses.append(entitlementIDs)
+    }
 
     func register(
         placement: SuperwallPlacement,
@@ -589,9 +663,13 @@ final class PaywallPresenterSpy: PaywallPresenting {
 final class EntitlementServiceStub: EntitlementServicing {
     private(set) var entitlementState: MonetizationEntitlementState
     private(set) var hasFailedIdentityResolution = false
-    var identityGeneration: MonetizationIdentityTransition? { currentTransition }
+    var identityGeneration: MonetizationIdentityTransition? {
+        pendingTransition == nil ? settledTransition : nil
+    }
     var isConfigured = true
     var identityResolution = MonetizationEntitlementState.inactive
+    /// Every customer handed to `prepareIdentity`, in order.
+    private(set) var preparedCustomers: [MonetizationCustomerIdentity] = []
     var restoreError: (any Error)?
     /// A restore resolves its own answer even when a pending identity transition holds
     /// `entitlementState` at `.unknown`, so the two are settable independently.
@@ -599,11 +677,16 @@ final class EntitlementServiceStub: EntitlementServicing {
     /// Runs inside the restore, so a test can flip the entitlement while the call is still in
     /// flight and assert what the manager reports at that moment.
     var onRestoreStarted: (@MainActor () -> Void)?
-    private var revision: UInt = 0
-    private var currentTransition: MonetizationIdentityTransition?
+    private var revision: UInt = 1
+    private var pendingTransition: MonetizationIdentityTransition?
+    private var settledTransition: MonetizationIdentityTransition?
+    private var entitlementStateObserver: (@MainActor (MonetizationEntitlementState) -> Void)?
 
     init(initialState: MonetizationEntitlementState) {
         entitlementState = initialState
+        if initialState != .unknown {
+            settledTransition = MonetizationIdentityTransition(revision: revision, userID: "test-user")
+        }
     }
 
     init(
@@ -612,6 +695,9 @@ final class EntitlementServiceStub: EntitlementServicing {
     ) {
         self.entitlementState = entitlementState
         self.restoreError = restoreError
+        if entitlementState != .unknown {
+            settledTransition = MonetizationIdentityTransition(revision: revision, userID: "test-user")
+        }
     }
 
     /// Mirrors `RevenueCatEntitlementService.configure`, which needs a usable key.
@@ -626,12 +712,15 @@ final class EntitlementServiceStub: EntitlementServicing {
         .refreshed(entitlementState)
     }
 
-    func prepareIdentity(userId: String) -> MonetizationIdentityTransition {
-        prepare(userID: userId)
+    func prepareIdentity(
+        _ customer: MonetizationCustomerIdentity
+    ) -> MonetizationIdentityTransition {
+        preparedCustomers.append(customer)
+        return prepare(userID: customer.userID)
     }
 
     func identify(
-        userId: String,
+        _ customer: MonetizationCustomerIdentity,
         transition: MonetizationIdentityTransition
     ) async {
         resolve(identityResolution, for: transition)
@@ -647,6 +736,12 @@ final class EntitlementServiceStub: EntitlementServicing {
 
     func retryIdentityResolution() async {}
 
+    func setEntitlementStateObserver(
+        _ observer: (@MainActor (MonetizationEntitlementState) -> Void)?
+    ) {
+        entitlementStateObserver = observer
+    }
+
     @discardableResult
     func restorePurchases() async throws -> MonetizationEntitlementState {
         onRestoreStarted?()
@@ -658,8 +753,20 @@ final class EntitlementServiceStub: EntitlementServicing {
         return restoredState ?? entitlementState
     }
 
+    @discardableResult
+    func adoptTransactionState(
+        _ state: MonetizationEntitlementState,
+        for identity: MonetizationIdentityTransition
+    ) -> Bool {
+        guard identityGeneration == identity else { return false }
+        entitlementState = state
+        entitlementStateObserver?(state)
+        return true
+    }
+
     func setEntitlementState(_ state: MonetizationEntitlementState) {
         entitlementState = state
+        entitlementStateObserver?(state)
     }
 
     private func prepare(userID: String?) -> MonetizationIdentityTransition {
@@ -670,7 +777,7 @@ final class EntitlementServiceStub: EntitlementServicing {
             revision: revision,
             userID: userID
         )
-        currentTransition = transition
+        pendingTransition = transition
         return transition
     }
 
@@ -678,14 +785,31 @@ final class EntitlementServiceStub: EntitlementServicing {
         _ state: MonetizationEntitlementState,
         for transition: MonetizationIdentityTransition
     ) {
-        guard currentTransition == transition else { return }
+        guard pendingTransition == transition else { return }
         entitlementState = state
+        entitlementStateObserver?(state)
 
         guard state != .unknown else {
             hasFailedIdentityResolution = true
             return
         }
 
-        currentTransition = nil
+        settledTransition = transition
+        pendingTransition = nil
     }
+}
+
+/// A pass on its own `UserDefaults` suite.
+///
+/// The screen-view dedupe lives on the persisted pass, so a test that lets `MonetizationManager`
+/// default to `OnboardingFlowAnalyticsCoordinator.shared` reads whatever `UserDefaults.standard`
+/// already banked - on this run or a previous one - and becomes order-dependent.
+@MainActor
+func makeScratchOnboardingLifecycle(
+    telemetry: TelemetryManager
+) -> OnboardingFlowAnalyticsCoordinator {
+    let suiteName = "OnboardingPassScratch.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defaults.removePersistentDomain(forName: suiteName)
+    return OnboardingFlowAnalyticsCoordinator(userDefaults: defaults, telemetry: telemetry)
 }

@@ -18,7 +18,7 @@ final class RestorePurchasesViewModel {
             case .noPurchasesFound:
                 // The conclusive negative is stated once, verbatim, and carries no second line -
                 // a paraphrased heading above it would be a second way of saying the same thing.
-                return "No purchases found to restore."
+                return "No active Ascend subscription was found for this Apple ID."
             case .failed:
                 return "Restore Failed"
             }
@@ -41,7 +41,7 @@ final class RestorePurchasesViewModel {
 
     private let restoreService: AppAccessRestoreService
 
-    init(restoreService: AppAccessRestoreService = AppAccessRestoreService()) {
+    init(restoreService: AppAccessRestoreService = .shared) {
         self.restoreService = restoreService
     }
 
@@ -56,7 +56,7 @@ final class RestorePurchasesViewModel {
         result = nil
         defer { isRestoring = false }
 
-        switch await restoreService.restore() {
+        switch await restoreService.restore(context: .accountSettings()) {
         case .restored:
             result = .restored
         case .notFound:

@@ -19,9 +19,13 @@ import {
 } from "../lib/deploy-health.mjs";
 import {applyIssuePlan} from "../check-deploy-production-health.mjs";
 import {
+  FUNCTIONS_LIST_ATTEMPT_DELAYS_MS,
+  FUNCTIONS_LIST_ATTEMPT_TIMEOUT_MS,
+  describeFunctionsListFailure,
   diffDeployedFunctions,
   formatFunctionsDiff,
   inactiveDeployedFunctions,
+  listDeployedFunctionsWithRetry,
   parseDeployedFunctionNames,
   parseDeployedFunctions,
   parseExportedFunctionNames,
@@ -1054,5 +1058,319 @@ test("an unexpected functions:list payload is refused, not read as empty", () =>
   assert.throws(
     () => parseDeployedFunctionNames(JSON.stringify({status: "error"})),
     /no `result` array/
+  );
+});
+
+test("an error envelope that exits 0 still reports the CLI's own words", () => {
+  // execFileSync does not throw on exit 0, so `describeFunctionsListFailure`
+  // never runs and this is the only place the envelope can still be lost.
+  assert.throws(
+    () =>
+      parseDeployedFunctionNames(
+        JSON.stringify({
+          status: "error",
+          error: "Failed to list functions for ascend-staging-fa7d5",
+        })
+      ),
+    /Failed to list functions for ascend-staging-fa7d5/
+  );
+});
+
+/**
+ * Builds the error `execFileSync` throws for a non-zero exit.
+ * @param {object} overrides Fields to override.
+ * @return {object} An error shaped like execFileSync's.
+ */
+function execFailure(overrides = {}) {
+  return {status: 1, stdout: "", stderr: "", code: undefined,
+    signal: null, ...overrides};
+}
+
+test("a --json failure is diagnosed from stdout, where firebase puts it", () => {
+  // The exact shape run 33426121857 hit: `firebase functions:list --json`
+  // exits 1, writes its error envelope to stdout and leaves stderr empty.
+  // Reading only stderr reported `no diagnostic output` and cost the cause.
+  const message = describeFunctionsListFailure({
+    projectId: "ascend-staging-fa7d5",
+    error: execFailure({
+      stdout: JSON.stringify({
+        status: "error",
+        error: "Failed to list functions for ascend-staging-fa7d5",
+      }),
+    }),
+  });
+
+  assert.match(message, /Failed to list functions for ascend-staging-fa7d5/);
+  assert.doesNotMatch(
+    message,
+    /no diagnostic output/,
+    "the envelope on stdout is a diagnostic; reporting none discards it"
+  );
+});
+
+test("a --json payload that is not the error envelope is still reported", () => {
+  const message = describeFunctionsListFailure({
+    projectId: "p",
+    error: execFailure({stdout: "not json at all"}),
+  });
+
+  assert.match(message, /not json at all/);
+});
+
+test("stderr still speaks when the CLI dies before --json handling", () => {
+  const message = describeFunctionsListFailure({
+    projectId: "p",
+    error: execFailure({stderr: "node: bad option --json"}),
+  });
+
+  assert.match(message, /bad option --json/);
+});
+
+test("a spawn failure names the code it has, not an empty exit", () => {
+  const message = describeFunctionsListFailure({
+    projectId: "p",
+    error: execFailure({status: undefined, stdout: null, stderr: null,
+      code: "ENOENT"}),
+  });
+
+  assert.match(message, /exit unknown/);
+  assert.match(message, /ENOENT/);
+});
+
+test("only a failure with nothing at all reports no diagnostic output", () => {
+  assert.match(
+    describeFunctionsListFailure({projectId: "p", error: execFailure()}),
+    /no diagnostic output/
+  );
+});
+
+test("a timed-out read is named as one, not as an empty failure", () => {
+  // execFileSync kills the child on `timeout` with a null status and the
+  // signal set, and the streams hold whatever it managed to write - nothing.
+  const message = describeFunctionsListFailure({
+    projectId: "ascend-staging-fa7d5",
+    error: execFailure({status: null, signal: "SIGTERM"}),
+  });
+
+  assert.match(message, /SIGTERM/);
+  assert.doesNotMatch(message, /no diagnostic output/);
+});
+
+test("a truncated payload never shadows the code that names the kill", () => {
+  // maxBuffer overflow: ENOBUFS, and a stdout cut mid-payload that parses as
+  // nothing. Reporting the blob alone would describe a killed child as a
+  // malformed response.
+  const message = describeFunctionsListFailure({
+    projectId: "p",
+    error: execFailure({
+      status: null,
+      stdout: '{"status":"success","result":[{"id":"onWork',
+      code: "ENOBUFS",
+    }),
+  });
+
+  assert.match(message, /ENOBUFS/);
+  assert.match(message, /onWork/, "the partial payload is still evidence");
+});
+
+test("the CI signature this exists to fix still yields the envelope", () => {
+  // Combining candidates must not cost the exit-1 / envelope-on-stdout /
+  // empty-stderr case its message, which is the whole reason for the change.
+  const message = describeFunctionsListFailure({
+    projectId: "ascend-staging-fa7d5",
+    error: execFailure({
+      stdout: JSON.stringify({
+        status: "error",
+        error: "Failed to list functions for ascend-staging-fa7d5",
+      }),
+    }),
+  });
+
+  assert.equal(
+    message,
+    "firebase functions:list failed for ascend-staging-fa7d5 (exit 1). " +
+      "Failed to list functions for ascend-staging-fa7d5"
+  );
+});
+
+test("the diagnostic is one line, so an annotation carries all of it", () => {
+  const message = describeFunctionsListFailure({
+    projectId: "p",
+    error: execFailure({stderr: "npm ERR! code E404\nnpm ERR! 404 Not Found"}),
+  });
+
+  assert.doesNotMatch(
+    message,
+    /[\r\n]/,
+    "Actions truncates an annotation at its first newline, orphaning the " +
+      "retry suffix the caller appends after this"
+  );
+  assert.match(message, /E404.*404 Not Found/);
+});
+
+test("a read that timed out is retried on the same budget as one that failed",
+  () => {
+    let calls = 0;
+
+    const payload = listDeployedFunctionsWithRetry({
+      listOnce: () => {
+        calls += 1;
+        if (calls < 3) {
+          throw execFailure({status: null, signal: "SIGTERM"});
+        }
+        return '{"status":"success","result":[]}';
+      },
+      sleep: () => {},
+      delaysMs: [1, 2],
+    });
+
+    assert.equal(calls, 3);
+    assert.equal(payload, '{"status":"success","result":[]}');
+  });
+
+test("a budget exhausted by timeouts still fails, never falls open", () => {
+  // A non-responding Firebase must not let a build through: the exhausted
+  // read throws, the step exits 1, and upload-testflight stays skipped.
+  assert.throws(
+    () =>
+      listDeployedFunctionsWithRetry({
+        listOnce: () => {
+          throw execFailure({status: null, signal: "SIGTERM"});
+        },
+        sleep: () => {},
+        delaysMs: [1, 2],
+      }),
+    (thrown) => {
+      assert.match(
+        describeFunctionsListFailure({projectId: "p", error: thrown}),
+        /SIGTERM/
+      );
+      return true;
+    }
+  );
+});
+
+test("the per-attempt timeout leaves the job's own budget room to spare", () => {
+  const attempts = FUNCTIONS_LIST_ATTEMPT_DELAYS_MS.length + 1;
+  const worstCase =
+    attempts * FUNCTIONS_LIST_ATTEMPT_TIMEOUT_MS +
+    FUNCTIONS_LIST_ATTEMPT_DELAYS_MS.reduce((a, b) => a + b, 0);
+
+  assert.ok(
+    FUNCTIONS_LIST_ATTEMPT_TIMEOUT_MS > 0,
+    "a read without a deadline is a read the retry budget cannot reach"
+  );
+  assert.ok(
+    worstCase <= 10 * 60_000,
+    "a verification read may not eat the deploy job's timeout-minutes: 45"
+  );
+});
+
+test("the diagnostic never reproduces argv, which is where a token would be",
+  () => {
+    const error = execFailure({
+      stdout: JSON.stringify({status: "error", error: "boom"}),
+      message: "Command failed: npx firebase --token SECRET-TOKEN-VALUE",
+    });
+
+    assert.doesNotMatch(
+      describeFunctionsListFailure({projectId: "p", error}),
+      /SECRET-TOKEN-VALUE/
+    );
+  });
+
+test("a read that could not run is retried, not turned into a failed deploy",
+  () => {
+    const waited = [];
+    let calls = 0;
+
+    const payload = listDeployedFunctionsWithRetry({
+      listOnce: () => {
+        calls += 1;
+        if (calls < 3) {
+          throw execFailure();
+        }
+        return '{"status":"success","result":[]}';
+      },
+      sleep: (ms) => waited.push(ms),
+      delaysMs: [1, 2],
+    });
+
+    assert.equal(calls, 3);
+    assert.deepEqual(waited, [1, 2]);
+    assert.equal(payload, '{"status":"success","result":[]}');
+  });
+
+test("the retry budget is bounded and rethrows the last failure", () => {
+  let calls = 0;
+
+  assert.throws(
+    () =>
+      listDeployedFunctionsWithRetry({
+        listOnce: () => {
+          calls += 1;
+          throw execFailure({stdout: `attempt ${calls}`});
+        },
+        sleep: () => {},
+        delaysMs: [1, 2],
+      }),
+    (thrown) => {
+      // The original error is rethrown untouched so the caller keeps the
+      // streams `describeFunctionsListFailure` reads.
+      assert.equal(
+        thrown.stdout,
+        "attempt 3",
+        "the caller must see the final failure, not the first"
+      );
+      return true;
+    }
+  );
+  assert.equal(calls, 3, "delaysMs.length retries means one more attempt");
+});
+
+test("a read that succeeds first time waits for nothing", () => {
+  const waited = [];
+
+  listDeployedFunctionsWithRetry({
+    listOnce: () => "{}",
+    sleep: (ms) => waited.push(ms),
+    delaysMs: [5000, 15000],
+  });
+
+  assert.deepEqual(waited, []);
+});
+
+test("the shipped retry schedule is bounded and non-empty", () => {
+  assert.ok(
+    FUNCTIONS_LIST_ATTEMPT_DELAYS_MS.length > 0,
+    "a single unretried read is what failed the deploy in the first place"
+  );
+  const total = FUNCTIONS_LIST_ATTEMPT_DELAYS_MS.reduce((a, b) => a + b, 0);
+  assert.ok(
+    total <= 60_000,
+    "a verification read may not stall a deploy job for a minute"
+  );
+});
+
+test("retrying the read never softens the reconciliation it feeds", () => {
+  // The budget buys tolerance for the API, never for the deploy: a payload
+  // that comes back missing a function is still a first-attempt failure.
+  const deployed = parseDeployedFunctionNames(
+    listDeployedFunctionsWithRetry({
+      listOnce: () =>
+        JSON.stringify({status: "success", result: [{id: "onWorkoutWritten"}]}),
+      sleep: () => assert.fail("a successful read must not be retried"),
+    })
+  );
+
+  const diff = diffDeployedFunctions({
+    exported: ["onWorkoutWritten", "unsubscribeFromEmails"],
+    deployed,
+  });
+
+  assert.deepEqual(diff.missing, ["unsubscribeFromEmails"]);
+  assert.equal(
+    formatFunctionsDiff({projectId: "p", diff, inactive: []}).ok,
+    false
   );
 });

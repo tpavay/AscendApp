@@ -17,9 +17,9 @@ import UIKit
 /// `LeaderboardWindowLabelEvidenceTests`, which renders this same route; what no
 /// screenshot can show is the payload the visit ships, and that needs no window.
 ///
-/// Files land in `ASCEND_EVIDENCE_DIR` when it is set and in the test host's temporary
-/// directory otherwise; the path is logged either way. Nothing reads them back - these
-/// are evidence, not golden-image assertions.
+/// The payload sheet and its transcript land in `ASCEND_EVIDENCE_DIR` when it is set and
+/// are not written otherwise; the transcript is printed either way. Nothing reads them
+/// back - these are evidence, not golden-image assertions.
 @MainActor
 struct LeaderboardViewedEventEvidenceTests {
     /// The default board: tab entry, weekly window, no demographic filters.
@@ -166,32 +166,21 @@ struct LeaderboardViewedEventEvidenceTests {
 
     private typealias Row = (label: String, payload: Payload)
 
+    /// Prints the transcript always, and writes it beside the payload sheet only when a
+    /// run keeps evidence - the sheet is never laid out otherwise.
     private func capture(rows: [Row], named name: String) throws {
-        let renderer = ImageRenderer(content: evidenceSheet(rows: rows))
-        renderer.scale = 3
-        let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let url = Self.evidenceDirectory.appending(path: "\(name).png")
-        try png.write(to: url)
-        #expect(png.count > 5_000)
-
         let transcript = rows
             .map { Self.transcriptRow(label: $0.label, payload: $0.payload) }
             .joined(separator: "\n\n")
-        let transcriptURL = Self.evidenceDirectory.appending(path: "\(name).txt")
-        try Data(transcript.utf8).write(to: transcriptURL)
-
         print(transcript)
-        print("Rendered leaderboard_viewed evidence: \(url.path())")
-        print("Wrote leaderboard_viewed transcript: \(transcriptURL.path())")
-    }
 
-    private static var evidenceDirectory: URL {
-        URL(
-            filePath: ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-                ?? NSTemporaryDirectory()
-        )
+        guard let directory = RenderedScreen.evidenceDirectory else { return }
+
+        try RenderedScreen.photograph(evidenceSheet(rows: rows), named: name)
+
+        let transcriptURL = directory.appending(path: "\(name).txt")
+        try Data(transcript.utf8).write(to: transcriptURL)
+        print("Wrote leaderboard_viewed transcript: \(transcriptURL.path())")
     }
 
     private func evidenceSheet(rows: [Row]) -> some View {

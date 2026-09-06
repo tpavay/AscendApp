@@ -26,14 +26,14 @@ struct AppAccessResolvingView: View {
         VStack(spacing: 16) {
             AscendLoadingIndicator()
 
-            Text("Checking your access...")
+            Text("Checking your subscription access")
                 .font(.montserratMedium(size: 15))
                 .foregroundStyle(.white.opacity(0.68))
                 .multilineTextAlignment(.center)
         }
         .padding(.horizontal, 28)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Checking your access.")
+        .accessibilityLabel("Checking your subscription access.")
         .accessibilityIdentifier("appAccessResolvingLoading")
     }
 

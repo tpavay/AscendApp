@@ -36,6 +36,12 @@ final class OnboardingFlowAnalyticsCoordinator {
         var didStart = false
         var didComplete = false
         var accessGrant: OnboardingAccessGrantProvenance = .notRequested
+        /// Every step this pass has already reported a view for.
+        ///
+        /// It lives on the pass rather than in a view's `@State` because the paywall is a different
+        /// root route from onboarding: walking back from it tears down the view that used to hold
+        /// this set, and every re-passed screen would report itself a second time.
+        var viewedStepIDs: Set<String> = []
 
         init(ownerUserID: String? = nil) {
             self.ownerUserID = ownerUserID
@@ -52,6 +58,7 @@ final class OnboardingFlowAnalyticsCoordinator {
                 OnboardingAccessGrantProvenance.self,
                 forKey: .accessGrant
             ) ?? .notRequested
+            viewedStepIDs = try container.decodeIfPresent(Set<String>.self, forKey: .viewedStepIDs) ?? []
         }
     }
 
@@ -60,8 +67,10 @@ final class OnboardingFlowAnalyticsCoordinator {
     @ObservationIgnored
     private let telemetry: TelemetryManager
     private var passState: PassState
+    /// Set when this launch opened a pass that was already under way, and consumed by the first
+    /// screen it shows.
     @ObservationIgnored
-    private var shouldMarkNextScreenAsResumed: Bool
+    private var shouldReportResume: Bool
 
     init(
         userDefaults: UserDefaults = .standard,
@@ -71,7 +80,7 @@ final class OnboardingFlowAnalyticsCoordinator {
         self.telemetry = telemetry
 
         var state = Self.loadState(from: userDefaults)
-        shouldMarkNextScreenAsResumed = state.didStart && !state.didComplete
+        shouldReportResume = state.didStart && !state.didComplete
 
         // A request still in flight when the process ended can never report its result, so it
         // closes here rather than deferring a completion nothing is left to release.
@@ -100,7 +109,7 @@ final class OnboardingFlowAnalyticsCoordinator {
         }
 
         save(PassState(ownerUserID: userID))
-        shouldMarkNextScreenAsResumed = false
+        shouldReportResume = false
     }
 
     /// Retires the current pass so the next onboarding screen opens a fresh one. The debug replay
@@ -108,7 +117,7 @@ final class OnboardingFlowAnalyticsCoordinator {
     func resetPass() {
         passState = PassState()
         userDefaults.removeObject(forKey: Self.passStateKey)
-        shouldMarkNextScreenAsResumed = false
+        shouldReportResume = false
     }
 
     /// Retires a pass an account already claimed, and leaves an unclaimed one alone. Losing the
@@ -121,12 +130,50 @@ final class OnboardingFlowAnalyticsCoordinator {
         resetPass()
     }
 
+    /// Claims the one screen view this pass is allowed to report for `stepID`.
+    ///
+    /// Returns `false` once the pass has already reported it, so a climber walking back through
+    /// onboarding re-reports nothing. Retiring the pass is what makes a step reportable again.
+    func claimScreenView(stepID: String) -> Bool {
+        guard !passState.viewedStepIDs.contains(stepID) else { return false }
+
+        var state = passState
+        state.viewedStepIDs.insert(stepID)
+        save(state)
+        return true
+    }
+
+    /// Hands a claim back when the view it was claimed for was never delivered.
+    ///
+    /// Telemetry refuses an event outright when collection is off or the identified user is not
+    /// the one the caller expected, and the claim is persisted for the whole pass - so a claim kept
+    /// after a refusal is not a deduped view, it is a view this pass can never report.
+    func releaseScreenViewClaim(stepID: String) {
+        guard passState.viewedStepIDs.contains(stepID) else { return }
+
+        var state = passState
+        state.viewedStepIDs.remove(stepID)
+        save(state)
+    }
+
+    /// Reports, once per launch, that this launch opened onboarding somewhere other than its start.
+    ///
+    /// The interrupted-position signal used to ride on a re-emitted `onboarding_screen_viewed`
+    /// carrying `resume=true`. Once a step reports only once per pass that re-emission is gone, so
+    /// the signal gets an event of its own rather than disappearing.
+    func reportResumeIfNeeded(context: OnboardingAnalyticsContext) {
+        guard shouldReportResume else { return }
+
+        shouldReportResume = false
+        telemetry.track(OnboardingAnalyticsEvent.flowResumed(context: context))
+    }
+
     func recordFlowStartedIfNeeded(context: OnboardingAnalyticsContext) {
         var state = passState
 
         if state.didComplete {
             state = PassState(ownerUserID: state.ownerUserID)
-            shouldMarkNextScreenAsResumed = false
+            shouldReportResume = false
         }
 
         guard !state.didStart else { return }
@@ -135,21 +182,19 @@ final class OnboardingFlowAnalyticsCoordinator {
         save(state)
 
         // A pass that opens past the first canonical step is resuming work an earlier install or
-        // an earlier launch already did, and its first screen has to say so.
+        // an earlier launch already did, and its start has to say so.
+        //
+        // There are two ways a launch resumes, and both have to report it: this one, where the pass
+        // itself is new because a reinstall kept the Keychain session but not `UserDefaults`, and
+        // the one `init` detects, where a pass persisted here was picked up by a later launch.
         let isResumedPass = context.stepIndex > 0
         if isResumedPass {
-            shouldMarkNextScreenAsResumed = true
+            shouldReportResume = true
         }
 
         telemetry.track(
             OnboardingAnalyticsEvent.flowStarted(context: context, resume: isResumedPass)
         )
-    }
-
-    func consumeScreenResumeFlag() -> Bool {
-        guard shouldMarkNextScreenAsResumed else { return false }
-        shouldMarkNextScreenAsResumed = false
-        return true
     }
 
     func beginAccessGrantRequest() {
@@ -183,7 +228,7 @@ final class OnboardingFlowAnalyticsCoordinator {
         state.didComplete = true
         state.accessGrant = .notRequested
         save(state)
-        shouldMarkNextScreenAsResumed = false
+        shouldReportResume = false
 
         telemetry.track(
             OnboardingAnalyticsEvent.flowCompleted(

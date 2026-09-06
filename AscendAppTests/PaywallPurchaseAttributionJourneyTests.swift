@@ -15,6 +15,10 @@ struct PaywallPurchaseAttributionJourneyTests {
     private static let entitlementID = "app_access"
     private static let placement = "winback_lapsed_yearly"
     private static let presentationID = "pres_3d81c4"
+    private static let identity = MonetizationIdentityTransition(
+        revision: 1,
+        userID: "attribution-user"
+    )
 
     @Test
     func theSharedStoreTheSuperwallDelegateWritesToAttributesEveryTerminal() async {
@@ -30,6 +34,7 @@ struct PaywallPurchaseAttributionJourneyTests {
             PaywallTransactionContextStore.shared.record(
                 placement: Self.placement,
                 presentationID: Self.presentationID,
+                identity: Self.identity,
                 productID: productID
             )
 
@@ -64,8 +69,8 @@ struct PaywallPurchaseAttributionJourneyTests {
             )
         }
 
-        // A failure raised before RevenueCat is ever called cannot claim a purchase happened, so it
-        // ships alone and carries no attribution to join on.
+        // A failure raised before RevenueCat is ever called cannot claim a purchase started, but its
+        // one terminal still belongs to the exact gate presentation that attempted the handoff.
         let preCallProductID = "ascend_yearly_pre_call"
         let preCallSink = InMemoryTelemetrySink(destination: .analytics)
         let preCallExecutor = Self.makeSharedStoreExecutor(
@@ -75,6 +80,7 @@ struct PaywallPurchaseAttributionJourneyTests {
         PaywallTransactionContextStore.shared.record(
             placement: Self.placement,
             presentationID: Self.presentationID,
+            identity: Self.identity,
             productID: preCallProductID
         )
 
@@ -86,8 +92,8 @@ struct PaywallPurchaseAttributionJourneyTests {
 
         let preCallRecords = preCallSink.records
         #expect(preCallRecords.map(\.name) == ["revenuecat_purchase_failed"])
-        #expect(preCallRecords[0].parameters["placement"] == nil)
-        #expect(preCallRecords[0].parameters["presentation_id"] == nil)
+        #expect(preCallRecords[0].parameters["placement"] == .string(Self.placement))
+        #expect(preCallRecords[0].parameters["presentation_id"] == .string(Self.presentationID))
         #expect(preCallRecords[0].parameters["error_type"] == .string("missing_store_product"))
         rows.append(
             JoinRow(
@@ -197,11 +203,15 @@ private extension PaywallPurchaseAttributionJourneyTests {
         sink: InMemoryTelemetrySink,
         refresh: MonetizationEntitlementRefresh
     ) -> RevenueCatPurchaseExecutor {
-        RevenueCatPurchaseExecutor(
-            telemetry: makeTestTelemetry(sink: sink),
+        let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId(identity.userID!)
+        return RevenueCatPurchaseExecutor(
+            telemetry: telemetry,
             entitlementID: entitlementID,
             applySubscriptionStatus: { _ in },
-            refreshEntitlementState: { refresh }
+            refreshEntitlementState: { refresh },
+            currentIdentityGeneration: { identity },
+            adoptEntitlementState: { _, candidate in candidate == identity }
         )
     }
 

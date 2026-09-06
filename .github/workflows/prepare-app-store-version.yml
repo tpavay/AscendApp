@@ -1,0 +1,146 @@
+name: Prepare App Store Version
+
+# Creates the App Store version record for the marketing version that just shipped to
+# TestFlight and attaches the processed build to it - and then STOPS.
+#
+# ############################################################################
+# THIS WORKFLOW DOES NOT SUBMIT FOR REVIEW, AND MUST NEVER BE MADE TO.
+# The captain reads the prepared version in App Store Connect and presses Submit himself.
+# Do not add a submission step, a `deliver` / `upload_to_app_store` call, an automatic
+# release, or a phased-release toggle here. `scripts/test/app-store-submission-guard.test.mjs`
+# fails the build if anything in the pipeline gains that power.
+# ############################################################################
+#
+# It runs as its OWN workflow rather than as a final job in `deploy-production.yml` on
+# purpose: attaching a build requires Apple to finish processing it, which takes far longer
+# than the upload, and `deploy-production`'s concurrency group holds only one pending run.
+# Waiting inside that group would displace a queued production deploy - the exact silent
+# cancellation `deploy-production-watchdog.yml` exists to catch.
+#
+# `workflow_run` reads this file from the repository's default branch, the same mechanism
+# the watchdog uses.
+
+on:
+  workflow_run:
+    workflows: ["Deploy Production"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Marketing version to prepare. Defaults to MARKETING_VERSION in the checked-out project."
+        required: false
+        type: string
+      build:
+        description: "Build number to attach. Defaults to the newest build in that version's train, waited for until Apple has processed it."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+# A second run preparing the same version while the first is mid-write would race on the
+# build relationship. Runs serialize; none is cancelled, because a run that has already
+# created the version record should finish attaching to it.
+concurrency:
+  group: prepare-app-store-version
+  cancel-in-progress: false
+
+env:
+  APP_STORE_CONNECT_APP_ID: "6757202987"
+  APP_STORE_CONNECT_BUNDLE_ID: com.TylerPavay.AscendApp
+
+jobs:
+  prepare-version:
+    name: Prepare App Store Version
+    # A production deploy that failed did not necessarily upload a build, and a cancelled one
+    # certainly did not finish. Only a green deploy has something to prepare.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      # The commit the deploy archived, not the default branch. Its MARKETING_VERSION is the
+      # version string the uploaded binary actually carries.
+      - name: Checkout the deployed commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # The script reads only Node built-ins, so there is nothing to install. It uses the App
+      # Store Connect API key the TestFlight upload lane already authenticates with; no new
+      # credential is introduced.
+      - name: Create the version record and attach the build
+        id: prepare
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+          REQUESTED_BUILD: ${{ inputs.build }}
+          EVENT_NAME: ${{ github.event_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          arguments=(
+            --confirm
+            --app-id "$APP_STORE_CONNECT_APP_ID"
+            --bundle-id "$APP_STORE_CONNECT_BUNDLE_ID"
+          )
+          # `if` rather than `[ ... ] && ...`: under `set -e` a false test is the whole
+          # command list's exit status, and this step would end here reporting success.
+          if [ -n "${REQUESTED_VERSION:-}" ]; then
+            arguments+=(--version "$REQUESTED_VERSION")
+          fi
+          if [ -n "${REQUESTED_BUILD:-}" ]; then
+            arguments+=(--build "$REQUESTED_BUILD")
+          fi
+          # A backend-only merge to `main` still archives and uploads a build while the
+          # previous version sits with Apple, so on the chained path a version that cannot
+          # take a build is the expected answer, not a fault - and a red run for a correct
+          # outcome teaches everyone to ignore red runs. A human who dispatched this run by
+          # name asked for it specifically, so there it still fails loudly.
+          if [ "$EVENT_NAME" != "workflow_dispatch" ]; then
+            arguments+=(--skip-when-not-editable)
+          fi
+
+          node scripts/appstore-prepare-version.mjs "${arguments[@]}"
+
+      - name: Say what is left for a human
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.prepare.outputs.outcome }}
+        run: |
+          set -euo pipefail
+
+          if [ "${OUTCOME:-}" = "version-not-editable" ]; then
+            {
+              echo "### Nothing to prepare"
+              echo ""
+              echo "The App Store version for this marketing version is already with Apple, or"
+              echo "already released, so it cannot take a build. Nothing was written."
+              echo ""
+              echo "That is the expected outcome for a deploy that shipped the backend while the"
+              echo "previous version is in review. Bump \`MARKETING_VERSION\` when the next"
+              echo "release is meant to go out."
+              echo ""
+              echo "https://appstoreconnect.apple.com/apps/${APP_STORE_CONNECT_APP_ID}/distribution"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          {
+            echo "### App Store version prepared"
+            echo ""
+            echo "The version record exists and the build is attached."
+            echo ""
+            echo "**Nothing has been submitted for review.** That is deliberate."
+            echo "Open App Store Connect, read the version, and press Submit for Review yourself."
+            echo ""
+            echo "https://appstoreconnect.apple.com/apps/${APP_STORE_CONNECT_APP_ID}/distribution"
+          } >> "$GITHUB_STEP_SUMMARY"

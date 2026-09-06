@@ -14,15 +14,18 @@
  *   node scripts/seed-demo-user.mjs seed --project staging --email person@example.com
  *   node scripts/seed-demo-user.mjs seed --project dev --user <uid> --display-name "Product Tester"
  *   node scripts/seed-demo-user.mjs seed --project staging --email person@example.com --dry-run
+ *   node scripts/seed-demo-user.mjs clear --project staging --email person@example.com
  */
 
-import {createHash} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import {readFileSync} from "node:fs";
 import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {getAuth} from "firebase-admin/auth";
+import {getStorage} from "firebase-admin/storage";
 import {FieldValue, getFirestore, Timestamp} from "firebase-admin/firestore";
+import {createBatchWriter, createProgressReporter} from "./lib/firestore-bulk.mjs";
 import {
   canonicalWorkoutDocumentId,
   seededReplayCompletedCount,
@@ -31,9 +34,22 @@ import {
 import {currentPeriod, utcDate} from "./lib/leaderboard-period.mjs";
 import {
   PUBLIC_IDENTITY_STATE_PUBLISHED,
+  clearedFirstAscentFields,
+  firstAscentInvariantFailure,
   firstAscentSeedFields,
 } from "./seed/lib/live-replay-first-ascent.mjs";
 import {buildDemoReplayEntry} from "./seed/lib/demo-replay-entry.mjs";
+import {bestMetricField} from "./seed/lib/live-replay-finisher.mjs";
+import {
+  REPLAY_SUMMARY_SOURCE_LIVE,
+} from "./seed/lib/live-replay-summary-source.mjs";
+import {contestedClimbIds} from "./seed/lib/live-replay-climb-tiers.mjs";
+import {defaultSeedPackId} from "./seed/lib/environments.mjs";
+import {
+  reservedAccountAvatar,
+  seedAvatarPrefix,
+} from "./seed/lib/seed-avatar-allocation.mjs";
+import {isAllowedPublicPhotoURL} from "./seed/lib/public-identity-contract.mjs";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
@@ -50,7 +66,22 @@ const REPLAY_SCHEMA_VERSION = 1;
 const STEPS_PER_FLOOR = 16;
 const SPLIT_INTERVAL_SECONDS = 10;
 const DEFAULT_SCENARIO = "full-showcase";
-const DEFAULT_FIRST_ASCENT_CLIMB_ID = "empire-state-building";
+
+/**
+ * The climb this account holds the First Ascent on.
+ *
+ * It has to be a climb no synthetic competitor has finished. The server claims a
+ * slot only for a finisher on a board with no completions, so a holder written
+ * onto a contested board claims nothing - it just overwrites the seed pack's
+ * holder with an account seated behind dozens of climbers, on the one screen
+ * whose entire claim is "first ever".
+ *
+ * So the holder's climb sits outside `seed-live-replay-leaderboards.mjs`'s
+ * contested lists, on a board that pack seeds open. This account is then
+ * genuinely the only finisher the board has ever had. `validateArgs` enforces
+ * that rather than trusting this comment.
+ */
+const DEFAULT_FIRST_ASCENT_CLIMB_ID = "875-north-michigan-avenue";
 
 const TIME_FRAMES = ["daily", "weekly", "monthly", "yearly", "all_time"];
 const SPM_BY_LEVEL = [
@@ -113,6 +144,7 @@ const ROUTINE_TEMPLATES = [
 
 const LIVE_CLIMB_SPECS = [
   {climbId: "empire-state-building", daysAgo: 0, spm: 94, finisherOrder: 1},
+  {climbId: DEFAULT_FIRST_ASCENT_CLIMB_ID, daysAgo: 2, spm: 92, finisherOrder: 1},
   {climbId: "taipei-101", daysAgo: 4, spm: 89, finisherOrder: 7},
   {climbId: "burj-khalifa", daysAgo: 9, spm: 101, finisherOrder: 18},
   {climbId: "eiffel-tower", daysAgo: 14, spm: 84, finisherOrder: 12},
@@ -245,6 +277,13 @@ Usage:
   node scripts/seed-demo-user.mjs seed --project staging --email person@example.com
   node scripts/seed-demo-user.mjs seed --project dev --user <uid> --display-name "Product Tester"
   node scripts/seed-demo-user.mjs seed --project staging --email person@example.com --dry-run
+  node scripts/seed-demo-user.mjs clear --project staging --email person@example.com
+
+Commands:
+  seed   Write this scenario's data onto one existing dev/staging account.
+  clear  Take the same documents back out. Account identity and any climb
+         performed in the app are left alone; delete those in the app, which is
+         the only thing that also removes the device's local copy.
 
 Options:
   --project <dev|staging|projectId>  Defaults to dev. Production is refused.
@@ -259,7 +298,7 @@ Options:
   --country <ISO-2> [--region <code>]
   --joined-at <ISO date>
   --scenario <full-showcase>         Currently only full-showcase is supported.
-  --first-ascent-climb <climbId>     Defaults to empire-state-building.
+  --first-ascent-climb <climbId>     Defaults to ${DEFAULT_FIRST_ASCENT_CLIMB_ID}.
   --no-first-ascent                  Do not assign a First Ascent in replay summaries.
   --dry-run                          Print the write plan without writing.
 `);
@@ -273,8 +312,8 @@ async function main() {
     return;
   }
 
-  if (args.command !== "seed") {
-    throw new Error("Command must be seed or help");
+  if (!["seed", "clear"].includes(args.command)) {
+    throw new Error("Command must be seed, clear, or help");
   }
 
   validateArgs(args);
@@ -282,12 +321,28 @@ async function main() {
   const projectId = resolveProjectId(args.project);
   assertAllowedProject(projectId);
 
-  initializeApp({credential: applicationDefault(), projectId});
+  initializeApp({
+    credential: applicationDefault(),
+    projectId,
+    storageBucket: `${projectId}.firebasestorage.app`,
+  });
   const auth = getAuth();
   const db = getFirestore();
   const authUser = await resolveAuthUser(auth, args);
   const catalog = loadCatalog();
-  const seedPlan = await buildSeedPlan(db, catalog, authUser, args);
+
+  if (args.command === "clear") {
+    await runClear(db, catalog, authUser, args, projectId);
+    return;
+  }
+
+  const accountPhotoURL = args.dryRun ?
+    null :
+    await ensureAccountPhoto(authUser, args, projectId);
+  const seedPlan = await buildSeedPlan(db, catalog, authUser, {
+    ...args,
+    photoURL: args.photoURL ?? accountPhotoURL,
+  });
 
   printPlan(projectId, seedPlan, args);
 
@@ -336,6 +391,16 @@ function validateArgs(args) {
       `--first-ascent-climb must be one of the seeded climb IDs: ${LIVE_CLIMB_SPECS.map((spec) => spec.climbId).join(", ")}`
     );
   }
+  // The live replay pack fills these boards with finishers, and the server lets
+  // only an unheld slot on an empty board be claimed. Writing a holder onto one
+  // anyway claims nothing and renders as first-ever beside a full field.
+  if (args.seedFirstAscent && contestedClimbIds().has(args.firstAscentClimbId)) {
+    throw new Error(
+      `--first-ascent-climb ${args.firstAscentClimbId} is contested by the live ` +
+      "replay seed pack, so its First Ascent is already spent. Pick a climb the " +
+      "pack leaves open, or pass --no-first-ascent."
+    );
+  }
 }
 
 async function resolveAuthUser(auth, args) {
@@ -369,22 +434,9 @@ async function buildSeedPlan(db, catalog, authUser, args) {
   writes.push([userRef, privateProfile]);
   writes.push([userRef.collection("public_profile").doc("current"), publicProfile]);
 
-  for (const spec of LIVE_CLIMB_SPECS) {
-    const climb = requiredClimb(catalog, spec.climbId);
-    const workout = liveClimbWorkout(user, climb, spec, now);
-    workouts.push(workout);
-    liveContexts.push(liveContextForWorkout(workout));
-  }
-
-  for (const template of ROUTINE_TEMPLATES) {
-    const workout = routineTemplateWorkout(user, template, now);
-    workouts.push(workout);
-    liveContexts.push(liveContextForWorkout(workout));
-  }
-
-  for (const spec of EXTRA_WORKOUT_SPECS) {
-    workouts.push(extraWorkout(user, spec, now));
-  }
+  const fixture = fixtureSessions(user, catalog, now);
+  workouts.push(...fixture.workouts);
+  liveContexts.push(...fixture.liveContexts);
 
   const stats = statsFor(workouts, args.seedFirstAscent ? 1 : 0);
   writes.push([
@@ -400,7 +452,10 @@ async function buildSeedPlan(db, catalog, authUser, args) {
     }
   }
 
-  for (const achievement of achievementRecords(user.uid, now, args.seedFirstAscent ? args.firstAscentClimbId : null)) {
+  const firstAscentClaim = args.seedFirstAscent ?
+    firstAscentClaimFor(args.firstAscentClimbId, liveContexts) :
+    null;
+  for (const achievement of achievementRecords(user.uid, now, firstAscentClaim)) {
     writes.push([
       db.collection("users").doc(user.uid).collection("achievements").doc(achievement.id),
       achievement,
@@ -448,6 +503,312 @@ async function buildSeedPlan(db, catalog, authUser, args) {
 }
 
 /**
+ * Makes sure the account has a real profile photograph, and returns its URL.
+ *
+ * This account is the one every screenshot is centered on, so an empty photo is a
+ * grey circle in the middle of the shot. It is also the one row on a seeded
+ * board that a person actually owns, so its picture has to live under its own
+ * `users/{uid}/profile_pictures/` prefix rather than pointing at the shared
+ * avatar tree - user media never lives on a shared root path.
+ *
+ * An account that already has a *publishable* photo keeps it: a real climber's
+ * own picture is not the fixture's to replace. Otherwise the seed copies the
+ * avatar reserved for it out of this pack's set, so the face is real, belongs to
+ * no competitor on the same leaderboard, and stays the same across re-seeds.
+ *
+ * "Publishable" is load-bearing and is why this used to fail. A Google or Apple
+ * sign-in leaves a provider avatar on the Auth record - `lh3.googleusercontent.com`
+ * for the account this was run against - and the identity contract only accepts a
+ * Firebase Storage download URL. Handing that one straight through published a
+ * photo the projection then dropped, so the one account every screenshot centers
+ * on rendered as a grey circle while the seed reported success. A URL the server
+ * will not project is the same as no photo, so it takes the reserved avatar
+ * instead.
+ * @param {object} authUser Resolved Firebase Auth user.
+ * @param {object} args Parsed CLI arguments.
+ * @param {string} projectId Target Firebase project.
+ * @return {Promise<string | null>} Published photo URL, or null when none exists.
+ */
+async function ensureAccountPhoto(authUser, args, projectId) {
+  const requested = trimmed(args.photoURL);
+  if (requested) {
+    if (!isAllowedPublicPhotoURL(requested)) {
+      throw new Error(
+        `--photo-url ${requested} is not a Firebase Storage download URL, so the ` +
+        "identity projection would drop it and the account would render as an " +
+        "empty circle."
+      );
+    }
+    return requested;
+  }
+
+  const existing = trimmed(authUser.photoURL);
+  if (existing && isAllowedPublicPhotoURL(existing)) {
+    return existing;
+  }
+  if (existing) {
+    console.log(
+      `Ignoring the provider photo on this Auth record (${new URL(existing).host}): ` +
+      "the identity contract only publishes Firebase Storage download URLs. " +
+      "Using this pack's reserved avatar instead."
+    );
+  }
+
+  const bucket = getStorage().bucket();
+  const seedPackId = defaultSeedPackId("live-replay", projectId);
+  const prefix = seedAvatarPrefix(seedPackId);
+  const [files] = await bucket.getFiles({prefix});
+  const source = reservedAccountAvatar(
+    files.sort((lhs, rhs) => lhs.name.localeCompare(rhs.name))
+  );
+
+  if (!source) {
+    console.warn(
+      `No avatar images under ${prefix}, so this account will publish no photo ` +
+      "and render as a grey circle. Pass --photo-url, or seed the live replay " +
+      "pack with --avatar-dir once."
+    );
+    return null;
+  }
+
+  const destination = `users/${authUser.uid}/profile_pictures/${seedPackId}.jpg`;
+  const token = randomUUID();
+  await source.copy(bucket.file(destination), {
+    metadata: {
+      cacheControl: "public,max-age=31536000,immutable",
+      contentType: "image/jpeg",
+      metadata: {firebaseStorageDownloadTokens: token},
+    },
+  });
+
+  return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/` +
+    `${encodeURIComponent(destination)}?alt=media&token=${token}`;
+}
+
+/**
+ * Every session this scenario seeds, and the replay contexts they land on.
+ *
+ * Seeding and clearing have to name the identical set of documents, so both
+ * derive it here rather than each listing the fixture themselves. Every id is a
+ * hash of the account and the fixture entity, never of the run, so a clear
+ * addresses exactly what an earlier seed wrote.
+ * @param {object} user Resolved demo account snapshot.
+ * @param {Map<string, object>} catalog Climb catalog by id.
+ * @param {Date} now Run clock, which dates the sessions but not their ids.
+ * @return {object} Seeded workouts and their replay contexts.
+ */
+function fixtureSessions(user, catalog, now) {
+  const workouts = [];
+  const liveContexts = [];
+
+  for (const spec of LIVE_CLIMB_SPECS) {
+    const climb = requiredClimb(catalog, spec.climbId);
+    const workout = liveClimbWorkout(user, climb, spec, now);
+    workouts.push(workout);
+    liveContexts.push(liveContextForWorkout(workout));
+  }
+
+  for (const template of ROUTINE_TEMPLATES) {
+    const workout = routineTemplateWorkout(user, template, now);
+    workouts.push(workout);
+    liveContexts.push(liveContextForWorkout(workout));
+  }
+
+  for (const spec of EXTRA_WORKOUT_SPECS) {
+    workouts.push(extraWorkout(user, spec, now));
+  }
+
+  return {workouts, liveContexts};
+}
+
+/**
+ * Takes this scenario's documents back out of one account.
+ * @param {object} db Firestore instance.
+ * @param {Map<string, object>} catalog Climb catalog by id.
+ * @param {object} authUser Resolved Firebase Auth user.
+ * @param {object} args Parsed CLI arguments.
+ * @param {string} projectId Target Firebase project.
+ */
+async function runClear(db, catalog, authUser, args, projectId) {
+  const clearPlan = await buildClearPlan(db, catalog, authUser, args);
+  printClearPlan(projectId, clearPlan, args);
+
+  if (args.dryRun) {
+    console.log("Dry run only. No Firestore writes were made.");
+    return;
+  }
+
+  await commitDeletes(db, clearPlan.deletes);
+  await commitWrites(db, clearPlan.writes);
+  console.log(
+    `Cleared demo data for ${clearPlan.user.uid}: ` +
+      `${clearPlan.deletes.length} documents deleted, ` +
+      `${clearPlan.writes.length} shared summaries repaired.`
+  );
+}
+
+/**
+ * Builds the deletes that undo this scenario, plus the repairs the documents it
+ * shares with other climbers need afterwards.
+ *
+ * Only what the seed wrote. The account's identity stays, because it belongs to
+ * the person signed in rather than to the fixture. A climb performed in the app
+ * stays too: the device holds its own SwiftData copy, so only the app's own
+ * delete removes both, and a server-side delete would strand the local one.
+ * @param {object} db Firestore instance.
+ * @param {Map<string, object>} catalog Climb catalog by id.
+ * @param {object} authUser Resolved Firebase Auth user.
+ * @param {object} args Parsed CLI arguments.
+ * @return {Promise<object>} Clear plan.
+ */
+async function buildClearPlan(db, catalog, authUser, args) {
+  const user = userSnapshot(authUser, args);
+  const userRef = db.collection("users").doc(user.uid);
+  const {workouts, liveContexts} = fixtureSessions(user, catalog, new Date());
+  const deletes = [];
+  const writes = [];
+
+  for (const workout of workouts) {
+    // `liveClimbPublishStatuses` is written by the publish trigger rather than
+    // by the seed, but it is keyed by the same workout id and describes a climb
+    // that is about to stop existing.
+    for (const collection of [
+      "workouts",
+      "profile_workouts",
+      "liveClimbPublishStatuses",
+    ]) {
+      const ref = userRef.collection(collection);
+      deletes.push(ref.doc(workout.id));
+      for (const staleId of staleWorkoutDocumentIds(workout.id)) {
+        deletes.push(ref.doc(staleId));
+      }
+    }
+  }
+
+  deletes.push(userRef.collection("profile_stats").doc("current"));
+
+  for (const achievement of achievementRecords(
+    user.uid,
+    new Date(),
+    firstAscentClaimFor(args.firstAscentClimbId, liveContexts)
+  )) {
+    deletes.push(userRef.collection("achievements").doc(achievement.id));
+  }
+
+  // Queried rather than derived: a standing's id carries the period it was
+  // seeded for, so a clear run in a later week cannot name the rows an earlier
+  // run wrote. The server derivation would drop them once the workouts are gone,
+  // but a reset has to leave a known state immediately.
+  const standings = await db
+    .collection("leaderboard_stats")
+    .where("userId", "==", user.uid)
+    .get();
+  for (const standing of standings.docs) {
+    deletes.push(standing.ref);
+  }
+
+  const repairedContexts = await addReplayClearWrites(
+    db,
+    writes,
+    deletes,
+    user,
+    liveContexts
+  );
+
+  // Deliberately untouched: `live_climb_community_stats`. The
+  // `onWorkoutReplaySplitsWritten` trigger reconciles that counter
+  // transactionally against whether the account still has a completed climb, and
+  // deleting the workouts above is the signal it reads. Subtracting here as well
+  // would race the trigger for the same decrement.
+  return {user, workouts, liveContexts, repairedContexts, deletes, writes};
+}
+
+/**
+ * Removes this account from every replay board the scenario put it on.
+ *
+ * A summary is shared with the synthetic competitors, so it is repaired rather
+ * than deleted: `completedCount` drops back to the climbers still standing on
+ * the board. Where this account holds the First Ascent, the holder fields go
+ * with its completion - a slot with a holder and no completions is one of the
+ * two states the app can never produce or leave.
+ * @param {object} db Firestore instance.
+ * @param {Array} writes Accumulated writes.
+ * @param {Array} deletes Accumulated deletes.
+ * @param {object} user Resolved demo account snapshot.
+ * @param {object[]} liveContexts Seeded replay contexts.
+ * @return {Promise<object[]>} Per-context repair descriptions.
+ */
+async function addReplayClearWrites(db, writes, deletes, user, liveContexts) {
+  const repaired = [];
+
+  for (const context of liveContexts) {
+    const contextKey = replayContextKey(context.contextType, context.contextId);
+    const leaderboardRef = db.collection("live_replay_leaderboards").doc(contextKey);
+    const [summarySnapshot, bucketZeroSnapshot] = await Promise.all([
+      leaderboardRef.get(),
+      leaderboardRef.collection("splitBuckets").doc("0").collection("entries").get(),
+    ]);
+
+    const removedIds = new Set([
+      context.workoutId,
+      ...staleWorkoutDocumentIds(context.workoutId),
+    ]);
+    const remainingCount = bucketZeroSnapshot.docs
+      .filter((document) => !removedIds.has(document.id)).length;
+    const holdsFirstAscent =
+      summarySnapshot.data()?.firstAscentUserId === user.uid;
+
+    // Releasing the holder is only safe when this account's completion was the
+    // board's last one. The shared module already defines what an unreachable
+    // First Ascent state is, so the clear asks it rather than restating it.
+    const releaseFailure = holdsFirstAscent ?
+      firstAscentInvariantFailure({
+        climbId: contextKey,
+        completedCount: remainingCount,
+        hasFirstAscent: false,
+      }) :
+      null;
+    if (releaseFailure) {
+      throw new Error(
+        `${releaseFailure} Re-seed the live replay pack for this climb instead, ` +
+        "which gives the board a holder again."
+      );
+    }
+
+    deletes.push(leaderboardRef.collection("finishers").doc(user.uid));
+    deletes.push(leaderboardRef.collection("userBestAttempts").doc(user.uid));
+    deletes.push(
+      leaderboardRef.collection("completionSnapshots").doc(context.workoutId)
+    );
+    for (let index = 0; index < context.splitSteps.length; index += 1) {
+      const entriesRef = leaderboardRef
+        .collection("splitBuckets").doc(String(index)).collection("entries");
+      for (const entryId of removedIds) {
+        deletes.push(entriesRef.doc(entryId));
+      }
+    }
+
+    const summaryWrite = {
+      completedCount: remainingCount,
+      totalClimbers: remainingCount,
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    if (holdsFirstAscent) {
+      Object.assign(summaryWrite, clearedFirstAscentFields(FieldValue.delete()));
+    }
+
+    writes.push([leaderboardRef, summaryWrite]);
+    repaired.push({
+      contextKey,
+      completedCount: remainingCount,
+      firstAscentReleased: holdsFirstAscent,
+    });
+  }
+
+  return repaired;
+}
+
+/**
  * Document ids an earlier seed run wrote for the same fixture entity before ids were
  * canonicalized to uppercase. Re-seeding must remove them or every consumer keyed by
  * document id keeps a ghost row alongside the canonical one.
@@ -458,13 +819,37 @@ function staleDocumentIds(canonicalId) {
   return [canonicalId.toLowerCase()].filter((id) => id !== canonicalId);
 }
 
+/**
+ * A believable human name for an account that has not supplied one.
+ *
+ * This name is published to public leaderboards, so it is what a screenshot
+ * shows. "Product Tester" was the old fallback and no climber is called that.
+ * Deliberately outside `SEEDED_DISPLAY_NAMES` so the account never collides with
+ * a synthetic competitor on the same board.
+ */
+const FALLBACK_DEMO_DISPLAY_NAME = "Morgan Hale";
+
 function userSnapshot(authUser, args) {
+  // No email-derived name. An address local part is an identifier, not a name -
+  // deriving one published "Content Capture" and "Qa G4 Noname" onto leaderboards
+  // that exist to be photographed. Synthetic rows are told apart by isSynthetic,
+  // source and seedPackId, so nothing needs the display name to carry a marker.
   const displayName =
     trimmed(args.displayName) ??
     trimmed(authUser.displayName) ??
-    displayNameFromEmail(authUser.email ?? args.email) ??
-    "Product Tester";
-  const photoURL = trimmed(args.photoURL) ?? trimmed(authUser.photoURL) ?? "";
+    FALLBACK_DEMO_DISPLAY_NAME;
+
+  if (!trimmed(args.displayName) && !trimmed(authUser.displayName)) {
+    console.warn(
+      `This account has no display name, so it will be published as ` +
+      `"${FALLBACK_DEMO_DISPLAY_NAME}". Pass --display-name to choose one.`
+    );
+  }
+
+  // Same rule as `ensureAccountPhoto`: a provider URL the projection would drop
+  // is not a photo. `args.photoURL` is the resolved one by this point.
+  const resolved = trimmed(args.photoURL) ?? trimmed(authUser.photoURL) ?? "";
+  const photoURL = isAllowedPublicPhotoURL(resolved) ? resolved : "";
 
   return {
     uid: authUser.uid,
@@ -758,6 +1143,10 @@ async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
       contextId: context.contextId,
       contextType: context.contextType,
       schemaVersion: REPLAY_SCHEMA_VERSION,
+      // A real signed-in account, so this board has stopped being purely seeded
+      // whatever synthetic rows still sit on it. `replaySummaryWrite` in the
+      // Cloud Function stamps the same value on every publish.
+      source: REPLAY_SUMMARY_SOURCE_LIVE,
       targetStepCount: context.targetSteps,
       totalClimbers: completedCount,
       updatedAt: FieldValue.serverTimestamp(),
@@ -782,7 +1171,6 @@ async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
       finisherRef,
       {
         avatarToken: user.avatarToken,
-        bestCompletionDurationSeconds: context.durationSeconds,
         bestWorkoutId: context.workoutId,
         displayName: user.displayName,
         firstCompletedAt: Timestamp.fromDate(context.completedAt),
@@ -794,6 +1182,13 @@ async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
         schemaVersion: REPLAY_SCHEMA_VERSION,
         updatedAt: FieldValue.serverTimestamp(),
         userId: user.uid,
+        ...bestMetricField(
+          {
+            completionDurationSeconds: context.durationSeconds,
+            finalSteps: context.finalSteps,
+          },
+          context.contextType
+        ),
       },
     ]);
     writes.push([
@@ -941,7 +1336,28 @@ function profileStatsData(stats) {
   };
 }
 
-function achievementRecords(uid, now, firstAscentClimbId) {
+/**
+ * The seeded completion that claims the First Ascent, or null when none does.
+ *
+ * The achievement has to be dated from the climb that earned it. Stamping it
+ * "today" while the climb it names was seeded days ago put two dates on one
+ * event, on the profile surface whose whole job is to be a record.
+ * @param {string} firstAscentClimbId Climb this account claims.
+ * @param {object[]} liveContexts Seeded replay contexts.
+ * @return {object | null} Claim climb id and completion date.
+ */
+function firstAscentClaimFor(firstAscentClimbId, liveContexts) {
+  const context = liveContexts.find(
+    (candidate) => candidate.contextType === "live_climb" &&
+      candidate.contextId === firstAscentClimbId
+  );
+
+  return context ?
+    {climbId: firstAscentClimbId, completedAt: context.completedAt} :
+    null;
+}
+
+function achievementRecords(uid, now, firstAscentClaim) {
   const records = [
     achievement(uid, "weekly_top_1", "2026-W22", 1, daysAgo(now, 2)),
     achievement(uid, "weekly_top_1", "2026-W21", 1, daysAgo(now, 9)),
@@ -952,13 +1368,13 @@ function achievementRecords(uid, now, firstAscentClimbId) {
     achievement(uid, "yearly_top_100", "2026", 38, daysAgo(now, 40)),
   ];
 
-  if (firstAscentClimbId) {
+  if (firstAscentClaim) {
     records.unshift({
-      id: deterministicId(`${uid}:achievement:first_ascent:${firstAscentClimbId}`),
+      id: deterministicId(`${uid}:achievement:first_ascent:${firstAscentClaim.climbId}`),
       type: "first_ascent",
       scope: "climb",
-      climbId: firstAscentClimbId,
-      earnedAt: Timestamp.fromDate(daysAgo(now, 0)),
+      climbId: firstAscentClaim.climbId,
+      earnedAt: Timestamp.fromDate(firstAscentClaim.completedAt),
       rank: 1,
     });
   }
@@ -1146,18 +1562,6 @@ function avatarToken(displayName) {
   return initials || "A";
 }
 
-function displayNameFromEmail(email) {
-  const localPart = trimmed(email)?.split("@")[0];
-  if (!localPart) {
-    return null;
-  }
-  return localPart
-    .split(/[._-]+/)
-    .filter(Boolean)
-    .map((part) => part[0].toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
 function deterministicUUID(input) {
   const hex = createHash("sha256").update(input).digest("hex");
   const variant = ((parseInt(hex.slice(16, 18), 16) & 0x3f) | 0x80).toString(16).padStart(2, "0");
@@ -1175,23 +1579,23 @@ function deterministicId(input) {
 }
 
 async function commitDeletes(db, deletes) {
-  for (let index = 0; index < deletes.length; index += BATCH_LIMIT) {
-    const batch = db.batch();
-    for (const ref of deletes.slice(index, index + BATCH_LIMIT)) {
-      batch.delete(ref);
-    }
-    await batch.commit();
+  const progress = createProgressReporter({label: "Account (clear)", total: deletes.length});
+  const writer = createBatchWriter(db, {progress});
+  for (const ref of deletes) {
+    writer.delete(ref);
   }
+  await writer.drain();
+  progress.finish();
 }
 
 async function commitWrites(db, writes) {
-  for (let index = 0; index < writes.length; index += BATCH_LIMIT) {
-    const batch = db.batch();
-    for (const [ref, data] of writes.slice(index, index + BATCH_LIMIT)) {
-      batch.set(ref, data, {merge: true});
-    }
-    await batch.commit();
+  const progress = createProgressReporter({label: "Account", total: writes.length});
+  const writer = createBatchWriter(db, {progress});
+  for (const [ref, data] of writes) {
+    writer.set(ref, data, {merge: true});
   }
+  await writer.drain();
+  progress.finish();
 }
 
 function printPlan(projectId, seedPlan, args) {
@@ -1212,6 +1616,27 @@ function printPlan(projectId, seedPlan, args) {
     totalClimbsCompleted: seedPlan.stats.totalClimbsCompleted,
   };
   console.log(JSON.stringify(preview, null, 2));
+}
+
+function printClearPlan(projectId, clearPlan, args) {
+  console.log(JSON.stringify({
+    project: projectId,
+    command: `seed-demo-user clear${args.dryRun ? " (dry run)" : ""}`,
+    user: {
+      uid: clearPlan.user.uid,
+      email: clearPlan.user.email,
+      displayName: clearPlan.user.displayName,
+    },
+    workouts: clearPlan.workouts.length,
+    documentDeletes: clearPlan.deletes.length,
+    repairedContexts: clearPlan.repairedContexts,
+    preserved: [
+      "users/{uid} identity and demographics",
+      "users/{uid}/public_profile/current",
+      "climbs performed in the app (delete those in the app)",
+      "live_climb_community_stats (the publish trigger reconciles it)",
+    ],
+  }, null, 2));
 }
 
 function resolveProjectId(projectOrAlias) {

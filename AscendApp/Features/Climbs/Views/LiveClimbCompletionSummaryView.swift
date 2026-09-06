@@ -8,7 +8,6 @@ struct LiveClimbCompletionSummaryView: View {
     let leaderboardTotal: Int?
     let leaderboardRankBasis: LiveClimbSummaryRankHero.Basis
     let leaderboardContext: LiveReplayLeaderboardContext?
-    let moment: LiveClimbSummaryRankHero.Moment
     let rankingLabelOverride: String?
     /// Only reaches the detail line under a `.liveSession` standing, whose race window the
     /// hero cannot characterise. See `LiveClimbSummaryRankHero.Copy`.
@@ -25,6 +24,12 @@ struct LiveClimbCompletionSummaryView: View {
     @State private var frozenCompletionRank: LiveReplayCompletionRankSnapshot?
     @State private var computedCompletionRank: LiveReplayCompletionRank?
     @State private var rankResolution: LiveClimbSummaryRankHero.RankResolution = .notStarted
+    /// This climber's own completions of the same climb. Resolved in the view's
+    /// `.task` rather than the body, because it is a store read. See
+    /// `PersonalClimbCompletionHistory` and `PersonalClimbPlacing`.
+    @State private var personalClimbHistory: PersonalClimbCompletionHistory?
+    /// Where this completion sits among those. See `PersonalClimbPlacing`.
+    @State private var personalClimbPlacing: PersonalClimbPlacing?
     @State private var didTrackSummaryViewed = false
     init(
         climb: Climb?,
@@ -33,7 +38,6 @@ struct LiveClimbCompletionSummaryView: View {
         leaderboardTotal: Int?,
         leaderboardRankBasis: LiveClimbSummaryRankHero.Basis,
         leaderboardContext: LiveReplayLeaderboardContext? = nil,
-        moment: LiveClimbSummaryRankHero.Moment = .retrospective,
         rankingLabelOverride: String? = nil,
         completedDetailOverride: String? = nil,
         ranksOnLeaderboard: Bool = true,
@@ -47,7 +51,6 @@ struct LiveClimbCompletionSummaryView: View {
         self.leaderboardTotal = leaderboardTotal
         self.leaderboardRankBasis = leaderboardRankBasis
         self.leaderboardContext = leaderboardContext
-        self.moment = moment
         self.rankingLabelOverride = rankingLabelOverride
         self.completedDetailOverride = completedDetailOverride
         self.ranksOnLeaderboard = ranksOnLeaderboard
@@ -84,7 +87,7 @@ struct LiveClimbCompletionSummaryView: View {
                 VStack(spacing: 18) {
                     rankingSection(hero: hero)
                     primaryStatsGrid
-                    achievementCard
+                    achievementCard(hero: hero)
                     paceSplitsCard
                     paceTrendCard
                 }
@@ -107,15 +110,27 @@ struct LiveClimbCompletionSummaryView: View {
         .background(Color.black.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .fullScreenCover(isPresented: $showingShareSheet) {
+            // The hero on screen may be showing a rank recomputed against today's rows. That is
+            // right for a screen and wrong for a card, which keeps asserting its number after the
+            // next climber finishes, so only the frozen standing is forwarded.
+            let frozen = hero?.standing?.frozen
             ShareComposerView(
                 workout: workout,
                 climb: climb,
-                liveClimbRank: hero?.standing?.rank,
-                liveClimbRankTotal: hero?.total
+                climbRank: frozen?.rank,
+                climbRankTotal: frozen?.renderableTotal
             )
         }
         .task(id: workout.id) {
+            // Resolved before any await: the hero refuses to render a rank over a
+            // field of one until it knows the climber's own placing, so making it
+            // wait on the network would stall the whole solo hero behind it.
+            resolvePersonalClimbPlacing()
             await resolveCompletionRank()
+            // Read again: resolving the rank is also what mirrors this climb's
+            // finisher order onto the store, and the First Ascent claim will not
+            // be granted without it.
+            resolvePersonalClimbPlacing()
             trackSummaryViewedIfNeeded()
         }
         .trackOnce(screen: .liveClimbSummary)
@@ -152,7 +167,8 @@ struct LiveClimbCompletionSummaryView: View {
             LiveClimbSummaryRankHeroView(
                 hero: hero,
                 rankingMetric: effectiveLeaderboardContext?.type.rankingMetric ?? .fastestCompletion,
-                fieldPopulation: effectiveLeaderboardContext?.type.fieldPopulation ?? .climbers,
+                fieldPopulation: effectiveLeaderboardContext
+                    .map { hero.fieldPopulation(on: $0.type) } ?? .climbers,
                 onRetrySync: retryRankSync
             )
         }
@@ -165,12 +181,12 @@ struct LiveClimbCompletionSummaryView: View {
         }
     }
 
-    private var achievementCard: some View {
+    private func achievementCard(hero: LiveClimbSummaryRankHero?) -> some View {
         HStack(spacing: 14) {
             achievementIcon
 
             VStack(alignment: .leading, spacing: 5) {
-                Text(achievementTitle)
+                Text(achievementTitle(hero: hero))
                     .font(.montserratBold(size: 12))
                     .foregroundStyle(.accent)
 
@@ -371,12 +387,28 @@ struct LiveClimbCompletionSummaryView: View {
 
     /// A Best Effort survives the override: it is derived from the steps the climber really took, so
     /// it stands on its own without asserting that the session counted.
-    private var achievementTitle: String {
+    ///
+    /// When a real field of climbers takes the hero, the climber's placing among
+    /// their own climbs drops here instead - two ordinals, two explicitly named
+    /// fields, no collision between them. When the hero already *is* that placing
+    /// there is nothing to drop, so this row keeps saying what it always said.
+    private func achievementTitle(hero: LiveClimbSummaryRankHero?) -> String {
         if primaryBestEffort != nil {
             return "BEST EFFORT"
         }
 
-        return achievementTitleOverride ?? "CLIMB COMPLETE"
+        if let achievementTitleOverride {
+            return achievementTitleOverride
+        }
+
+        if let personalClimbPlacing,
+           !personalClimbPlacing.isFirstCompletionHere,
+           let hero,
+           case .rank = hero.value {
+            return personalClimbPlacing.achievementTitle
+        }
+
+        return "CLIMB COMPLETE"
     }
 
     private var achievementSubtitle: String {
@@ -397,11 +429,12 @@ struct LiveClimbCompletionSummaryView: View {
     private var rankHero: LiveClimbSummaryRankHero? {
         LiveClimbSummaryRankHero.make(
             isClimbContext: climb != nil,
-            moment: moment,
             standings: LiveClimbSummaryRankHero.standings(
                 isClimbContext: climb != nil,
                 sources: rankSources
             ),
+            personalPlacing: personalClimbPlacing,
+            claimsFirstAscent: personalClimbHistory?.claimsFirstAscent ?? false,
             sync: LiveClimbSummaryRankHero.SyncState(
                 phase: publicResultStatus?.phase,
                 hasRankContext: hasCompletionRankContext,
@@ -532,6 +565,15 @@ struct LiveClimbCompletionSummaryView: View {
 
         if let frozen = completedRankService.frozenRank(context: context, workoutId: workoutId) {
             frozenCompletionRank = frozen
+            // The reopened path is deliberately request-free, but a finisher order
+            // that never resolved during the original session would stay missing
+            // forever - and the First Ascent claim cannot be proven without it, so
+            // the card that earned the gold flag would keep withholding it. Asked
+            // for only when it is absent, so a summary that already holds one
+            // still touches nothing.
+            if personalClimbHistory?.globalCompletionOrder == nil {
+                await mirrorFinisherStatus(context: context)
+            }
             rankResolution = .settled
             return
         }
@@ -587,6 +629,36 @@ struct LiveClimbCompletionSummaryView: View {
             debugLog("Live Climb summary current standing fetch failed: \(error.localizedDescription)")
 #endif
         }
+    }
+
+    /// Reads the climber's own completions of this climb so the hero can place
+    /// this one among them, and can tell a First Ascent claim from a repeat.
+    ///
+    /// Bounded to one climb by `ClimbService.personalCompletionHistory`, and only
+    /// meaningful on a catalog climb: a routine or an open Just Climb has no
+    /// tower to have climbed twice. A history the store could not produce leaves
+    /// both values nil so the hero waits, rather than reading a failed read as a
+    /// tower climbed exactly once.
+    @MainActor
+    private func resolvePersonalClimbPlacing() {
+        guard let climb else { return }
+
+        guard let history = ClimbService.shared.personalCompletionHistory(
+            forClimbId: climb.id,
+            workoutId: workout.id,
+            completedAt: workout.date.addingTimeInterval(workout.duration),
+            modelContext: modelContext
+        ) else {
+            personalClimbHistory = nil
+            personalClimbPlacing = nil
+            return
+        }
+
+        personalClimbHistory = history
+        personalClimbPlacing = PersonalClimbPlacing(
+            durationSeconds: Int(workout.duration.rounded()),
+            otherCompletions: history
+        )
     }
 
     /// Keeps the attempt's `globalCompletionOrder` current, which the First Ascent count and the

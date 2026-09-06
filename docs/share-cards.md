@@ -45,6 +45,8 @@ It never says **global** - the field is the climb's leaderboard, and naming it
 "global" claims a scope the card cannot back.
 A field of one is not `1st of 1`: it becomes the `FirstAscentBadgeDetailed` icon
 and `FIRST ASCENT`, on every card.
+Which standing may reach this tab is owned by `ascend-share-composer`: only the
+frozen at-completion one may be forwarded.
 Anchor: `ShareCardRankTabView`, and the "never says global" check in
 `scripts/test/share-card-templates.test.mjs`.
 

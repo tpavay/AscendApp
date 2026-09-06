@@ -1,15 +1,15 @@
 import SwiftUI
 import Testing
 import UIKit
-import Vision
 @testable import AscendApp
 
-/// Visual evidence for the post-auth gender question copy.
+/// Evidence for the post-auth gender question copy.
 ///
 /// The question a climber reads has to name what it asks for. `Choose your
 /// division` asked about a word the app never defines, so this holds the plain
 /// version: the headline asks for the gender and the four answers stay
-/// Male / Female / Other / Prefer not to say.
+/// Male / Female / Other / Prefer not to say. The step is hosted in a real
+/// window and its copy read off the accessibility tree (`RenderedScreen`).
 ///
 /// The screen carries no subtitle on purpose. Gender drives no comparison group,
 /// no filter, and no profile field - it reaches a climber only as the `M` / `F`
@@ -17,26 +17,39 @@ import Vision
 /// proposed for it so far described behavior that does not exist. The negative
 /// assertions below are what keep one from coming back.
 @MainActor
+@Suite(.hostsAWindow)
 struct PostAuthGenderQuestionCopySnapshotTests {
     private static let expectedHeadline = "What's your gender?"
     private static let expectedOptions = ["Male", "Female", "Other", "Prefer not to say"]
 
     @Test
     func theGenderStepAsksForGenderWithoutClaimingAPublicUse() async throws {
-        let image = try renderGenderStep()
-        let text = try await recognizedText(in: image)
+        let text = try await RenderedScreen.host(
+            PostAuthOnboardingFlowView(
+                stage: .gender,
+                onBack: {},
+                onContinue: {}
+            )
+            .frame(width: 390, height: 844)
+            .environment(AuthenticationViewModel()),
+            size: CGSize(width: 390, height: 844)
+        ) { screen in
+            let text = try await screen.copy { $0.contains("gender") }
 
-        // Evidence lands before the expectations are judged, so a failing run
-        // still leaves a reviewable picture of what the climber actually sees.
-        try writeEvidence(image: image, named: "post-auth-gender-question.png")
+            // Evidence lands before the expectations are judged, so a failing run
+            // still leaves a reviewable picture of what the climber actually sees.
+            try screen.photograph(named: "post-auth-gender-question")
+
+            return text
+        }
 
         #expect(
-            text.contains(Self.expectedHeadline.forOCRComparison),
+            text.contains(Self.expectedHeadline.lowercased()),
             "Headline should read \"\(Self.expectedHeadline)\". Rendered text: \(text)"
         )
         for option in Self.expectedOptions {
             #expect(
-                text.contains(option.forOCRComparison),
+                text.contains(option.lowercased()),
                 "Option \"\(option)\" should be on the screen. Rendered text: \(text)"
             )
         }
@@ -65,55 +78,5 @@ struct PostAuthGenderQuestionCopySnapshotTests {
     func editProfileStillLabelsTheSameQuestionGender() {
         #expect(Self.expectedHeadline.localizedCaseInsensitiveContains("gender"))
         #expect(ProfileGender.allCases.count == Self.expectedOptions.count)
-    }
-
-    // MARK: - Rendering
-
-    private func renderGenderStep() throws -> UIImage {
-        let renderer = ImageRenderer(
-            content: PostAuthOnboardingFlowView(
-                stage: .gender,
-                onBack: {},
-                onContinue: {}
-            )
-            .frame(width: 390, height: 844)
-            .environment(AuthenticationViewModel())
-            .environment(\.colorScheme, .dark)
-        )
-        renderer.scale = 3
-        return try #require(renderer.uiImage, "ImageRenderer produced no image")
-    }
-
-    // MARK: - Reading the rendered pixels back
-
-    private func recognizedText(in image: UIImage) async throws -> String {
-        let cgImage = try #require(image.cgImage, "UIImage had no CGImage")
-        var request = RecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-
-        let observations = try await request.perform(on: cgImage)
-        return observations
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: " ")
-            .forOCRComparison
-    }
-
-    private func writeEvidence(image: UIImage, named name: String) throws {
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        try png.write(to: URL(filePath: directory).appending(path: name))
-        #expect(png.count > 5_000)
-    }
-}
-
-private extension String {
-    /// Vision returns typographic apostrophes for the straight ones in source,
-    /// so both sides of a comparison get folded to the same shape.
-    var forOCRComparison: String {
-        lowercased()
-            .replacing("\u{2019}", with: "'")
-            .replacing("\u{2018}", with: "'")
     }
 }

@@ -76,6 +76,10 @@ private enum StubRestoreError: Error {
 @MainActor
 private final class StubPurchaseRestorer: PurchaseRestoring {
     let isRevenueCatConfigured: Bool
+    let identityGeneration: MonetizationIdentityTransition? = MonetizationIdentityTransition(
+        revision: 1,
+        userID: "restore-view-model-user"
+    )
     private let error: Error?
     private(set) var restoreCount = 0
 
@@ -99,6 +103,10 @@ private final class StubPurchaseRestorer: PurchaseRestoring {
 @MainActor
 private final class SuspendingPurchaseRestorer: PurchaseRestoring {
     let isRevenueCatConfigured = true
+    let identityGeneration: MonetizationIdentityTransition? = MonetizationIdentityTransition(
+        revision: 1,
+        userID: "restore-view-model-user"
+    )
     private(set) var restoreCount = 0
 
     private var restoreContinuation: CheckedContinuation<Void, Never>?

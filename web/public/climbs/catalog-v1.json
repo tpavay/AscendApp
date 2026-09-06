@@ -818,8 +818,8 @@
     "realClimbableHeightMeters": null,
     "realClimbableHeightFeet": null,
     "totalSteps": 2486,
-    "realStairCount": null,
-    "calculatedFloors": 126,
+    "realStairCount": 2170,
+    "calculatedFloors": 88,
     "category": "skyscraper",
     "tier": "diamond",
     "tags": [
@@ -829,7 +829,7 @@
     ],
     "funFact": "The Petronas Towers were the world's tallest buildings from 1998 to 2004.",
     "sourceURL": "https://en.wikipedia.org/wiki/Petronas_Towers",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "taipei-101",

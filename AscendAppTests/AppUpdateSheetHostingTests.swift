@@ -6,86 +6,67 @@ import UIKit
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct AppUpdateSheetHostingTests {
-    private static let iPhone16ProSize = CGSize(width: 402, height: 874)
-
     @Test(
         "The recommended nudge keeps its dismissible sheet and its Later action",
         .bug(id: 319)
     )
     func presentedSheetEnforcesItsContract() async throws {
-        try await withAccessibilityAutomation {
-            let presentation = AppUpdatePresentation.recommended
-            let recorder = AppUpdateSheetActionRecorder()
-            let controller = UIHostingController(
-                rootView: AppUpdateSheetPresentationHarness(
-                    gateState: AppVersionGateState(presentation: presentation),
-                    recorder: recorder
+        let presentation = AppUpdatePresentation.recommended
+        let recorder = AppUpdateSheetActionRecorder()
+        let controller = UIHostingController(
+            rootView: AppUpdateSheetPresentationHarness(
+                gateState: AppVersionGateState(presentation: presentation),
+                recorder: recorder
+            )
+        )
+        controller.traitOverrides.preferredContentSizeCategory =
+            .accessibilityExtraExtraExtraLarge
+
+        try await withoutAnimations {
+            try await RenderedScreen.host(controller) { screen in
+                #expect(controller.viewIfLoaded?.window === screen.window)
+                await recorder.waitForAppearance(of: presentation)
+
+                let sheetController = try #require(controller.presentedViewController)
+                sheetController.view.setNeedsLayout()
+                sheetController.view.layoutIfNeeded()
+
+                let elements = try await settledAccessibilityElements(under: sheetController.view) {
+                    $0.contains { $0.accessibilityViewIsModal }
+                }
+                let buttonLabels = elements
+                    .filter { $0.accessibilityTraits.contains(.button) }
+                    .compactMap(\.accessibilityLabel)
+
+                #expect(buttonLabels.contains("Update on the App Store"))
+                #expect(buttonLabels.contains("Later"))
+                #expect(buttonLabels.count == 2)
+                #expect(sheetController.isModalInPresentation == false)
+
+                try photograph(
+                    screen,
+                    controller: sheetController,
+                    name: "app-update-\(presentation.rawValue)",
+                    contrast: .normal
                 )
-            )
-            controller.overrideUserInterfaceStyle = .dark
-            controller.traitOverrides.preferredContentSizeCategory =
-                .accessibilityExtraExtraExtraLarge
+                try photograph(
+                    screen,
+                    controller: sheetController,
+                    name: "app-update-\(presentation.rawValue)",
+                    contrast: .high
+                )
 
-            let windowScene = try #require(
-                UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-            )
-            let window = UIWindow(windowScene: windowScene)
-            window.frame = CGRect(origin: .zero, size: Self.iPhone16ProSize)
-            window.overrideUserInterfaceStyle = .dark
-            window.rootViewController = controller
+                try activateAccessibilityElement(
+                    labelled: "Update on the App Store",
+                    in: sheetController.view
+                )
+                #expect(recorder.appStoreOpenCount == 1)
 
-            let animationsWereEnabled = UIView.areAnimationsEnabled
-            UIView.setAnimationsEnabled(false)
-            defer {
-                UIView.setAnimationsEnabled(animationsWereEnabled)
-                window.isHidden = true
-                window.rootViewController = nil
-                window.windowScene = nil
+                try activateAccessibilityElement(labelled: "Later", in: sheetController.view)
+                await recorder.waitForDismissal()
+                #expect(controller.presentedViewController == nil)
+                #expect(recorder.laterCount == 1)
             }
-
-            window.makeKeyAndVisible()
-            #expect(controller.viewIfLoaded?.window === window)
-            await recorder.waitForAppearance(of: presentation)
-
-            let sheetController = try #require(controller.presentedViewController)
-            sheetController.view.setNeedsLayout()
-            sheetController.view.layoutIfNeeded()
-
-            let elements = try await settledAccessibilityElements(under: sheetController.view) {
-                $0.contains { $0.accessibilityViewIsModal }
-            }
-            let buttonLabels = elements
-                .filter { $0.accessibilityTraits.contains(.button) }
-                .compactMap(\.accessibilityLabel)
-
-            #expect(buttonLabels.contains("Update on the App Store"))
-            #expect(buttonLabels.contains("Later"))
-            #expect(buttonLabels.count == 2)
-            #expect(sheetController.isModalInPresentation == false)
-
-            try captureEvidence(
-                window: window,
-                controller: sheetController,
-                name: "app-update-\(presentation.rawValue)",
-                contrast: .normal
-            )
-            try captureEvidence(
-                window: window,
-                controller: sheetController,
-                name: "app-update-\(presentation.rawValue)",
-                contrast: .high
-            )
-
-            try activateAccessibilityElement(
-                labelled: "Update on the App Store",
-                in: sheetController.view
-            )
-            #expect(recorder.appStoreOpenCount == 1)
-
-            try activateAccessibilityElement(labelled: "Later", in: sheetController.view)
-            await recorder.waitForDismissal()
-            #expect(controller.presentedViewController == nil)
-            #expect(recorder.laterCount == 1)
         }
     }
 
@@ -94,53 +75,36 @@ struct AppUpdateSheetHostingTests {
     /// button - off the screen entirely rather than leaving two update surfaces stacked.
     @Test("Escalating to the lockout retires the nudge sheet", .bug(id: 429))
     func escalatingToTheLockoutRetiresTheNudgeSheet() async throws {
-        try await withAccessibilityAutomation {
-            let recorder = AppUpdateSheetActionRecorder()
-            let gateState = AppVersionGateState(presentation: .recommended)
-            let controller = UIHostingController(
-                rootView: AppUpdateSheetPresentationHarness(
-                    gateState: gateState,
-                    recorder: recorder
+        let recorder = AppUpdateSheetActionRecorder()
+        let gateState = AppVersionGateState(presentation: .recommended)
+        let controller = UIHostingController(
+            rootView: AppUpdateSheetPresentationHarness(
+                gateState: gateState,
+                recorder: recorder
+            )
+        )
+
+        try await withoutAnimations {
+            try await RenderedScreen.host(controller) { _ in
+                await recorder.waitForAppearance(of: .recommended)
+
+                _ = try #require(
+                    await presentedSheet(on: controller) { sheet, buttonLabels in
+                        buttonLabels.contains("Later") && sheet.isModalInPresentation == false
+                    },
+                    "The recommended prompt never settled on a dismissible sheet with a Later action"
                 )
-            )
-            controller.overrideUserInterfaceStyle = .dark
 
-            let windowScene = try #require(
-                UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-            )
-            let window = UIWindow(windowScene: windowScene)
-            window.frame = CGRect(origin: .zero, size: Self.iPhone16ProSize)
-            window.overrideUserInterfaceStyle = .dark
-            window.rootViewController = controller
+                gateState.presentation = .required
 
-            let animationsWereEnabled = UIView.areAnimationsEnabled
-            UIView.setAnimationsEnabled(false)
-            defer {
-                UIView.setAnimationsEnabled(animationsWereEnabled)
-                window.isHidden = true
-                window.rootViewController = nil
-                window.windowScene = nil
+                #expect(
+                    try await settles { controller.presentedViewController == nil },
+                    "The nudge sheet outlived the escalation and would have covered the lockout route"
+                )
+                #expect(gateState.nudgePresentation == nil)
+                #expect(gateState.isUpdateRequired)
+                #expect(recorder.laterCount == 0)
             }
-
-            window.makeKeyAndVisible()
-            await recorder.waitForAppearance(of: .recommended)
-
-            _ = try #require(
-                await presentedSheet(on: controller) { sheet, buttonLabels in
-                    buttonLabels.contains("Later") && sheet.isModalInPresentation == false
-                },
-                "The recommended prompt never settled on a dismissible sheet with a Later action"
-            )
-
-            gateState.presentation = .required
-
-            #expect(
-                try await settles { controller.presentedViewController == nil },
-                "The nudge sheet outlived the escalation and would have covered the lockout route"
-            )
-            #expect(gateState.nudgePresentation == nil)
-            #expect(gateState.isUpdateRequired)
-            #expect(recorder.laterCount == 0)
         }
     }
 
@@ -150,26 +114,24 @@ struct AppUpdateSheetHostingTests {
     /// exit - the refusal offers the App Store and nothing else.
     @Test("The lockout owns the whole screen and offers only the App Store", .bug(id: 429))
     func lockoutRouteOffersOnlyTheAppStoreAction() async throws {
-        try await withAccessibilityAutomation {
-            let recorder = AppUpdateSheetActionRecorder()
-            try await hostingTheLockout(
-                view: AppUpdateRequiredView(onOpenAppStore: recorder.recordAppStoreOpen),
-                evidenceName: "app-update-lockout-route"
-            ) { controller, buttonLabels, labels in
-                // Deduplicated: the scroll container republishes the controls it holds, so the same
-                // button legitimately appears twice in the tree. What matters is that no *other*
-                // action exists - there is exactly one way off this screen.
-                #expect(Set(buttonLabels) == ["Update on the App Store"])
+        let recorder = AppUpdateSheetActionRecorder()
+        try await hostingTheLockout(
+            view: AppUpdateRequiredView(onOpenAppStore: recorder.recordAppStoreOpen),
+            evidenceName: "app-update-lockout-route"
+        ) { controller, buttonLabels, labels in
+            // Deduplicated: the scroll container republishes the controls it holds, so the same
+            // button legitimately appears twice in the tree. What matters is that no *other*
+            // action exists - there is exactly one way off this screen.
+            #expect(Set(buttonLabels) == ["Update on the App Store"])
 
-                #expect(labels.contains(AppUpdatePresentation.required.title))
-                #expect(labels.contains(AppUpdatePresentation.required.message))
+            #expect(labels.contains(AppUpdatePresentation.required.title))
+            #expect(labels.contains(AppUpdatePresentation.required.message))
 
-                try activateAccessibilityElement(
-                    labelled: "Update on the App Store",
-                    in: controller.view
-                )
-                #expect(recorder.appStoreOpenCount == 1)
-            }
+            try activateAccessibilityElement(
+                labelled: "Update on the App Store",
+                in: controller.view
+            )
+            #expect(recorder.appStoreOpenCount == 1)
         }
     }
 
@@ -178,96 +140,77 @@ struct AppUpdateSheetHostingTests {
     /// leave from here too - subordinate to the update, never instead of it.
     @Test("An authenticated lockout also routes to account deletion", .bug(id: 429))
     func lockoutRouteOffersDeletionToAnAuthenticatedClimber() async throws {
-        try await withAccessibilityAutomation {
-            let recorder = AppUpdateSheetActionRecorder()
-            let deletionRequests = DeletionRequestRecorder()
+        let recorder = AppUpdateSheetActionRecorder()
+        let deletionRequests = DeletionRequestRecorder()
 
-            try await hostingTheLockout(
-                view: AppUpdateRequiredView(
-                    onOpenAppStore: recorder.recordAppStoreOpen,
-                    onDeleteAccount: deletionRequests.record
-                ),
-                evidenceName: "app-update-lockout-route-authenticated"
-            ) { controller, buttonLabels, labels in
-                #expect(Set(buttonLabels) == ["Update on the App Store", "Delete account"])
+        try await hostingTheLockout(
+            view: AppUpdateRequiredView(
+                onOpenAppStore: recorder.recordAppStoreOpen,
+                onDeleteAccount: deletionRequests.record
+            ),
+            evidenceName: "app-update-lockout-route-authenticated"
+        ) { controller, buttonLabels, labels in
+            #expect(Set(buttonLabels) == ["Update on the App Store", "Delete account"])
 
-                #expect(labels.contains(AppUpdatePresentation.required.title))
-                #expect(labels.contains(AppUpdatePresentation.required.message))
+            #expect(labels.contains(AppUpdatePresentation.required.title))
+            #expect(labels.contains(AppUpdatePresentation.required.message))
 
-                // The primary action stays reachable at AXXXL: deletion may not push it under the
-                // fold, and the screen scrolls rather than truncating either one.
-                try activateAccessibilityElement(
-                    labelled: "Update on the App Store",
-                    in: controller.view
-                )
-                #expect(recorder.appStoreOpenCount == 1)
+            // The primary action stays reachable at AXXXL: deletion may not push it under the
+            // fold, and the screen scrolls rather than truncating either one.
+            try activateAccessibilityElement(
+                labelled: "Update on the App Store",
+                in: controller.view
+            )
+            #expect(recorder.appStoreOpenCount == 1)
 
-                try activateAccessibilityElement(
-                    labelled: "Delete account",
-                    in: controller.view
-                )
-                #expect(deletionRequests.count == 1)
-            }
+            try activateAccessibilityElement(
+                labelled: "Delete account",
+                in: controller.view
+            )
+            #expect(deletionRequests.count == 1)
         }
     }
 
-    /// Hosts `view` full-screen, dark, at AXXXL, captures both contrast evidence renders, and hands
-    /// the settled accessibility tree to `assertions`.
+    /// Hosts `view` full-screen, dark, at AXXXL through `RenderedScreen`, photographs it at both
+    /// contrasts when `ASCEND_EVIDENCE_DIR` is set, and hands the settled accessibility tree to
+    /// `assertions`.
     private func hostingTheLockout(
         view: AppUpdateRequiredView,
         evidenceName: String,
         assertions: (UIViewController, [String], [String]) throws -> Void
     ) async throws {
         let controller = UIHostingController(rootView: view)
-        controller.overrideUserInterfaceStyle = .dark
         controller.traitOverrides.preferredContentSizeCategory =
             .accessibilityExtraExtraExtraLarge
 
-        let windowScene = try #require(
-            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-        )
-        let window = UIWindow(windowScene: windowScene)
-        window.frame = CGRect(origin: .zero, size: Self.iPhone16ProSize)
-        window.overrideUserInterfaceStyle = .dark
-        window.rootViewController = controller
+        try await withoutAnimations {
+            try await RenderedScreen.host(controller) { screen in
+                // Nothing is presented over the root: the refusal *is* the root.
+                #expect(controller.presentedViewController == nil)
 
+                let elements = try await settledAccessibilityElements(under: controller.view) {
+                    $0.contains { $0.accessibilityTraits.contains(.button) }
+                }
+                let buttonLabels = elements
+                    .filter { $0.accessibilityTraits.contains(.button) }
+                    .compactMap(\.accessibilityLabel)
+
+                try photograph(screen, controller: controller, name: evidenceName, contrast: .normal)
+                try photograph(screen, controller: controller, name: evidenceName, contrast: .high)
+
+                try assertions(controller, buttonLabels, elements.compactMap(\.accessibilityLabel))
+            }
+        }
+    }
+
+    /// Sheets animate in and out; with animations on, a presented sheet's tree and a dismissed
+    /// sheet's absence both arrive a transition later than the assertion that reads them.
+    private func withoutAnimations(_ body: () async throws -> Void) async throws {
         let animationsWereEnabled = UIView.areAnimationsEnabled
         UIView.setAnimationsEnabled(false)
-        defer {
-            UIView.setAnimationsEnabled(animationsWereEnabled)
-            window.isHidden = true
-            window.rootViewController = nil
-            window.windowScene = nil
-        }
+        defer { UIView.setAnimationsEnabled(animationsWereEnabled) }
 
-        window.makeKeyAndVisible()
-        controller.view.setNeedsLayout()
-        controller.view.layoutIfNeeded()
-
-        // Nothing is presented over the root: the refusal *is* the root.
-        #expect(controller.presentedViewController == nil)
-
-        let elements = try await settledAccessibilityElements(under: controller.view) {
-            $0.contains { $0.accessibilityTraits.contains(.button) }
-        }
-        let buttonLabels = elements
-            .filter { $0.accessibilityTraits.contains(.button) }
-            .compactMap(\.accessibilityLabel)
-
-        try captureEvidence(
-            window: window,
-            controller: controller,
-            name: evidenceName,
-            contrast: .normal
-        )
-        try captureEvidence(
-            window: window,
-            controller: controller,
-            name: evidenceName,
-            contrast: .high
-        )
-
-        try assertions(controller, buttonLabels, elements.compactMap(\.accessibilityLabel))
+        try await body()
     }
 
     /// Whether `condition` holds before the deadline. Bounded so a sheet that never goes away fails
@@ -322,8 +265,10 @@ struct AppUpdateSheetHostingTests {
         }
     }
 
-    private func captureEvidence(
-        window: UIWindow,
+    /// Switches the surface to `contrast` - the override has to take, whether or not a photograph
+    /// is kept - and writes the 3x photograph only when `ASCEND_EVIDENCE_DIR` is set.
+    private func photograph(
+        _ screen: HostedScreen,
         controller: UIViewController,
         name: String,
         contrast: UIAccessibilityContrast
@@ -334,30 +279,8 @@ struct AppUpdateSheetHostingTests {
         controller.view.setNeedsLayout()
         controller.view.layoutIfNeeded()
 
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.scale = 3
-        var didDraw = false
-        let image = UIGraphicsImageRenderer(
-            size: Self.iPhone16ProSize,
-            format: format
-        ).image { _ in
-            didDraw = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-        }
-        let png = try #require(image.pngData(), "Update surface evidence did not encode as PNG")
-
-        let directory = URL(
-            filePath: ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-                ?? "/tmp/ascend-issue-319-evidence",
-            directoryHint: .isDirectory
-        )
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let contrastName = contrast == .high ? "increased-contrast" : "normal-contrast"
-        let url = directory.appending(path: "\(name)-dark-AXXXL-\(contrastName).png")
-        try png.write(to: url)
-
-        #expect(didDraw)
-        #expect(png.count > 5_000)
-        print("Update surface evidence: \(url.path())")
+        try screen.photograph(named: "\(name)-dark-AXXXL-\(contrastName)")
     }
 }
 

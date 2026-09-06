@@ -206,7 +206,7 @@ Every claim in the description, and where the app makes it true. Checked against
 
 | Claim | Evidence |
 |---|---|
-| Races real towers by their actual step count | `web/public/climbs/catalog-v1.json` - 58 `available` climbs. Empire State Building, Taipei 101, Eiffel Tower and Burj Khalifa are all `available` and all carry a `realStairCount` sourced in `docs/climb-real-stair-counts.md`. |
+| Races real towers by their actual step count | `web/public/climbs/catalog-v1.json` - 59 `available` climbs. Empire State Building, Taipei 101, Eiffel Tower and Burj Khalifa are all `available` and all carry a `realStairCount` sourced in `docs/climb-real-stair-counts.md`. |
 | Steps come from AirPods / Beats motion | `HeadphoneMotionReadinessService` gates every start on `CMHeadphoneMotionManager.isDeviceMotionAvailable`; the supported models are listed in `CompatibleHeadphonesHelpSheet`. |
 | A field of other climbers, live | `LiveReplayLeaderboardPanel` renders the `everyone` field during the session; `functions/src/liveReplayLeaderboard.ts` derives it as each climber's best attempt. |
 | Per-tower rankings on finish time, cadence, steps | `ClimbDetailView`'s All Times page; the global board's metrics are `LeaderboardMetric` - steps, workouts, duration, steps/min. |

@@ -94,6 +94,7 @@ Not a sanctioned race, but a documented staircase with a published count.
 | Climb | `realStairCount` | Route | Confidence | Source |
 |---|---:|---|---|---|
 | Burj Khalifa | 2,909 | 160F fire stairwell | High | Figure used by every sanctioned Burj Khalifa climb and by Emaar; <https://www.towerrunning.com/2020/05/15/charity-challenge-burj-khalifa-virtual-climb/> |
+| Petronas Towers | 2,170 | ground to the top of Tower 2, 88F | Low | Captain-supplied, 2026-09-02; corroborated by the Mercedes AMG PETRONAS training ascent, <https://www.motorsport.com/f1/video/nico-rosberg-training-at-the-petronas-towers-malaysia/19471/> ("2,170 stairs to the top of the PETRONAS towers"). Not a venue-published figure; see the note below |
 | Eiffel Tower | 1,665 | ground to the summit, 279 m | High | <https://www.toureiffel.paris/en/news/events/eiffel-tower-vertical> |
 | Eureka Tower | 1,642 | 88F to Melbourne Skydeck | High | Eureka Climb, run annually since 2008 |
 | Monserrate | 1,605 | IDRD sendero peatonal | High | <https://www.idrd.gov.co/parques-y-escenarios/sendero-de-monserrate>, plus <https://bogota.gov.co> |
@@ -106,6 +107,19 @@ Not a sanctioned race, but a documented staircase with a published count.
 | Sacre-Coeur | 300 | ground to the dome | Medium | Basilica dome visit; see Conflicts |
 | Leaning Tower of Pisa | 296 | ground to the belfry, south stair | Low | Opera della Primaziale Pisana visitor material; see Conflicts |
 | Charminar | 149 | ground to the upper floor | High | Telangana state tourism, <https://hyderabad.telangana.gov.in/tourist-place/charminar/> |
+
+Petronas Towers is the one row here whose figure did not come from the venue, an organiser, or a race record.
+The 2,170 is the captain's number, supplied and recorded as his on 2026-09-02.
+It is corroborated by a media report of a documented training ascent of the tower's own staircase: motorsport.com's coverage of the Mercedes AMG PETRONAS session, worded "2,170 stairs to the top of the PETRONAS towers".
+No primary source backs it.
+PETRONAS publishes no stair count, and the towers hold no sanctioned tower run - the Kuala Lumpur race with a published 2,058-step course is at KL Tower, a different landmark, and must never be attached to this entry.
+Nothing meeting the primary-source bar this file sets - the venue owner, the event organiser, the custodian body, or the Towerrunning World Association race record - exists for this staircase.
+
+The row therefore ships at Low, and the reason is not the one the Low legend names.
+Nothing contradicts 2,170; no conflicting figure has been found, and none is recorded in the Conflicts section for this entry.
+Low is the honest label because the number clears no source bar in this file at all: Medium requires a single authoritative source, and a media report of an ascent is not the venue-, organiser-, or custodian-published figure the rules ask for.
+The rules are left exactly as written, and this row is recorded against them rather than accommodated by them.
+It is the number to revisit first if PETRONAS or an organiser ever publishes one.
 
 ### Verified counts for climbs no longer in the catalogue
 
@@ -158,7 +172,7 @@ Every climb carrying a `realStairCount` now takes its floor count from one of tw
 1. **The route's published storey count**, where a source in the tables above states one.
 2. **`round(referenceStepCount / 19.8)`** otherwise.
 
-19.8 is the ratio the height derivation already implied (`5.5` steps per metre over `3.6` metres per floor), so the 29 climbs the catalogue currently ships with a null `realStairCount` - the ones enumerated under [Climbs deliberately left null](#climbs-deliberately-left-null) - keep the floor counts they had, because their reference count is still `totalSteps` and the two rules agree there.
+19.8 is the ratio the height derivation already implied (`5.5` steps per metre over `3.6` metres per floor), so the 28 climbs the catalogue currently ships with a null `realStairCount` - the ones enumerated under [Climbs deliberately left null](#climbs-deliberately-left-null) - keep the floor counts they had, because their reference count is still `totalSteps` and the two rules agree there.
 
 A published **flight** count is not a storey count and is not used as one, unless a second independent source states the same figure as storeys.
 A flight is a run of stairs between landings; a tower can have several per storey, or none at all.
@@ -184,6 +198,7 @@ Level -2 to 103 is consistent with that count, so 105 ships as the storey count 
 | Taipei 101 | 91 | 1F to 91F observatory |
 | Oriental Pearl Tower | 90 | 90F, Oriental Pearl New Year Run-Up |
 | Eureka Tower | 88 | 88F to Melbourne Skydeck |
+| Petronas Towers | 88 | 88F, the topmost occupied storey and the top of the ascent the step count covers; the 452 m architectural height above it is spire, <https://en.wikipedia.org/wiki/Petronas_Towers> |
 | Empire State Building | 86 | 86F observation deck, ESB Run-Up |
 | Q1 Tower | 77 | 77F, SkyPoint Sea to Sky |
 | Sky Tower (Auckland) | 51 | 51F, Step Up Sky Tower Challenge |
@@ -280,8 +295,8 @@ The catalogue ships the current route, 631.
 These carry no `realStairCount`, so `referenceStepCount` still falls back to the height-derived `totalSteps`.
 That fallback is a known gap, not a verified distance.
 
-**Plausible stair route, no published count found (7).**
-The Shard, Sagrada Familia, Petronas Towers, N Seoul Tower, Marina Bay Sands, Osaka Castle, Voortrekker Monument.
+**Plausible stair route, no published count found (6).**
+The Shard, Sagrada Familia, N Seoul Tower, Marina Bay Sands, Osaka Castle, Voortrekker Monument.
 These ship as `comingSoon`, so nobody races an unverified distance.
 
 **Announced race with no published course distance yet (1).**

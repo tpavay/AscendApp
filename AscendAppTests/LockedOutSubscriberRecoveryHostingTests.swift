@@ -14,12 +14,11 @@ import UIKit
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct LockedOutSubscriberRecoveryHostingTests {
-    private static let iPhone16ProSize = CGSize(width: 402, height: 874)
-
-    @Test("The gate publishes a pressable deletion control and no sign-out escape")
-    func theGateOffersDeletionAndNothingElseNew() async throws {
-        try await withAccessibilityAutomation {
+    @Test("The gate publishes pressable deletion and sign-out recovery controls")
+    func theGateOffersDeletionAndSignOut() async throws {
+        try await withAnimationsDisabled {
             let recorder = DeletionPresentationRecorder()
+            let signOutRecorder = SignOutPresentationRecorder()
             let manager = MonetizationManager(
                 entitlementService: EntitlementServiceStub(),
                 paywallPresenter: PaywallPresenterSpy(),
@@ -27,26 +26,27 @@ struct LockedOutSubscriberRecoveryHostingTests {
             )
             let controller = UIHostingController(
                 rootView: AppAccessPaywallPlaceholderView(
-                    initialPresentationState: .readyToRetry,
-                    onDeleteAccount: { recorder.didRequestDeletion = true }
+                    initialPhase: .failed,
+                    onDeleteAccount: { recorder.didRequestDeletion = true },
+                    onSignOut: { signOutRecorder.didRequestSignOut = true }
                 )
                 .environment(manager)
             )
 
-            try await withHostedWindow(controller) { root in
+            try await RenderedScreen.host(controller) { screen in
+                let root = screen.root
                 let elements = try await settledAccessibilityElements(under: root) { elements in
                     elements.contains { $0.accessibilityLabel == "Delete account" }
                 }
                 let labels = elements.compactMap(\.accessibilityLabel)
 
                 #expect(labels.contains("Delete account"))
-                #expect(
-                    !labels.contains { $0.localizedCaseInsensitiveContains("sign out") },
-                    "Signing back in returns to this same screen, so the gate offers no sign-out"
-                )
+                #expect(labels.contains("Sign Out"))
 
                 try activateAccessibilityElement(labelled: "Delete account", in: root)
                 #expect(recorder.didRequestDeletion)
+                try activateAccessibilityElement(labelled: "Sign Out", in: root)
+                #expect(signOutRecorder.didRequestSignOut)
             }
         }
     }
@@ -58,7 +58,7 @@ struct LockedOutSubscriberRecoveryHostingTests {
     func theDeletionDialogFitsItsGrownCopy(
         contentSizeCategory: UIContentSizeCategory
     ) async throws {
-        try await withAccessibilityAutomation {
+        try await withAnimationsDisabled {
             let controller = UIHostingController(
                 rootView: DeleteAccountDialogHarness()
                     .modelContainer(for: AscendLocalStore.models, inMemory: true)
@@ -66,7 +66,7 @@ struct LockedOutSubscriberRecoveryHostingTests {
             controller.overrideUserInterfaceStyle = .dark
             controller.traitOverrides.preferredContentSizeCategory = contentSizeCategory
 
-            try await withHostedWindow(controller) { _ in
+            try await RenderedScreen.host(controller) { _ in
                 let sheet = try await presentedSheet(of: controller)
                 // A sheet is presented into the window rather than into the presenter's view, so the
                 // presenter's override does not reach it on its own.
@@ -138,10 +138,10 @@ struct LockedOutSubscriberRecoveryHostingTests {
                 // scrolls to the bottom. Measured against the visible viewport, never the scroll
                 // content - content a climber cannot scroll onto the screen is not reachable.
                 #expect(
-                    sheet.view.bounds.height >= Self.iPhone16ProSize.height * 0.75,
+                    sheet.view.bounds.height >= RenderedScreen.iPhone16ProSize.height * 0.75,
                     """
                     The dialog took \(sheet.view.bounds.height)pt of \
-                    \(Self.iPhone16ProSize.height)pt rather than the largest detent available
+                    \(RenderedScreen.iPhone16ProSize.height)pt rather than the largest detent available
                     """
                 )
                 #expect(
@@ -274,32 +274,15 @@ struct LockedOutSubscriberRecoveryHostingTests {
 
     // MARK: - Hosting
 
-    private func withHostedWindow(
-        _ controller: UIViewController,
-        perform body: (UIView) async throws -> Void
-    ) async throws {
-        let windowScene = try #require(
-            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-        )
-        let window = UIWindow(windowScene: windowScene)
-        window.frame = CGRect(origin: .zero, size: Self.iPhone16ProSize)
-        window.overrideUserInterfaceStyle = .dark
-        window.rootViewController = controller
-
+    /// The sheet's detent is what is measured, so its presentation runs without animation:
+    /// `RenderedScreen.host` leaves animations alone, and an animating sheet reports the height
+    /// it is passing through rather than the one it settles at.
+    private func withAnimationsDisabled(_ body: () async throws -> Void) async throws {
         let animationsWereEnabled = UIView.areAnimationsEnabled
         UIView.setAnimationsEnabled(false)
-        defer {
-            UIView.setAnimationsEnabled(animationsWereEnabled)
-            window.isHidden = true
-            window.rootViewController = nil
-            window.windowScene = nil
-        }
+        defer { UIView.setAnimationsEnabled(animationsWereEnabled) }
 
-        window.makeKeyAndVisible()
-        controller.view.setNeedsLayout()
-        controller.view.layoutIfNeeded()
-
-        try await body(controller.view)
+        try await body()
     }
 
     private func presentedSheet(
@@ -331,6 +314,11 @@ struct LockedOutSubscriberRecoveryHostingTests {
 @MainActor
 private final class DeletionPresentationRecorder {
     var didRequestDeletion = false
+}
+
+@MainActor
+private final class SignOutPresentationRecorder {
+    var didRequestSignOut = false
 }
 
 /// Presents the real dialog the way `RootView` and Settings both do - as a sheet, so the detent it

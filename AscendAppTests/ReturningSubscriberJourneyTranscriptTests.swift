@@ -75,7 +75,7 @@ struct ReturningSubscriberJourneyTranscriptTests {
         //    back yet, and routing is evaluated right here - the exact instant the bug fired.
         entitlementService.identityResolution = .active(["app_access"])
         authentication.beginAuthenticatedSession(
-            userID: "returning-subscriber",
+            customer: .climber("returning-subscriber"),
             initialState: .authenticated
         )
         record("3. Signs in -> answer still outstanding", userId: "returning-subscriber")
@@ -128,7 +128,7 @@ struct ReturningSubscriberJourneyTranscriptTests {
         case .signedOut: "signedOut (welcome screen, with Already have an account? Sign in)"
         case .signingIn: "signingIn"
         case .restoringSession: "restoringSession"
-        case .resolving: "resolving (neutral Checking your access... surface)"
+        case .resolving: "resolving (neutral Checking your subscription access surface)"
         case .onboarding(let stage): "onboarding(\(stage))"
         case .paywall: "paywall (app-access gate)"
         case .mainApp: "mainApp"

@@ -1,6 +1,9 @@
 import Foundation
 
 protocol LiveReplayLeaderboardServicing: Sendable {
+    /// Marks the start of a live session, ahead of its first window refresh.
+    func beginLiveSession() async
+
     func fetchSummary(
         context: LiveReplayLeaderboardContext
     ) async throws -> LiveReplayLeaderboardSummary
@@ -108,6 +111,10 @@ actor LiveReplayLeaderboardService: LiveReplayLeaderboardServicing {
         self.fetchTimeoutSeconds = max(fetchTimeoutSeconds, 1)
         self.completionCacheTTL = max(completionCacheTTL, 0)
         self.now = now
+    }
+
+    func beginLiveSession() async {
+        await repository.beginLiveSession()
     }
 
     func fetchSummary(

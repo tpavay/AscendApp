@@ -28,6 +28,10 @@ final class RevenueCatPurchasesProvider: RevenueCatEntitlementProviding {
         return Self.entitlementState(from: result.customerInfo)
     }
 
+    func setCustomerEmail(_ email: String) {
+        Purchases.shared.attribution.setEmail(email)
+    }
+
     func logOutState() async throws -> MonetizationEntitlementState {
         do {
             return Self.entitlementState(from: try await Purchases.shared.logOut())
@@ -66,7 +70,7 @@ final class RevenueCatPurchasesProvider: RevenueCatEntitlementProviding {
     /// Every reading of `CustomerInfo` lands here - the stream included - so the pair a paywall or
     /// purchase event reports is the one from the most recent answer RevenueCat actually gave,
     /// rather than the one from whichever call happened to be an entry point (#506).
-    private nonisolated static func entitlementState(
+    nonisolated static func entitlementState(
         from customerInfo: CustomerInfo
     ) -> MonetizationEntitlementState {
         StoreKitEnvironmentDiagnostics.shared.record(

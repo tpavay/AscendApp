@@ -12,6 +12,28 @@ struct PaywallAnalyticsContext: Sendable, Hashable {
     let primaryProductID: String?
     let dismissReason: String?
 
+    init(
+        placement: String,
+        paywallIdentifier: String,
+        paywallName: String,
+        presentedBy: String,
+        isFreeTrialAvailable: Bool,
+        presentationID: String?,
+        presentationSourceType: String? = nil,
+        primaryProductID: String? = nil,
+        dismissReason: String? = nil
+    ) {
+        self.placement = placement
+        self.paywallIdentifier = paywallIdentifier
+        self.paywallName = paywallName
+        self.presentedBy = presentedBy
+        self.isFreeTrialAvailable = isFreeTrialAvailable
+        self.presentationID = presentationID
+        self.presentationSourceType = presentationSourceType
+        self.primaryProductID = primaryProductID
+        self.dismissReason = dismissReason
+    }
+
     init(paywallInfo: PaywallInfo) {
         self.placement = paywallInfo.analyticsPlacement
         self.paywallIdentifier = paywallInfo.identifier
@@ -57,6 +79,7 @@ enum PaywallAnalyticsEvent: TelemetryEvent {
     case transactionFailed(context: PaywallAnalyticsContext, errorType: String, productID: String?)
     case transactionAbandoned(context: PaywallAnalyticsContext, productID: String)
     case restoreCompleted(context: PaywallAnalyticsContext, restoreType: String)
+    case appAccessGateAttemptTerminal(context: AppAccessGateAnalyticsContext)
     case revenueCatPurchaseStarted(productID: String, context: RevenueCatPurchaseAnalyticsContext)
     case revenueCatPurchaseCompleted(
         productID: String,
@@ -70,16 +93,37 @@ enum PaywallAnalyticsEvent: TelemetryEvent {
         errorType: RevenueCatAnalyticsErrorType,
         attribution: RevenueCatPurchaseAttribution
     )
-    case revenueCatRestoreStarted
-    case revenueCatRestoreCompleted(entitlementID: String)
-    case revenueCatRestoreNotFound(entitlementID: String)
+    case revenueCatRestoreStarted(context: AppAccessRestoreAnalyticsContext)
+    case revenueCatRestoreCompleted(
+        entitlementID: String,
+        context: AppAccessRestoreAnalyticsContext,
+        identityMatches: Bool
+    )
+    case revenueCatRestoreNotFound(
+        entitlementID: String,
+        context: AppAccessRestoreAnalyticsContext,
+        identityMatches: Bool
+    )
     case revenueCatRestoreFailed(
         entitlementID: String,
-        errorType: RevenueCatAnalyticsErrorType
+        errorType: RevenueCatAnalyticsErrorType,
+        context: AppAccessRestoreAnalyticsContext,
+        identityMatches: Bool
     )
 
     var record: TelemetryRecord {
         record(diagnostics: StoreKitEnvironmentDiagnostics.shared)
+    }
+
+    static func diagnosticRecord(
+        name: String,
+        parameters: [String: TelemetryValue],
+        diagnostics: StoreKitEnvironmentDiagnostics = .shared
+    ) -> TelemetryRecord {
+        TelemetryRecord(
+            name: name,
+            parameters: parameters.merging(diagnostics.parameters) { own, _ in own }
+        )
     }
 
     /// Every event this enum builds carries the StoreKit environment pair, because the filter that
@@ -87,9 +131,7 @@ enum PaywallAnalyticsEvent: TelemetryEvent {
     /// reported neither (#506). That is every `revenuecat_purchase_*` and `revenuecat_restore_*`
     /// event, plus the `paywall_*` events cased here.
     ///
-    /// `paywall_error`, `paywall_skipped` and `paywall_reached` are not cases of this enum - they
-    /// are raw `TelemetryRecord`s built in `SuperwallPaywallPresenter` and `MonetizationManager` -
-    /// so they carry neither field. Tracked in #508.
+    /// Raw paywall lifecycle records use `diagnosticRecord` so they carry the same pair.
     func record(diagnostics: StoreKitEnvironmentDiagnostics) -> TelemetryRecord {
         let record = baseRecord
 
@@ -164,6 +206,12 @@ enum PaywallAnalyticsEvent: TelemetryEvent {
                 parameters: parameters
             )
 
+        case .appAccessGateAttemptTerminal(let context):
+            return TelemetryRecord(
+                name: "app_access_gate_attempt_terminal",
+                parameters: context.parameters
+            )
+
         case .revenueCatPurchaseStarted(let productID, let context):
             var parameters = context.parameters
             parameters["product_id"] = .string(productID)
@@ -211,39 +259,50 @@ enum PaywallAnalyticsEvent: TelemetryEvent {
                 parameters: parameters
             )
 
-        case .revenueCatRestoreStarted:
-            return TelemetryRecord(name: "revenuecat_restore_started")
-
-        case .revenueCatRestoreCompleted(let entitlementID):
+        case .revenueCatRestoreStarted(let context):
             return TelemetryRecord(
-                name: "revenuecat_restore_completed",
-                parameters: [
-                    "outcome": .string("success"),
-                    "entitlement_id": .string(entitlementID),
-                    "entitlement_active": .bool(true)
-                ]
+                name: "revenuecat_restore_started",
+                parameters: context.parameters
             )
 
-        case .revenueCatRestoreNotFound(let entitlementID):
+        case .revenueCatRestoreCompleted(let entitlementID, let context, let identityMatches):
+            var parameters = context.parameters
+            parameters["outcome"] = .string("success")
+            parameters["entitlement_id"] = .string(entitlementID)
+            parameters["entitlement_active"] = .bool(true)
+            parameters["identity_match"] = .bool(identityMatches)
+            return TelemetryRecord(
+                name: "revenuecat_restore_completed",
+                parameters: parameters
+            )
+
+        case .revenueCatRestoreNotFound(let entitlementID, let context, let identityMatches):
+            var parameters = context.parameters
+            parameters["outcome"] = .string("no_entitlement")
+            parameters["entitlement_id"] = .string(entitlementID)
+            parameters["entitlement_active"] = .bool(false)
+            parameters["identity_match"] = .bool(identityMatches)
             return TelemetryRecord(
                 name: "revenuecat_restore_not_found",
-                parameters: [
-                    "outcome": .string("no_entitlement"),
-                    "entitlement_id": .string(entitlementID),
-                    "entitlement_active": .bool(false)
-                ]
+                parameters: parameters
             )
 
         // A restore that never resolved an entitlement answer carries no `entitlement_active`:
         // reporting `false` would count an outage as evidence the climber holds nothing.
-        case .revenueCatRestoreFailed(let entitlementID, let errorType):
+        case .revenueCatRestoreFailed(
+            let entitlementID,
+            let errorType,
+            let context,
+            let identityMatches
+        ):
+            var parameters = context.parameters
+            parameters["outcome"] = .string("failed")
+            parameters["entitlement_id"] = .string(entitlementID)
+            parameters["error_type"] = .string(errorType.rawValue)
+            parameters["identity_match"] = .bool(identityMatches)
             return TelemetryRecord(
                 name: "revenuecat_restore_failed",
-                parameters: [
-                    "outcome": .string("failed"),
-                    "entitlement_id": .string(entitlementID),
-                    "error_type": .string(errorType.rawValue)
-                ]
+                parameters: parameters
             )
         }
     }

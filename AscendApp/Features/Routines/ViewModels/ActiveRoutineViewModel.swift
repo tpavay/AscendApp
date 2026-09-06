@@ -49,6 +49,12 @@ final class ActiveRoutineViewModel {
     private(set) var hasRecordedCompletion = false
     private var hasTrackedSessionStart = false
     private var hasTrackedSessionCompletion = false
+    /// Whether the leaderboard service has been told this session started. A
+    /// routine session is a session: what the repository remembers about the
+    /// climber's own rows belongs to one session, and the run this one publishes
+    /// is what the next one on the same board must not miss. Crossed on the first
+    /// window refresh, so it is ordered ahead of that refresh.
+    private var hasBegunLeaderboardSession = false
     private var stepTimelineRecorder = LiveClimbStepTimelineRecorder(intervalSeconds: 10)
     private var activeDraft: ActiveHeadphoneWorkoutDraft?
     private var lastDraftCheckpointAt: Date?
@@ -168,13 +174,33 @@ final class ActiveRoutineViewModel {
         routine.source.isTemplate && countsAsCompletion
     }
 
+    /// What this session's board may state about where the climber stands.
+    ///
+    /// A routine board holds no count it can substantiate, so it names no field;
+    /// where nobody else has finished it, the climber's own climbs are the only
+    /// population there is and the panel states that rather than a bare ordinal.
+    var leaderboardStanding: LiveReplayLiveStanding {
+        // A window that has not arrived, and a window that could not count this
+        // climber's own history, both state no placing. Neither is "first of
+        // one" - see `LiveClimbSessionViewModel.leaderboardStanding`.
+        guard let window = leaderboardWindow else {
+            return .racing(field: nil, ownClimbs: nil)
+        }
+
+        return LiveReplayLiveStanding.resolve(
+            field: nil,
+            ownClimbs: window.ownClimbs,
+            isSoleClimber: window.isSoleClimber
+        )
+    }
+
     var completionLeaderboardContext: LiveReplayLeaderboardContext? {
         earnsRoutineStanding ? replayContext : nil
     }
 
     var completionLeaderboardRank: Int? {
         guard earnsRoutineStanding else { return nil }
-        return leaderboardWindow?.currentUserRank ?? leaderboardRows.first(where: \.isCurrentUser)?.rank
+        return leaderboardWindow?.currentUserRank ?? leaderboardRows.first(where: \.isLiveAttempt)?.rank
     }
 
     var completionLeaderboardTotal: Int? {
@@ -437,6 +463,11 @@ final class ActiveRoutineViewModel {
 
     func refreshReplayLeaderboardIfNeeded(force: Bool = false) async {
         guard phase == .active || phase == .complete else { return }
+
+        if !hasBegunLeaderboardSession {
+            await leaderboardService.beginLiveSession()
+            hasBegunLeaderboardSession = true
+        }
 
         do {
             let window = try await leaderboardService.refreshIfNeeded(

@@ -2,9 +2,10 @@ import Foundation
 
 /// A strict numeric app version with one to three dot-separated components.
 ///
-/// Ascend's `CFBundleShortVersionString` is currently `1.0`, while operators may use the explicit
-/// three-component form `1.0.0`. Missing trailing components therefore compare as zero. All other
-/// syntax fails parsing so an uncertain version can never block the app.
+/// Ascend's `CFBundleShortVersionString` has used both the two-component form `1.0` and the
+/// three-component form `1.0.1`, and operators write thresholds as `1.0.0`. Missing trailing
+/// components therefore compare as zero. All other syntax fails parsing so an uncertain version
+/// can never block the app.
 struct SemanticAppVersion: Comparable, Sendable {
     private let components: [UInt]
 

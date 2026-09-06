@@ -5,22 +5,24 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Visual evidence that every board names the window it covers.
+/// Evidence that every board names the window it covers.
 ///
 /// The captain photographed three Steps tabs on 2026-08-01: a populated WEEKLY board
 /// and a MONTHLY board reading "No entries yet." Unlabelled, that pair reads as data
 /// loss. It is not: the week of Mon Jul 27 runs into Aug 2, so on the 1st it carries
-/// July steps the freshly opened August board cannot. These images are rendered from
-/// the shipping `LeaderboardView` - header, tab filters, window label and empty state -
+/// July steps the freshly opened August board cannot. The photographs are of the
+/// shipping `LeaderboardView` - header, tab filters, window label and empty state -
 /// so the label and the copy are photographed exactly where a climber meets them.
 ///
 /// Signed out, `setupAndLoad` returns before it loads anything, which is what puts the
 /// board in the empty state the monthly tab was actually in.
 ///
-/// Images land in `ASCEND_EVIDENCE_DIR` when it is set and in the test host's temporary
-/// directory otherwise; the path is logged either way. Nothing reads them back - these
-/// are evidence, not golden-image assertions.
+/// The labels are asserted from `LeaderboardPeriod`, and the shipping board is hosted
+/// through `RenderedScreen` to prove the label is on its accessibility tree; it is
+/// photographed only when `ASCEND_EVIDENCE_DIR` is set. Nothing reads the photographs
+/// back - these are evidence, not golden-image assertions.
 @MainActor
+@Suite(.hostsAWindow)
 struct LeaderboardWindowLabelEvidenceTests {
     @Test
     func weeklyBoardNamesTheWeekItCovers() async throws {
@@ -28,8 +30,9 @@ struct LeaderboardWindowLabelEvidenceTests {
         // A dated range, never a bare "This week" - the dates are the whole point.
         #expect(period.windowLabel.contains("-"))
 
-        try await snapshot(
-            leaderboard(initialTimeFrame: .weekly),
+        try await hostAndPhotograph(
+            try leaderboard(initialTimeFrame: .weekly),
+            showing: period.windowLabel,
             named: "leaderboard-window-label-weekly",
             height: 620
         )
@@ -42,8 +45,9 @@ struct LeaderboardWindowLabelEvidenceTests {
         let period = LeaderboardTimeFrame.monthly.currentPeriod()
         #expect(period.windowSubject == period.windowLabel)
 
-        try await snapshot(
-            leaderboard(initialTimeFrame: .monthly),
+        try await hostAndPhotograph(
+            try leaderboard(initialTimeFrame: .monthly),
+            showing: period.windowLabel,
             named: "leaderboard-window-label-monthly-empty",
             height: 620
         )
@@ -51,8 +55,17 @@ struct LeaderboardWindowLabelEvidenceTests {
 
     @Test
     func yearlyBoardNamesTheYearItCovers() async throws {
-        try await snapshot(
-            leaderboard(initialTimeFrame: .yearly),
+        let period = LeaderboardTimeFrame.yearly.currentPeriod()
+        // The window is keyed on the board's canonical calendar, not the viewer's: read the year
+        // the same way, or a New Year's Eve viewer west of UTC reads a 2026 window as 2025.
+        var boardCalendar = Calendar(identifier: .gregorian)
+        boardCalendar.timeZone = LeaderboardTimeFrame.canonicalTimeZone
+        let year = boardCalendar.component(.year, from: period.startAt)
+        #expect(period.windowLabel.contains(String(year)))
+
+        try await hostAndPhotograph(
+            try leaderboard(initialTimeFrame: .yearly),
+            showing: period.windowLabel,
             named: "leaderboard-window-label-yearly",
             height: 620
         )
@@ -61,13 +74,7 @@ struct LeaderboardWindowLabelEvidenceTests {
     // MARK: - Fixtures
 
     private func leaderboard(initialTimeFrame: LeaderboardTimeFrame) throws -> some View {
-        let container = try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            LeaderboardStats.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, LeaderboardStats.self)
 
         return NavigationStack {
             LeaderboardView(initialTimeFrame: initialTimeFrame, viewSource: .tab)
@@ -79,51 +86,30 @@ struct LeaderboardWindowLabelEvidenceTests {
         .modelContainer(container)
     }
 
-    // MARK: - Rendering
+    // MARK: - The board on screen
 
-    /// Hosts the view in a real window so the scroll content lays out, then captures
-    /// what is on screen.
-    private func snapshot(
-        _ view: some View,
+    /// Hosts the shipping board in a real window so the scroll content lays out, proves the
+    /// window label reached the screen, and photographs it when this run keeps photographs.
+    private func hostAndPhotograph<Content: View>(
+        _ view: Content,
+        showing windowLabel: String,
         named name: String,
         height: CGFloat
     ) async throws {
         let size = CGSize(width: 390, height: height)
-        let controller = UIHostingController(
-            rootView: view
+        try await RenderedScreen.host(
+            view
                 .frame(width: size.width, height: size.height, alignment: .top)
                 .background(Color.black)
-                .environment(\.colorScheme, .dark)
-        )
-        controller.overrideUserInterfaceStyle = .dark
-        controller.view.frame = CGRect(origin: .zero, size: size)
-        controller.view.backgroundColor = .black
-
-        let window = UIWindow(frame: controller.view.frame)
-        window.overrideUserInterfaceStyle = .dark
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        defer { window.isHidden = true }
-
-        for _ in 0..<12 {
-            controller.view.setNeedsLayout()
-            controller.view.layoutIfNeeded()
-            try await Task.sleep(for: .milliseconds(50))
+                .environment(\.colorScheme, .dark),
+            size: size
+        ) { screen in
+            let copy = try await screen.copy()
+            #expect(
+                copy.contains("showing \(windowLabel.lowercased())"),
+                "The board does not name its window (\(windowLabel)) on screen: \(copy)"
+            )
+            try screen.photograph(named: name)
         }
-
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.scale = 3
-        let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
-        }
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        let url = URL(filePath: directory).appending(path: "\(name).png")
-        try png.write(to: url)
-
-        #expect(png.count > 5_000)
-        print("Rendered leaderboard window evidence: \(url.path())")
     }
 }

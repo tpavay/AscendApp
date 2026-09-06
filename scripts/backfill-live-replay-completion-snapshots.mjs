@@ -7,6 +7,10 @@
  * existing leaderboard rows by reconstructing attempt completion time from the
  * private workout backup when available.
  *
+ * It is also the repair path for snapshots frozen while the numerator counted a
+ * climber's own leading row and then subtracted it back out: run it with
+ * `--force` over one context to rewrite them.
+ *
  * Usage:
  *   node scripts/backfill-live-replay-completion-snapshots.mjs --project dev --dry-run
  *   node scripts/backfill-live-replay-completion-snapshots.mjs --project staging
@@ -329,27 +333,19 @@ function buildCompletionSnapshots(entries) {
     }
     return lhs.workoutId.localeCompare(rhs.workoutId);
   });
-  const firstCompletionByUser = new Map();
-
-  for (const entry of sorted) {
-    const previous = firstCompletionByUser.get(entry.userId);
-    if (previous === undefined || entry.completionMillis < previous) {
-      firstCompletionByUser.set(entry.userId, entry.completionMillis);
-    }
-  }
 
   return sorted.map((entry) => {
-    const completedCount = Math.max(
-      [...firstCompletionByUser.values()]
-        .filter((completedAt) => completedAt <= entry.completionMillis)
-        .length,
-      1
+    // One population on both halves, the same one the live publish path counts:
+    // distinct climbers where the board collapses repeat finishers, attempts
+    // everywhere else. Two halves counting different populations is what needed
+    // a `Math.min` clamp to stay possible at all, and that clamp is what made a
+    // repeat climber's slower run read "1st of 1".
+    const completedSoFar = entries.filter(
+      (candidate) => candidate.completionMillis <= entry.completionMillis
     );
-    const rawRank = entries.filter(
-      (candidate) =>
-        candidate.completionMillis <= entry.completionMillis &&
-        candidate.completionDurationSeconds < entry.completionDurationSeconds
-    ).length + 1;
+    const {completedCount, rank} = collapsesRepeatFinishers(entry.contextType) ?
+      climberStanding(completedSoFar, entry) :
+      attemptStanding(completedSoFar, entry);
 
     return {
       completedCount,
@@ -357,24 +353,148 @@ function buildCompletionSnapshots(entries) {
       contextId: entry.contextId,
       contextType: entry.contextType,
       finalSteps: entry.finalSteps,
-      // Still clamped on purpose: this backfill ranks entry rows against a
-      // distinct-climber count, so its two halves count different populations
-      // and only the clamp keeps the pair possible. The live publish path in
-      // functions/src/liveReplayLeaderboard.ts counts one population on both
-      // halves by construction and therefore dropped its clamp and throws
-      // instead; the divergence is deliberate, not an oversight.
-      rank: Math.min(rawRank, completedCount),
+      rank,
       rankedAt: entry.rankedAt,
-      rankingMetric: "completionDurationSeconds",
+      rankingMetric: rankingMetric(entry.contextType),
       schemaVersion: 1,
       targetStepCount: entry.targetStepCount,
-      tiePolicy: "competition_rank_equal_durations_share_rank",
+      tiePolicy: tiePolicy(entry.contextType),
       userId: entry.userId,
       workoutId: entry.workoutId,
       backfilledAt: FieldValue.serverTimestamp(),
       backfillSource: "private_workout_completion_time_v1",
     };
   });
+}
+
+/**
+ * Whether a context races one row per climber rather than one per attempt.
+ *
+ * Mirrors `collapsesRepeatFinishers` in functions/src/liveReplayLeaderboard.ts,
+ * so a repaired snapshot and a freshly frozen one count the same population.
+ * @param {string} contextType Replay context type.
+ * @return {boolean} True when the context collapses repeat finishers.
+ */
+function collapsesRepeatFinishers(contextType) {
+  return contextType === "live_climb" || contextType === "routine_template";
+}
+
+/**
+ * Whether a context ranks on steps taken rather than time elapsed.
+ *
+ * Mirrors `ranksOnSteps` in functions/src/liveReplayLeaderboard.ts - a
+ * routine_template board ranks higher-steps-first, everything else ranks
+ * lower-duration-first, and this backfill has to compare and freeze on the
+ * same metric the live publish path does or a repair silently corrupts every
+ * standing on that board.
+ * @param {string} contextType Replay context type.
+ * @return {boolean} True when higher steps rank better.
+ */
+function ranksOnSteps(contextType) {
+  return contextType === "routine_template";
+}
+
+/**
+ * The entry field a context ranks on.
+ * @param {string} contextType Replay context type.
+ * @return {string} Ranking metric field name.
+ */
+function rankingMetric(contextType) {
+  return ranksOnSteps(contextType) ? "finalSteps" : "completionDurationSeconds";
+}
+
+/**
+ * An entry's own value in its context's ranking metric.
+ * @param {string} contextType Replay context type.
+ * @param {object} entry Entry carrying both metrics.
+ * @return {number} Ranking value for this entry.
+ */
+function rankingValue(contextType, entry) {
+  return ranksOnSteps(contextType) ?
+    entry.finalSteps :
+    entry.completionDurationSeconds;
+}
+
+/**
+ * Whether one ranking value stands strictly ahead of another.
+ * @param {string} contextType Replay context type.
+ * @param {number} value Candidate ranking value.
+ * @param {number} other Ranking value to beat.
+ * @return {boolean} True when value is strictly better than other.
+ */
+function beatsOnMetric(contextType, value, other) {
+  return ranksOnSteps(contextType) ? value > other : value < other;
+}
+
+/**
+ * How a context resolves attempts that tie on its ranking metric.
+ *
+ * Mirrors `tiePolicy` in functions/src/liveReplayLeaderboard.ts.
+ * @param {string} contextType Replay context type.
+ * @return {string} Tie policy identifier.
+ */
+function tiePolicy(contextType) {
+  return ranksOnSteps(contextType) ?
+    "competition_rank_equal_steps_share_rank" :
+    "competition_rank_equal_durations_share_rank";
+}
+
+/**
+ * Standing on a board that collapses a climber's repeat runs to their best.
+ *
+ * Both halves count distinct climbers, and the numerator compares against this
+ * climber's own best at that moment - which already includes the attempt being
+ * stamped - so their own row can never satisfy a strictly-better filter and
+ * nothing has to be subtracted back out.
+ * @param {object[]} completedSoFar Attempts completed by this moment.
+ * @param {object} entry Attempt being stamped.
+ * @return {{completedCount: number, rank: number}} Standing.
+ */
+function climberStanding(completedSoFar, entry) {
+  const bestByUser = new Map();
+
+  for (const candidate of completedSoFar) {
+    const best = bestByUser.get(candidate.userId);
+    const candidateValue = rankingValue(entry.contextType, candidate);
+    if (
+      best === undefined ||
+      beatsOnMetric(entry.contextType, candidateValue, best)
+    ) {
+      bestByUser.set(candidate.userId, candidateValue);
+    }
+  }
+
+  const ownBest = bestByUser.get(entry.userId) ??
+    rankingValue(entry.contextType, entry);
+  const rank = [...bestByUser.values()]
+    .filter((best) => beatsOnMetric(entry.contextType, best, ownBest))
+    .length + 1;
+
+  return {completedCount: Math.max(bestByUser.size, 1), rank};
+}
+
+/**
+ * Standing on a board that races every attempt as its own opponent.
+ *
+ * Strictly better only, so attempts tied on the metric share a rank. Every row
+ * counted here is one of the rows `completedCount` counted, so the pair is
+ * coherent by construction and needs no clamp.
+ * @param {object[]} completedSoFar Attempts completed by this moment.
+ * @param {object} entry Attempt being stamped.
+ * @return {{completedCount: number, rank: number}} Standing.
+ */
+function attemptStanding(completedSoFar, entry) {
+  const ownValue = rankingValue(entry.contextType, entry);
+  const rank = completedSoFar.filter(
+    (candidate) =>
+      beatsOnMetric(
+        entry.contextType,
+        rankingValue(entry.contextType, candidate),
+        ownValue
+      )
+  ).length + 1;
+
+  return {completedCount: Math.max(completedSoFar.length, 1), rank};
 }
 
 /**

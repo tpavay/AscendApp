@@ -1,7 +1,6 @@
 import Foundation
 import SwiftUI
 import Testing
-import UIKit
 @testable import AscendApp
 
 /// Reviewer-visible evidence for the recovered/resumed chest-strap heart-rate fix.
@@ -13,7 +12,7 @@ import UIKit
 ///     -> render the resulting `Workout` through the shipping `HeartRateChartView`
 ///        (the exact component `WorkoutDetailView.heartRateSection` shows).
 ///
-/// Writes a PNG and a JSON dump to `ASCEND_EVIDENCE_DIR` (temp dir otherwise).
+/// Writes a PNG and a JSON dump to `ASCEND_EVIDENCE_DIR` when it is set, and nothing otherwise.
 @MainActor
 struct RecoveredHeartRateEvidenceTests {
     private static let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
@@ -106,29 +105,25 @@ struct RecoveredHeartRateEvidenceTests {
         #expect(resumedWorkout.heartRateTimeSeries.count == 150)
 
         // --- Evidence 1: the surface a user actually sees ---------------------
-        let proof = EvidenceSheet(recovered: recoveredWorkout, resumed: resumedWorkout)
-        let renderer = ImageRenderer(content: proof)
-        renderer.scale = 3
-        let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
-        let png = try #require(image.pngData(), "UIImage produced no PNG data")
-        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
-            ?? NSTemporaryDirectory()
-        try png.write(
-            to: URL(filePath: directory).appending(path: "recovered-heart-rate-workout-detail.png")
+        // Photographed only under `ASCEND_EVIDENCE_DIR`; the two counts above are the assertion.
+        try RenderedScreen.photograph(
+            EvidenceSheet(recovered: recoveredWorkout, resumed: resumedWorkout),
+            named: "recovered-heart-rate-workout-detail"
         )
 
         // --- Evidence 2: the persisted state behind that surface -------------
-        let dump = EvidenceDump(
-            recoveredSave: .init(workout: recoveredWorkout, startedAt: Self.startedAt),
-            resumedSave: .init(workout: resumedWorkout, startedAt: Self.startedAt)
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(dump).write(
-            to: URL(filePath: directory).appending(path: "recovered-heart-rate-persisted-state.json")
-        )
-
-        #expect(png.count > 5_000)
+        if let directory = RenderedScreen.evidenceDirectory {
+            let dump = EvidenceDump(
+                recoveredSave: .init(workout: recoveredWorkout, startedAt: Self.startedAt),
+                resumedSave: .init(workout: resumedWorkout, startedAt: Self.startedAt)
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try encoder.encode(dump).write(
+                to: directory.appending(path: "recovered-heart-rate-persisted-state.json")
+            )
+        }
     }
 
     private func makeDraft() -> ActiveHeadphoneWorkoutDraft {

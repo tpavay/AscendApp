@@ -5,6 +5,9 @@ enum AppAccessRestoreState: CaseIterable, Equatable, Sendable {
     case restoring
     case restored
     case noPurchasesFound
+    case offline
+    case timedOut
+    case cancelled
     case failed
 
     init(outcome: AppAccessRestoreOutcome) {
@@ -13,8 +16,17 @@ enum AppAccessRestoreState: CaseIterable, Equatable, Sendable {
             self = .restored
         case .notFound:
             self = .noPurchasesFound
-        case .failed:
-            self = .failed
+        case .failed(let error):
+            switch error as? AppAccessRestoreError {
+            case .offline:
+                self = .offline
+            case .timedOut:
+                self = .timedOut
+            case .cancelled:
+                self = .cancelled
+            case nil:
+                self = .failed
+            }
         }
     }
 
@@ -32,8 +44,8 @@ enum AppAccessRestoreState: CaseIterable, Equatable, Sendable {
             // A conclusive negative is a finished operation, not a new label: the control keeps its
             // ordinary action name so the one found-nothing sentence lives in `statusMessage` alone.
             return "Restore Purchases"
-        case .failed:
-            return "Restore Failed"
+        case .offline, .timedOut, .cancelled, .failed:
+            return "Try Restore Again"
         }
     }
 
@@ -42,9 +54,15 @@ enum AppAccessRestoreState: CaseIterable, Equatable, Sendable {
         case .idle, .restoring, .restored:
             return nil
         case .noPurchasesFound:
-            return "No purchases found to restore."
+            return "No active Ascend subscription was found for this Apple ID."
+        case .offline:
+            return "Ascend is offline. Reconnect, then try Restore Purchases again."
+        case .timedOut:
+            return "Restore took too long. Check your connection, then try again."
+        case .cancelled:
+            return "Restore was cancelled. Try Restore Purchases again."
         case .failed:
-            return "Ascend couldn't restore your purchases. Check your connection and try again."
+            return "Apple could not finish the restore. Try again or contact support."
         }
     }
 

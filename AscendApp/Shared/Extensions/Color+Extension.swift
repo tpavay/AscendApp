@@ -79,6 +79,11 @@ extension Color {
     /// has not confirmed, so it lives here as a single token to change rather than a literal
     /// scattered across the surface.
     static let ascendCaution = Color(hex: "FF9F0A")
+
+    /// The gold medal token from the core project guide, reserved for
+    /// podium and rank-prestige moments. Applied sparingly, never as a primary
+    /// surface colour - today the First Ascent claim on a completion summary.
+    static let ascendMedalGold = Color(hex: "D4AF37")
     
     // MARK: - Workout Intensity Colors
     

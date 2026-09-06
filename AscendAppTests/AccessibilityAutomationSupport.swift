@@ -24,12 +24,17 @@ func withAccessibilityAutomation<Result>(
 @MainActor
 func accessibilityElements(under root: UIView) -> [NSObject] {
     var found: [NSObject] = []
+    // A hosted node is reachable both as its container's accessibility element and through that
+    // container's subviews, so an undeduped walk returns the very same objects twice and every
+    // count a caller takes is double what the screen actually publishes.
+    var visited: Set<ObjectIdentifier> = []
 
     func visit(_ node: NSObject) {
         let count = node.accessibilityElementCount()
         if count != NSNotFound {
             for index in 0..<count {
-                guard let child = node.accessibilityElement(at: index) as? NSObject else {
+                guard let child = node.accessibilityElement(at: index) as? NSObject,
+                      visited.insert(ObjectIdentifier(child)).inserted else {
                     continue
                 }
 
@@ -38,7 +43,11 @@ func accessibilityElements(under root: UIView) -> [NSObject] {
             }
         }
 
-        if let view = node as? UIView {
+        // A wheel picker is one element whose value is the selection; its drums are hundreds of
+        // rows each, and with the automation runtime listening a walk that descends into them
+        // materialises every row's accessibility node. Hosting the onboarding birthday wheel
+        // measured 634 -> 2,560 MB of resident memory on that one descent.
+        if let view = node as? UIView, !(view is UIPickerView), !(view is UIDatePicker) {
             for subview in view.subviews {
                 visit(subview)
             }

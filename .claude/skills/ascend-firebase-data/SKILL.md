@@ -1,6 +1,6 @@
 ---
 name: ascend-firebase-data
-description: Use when adding, renaming, or removing any Firestore field - including from a Swift model or repository, which requires a matching firestore.rules update first - and when changing security rules or indexes, writing user media to Firebase Storage, deleting an account or sweeping its data, or handling offline/connectivity state in Ascend. Covers the strict hasOnly/hasAll rules contract, the required rules-first change order, the server-enforced paid-access predicate and what stays open before purchase, user-scoped Storage prefixes, the account-deletion ordering contract, and the single-source-of-truth connectivity rule.
+description: Use when adding, renaming, or removing any Firestore field - including from a Swift model or repository, which requires a matching firestore.rules update first - and when changing security rules or indexes, writing user media to Firebase Storage, deleting an account or sweeping its data, or handling offline/connectivity state in Ascend - and when reading any of these shapes back, because split buckets, user-scoped climbs, and collection listings each misreport as empty. Covers the strict hasOnly/hasAll rules contract, the required rules-first change order, the server-enforced paid-access predicate and what stays open before purchase, user-scoped Storage prefixes, the account-deletion ordering contract, the single-source-of-truth connectivity rule, and how to query these paths without reading data that is there as data that is missing.
 ---
 
 # Ascend Firestore + Storage
@@ -100,6 +100,86 @@ That is the whole budget, for one list, in a rule with about twenty other scalar
 So a user-authored list of unbounded length simply cannot be validated element by element, and pretending otherwise ships a rule that silently rejects the largest documents.
 When that is where you land, say so in the rule with the numbers, validate what the document-level `hasOnly`/`hasAll` can reach, bound the list size, and move element validation into the client's decoder - `users/{uid}/routines` is the worked example.
 The asymmetry that makes it acceptable there and not for workouts: nothing but the owner reads a routine, while a workout's `participations` are read and trusted by the Cloud Functions that publish leaderboard rows.
+
+## Reading these shapes back
+
+`ascend-data-investigation` owns the *method*: the absence rule, `scripts/firestore-query.mjs`, and the four outcomes it refuses to collapse.
+Read it before answering any question about what a database holds.
+This section owns what the *shapes defined here* do to a reader who queries them the obvious way, because three of them report as "nothing is there" while the data sits one path segment below.
+
+Every number below was read from staging (`ascend-staging-fa7d5`) on 2026-08-26.
+They are illustrations of a shape, not standing counts: re-read before quoting one.
+
+### A document that is only a parent is invisible to a collection listing
+
+`live_replay_leaderboards/{contextKey}/splitBuckets/{index}` is never written as a document.
+The publisher (`entriesCollectionReference` in `functions/src/liveReplayLeaderboard.ts`) and `seed-demo-user.mjs` both address `splitBuckets/{index}/entries` directly, and Firestore materializes the missing ancestor implicitly rather than creating it.
+The app reads it the same way and never lists the collection - `FirestoreLiveReplayLeaderboardRepository.entriesCollection(context:bucketIndex:)`.
+
+On `live_climb__empire-state-building` that gives five different answers to what looks like one question:
+
+| Read | Result |
+|---|---|
+| `splitBuckets` collection `.get()` | 0 documents, `empty: true` |
+| `splitBuckets` `.count()` aggregation | 0 |
+| `splitBuckets` `.listDocuments()` | 232 references |
+| `splitBuckets/0` `.get()` | `exists: false`, no fields |
+| `splitBuckets/0/entries` `.count()` | 4 |
+
+Zero is the correct answer to what a collection query asks and the wrong answer to "does this climb have replay data".
+Answering the second question with the first is what produced "zero split buckets anywhere" on 2026-08-26, while 232 buckets of entries sat under that one context.
+
+Ask the paths instead:
+
+```bash
+node scripts/firestore-query.mjs subcollections \
+  live_replay_leaderboards/live_climb__empire-state-building \
+  --env staging --expect finishers,splitBuckets,completionSnapshots
+#   listed: completionSnapshots, finishers, splitBuckets, userBestAttempts
+#   direct probe .../finishers: 85
+#   direct probe .../splitBuckets: 232 (all 232 are subcollection parents)
+#   direct probe .../completionSnapshots: 4
+
+node scripts/firestore-query.mjs count \
+  live_replay_leaderboards/live_climb__empire-state-building/splitBuckets/0/entries --env staging
+#   matches: 4
+```
+
+`count` and `list` fall back to `listDocuments` and name the phantom parents in their output; an aggregation query written by hand reports 0 and says nothing.
+The context document's own `replayEntryCount`, `totalClimbers`, `completedCount` and `seedBucketCount` are a publisher-written summary - useful as a second opinion that agrees or disagrees with the paths, never as the count itself.
+
+### A climb lives under its climber, so no top-level collection counts it
+
+Staging has 12 root collections and none of them is `workouts` or `climb_completions`; both come back `EMPTY (verified)` against a control that returned 20.
+Every climb, projection, and award is user-scoped, which is what makes the owner predicates in the rules above expressible at all:
+
+```
+users/{uid}/workouts · profile_workouts · achievements · profile_stats · public_profile
+```
+
+That is also exactly where `scripts/seed-demo-user.mjs` writes.
+Counting a root collection therefore reports a successful seed as a failed one:
+
+```bash
+node scripts/firestore-query.mjs count users/<uid>/workouts --env staging   # matches: 12
+node scripts/firestore-query.mjs count workouts --env staging               # EMPTY (verified) - no such collection
+```
+
+The top-level collections a climb does reach - `leaderboard_stats`, `live_replay_leaderboards`, `live_climb_community_stats` - hold server-derived aggregates keyed by climber-period or by context, never one row per climb.
+
+### `(none)` from a collection listing settles nothing
+
+`listCollectionIds`, and the `listCollections()` call over it, answers correctly today: against that same context document it returns `completionSnapshots, finishers, splitBuckets, userBestAttempts` through the REST endpoint, the Admin SDK, and the Firebase MCP tool alike.
+A `(none)` from it is therefore a claim about the *call*, not about the database, and the call is easy to break into silence - `ascend-data-investigation` carries the reproduced mechanisms.
+Never treat a negative listing as evidence here.
+Probe the subcollections you expect by name (`subcollections <doc> --expect a,b,c`), which counts each path itself and cannot be talked out of a positive.
+
+### `firestore.rules` is a path map, not an inventory
+
+Every collection a *client* touches has a `match` block, which makes the rules file the best navigation map of the app's paths.
+It is not a list of what exists.
+A server-owned subcollection written only through the Admin SDK needs no rule at all, so it is absent from the file and unreadable by any client: `live_replay_leaderboards/{contextKey}/userBestAttempts` is written by `liveReplayLeaderboard.ts` and by the seed, exists in staging, and appears nowhere in `firestore.rules`.
+Discover paths from the database, then confirm the client-facing contract in the rules - not the other way round.
 
 ## Storage pathing + rules
 

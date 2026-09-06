@@ -109,7 +109,8 @@ struct AppInstallationTelemetryReporterTests {
             sinks: [sink],
             crashlyticsReporter: NoopCrashlyticsReporter(),
             collectionEnabledOverride: true,
-            buildMetadata: Self.buildMetadata
+            buildMetadata: Self.buildMetadata,
+            identityStore: makeTestIdentityStore()
         )
         telemetry.configure()
         return telemetry

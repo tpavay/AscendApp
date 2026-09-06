@@ -6,6 +6,8 @@ import UserNotifications
 @MainActor
 final class LifecycleEventRecorder {
     static let shared = LifecycleEventRecorder()
+    nonisolated static let ownerBoundDeliverySchemaVersion = 2
+    nonisolated static let ownerMismatchReason = "lifecycle_owner_mismatch"
 
     private let functions = Functions.functions(region: "us-central1")
 
@@ -51,19 +53,32 @@ final class LifecycleEventRecorder {
         )
     }
 
-    func recordPaywallReached(placement: String) {
-        recordPaywallEvent(type: "paywall_reached", placement: placement)
+    func recordPaywallReached(placement: String, expectedUserID: String? = nil) {
+        recordPaywallEvent(
+            type: "paywall_reached",
+            placement: placement,
+            expectedUserID: expectedUserID
+        )
     }
 
-    func recordPaywallShown(placement: String) {
-        recordPaywallEvent(type: "paywall_shown", placement: placement)
+    func recordPaywallShown(placement: String, expectedUserID: String? = nil) {
+        recordPaywallEvent(
+            type: "paywall_shown",
+            placement: placement,
+            expectedUserID: expectedUserID
+        )
     }
 
-    func recordPaywallDismissed(placement: String, reason: String? = nil) {
+    func recordPaywallDismissed(
+        placement: String,
+        reason: String? = nil,
+        expectedUserID: String? = nil
+    ) {
         recordPaywallEvent(
             type: "paywall_dismissed",
             placement: placement,
-            reason: reason
+            reason: reason,
+            expectedUserID: expectedUserID
         )
     }
 
@@ -122,29 +137,37 @@ final class LifecycleEventRecorder {
     private func recordPaywallEvent(
         type: String,
         placement: String,
-        reason: String? = nil
+        reason: String? = nil,
+        expectedUserID: String?
     ) {
         var payload: [String: Any] = ["placement": placement]
         if let reason {
             payload["reason"] = reason
         }
-        record(type: type, payload: payload)
+        record(type: type, payload: payload, expectedUserID: expectedUserID)
     }
 
     /// Fire-and-forget recording for observational events, where a failed send
     /// is not worth interrupting the user over.
-    private func record(type: String, payload: sending [String: Any]) {
+    private func record(
+        type: String,
+        payload: sending [String: Any],
+        expectedUserID: String? = nil
+    ) {
+        let deliveryOwnerUserID = expectedUserID ?? Auth.auth().currentUser?.uid
         Task {
             do {
-                try await sendLifecycleEvent(type: type, payload: payload)
+                try await sendLifecycleEvent(
+                    type: type,
+                    payload: payload,
+                    expectedUserID: deliveryOwnerUserID
+                )
             } catch {
-                guard !Self.isExpectedTransportNoise(error) else { return }
-
-                TelemetryManager.shared.recordError(
+                Self.handleRecordFailure(
                     error,
-                    context: .network,
-                    code: "lifecycle_event_record_failed",
-                    additionalInfo: ["type": type]
+                    type: type,
+                    expectedUserID: deliveryOwnerUserID,
+                    telemetry: .shared
                 )
             }
         }
@@ -152,32 +175,99 @@ final class LifecycleEventRecorder {
 
     private func sendLifecycleEvent(
         type: String,
-        payload: sending [String: Any]
+        payload: sending [String: Any],
+        expectedUserID: String? = nil
     ) async throws {
-        // Lifecycle events are per-user server state; the callable rejects
-        // unauthenticated requests, so don't send them while signed out.
-        guard Auth.auth().currentUser != nil else {
-            throw LifecycleEventRecorderError.signedOut
-        }
-
-        let eventData: [String: Any] = [
-            "type": type,
-            "payload": payload
-        ]
+        let eventData = try Self.makeCallableEnvelope(
+            type: type,
+            payload: payload,
+            currentUserID: Auth.auth().currentUser?.uid,
+            expectedUserID: expectedUserID
+        )
 
         _ = try await functions
             .httpsCallable("recordLifecycleEvent")
             .call(eventData)
     }
 
-    /// Errors that are part of normal operation — a request cancelled by the
-    /// system mid-flight, or auth racing sign-out — not defects worth alerting on.
+    nonisolated static func makeCallableEnvelope(
+        type: String,
+        payload: [String: Any],
+        currentUserID: String?,
+        expectedUserID: String?
+    ) throws -> [String: Any] {
+        // The callable independently compares this delivery-only owner with
+        // its authenticated token after token acquisition. Keeping it outside
+        // payload prevents it from becoming lifecycle or analytics data.
+        let ownerUserID = try validatedUserID(
+            currentUserID: currentUserID,
+            expectedUserID: expectedUserID
+        )
+        return [
+            "deliverySchemaVersion": ownerBoundDeliverySchemaVersion,
+            "expectedUserID": ownerUserID,
+            "type": type,
+            "payload": payload
+        ]
+    }
+
+    nonisolated static func validateIdentity(
+        currentUserID: String?,
+        expectedUserID: String?
+    ) throws {
+        _ = try validatedUserID(
+            currentUserID: currentUserID,
+            expectedUserID: expectedUserID
+        )
+    }
+
+    private nonisolated static func validatedUserID(
+        currentUserID: String?,
+        expectedUserID: String?
+    ) throws -> String {
+        guard let currentUserID else {
+            throw LifecycleEventRecorderError.signedOut
+        }
+        if let expectedUserID, currentUserID != expectedUserID {
+            throw LifecycleEventRecorderError.identityChanged
+        }
+        return currentUserID
+    }
+
+    nonisolated static func handleRecordFailure(
+        _ error: Error,
+        type: String,
+        expectedUserID: String?,
+        telemetry: TelemetryManager
+    ) {
+        guard !isExpectedTransportNoise(error) else { return }
+
+        if let expectedUserID {
+            telemetry.recordError(
+                error,
+                context: .network,
+                code: "lifecycle_event_record_failed",
+                additionalInfo: ["type": type],
+                ifIdentifiedAs: expectedUserID
+            )
+        } else {
+            telemetry.recordError(
+                error,
+                context: .network,
+                code: "lifecycle_event_record_failed",
+                additionalInfo: ["type": type]
+            )
+        }
+    }
+
+    /// Errors that are part of normal operation - a request cancelled by the
+    /// system mid-flight, or auth racing sign-out - not defects worth alerting on.
     private nonisolated static func isExpectedTransportNoise(_ error: Error) -> Bool {
         if let recorderError = error as? LifecycleEventRecorderError {
             // Exhaustive on purpose: a new case must decide for itself whether
             // it is noise rather than inheriting silence.
             switch recorderError {
-            case .signedOut:
+            case .signedOut, .identityChanged:
                 return true
             }
         }
@@ -188,6 +278,12 @@ final class LifecycleEventRecorder {
         }
         if nsError.domain == FunctionsErrorDomain,
            nsError.code == FunctionsErrorCode.unauthenticated.rawValue {
+            return true
+        }
+        if nsError.domain == FunctionsErrorDomain,
+           nsError.code == FunctionsErrorCode.permissionDenied.rawValue,
+           let details = nsError.userInfo[FunctionsErrorDetailsKey] as? [String: Any],
+           details["reason"] as? String == ownerMismatchReason {
             return true
         }
         return false

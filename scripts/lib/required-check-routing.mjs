@@ -41,6 +41,10 @@ export const CI_RELEVANT_PATHS = [
   // name, so it gates exactly as CLAUDE.md does. Allowlisting it would let a PR
   // replace the symlink with a divergent file behind an unverified check.
   "AGENTS.md",
+  // The derived-data-path contract discovers the copyable xcodebuild commands
+  // the skill files carry, so a skill edit can drop the flag that keeps build
+  // output inside the worktree. That makes them a verified input, not trivia.
+  ".claude/skills/**",
   ".github/workflows/**",
 ];
 
@@ -51,7 +55,6 @@ export const VERIFICATION_IRRELEVANT_PATHS = [
   "docs/**",
   "AppStoreAssets/**",
   "data/ascend-support-page-and-product-page-package/**",
-  ".claude/skills/**",
   "README.md",
   ".gitignore",
 ];

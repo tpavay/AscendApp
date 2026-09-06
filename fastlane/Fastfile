@@ -290,6 +290,14 @@ platform :ios do
     )
   end
 
+  # This is the last Fastlane lane in the release path, on purpose.
+  # Everything after it - creating the App Store version record and attaching the processed
+  # build - runs in `scripts/appstore-prepare-version.mjs`, on the same App Store Connect
+  # client every other App Store read here uses, and it stops before submission.
+  # Do not add a `deliver` / `upload_to_app_store` lane: it is one switch away from putting a
+  # build in front of App Review, and the captain presses Submit himself.
+  # `scripts/test/app-store-submission-guard.test.mjs` fails the build if that power appears
+  # here. Procedure: `docs/release-procedure.md`.
   desc "Upload an IPA artifact to TestFlight"
   lane :upload_testflight do
     api_key = app_store_connect_api_key(

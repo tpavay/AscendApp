@@ -17,19 +17,31 @@ final class StubLiveReplayLeaderboardService: LiveReplayLeaderboardServicing, @u
     /// What `refreshIfNeeded` hands back, so a test can prove the race rows land even
     /// when the count beside them does not.
     var window: LiveReplayLeaderboardWindow?
+    /// The board `fetchCompletionLeaderboard` answers with. `nil` refuses, the way an
+    /// unreachable board does; a surface that renders the board rather than racing it
+    /// supplies one so it settles instead of showing "Leaderboard unavailable".
+    var completionLeaderboard: LiveReplayCompletionLeaderboard?
     private(set) var summaryFetchCount = 0
+    /// The frozen standing the server holds for a workout, and how many times it was asked for -
+    /// the count is what proves a stored snapshot is served without a request.
+    var completionRankSnapshot: LiveReplayCompletionRankSnapshot?
+    private(set) var completionRankSnapshotFetchCount = 0
 
     init(
         summary: LiveReplayLeaderboardSummary = .empty,
         summaryFetchFailureCount: Int = 0,
         summaryFetchDelaySeconds: Double? = nil,
-        window: LiveReplayLeaderboardWindow? = nil
+        window: LiveReplayLeaderboardWindow? = nil,
+        completionLeaderboard: LiveReplayCompletionLeaderboard? = nil
     ) {
         self.summary = summary
         self.summaryFetchFailureCount = summaryFetchFailureCount
         self.summaryFetchDelaySeconds = summaryFetchDelaySeconds
         self.window = window
+        self.completionLeaderboard = completionLeaderboard
     }
+
+    func beginLiveSession() {}
 
     func fetchSummary(
         context: LiveReplayLeaderboardContext
@@ -59,7 +71,13 @@ final class StubLiveReplayLeaderboardService: LiveReplayLeaderboardServicing, @u
         context: LiveReplayLeaderboardContext,
         workoutId: String
     ) async throws -> LiveReplayCompletionRankSnapshot? {
-        nil
+        completionRankSnapshotFetchCount += 1
+        guard let completionRankSnapshot,
+              completionRankSnapshot.workoutId == workoutId else {
+            return nil
+        }
+
+        return completionRankSnapshot
     }
 
     func fetchPublishStatus(workoutId: String) async throws -> LiveReplayPublishStatus? {
@@ -84,7 +102,9 @@ final class StubLiveReplayLeaderboardService: LiveReplayLeaderboardServicing, @u
         cursor: LiveReplayCompletionLeaderboardCursor?,
         forceRefresh: Bool
     ) async throws -> LiveReplayCompletionLeaderboard {
-        throw CancellationError()
+        guard let completionLeaderboard else { throw CancellationError() }
+
+        return completionLeaderboard
     }
 
     func refreshIfNeeded(

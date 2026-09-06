@@ -71,7 +71,7 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 - Superwall placements defined in code: `.onboardingPaywall`, `.appLaunchHardGate`, `.appAccessGate` (`SuperwallPaywallPresenter.swift:38-44`).
 
 **Live Climbs**
-- Headphone readiness is checked at Climb Detail entry (`ClimbDetailView.swift:1407-1432`) but not re-checked at countdown start; a Bluetooth drop in between fails gracefully but UX could pre-empt. Nice-to-have.
+- Headphone readiness is checked when the race action is tapped (`ClimbDetailView.handlePrimaryAction`, reading `HeadphoneMotionReadinessService`) but not re-checked at countdown start; a Bluetooth drop in between fails gracefully but UX could pre-empt. Nice-to-have.
 - Climb image disk cache has **no eviction policy** — unbounded growth; monitor in production.
 - No telemetry when replay-leaderboard fetches exhaust their timeout (operational blind spot, minor).
 - Cloud Function `onWorkoutReplaySplitsWritten` (functions/src/liveReplayLeaderboard.ts) is exported, validated (source=headphone_motion, target reached), tested, and handles FA claims + entry replacement. Confirmed good.

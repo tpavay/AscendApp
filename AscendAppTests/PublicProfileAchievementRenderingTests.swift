@@ -20,6 +20,18 @@ struct PublicProfileAchievementRenderingTests {
         ]
     )
 
+    /// Three champion weeks and one third place. Cumulative bands land on top1 3, top3 4,
+    /// top10 4, top100 4 - and no second place at all, which is the lopsided row in a matchup
+    /// where both climbers are decorated.
+    static let viewerLadder = ProfileAchievementLadder(
+        records: [
+            achievementRecord(id: "viewer-champion-a", type: .weeklyTop1, rank: 1),
+            achievementRecord(id: "viewer-champion-b", type: .monthlyTop1, rank: 1),
+            achievementRecord(id: "viewer-champion-c", type: .yearlyTop1, rank: 1),
+            achievementRecord(id: "viewer-third", type: .weeklyTop3, rank: 3)
+        ]
+    )
+
     /// Every asset the achievement shelf can render, First Ascents included.
     static let shelfAssets = [
         "FirstAscentBadgeDetailed",
@@ -51,109 +63,196 @@ struct PublicProfileAchievementRenderingTests {
         )
     }
 
+    /// A well-earned viewer against a well-earned opponent. Every row carries both sides, and
+    /// the side each count belongs to is stated rather than inferred.
     @Test
-    func presentAchievementsRenderTheOtherClimbersExactPlacementsAndBandCounts() async throws {
+    func bothClimbersBadgesRenderOnTheirOwnSideOfEveryRow() async throws {
         let elements = try await renderedElements(
-            achievements: Self.podiumLadder,
+            viewer: Self.viewerLadder,
+            other: Self.podiumLadder,
             isOtherLoading: false
         )
         let labels = elements.compactMap(\.accessibilityLabel)
 
-        #expect(labels.contains("CHAMPION, 1"))
-        #expect(labels.contains("Second place, 2"))
-        #expect(labels.contains("Third place, 1"))
-        #expect(labels.contains("TOP 10, 5"))
-        #expect(labels.contains("TOP 100, 6"))
+        #expect(labels.contains("CHAMPION, you 3, them 1"))
+        #expect(labels.contains("Second place, you 0, them 2"))
+        #expect(labels.contains("Third place, you 1, them 1"))
+        #expect(labels.contains("TOP 10, you 4, them 5"))
+        #expect(labels.contains("TOP 100, you 4, them 6"))
         #expect(labels.contains { $0.hasPrefix("TOP 3,") } == false)
     }
 
     @Test
     func theLadderRendersInChampionSecondThirdTopTenTopHundredOrder() async throws {
         let elements = try await renderedElements(
-            achievements: Self.podiumLadder,
+            viewer: Self.viewerLadder,
+            other: Self.podiumLadder,
             isOtherLoading: false
         )
-        // The hosting scroll view reports each badge twice; only the first-seen order matters.
+        // The hosting view reports each row twice; only the first-seen order matters.
         var seen: Set<String> = []
-        let badgeLabels = elements
+        let rowLabels = elements
             .compactMap(\.accessibilityLabel)
-            .filter { $0.contains(", ") && $0 != "Public profile test host" }
+            .filter { $0.contains(", you ") }
             .filter { seen.insert($0).inserted }
 
         #expect(
-            badgeLabels == [
-                "CHAMPION, 1",
-                "Second place, 2",
-                "Third place, 1",
-                "TOP 10, 5",
-                "TOP 100, 6"
+            rowLabels == [
+                "CHAMPION, you 3, them 1",
+                "Second place, you 0, them 2",
+                "Third place, you 1, them 1",
+                "TOP 10, you 4, them 5",
+                "TOP 100, you 4, them 6"
             ]
         )
     }
 
+    /// The defect the captain found: a decorated climber opening a brand-new one's profile used
+    /// to see no ACHIEVEMENTS section at all, because the section hid on the *other* side's
+    /// emptiness. Their own case is exactly what the comparison is for.
     @Test
-    func absentAchievementsRenderNoPublicAchievementShell() async throws {
+    func aDecoratedViewerStillSeesTheirOwnBadgesAgainstAnEmptyClimber() async throws {
         let elements = try await renderedElements(
-            achievements: .empty,
+            viewer: Self.podiumLadder,
+            other: .empty,
+            isOtherLoading: false
+        )
+        let labels = elements.compactMap(\.accessibilityLabel)
+
+        #expect(labels.contains("CHAMPION, you 1, them 0"))
+        #expect(labels.contains("Second place, you 2, them 0"))
+        #expect(labels.contains("Third place, you 1, them 0"))
+        #expect(labels.contains("TOP 10, you 5, them 0"))
+        #expect(labels.contains("TOP 100, you 6, them 0"))
+    }
+
+    /// The mirror case, which is what shipped as the only case: a new climber looking at a
+    /// decorated one still reads the row as theirs against ours, never as an unattributed shelf.
+    @Test
+    func anEmptyViewerStillSeesTheOtherClimbersBadgesAttributedToThem() async throws {
+        let elements = try await renderedElements(
+            viewer: .empty,
+            other: Self.podiumLadder,
+            isOtherLoading: false
+        )
+        let labels = elements.compactMap(\.accessibilityLabel)
+
+        #expect(labels.contains("CHAMPION, you 0, them 1"))
+        #expect(labels.contains("Second place, you 0, them 2"))
+        #expect(labels.contains("Third place, you 0, them 1"))
+        #expect(labels.contains("TOP 10, you 0, them 5"))
+        #expect(labels.contains("TOP 100, you 0, them 6"))
+    }
+
+    @Test
+    func twoClimbersWithNoBadgesRenderNoPublicAchievementShell() async throws {
+        let elements = try await renderedElements(
+            viewer: .empty,
+            other: .empty,
             isOtherLoading: false
         )
         let labels = elements.compactMap(\.accessibilityLabel)
 
         #expect(labels.contains("Public profile test host"))
         #expect(labels.contains("Achievements") == false)
-        #expect(labels.contains { $0.hasPrefix("CHAMPION,") } == false)
-        #expect(labels.contains { $0.hasPrefix("TOP ") } == false)
-        #expect(labels.contains { $0.hasPrefix("Second place,") } == false)
-        #expect(labels.contains { $0.hasPrefix("Third place,") } == false)
+        #expect(labels.contains { $0.contains(", you ") } == false)
     }
 
     @Test
     func loadingAchievementsRenderNothingUntilTheCountsResolve() async throws {
         let elements = try await renderedElements(
-            achievements: Self.podiumLadder,
+            viewer: Self.podiumLadder,
+            other: Self.podiumLadder,
             isOtherLoading: true
         )
         let labels = elements.compactMap(\.accessibilityLabel)
 
         #expect(labels.contains("Public profile test host"))
         #expect(labels.contains("Achievements") == false)
-        #expect(labels.contains { $0.hasPrefix("CHAMPION,") } == false)
-        #expect(labels.contains { $0.hasPrefix("TOP ") } == false)
-        #expect(labels.contains { $0.hasPrefix("Second place,") } == false)
-        #expect(labels.contains { $0.hasPrefix("Third place,") } == false)
+        #expect(labels.contains { $0.contains(", you ") } == false)
     }
 
-    /// A public profile whose achievement records did not load renders only the badges its
-    /// banded counters can prove. It never guesses a second place apart from a third.
+    /// A public profile whose achievement records did not load can prove its bands but not its
+    /// exact placements. A row it cannot answer for is dropped rather than ghosted, because a
+    /// ghost would claim a zero nobody read.
     @Test
     func aProfileWithoutRecordsRendersTheBandsAndNoPlacements() async throws {
         let elements = try await renderedElements(
-            achievements: ProfileAchievementLadder(
+            viewer: Self.podiumLadder,
+            other: ProfileAchievementLadder(
                 bandedCounters: ProfileAchievementCounts(top1: 2, top3: 9, top10: 14, top100: 30)
             ),
             isOtherLoading: false
         )
         let labels = elements.compactMap(\.accessibilityLabel)
 
-        #expect(labels.contains("CHAMPION, 2"))
-        #expect(labels.contains("TOP 10, 14"))
-        #expect(labels.contains("TOP 100, 30"))
+        #expect(labels.contains("CHAMPION, you 1, them 2"))
+        #expect(labels.contains("TOP 10, you 5, them 14"))
+        #expect(labels.contains("TOP 100, you 6, them 30"))
         #expect(labels.contains { $0.hasPrefix("Second place,") } == false)
         #expect(labels.contains { $0.hasPrefix("Third place,") } == false)
         #expect(labels.contains { $0.hasPrefix("TOP 3,") } == false)
     }
 
+    /// A ladder nobody read is not a ladder of zeros. The row still belongs to the climber whose
+    /// count is real, and the unreadable side reads as a dash - the same neutral mark the PROFILE
+    /// rows already use for a value this screen does not have.
     @Test
-    func publicBadgesNeverOpenAchievementHistory() async throws {
+    func anUnreadableViewerLadderReadsAsUnknownRatherThanZero() async throws {
         let elements = try await renderedElements(
-            achievements: Self.podiumLadder,
+            viewer: .unreadable,
+            other: Self.podiumLadder,
+            isOtherLoading: false
+        )
+        let labels = elements.compactMap(\.accessibilityLabel)
+
+        #expect(labels.contains("CHAMPION, you unknown, them 1"))
+        #expect(labels.contains("Second place, you unknown, them 2"))
+        #expect(labels.contains("TOP 100, you unknown, them 6"))
+        #expect(labels.contains { $0.hasPrefix("CHAMPION, you 0") } == false)
+    }
+
+    @Test
+    func anUnreadableOtherLadderReadsAsUnknownRatherThanZero() async throws {
+        let elements = try await renderedElements(
+            viewer: Self.podiumLadder,
+            other: .unreadable,
+            isOtherLoading: false
+        )
+        let labels = elements.compactMap(\.accessibilityLabel)
+
+        #expect(labels.contains("CHAMPION, you 1, them unknown"))
+        #expect(labels.contains("TOP 100, you 6, them unknown"))
+        #expect(labels.contains { $0.hasSuffix("them 0") } == false)
+    }
+
+    /// Neither side is known to hold anything, so there is nothing to compare and no shell.
+    @Test
+    func twoUnreadableLaddersRenderNoPublicAchievementShell() async throws {
+        let elements = try await renderedElements(
+            viewer: .unreadable,
+            other: .unreadable,
+            isOtherLoading: false
+        )
+        let labels = elements.compactMap(\.accessibilityLabel)
+
+        #expect(labels.contains("Public profile test host"))
+        #expect(labels.contains("Achievements") == false)
+        #expect(labels.contains { $0.contains(", you ") } == false)
+    }
+
+    @Test
+    func publicComparisonRowsNeverOpenAchievementHistory() async throws {
+        let elements = try await renderedElements(
+            viewer: Self.viewerLadder,
+            other: Self.podiumLadder,
             isOtherLoading: false
         )
         let champion = try #require(
-            elements.first { $0.accessibilityLabel == "CHAMPION, 1" }
+            elements.first { $0.accessibilityLabel == "CHAMPION, you 3, them 1" }
         )
         let secondPlace = try #require(
-            elements.first { $0.accessibilityLabel == "Second place, 2" }
+            elements.first { $0.accessibilityLabel == "Second place, you 0, them 2" }
         )
 
         #expect(champion.accessibilityTraits.contains(.button) == false)
@@ -164,7 +263,10 @@ struct PublicProfileAchievementRenderingTests {
     func ownProfileBadgesStayTappableWithNoFinalizedRows() async throws {
         let elements = try await renderedElements(
             hosting: ProfilePrestigeBadgeShelf(
-                tokens: ProfilePrestigeToken.leaderboardTokens(for: Self.podiumLadder),
+                tokens: ProfilePrestigeToken.tokens(
+            for: ProfileAchievementTally(ladder: Self.podiumLadder),
+            surface: .ownProfile
+        ),
                 imageSize: 54,
                 history: []
             )
@@ -180,12 +282,26 @@ struct PublicProfileAchievementRenderingTests {
         #expect(secondPlace.accessibilityTraits.contains(.button))
     }
 
+    /// The crown draws at its shelf size - a 1x lay-out of the badge proves it puts paint down -
+    /// and the size-comparison sheet is photographed only under `ASCEND_EVIDENCE_DIR`.
     @Test
     func crownAndPrestigeTokensProduceReviewablePixels() throws {
-        let tokens = ProfilePrestigeToken.leaderboardTokens(for: Self.podiumLadder)
+        let tokens = ProfilePrestigeToken.tokens(
+            for: ProfileAchievementTally(ladder: Self.podiumLadder),
+            surface: .ownProfile
+        )
         let crown = try #require(tokens.first)
-        let renderer = ImageRenderer(
-            content: VStack(alignment: .leading, spacing: 24) {
+        #expect(crown.id == "top1")
+
+        try RenderedScreen.withOffscreenPixels(
+            of: ProfilePrestigeBadgeView(token: crown, imageSize: 54)
+        ) { pixels in
+            #expect(pixels.bounds { $0.alpha > 0 } != nil, "the crown drew nothing at 54pt")
+        }
+
+        guard RenderedScreen.isPhotographing else { return }
+        try RenderedScreen.photograph(
+            VStack(alignment: .leading, spacing: 24) {
                 Text("CROWN SIZE CHECK")
                     .font(.montserratBold(size: 14))
                     .foregroundStyle(.white)
@@ -227,16 +343,9 @@ struct PublicProfileAchievementRenderingTests {
             // Wide enough for all five ladder badges: the shelf scrolls in the app, but a
             // clipped evidence image proves nothing about the badge that fell off its edge.
             .frame(width: 500, height: 410, alignment: .topLeading)
-            .background(ProfileVisualStyle.background)
+            .background(ProfileVisualStyle.background),
+            named: "crown-and-prestige-tokens"
         )
-        renderer.scale = 3
-
-        let image = try #require(renderer.uiImage)
-        let png = try #require(image.pngData())
-        let url = URL.temporaryDirectory.appending(path: "crown-and-prestige-tokens.png")
-        try png.write(to: url, options: .atomic)
-
-        print("ASCEND_EVIDENCE_PNG \(url.path)")
     }
 
     /// The shelf is free-standing cut-out art on every badge. Template rendering would throw the
@@ -277,14 +386,34 @@ struct PublicProfileAchievementRenderingTests {
         }
     }
 
+    /// Each band badge puts paint down at both shelf sizes, read off a 1x lay-out; the
+    /// comparison sheet is photographed only under `ASCEND_EVIDENCE_DIR`.
     @Test
     func theBandBadgesProduceReviewablePixelsAtShelfSizes() throws {
-        let tokens = ProfilePrestigeToken.leaderboardTokens(for: Self.podiumLadder)
+        let tokens = ProfilePrestigeToken.tokens(
+            for: ProfileAchievementTally(ladder: Self.podiumLadder),
+            surface: .ownProfile
+        )
         let crown = try #require(tokens.first { $0.id == "top1" })
         let topTen = try #require(tokens.first { $0.id == "top10" })
         let topHundred = try #require(tokens.first { $0.id == "top100" })
-        let renderer = ImageRenderer(
-            content: VStack(alignment: .leading, spacing: 20) {
+
+        for token in [topTen, topHundred] {
+            for size in [CGFloat(46), CGFloat(54)] {
+                try RenderedScreen.withOffscreenPixels(
+                    of: ProfilePrestigeBadgeView(token: token, imageSize: size)
+                ) { pixels in
+                    #expect(
+                        pixels.bounds { $0.alpha > 0 } != nil,
+                        "\(token.id) drew nothing at \(Int(size))pt"
+                    )
+                }
+            }
+        }
+
+        guard RenderedScreen.isPhotographing else { return }
+        try RenderedScreen.photograph(
+            VStack(alignment: .leading, spacing: 20) {
                 Text("BAND BADGES ON THE SHELF")
                     .font(.montserratBold(size: 14))
                     .foregroundStyle(.white)
@@ -316,18 +445,13 @@ struct PublicProfileAchievementRenderingTests {
             }
             .padding(20)
             .frame(width: 420, height: 520, alignment: .topLeading)
-            .background(ProfileVisualStyle.background)
+            .background(ProfileVisualStyle.background),
+            named: "band-badges-at-shelf-sizes"
         )
-        renderer.scale = 3
-
-        let image = try #require(renderer.uiImage)
-        let png = try #require(image.pngData())
-        let url = URL.temporaryDirectory.appending(path: "band-badges-at-shelf-sizes.png")
-        try png.write(to: url, options: .atomic)
-
-        print("ASCEND_EVIDENCE_PNG \(url.path)")
     }
 
+    /// The podium seats the three entries on their own ranks; the crown row is photographed
+    /// only under `ASCEND_EVIDENCE_DIR`.
     @Test
     func podiumCrownSitsAboveTheChampionAvatarOnItsOwnRow() throws {
         let entries = [
@@ -349,30 +473,28 @@ struct PublicProfileAchievementRenderingTests {
                 isBlockListHydrated: true
             )
         }
-        let renderer = ImageRenderer(
-            content: LeaderboardPodiumView(
-                entries: ModeratedLeaderboardPodiumLayout.podiumEntries(from: entries),
-                metric: .climb
-            )
-            .padding(16)
-            .frame(width: 390, height: 260, alignment: .bottom)
-            .background(Color.black)
-            .environment(\.colorScheme, .dark)
+        let podiumEntries = ModeratedLeaderboardPodiumLayout.podiumEntries(from: entries)
+        #expect(podiumEntries.map(\.rank) == [1, 2, 3])
+
+        guard RenderedScreen.isPhotographing else { return }
+        try RenderedScreen.photograph(
+            LeaderboardPodiumView(entries: podiumEntries, metric: .climb)
+                .padding(16)
+                .frame(width: 390, height: 260, alignment: .bottom)
+                .background(Color.black)
+                .environment(\.colorScheme, .dark),
+            named: "podium-champion-crown-row"
         )
-        renderer.scale = 3
-
-        let image = try #require(renderer.uiImage)
-        let png = try #require(image.pngData())
-        let url = URL.temporaryDirectory.appending(path: "podium-champion-crown-row.png")
-        try png.write(to: url, options: .atomic)
-
-        print("ASCEND_EVIDENCE_PNG \(url.path)")
     }
 
+    /// The empty board hosted as it ships: the window is named as empty and the dare to take
+    /// first is on screen, read off the accessibility tree. Photographed only under
+    /// `ASCEND_EVIDENCE_DIR`.
     @Test
-    func unclaimedFirstPlaceSeatsTheCrownInsideTheOpenPedestal() throws {
-        let renderer = ImageRenderer(
-            content: LeaderboardEmptyBoardView(
+    func unclaimedFirstPlaceSeatsTheCrownInsideTheOpenPedestal() async throws {
+        let size = CGSize(width: 390, height: 340)
+        try await RenderedScreen.host(
+            LeaderboardEmptyBoardView(
                 period: LeaderboardPeriod(
                     timeFrame: .monthly,
                     key: "2026-M08",
@@ -381,22 +503,21 @@ struct PublicProfileAchievementRenderingTests {
                 ),
                 metric: .climb
             )
-            .frame(width: 390, height: 340, alignment: .top)
+            .frame(width: size.width, height: size.height, alignment: .top)
             .background(Color.black)
-            .environment(\.colorScheme, .dark)
-        )
-        renderer.scale = 3
-
-        let image = try #require(renderer.uiImage)
-        let png = try #require(image.pngData())
-        let url = URL.temporaryDirectory.appending(path: "leaderboard-empty-board-crown.png")
-        try png.write(to: url, options: .atomic)
-
-        print("ASCEND_EVIDENCE_PNG \(url.path)")
+            .environment(\.colorScheme, .dark),
+            size: size
+        ) { screen in
+            let text = try await screen.copy { $0.contains("take the first spot") }
+            #expect(text.contains("is empty"))
+            #expect(text.contains("take the first spot"))
+            try screen.photograph(named: "leaderboard-empty-board-crown")
+        }
     }
 
-    /// Alpha at the four corners, read out of a premultiplied buffer - CoreGraphics offers no
-    /// straight-alpha 8-bit context, and alpha itself is unaffected by the premultiply.
+    /// Alpha at the four corners of a catalogue asset, read out of a premultiplied buffer -
+    /// CoreGraphics offers no straight-alpha 8-bit context, and alpha itself is unaffected by
+    /// the premultiply. The asset is the app's own input, not a render.
     private func cornerAlpha(of image: CGImage) throws -> [UInt8] {
         let width = image.width
         let height = image.height
@@ -420,64 +541,42 @@ struct PublicProfileAchievementRenderingTests {
     }
 
     private func renderedElements(
-        achievements: ProfileAchievementLadder,
+        viewer: ProfileAchievementLadder = .empty,
+        other: ProfileAchievementLadder,
         isOtherLoading: Bool
     ) async throws -> [NSObject] {
         try await renderedElements(
             hosting: PublicProfileAchievementsSection(
-                achievements: achievements,
+                viewer: ProfileAchievementTally(ladder: viewer),
+                other: ProfileAchievementTally(ladder: other),
                 isOtherLoading: isOtherLoading
             )
         )
     }
 
+    /// Hosts `section` under a labelled marker through `RenderedScreen` and returns the settled
+    /// accessibility tree once that marker has arrived.
     private func renderedElements(
         hosting section: some View
     ) async throws -> [NSObject] {
-        try await withAccessibilityAutomation {
-            let size = CGSize(width: 402, height: 300)
-            let controller = UIHostingController(
-                rootView: VStack(alignment: .leading, spacing: 30) {
-                    Text("Public profile test host")
-                        .accessibilityLabel("Public profile test host")
+        let size = CGSize(width: 402, height: 300)
+        return try await RenderedScreen.host(
+            VStack(alignment: .leading, spacing: 30) {
+                Text("Public profile test host")
+                    .accessibilityLabel("Public profile test host")
 
-                    section
-                }
-                .padding(20)
-                .frame(width: size.width, height: size.height, alignment: .topLeading)
-                .background(ProfileVisualStyle.background)
-            )
-            controller.overrideUserInterfaceStyle = .dark
-            controller.view.frame = CGRect(origin: .zero, size: size)
-
-            let scene = try #require(
-                UIApplication.shared.connectedScenes
-                    .compactMap { $0 as? UIWindowScene }
-                    .first,
-                "The hosted public profile needs an active window scene"
-            )
-            let window = UIWindow(windowScene: scene)
-            window.frame = controller.view.frame
-            window.overrideUserInterfaceStyle = .dark
-            window.rootViewController = controller
-            window.makeKeyAndVisible()
-            defer {
-                window.isHidden = true
-                window.rootViewController = nil
-                window.windowScene = nil
+                section
             }
-
-            controller.view.setNeedsLayout()
-            controller.view.layoutIfNeeded()
-
-            return try await settledAccessibilityElements(
-                under: controller.view,
-                until: { elements in
-                    elements.contains {
-                        $0.accessibilityLabel == "Public profile test host"
-                    }
+            .padding(20)
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .background(ProfileVisualStyle.background),
+            size: size
+        ) { screen in
+            try await screen.elements { elements in
+                elements.contains {
+                    $0.accessibilityLabel == "Public profile test host"
                 }
-            )
+            }
         }
     }
 }

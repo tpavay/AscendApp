@@ -38,9 +38,9 @@ import UIKit
 /// position of the masked rectangle. A masked region is the covered view's own
 /// frame, so a screenshot still shows that a label is wide, not what it says.
 ///
-/// Both renders of every case are written out for the record - the unmasked
-/// control beside the masked result, so the pair reads as before-and-after; set
-/// `ASCEND_EVIDENCE_DIR` to collect them somewhere durable.
+/// Both renders of every case are written out for the record when
+/// `ASCEND_EVIDENCE_DIR` is set - the unmasked control beside the masked result,
+/// so the pair reads as before-and-after.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct SentryMaskingEvidenceTests {
@@ -263,7 +263,8 @@ struct SentryMaskingEvidenceTests {
             \(name): \(maskedDifference.pixelsBeyondTolerance) pixels of the masked render depend on \
             how the sensitive content was arranged (worst channel off by \
             \(maskedDifference.maximumChannelDelta)), so this surface can reach a Sentry crash \
-            screenshot legibly. Masked renders were written to \(evidenceDirectory.path()).
+            screenshot legibly. Set ASCEND_EVIDENCE_DIR to keep the masked renders\
+            \(RenderedScreen.evidenceDirectory.map { "; this run wrote them to \($0.path())" } ?? "").
             """
         )
     }
@@ -414,13 +415,10 @@ struct SentryMaskingEvidenceTests {
         }
     }
 
-    private static var evidenceDirectory: URL {
-        ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"].map { URL(filePath: $0) }
-            ?? URL.temporaryDirectory.appending(path: "sentry-masking-evidence")
-    }
-
+    /// The before-and-after pair is written only when `ASCEND_EVIDENCE_DIR` is set. The render and
+    /// the comparison are untouched either way: the mask proof is the bitmap comparison, not the file.
     private static func save(_ image: UIImage, named name: String) throws {
-        let directory = evidenceDirectory
+        guard let directory = RenderedScreen.evidenceDirectory else { return }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "\(name).png")
         try #require(image.pngData(), "masked render produced no PNG").write(to: url)

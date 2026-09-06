@@ -1,6 +1,153 @@
 import Foundation
 @testable import AscendApp
 
+final class IdentityAttributingTelemetrySink: TelemetrySink, @unchecked Sendable {
+    struct Attribution: Equatable, Sendable {
+        let name: String
+        let userID: String?
+        let parameters: [String: TelemetryValue]
+    }
+
+    let supportedDestinations: Set<TelemetryDestination> = [.analytics]
+    private let lock = NSLock()
+    private var currentUserID: String?
+    private var storedAttributions: [Attribution] = []
+
+    var attributions: [Attribution] {
+        lock.withLock { storedAttributions }
+    }
+
+    func setCollectionEnabled(_ enabled: Bool) {}
+
+    func setUserID(_ userID: String?) {
+        lock.withLock { currentUserID = userID }
+    }
+
+    func record(_ record: EnvelopedTelemetryRecord) {
+        lock.withLock {
+            storedAttributions.append(
+                Attribution(
+                    name: record.name,
+                    userID: currentUserID,
+                    parameters: record.parameters
+                )
+            )
+        }
+    }
+
+    func record(screen: EnvelopedTelemetryScreen) {}
+}
+
+final class BlockingIdentityAttributingTelemetrySink: TelemetrySink, @unchecked Sendable {
+    enum BlockPoint: Sendable {
+        case record
+        case identify(userID: String)
+    }
+
+    let supportedDestinations: Set<TelemetryDestination> = [.analytics]
+    private let underlying = IdentityAttributingTelemetrySink()
+    private let blockPoint: BlockPoint
+    private let entered = DispatchSemaphore(value: 0)
+    private let release = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var didBlock = false
+
+    init(blockPoint: BlockPoint) {
+        self.blockPoint = blockPoint
+    }
+
+    var attributions: [IdentityAttributingTelemetrySink.Attribution] {
+        underlying.attributions
+    }
+
+    func waitUntilBlocked() {
+        entered.wait()
+    }
+
+    func releaseBlockedCall() {
+        release.signal()
+    }
+
+    func setCollectionEnabled(_ enabled: Bool) {
+        underlying.setCollectionEnabled(enabled)
+    }
+
+    func setUserID(_ userID: String?) {
+        if case .identify(let blockedUserID) = blockPoint, userID == blockedUserID {
+            blockOnce()
+        }
+        underlying.setUserID(userID)
+    }
+
+    func record(_ record: EnvelopedTelemetryRecord) {
+        if case .record = blockPoint {
+            blockOnce()
+        }
+        underlying.record(record)
+    }
+
+    func record(screen: EnvelopedTelemetryScreen) {}
+
+    private func blockOnce() {
+        let shouldBlock = lock.withLock { () -> Bool in
+            guard !didBlock else { return false }
+            didBlock = true
+            return true
+        }
+        guard shouldBlock else { return }
+        entered.signal()
+        release.wait()
+    }
+}
+
+final class ControlledTelemetryDeliveryLane: TelemetryDeliveryLaning, @unchecked Sendable {
+    private let condition = NSCondition()
+    private let armedEntryObserved = DispatchSemaphore(value: 0)
+    private var isHeld = false
+    private var observesNextEntry = false
+    private var observedEntryWasContended: Bool?
+
+    func armNextEntryObservation() {
+        condition.withLock {
+            precondition(observesNextEntry == false)
+            observesNextEntry = true
+            observedEntryWasContended = nil
+        }
+    }
+
+    func waitForObservedEntry() -> Bool {
+        armedEntryObserved.wait()
+        return condition.withLock {
+            precondition(observedEntryWasContended != nil)
+            return observedEntryWasContended == true
+        }
+    }
+
+    func withLock<Result: Sendable>(
+        _ operation: @Sendable () throws -> Result
+    ) rethrows -> Result {
+        condition.lock()
+        if observesNextEntry {
+            observesNextEntry = false
+            observedEntryWasContended = isHeld
+            armedEntryObserved.signal()
+        }
+        while isHeld {
+            condition.wait()
+        }
+        isHeld = true
+        condition.unlock()
+
+        defer {
+            condition.withLock {
+                isHeld = false
+                condition.broadcast()
+            }
+        }
+        return try operation()
+    }
+}
+
 struct NoopCrashlyticsReporter: CrashlyticsReporting {
     func setCollectionEnabled(_ enabled: Bool) {}
     func setUserID(_ userID: String?) {}
@@ -47,6 +194,40 @@ final class RecordingCrashlyticsReporter: CrashlyticsReporting, @unchecked Senda
     }
 }
 
+/// The identity record a relaunch would find, without touching the installation suite the shipped
+/// app writes to. Hold one across two `TelemetryManager`s to stand in for a cold launch;
+/// `TelemetryIdentityStoreTests` covers the persistence the shipped store actually provides.
+final class InMemoryTelemetryIdentityStore: TelemetryIdentityStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedUserID: String?
+
+    init(identifiedUserID: String? = nil) {
+        storedUserID = identifiedUserID
+    }
+
+    var identifiedUserID: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedUserID
+    }
+
+    func store(_ userID: String) {
+        lock.lock()
+        storedUserID = userID
+        lock.unlock()
+    }
+
+    func clear() {
+        lock.lock()
+        storedUserID = nil
+        lock.unlock()
+    }
+}
+
+func makeTestIdentityStore() -> any TelemetryIdentityStoring {
+    InMemoryTelemetryIdentityStore()
+}
+
 func makeTestTelemetry(
     reporter: any CrashlyticsReporting,
     collectionEnabled: Bool = true
@@ -54,7 +235,8 @@ func makeTestTelemetry(
     let telemetry = TelemetryManager(
         sinks: [],
         crashlyticsReporter: reporter,
-        collectionEnabledOverride: collectionEnabled
+        collectionEnabledOverride: collectionEnabled,
+        identityStore: makeTestIdentityStore()
     )
     telemetry.configure()
     return telemetry
@@ -84,12 +266,14 @@ func makeEnvelopedTestScreen(_ screen: TelemetryScreen) throws -> EnvelopedTelem
 /// emission assertion would pass vacuously against an empty sink.
 func makeTestTelemetry(
     sinks: [InMemoryTelemetrySink],
-    collectionEnabled: Bool = true
+    collectionEnabled: Bool = true,
+    identityStore: any TelemetryIdentityStoring = makeTestIdentityStore()
 ) -> TelemetryManager {
     let telemetry = TelemetryManager(
         sinks: sinks,
         crashlyticsReporter: NoopCrashlyticsReporter(),
-        collectionEnabledOverride: collectionEnabled
+        collectionEnabledOverride: collectionEnabled,
+        identityStore: identityStore
     )
     telemetry.configure()
     return telemetry
@@ -97,7 +281,12 @@ func makeTestTelemetry(
 
 func makeTestTelemetry(
     sink: InMemoryTelemetrySink,
-    collectionEnabled: Bool = true
+    collectionEnabled: Bool = true,
+    identityStore: any TelemetryIdentityStoring = makeTestIdentityStore()
 ) -> TelemetryManager {
-    makeTestTelemetry(sinks: [sink], collectionEnabled: collectionEnabled)
+    makeTestTelemetry(
+        sinks: [sink],
+        collectionEnabled: collectionEnabled,
+        identityStore: identityStore
+    )
 }

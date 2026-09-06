@@ -16,8 +16,10 @@ import UIKit
 /// is the real view, and every row is a real `ModeratedReplayLeaderboardRow` built through
 /// `CrossUserIdentityAdapter`, so the YOU pill lights from the same `isCurrentUser` the app uses.
 ///
-/// Drawn through a live `UIWindow` rather than `ImageRenderer`, which draws asset-catalogue art in
-/// a nested layout as blank.
+/// Drawn through a live `UIWindow` (`RenderedScreen`) rather than `ImageRenderer`, which draws
+/// asset-catalogue art in a nested layout as blank. Every case reads the fact its photograph is
+/// meant to show off the hosted page's accessibility tree, so the run proves it on CI where no
+/// photograph is kept; the photograph itself is written only when `ASCEND_EVIDENCE_DIR` is set.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct ClimbLeaderboardTabVisualEvidenceTests {
@@ -27,57 +29,95 @@ struct ClimbLeaderboardTabVisualEvidenceTests {
     /// "Your best / 02:06 · #1 of 1" card used to sit directly above this row saying the same two
     /// numbers.
     @Test
-    func soleFinisherSeesOneRowAndNoDuplicateSummary() throws {
-        try Self.capture(
+    func soleFinisherSeesOneRowAndNoDuplicateSummary() async throws {
+        let rows = [Self.row(id: "you", rank: 1, name: "Tyler P.", seconds: 126, isCurrentUser: true)]
+
+        let texts = try await Self.host(
             name: "climb-leaderboard-tab-sole-finisher",
             caption: "Raced it, only finisher: one row, YOU pill, rank and time stated once",
-            rows: [Self.row(id: "you", rank: 1, name: "Tyler P.", seconds: 126, isCurrentUser: true)]
+            proof: ClimbLeaderboardPageProof(rows: rows, firstAscent: Self.firstAscent(name: "John Smith"))
         )
+        let copy = Self.joined(texts)
+        // The board is the climber's own row and nothing else: their name and their time are each
+        // on the page exactly once, the YOU pill marks the row, and the "Your best" card that used
+        // to repeat the same two numbers above it is gone.
+        #expect(Self.count(of: "tyler p.", in: texts) == 1, "expected one row for the climber in: \(copy)")
+        #expect(Self.count(of: "2:06", in: texts) == 1, "expected the time stated once in: \(copy)")
+        #expect(Self.count(of: "you", in: texts, exactly: true) == 1, "expected one YOU pill in: \(copy)")
+        #expect(!copy.contains("your best"), "the duplicated card is back: \(copy)")
     }
 
     /// The same climber further down a real field. Their row is the only place their time and rank
     /// appear, and the YOU pill is what finds it.
     @Test
-    func rankedClimberKeepsTheYouPillOnTheirOwnRow() throws {
-        try Self.capture(
+    func rankedClimberKeepsTheYouPillOnTheirOwnRow() async throws {
+        let rows = [
+            Self.row(id: "1", rank: 1, name: "Marcus T.", seconds: 104),
+            Self.row(id: "2", rank: 2, name: "Priya S.", seconds: 118),
+            Self.row(id: "3", rank: 3, name: "Dana R.", seconds: 121),
+            Self.row(id: "4", rank: 4, name: "Tyler P.", seconds: 126, isCurrentUser: true),
+            Self.row(id: "5", rank: 5, name: "Owen B.", seconds: 140)
+        ]
+        let texts = try await Self.host(
             name: "climb-leaderboard-tab-raced",
             caption: "Raced it, mid-field: the YOU pill is the only marker of your own row",
-            rows: [
-                Self.row(id: "1", rank: 1, name: "Marcus T.", seconds: 104),
-                Self.row(id: "2", rank: 2, name: "Priya S.", seconds: 118),
-                Self.row(id: "3", rank: 3, name: "Dana R.", seconds: 121),
-                Self.row(id: "4", rank: 4, name: "Tyler P.", seconds: 126, isCurrentUser: true),
-                Self.row(id: "5", rank: 5, name: "Owen B.", seconds: 140)
-            ]
+            proof: ClimbLeaderboardPageProof(rows: rows, firstAscent: Self.firstAscent(name: "John Smith"))
         )
+        let copy = Self.joined(texts)
+        // Exactly one YOU pill on the page, and it sits on the climber's own row: level with
+        // "Tyler P." and with no other name's row.
+        let pills = texts.filter { $0.text.lowercased() == "you" }
+        let ownRow = try #require(texts.first { $0.text.localizedCaseInsensitiveContains("Tyler P.") }, "\(copy)")
+        #expect(pills.count == 1, "expected one YOU pill in: \(copy)")
+        #expect(
+            pills.allSatisfy { ownRow.frame.minY <= $0.frame.midY && $0.frame.midY <= ownRow.frame.maxY },
+            "the YOU pill is not level with the climber's own row: \(pills.map(\.frame)) against \(ownRow.frame)"
+        )
+        #expect(Self.count(of: "marcus t.", in: texts) == 1 && Self.count(of: "owen b.", in: texts) == 1, "\(copy)")
     }
 
     /// Never raced it. The removed card never rendered in this state, so the only question the
     /// photograph answers is whether the page still holds together above the board.
     @Test
-    func climberWhoHasNotRacedStillGetsAWholePage() throws {
-        try Self.capture(
+    func climberWhoHasNotRacedStillGetsAWholePage() async throws {
+        let rows = [
+            Self.row(id: "1", rank: 1, name: "Marcus T.", seconds: 104),
+            Self.row(id: "2", rank: 2, name: "Priya S.", seconds: 118),
+            Self.row(id: "3", rank: 3, name: "Dana R.", seconds: 121),
+            Self.row(id: "4", rank: 4, name: "Owen B.", seconds: 140)
+        ]
+        let proof = ClimbLeaderboardPageProof(rows: rows, firstAscent: Self.firstAscent(name: "John Smith"))
+
+        let texts = try await Self.host(
             name: "climb-leaderboard-tab-not-raced",
             caption: "Never raced it: First Ascent line runs straight into the board, no gap left behind",
-            rows: [
-                Self.row(id: "1", rank: 1, name: "Marcus T.", seconds: 104),
-                Self.row(id: "2", rank: 2, name: "Priya S.", seconds: 118),
-                Self.row(id: "3", rank: 3, name: "Dana R.", seconds: 121),
-                Self.row(id: "4", rank: 4, name: "Owen B.", seconds: 140)
-            ]
+            proof: proof
         )
+        let copy = Self.joined(texts)
+        // Nothing on the board is the climber's - no YOU pill anywhere - and the First Ascent line
+        // sits directly above the first row, with nothing but its own height between them.
+        #expect(Self.count(of: "you", in: texts, exactly: true) == 0, "a YOU pill on a board the climber never raced: \(copy)")
+        let firstAscent = try #require(texts.first { $0.text.localizedCaseInsensitiveContains("First Ascent: John Smith") }, "\(copy)")
+        let firstRow = try #require(texts.first { $0.text.localizedCaseInsensitiveContains("Marcus T.") }, "\(copy)")
+        #expect(firstRow.frame.minY > firstAscent.frame.minY, "the board is not below the First Ascent line: \(copy)")
+        #expect(firstRow.frame.minY - firstAscent.frame.maxY < 60, "a gap opened where the removed card used to sit: \(firstAscent.frame) -> \(firstRow.frame)")
     }
 
     /// Nobody has raced it. No First Ascent holder, so the line is absent and the empty state is
     /// the whole page - the branch that `hasPersonalCompletionStanding` still guards.
     @Test
-    func unclaimedClimbStillDaresTheFirstFinisher() throws {
-        try Self.capture(
+    func unclaimedClimbStillDaresTheFirstFinisher() async throws {
+        let proof = ClimbLeaderboardPageProof(rows: [], firstAscent: nil)
+
+        let texts = try await Self.host(
             name: "climb-leaderboard-tab-unclaimed",
             caption: "Nobody has finished: no First Ascent line, the empty state dares you",
-            rows: [],
-            firstAscentHolder: nil
+            proof: proof
         )
+        let copy = Self.joined(texts)
+        #expect(!copy.contains("first ascent:"), "a First Ascent holder on an unclaimed climb: \(copy)")
+        #expect(copy.contains("no completed times yet."), "\(copy)")
+        #expect(copy.contains("first ascent open. the first finisher claims it forever."), "\(copy)")
     }
 
     // MARK: - Fixtures
@@ -124,22 +164,24 @@ struct ClimbLeaderboardTabVisualEvidenceTests {
         )
     }
 
-    // MARK: - Capture
+    // MARK: - Hosting
 
-    private static func capture(
+    /// Hosts the captioned page, shrunk to its content's own height once it has laid out, hands
+    /// back every piece of copy on it with its frame, and photographs it when this run keeps
+    /// photographs.
+    private static func host(
         name: String,
         caption: String,
-        rows: [ModeratedReplayLeaderboardRow],
-        firstAscentHolder: ModeratedReplayFirstAscent? = firstAscent(name: "John Smith"),
+        proof: ClimbLeaderboardPageProof,
         width: CGFloat = 402
-    ) throws {
+    ) async throws -> [OnScreenText] {
         let content = VStack(alignment: .leading, spacing: 14) {
             Text(caption)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle(Color.ascendAccent)
                 .fixedSize(horizontal: false, vertical: true)
 
-            ClimbLeaderboardPageProof(rows: rows, firstAscent: firstAscentHolder)
+            proof
         }
         .padding(20)
         .frame(width: width, alignment: .topLeading)
@@ -148,85 +190,28 @@ struct ClimbLeaderboardTabVisualEvidenceTests {
 
         let host = UIHostingController(rootView: content)
         host.overrideUserInterfaceStyle = .dark
-        let window = try makeWindow(host: host, width: width)
-        defer { tearDown(window) }
 
-        var fitted: CGFloat = 400
-        for _ in 0..<10 {
-            pump(window)
-            fitted = host.sizeThatFits(
+        return try await RenderedScreen.host(host, size: CGSize(width: width, height: 500)) { screen in
+            let fitted = host.sizeThatFits(
                 in: CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
             ).height
-        }
+            screen.window.frame = CGRect(x: 0, y: 0, width: width, height: ceil(fitted))
+            try await screen.settle()
 
-        try write(draw(window, width: width, fittingHeight: fitted), name: name)
-    }
-
-    private static func makeWindow(
-        host: UIHostingController<some View>,
-        width: CGFloat
-    ) throws -> UIWindow {
-        let scene = try #require(
-            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first,
-            "test host app should expose a live UIWindowScene"
-        )
-        let window = UIWindow(windowScene: scene)
-        window.frame = CGRect(x: 0, y: 0, width: width, height: 500)
-        window.overrideUserInterfaceStyle = .dark
-        window.rootViewController = host
-        window.makeKeyAndVisible()
-        return window
-    }
-
-    private static func pump(_ window: UIWindow) {
-        window.layoutIfNeeded()
-        CATransaction.flush()
-        RunLoop.current.run(until: Date())
-    }
-
-    private static func draw(
-        _ window: UIWindow,
-        width: CGFloat,
-        fittingHeight: CGFloat
-    ) -> UIImage {
-        window.frame = CGRect(x: 0, y: 0, width: width, height: ceil(fittingHeight))
-        pump(window)
-
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 3
-        return UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { context in
-            window.layer.render(in: context.cgContext)
+            // The caption names what the page should show, so it is not part of the page's copy.
+            let texts = try await screen.texts().filter { !$0.text.hasPrefix(caption) }
+            try screen.photograph(named: name)
+            return texts
         }
     }
 
-    private static func tearDown(_ window: UIWindow) {
-        window.isHidden = true
-        window.rootViewController = nil
-        window.windowScene = nil
+    private static func joined(_ texts: [OnScreenText]) -> String {
+        texts.map(\.text).joined(separator: " ").lowercased()
     }
 
-    private static func write(_ image: UIImage, name: String) throws {
-        let data = try #require(image.pngData(), "No PNG data for \(name)")
-        let candidates = [
-            ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"],
-            NSTemporaryDirectory().appending("ascend-climb-leaderboard-evidence")
-        ].compactMap { $0 }
-
-        for directory in candidates {
-            let url = URL(filePath: directory).appending(path: "\(name).png")
-            do {
-                try FileManager.default.createDirectory(
-                    at: URL(filePath: directory),
-                    withIntermediateDirectories: true
-                )
-                try data.write(to: url)
-                print("ASCEND_EVIDENCE_PNG \(url.path)")
-                return
-            } catch {
-                continue
-            }
-        }
-        Issue.record("No writable evidence directory for \(name)")
+    /// How many on-screen texts contain `fragment` - or, with `exactly`, are `fragment`.
+    private static func count(of fragment: String, in texts: [OnScreenText], exactly: Bool = false) -> Int {
+        texts.filter { exactly ? $0.text.lowercased() == fragment : $0.text.lowercased().contains(fragment) }.count
     }
 }
 

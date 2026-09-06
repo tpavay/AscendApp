@@ -138,7 +138,10 @@ class AuthenticationViewModel {
                         initialAuthenticationState = .restoringSession
                     }
                     self.beginAuthenticatedSession(
-                        userID: user.uid,
+                        customer: MonetizationCustomerIdentity(
+                            userID: user.uid,
+                            email: user.email
+                        ),
                         initialState: initialAuthenticationState
                     )
 
@@ -189,8 +192,13 @@ class AuthenticationViewModel {
                     let monetizationTransition = self.monetizationIdentityManager.prepareIdentityReset()
 
                     // User signed out - reset all state
-                    TelemetryManager.shared.log(.authSignOut)
-                    TelemetryManager.shared.clearUserId()
+                    // Firebase reports this same `nil` on every signed-out cold launch, so only an
+                    // identity that was actually there makes it a sign-out. Clearing unconditionally
+                    // is what severed 19 of 37 climbers from their own first-open event: it rotates
+                    // the Mixpanel device id whether or not anyone was signed in.
+                    if TelemetryManager.shared.clearUserId() {
+                        TelemetryManager.shared.log(.authSignOut)
+                    }
                     Task {
                         await self.monetizationIdentityManager.resetIdentity(
                             transition: monetizationTransition
@@ -208,6 +216,12 @@ class AuthenticationViewModel {
                     // a deleted account. Whatever they are still holding belongs to the climber
                     // who just left, so it stops here rather than writing under the next one.
                     AuthenticatedBootstrapCoordinator.shared.endAuthenticatedSession()
+
+                    // In-memory board state scoped to the climber who just left.
+                    // Keyed by uid, so the next account cannot read it - but it is
+                    // held by a process-wide singleton that a store wipe never
+                    // reaches, so this is where it goes.
+                    FirestoreLiveReplayLeaderboardRepository.shared.clearAccountScopedCaches()
 
                     self.displayName = ""
                     self.customProfilePictureURL = nil
@@ -227,16 +241,17 @@ class AuthenticationViewModel {
     /// Claims the new RevenueCat identity *before* publishing an authenticated state, so routing
     /// never evaluates access against the previous identity's stale answer. The entitlement state
     /// is `.unknown` the moment the app is authenticated, which routes to a wait, not the paywall.
+    ///
+    /// This runs on every launch that restores a session, not only on an interactive sign-in, which
+    /// is what lets a customer created before Ascend sent any of this pick the identity up.
     func beginAuthenticatedSession(
-        userID: String,
+        customer: MonetizationCustomerIdentity,
         initialState: AuthenticationState
     ) {
-        let monetizationTransition = monetizationIdentityManager.prepareIdentity(
-            userId: userID
-        )
+        let monetizationTransition = monetizationIdentityManager.prepareIdentity(customer)
         Task {
             await monetizationIdentityManager.identify(
-                userId: userID,
+                customer,
                 transition: monetizationTransition
             )
         }
