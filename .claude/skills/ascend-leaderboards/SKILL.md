@@ -115,7 +115,7 @@ Each statement has a test behind it, or a gap named here.
 1. During a climb - `AscendAppTests/LiveReplayFieldPopulationTests.onlyPerClimbAndPerTemplateContextsCollapseRepeats` for the one-row-per-climber board.
    `AscendAppTests/LiveReplayPreviousBestMarkerTests.theClimbersOwnBestIsNotCountedAsAClimberAheadOfThem` holds the half that keeps your previous best out of the rank and the field size.
    `AscendAppTests/LiveReplayPreviousBestMarkerTests.theMarkerReportsAPositionAndNothingElse` holds the rest, that the marker carries a position and no step count, time or gap sentence.
-2. The summary right after you finish - `functions/test/liveReplayLeaderboard.test.ts`, "counts a repeat rival once on a board that races climbers" and "never seats a climber behind their own earlier best".
+2. The summary right after you finish - `functions/test/liveReplayLeaderboard.test.ts`, "counts a repeat rival once on a board that races climbers" and "keeps a first finisher at first of one".
 3. Reopened later - `AscendAppTests/CompletedClimbRankFreezeTests.aLaterServerReadNeverMovesAnAlreadyFrozenRank`, and on the share card `AscendAppTests/SavedClimbShareRankTests.aStoredFrozenStandingReachesTheSavedClimbShareCardWithoutARequest`.
 4. Climb detail - two anchors that cover different things, and neither covers the whole statement.
    The only thing holding the shipping `ClimbDetailView`'s `ALL TIMES` title is the contract test's string check against that file.

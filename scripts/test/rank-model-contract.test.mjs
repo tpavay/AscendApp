@@ -339,7 +339,7 @@ const STATEMENT_ANCHORS = [
   {
     statement: 2,
     file: "functions/test/liveReplayLeaderboard.test.ts",
-    symbol: "never seats a climber behind their own earlier best",
+    symbol: "keeps a first finisher at first of one",
   },
   {
     statement: 3,
