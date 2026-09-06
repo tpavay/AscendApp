@@ -33,8 +33,8 @@ struct LiveClimbActivityWidget: Widget {
                 }
             } compactLeading: {
                 LiveClimbCompactMetricView(
-                    value: context.state.rankLabel,
-                    label: "rank"
+                    value: context.state.standingValue,
+                    label: context.state.standingCaption
                 )
             } compactTrailing: {
                 LiveClimbCompactMetricView(
@@ -64,11 +64,7 @@ private struct LiveClimbLockScreenView: View {
             VStack(alignment: .leading, spacing: 8) {
                 LiveClimbExpandedTitleView(context: context)
 
-                HStack(spacing: 16) {
-                    LiveClimbMetricColumn(title: "Steps", value: context.state.steps.formatted())
-                    LiveClimbMetricColumn(title: "Rank", value: context.state.rankDetailLabel)
-                    LiveClimbMetricColumn(title: "Time", value: context.state.durationLabel)
-                }
+                LiveClimbActivityMetricsRow(state: context.state, surface: .lockScreen)
             }
 
             Spacer(minLength: 0)
@@ -122,35 +118,12 @@ private struct LiveClimbExpandedBottomView: View {
             }
 
             HStack(spacing: 12) {
-                LiveClimbMetricColumn(title: "Rank", value: context.state.rankDetailLabel)
-                LiveClimbMetricColumn(title: "Time", value: context.state.durationLabel)
-                LiveClimbMetricColumn(title: "Steps", value: context.state.steps.formatted())
+                LiveClimbActivityMetricsRow(state: context.state, surface: .expandedIsland)
 
                 Spacer(minLength: 0)
 
                 LiveClimbControlButtons()
             }
-        }
-        .foregroundStyle(.white)
-    }
-}
-
-private struct LiveClimbCompactMetricView: View {
-    let value: String
-    let label: String
-
-    var body: some View {
-        VStack(alignment: .center, spacing: 0) {
-            Text(value)
-                .font(.system(size: 14, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.62)
-
-            Text(label)
-                .font(.system(size: 7, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.58))
-                .lineLimit(1)
         }
         .foregroundStyle(.white)
     }
@@ -178,26 +151,6 @@ private struct LiveClimbMinimalView: View {
                 .foregroundStyle(.white)
         }
         .frame(width: 20, height: 20)
-    }
-}
-
-private struct LiveClimbMetricColumn: View {
-    let title: String
-    let value: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(.system(size: 8, weight: .heavy, design: .rounded))
-                .foregroundStyle(.white.opacity(0.48))
-                .lineLimit(1)
-
-            Text(value)
-                .font(.system(size: 15, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
-        }
     }
 }
 

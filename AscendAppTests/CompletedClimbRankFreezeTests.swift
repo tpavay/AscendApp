@@ -167,6 +167,8 @@ private actor CountingCompletionSnapshotRepository: LiveReplayLeaderboardReposit
         self.stored = snapshot
     }
 
+    func beginLiveSession() {}
+
     func fetchSummary(
         context: LiveReplayLeaderboardContext
     ) async throws -> LiveReplayLeaderboardSummary {

@@ -103,9 +103,9 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
         }
     }
 
-    /// The noun follows the replay context rather than being hardcoded. An open
-    /// Just Climb has no step target to collapse on and races every completed
-    /// attempt, so the same hero, same rank, same total says completions.
+    /// The noun follows the standing on show rather than being hardcoded. An open
+    /// Just Climb froze its stamp over every completed attempt, so the same hero,
+    /// same rank, same total says completions on the frozen basis.
     @Test
     func theSameHeroSaysCompletionsWhereTheContextRacesAttempts() async throws {
         try await RenderedScreen.host(
@@ -118,6 +118,27 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
             #expect(!text.contains("fastest of 27 climbers"))
 
             try screen.photograph(named: "field-population-5-completion-hero-completions")
+        }
+    }
+
+    /// Screen 3 again, on the other basis, and read off the pixels because the
+    /// captain made this noun load-bearing: he accepted a Just Climb summary
+    /// counting climbers while Climb Detail lists every completion *because* the
+    /// card says CLIMBERS out loud. A standing the client recomputes counts
+    /// finisher documents, one per climber, on every board - so the word has to
+    /// be there, on the screen, in the rank card.
+    @Test
+    func aRecomputedStandingOnAnOpenBoardSaysClimbers() async throws {
+        try await RenderedScreen.host(
+            try completionSummary(context: .justClimbGlobal(targetSteps: 2_579), basis: .current),
+            size: Self.phoneSize
+        ) { screen in
+            let text = try await screen.copy { $0.contains("fastest of 27") }
+
+            #expect(text.contains("fastest of 27 climbers"))
+            #expect(!text.contains("fastest of 27 completions"))
+
+            try screen.photograph(named: "field-population-6-completion-hero-recomputed-climbers")
         }
     }
 
@@ -143,7 +164,10 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
 
     // MARK: - The shipping completion summary
 
-    private func completionSummary(context: LiveReplayLeaderboardContext) throws -> some View {
+    private func completionSummary(
+        context: LiveReplayLeaderboardContext,
+        basis: LiveClimbSummaryRankHero.Basis = .atCompletion
+    ) throws -> some View {
         LiveClimbCompletionSummaryView(
             climb: nil,
             workout: Workout(
@@ -156,9 +180,8 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
             ),
             leaderboardRank: 4,
             leaderboardTotal: 27,
-            leaderboardRankBasis: .atCompletion,
+            leaderboardRankBasis: basis,
             leaderboardContext: context,
-            moment: .retrospective,
             completedDetailOverride: "LIVE CLIMB COMPLETE",
             onDone: { _ in }
         )
@@ -226,6 +249,7 @@ struct LiveReplayFieldPopulationRenderEvidenceTests {
 /// does: no filter control, accent tint, dark scheme. The panel itself is shipping code.
 private struct RaceHUDProof: View {
     let field: LiveReplayFieldSize?
+    var ownClimbs: LiveReplayPersonalPlacing?
 
     var body: some View {
         // A rival's row is a `NavigationLink` into their profile, so the board
@@ -239,7 +263,7 @@ private struct RaceHUDProof: View {
                 progress: 0.62,
                 currentUserPhotoURL: nil,
                 fetchFailed: false,
-                field: field,
+                standing: .racing(field: field, ownClimbs: ownClimbs),
                 tint: .accent,
                 effectiveColorScheme: .dark,
                 showsFilter: false

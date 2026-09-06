@@ -543,7 +543,7 @@ test("collapses repeat finishers in per-climb and template contexts", () => {
   assert.equal(collapsesFor("routine"), false);
 });
 
-test("races every Just Climb attempt as its own opponent", () => {
+test("collapses a Just Climb climber to one opponent like every other board", () => {
   const payload = liveReplayLeaderboardTestHooks.parseJustClimbReplayPayload(
     makeWorkoutDocument(),
     {requireEligibleParticipation: true}
@@ -551,23 +551,31 @@ test("races every Just Climb attempt as its own opponent", () => {
   assert.ok(payload);
   assert.equal(payload.contextType, "just_climb");
 
-  // An open Just Climb session has no step target, so its shortest attempt is
-  // the one the climber quit earliest. Flagging it would race their weakest
-  // curve and drop their stronger session out of the field entirely.
+  // Settled by the captain on 2026-09-02: all three board types race off one
+  // mechanism rather than one behaving differently for want of a field. Without
+  // the flag an open Just Climb raced a rival's four runs as four opponents and
+  // showed a climber their own earlier attempts as racers.
+  //
+  // Superseded reasoning, kept because it is a real cost of the decision rather
+  // than an argument that was wrong: an open Just Climb has no step target, so
+  // on a duration metric its shortest attempt is the one the climber quit
+  // earliest. The collapse therefore represents a climber by their quickest
+  // session. The board already ranked every attempt that way, so the collapse
+  // makes the field consistent with the metric rather than introducing it.
   assert.equal(
     liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {
       bestCompletionDurationSeconds: 900,
       bestWorkoutId: "workout-b",
     }),
-    null
+    true
   );
   assert.equal(
     liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {}),
-    null
+    true
   );
 });
 
-test("leaves the flag field off entries that race every attempt", () => {
+test("writes the flag on every context type", () => {
   const payload = liveReplayLeaderboardTestHooks.parseJustClimbReplayPayload(
     makeWorkoutDocument(),
     {requireEligibleParticipation: true}
@@ -593,9 +601,11 @@ test("leaves the flag field off entries that race every attempt", () => {
     updatedAt: "server-timestamp",
   });
 
-  // Absent rather than false: Firestore equality never matches a missing field,
-  // so an unflagged context cannot be filtered into a wrong winner.
-  assert.equal("isBestForUser" in write, false);
+  // Present on every board now. A client filters the live race on this field on
+  // all three context types, and Firestore equality never matches a missing
+  // field - a board whose rows lack it renders empty, which is why the backfill
+  // has to reach every existing row before a filtering build ships.
+  assert.equal(write.isBestForUser, true);
 });
 
 test("copies account-authored identity from the public profile mirror", () => {
@@ -1566,149 +1576,111 @@ function makePublicUser(): PublicUserSnapshot {
  * halves have to count one population by construction. They used to disagree -
  * the rank counted every strictly better entry while the denominator counted
  * distinct finishers - and a `Math.min` clamp rewrote the rank downward until
- * the pair looked plausible. These tests hold both halves to one population and
- * refuse the clamp: an impossible pairing throws rather than being rewritten.
+ * the pair looked plausible.
  *
- * The fixture attempt runs the climb in 738 seconds and the routine in 1,840
- * steps, so a finisher document below or above those leads it.
+ * Settled by the captain on 2026-08-29: "1st of 5" on a board that collapses
+ * repeat finishers names five *people*, so both halves there count distinct
+ * climbers and the denominator is the transaction's `completedCount`. An open
+ * Just Climb races every attempt as its own opponent, so both halves count
+ * attempts.
+ *
+ * The numerator that reaches this function already compared against the
+ * climber's *resulting* best (`readCompletionField`), so their own finisher row
+ * can never be one of the rows it counted. Nothing is subtracted here and
+ * nothing is clamped: an impossible pairing throws instead.
  */
-test("counts a repeat rival once on a board that races climbers", () => {
-  const payload = liveClimbPayload();
-
-  // One rival holding five faster attempts is one finisher document ahead,
-  // because the board carries one row per climber. The pre-fix code counted
-  // five entry rows.
+test("keeps a first finisher at first of one", () => {
   const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-    payload,
-    reading: {betterRowCount: 1, attemptCount: null},
-    completedCount: 2,
-    existingFinisherData: undefined,
-  });
-
-  assert.deepEqual(standing, {rank: 2, population: 2});
-});
-
-test("counts every repeat attempt on a board that races attempts", () => {
-  const payload = justClimbPayload();
-
-  // No target, so a climber's shortest attempt is the one they quit earliest.
-  // All five of a rival's faster attempts are real opponents, and the
-  // denominator has to count attempts for the pair to mean anything.
-  const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-    payload,
-    reading: {betterRowCount: 5, attemptCount: 6},
+    reading: {betterRowCount: 0, attemptCount: null},
     completedCount: 1,
-    existingFinisherData: undefined,
-  });
-
-  assert.deepEqual(standing, {rank: 6, population: 6});
-});
-
-test("never seats a climber behind their own earlier best", () => {
-  const payload = liveClimbPayload();
-
-  // A slower repeat by the only finisher on the board. Their own finisher
-  // document leads this attempt, but it is the same climber the denominator
-  // counts once, so it comes back out of the numerator instead of forcing
-  // "2nd of 1".
-  const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-    payload,
-    reading: {betterRowCount: 1, attemptCount: null},
-    completedCount: 1,
-    existingFinisherData: {bestCompletionDurationSeconds: 638},
+    contextKey: "live_climb__st-peters-basilica",
   });
 
   assert.deepEqual(standing, {rank: 1, population: 1});
 });
 
-test("beating your own earlier attempt leaves the climber count alone", () => {
-  const payload = liveClimbPayload();
-
-  // Improving on a board that collapses repeats adds no climber: the finisher
-  // count that reaches the stamp is the same one the board already had, and a
-  // slower stored best never led this attempt to begin with.
+test("counts a repeat rival once on a board that races climbers", () => {
+  // One rival holding five faster attempts is one finisher document ahead,
+  // because the board carries one row per climber.
   const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-    payload,
-    reading: {betterRowCount: 3, attemptCount: null},
-    completedCount: 4,
-    existingFinisherData: {bestCompletionDurationSeconds: 838},
-  });
-
-  assert.deepEqual(standing, {rank: 4, population: 4});
-});
-
-test("counts a routine finisher on the steps its intervals rank", () => {
-  const payload = routinePayload();
-
-  // A routine fixes the clock, so its finishers store best steps. A stored
-  // 1,900 leads the fixture's 1,840 and is the same climber counted once.
-  const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-    payload,
-    reading: {betterRowCount: 2, attemptCount: null},
+    reading: {betterRowCount: 1, attemptCount: null},
     completedCount: 2,
-    existingFinisherData: {bestFinalSteps: 1900},
+    contextKey: "live_climb__st-peters-basilica",
   });
 
   assert.deepEqual(standing, {rank: 2, population: 2});
 });
 
-test("a repeat attempt is not its own opponent where attempts race", () => {
-  const payload = justClimbPayload();
-
-  // An open Just Climb keeps no finisher best to lead with, so a stored one
-  // never comes out of a numerator that counted attempts, not climbers.
+test("beating your own earlier attempt leaves the climber count alone", () => {
+  // Improving on a collapsing board adds no climber: the same four people
+  // stand on it, and the numerator measured this climber's improved best.
   const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-    payload,
-    reading: {betterRowCount: 2, attemptCount: 4},
-    completedCount: 1,
-    existingFinisherData: {bestCompletionDurationSeconds: 638},
+    reading: {betterRowCount: 0, attemptCount: null},
+    completedCount: 4,
+    contextKey: "live_climb__st-peters-basilica",
   });
 
-  assert.deepEqual(standing, {rank: 3, population: 4});
+  assert.deepEqual(standing, {rank: 1, population: 4});
+});
+
+test("leaves a slower repeat standing where the climber already stood", () => {
+  // The captain's St Peter's pair. Their record still leads the field, so the
+  // resulting best is unchanged and so is the standing - reached without a
+  // subtraction, which is what used to produce "1st of 1" from "2nd of 1".
+  const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
+    reading: {betterRowCount: 1, attemptCount: null},
+    completedCount: 3,
+    contextKey: "live_climb__st-peters-basilica",
+  });
+
+  assert.deepEqual(standing, {rank: 2, population: 3});
+});
+
+test("shares a rank with every climber tied on the metric", () => {
+  // Competition rank: only strictly better rows count, so two climbers on a
+  // dead heat at the front both read first of three.
+  const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
+    reading: {betterRowCount: 0, attemptCount: null},
+    completedCount: 3,
+    contextKey: "live_climb__st-peters-basilica",
+  });
+
+  assert.deepEqual(standing, {rank: 1, population: 3});
+});
+
+test("counts every repeat attempt on a board that races attempts", () => {
+  // No target, so a climber's shortest attempt is the one they quit earliest.
+  // All five of a rival's faster attempts are real opponents, and the
+  // denominator has to count attempts for the pair to mean anything.
+  const standing = liveReplayLeaderboardTestHooks.frozenCompletionStanding({
+    reading: {betterRowCount: 5, attemptCount: 6},
+    completedCount: 1,
+    contextKey: "just_climb__global",
+  });
+
+  assert.deepEqual(standing, {rank: 6, population: 6});
 });
 
 test("refuses to freeze a rank its population cannot hold", () => {
-  const payload = liveClimbPayload();
-
   // Exactly the pairing the clamp used to swallow: five better rows against
   // three climbers. It is not "3rd of 3" - it is two halves counting different
   // things, and freezing any number from it is worse than failing the publish.
   assert.throws(
     () => liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-      payload,
       reading: {betterRowCount: 5, attemptCount: null},
       completedCount: 3,
-      existingFinisherData: undefined,
+      contextKey: "live_climb__st-peters-basilica",
     }),
     /rank 6 of 3/
   );
 });
 
-test("refuses to freeze a rank ahead of the field", () => {
-  const payload = liveClimbPayload();
-
-  // The count and this climber's own document disagree about whether they
-  // already lead. Nothing may guess which one was right.
+test("refuses to freeze an attempt rank with no attempts counted", () => {
   assert.throws(
     () => liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-      payload,
-      reading: {betterRowCount: 0, attemptCount: null},
-      completedCount: 1,
-      existingFinisherData: {bestCompletionDurationSeconds: 638},
-    }),
-    /rank 0 of 1/
-  );
-});
-
-test("refuses to freeze an attempt rank with no attempt count", () => {
-  const payload = justClimbPayload();
-
-  assert.throws(
-    () => liveReplayLeaderboardTestHooks.frozenCompletionStanding({
-      payload,
-      reading: {betterRowCount: 0, attemptCount: null},
+      reading: {betterRowCount: 0, attemptCount: 0},
       completedCount: 9,
-      existingFinisherData: undefined,
+      contextKey: "just_climb__global",
     }),
     /rank 1 of 0/
   );
@@ -1734,50 +1706,3 @@ test("ranks a routine on steps and a climb on the clock", () => {
   assert.equal(beatsOnMetric("just_climb", 700, 738), true);
 });
 
-/**
- * Builds a parsed per-climb replay payload.
- * @return {ReturnType<
- *   typeof liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload>
- * } Parsed payload.
- */
-function liveClimbPayload() {
-  const payload = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(
-    makeWorkoutDocument(),
-    {requireEligibleParticipation: true}
-  );
-  assert.ok(payload);
-
-  return payload;
-}
-
-/**
- * Builds a parsed routine-template replay payload.
- * @return {ReturnType<
- *   typeof liveReplayLeaderboardTestHooks.parseRoutineReplayPayload>
- * } Parsed payload.
- */
-function routinePayload() {
-  const payload = liveReplayLeaderboardTestHooks.parseRoutineReplayPayload(
-    makeRoutineWorkoutDocument(),
-    {requireEligibleParticipation: true}
-  );
-  assert.ok(payload);
-
-  return payload;
-}
-
-/**
- * Builds a parsed open Just Climb replay payload.
- * @return {ReturnType<
- *   typeof liveReplayLeaderboardTestHooks.parseJustClimbReplayPayload>
- * } Parsed payload.
- */
-function justClimbPayload() {
-  const payload = liveReplayLeaderboardTestHooks.parseJustClimbReplayPayload(
-    makeWorkoutDocument(),
-    {requireEligibleParticipation: true}
-  );
-  assert.ok(payload);
-
-  return payload;
-}

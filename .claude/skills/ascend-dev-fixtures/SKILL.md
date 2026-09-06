@@ -127,6 +127,7 @@ paths:
   `ascend-live-climbs` owns why: the permanent rank a finished climb freezes counts finishers, so a board of entries with no finishers reads as an empty field.
 - `scripts/backfill-live-replay-completion-snapshots.mjs` is deliberately excluded from the finisher-based frozen rank and still clamps its rank with `Math.min`.
   It ranks entry rows against a distinct-climber count, so unlike the publish path `ascend-live-climbs` describes, its two halves genuinely need the clamp; do not "fix" the contradiction away.
+- **A seeded board cannot reproduce a finisher leaving the race.** `scripts/seed-live-replay-leaderboards.mjs` writes every synthetic attempt into every bucket of its context, so a seeded rival is on the board for the whole climb; a real published attempt writes only the buckets it ran for and disappears from the board the moment it finishes. Any live-race behaviour that depends on what happens *after* a rival is home has to be checked against real published rows or a fixture that deliberately truncates a curve - the seed will always say it is fine.
 - Seeded replay curves should be calibrated from historical workout pace distributions when available.
 
 ## Script Dependency Policy

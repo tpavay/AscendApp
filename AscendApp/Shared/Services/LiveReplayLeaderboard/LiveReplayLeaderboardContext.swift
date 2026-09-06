@@ -1,6 +1,6 @@
 import Foundation
 
-enum LiveReplayLeaderboardContextType: String, Codable, Sendable {
+enum LiveReplayLeaderboardContextType: String, CaseIterable, Codable, Sendable {
     case liveClimb = "live_climb"
     case justClimb = "just_climb"
     case routineTemplate = "routine_template"
@@ -8,23 +8,32 @@ enum LiveReplayLeaderboardContextType: String, Codable, Sendable {
 
     /// Mirrors `rankingMetric` in `functions/src/liveReplayLeaderboard.ts` so a
     /// client-displayed rank never contradicts the rank the server published.
+    ///
+    /// The server's `ranksOnSteps` is `contextType === "routine_template"` and
+    /// nothing else, so a plain `routine` board ranks on the clock there. This
+    /// once said steps for both routine cases, which was not a difference of
+    /// opinion but a query against a field nothing writes: a `routine` finisher
+    /// carries `bestCompletionDurationSeconds` and never `bestFinalSteps`, so
+    /// the client's numerator matched zero documents and every climber on the
+    /// board read first.
     var rankingMetric: LiveReplayRankingMetric {
         switch self {
-        case .liveClimb, .justClimb:
+        case .liveClimb, .justClimb, .routine:
             return .fastestCompletion
-        case .routineTemplate, .routine:
+        case .routineTemplate:
             return .mostSteps
         }
     }
 
-    /// Whether this context collapses a climber's repeat completions into one row.
+    /// Whether the server's frozen standing on this context counts climbers
+    /// rather than attempts - and, through `fieldPopulation`, which noun the
+    /// board's field-size line takes.
     ///
-    /// Per-climb and per-routine-template contexts do: a climb board reaches the
-    /// same step target every time, so the fastest attempt is genuinely that
-    /// climber's best; a routine board fixes the clock, so the highest-steps
-    /// attempt is theirs. An open Just Climb session has no target, so its
-    /// shortest attempt is the one the climber quit earliest rather than their
-    /// best. Mirrors the server allowlist in `functions/src/liveReplayLeaderboard.ts`.
+    /// That is all it decides. Every context type writes `isBestForUser` and
+    /// every live-race read filters on it, so this predicate gates neither; do
+    /// not re-gate them on it, and do not widen it to make the boards agree,
+    /// because that changes write-once `completionSnapshots` arithmetic. Mirrors
+    /// `collapsesRepeatFinishers` in `functions/src/liveReplayLeaderboard.ts`.
     var collapsesRepeatFinishers: Bool {
         switch self {
         case .liveClimb, .routineTemplate:
@@ -36,8 +45,30 @@ enum LiveReplayLeaderboardContextType: String, Codable, Sendable {
 
     /// What one row of this context's field stands for, so a surface can name the
     /// population it counts rather than guess a noun that happens to fit a climb.
+    ///
+    /// This is the board's own population, and so also the one the server's
+    /// frozen stamp counted: a stamp counts whatever the board it sits beside
+    /// counts. A standing the client recomputes counts `recomputedFieldPopulation`
+    /// instead, and the two deliberately differ where a board races attempts.
     var fieldPopulation: LiveReplayFieldPopulation {
         collapsesRepeatFinishers ? .climbers : .completions
+    }
+
+    /// What a standing the client recomputes counts on this board.
+    ///
+    /// Always climbers. A recomputed standing counts finisher documents - one
+    /// per climber, maintained on every context type - so an open Just Climb
+    /// ranks a climber against unique climbers at their best, never against the
+    /// same rival's four runs. Settled by the captain on 2026-09-02: a board
+    /// with 41 finishes from 16 climbers reads "6th of 16", never "13th of 16"
+    /// and never "13th of 41".
+    ///
+    /// Deliberately not derived from `collapsesRepeatFinishers`. That predicate
+    /// mirrors the server's frozen-standing branch, so folding this into it would
+    /// change the server's meaning by implication; what the client's own standing
+    /// counts is stated separately.
+    var recomputedFieldPopulation: LiveReplayFieldPopulation {
+        .climbers
     }
 }
 
@@ -104,6 +135,21 @@ enum LiveReplayRankingMetric: Sendable {
     /// Whether a higher stored value ranks better.
     var ranksHighestFirst: Bool {
         self == .mostSteps
+    }
+
+    /// The finisher field holding a climber's standing best on this metric.
+    ///
+    /// Mirrors `finisherBestMetric` in `functions/src/liveReplayLeaderboard.ts`.
+    /// A finisher document carries only the metric its board ranks on, so a
+    /// routine finisher never holds a "best duration" that would read as a time
+    /// to beat on a board where every finisher spends the same time.
+    var finisherBestField: String {
+        switch self {
+        case .fastestCompletion:
+            return "bestCompletionDurationSeconds"
+        case .mostSteps:
+            return "bestFinalSteps"
+        }
     }
 
     /// The primary number a row leads with on a static completion board.

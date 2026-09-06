@@ -1,6 +1,14 @@
 import Foundation
 
 protocol LiveReplayLeaderboardRepository: Sendable {
+    /// Marks the start of a live session, ahead of its first `fetchWindow`.
+    ///
+    /// What a repository remembers about the signed-in climber's own rows is
+    /// true for the length of one session and no longer - the attempt that just
+    /// ended publishes a new one - so a session on the same board must not
+    /// inherit the last one's answers.
+    func beginLiveSession() async
+
     func fetchSummary(
         context: LiveReplayLeaderboardContext
     ) async throws -> LiveReplayLeaderboardSummary

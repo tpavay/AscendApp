@@ -17,6 +17,8 @@ Ascend counts different populations on different screens on purpose, and that is
 What breaks is a screen that counts one population and names another.
 The failures all land on the seam between two surfaces rather than inside one, so the seams are stated directly at the end instead of being left to infer from two rules sitting apart.
 
+**Once a rule here is settled, it stays settled.** A task brief's literal acceptance criteria is a snapshot of intent written before a later captain ruling existed. When that ruling narrows or supersedes the brief and is written into this file, the ruling governs - a future lane does not re-ask the captain to reconfirm it, and a review finding that only cites the older brief text is not grounds to reopen a settled rule. Re-litigate a statement here only when new evidence contradicts what is written, never to satisfy a stale sentence a decision has already overtaken.
+
 ### 1. During a climb
 
 On a tower (`live_climb`) and on a routine template (`routine_template`), the board shows **one row per unique climber, at that climber's best time**.
@@ -42,7 +44,7 @@ Five of six means five of six, then.
 That standing is computed on **that climb's own time**, never on your all-time best.
 You finished in 9:40, so the summary ranks a 9:40 against the other climbers at their bests.
 Your 8:12 has its own summary, showing 8:12 and the rank an 8:12 earned when it landed.
-Until the server has ranked that attempt the summary falls back to today's standing, which still counts attempts on both halves, and that gap is named in the row-versus-rank seam below.
+Until the server has ranked that attempt the summary shows a current standing recomputed on the client, which counts unique climbers on both halves too, and says which it is.
 
 ### 3. That same summary, reopened later
 
@@ -75,44 +77,29 @@ These are different questions, and the answers are allowed to differ on one scre
 An open Just Climb has no target and a plain routine ranks on steps, so both draw every completed attempt as its own row and race it as its own opponent.
 The rank sentence beside those rows still counts **unique climbers on both halves**: a tower with 41 finishes from 16 climbers, where 5 distinct climbers beat you, reads `6TH OF 16`.
 Never `13TH OF 16`, and never `13TH OF 41`.
+Settled by the captain on 2026-09-02.
+`LiveReplayLeaderboardContextType.recomputedFieldPopulation` is `.climbers` unconditionally, on every context type, with no `collapsesRepeatFinishers` branch - folding it into that predicate would change the server's frozen-standing meaning by implication, which is why it is kept separate.
 
-*Open question, not yet decided.*
-On a Just Climb or a plain routine the rows are attempts while the rank sentence counts unique climbers, so what the field-size line beneath those rows counts is not yet settled.
-Either it counts climbers and stops matching the rows above it, or those two surfaces stop sharing one noun.
-Today one derivation, `LiveReplayLeaderboardContextType.fieldPopulation`, feeds both the line and the hero.
-Whether that derivation is right or wrong for `justClimb` and `routine` is part of the question rather than a gap, so no test or sentence may call it superseded until the captain has answered.
-The tests that pin today's shared derivation, which change with the answer rather than ahead of it:
+**The field-size line and the server's frozen stamp count the board's own population instead - Option A, scoped to boards that collapse repeats.** Settled by the captain on 2026-09-06, closing the `key=live-board-attempt-board-denominator` escalation for good. `LiveReplayLeaderboardContextType.fieldPopulation` is `.climbers` only where `collapsesRepeatFinishers` is true (`live_climb`, `routine_template`); on `just_climb` and `routine`, which draw every attempt as its own row, it stays `.completions` - matching the rows actually on screen rather than a population the board did not draw. `frozenCompletionStanding` in `functions/src/liveReplayLeaderboard.ts` mirrors this exactly: `population` is `input.completedCount` where the payload collapses repeats, else `input.reading.attemptCount`. This is the final form, not a transitional one - do not describe the attempt-counting branch as superseded.
 
-- `AscendAppTests/LiveReplayFieldPopulationTests.swift`, pinning `justClimb.fieldPopulation == .completions`.
-- `AscendAppTests/LiveReplayFieldPopulationRenderEvidenceTests.swift` `theSameHeroSaysCompletionsWhereTheContextRacesAttempts`, pinning a Just Climb hero that reads "fastest of 27 completions" off that same derivation, where the rank sentence rule says `CLIMBERS`.
+**One card, two bases, two nouns, and that is intentional.** `LiveClimbSummaryRankHero.fieldPopulation(on:)` reads `recomputedFieldPopulation` (always climbers) for a `.current` standing and `fieldPopulation` (Option A) for `.atCompletion` / `.liveSession`. The captain's "the saved card has to match the live one" instruction (`key=climbers-noun-vs-frozen-basis`, option (a)) was scoped to the recomputed basis only - the frozen stamp keeps the board's own population. That is why a `just_climb` summary can read `CLIMBERS` while the standing is still live-recomputed, then `COMPLETIONS` once the server's frozen stamp lands - both are true statements about different moments, not drift.
 
-The leaderboard lane implementing option (a) owns the question, and the captain answers it; it is not to be guessed at implementation time.
+The tests that pin this:
 
-*Decided and being built, not yet shipping.*
-The captain settled unique climbers on both halves on 2026-09-02, and answered the follow-up decision `key=climbers-noun-vs-frozen-basis` with option (a): the frozen saved card is the same result viewed later and has to read identically to the live one, so it counts unique climbers on both halves too.
-`frozenCompletionStanding` in `functions/src/liveReplayLeaderboard.ts` still takes `reading.attemptCount` as the population for the contexts that do not collapse repeats.
-The tests that pin the superseded form live in `functions/test/liveReplayLeaderboard.test.ts`, and all of them are expected to change when the rule lands.
-The known ones, so the lane can find them rather than as a guarantee that the list is complete:
+- `AscendAppTests/LiveReplayFieldPopulationTests.swift` - `justClimb.fieldPopulation == .completions`, and `recomputedFieldPopulation == .climbers` on every context.
+- `AscendAppTests/LiveReplayFieldPopulationRenderEvidenceTests.swift` `theSameHeroSaysCompletionsWhereTheContextRacesAttempts` - a Just Climb hero reading "fastest of 27 completions" off the frozen/live-session basis, where the rank sentence itself still says `CLIMBERS`.
+- `functions/test/liveReplayLeaderboard.test.ts` "counts every repeat attempt on a board that races attempts" and "a repeat attempt is not its own opponent where attempts race" - the frozen stamp on a `just_climb` payload counts attempts, not climbers.
+- `functions/test/liveReplayLeaderboard.test.ts` "refuses to freeze an attempt rank with no attempt count" - still means something, because `attemptCount` is still the population on a non-collapsing board.
 
-- `functions/test/liveReplayLeaderboard.test.ts` "counts every repeat attempt on a board that races attempts".
-- `functions/test/liveReplayLeaderboard.test.ts` "a repeat attempt is not its own opponent where attempts race", which asserts rank 3 of 4 off `attemptCount` for a `justClimb` payload.
-- `functions/test/liveReplayLeaderboard.test.ts` "refuses to freeze an attempt rank with no attempt count", which only means anything while `attemptCount` is the population.
+**The summary versus climb detail.**
+A summary counts climbers (always on a recomputed/current standing, or on a frozen standing where the board collapses repeats); climb detail lists every time. The same tower can show two different totals and both are right, because each names what it counted. This also holds on `just_climb` / `routine`: their *recomputed* standing counts climbers while Climb Detail there still lists every completion - a divergence the original review finding never assessed, because it only measured a `live_climb` board. Explicit captain accept on 2026-09-06, no new issue filed: Climb Detail is the full history of every time, the rank card states its population noun explicitly (`CLIMBERS` or `COMPLETIONS`), and the two are already disambiguated in the UI by that noun. Superseded by the captain's 2026-08-29 rank-model ruling and the `key=finish-card-scope` (Q3) answer; the record is `key=justclimb-summary-vs-climb-detail`. Issue #561 (repeat-climb tower *presentation* - the solo-climber hero) is closed, landed separately before this lane started - this acceptance does not fold into it and does not reopen it.
 
-The leaderboard lane (`ascend-live-leaderboard-second-attempt`) is implementing it.
-
-`FirestoreLiveReplayLeaderboardRepository.fetchCompletionRank` counts attempts the same way, and not only where attempts race.
-The summary falls back to it until the server publishes a frozen standing, and both halves of that fallback run over the unfiltered bucket 0 entries: `countRowsBetterThan` for the numerator and `countRows` for the denominator.
-So a repeat climber's own earlier attempts count as rivals ahead of them and the denominator counts completions, on `live_climb` too.
-Decided and being built, and owned by the same lane.
+**Legacy entries with no `splitBucketCount` are a closed, verified non-issue.** Measured directly against all three environments with control probes returning positive counts, so this is verified empty rather than a failed read that silently printed nothing: production, staging and dev all show zero entries missing `splitBucketCount`. Approved by the captain as latent everywhere, most recently on 2026-09-06. Do not re-measure this on a future branch without a new, specific reason to suspect drift.
 
 **The live number versus the frozen number.**
 A rank recomputed from today's rows is a *current* standing; the rank stamped when your attempt published is what you *were*.
 They are supposed to differ, and each says which it is.
 They never mix: a frozen position over a live denominator is a number that was never true, so a rank and its denominator always resolve together from one source.
-
-**The summary versus climb detail.**
-A summary counts climbers; climb detail lists every time.
-The same tower shows two different totals and both are right, because each one names what it counted.
 
 **Solo versus a real field.**
 When a real field of climbers exists, the leaderboard rank is the hero.
@@ -128,7 +115,7 @@ Each statement has a test behind it, or a gap named here.
 1. During a climb - `AscendAppTests/LiveReplayFieldPopulationTests.onlyPerClimbAndPerTemplateContextsCollapseRepeats` for the one-row-per-climber board.
    `AscendAppTests/LiveReplayPreviousBestMarkerTests.theClimbersOwnBestIsNotCountedAsAClimberAheadOfThem` holds the half that keeps your previous best out of the rank and the field size.
    `AscendAppTests/LiveReplayPreviousBestMarkerTests.theMarkerReportsAPositionAndNothingElse` holds the rest, that the marker carries a position and no step count, time or gap sentence.
-2. The summary right after you finish - `functions/test/liveReplayLeaderboard.test.ts`, "counts a repeat rival once on a board that races climbers" and "never seats a climber behind their own earlier best".
+2. The summary right after you finish - `functions/test/liveReplayLeaderboard.test.ts`, "counts a repeat rival once on a board that races climbers" and "keeps a first finisher at first of one".
 3. Reopened later - `AscendAppTests/CompletedClimbRankFreezeTests.aLaterServerReadNeverMovesAnAlreadyFrozenRank`, and on the share card `AscendAppTests/SavedClimbShareRankTests.aStoredFrozenStandingReachesTheSavedClimbShareCardWithoutARequest`.
 4. Climb detail - two anchors that cover different things, and neither covers the whole statement.
    The only thing holding the shipping `ClimbDetailView`'s `ALL TIMES` title is the contract test's string check against that file.
@@ -136,8 +123,10 @@ Each statement has a test behind it, or a gap named here.
    The unfiltered all-attempts read itself has no anchor at all: those rows come from an unfiltered Firestore query over `splitBuckets/0/entries` in `FirestoreLiveReplayLeaderboardRepository.fetchCompletionLeaderboard`, which no unit test reaches.
 5. Naming the population - `AscendAppTests/LiveReplayFieldPopulationTests.fieldSizeLabelNamesThePopulationAndGroupsTheNumber`.
 
-The rank sentence on an open Just Climb and a plain routine has no anchor either, and the tests that name it still pin the superseded attempt-counting form.
-What is decided, what still ships, and who is building it are stated in the row-versus-rank seam above.
+6. The rank sentence on an open Just Climb and a plain routine, always counting climbers - `AscendAppTests/LiveReplayRecomputedStandingTests.aRecomputedStandingAlwaysCountsClimbers` (parameterized over every context type) and `.anOpenJustClimbRecomputesAStandingOverClimbers`.
+7. The field-size line and frozen stamp on those same boards, staying on attempts - `AscendAppTests/LiveReplayFieldPopulationTests.populationFollowsWhetherTheContextCollapsesRepeats`, and server-side `functions/test/liveReplayLeaderboard.test.ts` "counts every repeat attempt on a board that races attempts" plus "a repeat attempt is not its own opponent where attempts race".
+
+What each surface counts, and why the two Just Climb / routine numbers are allowed to disagree, is stated in the field-population section above.
 
 ## Week Start + Leaderboard Windowing
 

@@ -15,10 +15,10 @@ struct LiveReplayLeaderboardPanel: View {
     /// row of its own, and never counted. See `LiveReplayPreviousBestMarker`.
     var previousBestStepsAtBucket: Int?
     let fetchFailed: Bool
-    /// The whole field this board ranks, named and counted, or nil when the board
-    /// holds nothing that measures it. The rows above are a slice of the field, so
-    /// they never stand in for it.
-    var field: LiveReplayFieldSize?
+    /// What this board may state about where the climber stands - a leaderboard
+    /// placing over the field it was measured against, or, where nobody else has
+    /// finished, their placing among their own climbs. Never a bare ordinal.
+    var standing: LiveReplayLiveStanding = .racing(field: nil, ownClimbs: nil)
     let tint: Color
     let effectiveColorScheme: ColorScheme
     var showsFilter: Bool = true
@@ -87,7 +87,7 @@ struct LiveReplayLeaderboardPanel: View {
                     .padding(.top, 8)
             }
 
-            fieldSizeLine
+            standingFooter
         }
         .onChange(of: rows.map(\.id)) { _, _ in
             if selectedFilter == .currentUser, visibleRows.isEmpty {
@@ -96,7 +96,7 @@ struct LiveReplayLeaderboardPanel: View {
         }
     }
 
-    /// The field this board ranks, named and counted, pinned beneath the rows.
+    /// What the board states beneath its rows.
     ///
     /// A live race collapses a rival's repeat runs to their best while the static
     /// per-climb board keeps every completion, so the two boards show different
@@ -104,13 +104,40 @@ struct LiveReplayLeaderboardPanel: View {
     /// that from reading as a defect - and a board with no field it can
     /// substantiate states nothing, because the rows on screen are a window, not a
     /// count.
+    ///
+    /// Where nobody else has finished, there is no field to name and no
+    /// leaderboard placing to state, so the climber's own climbs take the whole
+    /// footer rather than a `1 CLIMBER` line sitting beside an unlabelled `#1`.
     @ViewBuilder
-    private var fieldSizeLine: some View {
-        if let field, field.count > 0 {
-            LiveReplayFieldSizeLine(
-                field: field,
-                effectiveColorScheme: effectiveColorScheme
-            )
+    private var standingFooter: some View {
+        switch standing {
+        case .racing(let field, let ownClimbs):
+            if let field, field.count > 0 {
+                LiveReplayFieldSizeLine(
+                    field: field,
+                    effectiveColorScheme: effectiveColorScheme
+                )
+            }
+
+            if let ownClimbs {
+                Text("\(ownClimbs.ordinalText.uppercased()) \(ownClimbs.fieldLabel)")
+                    .font(.montserratBold(size: 10))
+                    .tracking(1.1)
+                    .foregroundStyle(secondaryColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 4)
+                    .padding(.bottom, 2)
+            }
+
+        case .alone(let ownClimbs):
+            if let ownClimbs {
+                LiveReplayOwnClimbsStanding(
+                    placing: ownClimbs,
+                    effectiveColorScheme: effectiveColorScheme
+                )
+            }
         }
     }
 
@@ -177,8 +204,12 @@ struct LiveReplayLeaderboardPanel: View {
         effectiveColorScheme == .dark ? .white.opacity(0.42) : .black.opacity(0.4)
     }
 
+    /// The anchor the board scrolls to: the attempt in progress, which is the
+    /// only row that moves. A repeat climber also owns their earlier
+    /// completions on this board, and anchoring on one of those would park the
+    /// view somewhere the climber is not.
     private var currentUserRowID: String? {
-        rows.first(where: \.isCurrentUser)?.id
+        rows.first(where: \.isLiveAttempt)?.id
     }
 
     private func scrollToCurrentUserIfNeeded(using proxy: ScrollViewProxy) {
@@ -221,8 +252,9 @@ struct LiveReplayLeaderboardPanel: View {
             row: row,
             progressScaleSteps: progressScaleSteps,
             progress: progress,
-            previousBestProgress: row.isCurrentUser ? previousBestProgress : nil,
+            previousBestProgress: row.isLiveAttempt ? previousBestProgress : nil,
             currentUserPhotoURL: currentUserPhotoURL,
+            showsLeaderboardRank: standing.showsLeaderboardRank,
             tint: tint,
             effectiveColorScheme: effectiveColorScheme
         )
@@ -242,27 +274,79 @@ struct LiveReplayLeaderboardPanel: View {
 
 }
 
+/// The whole footer for a board nobody else has finished.
+///
+/// It states the one placing that board can substantiate - where this run sits
+/// among the climber's own climbs - in the finish card's idiom: the accent
+/// ordinal over the population it counted. No leaderboard ordinal is drawn
+/// anywhere on such a board, so this is never a second number beside one.
+private struct LiveReplayOwnClimbsStanding: View {
+    let placing: LiveReplayPersonalPlacing
+    let effectiveColorScheme: ColorScheme
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(placing.ordinalText.uppercased())
+                .font(.montserratBold(size: 22))
+                .foregroundStyle(Color.accent)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+
+            Text(placing.fieldLabel)
+                .font(.montserratBold(size: 10))
+                .tracking(1.1)
+                .foregroundStyle(secondaryColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(hairlineColor)
+                .frame(height: 1)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var secondaryColor: Color {
+        effectiveColorScheme == .dark ? .white.opacity(0.52) : .black.opacity(0.48)
+    }
+
+    private var hairlineColor: Color {
+        effectiveColorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.08)
+    }
+}
+
 private struct LiveReplayLeaderboardRowView: View {
     let row: ModeratedReplayLeaderboardRow
     let progressScaleSteps: Int
     let progress: Double
     let previousBestProgress: Double?
     let currentUserPhotoURL: URL?
+    /// False on a board nobody else has finished, where no leaderboard placing
+    /// exists to draw.
+    let showsLeaderboardRank: Bool
     let tint: Color
     let effectiveColorScheme: ColorScheme
 
     var body: some View {
         ZStack(alignment: .leading) {
-            if row.isCurrentUser {
+            if row.isLiveAttempt {
                 progressBackground
             }
 
             HStack(spacing: 10) {
-                Text(rankLabel)
-                    .font(.montserratBold(size: 16))
-                    .foregroundStyle(row.isCurrentUser ? tint : secondaryColor)
-                    .frame(width: 38, alignment: .center)
-                    .monospacedDigit()
+                Group {
+                    if let rankLabel {
+                        Text(rankLabel)
+                            .font(.montserratBold(size: 16))
+                            .foregroundStyle(row.isLiveAttempt ? tint : secondaryColor)
+                            .monospacedDigit()
+                    }
+                }
+                .frame(width: 38, alignment: .center)
 
                 avatarView
 
@@ -287,7 +371,14 @@ private struct LiveReplayLeaderboardRowView: View {
                         }
                     }
 
-                    if let demographicSummaryText = row.demographicSummaryText {
+                    // A rival's row is worth characterising; the viewer's is
+                    // not. The attempt in progress can never carry demographics
+                    // - it is assembled from the live step count - so drawing
+                    // them under the climber's own finished attempt is what let
+                    // two rows belonging to one person disagree about whose
+                    // they were.
+                    if !row.isCurrentUser,
+                       let demographicSummaryText = row.demographicSummaryText {
                         Text(demographicSummaryText)
                             .font(.montserratSemiBold(size: 10))
                             .foregroundStyle(secondaryColor)
@@ -299,8 +390,8 @@ private struct LiveReplayLeaderboardRowView: View {
                 Spacer(minLength: 0)
 
                 Text(row.stepsAtBucket.formatted())
-                    .font(.montserratBold(size: row.isCurrentUser ? 24 : 22))
-                    .foregroundStyle(row.isCurrentUser ? tint : primaryColor)
+                    .font(.montserratBold(size: row.isLiveAttempt ? 24 : 22))
+                    .foregroundStyle(row.isLiveAttempt ? tint : primaryColor)
                     .monospacedDigit()
                     .contentTransition(.numericText())
                     .lineLimit(1)
@@ -310,7 +401,7 @@ private struct LiveReplayLeaderboardRowView: View {
 
             previousBestMarker
         }
-        .frame(height: row.isCurrentUser ? 74 : 70)
+        .frame(height: row.isLiveAttempt ? 74 : 70)
         .accessibilityElement(children: .combine)
     }
 
@@ -327,12 +418,17 @@ private struct LiveReplayLeaderboardRowView: View {
         }
     }
 
-    private var rankLabel: String {
-        row.rank.map(String.init) ?? "--"
+    /// The viewer's own earlier completion holds no placing, so its cell draws
+    /// nothing at all, and neither does any row on a board with no leaderboard
+    /// placing to state. `--` still stands for a rank that could not be
+    /// resolved, which is a different statement and has to keep reading as one.
+    private var rankLabel: String? {
+        guard showsLeaderboardRank, !row.isViewerGhost else { return nil }
+        return row.rank.map(String.init) ?? "--"
     }
 
     private var rowProgress: Double {
-        if row.isCurrentUser {
+        if row.isLiveAttempt {
             return min(max(progress, 0), 1)
         }
 

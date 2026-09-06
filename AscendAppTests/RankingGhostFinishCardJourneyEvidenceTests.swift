@@ -208,7 +208,6 @@ struct RankingGhostFinishCardJourneyEvidenceTests {
                 leaderboardTotal: nil,
                 leaderboardRankBasis: .current,
                 leaderboardContext: leaderboardContext,
-                moment: .freshCompletion,
                 onDone: { _ in }
             )
             .modelContainer(container),
