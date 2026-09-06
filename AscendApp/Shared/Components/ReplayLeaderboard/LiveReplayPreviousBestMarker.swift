@@ -8,9 +8,8 @@ import SwiftUI
 ///
 /// - **It is not a leaderboard row.** No rank cell, not tappable, never counted
 ///   in the rank or the field size. The completion it stands for is still on the
-///   board as the viewer's ghost row (`LiveReplayLeaderboardRow.isViewerGhost`),
-///   which the rank column skips; inside the live row it exists only as this
-///   position.
+///   board as the viewer's own ghost row, flagged for the rank column to skip;
+///   inside the live row it exists only as this position.
 /// - **It is a single line, never a two-sided box.** The progress fill passes one
 ///   edge cleanly instead of straddling a box through an ambiguous half-passed
 ///   state. The line sits to the *left* of the word, which reads in vertical
