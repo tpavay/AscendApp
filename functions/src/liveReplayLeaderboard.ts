@@ -1194,12 +1194,17 @@ async function publishReplayEntries(
   const finisherRef = finisherReference(payload, userId);
   const completionSnapshotRef = completionSnapshotReference(payload, entryId);
   const publishStatusRef = liveClimbPublishStatusReference(userId, entryId);
-  const completionField = await readCompletionField(payload, entryId, userId);
 
   await runIdentityProtectedTransaction(
     firestoreIdentityTransactionPort(db),
     userId,
     async (transaction, publicUser) => {
+      const completionField = await readCompletionField(
+        transaction,
+        payload,
+        entryId,
+        userId
+      );
       const leaderboardSnapshot = await transaction.get(leaderboardRef);
       const finisherSnapshot = await transaction.get(finisherRef);
       const completionSnapshot = await transaction.get(completionSnapshotRef);
@@ -1467,12 +1472,18 @@ function tiePolicy(contextType: string): string {
  * everything tied on the metric shares a rank. Steps are coarse integers, so
  * routine ties are common and that strict comparison is what keeps a recompute
  * from reshuffling tied climbers.
+ *
+ * Reads through the caller's transaction, never a bare `.get()` - a retried
+ * transaction re-runs this read against the retry's snapshot instead of
+ * reusing a count taken before the transaction ever started.
+ * @param {FirebaseFirestore.Transaction} transaction Enclosing transaction.
  * @param {LiveReplayIndexPayload} payload Replay payload.
  * @param {string} entryId Public row document ID.
  * @param {string} userId Owner user ID.
  * @return {Promise<CompletionFieldReading>} Counts for the frozen standing.
  */
 async function readCompletionField(
+  transaction: FirebaseFirestore.Transaction,
   payload: LiveReplayIndexPayload,
   entryId: string,
   userId: string
@@ -1480,7 +1491,9 @@ async function readCompletionField(
   const rankingValue = attemptRankingValue(payload);
 
   if (collapsesRepeatFinishers(payload)) {
-    const finisherSnapshot = await finisherReference(payload, userId).get();
+    const finisherSnapshot = await transaction.get(
+      finisherReference(payload, userId)
+    );
     const storedBest = finisherStoredBest(payload, finisherSnapshot.data());
     const resultingBest = storedBest === null ||
       beatsOnMetric(payload.contextType, rankingValue, storedBest) ?
@@ -1494,22 +1507,23 @@ async function readCompletionField(
     );
 
     return {
-      betterRowCount: (await leadingFinishers.count().get()).data().count,
+      betterRowCount: (await transaction.get(leadingFinishers.count()))
+        .data().count,
       attemptCount: null,
     };
   }
 
   const entries = entriesCollectionReference(payload, 0);
-  const [better, published, ownRow] = await Promise.all([
+  const better = await transaction.get(
     leadingRows(
       entries,
       payload.contextType,
       rankingMetric(payload.contextType),
       rankingValue
-    ).count().get(),
-    entries.count().get(),
-    entryReference(payload, 0, entryId).get(),
-  ]);
+    ).count()
+  );
+  const published = await transaction.get(entries.count());
+  const ownRow = await transaction.get(entryReference(payload, 0, entryId));
 
   return {
     betterRowCount: better.data().count,

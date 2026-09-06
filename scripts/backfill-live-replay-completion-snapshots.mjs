@@ -355,10 +355,10 @@ function buildCompletionSnapshots(entries) {
       finalSteps: entry.finalSteps,
       rank,
       rankedAt: entry.rankedAt,
-      rankingMetric: "completionDurationSeconds",
+      rankingMetric: rankingMetric(entry.contextType),
       schemaVersion: 1,
       targetStepCount: entry.targetStepCount,
-      tiePolicy: "competition_rank_equal_durations_share_rank",
+      tiePolicy: tiePolicy(entry.contextType),
       userId: entry.userId,
       workoutId: entry.workoutId,
       backfilledAt: FieldValue.serverTimestamp(),
@@ -380,11 +380,71 @@ function collapsesRepeatFinishers(contextType) {
 }
 
 /**
+ * Whether a context ranks on steps taken rather than time elapsed.
+ *
+ * Mirrors `ranksOnSteps` in functions/src/liveReplayLeaderboard.ts - a
+ * routine_template board ranks higher-steps-first, everything else ranks
+ * lower-duration-first, and this backfill has to compare and freeze on the
+ * same metric the live publish path does or a repair silently corrupts every
+ * standing on that board.
+ * @param {string} contextType Replay context type.
+ * @return {boolean} True when higher steps rank better.
+ */
+function ranksOnSteps(contextType) {
+  return contextType === "routine_template";
+}
+
+/**
+ * The entry field a context ranks on.
+ * @param {string} contextType Replay context type.
+ * @return {string} Ranking metric field name.
+ */
+function rankingMetric(contextType) {
+  return ranksOnSteps(contextType) ? "finalSteps" : "completionDurationSeconds";
+}
+
+/**
+ * An entry's own value in its context's ranking metric.
+ * @param {string} contextType Replay context type.
+ * @param {object} entry Entry carrying both metrics.
+ * @return {number} Ranking value for this entry.
+ */
+function rankingValue(contextType, entry) {
+  return ranksOnSteps(contextType) ?
+    entry.finalSteps :
+    entry.completionDurationSeconds;
+}
+
+/**
+ * Whether one ranking value stands strictly ahead of another.
+ * @param {string} contextType Replay context type.
+ * @param {number} value Candidate ranking value.
+ * @param {number} other Ranking value to beat.
+ * @return {boolean} True when value is strictly better than other.
+ */
+function beatsOnMetric(contextType, value, other) {
+  return ranksOnSteps(contextType) ? value > other : value < other;
+}
+
+/**
+ * How a context resolves attempts that tie on its ranking metric.
+ *
+ * Mirrors `tiePolicy` in functions/src/liveReplayLeaderboard.ts.
+ * @param {string} contextType Replay context type.
+ * @return {string} Tie policy identifier.
+ */
+function tiePolicy(contextType) {
+  return ranksOnSteps(contextType) ?
+    "competition_rank_equal_steps_share_rank" :
+    "competition_rank_equal_durations_share_rank";
+}
+
+/**
  * Standing on a board that collapses a climber's repeat runs to their best.
  *
  * Both halves count distinct climbers, and the numerator compares against this
  * climber's own best at that moment - which already includes the attempt being
- * stamped - so their own row can never satisfy a strictly-faster filter and
+ * stamped - so their own row can never satisfy a strictly-better filter and
  * nothing has to be subtracted back out.
  * @param {object[]} completedSoFar Attempts completed by this moment.
  * @param {object} entry Attempt being stamped.
@@ -395,15 +455,19 @@ function climberStanding(completedSoFar, entry) {
 
   for (const candidate of completedSoFar) {
     const best = bestByUser.get(candidate.userId);
-    if (best === undefined || candidate.completionDurationSeconds < best) {
-      bestByUser.set(candidate.userId, candidate.completionDurationSeconds);
+    const candidateValue = rankingValue(entry.contextType, candidate);
+    if (
+      best === undefined ||
+      beatsOnMetric(entry.contextType, candidateValue, best)
+    ) {
+      bestByUser.set(candidate.userId, candidateValue);
     }
   }
 
   const ownBest = bestByUser.get(entry.userId) ??
-    entry.completionDurationSeconds;
+    rankingValue(entry.contextType, entry);
   const rank = [...bestByUser.values()]
-    .filter((best) => best < ownBest)
+    .filter((best) => beatsOnMetric(entry.contextType, best, ownBest))
     .length + 1;
 
   return {completedCount: Math.max(bestByUser.size, 1), rank};
@@ -412,7 +476,7 @@ function climberStanding(completedSoFar, entry) {
 /**
  * Standing on a board that races every attempt as its own opponent.
  *
- * Strictly faster only, so attempts tied on the clock share a rank. Every row
+ * Strictly better only, so attempts tied on the metric share a rank. Every row
  * counted here is one of the rows `completedCount` counted, so the pair is
  * coherent by construction and needs no clamp.
  * @param {object[]} completedSoFar Attempts completed by this moment.
@@ -420,9 +484,14 @@ function climberStanding(completedSoFar, entry) {
  * @return {{completedCount: number, rank: number}} Standing.
  */
 function attemptStanding(completedSoFar, entry) {
+  const ownValue = rankingValue(entry.contextType, entry);
   const rank = completedSoFar.filter(
     (candidate) =>
-      candidate.completionDurationSeconds < entry.completionDurationSeconds
+      beatsOnMetric(
+        entry.contextType,
+        rankingValue(entry.contextType, candidate),
+        ownValue
+      )
   ).length + 1;
 
   return {completedCount: Math.max(completedSoFar.length, 1), rank};

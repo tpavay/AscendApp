@@ -212,23 +212,24 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         context: LiveReplayLeaderboardContext,
         attemptRankingValue: Double
     ) async throws -> LiveReplayCompletionRank {
-        let finisher = try await currentUserFinisher(context: context)
-        let ownLeadingRows = Self.ownLeadingRowCount(
-            metric: context.type.rankingMetric,
-            storedBest: finisher?.storedBest,
-            attemptRankingValue: attemptRankingValue
-        )
-
+        async let finisher = currentUserFinisher(context: context)
         async let betterClimberCount = countFinishersBetterThan(
             context: context,
             rankingValue: attemptRankingValue
         )
         async let climberFieldCount = countFinishers(context: context)
 
+        let resolvedFinisher = try await finisher
+        let ownLeadingRows = Self.ownLeadingRowCount(
+            metric: context.type.rankingMetric,
+            storedBest: resolvedFinisher?.storedBest,
+            attemptRankingValue: attemptRankingValue
+        )
+
         return Self.climberStanding(
             betterClimberCount: try await betterClimberCount - ownLeadingRows,
             raceFieldCount: try await climberFieldCount,
-            climberAlreadyInField: finisher != nil
+            climberAlreadyInField: resolvedFinisher != nil
         )
     }
 

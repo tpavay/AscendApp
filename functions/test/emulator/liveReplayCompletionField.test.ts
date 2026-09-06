@@ -40,6 +40,35 @@ const ATTEMPT_STEPS = 2096;
 
 let db: admin.firestore.Firestore;
 
+type ReplayPayload =
+  Parameters<typeof liveReplayLeaderboardTestHooks.readCompletionField>[1];
+
+/**
+ * Runs `readCompletionField` inside a transaction, the way
+ * `publishReplayEntries` does, so this suite exercises the same
+ * transactional read path production uses rather than a bare `.get()`.
+ * @param {ReplayPayload} payload Replay payload.
+ * @param {string} entryId Public row document ID.
+ * @param {string} userId Owner user ID.
+ * @return {ReturnType<
+ *   typeof liveReplayLeaderboardTestHooks.readCompletionField
+ * >} Counts for the frozen standing.
+ */
+function readCompletionField(
+  payload: ReplayPayload,
+  entryId: string,
+  userId: string
+) {
+  return db.runTransaction((transaction) =>
+    liveReplayLeaderboardTestHooks.readCompletionField(
+      transaction,
+      payload,
+      entryId,
+      userId
+    )
+  );
+}
+
 before(() => {
   // Never let this suite pass by quietly doing nothing. Without an emulator the
   // Admin SDK would reach for real credentials, and a skip here would read as a
@@ -60,7 +89,7 @@ test("counts a repeat rival once on a board that races climbers", async () => {
   const payload = liveClimbPayload();
   await seedRivalAttempts(payload.contextKey, {collapses: true});
 
-  const reading = await liveReplayLeaderboardTestHooks.readCompletionField(
+  const reading = await readCompletionField(
     payload,
     WORKOUT,
     CLIMBER
@@ -105,7 +134,7 @@ test("counts finishers, never the best-flag window entries open", async () => {
   });
 
   assert.deepEqual(
-    await liveReplayLeaderboardTestHooks.readCompletionField(
+    await readCompletionField(
       payload,
       WORKOUT,
       CLIMBER
@@ -119,7 +148,7 @@ test("a rival's five faster attempts are five opponents on a Just Climb",
     const payload = justClimbPayload();
     await seedRivalAttempts(payload.contextKey, {collapses: false});
 
-    const reading = await liveReplayLeaderboardTestHooks.readCompletionField(
+    const reading = await readCompletionField(
       payload,
       WORKOUT,
       CLIMBER
@@ -153,7 +182,7 @@ test("never counts a climber's own finisher row in their own numerator",
       bestCompletionDurationSeconds: ATTEMPT_DURATION_SECONDS - 100,
     });
 
-    const reading = await liveReplayLeaderboardTestHooks.readCompletionField(
+    const reading = await readCompletionField(
       payload,
       WORKOUT,
       CLIMBER
@@ -185,7 +214,7 @@ test("leaves a slower repeat where the climber already stood", async () => {
     bestCompletionDurationSeconds: ATTEMPT_DURATION_SECONDS - 38,
   });
 
-  const reading = await liveReplayLeaderboardTestHooks.readCompletionField(
+  const reading = await readCompletionField(
     payload,
     WORKOUT,
     CLIMBER
@@ -217,7 +246,7 @@ test("moves a climber up on a faster repeat without growing the field",
       bestCompletionDurationSeconds: ATTEMPT_DURATION_SECONDS + 62,
     });
 
-    const reading = await liveReplayLeaderboardTestHooks.readCompletionField(
+    const reading = await readCompletionField(
       payload,
       WORKOUT,
       CLIMBER
@@ -244,7 +273,7 @@ test("shares one rank with a climber tied on the metric", async () => {
     bestCompletionDurationSeconds: ATTEMPT_DURATION_SECONDS,
   });
 
-  const reading = await liveReplayLeaderboardTestHooks.readCompletionField(
+  const reading = await readCompletionField(
     payload,
     WORKOUT,
     CLIMBER
@@ -267,7 +296,7 @@ test("a rival's slower repeat leaves the field it counts alone", async () => {
     userId: RIVAL,
     bestCompletionDurationSeconds: ATTEMPT_DURATION_SECONDS - 60,
   });
-  const before = await liveReplayLeaderboardTestHooks.readCompletionField(
+  const before = await readCompletionField(
     payload,
     WORKOUT,
     CLIMBER
@@ -285,7 +314,7 @@ test("a rival's slower repeat leaves the field it counts alone", async () => {
 
   assert.deepEqual(before, {betterRowCount: 1, attemptCount: null});
   assert.deepEqual(
-    await liveReplayLeaderboardTestHooks.readCompletionField(
+    await readCompletionField(
       payload,
       WORKOUT,
       CLIMBER
@@ -301,7 +330,7 @@ test("a routine board reads the steps its intervals rank on", async () => {
     bestFinalSteps: 1900,
   });
 
-  const reading = await liveReplayLeaderboardTestHooks.readCompletionField(
+  const reading = await readCompletionField(
     payload,
     WORKOUT,
     CLIMBER
@@ -327,7 +356,7 @@ test("a republished attempt is already one of the attempts counted",
       isBestForUser: null,
     });
 
-    const reading = await liveReplayLeaderboardTestHooks.readCompletionField(
+    const reading = await readCompletionField(
       payload,
       WORKOUT,
       CLIMBER
