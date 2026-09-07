@@ -356,13 +356,12 @@ jobs:
       # FIREBASE_TOKEN cannot do this: it is a firebase-tools refresh token, and
       # the CLI has no command that lists Storage objects. The audit reads the
       # bucket through the Admin SDK, so this job needs a Google credential -
-      # supplied by Workload Identity Federation, which mints a short-lived
-      # token from the job's OIDC identity and keeps no key in a secret.
+      # a dedicated service account key scoped to read-only access on the
+      # production images bucket (github-actions-deploy@ascend-prod-9c8f2).
       - name: Authenticate to Google Cloud for the artwork audit
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
 
       - name: Verify production carries artwork for every available climb
         run: node scripts/sync-climb-images.mjs audit --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}"
