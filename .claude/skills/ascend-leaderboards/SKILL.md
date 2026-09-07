@@ -21,10 +21,10 @@ The failures all land on the seam between two surfaces rather than inside one, s
 
 ### 1. During a climb
 
-On a tower (`live_climb`) and on a routine template (`routine_template`), the board shows **one row per unique climber, at that climber's best time**.
+On a tower (`live_climb`), a routine template (`routine_template`), an open Just Climb, and a plain routine, the board shows **one row per unique climber, at that climber's best time**.
 Never one row per attempt.
 You are one of those climbers, and your row is ranked like anyone else's.
-An open Just Climb and a plain routine draw every completed attempt as its own row instead, and their rank sentence still counts unique climbers - that is the row-versus-rank seam below.
+This is one mechanism across all four context types since the captain's 2026-09-02 best-per-climber ruling (`isBestForUser` is written and filtered on unconditionally); only the static Climb Detail board (statement 4) still draws every completed attempt as its own row.
 
 **Your row shows your current run** - the live time and the current steps of the climb happening right now.
 
@@ -89,8 +89,8 @@ If a field size moves when your own previous best appears, it counted you twice.
 
 **A rank sentence versus the rows a board draws.**
 These are different questions, and the answers are allowed to differ on one screen.
-An open Just Climb has no target and a plain routine ranks on steps, so both draw every completed attempt as its own row and race it as its own opponent.
-The rank sentence beside those rows still counts **unique climbers on both halves**: a tower with 41 finishes from 16 climbers, where 5 distinct climbers beat you, reads `6TH OF 16`.
+Live, this seam is closed: since the captain's 2026-09-02 best-per-climber ruling, an open Just Climb and a plain routine draw one row per climber like every other board, so the rows and the rank sentence agree.
+The seam persists only on the static Climb Detail board (statement 4), which draws every completed attempt as its own row while its rank sentence still counts **unique climbers on both halves**: a tower with 41 finishes from 16 climbers, where 5 distinct climbers beat you, reads `6TH OF 16`.
 Never `13TH OF 16`, and never `13TH OF 41`.
 Settled by the captain on 2026-09-02.
 `LiveReplayLeaderboardContextType.recomputedFieldPopulation` is `.climbers` unconditionally, on every context type, with no `collapsesRepeatFinishers` branch - folding it into that predicate would change the server's frozen-standing meaning by implication, which is why it is kept separate.
