@@ -27,6 +27,7 @@ export const CI_RELEVANT_PATHS = [
   "web/**",
   "package.json",
   "package-lock.json",
+  "audit-ci.json",
   "Gemfile",
   "Gemfile.lock",
   ".ruby-version",

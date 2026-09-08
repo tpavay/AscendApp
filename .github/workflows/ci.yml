@@ -23,6 +23,7 @@ on:
       - "web/**"
       - "package.json"
       - "package-lock.json"
+      - "audit-ci.json"
       - "Gemfile"
       - "Gemfile.lock"
       - ".ruby-version"
@@ -163,6 +164,11 @@ jobs:
               # that goes back to picking a wildcard match hands every
               # downstream verification a stale build.
               - "fastlane/**"
+              # The audit-ci allowlist contract test reads every project's
+              # audit-ci.json directly (functions/** and scripts/** already
+              # cover their own), so an edit to either of these must run it.
+              - "audit-ci.json"
+              - "web/audit-ci.json"
               - ".github/workflows/**"
             web:
               - "web/**"
@@ -170,6 +176,7 @@ jobs:
             root_npm:
               - "package.json"
               - "package-lock.json"
+              - "audit-ci.json"
               - ".github/workflows/**"
             firebase:
               - "firestore.rules"
@@ -255,8 +262,12 @@ jobs:
 
       # Audits run last so a newly published advisory fails the job without
       # hiding the lint and test results that prove the code itself.
+      # audit-ci (not bare npm audit) so an advisory disclosed after the
+      # lockfile last landed can be reviewably allowlisted with an expiry
+      # date, rather than failing every unrelated PR until the dependency is
+      # patched: docs/dependency-security.md.
       - name: Audit dependencies
-        run: npm --prefix functions audit --audit-level=low
+        run: npx -y audit-ci@7.1.0 --config functions/audit-ci.json --directory functions
 
   scripts-verify:
     name: Scripts Verify
@@ -293,8 +304,9 @@ jobs:
 
       # Audits run last so a newly published advisory fails the job without
       # hiding the test results that prove the code itself.
+      # audit-ci (not bare npm audit): docs/dependency-security.md.
       - name: Audit dependencies
-        run: npm --prefix scripts audit --package-lock-only --audit-level=low
+        run: npx -y audit-ci@7.1.0 --config scripts/audit-ci.json --directory scripts
 
   # Its own job, deliberately dependency-free. The check imports nothing but Node
   # builtins and local .mjs files, so it installs nothing and audits nothing: a
@@ -370,8 +382,9 @@ jobs:
       - name: Build website
         run: npm --prefix web run build
 
+      # audit-ci (not bare npm audit): docs/dependency-security.md.
       - name: Audit dependencies
-        run: npm --prefix web audit --audit-level=low
+        run: npx -y audit-ci@7.1.0 --config web/audit-ci.json --directory web
 
   root-npm-verify:
     name: Root npm Audit
@@ -389,8 +402,9 @@ jobs:
         with:
           node-version: "24"
 
+      # audit-ci (not bare npm audit): docs/dependency-security.md.
       - name: Audit dependencies
-        run: npm audit --package-lock-only --audit-level=low
+        run: npx -y audit-ci@7.1.0 --config audit-ci.json --directory .
 
   firebase-verify:
     name: Firebase Verify
