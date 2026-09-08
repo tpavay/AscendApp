@@ -20,15 +20,20 @@ Every config sets `"low": true`, which fails the gate on low-or-higher severity 
 `scripts/test/audit-ci-allowlist-contract.test.mjs` enforces the shape of every entry in every config, so a malformed or overly broad suppression fails CI on the PR that adds it rather than silently doing nothing.
 
 An advisory disclosed after a project's lockfile last landed fails every PR that touches that project's path filter, even one unrelated to the vulnerable dependency, until the lockfile is patched or the advisory is allowlisted.
-To allowlist one that has no fix available yet, add an entry to the affected project's `audit-ci.json`, keyed by its GitHub Security Advisory ID:
+To allowlist one that has no fix available yet, add an entry to the affected project's `audit-ci.json`'s `allowlist` array, keyed by its GitHub Security Advisory ID:
 
 ```json
 {
-  "GHSA-xxxx-xxxx-xxxx": {
-    "active": true,
-    "notes": "Why this can't be fixed yet, and a link to the tracking issue.",
-    "expiry": "2026-12-06"
-  }
+  "low": true,
+  "allowlist": [
+    {
+      "GHSA-xxxx-xxxx-xxxx": {
+        "active": true,
+        "notes": "Why this can't be fixed yet, and a link to the tracking issue.",
+        "expiry": "2026-12-06"
+      }
+    }
+  ]
 }
 ```
 
