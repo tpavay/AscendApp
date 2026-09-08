@@ -258,6 +258,25 @@ jobs:
       - name: Audit dependencies
         run: npm --prefix functions audit --audit-level=low
 
+  # Dependency-free like swiftdata-schema-verify below: it runs the runner
+  # image's own shellcheck binary against every tracked shell script in the
+  # repo, not just the ones under scripts/**, so a script added anywhere else
+  # is covered without a workflow edit. Gated on the scripts filter, which
+  # already matches every path a *.sh file lives under today.
+  shellcheck-verify:
+    name: Shell Script Lint
+    needs: changes
+    if: needs.changes.outputs.scripts == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Lint tracked shell scripts
+        run: git ls-files -z -- "*.sh" | xargs -0 -r shellcheck
+
   scripts-verify:
     name: Scripts Verify
     needs: changes
