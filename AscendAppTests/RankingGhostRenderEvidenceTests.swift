@@ -216,38 +216,16 @@ struct RankingGhostRenderEvidenceTests {
         }
     }
 
-    // MARK: - The Just Me rail
-
-    /// The same marker turned on its side (JM-G): one horizontal line at the
-    /// height the previous best reached, `BEST` above it, narrowed to the track.
-    /// No step count, no delta, no comparison sentence.
-    @Test
-    func theJustMeRailCarriesTheSameMarkerTurnedOnItsSide() async throws {
-        try await RenderedScreen.host(
-            LiveClimbProgressRail(
-                    progress: 347.0 / 551,
-                    previousBestProgress: 414.0 / 551,
-                    summitSteps: 551
-                )
-                .frame(width: 64)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.vertical, 24)
-                .background(Color.black),
-            size: Self.screenSize
-        ) { screen in
-            let text = try await screen.copy()
-
-            #expect(text.contains("summit"))
-            #expect(text.contains("551"))
-            #expect(text.contains("start"))
-            // The marker states no number of its own.
-            #expect(!text.contains("414"))
-            #expect(!text.contains("347"))
-            #expect(!text.contains("catch"))
-
-            try screen.photograph(named: "just-me-rail-previous-best")
-        }
-    }
+    // MARK: - The Just Me summit bar
+    //
+    // The vertical rail that used to carry its own copy of this marker
+    // (`LiveClimbProgressRail`) was retired when the previous-best marker moved
+    // onto the Just Me summit bar. It moved by reusing `LiveReplayPreviousBestMarker`
+    // directly rather than redrawing it, so the pixel-level evidence that this
+    // marker renders correctly on a horizontal fill already exists above (the
+    // leaderboard row cases) - there is no second implementation here to
+    // independently screenshot. `ranking-ghost-design-contract.test.mjs` pins
+    // the reuse at the source level instead.
 
     // MARK: - Measuring the marker
 

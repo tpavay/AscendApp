@@ -415,7 +415,7 @@ final class LiveClimbSessionViewModel {
         )
     }
 
-    /// The same position as a fraction of the summit, for the Just Me rail.
+    /// The same position as a fraction of the summit, for the Just Me summit bar.
     var previousBestProgressFraction: Double? {
         guard let previousBestStepsAtBucket,
               previousBestStepsAtBucket > 0,

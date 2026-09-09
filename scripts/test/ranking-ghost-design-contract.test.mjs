@@ -129,52 +129,33 @@ test("the marker's line never fades and never restyles once passed", () => {
   );
 });
 
-test("the Just Me rail draws the same marker turned on its side", () => {
-  const rail = read("AscendApp/Features/Climbs/Views/LiveClimbJustMeView.swift");
+test("Just Me reuses the leaderboard's own previous-best marker on its summit bar", () => {
+  // Settled by the captain: the vertical rail (and its own copy of this
+  // marker) is retired, and the previous best moves onto the horizontal
+  // summit bar - reusing `LiveReplayPreviousBestMarker` rather than a second,
+  // redrawn implementation. Reuse is the point: every locked invariant this
+  // file's other tests check (no comparison number, single line, no fade)
+  // already holds for that component, so Just Me inherits it instead of
+  // needing its own copy re-verified.
+  const justMe = read("AscendApp/Features/Climbs/Views/LiveClimbJustMeView.swift");
 
-  const marker = rail.match(
-    /private func previousBestMarker\(centerX: CGFloat, height: CGFloat\) -> some View \{[\s\S]*?\n    \}/,
-  );
-  assert.ok(marker, "the rail no longer draws a previous-best marker");
-  const body = marker[0];
-
-  // One horizontal line, no step count, no delta.
-  assert.equal(
-    [...body.matchAll(/Rectangle\(\)/g)].length,
-    1,
-    "the rail marker is more than a single line",
-  );
-  assert.equal(
-    [...body.matchAll(/Text\(/g)].length,
-    1,
-    "the rail marker renders a second string. It carries the word BEST and " +
-      "nothing else - no step count, no delta, no comparison sentence.",
-  );
-  assert.ok(body.includes('Text("BEST")'), "the rail marker lost its label");
-
-  // The word sits ABOVE and the line BELOW it, because the climber rises and
-  // the fill comes up to meet the line from underneath.
   assert.ok(
-    /Text\("BEST"\)[\s\S]*?\.position\(x: centerX, y: markerY - 10\)[\s\S]*?Rectangle\(\)[\s\S]*?\.position\(x: centerX, y: markerY\)/.test(
-      body,
-    ),
-    "the rail's line is no longer on the bottom side of the word",
-  );
-
-  // Narrowed to the track, matching the HALF marker the rail already ships.
-  assert.ok(
-    body.includes(".frame(width: 14, height: 2)"),
-    "the rail marker no longer matches the existing HALF marker's width",
+    !justMe.includes("struct LiveClimbProgressRail"),
+    "the retired rail returned - the previous best belongs on the summit bar now",
   );
   assert.ok(
-    rail.includes('Text("HALF")') && rail.includes(".frame(width: 14, height: 2)"),
-    "the HALF marker this width is matched against has changed",
+    justMe.includes("LiveReplayPreviousBestMarker("),
+    "Just Me no longer draws the previous-best marker via the shared component",
+  );
+  assert.ok(
+    justMe.includes("progress: previousBestProgressFraction"),
+    "the marker on the summit bar is no longer driven by the climber's previous-best fraction",
   );
 
   // The rank card stays: it now reads 1st rather than #2, because the
   // climber's own best is no longer counted as a rival (JM-G, JM-H not taken).
   assert.ok(
-    rail.includes('label: "CURRENT RANK"'),
+    justMe.includes('label: "CURRENT RANK"'),
     "the Just Me tab dropped CURRENT RANK. JM-H was not taken.",
   );
 });
