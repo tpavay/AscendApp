@@ -1256,21 +1256,17 @@ private enum PostAuthFirstClimbRecommendationPolicy {
     }
 
     private static func recommendationID(for answers: PreAuthOnboardingSurveyAnswers) -> String {
-        switch answers.stairStepperExperience {
-        case "never_tried":
-            return neverTriedRecommendation(for: answers.exerciseLevel)
-        case "tried_a_few_times":
-            return triedAFewTimesRecommendation(for: answers.exerciseLevel)
-        case "occasionally":
-            return "eiffel-tower"
-        case "all_the_time":
-            return "empire-state-building"
+        switch answers.stairStepperAccess {
+        case "no_access":
+            return noAccessRecommendation(for: answers.exerciseLevel)
+        case "has_access":
+            return hasAccessRecommendation(for: answers.exerciseLevel)
         default:
             return isLowExercise(answers.exerciseLevel) ? "leaning-tower-of-pisa" : "statue-of-liberty"
         }
     }
 
-    private static func neverTriedRecommendation(for exerciseLevel: String?) -> String {
+    private static func noAccessRecommendation(for exerciseLevel: String?) -> String {
         switch exerciseLevel {
         case "new_to_regular_exercise", nil:
             return "leaning-tower-of-pisa"
@@ -1283,10 +1279,10 @@ private enum PostAuthFirstClimbRecommendationPolicy {
         }
     }
 
-    private static func triedAFewTimesRecommendation(for exerciseLevel: String?) -> String {
+    private static func hasAccessRecommendation(for exerciseLevel: String?) -> String {
         switch exerciseLevel {
         case "new_to_regular_exercise", nil:
-            return "statue-of-liberty"
+            return "eiffel-tower"
         case "one_two_per_week":
             return "eiffel-tower"
         case "three_four_per_week", "five_plus_per_week":

@@ -308,15 +308,13 @@ struct PreAuthSurveyQuestion {
         PreAuthSurveyQuestion(
             id: "stair_stepper_baseline",
             eyebrow: "STAIR STEPPER BASELINE",
-            headline: "How would you describe your stair stepper experience?",
+            headline: "Do you have access to a stair stepper?",
             headlineHeight: 102,
             progressFraction: figmaProgressFraction,
             selectionMode: .single,
             options: [
-                .init(id: "never_tried", title: "I’ve never tried it"),
-                .init(id: "tried_a_few_times", title: "I’ve tried it a few times"),
-                .init(id: "occasionally", title: "I use it occasionally"),
-                .init(id: "all_the_time", title: "I use it all the time.")
+                .init(id: "has_access", title: "Yes"),
+                .init(id: "no_access", title: "No")
             ]
         ),
         PreAuthSurveyQuestion(
@@ -385,11 +383,11 @@ struct PreAuthSurveyOption {
 }
 
 struct PreAuthOnboardingSurveyAnswers: Equatable {
-    var stairStepperExperience: String?
+    var stairStepperAccess: String?
     var exerciseLevel: String?
 
     var isEmpty: Bool {
-        stairStepperExperience == nil && exerciseLevel == nil
+        stairStepperAccess == nil && exerciseLevel == nil
     }
 }
 
@@ -402,7 +400,7 @@ struct PreAuthOnboardingSurveyStore {
 
     func answers() -> PreAuthOnboardingSurveyAnswers {
         PreAuthOnboardingSurveyAnswers(
-            stairStepperExperience: firstAnswer(for: "stair_stepper_baseline"),
+            stairStepperAccess: firstAnswer(for: "stair_stepper_baseline"),
             exerciseLevel: firstAnswer(for: "exercise_level")
         )
     }
