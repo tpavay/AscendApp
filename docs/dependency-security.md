@@ -9,6 +9,41 @@ It loads that CLI's private `lib/auth.js` and `lib/firestore/api.js`, so `PINNED
 Rules have to be validated and shipped by the same CLI, so validation never passes on a version that differs from the one that deploys, and an unpinned `@latest` would let an upstream release turn unrelated required checks red.
 Bump every one of those pins together.
 
+## CI audit gate allowlist
+
+Every npm project's audit step in `ci.yml` (`functions-verify`, `scripts-verify`, `web-verify`, `root-npm-verify`) runs through a pinned `audit-ci@7.1.0` rather than a bare `npm audit`.
+`audit-ci` is IBM's maintained CI wrapper around `npm audit`; it adds a reviewable, file-based allowlist with per-entry expiry, so this repository did not need to build that mechanism from scratch.
+Bump this pin the same way as the `firebase-tools` pin above: everywhere it appears in `ci.yml`'s four audit steps, all at once.
+
+Each project keeps its own config at its root: `audit-ci.json`, `functions/audit-ci.json`, `scripts/audit-ci.json`, `web/audit-ci.json`.
+Every config sets `"low": true`, which fails the gate on low-or-higher severity exactly like the `--audit-level=low` it replaced.
+`scripts/test/audit-ci-allowlist-contract.test.mjs` enforces the shape of every entry in every config, so a malformed or overly broad suppression fails CI on the PR that adds it rather than silently doing nothing.
+
+An advisory disclosed after a project's lockfile last landed fails every PR that touches that project's path filter, even one unrelated to the vulnerable dependency, until the lockfile is patched or the advisory is allowlisted.
+To allowlist one that has no fix available yet, add an entry to the affected project's `audit-ci.json`'s `allowlist` array, keyed by its GitHub Security Advisory ID:
+
+```json
+{
+  "low": true,
+  "allowlist": [
+    {
+      "GHSA-xxxx-xxxx-xxxx": {
+        "active": true,
+        "notes": "Why this can't be fixed yet, and a link to the tracking issue.",
+        "expiry": "2026-12-06"
+      }
+    }
+  ]
+}
+```
+
+`audit-ci` stops applying an entry once its `expiry` passes, so the advisory starts failing the gate again rather than staying silently suppressed forever.
+That is the mechanism that forces a genuine re-review; it is not a follow-up task someone has to remember.
+The contract test additionally refuses an `expiry` more than 180 days out, so an entry cannot be added with an effectively permanent suppression date.
+
+Only allowlist by GitHub Security Advisory ID (the `GHSA-xxxx-xxxx-xxxx` form above).
+Never allowlist by bare module name (`"axios"`) or by dependency path (`"a>b>c"`): both suppress every current *and future* advisory for that dependency, not just the one advisory under review, and the contract test rejects both forms.
+
 ## Functions
 
 Keep `firebase-admin` on the latest 13.x release until a dedicated 14.x migration is verified against the full Functions test suite.
