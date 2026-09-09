@@ -292,18 +292,31 @@ struct LiveClimbSessionView: View {
     }
 
     private var topChrome: some View {
-        HStack(spacing: 10) {
-            if !hasStartedRecording {
-                OnboardingBackButton {
-                    dismiss()
-                }
-                .accessibilityLabel("Close")
+        // The leading back button and artwork thumbnail collapse in place (width + opacity) rather
+        // than being inserted/removed from the HStack. A conditional `if` here would change this
+        // row's child count in the same instant `sessionBackground`'s photo crossfades in, forcing
+        // an unanimated reflow of the title/subtitle that could paint a transitional frame mid-fade;
+        // collapsing keeps every child's identity and position in this HStack stable throughout.
+        HStack(spacing: 0) {
+            OnboardingBackButton {
+                dismiss()
             }
+            .accessibilityLabel("Close")
+            .frame(width: hasStartedRecording ? 0 : 44, height: hasStartedRecording ? 0 : 44)
+            .opacity(hasStartedRecording ? 0 : 1)
+            .allowsHitTesting(!hasStartedRecording)
+            .clipped()
 
-            if !showsClimbPhotoBackground {
-                sessionArtwork
-                    .frame(width: 42, height: 42)
-            }
+            Spacer(minLength: 0)
+                .frame(width: hasStartedRecording ? 0 : 10)
+
+            sessionArtwork
+                .frame(width: showsClimbPhotoBackground ? 0 : 42, height: showsClimbPhotoBackground ? 0 : 42)
+                .opacity(showsClimbPhotoBackground ? 0 : 1)
+                .clipped()
+
+            Spacer(minLength: 0)
+                .frame(width: showsClimbPhotoBackground ? 0 : 10)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(viewModel.mode.title)
@@ -323,11 +336,14 @@ struct LiveClimbSessionView: View {
             Spacer(minLength: 0)
 
             if let heartRateStatus = viewModel.liveHeartRateStatus {
-                if selectedTab == .justMe {
-                    LiveHeartRateZoneRingBadge(status: heartRateStatus)
-                } else {
-                    LiveHeartRateStatusChip(status: heartRateStatus)
+                Group {
+                    if selectedTab == .justMe {
+                        LiveHeartRateZoneRingBadge(status: heartRateStatus)
+                    } else {
+                        LiveHeartRateStatusChip(status: heartRateStatus)
+                    }
                 }
+                .padding(.leading, 10)
             }
 
             if !(viewModel.isRecording && selectedTab == .justMe) {
@@ -343,10 +359,18 @@ struct LiveClimbSessionView: View {
                         RoundedRectangle(cornerRadius: 13, style: .continuous)
                             .fill(.white.opacity(0.10))
                     )
+                    .padding(.leading, 10)
             }
         }
         .padding(.horizontal, 20)
         .padding(.top, 14)
+        // Recording start flips `hasStartedRecording` and `showsClimbPhotoBackground` in the same
+        // instant that `sessionBackground`'s photo/gradient crossfades in over 250ms - without a
+        // matching animation here, this HStack's child count changes (back button and thumbnail
+        // removed) and the title/subtitle reflow instantly, one frame ahead of the background's
+        // animated transaction, which can paint a transitional layout pass mid-crossfade.
+        .animation(.easeInOut(duration: 0.25), value: hasStartedRecording)
+        .animation(.easeInOut(duration: 0.25), value: showsClimbPhotoBackground)
     }
 
     @ViewBuilder
@@ -380,6 +404,10 @@ struct LiveClimbSessionView: View {
             }
             .frame(maxHeight: .infinity)
         }
+        // Matches topChrome's fix: recording start swaps this Group's content (and reveals the
+        // tab bar) in the same instant `sessionBackground`'s photo crossfades in - without this,
+        // the swap is an instant, unanimated remount racing that 250ms animated transaction.
+        .animation(.easeInOut(duration: 0.25), value: viewModel.isRecording)
     }
 
     private var leaderboardPanel: some View {
