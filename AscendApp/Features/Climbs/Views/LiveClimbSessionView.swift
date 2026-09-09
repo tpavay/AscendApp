@@ -56,8 +56,7 @@ struct LiveClimbSessionView: View {
 
     var body: some View {
         ZStack {
-            Color.black
-                .ignoresSafeArea()
+            sessionBackground
 
             if didHandOffToRatingPrompt {
                 EmptyView()
@@ -217,6 +216,39 @@ struct LiveClimbSessionView: View {
         return (try? modelContext.fetchCount(descriptor)) ?? 0
     }
 
+    /// A flat black backdrop everywhere except the Just Me tab on a real landmark
+    /// climb, which gets the climb's own hero photo instead - full-bleed, with a
+    /// bottom-anchored scrim carrying legibility for the chrome and stats drawn
+    /// over it. An open Just Climb has no landmark and therefore no photo to show.
+    private var sessionBackground: some View {
+        ZStack {
+            Color.black
+
+            if showsClimbPhotoBackground, let climb = viewModel.mode.climb {
+                ClimbArtworkView(climb: climb, variant: .hero)
+                    .overlay(
+                        LinearGradient(
+                            colors: [
+                                .black.opacity(0.18),
+                                .black.opacity(0.4),
+                                .black.opacity(0.97)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+        }
+        .ignoresSafeArea()
+        .animation(.easeInOut(duration: 0.25), value: showsClimbPhotoBackground)
+    }
+
+    /// Redundant against a full-bleed photo, so the small artwork thumbnail in
+    /// the top chrome only makes sense where there is no photo behind it.
+    private var showsClimbPhotoBackground: Bool {
+        selectedTab == .justMe && viewModel.mode.climb != nil
+    }
+
     private var sessionContent: some View {
         VStack(spacing: 0) {
             topChrome
@@ -261,26 +293,34 @@ struct LiveClimbSessionView: View {
                 .accessibilityLabel("Close")
             }
 
-            sessionArtwork
-                .frame(width: 42, height: 42)
+            if !showsClimbPhotoBackground {
+                sessionArtwork
+                    .frame(width: 42, height: 42)
+            }
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(viewModel.mode.title)
                     .font(.montserratBold(size: 15))
                     .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.55), radius: 4, y: 1)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
 
                 Text(viewModel.mode.subtitle)
                     .font(.montserratMedium(size: 11))
                     .foregroundStyle(.white.opacity(0.56))
+                    .shadow(color: .black.opacity(0.55), radius: 4, y: 1)
                     .lineLimit(1)
             }
 
             Spacer(minLength: 0)
 
             if let heartRateStatus = viewModel.liveHeartRateStatus {
-                LiveHeartRateStatusChip(status: heartRateStatus)
+                if selectedTab == .justMe {
+                    LiveHeartRateZoneRingBadge(status: heartRateStatus)
+                } else {
+                    LiveHeartRateStatusChip(status: heartRateStatus)
+                }
             }
 
             if !(viewModel.isRecording && selectedTab == .justMe) {
