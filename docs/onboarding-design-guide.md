@@ -357,19 +357,17 @@ Visual:
 
 Copy:
 - Eyebrow: `STAIR STEPPER BASELINE`
-- Headline: `How would you describe your stair stepper experience?`
+- Headline: `Do you have access to a stair stepper?`
 - Options:
-  - `Just getting started`
-  - `Some experience`
-  - `Regular`
-  - `Serious athlete`
-  - `I do not use a stair stepper`
+  - `Yes`
+  - `No`
 - CTA: `Continue`
 
 Behavior:
-- If the user chooses `I do not use a stair stepper`, show a graceful exit/soft redirect:
-  - `Ascend is built for the stair stepper.`
-  - `Come back when you are ready to climb.`
+- Single-select, no branching. The answer only informs the smart-default first-climb
+  recommendation (`PostAuthFirstClimbRecommendationPolicy`); it does not change which
+  screens the flow shows. A dedicated "no access" flow was investigated and rejected
+  at current data volume (2026-09-09).
 
 ### 7. Problem Mirror Question
 
