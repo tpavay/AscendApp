@@ -95,6 +95,11 @@ struct LiveClimbJustMeView: View {
                                 .shadow(color: .black.opacity(0.6), radius: 4)
                                 .fixedSize()
                                 .offset(x: 30)
+                                .opacity(showsPercentLabel(fillWidth: width * fraction, width: width) ? 1 : 0)
+                                .animation(
+                                    .easeInOut(duration: 0.3),
+                                    value: showsPercentLabel(fillWidth: width * fraction, width: width)
+                                )
                         }
 
                     if let previousBestProgressFraction = viewModel.previousBestProgressFraction {
@@ -109,6 +114,14 @@ struct LiveClimbJustMeView: View {
             .frame(height: 22)
             .animation(.easeOut(duration: 0.5), value: viewModel.totalProgressFraction)
         }
+    }
+
+    /// Mirrors `LiveReplayPreviousBestMarker.showsLabel`: the percent label rides
+    /// the fill's trailing edge via a fixed offset, so it needs the same amount of
+    /// room held clear beyond the edge - or it fades rather than running past the
+    /// bar as the fill nears full width.
+    private func showsPercentLabel(fillWidth: CGFloat, width: CGFloat) -> Bool {
+        width - fillWidth >= 40
     }
 
     private var statRow: some View {

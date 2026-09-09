@@ -244,9 +244,12 @@ struct LiveClimbSessionView: View {
     }
 
     /// Redundant against a full-bleed photo, so the small artwork thumbnail in
-    /// the top chrome only makes sense where there is no photo behind it.
+    /// the top chrome only makes sense where there is no photo behind it. Gated
+    /// on the same condition `liveLeaderboardSection` uses to decide whether the
+    /// redesigned Just Me content - as opposed to the idle/countdown screen or
+    /// the leaderboard panel - is actually on screen.
     private var showsClimbPhotoBackground: Bool {
-        selectedTab == .justMe && viewModel.mode.climb != nil
+        viewModel.isRecording && selectedTab == .justMe && viewModel.mode.climb != nil
     }
 
     private var sessionContent: some View {
