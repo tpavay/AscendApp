@@ -61,15 +61,23 @@ struct LiveClimbSessionView: View {
 
             if didHandOffToRatingPrompt {
                 EmptyView()
-            } else if let savedWorkout = viewModel.savedWorkout,
-               viewModel.shouldShowRankedCompletionSummary {
+            } else if let savedWorkout = viewModel.savedWorkout {
+                // A saved attempt always earns the same completion summary, ranked or not - an
+                // incomplete climb still gets its splits, it just carries no rank, matching how
+                // the share card already treats an attempt the server never published to the
+                // replay index (`SavedClimbShareStanding`).
                 LiveClimbCompletionSummaryView(
                     climb: viewModel.mode.climb,
                     workout: savedWorkout,
-                    leaderboardRank: viewModel.completionLeaderboardRank,
-                    leaderboardTotal: viewModel.completionLeaderboardTotal,
+                    leaderboardRank: viewModel.shouldShowRankedCompletionSummary
+                        ? viewModel.completionLeaderboardRank : nil,
+                    leaderboardTotal: viewModel.shouldShowRankedCompletionSummary
+                        ? viewModel.completionLeaderboardTotal : nil,
                     leaderboardRankBasis: .liveSession,
                     leaderboardContext: viewModel.replayContext,
+                    ranksOnLeaderboard: viewModel.shouldShowRankedCompletionSummary,
+                    achievementTitleOverride: viewModel.shouldShowRankedCompletionSummary
+                        ? nil : "PROGRESS SAVED",
                     onDone: handleCompletionSummaryDismissed
                 )
             } else {
@@ -230,10 +238,6 @@ struct LiveClimbSessionView: View {
                 .padding(.horizontal, 18)
                 .padding(.top, 12)
 
-            savedSummary
-                .padding(.horizontal, 24)
-                .padding(.top, 8)
-
             bottomControls
                 .padding(.horizontal, 22)
                 .padding(.top, 10)
@@ -390,25 +394,6 @@ struct LiveClimbSessionView: View {
                 .fill(.white.opacity(0.09))
         )
         .accessibilityElement(children: .combine)
-    }
-
-    @ViewBuilder
-    private var savedSummary: some View {
-        if case .saved(let status) = viewModel.phase {
-            VStack(spacing: 8) {
-                Text(savedTitle(for: status))
-                    .font(.montserratBold(size: 22))
-                    .foregroundStyle(.white)
-
-                if let recordedResult = viewModel.recordedResult {
-                    Text("\(recordedResult.steps.formatted()) steps saved")
-                        .font(.montserratMedium(size: 15))
-                        .foregroundStyle(.white.opacity(0.62))
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 2)
-        }
     }
 
     private var bottomControls: some View {
@@ -729,19 +714,6 @@ struct LiveClimbSessionView: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-    }
-
-    private func savedTitle(for status: ClimbAttemptStatus) -> String {
-        switch status {
-        case .completed:
-            return viewModel.mode.isLandmarkClimb ? "Climb Complete" : "Session Complete"
-        case .failed:
-            return "Attempt Saved"
-        case .active:
-            return "Progress Saved"
-        case .abandoned:
-            return "Attempt Ended"
-        }
     }
 
     private var headphoneRequiredOverlay: some View {
