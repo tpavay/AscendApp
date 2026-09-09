@@ -255,7 +255,7 @@ node '$scripts_dir/unfinished-tests.mjs' '$log' '$pass_first_line'"
         node "$scripts_dir/verify-test-pass-result.mjs" \
             "$result_bundle" ${expected_suites[@]+"${expected_suites[@]}"} \
             > "$verdict" 2>&1 || verdict_status=$?
-        cat "$verdict" | tee -a "$log"
+        tee -a "$log" < "$verdict"
         case "$verdict_status" in
             0) ;;
             1) echo "--- Test pass $pass ran nothing it was told to run ---" | tee -a "$log" ;;
