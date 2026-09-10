@@ -305,6 +305,7 @@ struct LiveClimbSessionView: View {
             .frame(width: hasStartedRecording ? 0 : 44, height: hasStartedRecording ? 0 : 44)
             .opacity(hasStartedRecording ? 0 : 1)
             .allowsHitTesting(!hasStartedRecording)
+            .accessibilityHidden(hasStartedRecording)
             .clipped()
 
             Spacer(minLength: 0)
@@ -313,6 +314,7 @@ struct LiveClimbSessionView: View {
             sessionArtwork
                 .frame(width: showsClimbPhotoBackground ? 0 : 42, height: showsClimbPhotoBackground ? 0 : 42)
                 .opacity(showsClimbPhotoBackground ? 0 : 1)
+                .accessibilityHidden(showsClimbPhotoBackground)
                 .clipped()
 
             Spacer(minLength: 0)
