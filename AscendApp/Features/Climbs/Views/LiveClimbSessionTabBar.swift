@@ -28,7 +28,11 @@ struct LiveClimbSessionTabBar: View {
         HStack(spacing: 4) {
             ForEach(LiveClimbSessionTab.allCases) { tab in
                 Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
+                    // Matches `sessionBackground`'s photo-crossfade duration: this selection also
+                    // drives `showsClimbPhotoBackground` in the hosting `LiveClimbSessionView`, so a
+                    // shorter ambient duration here would race that 250ms fade instead of running on
+                    // the same curve.
+                    withAnimation(.easeInOut(duration: 0.25)) {
                         selection = tab
                     }
                 } label: {
