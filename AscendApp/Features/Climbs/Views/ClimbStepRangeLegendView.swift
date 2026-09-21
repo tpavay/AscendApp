@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The step-range key for the globe's tier-colored pins. Lists only the tiers that
-/// have a pin on the globe, so the legend never names a color nobody can find.
+/// The step-range key for the globe's tier-colored markers. Lists only the tiers that
+/// have a marker on the globe, so the legend never names a color nobody can find.
 struct ClimbStepRangeLegendView: View {
     let tiers: [ClimbTier]
 

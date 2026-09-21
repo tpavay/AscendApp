@@ -1,7 +1,7 @@
 import Testing
 @testable import AscendApp
 
-/// The pin card's one number: distinct climbers who have completed the climb, from
+/// The preview card's one number: distinct climbers who have completed the climb, from
 /// the leaderboard projection the board itself reads. Zero is the open First Ascent,
 /// said in the app's own First Ascent words.
 struct ClimbPreviewCardCompletedClimbersTests {

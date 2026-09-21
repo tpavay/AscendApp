@@ -166,7 +166,7 @@ node scripts/firestore-query.mjs count users/<uid>/workouts --env staging   # ma
 node scripts/firestore-query.mjs count workouts --env staging               # EMPTY (verified) - no such collection
 ```
 
-The top-level collections a climb does reach - `leaderboard_stats`, `live_replay_leaderboards`, `live_climb_community_stats` - hold server-derived aggregates keyed by climber-period or by context, never one row per climb.
+The top-level collections a climb does reach - `leaderboard_stats`, `live_replay_leaderboards`, `live_climb_community_stats`, and Home's single `home_today_activity/global` feed document - hold server-derived aggregates keyed by climber-period or by context, never one document per climb.
 
 ### `(none)` from a collection listing settles nothing
 

@@ -3,7 +3,7 @@ import Testing
 @testable import AscendApp
 
 /// The sheet's three resting heights and which of them a drag can reach. Home's sheet
-/// drags down to `compact`; Browse only ever arrives there through a pin tap.
+/// drags down to `compact`; Browse only ever arrives there through a marker tap.
 struct BrowseSheetDetentTests {
     private let homeDetents: [BrowseSheetDetent] = [.compact, .medium, .expanded]
     private let browseDetents: [BrowseSheetDetent] = [.medium, .expanded]

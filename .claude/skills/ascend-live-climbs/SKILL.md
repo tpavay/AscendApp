@@ -1,8 +1,9 @@
 ---
 name: ascend-live-climbs
-description: Use when working on Ascend Live Climbs - climb attempts, live sensor sessions, the replay leaderboard, First Ascent, the globe/browse surface, climb detail, climb cards, Apple Health enrichment of climbs, or catalog release phasing and coming-soon climbs. Covers the 3-screen loop, the attempt model, live session execution, replay rank rules, and content-driven catalog delivery.
+description: Use when working on Ascend Live Climbs - climb attempts, live sensor sessions, the replay leaderboard, First Ascent, the globe/browse surface, climb detail, climb cards, Apple Health enrichment of climbs, or catalog release phasing and coming-soon climbs. Covers the 2-screen loop (Home is the globe), the attempt model, live session execution, replay rank rules, and content-driven catalog delivery.
 paths:
   - AscendApp/Features/Climbs/**
+  - AscendApp/Features/Home/**
   - AscendLiveActivityWidgets/**
   - AscendApp/Shared/Services/AppleHealthEnrichment*
   - AscendApp/Features/Workouts/Views/HeartRateChartView.swift

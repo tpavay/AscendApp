@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The card a tapped pin shows: how many climbers have completed the climb (or that
+/// The card a tapped marker shows: how many climbers have completed the climb (or that
 /// its First Ascent is still open), its name, city, steps and floors. It carries no
 /// button and no chevron; the whole card is the tap target and opens Climb Detail,
 /// which owns the call to action.

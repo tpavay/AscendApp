@@ -14,7 +14,7 @@ import SwiftData
 /// Today's Climb. Over it sits a sheet with three positions, collapsed by default to
 /// the This Week line; pulled up it carries the Today's Climb row, ON THE GLOBE TODAY,
 /// the Weekly Rank and Streak tiles, Recent Personal Records, and then the catalog
-/// browse sections with search. A tapped pin shows a card that opens Climb Detail.
+/// browse sections with search. A tapped marker shows a card that opens Climb Detail.
 ///
 /// Only the active tab is mounted, so the map renderer runs on Home alone, and every
 /// `.task` here is bounded: the today feed is one listener on one document, the card

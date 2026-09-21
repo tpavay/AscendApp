@@ -5,7 +5,7 @@ import SwiftUI
 /// Owns the drag and the settle between detents; the caller owns which detent is
 /// resting through `detent` and hears each settle through `setDetent`. `dragDetents`
 /// is the set a drag can come to rest on: Browse never drags down to `compact`
-/// (a pin tap puts it there), Home's sheet does.
+/// (a marker tap puts it there), Home's sheet does.
 struct ClimbBrowseDrawer<Content: View>: View {
     @Binding var detent: BrowseSheetDetent
 

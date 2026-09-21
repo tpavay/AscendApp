@@ -66,7 +66,7 @@ struct HomeGlobeSnapshotEvidenceTests {
 
     // MARK: - Snapshot
 
-    /// The globe at `camera` with `scene`'s pins drawn where the snapshot places them.
+    /// The globe at `camera` with `scene`'s markers drawn where the snapshot places them.
     /// Written to `ASCEND_EVIDENCE_DIR` only; the map tiles come from MapKit.
     private func photographGlobe(camera: MapCamera, scene: AscendMapScene, named name: String) async throws {
         let options = MKMapSnapshotter.Options()

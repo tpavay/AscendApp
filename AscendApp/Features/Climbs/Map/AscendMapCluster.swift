@@ -1,8 +1,8 @@
 import CoreLocation
 import Foundation
 
-/// Several landmarks drawn as one counted bubble at world zoom. Tapping it flies the
-/// camera in far enough for its members to draw as pins.
+/// Several landmarks whose markers would overlap on screen, drawn as one "N climbs"
+/// pill. Tapping it flies the camera to the region where its members separate.
 struct AscendMapCluster: Identifiable {
     let id: String
     let coordinate: CLLocationCoordinate2D
