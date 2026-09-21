@@ -196,7 +196,7 @@ struct HomeView: View {
             await todayActivity.observe(currentUserId: authVM.user?.uid)
         }
         .task(id: globeViewModel.previewSummary?.climb.id) {
-            await globeViewModel.refreshPreviewCounts()
+            await globeViewModel.refreshPreviewCompletedClimberCount()
         }
         .onChange(of: todayActivity.feed) { _, _ in
             refreshTodayPresentations()
@@ -458,7 +458,7 @@ struct HomeView: View {
             if let previewSummary = globeViewModel.previewSummary {
                 ClimbPreviewCardView(
                     summary: previewSummary,
-                    counts: globeViewModel.previewCounts,
+                    completedClimberCount: globeViewModel.previewCompletedClimberCount,
                     onSelect: {
                         openPreviewClimb(previewSummary.climb)
                     },

@@ -111,7 +111,7 @@ struct ClimbBrowseView: View {
             trackBrowseOpenedIfNeeded()
         }
         .task(id: viewModel.previewSummary?.climb.id) {
-            await viewModel.refreshPreviewCounts()
+            await viewModel.refreshPreviewCompletedClimberCount()
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbStateDidChange)) { _ in
             viewModel.refresh(modelContext: modelContext)
@@ -271,7 +271,7 @@ struct ClimbBrowseView: View {
             if let previewSummary = viewModel.previewSummary {
                 ClimbPreviewCardView(
                     summary: previewSummary,
-                    counts: viewModel.previewCounts,
+                    completedClimberCount: viewModel.previewCompletedClimberCount,
                     onSelect: {
                         openPreviewClimb(previewSummary.climb)
                     },

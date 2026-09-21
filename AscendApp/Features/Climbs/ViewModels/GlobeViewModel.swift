@@ -23,8 +23,10 @@ final class GlobeViewModel {
     /// The zoom band the camera last reported. Drives clustering, names and map
     /// detail; it changes once per band crossing, never per frame.
     private(set) var cameraZoomBand: ClimbMapZoomBand = .world
-    /// The counts the open card shows for its climb, once fetched.
-    private(set) var previewCounts: ClimbCommunityCounts?
+    /// How many distinct climbers have completed the climb the open card shows, once
+    /// fetched. Nil until the board has answered, so the card never shows a number it
+    /// has not read.
+    private(set) var previewCompletedClimberCount: Int?
 
     private let climbService: ClimbService
     private let communityStatsService: LiveClimbCommunityStatsServicing
@@ -205,7 +207,7 @@ final class GlobeViewModel {
 
     func selectPreview(_ climb: Climb, modelContext: ModelContext) {
         if previewSummary?.climb.id != climb.id {
-            previewCounts = nil
+            previewCompletedClimberCount = nil
         }
         previewSummary = climbService.previewSummary(for: climb, modelContext: modelContext)
         // Fly down to the landmark itself (close, pitched 3D framing) rather
@@ -227,7 +229,7 @@ final class GlobeViewModel {
 
     func dismissPreview() {
         previewSummary = nil
-        previewCounts = nil
+        previewCompletedClimberCount = nil
         setOverviewCamera()
         userDidInteract()
     }
@@ -321,7 +323,7 @@ final class GlobeViewModel {
     func prepareForHomeEntry() {
         searchQuery = ""
         previewSummary = nil
-        previewCounts = nil
+        previewCompletedClimberCount = nil
         guard let climb = dailyRecommendedClimb else {
             resetOverviewCamera()
             return
@@ -335,32 +337,29 @@ final class GlobeViewModel {
         )
     }
 
-    /// Loads the counts the open card shows: how many climbers have completed the
-    /// climb and how many completions the board holds, the same two numbers Climb
-    /// Detail reads. Cleared when the card closes; a stale answer never lands on a
-    /// different climb's card.
-    func refreshPreviewCounts() async {
+    /// Loads the one number the open card shows: how many distinct climbers have
+    /// completed the climb. It is the leaderboard projection's own finisher count,
+    /// the same figure the board and Climb Detail read, so the card can never
+    /// disagree with them. Cleared when the card closes; a stale answer never lands
+    /// on a different climb's card.
+    func refreshPreviewCompletedClimberCount() async {
         guard let climb = previewSummary?.climb, climb.isAvailable else {
-            previewCounts = nil
+            previewCompletedClimberCount = nil
             return
         }
         let context = LiveReplayLeaderboardContext.liveClimb(
             climbId: climb.id,
             targetSteps: climb.referenceStepCount
         )
-        async let fetchedSummary = leaderboardService.fetchSummary(context: context)
-        async let fetchedBoard = leaderboardService.fetchCompletionLeaderboard(context: context, limit: 1)
-        let summary = try? await fetchedSummary
-        let board = try? await fetchedBoard
+        let summary = try? await leaderboardService.fetchSummary(context: context)
         guard previewSummary?.climb.id == climb.id else { return }
-        guard summary != nil || board != nil else {
-            previewCounts = nil
+        guard let summary else {
+            previewCompletedClimberCount = nil
             return
         }
-        previewCounts = ClimbCommunityCounts(
-            completedClimbers: max(summary?.completedCount ?? 0, summary?.firstAscent == nil ? 0 : 1),
-            completions: max(board?.completedCount ?? 0, summary?.completedCount ?? 0)
-        )
+        // A board whose First Ascent is claimed has at least one finisher, whatever
+        // its counter says while it is still being derived.
+        previewCompletedClimberCount = max(summary.completedCount, summary.firstAscent == nil ? 0 : 1)
     }
 
     private func setOverviewCamera() {
