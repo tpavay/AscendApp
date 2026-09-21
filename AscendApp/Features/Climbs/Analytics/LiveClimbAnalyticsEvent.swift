@@ -2,7 +2,6 @@ import Foundation
 
 enum LiveClimbAnalyticsEvent: TelemetryEvent {
     case homeDailyTapped(climb: Climb, homeState: ClimbHomeCardState)
-    case homeExploreTapped(totalClimbs: Int)
     case browseOpened(entryPoint: EntryPoint, totalClimbs: Int)
     case browsePreviewShown(climb: Climb)
     case browseClimbOpened(climb: Climb, entryPoint: EntryPoint)
@@ -61,14 +60,6 @@ enum LiveClimbAnalyticsEvent: TelemetryEvent {
                 climb: climb,
                 parameters: [
                     "home_state": .string(Self.homeStateValue(homeState))
-                ]
-            )
-
-        case .homeExploreTapped(let totalClimbs):
-            return record(
-                name: "live_climb_home_explore_tap",
-                parameters: [
-                    "total_climbs_bucket": .string(CountBucket(totalClimbs).rawValue)
                 ]
             )
 
@@ -284,6 +275,9 @@ extension LiveClimbAnalyticsEvent {
     enum EntryPoint: String {
         case homeDaily = "home_daily"
         case homeExplore = "home_explore"
+        case homeTodayRow = "home_today_row"
+        case homePin = "home_pin"
+        case homeCard = "home_card"
         case workoutList = "workout_list"
         case browseSearch = "browse_search"
         case browseSection = "browse_section"

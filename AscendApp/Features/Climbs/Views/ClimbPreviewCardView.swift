@@ -1,7 +1,11 @@
 import SwiftUI
 
+/// The card a tapped pin shows: who has finished the climb and how many completions
+/// it holds, its name, city, steps and floors, and a chevron. It carries no button;
+/// the whole card opens Climb Detail, which owns the call to action.
 struct ClimbPreviewCardView: View {
     let summary: ClimbPreviewSummary
+    var counts: ClimbCommunityCounts?
     let onSelect: () -> Void
     let onClose: () -> Void
 
@@ -73,38 +77,75 @@ struct ClimbPreviewCardView: View {
     }
 
     private var availableContent: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(summary.climb.name)
-                .font(.montserratBold(size: 14.5))
-                .foregroundStyle(.white)
-                .lineLimit(2)
-                .minimumScaleFactor(0.85)
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
+                communityCountsLine
 
-            HStack(spacing: 5) {
-                Image(systemName: "mappin.and.ellipse")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.46))
-
-                Text(summary.climb.displayLocation)
-                    .font(.montserratRegular(size: 12))
-                    .foregroundStyle(.white.opacity(0.62))
-                    .lineLimit(1)
-            }
-
-            HStack(spacing: 10) {
-                Text("\(summary.climb.referenceStepCount.formatted()) steps")
-                    .font(.montserratSemiBold(size: 12))
+                Text(summary.climb.name)
+                    .font(.montserratBold(size: 14.5))
                     .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
 
-                Text("|")
-                    .font(.montserratMedium(size: 11))
-                    .foregroundStyle(.white.opacity(0.26))
+                HStack(spacing: 5) {
+                    Image(systemName: "mappin.and.ellipse")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.46))
 
-                Text(estimatedTimeText)
-                    .font(.montserratSemiBold(size: 12))
-                    .foregroundStyle(.white.opacity(0.88))
+                    Text(summary.climb.displayLocation)
+                        .font(.montserratRegular(size: 12))
+                        .foregroundStyle(.white.opacity(0.62))
+                        .lineLimit(1)
+                }
+
+                HStack(spacing: 10) {
+                    Text("\(summary.climb.referenceStepCount.formatted()) steps")
+                        .font(.montserratSemiBold(size: 12))
+                        .foregroundStyle(.white)
+
+                    Text("|")
+                        .font(.montserratMedium(size: 11))
+                        .foregroundStyle(.white.opacity(0.26))
+
+                    Text("\(summary.climb.calculatedFloors.formatted()) floors")
+                        .font(.montserratSemiBold(size: 12))
+                        .foregroundStyle(.white.opacity(0.88))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.42))
+                .accessibilityHidden(true)
+        }
+    }
+
+    /// Both numbers are named by what they count, per the rank model: climbers who
+    /// have finished, and finished attempts. Absent until the board has answered, so
+    /// the card never shows a zero it has not read.
+    @ViewBuilder
+    private var communityCountsLine: some View {
+        if let counts {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(summary.climb.tier.color)
+                    .frame(width: 7, height: 7)
+
+                Text(Self.countsText(counts))
+                    .font(.montserratBold(size: 9.5))
+                    .tracking(0.9)
+                    .foregroundStyle(.white.opacity(0.72))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
         }
+    }
+
+    static func countsText(_ counts: ClimbCommunityCounts) -> String {
+        let completed = "\(counts.completedClimbers.formatted()) COMPLETED"
+        let completions = "\(counts.completions.formatted()) \(counts.completions == 1 ? "COMPLETION" : "COMPLETIONS")"
+        return "\(completed) · \(completions)"
     }
 
     private var comingSoonContent: some View {
@@ -134,13 +175,6 @@ struct ClimbPreviewCardView: View {
         }
     }
 
-    private var estimatedTimeText: String {
-        ClimbEstimatedTimeFormatter.estimatedTimeText(
-            for: summary.climb.referenceStepCount,
-            spm: SettingsManager.shared.effectiveBaseLevelSPM
-        )
-    }
-
 }
 
 #Preview("New Climb") {
@@ -157,6 +191,7 @@ struct ClimbPreviewCardView: View {
 #Preview("Completed Climb") {
     ClimbPreviewCardView(
         summary: ClimbPreviewSummary(climb: .preview, isCompleted: true),
+        counts: ClimbCommunityCounts(completedClimbers: 8, completions: 12),
         onSelect: {},
         onClose: {}
     )

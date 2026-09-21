@@ -20,6 +20,11 @@ final class GlobeViewModel {
     var isRefreshingCatalog = false
     var liveClimbCommunitySummary: LiveClimbCommunitySummary = .empty
     var todayClimbStakeLine: TodayClimbStakeLine = .unavailable
+    /// The zoom band the camera last reported. Drives clustering, names and map
+    /// detail; it changes once per band crossing, never per frame.
+    private(set) var cameraZoomBand: ClimbMapZoomBand = .world
+    /// The counts the open card shows for its climb, once fetched.
+    private(set) var previewCounts: ClimbCommunityCounts?
 
     private let climbService: ClimbService
     private let communityStatsService: LiveClimbCommunityStatsServicing
@@ -199,6 +204,9 @@ final class GlobeViewModel {
     }
 
     func selectPreview(_ climb: Climb, modelContext: ModelContext) {
+        if previewSummary?.climb.id != climb.id {
+            previewCounts = nil
+        }
         previewSummary = climbService.previewSummary(for: climb, modelContext: modelContext)
         // Fly down to the landmark itself (close, pitched 3D framing) rather
         // than the far top-down preview distance.
@@ -219,6 +227,7 @@ final class GlobeViewModel {
 
     func dismissPreview() {
         previewSummary = nil
+        previewCounts = nil
         setOverviewCamera()
         userDidInteract()
     }
@@ -250,13 +259,20 @@ final class GlobeViewModel {
     func mapCameraDidChange(_ context: MapCameraUpdateContext) {
         mapCameraDidChange(
             latitude: context.camera.centerCoordinate.latitude,
-            longitude: context.camera.centerCoordinate.longitude
+            longitude: context.camera.centerCoordinate.longitude,
+            distance: context.camera.distance
         )
     }
 
-    func mapCameraDidChange(latitude: Double, longitude: Double) {
+    func mapCameraDidChange(latitude: Double, longitude: Double, distance: CLLocationDistance? = nil) {
         currentLatitude = latitude
         currentLongitude = wrappedLongitude(longitude)
+        if let distance {
+            let band = ClimbMapZoomBand(cameraDistance: distance)
+            if band != cameraZoomBand {
+                cameraZoomBand = band
+            }
+        }
 
         if suppressCameraInteraction {
             suppressCameraInteraction = false
@@ -286,6 +302,65 @@ final class GlobeViewModel {
         currentLatitude = GlobeViewModel.defaultLatitude
         currentLongitude = GlobeViewModel.defaultLongitude
         setOverviewCamera()
+    }
+
+    /// Flies in far enough for a cluster's members to draw as their own pins.
+    func focusOnCluster(_ cluster: AscendMapCluster) {
+        currentLatitude = cluster.coordinate.latitude
+        currentLongitude = cluster.coordinate.longitude
+        setCamera(
+            latitude: cluster.coordinate.latitude,
+            longitude: cluster.coordinate.longitude,
+            distance: cameraZoomBand.clusterFocusDistance
+        )
+        userDidInteract()
+    }
+
+    /// Home's opening frame: continent altitude, centred on Today's Climb. Falls back
+    /// to the default overview when no climb is recommended yet.
+    func prepareForHomeEntry() {
+        searchQuery = ""
+        previewSummary = nil
+        previewCounts = nil
+        guard let climb = dailyRecommendedClimb else {
+            resetOverviewCamera()
+            return
+        }
+        currentLatitude = climb.latitude
+        currentLongitude = climb.longitude
+        setCamera(
+            latitude: climb.latitude,
+            longitude: climb.longitude,
+            distance: ClimbMapZoomBand.homeEntryCameraDistance
+        )
+    }
+
+    /// Loads the counts the open card shows: how many climbers have completed the
+    /// climb and how many completions the board holds, the same two numbers Climb
+    /// Detail reads. Cleared when the card closes; a stale answer never lands on a
+    /// different climb's card.
+    func refreshPreviewCounts() async {
+        guard let climb = previewSummary?.climb, climb.isAvailable else {
+            previewCounts = nil
+            return
+        }
+        let context = LiveReplayLeaderboardContext.liveClimb(
+            climbId: climb.id,
+            targetSteps: climb.referenceStepCount
+        )
+        async let fetchedSummary = leaderboardService.fetchSummary(context: context)
+        async let fetchedBoard = leaderboardService.fetchCompletionLeaderboard(context: context, limit: 1)
+        let summary = try? await fetchedSummary
+        let board = try? await fetchedBoard
+        guard previewSummary?.climb.id == climb.id else { return }
+        guard summary != nil || board != nil else {
+            previewCounts = nil
+            return
+        }
+        previewCounts = ClimbCommunityCounts(
+            completedClimbers: max(summary?.completedCount ?? 0, summary?.firstAscent == nil ? 0 : 1),
+            completions: max(board?.completedCount ?? 0, summary?.completedCount ?? 0)
+        )
     }
 
     private func setOverviewCamera() {

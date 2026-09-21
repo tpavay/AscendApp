@@ -1,5 +1,11 @@
 import SwiftUI
 
+/// A landmark's pin on the globe.
+///
+/// Every pin is drawn in its climb's tier color, so the globe reads as the step-range
+/// legend beside it. Whether the viewer has claimed the climb lives on the check
+/// badge alone: a claimed pin swaps the pin glyph for the badge, an unclaimed one
+/// keeps the glyph. A coming-soon climb dims but keeps its tier.
 struct ClimbPinView: View {
     let climb: Climb
     let isCompleted: Bool
@@ -32,7 +38,7 @@ struct ClimbPinView: View {
         .frame(width: 34, height: 38, alignment: .bottom)
         .scaleEffect(isHighlighted ? 1.06 : 1)
         .shadow(
-            color: shadowColor.opacity(isHighlighted ? 0.28 : 0.14),
+            color: tierColor.opacity(isHighlighted ? 0.42 : 0.24),
             radius: isHighlighted ? 9 : 4,
             x: 0,
             y: 3
@@ -41,27 +47,11 @@ struct ClimbPinView: View {
 
     private var pinIcon: some View {
         AppIcon(
-            token: isCompleted || climb.isAvailable ? .mapPinFill : .mapPin,
+            token: climb.isAvailable ? .mapPinFill : .mapPin,
             pointSize: pinSize
         )
-        .foregroundStyle(pinColor)
-        .opacity(climb.isComingSoon ? 0.42 : 1)
-    }
-
-    private var pinColor: Color {
-        // Unclaimed climbs (available OR coming-soon) render in neutral grey.
-        // Tier color is reserved for the completed-state check badge so the
-        // grey-vs-color contrast becomes the user's at-a-glance "what have I
-        // claimed?" signal.
-        .white.opacity(0.55)
-    }
-
-    private var shadowColor: Color {
-        if isCompleted {
-            return tierColor
-        }
-
-        return .white.opacity(0.25)
+        .foregroundStyle(tierColor)
+        .opacity(climb.isComingSoon ? 0.5 : 1)
     }
 
     private var completedBadge: some View {
@@ -89,12 +79,11 @@ struct ClimbPinView: View {
 
     private var availableSelectionGlow: some View {
         Circle()
-            .fill((climb.isComingSoon ? Color.white.opacity(0.12) : Color.white.opacity(0.24)))
-            .frame(width: 12, height: 12)
-            .blur(radius: 0.8)
+            .fill(tierColor.opacity(climb.isComingSoon ? 0.16 : 0.34))
+            .frame(width: 14, height: 14)
+            .blur(radius: 1.2)
             .offset(y: -7)
     }
-
 }
 
 #Preview("Pin States") {

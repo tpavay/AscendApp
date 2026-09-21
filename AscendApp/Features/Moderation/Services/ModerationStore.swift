@@ -24,6 +24,9 @@ final class ModerationStore {
     @ObservationIgnored
     private var replayRowMemo =
         ModeratedCollectionMemo<LiveReplayLeaderboardRow, ModeratedReplayLeaderboardRow>()
+    @ObservationIgnored
+    private var homeTodayRowMemo =
+        ModeratedCollectionMemo<HomeTodayActivityRow, ModeratedHomeTodayActivityRow>()
 
     init(
         repository: any ModerationRepositoryProtocol = ModerationRepository.shared,
@@ -307,6 +310,25 @@ final class ModerationStore {
             let blockedUserIds = blockedUserIds
             return sources.map {
                 CrossUserIdentityAdapter.replayRow(
+                    $0,
+                    blockedUserIds: blockedUserIds,
+                    isBlockListHydrated: isBlockListHydrated
+                )
+            }
+        }
+    }
+
+    func moderate(
+        _ rows: [HomeTodayActivityRow]
+    ) -> [ModeratedHomeTodayActivityRow] {
+        homeTodayRowMemo.resolve(
+            rows,
+            blocks: blockedClimbers,
+            isHydrated: isBlockListHydrated
+        ) { [self] sources in
+            let blockedUserIds = blockedUserIds
+            return sources.map {
+                CrossUserIdentityAdapter.homeTodayRow(
                     $0,
                     blockedUserIds: blockedUserIds,
                     isBlockListHydrated: isBlockListHydrated

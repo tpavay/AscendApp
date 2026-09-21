@@ -8,6 +8,9 @@ struct RoutinesView: View {
     }
 
     private let presentation: Presentation
+    // Optional on purpose: the standalone presentation is hosted outside the tab
+    // shell, where no router exists.
+    @Environment(TabRouter.self) private var tabRouter: TabRouter?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
@@ -120,13 +123,33 @@ struct RoutinesView: View {
         .onAppear {
             viewModel.configure(modelContext: modelContext)
             viewModel.loadRoutines()
+            openRequestedRoutineTemplateIfNeeded()
             Task {
                 await viewModel.refreshRemoteRoutineTemplates()
             }
         }
+        .onChange(of: tabRouter?.requestedRoutineTemplateId) { _, _ in
+            openRequestedRoutineTemplateIfNeeded()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .routineTemplatesDidChange)) { _ in
             viewModel.loadRoutines()
         }
+    }
+
+    /// Opens the catalog routine another surface asked for (a Home today row). A
+    /// template the catalog no longer carries is dropped rather than opening nothing
+    /// on every visit.
+    private func openRequestedRoutineTemplateIfNeeded() {
+        guard presentation == .tab,
+              let tabRouter,
+              tabRouter.requestedRoutineTemplateId != nil,
+              let templateId = tabRouter.consumeRequestedRoutineTemplateId() else {
+            return
+        }
+        guard let routine = viewModel.builtInRoutines.first(where: { $0.templateId == templateId }) else {
+            return
+        }
+        selectedRoutine = routine
     }
 
     private var header: some View {

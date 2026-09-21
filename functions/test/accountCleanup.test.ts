@@ -21,6 +21,7 @@ interface FakePortOptions {
   incomingBlockDocuments?: number;
   lifecycleEmailJobs?: number;
   revenueCatAnalyticsOutbox?: number;
+  homeTodayActivityRows?: number;
   failOn?: string[];
   failListing?: boolean;
 }
@@ -138,6 +139,14 @@ function makeFakePort(options: FakePortOptions = {}): {
       }
       deleted.push("revenuecat_analytics_outbox");
       return options.revenueCatAnalyticsOutbox ?? 0;
+    },
+
+    async removeHomeTodayActivityRows() {
+      if (failOn.has("home_today_activity")) {
+        throw new Error("cannot rewrite home_today_activity");
+      }
+      deleted.push("home_today_activity");
+      return options.homeTodayActivityRows ?? 0;
     },
 
     async deleteRateLimitDocument() {
@@ -844,6 +853,25 @@ test("removes queued lifecycle email jobs holding a raw email", async () => {
 
   assert.equal(summary.deletedLifecycleEmailJobs, 1);
   assert.ok(deleted.includes("email_jobs"));
+});
+
+test("removes the rows a deleted climber holds in the Home today feed", async () => {
+  const {deleted, port} = makeFakePort({homeTodayActivityRows: 2});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.removedHomeTodayActivityRows, 2);
+  assert.ok(deleted.includes("home_today_activity"));
+});
+
+test("a failed today-feed rewrite is reported and does not stop the sweep", async () => {
+  const {deleted, port} = makeFakePort({failOn: ["home_today_activity"]});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.removedHomeTodayActivityRows, 0);
+  assert.ok(summary.failures.some((failure) => failure.startsWith("home_today_activity:")));
+  assert.ok(deleted.includes("userRateLimits"));
 });
 
 test("removes RevenueCat analytics outbox rows holding the uid", async () => {

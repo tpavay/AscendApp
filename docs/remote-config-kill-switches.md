@@ -120,7 +120,7 @@ A kill switch there would not protect data; it would break the app while looking
 
 If a bug reaches those paths, the lever is a fixed build - which is exactly why the automatic paths, which cannot wait that long, are the ones with switches.
 
-Also not gated: anything a Cloud Function or an operator-run script writes, such as the server-side leaderboard derivation.
+Also not gated: anything a Cloud Function or an operator-run script writes, such as the server-side leaderboard derivation or Home's `home_today_activity` projection.
 Remote Config resolution is client-side, so a flag could not reach that code even if one existed, and a Cloud Function can simply be redeployed - the premise the whole mechanism rests on, that a binary cannot be rolled back, does not hold there.
 
 ## Flipping one

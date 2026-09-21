@@ -290,7 +290,7 @@ private actor StaticLiveClimbCommunityStatsService: LiveClimbCommunityStatsServi
     }
 }
 
-private struct StaticClimbCatalogRepository: ClimbCatalogRepository {
+struct StaticClimbCatalogRepository: ClimbCatalogRepository {
     let climbs: [Climb]
 
     func loadInitialCatalog() throws -> ClimbCatalogSnapshot {

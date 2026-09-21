@@ -1574,6 +1574,17 @@ service cloud.firestore {
       }
     }
 
+    // Home's ON THE GLOBE TODAY rows: the most recent uploaded climbs across
+    // every session kind, newest first, with each climber's public identity.
+    // Derived by onWorkoutWrittenHomeTodayActivity from the canonical private
+    // workouts and written through the Admin SDK, so no client ever writes it
+    // and the rules validate no fields. Paid readers only: it is shared paid
+    // content on the same terms as the replay boards.
+    match /home_today_activity/{docId} {
+      allow read: if hasPaidAppAccess() && docId == "global";
+      allow write: if false;
+    }
+
     match /feedback/{feedbackId} {
       allow create: if isSignedIn() &&
         isValidFeedbackDocument() &&

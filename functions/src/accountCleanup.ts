@@ -3,6 +3,10 @@ import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import {buildRatingPromptEmailDedupeKey} from "./email/automation";
 import {buildEmailJobId} from "./email/queue";
+import {
+  makeAdminStore as makeHomeTodayActivityStore,
+  removeHomeTodayActivityRows,
+} from "./homeTodayActivity";
 import {PUBLIC_IDENTITY_STATE_DELETED} from "./publicIdentity";
 import {
   ANALYTICS_OUTBOX_COLLECTION,
@@ -36,6 +40,7 @@ export interface DeletedUserCleanupPort {
   deleteIncomingBlockDocuments(userId: string): Promise<number>;
   deleteLifecycleEmailJobs(userId: string): Promise<number>;
   deleteRevenueCatAnalyticsOutbox(userId: string): Promise<number>;
+  removeHomeTodayActivityRows(userId: string): Promise<number>;
   deleteRateLimitDocument(userId: string): Promise<void>;
 }
 
@@ -52,6 +57,7 @@ export interface CleanupSummary {
   deletedIncomingBlockDocuments: number;
   deletedLifecycleEmailJobs: number;
   deletedRevenueCatAnalyticsOutbox: number;
+  removedHomeTodayActivityRows: number;
   failures: string[];
 }
 
@@ -72,8 +78,9 @@ export interface CleanupSummary {
  * way, so each such record needs its own step here: notification_devices,
  * leaderboard_stats, identity propagation checkpoints, replay entries,
  * userRateLimits, the replay finisher statuses, feedback, moderation_reports,
- * incoming block documents, the uid-keyed email_jobs, and the RevenueCat
- * analytics outbox rows that carry the uid as Mixpanel distinct_id.
+ * incoming block documents, the uid-keyed email_jobs, the RevenueCat
+ * analytics outbox rows that carry the uid as Mixpanel distinct_id, and the
+ * rows the deleted climber holds in Home's `home_today_activity` feed.
  * Feedback and moderation reports are
  * hard-deleted rather than anonymized because their free-text or safety context
  * can identify the user after their account is gone.
@@ -195,6 +202,14 @@ export async function cleanupDeletedUser(
     failures.push(`revenuecat_analytics_outbox: ${errorMessage(error)}`);
   }
 
+  let removedHomeTodayActivityRows = 0;
+  try {
+    removedHomeTodayActivityRows =
+      await port.removeHomeTodayActivityRows(userId);
+  } catch (error) {
+    failures.push(`home_today_activity: ${errorMessage(error)}`);
+  }
+
   try {
     await port.deleteRateLimitDocument(userId);
   } catch (error) {
@@ -215,6 +230,7 @@ export async function cleanupDeletedUser(
     deletedRevenueCatAnalyticsOutbox,
     deletedSubcollections,
     failures,
+    removedHomeTodayActivityRows,
   };
 }
 
@@ -479,6 +495,13 @@ export function makeAdminPort(
       return snapshot.size;
     },
 
+    async removeHomeTodayActivityRows(userId) {
+      return removeHomeTodayActivityRows(
+        makeHomeTodayActivityStore(firestore),
+        userId
+      );
+    },
+
     async deleteRateLimitDocument(userId) {
       await firestore.collection("userRateLimits").doc(userId).delete();
     },
@@ -523,6 +546,7 @@ export const cleanupDeletedUserData = onDocumentDeleted(
       deletedRevenueCatAnalyticsOutbox:
         summary.deletedRevenueCatAnalyticsOutbox,
       deletedSubcollections: summary.deletedSubcollections,
+      removedHomeTodayActivityRows: summary.removedHomeTodayActivityRows,
       userId,
     });
 

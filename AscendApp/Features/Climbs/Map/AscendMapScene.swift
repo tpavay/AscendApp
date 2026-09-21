@@ -1,17 +1,43 @@
 import Foundation
 
-/// Engine-agnostic description of WHAT the climb map shows — the landmarks and
-/// their map-facing state. A *renderer* turns this into pixels (MapKit today;
-/// Mapbox / MapLibre / a custom globe later).
+/// Engine-agnostic description of WHAT the climb map shows: the landmarks, how each
+/// reads on the map, and how the current zoom band groups and labels them. A
+/// *renderer* turns this into pixels (MapKit today; Mapbox / MapLibre / a custom
+/// globe later).
 ///
-/// This is deliberately pure data: no MapKit, no SwiftUI. That keeps the
-/// business layer (`GlobeViewModel`) independent of any specific map engine and
-/// makes the map's content unit-testable. Swapping engines means writing a new
-/// renderer that consumes this same scene — not rewriting the globe's data flow
-/// or the view model. See `ClimbMapKitRenderer` for the current renderer and the
-/// migration notes there.
+/// This is deliberately pure data: no MapKit, no SwiftUI. That keeps the business
+/// layer (`GlobeViewModel`) independent of any specific map engine and makes the
+/// map's content unit-testable. Swapping engines means writing a new renderer that
+/// consumes this same scene, not rewriting the globe's data flow or the view model.
+/// See `ClimbMapKitRenderer` for the current renderer and the migration notes there.
 struct AscendMapScene {
     var landmarks: [AscendMapLandmark]
+    var zoomBand: ClimbMapZoomBand
+
+    /// Landmarks drawn as pins, and the counted bubbles the rest gather into at
+    /// world zoom. A highlighted landmark always draws as its own pin, so the climb
+    /// a card is open for never hides inside a count.
+    var layer: ClimbMapClustering.Layer {
+        let highlighted = landmarks.filter(\.isHighlighted)
+        let clustered = ClimbMapClustering.layer(
+            for: landmarks.filter { !$0.isHighlighted },
+            band: zoomBand
+        )
+        return ClimbMapClustering.Layer(
+            pins: clustered.pins + highlighted,
+            clusters: clustered.clusters
+        )
+    }
+
+    var showsNames: Bool {
+        zoomBand.showsNames
+    }
+
+    /// The step-range legend lists only the tiers on the globe.
+    var legendTiers: [ClimbTier] {
+        let present = Set(landmarks.map(\.climb.tier))
+        return ClimbTier.allCases.filter { present.contains($0) }
+    }
 }
 
 /// One placed landmark on the map: the climb plus how it should read on the map.
@@ -41,7 +67,8 @@ extension GlobeViewModel {
                     state: landmarkState(for: climb),
                     isHighlighted: previewSummary?.climb.id == climb.id
                 )
-            }
+            },
+            zoomBand: cameraZoomBand
         )
     }
 
