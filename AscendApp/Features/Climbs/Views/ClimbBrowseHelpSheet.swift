@@ -72,32 +72,40 @@ struct ClimbBrowseHelpSheet: View {
                     }
 
                     sectionCard(
-                        title: "Map Icons",
-                        subtitle: "These pin states tell you what each climb is doing right now."
+                        title: "Map Markers",
+                        subtitle: "Each marker's ring is its step tier. Inside it: what the climb is doing right now."
                     ) {
                         VStack(spacing: 12) {
                             legendRow(
-                                title: "Available",
-                                description: "A climb you can preview and start.",
+                                title: "Climbers completed",
+                                description: "How many climbers have finished it. Tap to preview and start.",
                                 climb: .preview,
-                                isCompleted: false,
-                                isHighlighted: false
+                                completedClimberCount: 12,
+                                isCompleted: false
+                            )
+
+                            legendRow(
+                                title: "First Ascent open",
+                                description: "Nobody has finished it yet. The first finisher claims it forever.",
+                                climb: .preview,
+                                completedClimberCount: 0,
+                                isCompleted: false
+                            )
+
+                            legendRow(
+                                title: "You completed it",
+                                description: "The check on the shoulder is yours: a climb you have finished at least once.",
+                                climb: .preview,
+                                completedClimberCount: 49,
+                                isCompleted: true
                             )
 
                             legendRow(
                                 title: "Coming Soon",
-                                description: "A future climb pinned on the globe but not open yet.",
+                                description: "A future climb marked on the globe but not open yet.",
                                 climb: .previewComingSoon,
-                                isCompleted: false,
-                                isHighlighted: false
-                            )
-
-                            legendRow(
-                                title: "Completed",
-                                description: "A climb you have already finished at least once.",
-                                climb: .preview,
-                                isCompleted: true,
-                                isHighlighted: false
+                                completedClimberCount: nil,
+                                isCompleted: false
                             )
                         }
                     }
@@ -187,14 +195,15 @@ struct ClimbBrowseHelpSheet: View {
         title: String,
         description: String,
         climb: Climb,
-        isCompleted: Bool,
-        isHighlighted: Bool
+        completedClimberCount: Int?,
+        isCompleted: Bool
     ) -> some View {
         HStack(alignment: .top, spacing: 14) {
-            ClimbPinView(
+            ClimbMarkerView(
                 climb: climb,
+                completedClimberCount: completedClimberCount,
                 isCompleted: isCompleted,
-                isHighlighted: isHighlighted
+                isHighlighted: false
             )
             .accessibilityHidden(true)
 

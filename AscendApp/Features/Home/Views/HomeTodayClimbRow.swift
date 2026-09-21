@@ -40,10 +40,8 @@ struct HomeTodayClimbRow: View {
                         .foregroundStyle(.white.opacity(0.56))
                         .lineLimit(1)
 
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Image(systemName: stakeLine.systemImageName)
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(Color.accent)
+                    HStack(alignment: .center, spacing: 6) {
+                        TodayClimbStakeLineIcon(stakeLine: stakeLine, size: 10)
 
                         Text(stakeLine.text)
                             .font(.montserratMedium(size: 11.5))

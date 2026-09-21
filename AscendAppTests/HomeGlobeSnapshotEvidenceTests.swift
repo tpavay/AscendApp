@@ -83,14 +83,15 @@ struct HomeGlobeSnapshotEvidenceTests {
             snapshot.image.draw(at: .zero)
             for landmark in scene.layer.pins {
                 let point = snapshot.point(for: landmark.climb.coordinate)
-                let pin = ImageRenderer(content: ClimbPinView(
+                let marker = ImageRenderer(content: ClimbMarkerView(
                     climb: landmark.climb,
+                    completedClimberCount: landmark.completedClimberCount,
                     isCompleted: landmark.state == .completed,
                     isHighlighted: landmark.isHighlighted
                 ))
-                pin.scale = 2
-                if let pinImage = pin.uiImage {
-                    pinImage.draw(at: CGPoint(x: point.x - pinImage.size.width / 2, y: point.y - pinImage.size.height))
+                marker.scale = 2
+                if let markerImage = marker.uiImage {
+                    markerImage.draw(at: CGPoint(x: point.x - markerImage.size.width / 2, y: point.y - markerImage.size.height / 2))
                 }
             }
             for cluster in scene.layer.clusters {

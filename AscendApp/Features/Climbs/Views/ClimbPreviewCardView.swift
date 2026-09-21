@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// The card a tapped pin shows: how many climbers have completed the climb, its name,
-/// city, steps and floors. It carries no button and no chevron; the whole card is
-/// the tap target and opens Climb Detail, which owns the call to action.
+/// The card a tapped pin shows: how many climbers have completed the climb (or that
+/// its First Ascent is still open), its name, city, steps and floors. It carries no
+/// button and no chevron; the whole card is the tap target and opens Climb Detail,
+/// which owns the call to action.
 struct ClimbPreviewCardView: View {
     let summary: ClimbPreviewSummary
     /// Distinct climbers who have completed the climb, from the leaderboard
@@ -116,19 +117,23 @@ struct ClimbPreviewCardView: View {
     }
 
     /// One number, counted over distinct climbers, from the projection the board
-    /// itself reads. Zero is the open First Ascent, so it reads as the claim it is.
-    /// Absent until the board has answered.
+    /// itself reads. Zero is the open First Ascent and reads as the claim it is, with
+    /// the app's own First Ascent mark. Absent until the board has answered.
     @ViewBuilder
     private var completedClimbersLine: some View {
         if let completedClimberCount {
             HStack(spacing: 6) {
-                Circle()
-                    .fill(summary.climb.tier.color)
-                    .frame(width: 7, height: 7)
+                if completedClimberCount <= 0 {
+                    FirstAscentInlineMark(size: 16)
+                } else {
+                    Circle()
+                        .fill(summary.climb.tier.color)
+                        .frame(width: 7, height: 7)
+                }
 
                 Text(Self.completedClimbersText(completedClimberCount))
                     .font(.montserratSemiBold(size: 11.5))
-                    .foregroundStyle(.white.opacity(0.78))
+                    .foregroundStyle(completedClimberCount <= 0 ? Color.accent : .white.opacity(0.78))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
@@ -138,7 +143,7 @@ struct ClimbPreviewCardView: View {
     static func completedClimbersText(_ count: Int) -> String {
         switch max(count, 0) {
         case 0:
-            return "Unclaimed"
+            return "First Ascent open"
         case 1:
             return "1 climber completed"
         case let count:

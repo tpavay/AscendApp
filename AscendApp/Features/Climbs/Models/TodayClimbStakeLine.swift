@@ -28,6 +28,18 @@ enum TodayClimbStakeLine: Equatable {
         }
     }
 
+    /// The First Ascent cases draw the app's own First Ascent mark
+    /// (`FirstAscentBadgeDetailed`), never a stand-in symbol; every other case keeps
+    /// its SF Symbol.
+    var showsFirstAscentMark: Bool {
+        switch self {
+        case .openFirstAscent, .firstAscent:
+            return true
+        case .completed, .completedPendingOrdinal, .nextFinisher, .joinFinishers, .unavailable:
+            return false
+        }
+    }
+
     var systemImageName: String {
         switch self {
         case .openFirstAscent, .firstAscent:

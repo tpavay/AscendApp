@@ -23,10 +23,11 @@ final class GlobeViewModel {
     /// The zoom band the camera last reported. Drives clustering, names and map
     /// detail; it changes once per band crossing, never per frame.
     private(set) var cameraZoomBand: ClimbMapZoomBand = .world
-    /// How many distinct climbers have completed the climb the open card shows, once
-    /// fetched. Nil until the board has answered, so the card never shows a number it
-    /// has not read.
-    private(set) var previewCompletedClimberCount: Int?
+    /// Distinct finishers per landmark, keyed by climb id, from the boards. Nil until
+    /// read: the markers and the card show no number, and claim no open First
+    /// Ascent, before the boards have answered. One bounded read, shared by every
+    /// marker and the card so they can never disagree.
+    private(set) var completedClimberCounts: [String: Int]?
 
     private let climbService: ClimbService
     private let communityStatsService: LiveClimbCommunityStatsServicing
@@ -206,9 +207,6 @@ final class GlobeViewModel {
     }
 
     func selectPreview(_ climb: Climb, modelContext: ModelContext) {
-        if previewSummary?.climb.id != climb.id {
-            previewCompletedClimberCount = nil
-        }
         previewSummary = climbService.previewSummary(for: climb, modelContext: modelContext)
         // Fly down to the landmark itself (close, pitched 3D framing) rather
         // than the far top-down preview distance.
@@ -229,7 +227,6 @@ final class GlobeViewModel {
 
     func dismissPreview() {
         previewSummary = nil
-        previewCompletedClimberCount = nil
         setOverviewCamera()
         userDidInteract()
     }
@@ -270,10 +267,7 @@ final class GlobeViewModel {
         currentLatitude = latitude
         currentLongitude = wrappedLongitude(longitude)
         if let distance {
-            let band = ClimbMapZoomBand(cameraDistance: distance)
-            if band != cameraZoomBand {
-                cameraZoomBand = band
-            }
+            updateZoomBand(forCameraDistance: distance)
         }
 
         if suppressCameraInteraction {
@@ -286,6 +280,13 @@ final class GlobeViewModel {
 
     func userDidInteract() {
         lastUserInteractionAt = Date()
+    }
+
+    private func updateZoomBand(forCameraDistance distance: CLLocationDistance) {
+        let band = ClimbMapZoomBand(cameraDistance: distance)
+        if band != cameraZoomBand {
+            cameraZoomBand = band
+        }
     }
 
     func tickAutoSpin() {
@@ -306,16 +307,42 @@ final class GlobeViewModel {
         setOverviewCamera()
     }
 
-    /// Flies in far enough for a cluster's members to draw as their own pins.
+    /// Flies in far enough for a cluster's members to draw as their own pins: to the
+    /// next band for a continent-wide group, and down to city zoom for two towers in
+    /// one city, which would otherwise split into overlapping pins.
     func focusOnCluster(_ cluster: AscendMapCluster) {
         currentLatitude = cluster.coordinate.latitude
         currentLongitude = cluster.coordinate.longitude
         setCamera(
             latitude: cluster.coordinate.latitude,
             longitude: cluster.coordinate.longitude,
-            distance: cameraZoomBand.clusterFocusDistance
+            distance: Self.clusterFocusDistance(for: cluster, from: cameraZoomBand)
         )
         userDidInteract()
+    }
+
+    /// The distance that separates a cluster's members on screen. Members within half
+    /// a degree of each other share a city and need city zoom; within five degrees the
+    /// country band, where names sit beside the pins; otherwise the band's own next
+    /// step in.
+    static func clusterFocusDistance(
+        for cluster: AscendMapCluster,
+        from band: ClimbMapZoomBand
+    ) -> CLLocationDistance {
+        let latitudes = cluster.landmarks.map(\.climb.latitude)
+        let longitudes = cluster.landmarks.map(\.climb.longitude)
+        guard let minLatitude = latitudes.min(), let maxLatitude = latitudes.max(),
+              let minLongitude = longitudes.min(), let maxLongitude = longitudes.max() else {
+            return band.clusterFocusDistance
+        }
+        let span = max(maxLatitude - minLatitude, maxLongitude - minLongitude)
+        if span < 0.5 {
+            return 60_000
+        }
+        if span < 5 {
+            return 2_000_000
+        }
+        return band.clusterFocusDistance
     }
 
     /// Home's opening frame: continent altitude, centred on Today's Climb. Falls back
@@ -323,7 +350,6 @@ final class GlobeViewModel {
     func prepareForHomeEntry() {
         searchQuery = ""
         previewSummary = nil
-        previewCompletedClimberCount = nil
         guard let climb = dailyRecommendedClimb else {
             resetOverviewCamera()
             return
@@ -337,38 +363,47 @@ final class GlobeViewModel {
         )
     }
 
-    /// Loads the one number the open card shows: how many distinct climbers have
-    /// completed the climb. It is the leaderboard projection's own finisher count,
-    /// the same figure the board and Climb Detail read, so the card can never
-    /// disagree with them. Cleared when the card closes; a stale answer never lands
-    /// on a different climb's card.
-    func refreshPreviewCompletedClimberCount() async {
-        guard let climb = previewSummary?.climb, climb.isAvailable else {
-            previewCompletedClimberCount = nil
-            return
+    /// Reads how many climbers have completed each landmark: one bounded query over
+    /// the catalog-sized board roots. Every marker and the open card read this one
+    /// answer. A failed read keeps the last answer rather than blanking the globe.
+    func refreshCompletedClimberCounts() async {
+        guard let counts = try? await leaderboardService.fetchLiveClimbCompletedClimberCounts() else { return }
+        if counts != completedClimberCounts {
+            completedClimberCounts = counts
         }
-        let context = LiveReplayLeaderboardContext.liveClimb(
-            climbId: climb.id,
-            targetSteps: climb.referenceStepCount
-        )
-        let summary = try? await leaderboardService.fetchSummary(context: context)
-        guard previewSummary?.climb.id == climb.id else { return }
-        guard let summary else {
-            previewCompletedClimberCount = nil
-            return
-        }
-        // A board whose First Ascent is claimed has at least one finisher, whatever
-        // its counter says while it is still being derived.
-        previewCompletedClimberCount = max(summary.completedCount, summary.firstAscent == nil ? 0 : 1)
     }
 
+    /// Distinct climbers who have completed the landmark, or nil until the boards
+    /// have answered. A landmark with no board has no finisher.
+    func completedClimberCount(for climb: Climb) -> Int? {
+        guard let completedClimberCounts else { return nil }
+        return completedClimberCounts[climb.id] ?? 0
+    }
+
+    /// Whether the landmark's First Ascent is still open, once the boards have been read.
+    func isFirstAscentOpen(_ climb: Climb) -> Bool {
+        guard climb.isAvailable, !isCompleted(climb) else { return false }
+        return completedClimberCount(for: climb) == 0
+    }
+
+    /// The count the open card shows, from the same answer the markers draw.
+    var previewCompletedClimberCount: Int? {
+        guard let climb = previewSummary?.climb, climb.isAvailable else { return nil }
+        return completedClimberCount(for: climb)
+    }
+
+    /// Every programmatic camera move sets the band itself. MapKit reports a camera
+    /// change for a finger, not reliably for a position the app assigned, and a band
+    /// left behind meant clusters and pins did not redraw until the next touch.
     private func setOverviewCamera() {
         suppressCameraInteraction = true
         cameraPosition = GlobeViewModel.defaultOverviewPosition
+        updateZoomBand(forCameraDistance: GlobeViewModel.defaultOverviewCameraDistance)
     }
 
     private func setCamera(latitude: Double, longitude: Double, distance: CLLocationDistance, pitch: CGFloat = 0) {
         suppressCameraInteraction = true
+        updateZoomBand(forCameraDistance: distance)
         cameraPosition = .camera(
             MapCamera(
                 centerCoordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),

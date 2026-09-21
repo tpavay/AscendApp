@@ -185,6 +185,7 @@ struct HomeView: View {
             refreshHomeDashboard(forceRank: true)
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
+            refreshCompletedClimberCounts()
 
             // Apple Health writes a climb's heart rate after the climb ends, so every Home entry
             // is another chance for a recent climb to pick up what was not there yet.
@@ -196,7 +197,9 @@ struct HomeView: View {
             await todayActivity.observe(currentUserId: authVM.user?.uid)
         }
         .task(id: globeViewModel.previewSummary?.climb.id) {
-            await globeViewModel.refreshPreviewCompletedClimberCount()
+            // A fresh read for the card the moment it opens, shared with every marker.
+            guard globeViewModel.previewSummary != nil else { return }
+            await globeViewModel.refreshCompletedClimberCounts()
         }
         .onChange(of: todayActivity.feed) { _, _ in
             refreshTodayPresentations()
@@ -221,6 +224,7 @@ struct HomeView: View {
             refreshHomeDashboard(forceRank: true)
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
+            refreshCompletedClimberCounts()
             refreshTodayPresentations()
             Task {
                 await enrichmentService.refreshPendingEnrichment(modelContext: modelContext)
@@ -231,6 +235,7 @@ struct HomeView: View {
             refreshHomeDashboard()
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
+            refreshCompletedClimberCounts()
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbCatalogDidChange)) { _ in
             globeViewModel.reloadCatalog(modelContext: modelContext)
@@ -654,6 +659,12 @@ struct HomeView: View {
     private func refreshLiveClimbCommunityStats() {
         Task {
             await globeViewModel.refreshLiveClimbCommunityStats()
+        }
+    }
+
+    private func refreshCompletedClimberCounts() {
+        Task {
+            await globeViewModel.refreshCompletedClimberCounts()
         }
     }
 

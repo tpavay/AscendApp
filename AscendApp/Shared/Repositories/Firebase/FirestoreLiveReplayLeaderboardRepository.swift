@@ -77,6 +77,27 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
 
     private init() {}
 
+    func fetchLiveClimbCompletedClimberCounts() async throws -> [String: Int] {
+        // `contextType` is a single-field equality, served by Firestore's automatic
+        // index, so no composite index is needed.
+        let snapshot = try await db
+            .collection("live_replay_leaderboards")
+            .whereField("contextType", isEqualTo: LiveReplayLeaderboardContextType.liveClimb.rawValue)
+            .getDocuments(source: .server)
+
+        var counts: [String: Int] = [:]
+        for document in snapshot.documents {
+            let data = document.data()
+            guard let climbId = stringValue(for: "contextId", in: data), !climbId.isEmpty else { continue }
+            let completedCount = intValue(for: "completedCount", in: data) ?? 0
+            // A board whose First Ascent is claimed has at least one finisher, whatever
+            // its counter says while it is still being derived.
+            let hasFirstAscent = !(stringValue(for: "firstAscentUserId", in: data) ?? "").isEmpty
+            counts[climbId] = max(completedCount, hasFirstAscent ? 1 : 0)
+        }
+        return counts
+    }
+
     func fetchSummary(
         context: LiveReplayLeaderboardContext
     ) async throws -> LiveReplayLeaderboardSummary {

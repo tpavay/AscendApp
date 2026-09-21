@@ -275,6 +275,10 @@ private actor MockLiveReplayLeaderboardRepository: LiveReplayLeaderboardReposito
     func beginLiveSession() {
         beginLiveSessionCount += 1
     }
+
+    func fetchLiveClimbCompletedClimberCounts() async throws -> [String: Int] {
+        [:]
+    }
     private(set) var fetchFinisherStatusCount = 0
     private(set) var fetchCurrentUserBestCompletionCount = 0
     private(set) var fetchPublishStatusCount = 0

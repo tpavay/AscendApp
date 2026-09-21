@@ -44,6 +44,8 @@ struct AscendMapScene {
 struct AscendMapLandmark: Identifiable {
     enum State {
         case available
+        /// Available and nobody has finished it yet: the First Ascent is still open.
+        case firstAscentOpen
         case comingSoon
         case completed
     }
@@ -51,6 +53,8 @@ struct AscendMapLandmark: Identifiable {
     let climb: Climb
     var state: State
     var isHighlighted: Bool
+    /// Distinct climbers who have completed it, or nil until the boards have answered.
+    var completedClimberCount: Int? = nil
 
     var id: String { climb.id }
 }
@@ -65,7 +69,8 @@ extension GlobeViewModel {
                 AscendMapLandmark(
                     climb: climb,
                     state: landmarkState(for: climb),
-                    isHighlighted: previewSummary?.climb.id == climb.id
+                    isHighlighted: previewSummary?.climb.id == climb.id,
+                    completedClimberCount: completedClimberCount(for: climb)
                 )
             },
             zoomBand: cameraZoomBand
@@ -74,6 +79,12 @@ extension GlobeViewModel {
 
     private func landmarkState(for climb: Climb) -> AscendMapLandmark.State {
         if isCompleted(climb) { return .completed }
-        return climb.isComingSoon ? .comingSoon : .available
+        if climb.isComingSoon { return .comingSoon }
+        // Only once the boards have answered: an unread count marks nothing as open,
+        // so the globe never claims a First Ascent is available before it knows.
+        if isFirstAscentOpen(climb) {
+            return .firstAscentOpen
+        }
+        return .available
     }
 }

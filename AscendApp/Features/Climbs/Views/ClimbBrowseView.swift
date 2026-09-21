@@ -109,9 +109,11 @@ struct ClimbBrowseView: View {
         .task {
             viewModel.loadIfNeeded(modelContext: modelContext)
             trackBrowseOpenedIfNeeded()
+            await viewModel.refreshCompletedClimberCounts()
         }
         .task(id: viewModel.previewSummary?.climb.id) {
-            await viewModel.refreshPreviewCompletedClimberCount()
+            guard viewModel.previewSummary != nil else { return }
+            await viewModel.refreshCompletedClimberCounts()
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbStateDidChange)) { _ in
             viewModel.refresh(modelContext: modelContext)

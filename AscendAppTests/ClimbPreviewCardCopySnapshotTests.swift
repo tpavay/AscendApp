@@ -29,7 +29,7 @@ struct ClimbPreviewCardCopySnapshotTests {
             summary: ClimbPreviewSummary(climb: .preview, isCompleted: true),
             completedClimberCount: 1
         )
-        let unclaimedText = try await cardCopy(
+        let openFirstAscentText = try await cardCopy(
             summary: ClimbPreviewSummary(climb: .preview, isCompleted: false),
             completedClimberCount: 0
         )
@@ -52,12 +52,13 @@ struct ClimbPreviewCardCopySnapshotTests {
         // First Ascent reads as the claim it is. Nothing until the board has answered.
         #expect(availableText.contains("12 climbers completed"))
         #expect(completedText.contains("1 climber completed"))
-        #expect(unclaimedText.contains("unclaimed"))
+        #expect(openFirstAscentText.contains("first ascent open"))
+        #expect(!openFirstAscentText.contains("unclaimed"))
         #expect(!unreadText.contains("completed"))
-        #expect(!unreadText.contains("unclaimed"))
+        #expect(!unreadText.contains("first ascent"))
 
         // No attempt or completions copy on any preview card state.
-        for text in [availableText, completedText, unclaimedText, unreadText, comingSoonText] {
+        for text in [availableText, completedText, openFirstAscentText, unreadText, comingSoonText] {
             #expect(!text.contains("attempt"))
             #expect(!text.contains("completions"))
         }
@@ -102,7 +103,7 @@ private struct PreviewCardProof: View {
                 .font(.montserratBold(size: 20))
                 .foregroundStyle(.white)
 
-            section("Available climb · stacked under the First Ascent stake line") {
+            section("First Ascent open · stacked under the First Ascent stake line") {
                 VStack(alignment: .leading, spacing: 10) {
                     stakeLine
                     ClimbPreviewCardView(
@@ -147,10 +148,8 @@ private struct PreviewCardProof: View {
     }
 
     private var stakeLine: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: TodayClimbStakeLine.openFirstAscent.systemImageName)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(Color.accent)
+        HStack(alignment: .center, spacing: 8) {
+            TodayClimbStakeLineIcon(stakeLine: .openFirstAscent)
                 .frame(width: 16, alignment: .leading)
 
             Text(TodayClimbStakeLine.openFirstAscent.text)

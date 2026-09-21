@@ -21,13 +21,23 @@ struct HomeThisWeekLineTests {
             firstWeekday: WeekConfiguration.mondayFirstWeekday
         ).calculate()
 
-        #expect(HomeThisWeekLine.lineText(for: summary) == "2 climbs · 4k steps · 1h")
+        #expect(HomeThisWeekLine.lineText(for: summary) == "2 climbs · 4k steps")
     }
 
     @Test
-    func anEmptyWeekSaysSo() {
+    func anEmptyWeekStatesItsZeros() {
         let summary = WeekActivitySummaryCalculator(workouts: [], firstWeekday: WeekConfiguration.mondayFirstWeekday).calculate()
-        #expect(HomeThisWeekLine.lineText(for: summary) == "No climbs yet")
+        #expect(HomeThisWeekLine.lineText(for: summary) == "0 climbs · 0 steps")
+    }
+
+    @Test
+    func oneClimbIsSingular() throws {
+        let today = WeekConfiguration.calendar().startOfDay(for: Date())
+        let summary = WeekActivitySummaryCalculator(
+            workouts: [workout(on: today, steps: 750, minutes: 10)],
+            firstWeekday: WeekConfiguration.mondayFirstWeekday
+        ).calculate()
+        #expect(HomeThisWeekLine.lineText(for: summary) == "1 climb · 750 steps")
     }
 
     @Test

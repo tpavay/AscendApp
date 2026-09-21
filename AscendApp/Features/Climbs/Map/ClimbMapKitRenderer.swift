@@ -16,10 +16,12 @@ import SwiftUI
 /// when a second engine actually exists, rather than guessed from one. The
 /// scene already abstracts the bulk of the work (the landmark layer).
 ///
-/// What the scene's zoom band changes here: at world zoom the pins gather into
-/// counted bubbles; from country zoom in every pin carries its name; at city zoom
-/// the imagery gains streets and place labels. Each is a function of the band, so
-/// the annotation set changes once per crossing and never mid-pinch.
+/// What the scene's zoom band changes here: at world zoom the markers gather into
+/// "N climbs" pills; from country zoom in every marker carries its name; at city
+/// zoom the imagery gains streets and place labels. Each is a function of the band,
+/// so the annotation set changes once per crossing and never mid-pinch. A marker
+/// itself is `ClimbMarkerView`: the finisher count, the First Ascent mark, and the
+/// viewer's own check.
 struct ClimbMapKitRenderer: View {
     let scene: AscendMapScene
     @Binding var cameraPosition: MapCameraPosition
@@ -38,7 +40,7 @@ struct ClimbMapKitRenderer: View {
             }
 
             ForEach(layer.pins) { landmark in
-                Annotation("", coordinate: landmark.climb.coordinate, anchor: .bottom) {
+                Annotation("", coordinate: landmark.climb.coordinate, anchor: .center) {
                     pin(for: landmark)
                 }
             }
@@ -66,18 +68,19 @@ struct ClimbMapKitRenderer: View {
             ClimbClusterBubbleView(cluster: cluster)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(cluster.count) climbs")
-        .accessibilityHint("Zoom in to see them")
+        .accessibilityLabel("\(cluster.count) climbs grouped here")
+        .accessibilityHint("Zoom in to see each one")
     }
 
     private func pin(for landmark: AscendMapLandmark) -> some View {
         Button {
             onSelect(landmark.climb)
         } label: {
-            // The label is an overlay, not a sibling, so the annotation's bottom anchor
-            // stays the pin tip and the name hangs below the landmark.
-            ClimbPinView(
+            // The label is an overlay, not a sibling, so the annotation's anchor stays
+            // the marker's centre and the name hangs below the landmark.
+            ClimbMarkerView(
                 climb: landmark.climb,
+                completedClimberCount: landmark.completedClimberCount,
                 isCompleted: landmark.state == .completed,
                 isHighlighted: landmark.isHighlighted
             )
@@ -87,20 +90,17 @@ struct ClimbMapKitRenderer: View {
                         climb: landmark.climb,
                         isHighlighted: landmark.isHighlighted
                     )
-                    .offset(y: 20)
+                    .offset(y: 18)
                 }
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel(for: landmark.climb))
+        .accessibilityLabel(ClimbMarkerView.accessibilityDescription(
+            climb: landmark.climb,
+            completedClimberCount: landmark.completedClimberCount,
+            isCompleted: landmark.state == .completed
+        ))
         .accessibilityHint(landmark.climb.isAvailable ? "Preview climb details" : "Preview coming soon climb")
-    }
-
-    private func accessibilityLabel(for climb: Climb) -> String {
-        if climb.isComingSoon {
-            return "Coming soon climb, \(climb.displayLocation)"
-        }
-        return "\(climb.name), \(climb.displayLocation)"
     }
 }
 

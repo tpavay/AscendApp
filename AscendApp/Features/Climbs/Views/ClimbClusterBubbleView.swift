@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// A counted bubble standing in for several landmarks at world zoom. Colored by the
-/// highest tier inside it, so a count still says what kind of climbs it gathers, and
-/// checked when the viewer has claimed every one of them.
+/// A pill standing in for several landmarks at world zoom, reading "N climbs" so the
+/// number is never mistaken for a completion count. Colored by the highest tier
+/// inside it, and checked when the viewer has claimed every one of them.
 struct ClimbClusterBubbleView: View {
     let cluster: AscendMapCluster
 
@@ -11,23 +11,28 @@ struct ClimbClusterBubbleView: View {
     }
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(Color.black.opacity(0.62))
-                .frame(width: 38, height: 38)
-                .overlay {
-                    Circle()
-                        .strokeBorder(tierColor, lineWidth: 2)
-                }
+        HStack(spacing: 5) {
+            Image(systemName: "mappin.and.ellipse")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(tierColor)
 
-            Text(cluster.count.formatted())
-                .font(.montserratBold(size: 13))
+            Text("\(cluster.count.formatted()) climbs")
+                .font(.montserratBold(size: 11))
                 .foregroundStyle(.white)
                 .monospacedDigit()
-                .minimumScaleFactor(0.7)
                 .lineLimit(1)
-                .padding(.horizontal, 6)
+                .fixedSize()
         }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.black.opacity(0.66))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(tierColor.opacity(0.9), lineWidth: 1.5)
+        )
         .overlay(alignment: .topTrailing) {
             if cluster.isFullyCompleted {
                 Circle()
@@ -38,10 +43,9 @@ struct ClimbClusterBubbleView: View {
                             .font(.system(size: 7, weight: .black))
                             .foregroundStyle(Color.black.opacity(0.88))
                     }
-                    .offset(x: 3, y: -3)
+                    .offset(x: 5, y: -6)
             }
         }
-        .frame(width: 44, height: 44)
         .shadow(color: tierColor.opacity(0.3), radius: 6, x: 0, y: 3)
     }
 }
