@@ -295,7 +295,7 @@ struct MiniWeekBarChart: View {
 
 // MARK: - Data Models
 
-struct WeekActivitySummary {
+struct WeekActivitySummary: Equatable {
     let dailyBars: [DailyActivityData]
     let weekTotalValue: Int
     let weekWorkoutCount: Int
@@ -353,7 +353,7 @@ struct WeekActivitySummary {
     }
 }
 
-struct DailyActivityData: Identifiable {
+struct DailyActivityData: Identifiable, Equatable {
     let date: Date
     let value: Int
     let label: String

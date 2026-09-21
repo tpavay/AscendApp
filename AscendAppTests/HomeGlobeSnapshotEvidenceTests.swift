@@ -7,10 +7,10 @@ import UIKit
 
 /// Evidence for the globe under Home's sheet. MapKit annotations do not survive a
 /// hierarchy capture, so the globe is photographed through `MKMapSnapshotter` at the
-/// camera Home opens with, and the pins are composited at the points the snapshot
-/// resolves for their coordinates. The assertions are about geometry, not pixels:
-/// Home opens centred on Today's Climb at continent altitude, and the pin layer at
-/// that altitude is pins, not counts.
+/// camera Home opens with, and the markers are composited at the points the snapshot
+/// resolves for their coordinates, grouped by the same overlap rule the renderer
+/// applies. The assertions are about geometry, not pixels: Home opens centred on
+/// Today's Climb at continent altitude.
 @MainActor
 struct HomeGlobeSnapshotEvidenceTests {
     @Test
@@ -35,8 +35,7 @@ struct HomeGlobeSnapshotEvidenceTests {
         )
         let scene = viewModel.mapScene
         #expect(scene.zoomBand == .continent)
-        #expect(scene.layer.clusters.isEmpty, "continent altitude draws pins, not counts")
-        #expect(scene.layer.pins.map(\.id).contains(Climb.preview.id))
+        #expect(scene.landmarks.map(\.id).contains(Climb.preview.id))
         #expect(!scene.showsNames, "names wait for country zoom")
 
         guard RenderedScreen.isPhotographing else { return }
@@ -44,20 +43,25 @@ struct HomeGlobeSnapshotEvidenceTests {
     }
 
     @Test
-    func worldZoomGathersPinsIntoCountsAndCityZoomNamesThem() {
+    func namesFollowTheCameraBandAndTheOverlapRuleGroupsTheMarkers() {
         let viewModel = GlobeViewModel()
-        let neighbours = [Climb.preview, Climb.previewComingSoon]
-        viewModel.visibleClimbs = neighbours
+        viewModel.visibleClimbs = [Climb.preview, Climb.previewComingSoon]
 
         viewModel.mapCameraDidChange(latitude: 8, longitude: -76, distance: 28_000_000)
         #expect(viewModel.mapScene.zoomBand == .world)
-        let worldLayer = viewModel.mapScene.layer
-        #expect(worldLayer.pins.count + worldLayer.clusters.reduce(0) { $0 + $1.count } == neighbours.count)
+        #expect(!viewModel.mapScene.showsNames)
 
         viewModel.mapCameraDidChange(latitude: Climb.preview.latitude, longitude: Climb.preview.longitude, distance: 4_000)
         #expect(viewModel.mapScene.zoomBand == .city)
         #expect(viewModel.mapScene.showsNames)
-        #expect(viewModel.mapScene.layer.clusters.isEmpty)
+
+        // Grouping is a fact about screen points, not the band: on top of each other,
+        // one pill; apart, two markers.
+        let landmarks = viewModel.mapScene.landmarks
+        let stacked = Dictionary(uniqueKeysWithValues: landmarks.map { ($0.id, CGPoint(x: 100, y: 100)) })
+        #expect(ClimbMapClustering.layer(for: landmarks, points: stacked).clusters.count == 1)
+        let apart = Dictionary(uniqueKeysWithValues: landmarks.enumerated().map { ($1.id, CGPoint(x: 100 + CGFloat($0) * 80, y: 100)) })
+        #expect(ClimbMapClustering.layer(for: landmarks, points: apart).clusters.isEmpty)
     }
 
     // MARK: - Snapshot
@@ -78,10 +82,13 @@ struct HomeGlobeSnapshotEvidenceTests {
         options.pointOfInterestFilter = .excludingAll
 
         let snapshot = try await MKMapSnapshotter(options: options).start()
+        // The same grouping the renderer does from its MapProxy, here from the snapshot's projection.
+        let points = Dictionary(uniqueKeysWithValues: scene.landmarks.map { ($0.id, snapshot.point(for: $0.climb.coordinate)) })
+        let layer = ClimbMapClustering.layer(for: scene.landmarks, points: points)
         let renderer = UIGraphicsImageRenderer(size: snapshot.image.size)
         let image = renderer.image { _ in
             snapshot.image.draw(at: .zero)
-            for landmark in scene.layer.pins {
+            for landmark in layer.pins {
                 let point = snapshot.point(for: landmark.climb.coordinate)
                 let marker = ImageRenderer(content: ClimbMarkerView(
                     climb: landmark.climb,
@@ -94,7 +101,7 @@ struct HomeGlobeSnapshotEvidenceTests {
                     markerImage.draw(at: CGPoint(x: point.x - markerImage.size.width / 2, y: point.y - markerImage.size.height / 2))
                 }
             }
-            for cluster in scene.layer.clusters {
+            for cluster in layer.clusters {
                 let point = snapshot.point(for: cluster.coordinate)
                 let bubble = ImageRenderer(content: ClimbClusterBubbleView(cluster: cluster))
                 bubble.scale = 2

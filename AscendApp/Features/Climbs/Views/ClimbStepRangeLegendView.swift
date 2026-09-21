@@ -43,7 +43,7 @@ struct ClimbStepRangeLegendView: View {
 
     private var accessibilityLabel: String {
         let ranges = tiers.map { "\($0.displayName) \($0.stepRangeDescription)" }
-        return "Pin colors by steps: " + ranges.joined(separator: ", ")
+        return "Marker colors by steps: " + ranges.joined(separator: ", ")
     }
 }
 

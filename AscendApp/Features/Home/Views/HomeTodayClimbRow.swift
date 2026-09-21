@@ -10,10 +10,12 @@ struct HomeTodayClimbRow: View {
 
     var body: some View {
         Button(action: onOpen) {
-            HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .center, spacing: 0) {
+                // The image fills the card's left column edge to edge, no inset.
                 ClimbArtworkView(climb: climb, variant: .thumb)
-                    .frame(width: 64, height: 64)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .frame(width: 104)
+                    .frame(maxHeight: .infinity)
+                    .clipped()
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("TODAY'S CLIMB")
@@ -52,16 +54,20 @@ struct HomeTodayClimbRow: View {
                     .padding(.top, 2)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.4))
+                    .padding(.trailing, 12)
             }
-            .padding(10)
+            .frame(minHeight: 104)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(.white.opacity(0.06))
             )
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(climb.tier.color.opacity(0.42), lineWidth: 1)

@@ -39,6 +39,12 @@ final class GlobeViewModel {
     private var currentLongitude = GlobeViewModel.defaultLongitude
     private var suppressCameraInteraction = false
     private var lastUserInteractionAt = Date.distantPast
+    /// The camera MapKit last reported, so a card can be closed back to the exact
+    /// view the marker was tapped from.
+    private var lastReportedCamera: MapCamera?
+    /// Where the camera stood when the open card's marker was tapped: the full globe,
+    /// or the zoom a cluster opened onto. X restores it.
+    private var cameraBeforePreview: MapCameraPosition?
 
     init(
         climbService: ClimbService = .shared,
@@ -207,6 +213,11 @@ final class GlobeViewModel {
     }
 
     func selectPreview(_ climb: Climb, modelContext: ModelContext) {
+        if previewSummary == nil {
+            // Remember where the tap came from, so X can put the camera back there
+            // rather than on the full globe every time.
+            cameraBeforePreview = lastReportedCamera.map { .camera($0) } ?? cameraPosition
+        }
         previewSummary = climbService.previewSummary(for: climb, modelContext: modelContext)
         // Fly down to the landmark itself (close, pitched 3D framing) rather
         // than the far top-down preview distance.
@@ -225,9 +236,17 @@ final class GlobeViewModel {
         completedClimbIds.contains(climb.id)
     }
 
+    /// Closes the card and puts the camera back where the marker was tapped from:
+    /// the full globe, or the cluster's zoom. Only the camera moves; the markers
+    /// stay put and regroup as it settles.
     func dismissPreview() {
         previewSummary = nil
-        setOverviewCamera()
+        if let cameraBeforePreview {
+            restoreCamera(cameraBeforePreview)
+        } else {
+            setOverviewCamera()
+        }
+        cameraBeforePreview = nil
         userDidInteract()
     }
 
@@ -256,10 +275,16 @@ final class GlobeViewModel {
     }
 
     func mapCameraDidChange(_ context: MapCameraUpdateContext) {
+        mapCameraDidChange(camera: context.camera)
+    }
+
+    /// The camera MapKit reports, whether a finger moved it or the app did.
+    func mapCameraDidChange(camera: MapCamera) {
+        lastReportedCamera = camera
         mapCameraDidChange(
-            latitude: context.camera.centerCoordinate.latitude,
-            longitude: context.camera.centerCoordinate.longitude,
-            distance: context.camera.distance
+            latitude: camera.centerCoordinate.latitude,
+            longitude: camera.centerCoordinate.longitude,
+            distance: camera.distance
         )
     }
 
@@ -307,42 +332,25 @@ final class GlobeViewModel {
         setOverviewCamera()
     }
 
-    /// Flies in far enough for a cluster's members to draw as their own pins: to the
-    /// next band for a continent-wide group, and down to city zoom for two towers in
-    /// one city, which would otherwise split into overlapping pins.
+    /// Flies to the region that shows every member of the cluster with room to
+    /// separate. Members that share a street may still overlap there and draw as a
+    /// smaller pill of their own; a second tap opens that one.
     func focusOnCluster(_ cluster: AscendMapCluster) {
-        currentLatitude = cluster.coordinate.latitude
-        currentLongitude = cluster.coordinate.longitude
-        setCamera(
-            latitude: cluster.coordinate.latitude,
-            longitude: cluster.coordinate.longitude,
-            distance: Self.clusterFocusDistance(for: cluster, from: cameraZoomBand)
-        )
+        let region = ClimbMapClustering.region(showing: cluster)
+        currentLatitude = region.center.latitude
+        currentLongitude = region.center.longitude
+        suppressCameraInteraction = true
+        cameraPosition = .region(region)
+        // A region has no distance; the band follows the span it shows.
+        updateZoomBand(forCameraDistance: Self.approximateDistance(for: region))
         userDidInteract()
     }
 
-    /// The distance that separates a cluster's members on screen. Members within half
-    /// a degree of each other share a city and need city zoom; within five degrees the
-    /// country band, where names sit beside the pins; otherwise the band's own next
-    /// step in.
-    static func clusterFocusDistance(
-        for cluster: AscendMapCluster,
-        from band: ClimbMapZoomBand
-    ) -> CLLocationDistance {
-        let latitudes = cluster.landmarks.map(\.climb.latitude)
-        let longitudes = cluster.landmarks.map(\.climb.longitude)
-        guard let minLatitude = latitudes.min(), let maxLatitude = latitudes.max(),
-              let minLongitude = longitudes.min(), let maxLongitude = longitudes.max() else {
-            return band.clusterFocusDistance
-        }
-        let span = max(maxLatitude - minLatitude, maxLongitude - minLongitude)
-        if span < 0.5 {
-            return 60_000
-        }
-        if span < 5 {
-            return 2_000_000
-        }
-        return band.clusterFocusDistance
+    /// The camera distance that roughly frames a region, for the label band. A
+    /// degree of latitude is about 111 km, and a frame spans about 1.3 times its
+    /// height at MapKit's default field of view.
+    static func approximateDistance(for region: MKCoordinateRegion) -> CLLocationDistance {
+        max(region.span.latitudeDelta, region.span.longitudeDelta / 2) * 111_000 * 1.3
     }
 
     /// Home's opening frame: continent altitude, centred on Today's Climb. Falls back
@@ -394,11 +402,27 @@ final class GlobeViewModel {
 
     /// Every programmatic camera move sets the band itself. MapKit reports a camera
     /// change for a finger, not reliably for a position the app assigned, and a band
-    /// left behind meant clusters and pins did not redraw until the next touch.
+    /// left behind meant the names did not follow until the next touch.
     private func setOverviewCamera() {
         suppressCameraInteraction = true
         cameraPosition = GlobeViewModel.defaultOverviewPosition
         updateZoomBand(forCameraDistance: GlobeViewModel.defaultOverviewCameraDistance)
+    }
+
+    private func restoreCamera(_ position: MapCameraPosition) {
+        suppressCameraInteraction = true
+        cameraPosition = position
+        if let camera = position.camera {
+            currentLatitude = camera.centerCoordinate.latitude
+            currentLongitude = wrappedLongitude(camera.centerCoordinate.longitude)
+            updateZoomBand(forCameraDistance: camera.distance)
+        } else if let region = position.region {
+            currentLatitude = region.center.latitude
+            currentLongitude = wrappedLongitude(region.center.longitude)
+            updateZoomBand(forCameraDistance: Self.approximateDistance(for: region))
+        } else {
+            updateZoomBand(forCameraDistance: GlobeViewModel.defaultOverviewCameraDistance)
+        }
     }
 
     private func setCamera(latitude: Double, longitude: Double, distance: CLLocationDistance, pitch: CGFloat = 0) {

@@ -1,17 +1,11 @@
 import CoreLocation
 import Foundation
 
-/// How far the camera is from the globe, in the four bands the map reads differently.
+/// How far the camera is from the globe, in the bands the map labels differently.
 ///
-/// The pin layer changes with the band and with nothing finer: pins gather into counts
-/// at world zoom and split on the way in, names appear below country zoom, and the
-/// map trades imagery for street detail at city zoom. Deriving from a band rather
-/// than the raw distance keeps the annotation set stable through a pinch - it changes
-/// once per crossing, not once per frame.
-///
-/// The thresholds started from the design prototype's altitudes (1.4, 0.62 and 0.24
-/// globe radii, roughly 8,900, 3,950 and 1,530 km) and were rounded to where MapKit's
-/// own imagery reads as world, continent, country and city.
+/// Names sit beside markers from country zoom in; the imagery itself gains streets
+/// and place labels as MapKit's hybrid style descends. Clustering does not read the
+/// band: markers gather only where they would overlap on screen (`ClimbMapClustering`).
 enum ClimbMapZoomBand: Int, CaseIterable, Comparable, Sendable {
     case world
     case continent
@@ -38,43 +32,9 @@ enum ClimbMapZoomBand: Int, CaseIterable, Comparable, Sendable {
         }
     }
 
-    /// Pins gather into counted clusters only at world zoom.
-    var clustersPins: Bool {
-        self == .world
-    }
-
-    /// Climb names sit beside their pins from country zoom in.
+    /// Climb names sit beside their markers from country zoom in.
     var showsNames: Bool {
         self >= .country
-    }
-
-    /// Streets and place labels join the imagery at city zoom.
-    var showsStreets: Bool {
-        self == .city
-    }
-
-    /// The distance a tap on a cluster flies the camera to: the next band in, at a
-    /// height where its members have room to split apart.
-    var clusterFocusDistance: CLLocationDistance {
-        switch self {
-        case .world:
-            return Self.homeEntryCameraDistance
-        case .continent:
-            return 2_500_000
-        case .country, .city:
-            return 800_000
-        }
-    }
-
-    /// The width of one clustering cell in degrees of latitude and longitude. Fixed per
-    /// band so panning never regroups pins; only crossing a band does.
-    var clusterCellDegrees: Double {
-        switch self {
-        case .world:
-            return 30
-        case .continent, .country, .city:
-            return 0
-        }
     }
 
     static func < (lhs: ClimbMapZoomBand, rhs: ClimbMapZoomBand) -> Bool {

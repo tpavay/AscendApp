@@ -73,12 +73,12 @@ struct ClimbBrowseHelpSheet: View {
 
                     sectionCard(
                         title: "Map Markers",
-                        subtitle: "Each marker's ring is its step tier. Inside it: what the climb is doing right now."
+                        subtitle: "A dot is a climb, colored by its step tier. Where dots would overlap, one pill counts them."
                     ) {
                         VStack(spacing: 12) {
                             legendRow(
-                                title: "Climbers completed",
-                                description: "How many climbers have finished it. Tap to preview and start.",
+                                title: "Available",
+                                description: "A climb you can preview and start. How many have finished it is on its card.",
                                 climb: .preview,
                                 completedClimberCount: 12,
                                 isCompleted: false

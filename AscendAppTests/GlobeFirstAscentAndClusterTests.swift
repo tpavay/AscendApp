@@ -1,12 +1,14 @@
 import CoreLocation
 import MapKit
 import SwiftData
+import SwiftUI
 import Testing
 @testable import AscendApp
 
-/// The dev-build fixes from 2026-09-21: the pin layer follows every camera move the
-/// app makes itself, a cluster tap lands where its members split apart, and a climb
-/// nobody has finished reads as an open First Ascent once the boards have answered.
+/// The dev-build fixes from 2026-09-21: the label band follows every camera move the
+/// app makes itself, a cluster tap frames every member, X returns to the frame the
+/// marker was tapped from, and a climb nobody has finished reads as an open First
+/// Ascent once the boards have answered.
 @MainActor
 struct GlobeFirstAscentAndClusterTests {
     @Test
@@ -26,40 +28,73 @@ struct GlobeFirstAscentAndClusterTests {
         #expect(viewModel.cameraZoomBand == .city, "the pin fly-in is a city-altitude framing")
 
         viewModel.dismissPreview()
-        #expect(viewModel.cameraZoomBand == .world, "closing the card zooms out, and the counts redraw at once")
+        #expect(viewModel.cameraZoomBand == .continent, "closing the card returns to the frame the marker was tapped from, and the names follow at once")
     }
 
     @Test
-    func aClusterOfTowersInOneCityZoomsToTheCity() {
+    func aClusterTapFliesToARegionShowingEveryMember() {
         let sanFrancisco = [
             landmark(id: "transamerica-pyramid", latitude: 37.7952, longitude: -122.4028),
             landmark(id: "salesforce-tower", latitude: 37.7897, longitude: -122.3972),
         ]
         let cluster = AscendMapCluster(id: "sf", coordinate: sanFrancisco[0].climb.coordinate, landmarks: sanFrancisco)
+        let viewModel = GlobeViewModel(leaderboardService: StubLiveReplayLeaderboardService())
+        viewModel.visibleClimbs = sanFrancisco.map(\.climb)
 
-        let distance = GlobeViewModel.clusterFocusDistance(for: cluster, from: .world)
+        viewModel.focusOnCluster(cluster)
 
-        #expect(ClimbMapZoomBand(cameraDistance: distance) == .city)
-        #expect(!ClimbMapZoomBand(cameraDistance: distance).clustersPins)
+        let region = try? #require(viewModel.cameraPosition.region)
+        #expect(region != nil)
+        if let region {
+            for member in sanFrancisco {
+                #expect(abs(member.climb.latitude - region.center.latitude) <= region.span.latitudeDelta / 2)
+                #expect(abs(member.climb.longitude - region.center.longitude) <= region.span.longitudeDelta / 2)
+            }
+        }
+        #expect(viewModel.cameraZoomBand == .city, "two towers in one city frame at city zoom, where names show")
     }
 
     @Test
-    func aContinentWideClusterZoomsOneBandIn() {
-        let spread = [
-            landmark(id: "esb", latitude: 40.75, longitude: -73.99),
-            landmark(id: "cn-tower", latitude: 43.64, longitude: -79.39),
-            landmark(id: "space-needle", latitude: 47.62, longitude: -122.35),
-        ]
-        let cluster = AscendMapCluster(id: "na", coordinate: spread[0].climb.coordinate, landmarks: spread)
+    func closingTheCardRestoresTheCameraTheMarkerWasTappedFrom() throws {
+        let container = try ModelContainer(
+            for: AscendLocalStore.schema,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let viewModel = GlobeViewModel(leaderboardService: StubLiveReplayLeaderboardService())
+        viewModel.visibleClimbs = [.preview]
 
-        #expect(GlobeViewModel.clusterFocusDistance(for: cluster, from: .world) == ClimbMapZoomBand.world.clusterFocusDistance)
+        // The climber opened a cluster (a country-level frame), then tapped a marker in it.
+        let clusterFrame = MapCamera(
+            centerCoordinate: Climb.preview.coordinate,
+            distance: 2_000_000,
+            heading: 0,
+            pitch: 0
+        )
+        viewModel.mapCameraDidChange(camera: clusterFrame)
+        viewModel.selectPreview(.preview, modelContext: ModelContext(container))
+        #expect(viewModel.cameraZoomBand == .city)
 
-        let country = [
-            landmark(id: "esb", latitude: 40.75, longitude: -73.99),
-            landmark(id: "one-liberty", latitude: 39.95, longitude: -75.16),
-        ]
-        let countryCluster = AscendMapCluster(id: "ne", coordinate: country[0].climb.coordinate, landmarks: country)
-        #expect(ClimbMapZoomBand(cameraDistance: GlobeViewModel.clusterFocusDistance(for: countryCluster, from: .world)) == .country)
+        viewModel.dismissPreview()
+
+        let restored = try #require(viewModel.cameraPosition.camera)
+        #expect(restored.distance == clusterFrame.distance)
+        #expect(abs(restored.centerCoordinate.latitude - clusterFrame.centerCoordinate.latitude) < 0.0001)
+        #expect(viewModel.cameraZoomBand == .country, "the names follow the restored frame without a touch")
+    }
+
+    @Test
+    func closingTheCardWithNoRememberedFrameReturnsToTheGlobe() throws {
+        let container = try ModelContainer(
+            for: AscendLocalStore.schema,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let viewModel = GlobeViewModel(leaderboardService: StubLiveReplayLeaderboardService())
+        viewModel.visibleClimbs = [.preview]
+
+        viewModel.selectPreview(.preview, modelContext: ModelContext(container))
+        viewModel.dismissPreview()
+
+        #expect(viewModel.cameraZoomBand == .world)
     }
 
     @Test
@@ -104,11 +139,6 @@ struct GlobeFirstAscentAndClusterTests {
 
         #expect(viewModel.previewCompletedClimberCount == 12)
         #expect(viewModel.mapScene.landmarks.first?.completedClimberCount == 12)
-    }
-
-    @Test(arguments: [(1, "1"), (999, "999"), (1_000, "1k"), (1_250, "1.3k"), (12_400, "12.4k")])
-    func aMarkerCompressesThousands(count: Int, expected: String) {
-        #expect(ClimbMarkerView.countText(count) == expected)
     }
 
     private func landmark(id: String, latitude: Double, longitude: Double) -> AscendMapLandmark {

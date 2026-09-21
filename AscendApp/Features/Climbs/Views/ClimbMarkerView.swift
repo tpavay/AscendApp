@@ -1,22 +1,28 @@
 import SwiftUI
 
-/// A landmark's marker on the globe: a tier-colored disc that carries information,
-/// not a pin. Inside it, how many climbers have completed the climb, or the First
-/// Ascent mark when nobody has; on its shoulder, the check that says the viewer has.
-/// A coming-soon climb is a dimmed ring with a lock. Settled by the captain on the
-/// round-2 review: "we're going away from pins and actually showing information in
-/// addition to the marker."
+/// A landmark's marker on the globe: a tier-colored dot, nothing more. Numbers on
+/// the globe mean one thing only, a cluster of N climbs; completion counts live on
+/// the card. The two states a dot still carries: the First Ascent mark inside it
+/// when nobody has finished the climb, and the viewer's own check on the shoulder
+/// once they have. A coming-soon climb is a dimmed dashed ring with a lock. Settled
+/// by the captain across the two dev-build rounds on 2026-09-21.
 struct ClimbMarkerView: View {
     let climb: Climb
     /// Distinct climbers who have completed it, or nil until the boards have answered.
+    /// Only zero changes the drawing (the open First Ascent); the number is never shown.
     let completedClimberCount: Int?
     let isCompleted: Bool
     let isHighlighted: Bool
 
-    static let size: CGFloat = 30
+    /// The dot's diameter. `ClimbMapClustering.overlapDistance` is derived from it.
+    static let size: CGFloat = 22
 
     private var tierColor: Color {
         climb.tier.color
+    }
+
+    private var isFirstAscentOpen: Bool {
+        climb.isAvailable && !isCompleted && completedClimberCount == 0
     }
 
     var body: some View {
@@ -27,9 +33,15 @@ struct ClimbMarkerView: View {
                     .frame(width: Self.size + 8, height: Self.size + 8)
             }
 
-            disc
+            dot
 
-            content
+            if isFirstAscentOpen {
+                FirstAscentInlineMark(size: 15)
+            } else if climb.isComingSoon {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.85))
+            }
         }
         .frame(width: Self.size + 12, height: Self.size + 12)
         .overlay(alignment: .topTrailing) {
@@ -37,56 +49,45 @@ struct ClimbMarkerView: View {
                 completedBadge
             }
         }
-        .scaleEffect(isHighlighted ? 1.08 : 1)
+        .scaleEffect(isHighlighted ? 1.1 : 1)
         .opacity(climb.isComingSoon ? 0.72 : 1)
-        .shadow(
-            color: tierColor.opacity(isHighlighted ? 0.45 : 0.28),
-            radius: isHighlighted ? 8 : 4,
-            x: 0,
-            y: 2
-        )
-    }
-
-    private var disc: some View {
-        Circle()
-            .fill(Color.black.opacity(climb.isComingSoon ? 0.5 : 0.7))
-            .frame(width: Self.size, height: Self.size)
-            .overlay {
-                Circle()
-                    .strokeBorder(tierColor, style: StrokeStyle(lineWidth: 2, dash: climb.isComingSoon ? [3, 3] : []))
-            }
+        .shadow(color: .black.opacity(0.45), radius: 2, x: 0, y: 1)
     }
 
     @ViewBuilder
-    private var content: some View {
+    private var dot: some View {
         if climb.isComingSoon {
-            Image(systemName: "lock.fill")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.white.opacity(0.8))
-        } else if let completedClimberCount {
-            if completedClimberCount > 0 {
-                Text(Self.countText(completedClimberCount))
-                    .font(.montserratBold(size: completedClimberCount >= 1_000 ? 9 : 11))
-                    .foregroundStyle(.white)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .frame(width: Self.size - 8)
-            } else {
-                FirstAscentInlineMark(size: 20)
-            }
+            Circle()
+                .fill(Color.black.opacity(0.5))
+                .frame(width: Self.size, height: Self.size)
+                .overlay {
+                    Circle()
+                        .strokeBorder(tierColor, style: StrokeStyle(lineWidth: 2, dash: [3, 3]))
+                }
+        } else if isFirstAscentOpen {
+            // The mark needs a dark field to read; the ring keeps the tier.
+            Circle()
+                .fill(Color.black.opacity(0.7))
+                .frame(width: Self.size, height: Self.size)
+                .overlay {
+                    Circle()
+                        .strokeBorder(tierColor, lineWidth: 2)
+                }
         } else {
-            // Unread: the tier dot alone, so the marker never shows a number it has not read.
             Circle()
                 .fill(tierColor)
-                .frame(width: 8, height: 8)
+                .frame(width: Self.size, height: Self.size)
+                .overlay {
+                    Circle()
+                        .strokeBorder(.black.opacity(0.35), lineWidth: 1.5)
+                }
         }
     }
 
     private var completedBadge: some View {
         Circle()
-            .fill(tierColor)
-            .frame(width: 15, height: 15)
+            .fill(Color.accent)
+            .frame(width: 14, height: 14)
             .overlay {
                 Image(systemName: "checkmark")
                     .font(.system(size: 8, weight: .black))
@@ -96,22 +97,11 @@ struct ClimbMarkerView: View {
                 Circle()
                     .strokeBorder(.black.opacity(0.6), lineWidth: 1)
             }
-            .offset(x: -2, y: 2)
+            .offset(x: -1, y: 1)
     }
 
-    /// "12", "999", "1.2k": the disc is small, so thousands compress.
-    static func countText(_ count: Int) -> String {
-        if count >= 1_000 {
-            let thousands = Double(count) / 1_000
-            let rounded = (thousands * 10).rounded() / 10
-            return rounded == rounded.rounded()
-                ? "\(Int(rounded))k"
-                : "\(rounded.formatted(.number.precision(.fractionLength(1))))k"
-        }
-        return count.formatted()
-    }
-
-    /// What the marker says to assistive technology, mirroring what it draws.
+    /// What the marker says to assistive technology: the count is spoken here even
+    /// though it is never drawn, because a reader cannot open the card to find it.
     static func accessibilityDescription(
         climb: Climb,
         completedClimberCount: Int?,
@@ -137,7 +127,7 @@ struct ClimbMarkerView: View {
     HStack(spacing: 22) {
         VStack(spacing: 8) {
             ClimbMarkerView(climb: .preview, completedClimberCount: 12, isCompleted: false, isHighlighted: false)
-            Text("12 done").font(.caption2)
+            Text("Available").font(.caption2)
         }
         VStack(spacing: 8) {
             ClimbMarkerView(climb: .preview, completedClimberCount: 0, isCompleted: false, isHighlighted: false)
@@ -153,7 +143,7 @@ struct ClimbMarkerView: View {
         }
         VStack(spacing: 8) {
             ClimbMarkerView(climb: .preview, completedClimberCount: nil, isCompleted: false, isHighlighted: true)
-            Text("Unread, selected").font(.caption2)
+            Text("Selected").font(.caption2)
         }
     }
     .padding(40)

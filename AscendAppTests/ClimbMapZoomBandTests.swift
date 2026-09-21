@@ -2,8 +2,8 @@ import CoreLocation
 import Testing
 @testable import AscendApp
 
-/// The thresholds that decide when the globe clusters, names and gains streets. The
-/// map reads a band, never a raw distance, so these are the whole contract.
+/// The camera bands that decide when names sit beside the markers. Clustering no
+/// longer reads them; it follows overlap on screen (`ClimbMapClusteringTests`).
 struct ClimbMapZoomBandTests {
     @Test(arguments: [
         (28_000_000.0, ClimbMapZoomBand.world),
@@ -20,32 +20,15 @@ struct ClimbMapZoomBandTests {
     }
 
     @Test
-    func onlyWorldZoomClustersAndCountsSplitOnTheWayIn() {
-        #expect(ClimbMapZoomBand.world.clustersPins)
-        #expect(!ClimbMapZoomBand.continent.clustersPins)
-        #expect(!ClimbMapZoomBand.country.clustersPins)
-        #expect(!ClimbMapZoomBand.city.clustersPins)
-    }
-
-    @Test
-    func namesAppearBelowCountryZoomAndStreetsAtCityZoom() {
+    func namesAppearBelowCountryZoom() {
         #expect(!ClimbMapZoomBand.world.showsNames)
         #expect(!ClimbMapZoomBand.continent.showsNames)
         #expect(ClimbMapZoomBand.country.showsNames)
         #expect(ClimbMapZoomBand.city.showsNames)
-
-        #expect(ClimbMapZoomBand.allCases.filter(\.showsStreets) == [.city])
     }
 
     @Test
     func homeOpensAtContinentAltitude() {
         #expect(ClimbMapZoomBand(cameraDistance: ClimbMapZoomBand.homeEntryCameraDistance) == .continent)
-    }
-
-    @Test
-    func tappingAClusterFliesInsideTheNextBand() {
-        let focused = ClimbMapZoomBand(cameraDistance: ClimbMapZoomBand.world.clusterFocusDistance)
-        #expect(focused == .continent, "a world cluster opens onto the continent, where its members split")
-        #expect(!focused.clustersPins)
     }
 }

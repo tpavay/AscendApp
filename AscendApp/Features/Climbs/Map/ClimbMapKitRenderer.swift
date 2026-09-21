@@ -13,15 +13,14 @@ import SwiftUI
 ///
 /// Camera handling is intentionally still MapKit-typed here (a
 /// `Binding<MapCameraPosition>`): the camera-control contract is best abstracted
-/// when a second engine actually exists, rather than guessed from one. The
-/// scene already abstracts the bulk of the work (the landmark layer).
+/// when a second engine actually exists, rather than guessed from one.
 ///
-/// What the scene's zoom band changes here: at world zoom the markers gather into
-/// "N climbs" pills; from country zoom in every marker carries its name; at city
-/// zoom the imagery gains streets and place labels. Each is a function of the band,
-/// so the annotation set changes once per crossing and never mid-pinch. A marker
-/// itself is `ClimbMarkerView`: the finisher count, the First Ascent mark, and the
-/// viewer's own check.
+/// Clustering is overlap-driven: on every camera change the renderer projects the
+/// landmarks to screen points through `MapProxy` and asks `ClimbMapClustering`
+/// which markers would sit on top of each other. Those draw as one "N climbs" pill
+/// until they separate; everything else is its own marker at every zoom. The map
+/// style never changes with zoom, so a camera move never rebuilds the tiles or
+/// the annotations under the climber.
 struct ClimbMapKitRenderer: View {
     let scene: AscendMapScene
     @Binding var cameraPosition: MapCameraPosition
@@ -29,39 +28,63 @@ struct ClimbMapKitRenderer: View {
     let onSelectCluster: (AscendMapCluster) -> Void
     let onCameraChange: (MapCameraUpdateContext) -> Void
 
+    @State private var layer: ClimbMapClustering.Layer = .empty
+
     var body: some View {
-        let layer = scene.layer
+        MapReader { proxy in
+            Map(position: $cameraPosition, interactionModes: .all) {
+                ForEach(layer.clusters) { cluster in
+                    Annotation("", coordinate: cluster.coordinate, anchor: .center) {
+                        clusterPill(for: cluster)
+                    }
+                }
 
-        Map(position: $cameraPosition, interactionModes: .all) {
-            ForEach(layer.clusters) { cluster in
-                Annotation("", coordinate: cluster.coordinate, anchor: .center) {
-                    clusterBubble(for: cluster)
+                ForEach(layer.pins) { landmark in
+                    Annotation("", coordinate: landmark.climb.coordinate, anchor: .center) {
+                        marker(for: landmark)
+                    }
                 }
             }
-
-            ForEach(layer.pins) { landmark in
-                Annotation("", coordinate: landmark.climb.coordinate, anchor: .center) {
-                    pin(for: landmark)
-                }
+            // One style at every zoom: imagery, with streets and place labels arriving
+            // as the camera descends. Points of interest stay off; the only markers on
+            // this map are Ascend's climbs.
+            .mapStyle(.hybrid(elevation: .realistic, pointsOfInterest: .excludingAll, showsTraffic: false))
+            .mapControls {}
+            .onMapCameraChange(frequency: .continuous) { context in
+                onCameraChange(context)
+                regroup(with: proxy)
             }
-        }
-        .mapStyle(mapStyle)
-        .mapControls {}
-        .onMapCameraChange(frequency: .continuous) { context in
-            onCameraChange(context)
+            .onChange(of: sceneSignature) { _, _ in
+                regroup(with: proxy)
+            }
+            .onAppear {
+                regroup(with: proxy)
+            }
         }
     }
 
-    /// Imagery is the globe; streets join it only at city zoom. Points of interest
-    /// stay off at every zoom: the only markers on this map are Ascend's climbs.
-    private var mapStyle: MapStyle {
-        if scene.zoomBand.showsStreets {
-            return .hybrid(elevation: .realistic, pointsOfInterest: .excludingAll, showsTraffic: false)
+    /// The facts a regroup must notice without a camera move: a landmark added or
+    /// removed, its state or count changed, or the highlighted one changed.
+    private var sceneSignature: [String] {
+        scene.landmarks.map {
+            "\($0.id)|\($0.state)|\($0.isHighlighted)|\($0.completedClimberCount.map(String.init) ?? "-")"
         }
-        return .imagery(elevation: .realistic)
     }
 
-    private func clusterBubble(for cluster: AscendMapCluster) -> some View {
+    private func regroup(with proxy: MapProxy) {
+        var points: [String: CGPoint] = [:]
+        for landmark in scene.landmarks {
+            if let point = proxy.convert(landmark.climb.coordinate, to: .local) {
+                points[landmark.id] = point
+            }
+        }
+        let next = ClimbMapClustering.layer(for: scene.landmarks, points: points)
+        if next != layer {
+            layer = next
+        }
+    }
+
+    private func clusterPill(for cluster: AscendMapCluster) -> some View {
         Button {
             onSelectCluster(cluster)
         } label: {
@@ -72,7 +95,7 @@ struct ClimbMapKitRenderer: View {
         .accessibilityHint("Zoom in to see each one")
     }
 
-    private func pin(for landmark: AscendMapLandmark) -> some View {
+    private func marker(for landmark: AscendMapLandmark) -> some View {
         Button {
             onSelect(landmark.climb)
         } label: {
@@ -90,7 +113,7 @@ struct ClimbMapKitRenderer: View {
                         climb: landmark.climb,
                         isHighlighted: landmark.isHighlighted
                     )
-                    .offset(y: 18)
+                    .offset(y: 16)
                 }
             }
         }
@@ -104,8 +127,7 @@ struct ClimbMapKitRenderer: View {
     }
 }
 
-/// A climb's name under its pin, shown from country zoom in. The label hangs below
-/// the pin's anchor so the pin tip stays on the landmark.
+/// A climb's name under its marker, shown from country zoom in.
 private struct ClimbPinNameLabel: View {
     let climb: Climb
     let isHighlighted: Bool

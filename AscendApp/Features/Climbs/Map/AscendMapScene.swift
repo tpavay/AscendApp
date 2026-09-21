@@ -1,9 +1,10 @@
 import Foundation
 
 /// Engine-agnostic description of WHAT the climb map shows: the landmarks, how each
-/// reads on the map, and how the current zoom band groups and labels them. A
+/// reads on the map, and the zoom band that decides whether names show. A
 /// *renderer* turns this into pixels (MapKit today; Mapbox / MapLibre / a custom
-/// globe later).
+/// globe later) and groups markers that would overlap on its own screen through
+/// `ClimbMapClustering`.
 ///
 /// This is deliberately pure data: no MapKit, no SwiftUI. That keeps the business
 /// layer (`GlobeViewModel`) independent of any specific map engine and makes the
@@ -13,21 +14,6 @@ import Foundation
 struct AscendMapScene {
     var landmarks: [AscendMapLandmark]
     var zoomBand: ClimbMapZoomBand
-
-    /// Landmarks drawn as pins, and the counted bubbles the rest gather into at
-    /// world zoom. A highlighted landmark always draws as its own pin, so the climb
-    /// a card is open for never hides inside a count.
-    var layer: ClimbMapClustering.Layer {
-        let highlighted = landmarks.filter(\.isHighlighted)
-        let clustered = ClimbMapClustering.layer(
-            for: landmarks.filter { !$0.isHighlighted },
-            band: zoomBand
-        )
-        return ClimbMapClustering.Layer(
-            pins: clustered.pins + highlighted,
-            clusters: clustered.clusters
-        )
-    }
 
     var showsNames: Bool {
         zoomBand.showsNames

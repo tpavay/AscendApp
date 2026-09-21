@@ -3,17 +3,12 @@ import SwiftUI
 /// The one line Home's sheet collapses to: this week's climbs and steps, the same
 /// numbers `ThisWeekCard` reads, on one line and without a chart.
 struct HomeThisWeekLine: View {
-    let workouts: [Workout]
-
-    private var summary: WeekActivitySummary {
-        WeekActivitySummaryCalculator(
-            workouts: workouts,
-            firstWeekday: WeekConfiguration.mondayFirstWeekday
-        ).calculate()
-    }
+    /// This week's summary from `HomeDashboardViewModel`; nil before the first
+    /// refresh reads as a week with nothing in it yet.
+    let summary: WeekActivitySummary?
 
     var body: some View {
-        let summary = self.summary
+        let summary = self.summary ?? Self.emptySummary
 
         HStack(alignment: .center, spacing: 10) {
             Text("THIS WEEK")
@@ -34,6 +29,11 @@ struct HomeThisWeekLine: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("This week: \(Self.lineText(for: summary))")
     }
+
+    private static let emptySummary = WeekActivitySummaryCalculator(
+        workouts: [],
+        firstWeekday: WeekConfiguration.mondayFirstWeekday
+    ).calculate()
 
     /// "0 climbs · 0 steps" on a quiet week: the zeros are the fact, stated as zeros.
     static func lineText(for summary: WeekActivitySummary) -> String {

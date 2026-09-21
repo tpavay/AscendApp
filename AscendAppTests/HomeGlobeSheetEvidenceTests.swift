@@ -23,7 +23,7 @@ struct HomeGlobeSheetEvidenceTests {
             #expect(!copy.contains("ranked"))
 
             // The globe's chrome: the legend names the tiers on the globe, and Start is reachable.
-            #expect(copy.contains("pin colors by steps"))
+            #expect(copy.contains("marker colors by steps"))
             #expect(copy.contains("start"))
 
             try hosted.photograph(named: "home-globe-sheet-collapsed")

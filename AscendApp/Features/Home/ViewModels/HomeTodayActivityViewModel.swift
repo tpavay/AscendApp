@@ -29,13 +29,6 @@ final class HomeTodayActivityViewModel {
         }
     }
 
-    /// Re-marks the viewer's own rows after a sign-in change without a new read.
-    func updateCurrentUser(_ userId: String?) {
-        guard userId != currentUserId else { return }
-        currentUserId = userId
-        feed = feed.marking(currentUserId: userId)
-    }
-
     var homeRows: [HomeTodayActivityRow] {
         feed.homeRows
     }

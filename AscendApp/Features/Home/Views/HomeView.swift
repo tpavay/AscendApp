@@ -329,7 +329,7 @@ struct HomeView: View {
 
     private func sheetContent(bottomInset: CGFloat) -> some View {
         VStack(spacing: 14) {
-            HomeThisWeekLine(workouts: workouts)
+            HomeThisWeekLine(summary: homeDashboard.weekSummary)
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 22) {
@@ -363,7 +363,7 @@ struct HomeView: View {
                     HomeRankStreakSection(
                         weeklyRankSummary: homeDashboard.weeklyRankSummary,
                         isRankLoading: homeDashboard.isRankLoading,
-                        currentStreakWeeks: Workout.calculateWeeklyStreak(from: workouts),
+                        currentStreakWeeks: homeDashboard.currentStreakWeeks,
                         onRankTapped: { tabRouter.select(.leaderboard, reason: .homeRankCard) },
                         onStreakTapped: { tabRouter.select(.profile, reason: .appRouting) }
                     )
