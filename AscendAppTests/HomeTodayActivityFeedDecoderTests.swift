@@ -124,6 +124,7 @@ struct HomeTodayActivityFeedDecoderTests {
     }
 
     @Test
+    @MainActor
     func theViewModelCutsItsRowsOnTheClockItIsTicked() async {
         let now = Date(timeIntervalSince1970: 10 * 24 * 60 * 60)
         let day = HomeTodayActivityFeed.maxRowAge
@@ -143,8 +144,8 @@ struct HomeTodayActivityFeedDecoderTests {
         #expect(viewModel.allRows.count == 4)
         #expect(viewModel.showsSeeAll)
 
-        // Three minutes on, the oldest row has crossed the day and the list is Home's three.
-        viewModel.tick(now: now.addingTimeInterval(3 * 60 + 1))
+        // A minute on, the oldest row has crossed the day and the list is Home's three.
+        viewModel.tick(now: now.addingTimeInterval(61))
         #expect(viewModel.allRows.map(\.id) == ["w0", "w1", "w2"])
         #expect(!viewModel.showsSeeAll)
     }
