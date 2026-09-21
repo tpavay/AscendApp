@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   HOME_TODAY_ACTIVITY_MAX_ROWS,
+  HOME_TODAY_ACTIVITY_MAX_ROW_AGE_MILLIS,
   HomeTodayActivityProjection,
   HomeTodayActivityRow,
   HomeTodayActivityStore,
@@ -18,6 +19,9 @@ import {PublicUserSnapshot} from "../src/liveReplayLeaderboard.js";
 
 const ESB = "empire-state-building";
 const STARTED_AT_MILLIS = 1_700_000_000_000;
+/** An event time within the feed's day of the fixture workout's finish. */
+const NOW_MILLIS = STARTED_AT_MILLIS + 900_000 + 5_000;
+const DAY_MILLIS = HOME_TODAY_ACTIVITY_MAX_ROW_AGE_MILLIS;
 
 // MARK: parsing
 
@@ -219,7 +223,7 @@ test("rows sort newest upload first and the list stays bounded", () => {
   }
   let merged: HomeTodayActivityRow[] = [];
   for (const row of rows) {
-    merged = mergeHomeTodayActivityRows(merged, row.workoutId, row);
+    merged = mergeHomeTodayActivityRows(merged, row.workoutId, row, 1_000);
   }
   assert.equal(merged.length, HOME_TODAY_ACTIVITY_MAX_ROWS);
   assert.equal(merged[0].workoutId, `w${HOME_TODAY_ACTIVITY_MAX_ROWS + 4}`);
@@ -233,9 +237,10 @@ test("rows sort newest upload first and the list stays bounded", () => {
 test("merging the same workout twice keeps one row", () => {
   const first = makeRow({workoutId: "w1", steps: 100});
   const merged = mergeHomeTodayActivityRows(
-    mergeHomeTodayActivityRows([], "w1", first),
+    mergeHomeTodayActivityRows([], "w1", first, 1_000),
     "w1",
-    {...first, steps: 120}
+    {...first, steps: 120},
+    1_000
   );
   assert.equal(merged.length, 1);
   assert.equal(merged[0].steps, 120);
@@ -245,9 +250,29 @@ test("merging null removes the workout's row", () => {
   const merged = mergeHomeTodayActivityRows(
     [makeRow({workoutId: "w1"}), makeRow({workoutId: "w2"})],
     "w1",
-    null
+    null,
+    1_000
   );
   assert.deepEqual(merged.map((row) => row.workoutId), ["w2"]);
+});
+
+test("rewriting the list drops rows published more than a day ago", () => {
+  const now = 10 * DAY_MILLIS;
+  const merged = mergeHomeTodayActivityRows(
+    [
+      makeRow({workoutId: "stale", publishedAtMillis: now - DAY_MILLIS - 1}),
+      makeRow({workoutId: "edge", publishedAtMillis: now - DAY_MILLIS}),
+      makeRow({workoutId: "fresh", publishedAtMillis: now - 60_000}),
+    ],
+    "new",
+    makeRow({workoutId: "new", publishedAtMillis: now}),
+    now
+  );
+  assert.deepEqual(
+    merged.map((row) => row.workoutId),
+    ["new", "fresh", "edge"],
+    "a row exactly a day old stays, a row older than a day goes"
+  );
 });
 
 // MARK: reconciliation
@@ -412,6 +437,114 @@ test("a pending identity publishes as the anonymous climber", async () => {
   assert.equal(
     store.projection?.rows[0].identityState,
     "pending_public_profile"
+  );
+});
+
+test("a climb finished more than a day before the feed first sees it is not published", async () => {
+  const store = makeFakeStore();
+  store.publicUsers.set("user-a", makePublicUser());
+  const candidate = parseHomeTodayActivityCandidate(
+    "user-a",
+    "old",
+    makeWorkoutDocument()
+  );
+
+  const outcome = await reconcileHomeTodayActivity(store, {
+    workoutId: "old",
+    candidate,
+    nowMillis: (candidate?.completedAtMillis ?? 0) + DAY_MILLIS + 1,
+  });
+
+  assert.equal(outcome, "skipped");
+  assert.equal(store.writes, 0);
+  assert.equal(store.identityReads, 0, "history costs no identity read");
+  assert.equal(store.projection, null);
+});
+
+test("a climb finished within the day is published, and a day-old one exactly at the bound too", async () => {
+  const store = makeFakeStore();
+  store.publicUsers.set("user-a", makePublicUser());
+  const candidate = parseHomeTodayActivityCandidate(
+    "user-a",
+    "w1",
+    makeWorkoutDocument()
+  );
+
+  const outcome = await reconcileHomeTodayActivity(store, {
+    workoutId: "w1",
+    candidate,
+    nowMillis: (candidate?.completedAtMillis ?? 0) + DAY_MILLIS,
+  });
+
+  assert.equal(outcome, "written");
+  assert.equal(store.projection?.rows[0].workoutId, "w1");
+});
+
+test("a workout the feed already holds keeps its row and publish time when re-derived", async () => {
+  const store = makeFakeStore();
+  store.publicUsers.set("user-a", makePublicUser());
+  const candidate = parseHomeTodayActivityCandidate(
+    "user-a",
+    "w1",
+    makeWorkoutDocument()
+  );
+  const completedAt = candidate?.completedAtMillis ?? 0;
+  // Published near the end of its day, then re-derived after the completion
+  // itself has aged past the bound.
+  const publishedAt = completedAt + DAY_MILLIS - 60_000;
+  await reconcileHomeTodayActivity(store, {
+    workoutId: "w1",
+    candidate,
+    nowMillis: publishedAt,
+  });
+
+  const outcome = await reconcileHomeTodayActivity(store, {
+    workoutId: "w1",
+    candidate: parseHomeTodayActivityCandidate(
+      "user-a",
+      "w1",
+      makeWorkoutDocument({steps: 2200})
+    ),
+    nowMillis: completedAt + DAY_MILLIS + 60_000,
+  });
+
+  assert.equal(outcome, "written");
+  assert.equal(store.projection?.rows.length, 1);
+  assert.equal(store.projection?.rows[0].steps, 2200);
+  assert.equal(store.projection?.rows[0].publishedAtMillis, publishedAt);
+});
+
+test("a rewrite prunes rows whose publish time has aged past the day", async () => {
+  const store = makeFakeStore();
+  store.publicUsers.set("user-a", makePublicUser());
+  store.projection = {
+    schemaVersion: 1,
+    rows: [
+      makeRow({
+        workoutId: "yesterday",
+        publishedAtMillis: NOW_MILLIS - DAY_MILLIS - 1,
+      }),
+      makeRow({
+        workoutId: "earlier",
+        publishedAtMillis: NOW_MILLIS - 3_600_000,
+      }),
+    ],
+  };
+
+  const outcome = await reconcileHomeTodayActivity(store, {
+    workoutId: "w1",
+    candidate: parseHomeTodayActivityCandidate(
+      "user-a",
+      "w1",
+      makeWorkoutDocument()
+    ),
+    nowMillis: NOW_MILLIS,
+  });
+
+  assert.equal(outcome, "written");
+  assert.deepEqual(
+    store.projection?.rows.map((row) => row.workoutId),
+    ["w1", "earlier"]
   );
 });
 

@@ -2,14 +2,25 @@ import SwiftUI
 
 /// ON THE GLOBE TODAY: the three most recent uploaded climbs of any kind, each a door
 /// into the real climb, with SEE ALL when the server holds more.
+///
+/// Nothing renders until the first feed snapshot has landed: an empty state that
+/// reads "nobody has climbed" before the server has answered would be a claim the
+/// app has not checked.
 struct HomeTodayActivitySection: View {
     let rows: [ModeratedHomeTodayActivityRow]
     let presentations: [String: HomeTodayActivityRowPresentation]
+    let hasReceivedFeed: Bool
     let showsSeeAll: Bool
     let onOpen: (ModeratedHomeTodayActivityRow, HomeTodayActivityRowPresentation) -> Void
     let onSeeAll: () -> Void
 
     var body: some View {
+        if hasReceivedFeed {
+            content
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 ClimbBrowseSectionHeader(title: "On the Globe Today")

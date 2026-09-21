@@ -44,6 +44,13 @@ export const HOME_TODAY_ACTIVITY_SCHEMA_VERSION = 1;
  * them. Bounded so the document stays one small read on every Home entry.
  */
 export const HOME_TODAY_ACTIVITY_MAX_ROWS = 24;
+/**
+ * How old a row may be under ON THE GLOBE TODAY. A climb the feed first sees
+ * more than a day after it finished is history, not news - a bulk rewrite of
+ * old workouts must not publish years-old climbs as "just now" - and a row
+ * published more than a day ago is dropped whenever the document is rewritten.
+ */
+export const HOME_TODAY_ACTIVITY_MAX_ROW_AGE_MILLIS = 24 * 60 * 60 * 1000;
 
 const USERS_COLLECTION = "users";
 const PUBLIC_PROFILE_COLLECTION = "public_profile";
@@ -310,20 +317,44 @@ export function compareHomeTodayActivityRows(
 }
 
 /**
- * Replaces one workout's row in the ordered, bounded row list.
+ * Whether a row is still within the feed's day, measured from when the server
+ * first saw the workout.
+ * @param {number} publishedAtMillis When the feed first saw the workout.
+ * @param {number} nowMillis The event time.
+ * @return {boolean} True when the row still belongs under today's header.
+ */
+export function isWithinHomeTodayActivityWindow(
+  publishedAtMillis: number,
+  nowMillis: number
+): boolean {
+  return nowMillis - publishedAtMillis <=
+    HOME_TODAY_ACTIVITY_MAX_ROW_AGE_MILLIS;
+}
+
+/**
+ * Replaces one workout's row in the ordered, bounded row list, dropping every
+ * row published more than a day before `nowMillis`.
  * Pure, so the trigger, the tests and any rebuild converge on the same list.
  * @param {HomeTodayActivityRow[]} existing Rows currently stored.
  * @param {string} workoutId The workout being reconciled.
  * @param {HomeTodayActivityRow | null} next Its row now, or null to remove.
+ * @param {number} nowMillis The event time the window is measured from.
  * @return {HomeTodayActivityRow[]} The next stored list.
  */
 export function mergeHomeTodayActivityRows(
   existing: HomeTodayActivityRow[],
   workoutId: string,
-  next: HomeTodayActivityRow | null
+  next: HomeTodayActivityRow | null,
+  nowMillis: number
 ): HomeTodayActivityRow[] {
-  const rows = existing.filter((row) => row.workoutId !== workoutId);
-  if (next) {
+  const rows = existing.filter((row) =>
+    row.workoutId !== workoutId &&
+    isWithinHomeTodayActivityWindow(row.publishedAtMillis, nowMillis)
+  );
+  if (
+    next &&
+    isWithinHomeTodayActivityWindow(next.publishedAtMillis, nowMillis)
+  ) {
     rows.push(next);
   }
   rows.sort(compareHomeTodayActivityRows);
@@ -338,7 +369,9 @@ export function mergeHomeTodayActivityRows(
  * @param {HomeTodayActivityCandidate | null} input.candidate The workout's
  *   candidate after the write, or null when it no longer qualifies.
  * @param {number} input.nowMillis The event time, used as `publishedAt` for a
- *   workout the feed has not seen before.
+ *   workout the feed has not seen before. A workout first seen more than a day
+ *   after it finished is never published; one the feed already holds keeps its
+ *   row and its publish time.
  * @return {Promise<HomeTodayActivityOutcome>} Whether a write happened.
  */
 export async function reconcileHomeTodayActivity(
@@ -357,8 +390,17 @@ export async function reconcileHomeTodayActivity(
       (row) => row.workoutId === input.workoutId
     );
 
+    const candidate = input.candidate &&
+      existingRow === undefined &&
+      !isWithinHomeTodayActivityWindow(
+        input.candidate.completedAtMillis,
+        input.nowMillis
+      ) ?
+      null :
+      input.candidate;
+
     let nextRow: HomeTodayActivityRow | null = null;
-    if (input.candidate) {
+    if (candidate) {
       const publishedAtMillis = existingRow?.publishedAtMillis ??
         input.nowMillis;
       // A row that would fall off the end of a full list is not worth an
@@ -366,14 +408,12 @@ export async function reconcileHomeTodayActivity(
       if (
         existingRow === undefined &&
         existingRows.length >= HOME_TODAY_ACTIVITY_MAX_ROWS &&
-        wouldFallOffTheEnd(existingRows, input.candidate, publishedAtMillis)
+        wouldFallOffTheEnd(existingRows, candidate, publishedAtMillis)
       ) {
         return "skipped";
       }
-      const publicUser = await transaction.readPublicUser(
-        input.candidate.userId
-      );
-      nextRow = rowFrom(input.candidate, publishedAtMillis, publicUser);
+      const publicUser = await transaction.readPublicUser(candidate.userId);
+      nextRow = rowFrom(candidate, publishedAtMillis, publicUser);
     } else if (existingRow === undefined) {
       return "skipped";
     }
@@ -381,7 +421,8 @@ export async function reconcileHomeTodayActivity(
     const nextRows = mergeHomeTodayActivityRows(
       existingRows,
       input.workoutId,
-      nextRow
+      nextRow,
+      input.nowMillis
     );
     if (stored && rowListsEqual(stored.rows, nextRows)) {
       return "skipped";

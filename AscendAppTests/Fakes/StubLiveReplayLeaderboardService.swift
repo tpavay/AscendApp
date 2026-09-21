@@ -25,6 +25,7 @@ final class StubLiveReplayLeaderboardService: LiveReplayLeaderboardServicing, @u
     /// Distinct finishers per landmark, for the globe's markers. A landmark not
     /// listed reads as zero: its First Ascent is still open.
     var completedClimberCounts: [String: Int] = [:]
+    private(set) var completedClimberCountsFetchCount = 0
     /// The frozen standing the server holds for a workout, and how many times it was asked for -
     /// the count is what proves a stored snapshot is served without a request.
     var completionRankSnapshot: LiveReplayCompletionRankSnapshot?
@@ -47,7 +48,8 @@ final class StubLiveReplayLeaderboardService: LiveReplayLeaderboardServicing, @u
     func beginLiveSession() {}
 
     func fetchLiveClimbCompletedClimberCounts() async throws -> [String: Int] {
-        completedClimberCounts
+        completedClimberCountsFetchCount += 1
+        return completedClimberCounts
     }
 
     func fetchSummary(

@@ -1,3 +1,4 @@
+import HealthKit
 import SwiftData
 import SwiftUI
 import Testing
@@ -7,6 +8,11 @@ import Testing
 /// tree of the real `HomeView` hosted above the real tab bar. The globe itself is a
 /// MapKit view whose annotations do not survive a hierarchy capture; its evidence is
 /// `HomeGlobeSnapshotEvidenceTests`.
+///
+/// Every service the hosted Home would reach for is a stub: the feed answers once,
+/// the boards and the community summary answer from memory, and the Health
+/// enrichment service is this suite's own instance, so the shared one is never
+/// pointed at the throwaway store.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct HomeGlobeSheetEvidenceTests {
@@ -100,6 +106,16 @@ struct HomeGlobeSheetEvidenceTests {
         let dashboard = HomeDashboardViewModel()
         let tabRouter = TabRouter()
         let todayActivity = HomeTodayActivityViewModel(service: StaticHomeTodayActivityService(feed: feed))
+        let globeViewModel = GlobeViewModel(
+            communityStatsService: StaticLiveClimbCommunityStatsService(),
+            leaderboardService: StubLiveReplayLeaderboardService()
+        )
+        let enrichmentService = AppleHealthEnrichmentService(
+            authorizationController: EvidenceHealthAuthorization(),
+            metricsReader: EvidenceMetricsReader(),
+            attemptStore: AppleHealthEnrichmentAttemptStore(),
+            sessionWorkGate: AuthenticatedBootstrapCoordinator()
+        )
         // Hydrated with no blocks, so the rows show the names the server sent rather
         // than the masked identity an unhydrated block list shows.
         let moderationStore = ModerationStore(repository: EmptyHomeModerationRepository())
@@ -109,6 +125,8 @@ struct HomeGlobeSheetEvidenceTests {
             dashboard: dashboard,
             tabRouter: tabRouter,
             todayActivity: todayActivity,
+            globeViewModel: globeViewModel,
+            enrichmentService: enrichmentService,
             detent: detent
         )
         .preferredColorScheme(.dark)
@@ -169,6 +187,8 @@ private struct HostedHomeScreen: View {
     let dashboard: HomeDashboardViewModel
     let tabRouter: TabRouter
     let todayActivity: HomeTodayActivityViewModel
+    let globeViewModel: GlobeViewModel
+    let enrichmentService: AppleHealthEnrichmentService
     let detent: BrowseSheetDetent
 
     @State private var tabBarOverlayHeight: CGFloat = 0
@@ -179,6 +199,8 @@ private struct HostedHomeScreen: View {
                 homeDashboard: dashboard,
                 tabRouter: tabRouter,
                 todayActivity: todayActivity,
+                globeViewModel: globeViewModel,
+                enrichmentService: enrichmentService,
                 initialSheetDetent: detent
             )
         }
@@ -229,5 +251,26 @@ private struct StaticHomeTodayActivityService: HomeTodayActivityServicing {
         AsyncStream { continuation in
             continuation.yield(feed)
         }
+    }
+}
+
+/// A device that has never connected Apple Health, so the hosted Home schedules no
+/// enrichment pass.
+private final class EvidenceHealthAuthorization: HealthKitAuthorizationControlling {
+    let isHealthDataAvailable = false
+    let hasRequestedAuthorization = false
+    var authorizationRequestStatus: HKAuthorizationRequestStatus = .unknown
+    var lastPermissionErrorMessage: String?
+    let connectionState: AppleHealthConnectionState = .neverConnected
+
+    func refreshAuthorizationRequestStatus() async {}
+
+    func requestAuthorization() async -> Bool { false }
+}
+
+@MainActor
+private final class EvidenceMetricsReader: HealthKitMetricsReading {
+    func fetchMetrics(during dateRange: ClosedRange<Date>) async -> WorkoutMetrics {
+        WorkoutMetrics()
     }
 }

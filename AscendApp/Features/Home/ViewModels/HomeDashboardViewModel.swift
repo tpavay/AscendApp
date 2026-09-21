@@ -33,7 +33,8 @@ final class HomeDashboardViewModel {
     var isRankLoading = false
     var recentPersonalRecords: [HomeRecentPRRecord] = []
     /// This week's climbs and steps for the sheet's collapsed line. Derived here, on
-    /// the same refresh as the records, so Home's body never walks the history.
+    /// the same refresh as the records, from the array Home already holds, so Home's
+    /// body never walks the history and no refresh fetches every climb again.
     var weekSummary: WeekActivitySummary?
     /// Consecutive weeks with a climb, the same figure Profile shows.
     var currentStreakWeeks: Int = 0
@@ -55,7 +56,14 @@ final class HomeDashboardViewModel {
         self.leaderboardService = leaderboardService
     }
 
-    func refreshLocalData(modelContext: ModelContext, referenceDate: Date = Date()) {
+    /// `workouts` is the array Home's `@Query` already materialises; the week summary,
+    /// the streak and the records derive from it rather than from a second fetch of
+    /// the whole store (ASCEND-IOS-1K). The count queries stay bounded store reads.
+    func refreshLocalData(
+        modelContext: ModelContext,
+        workouts: [Workout],
+        referenceDate: Date = Date()
+    ) {
         let completedClimbCount = Self.fetchCompletedClimbCount(modelContext: modelContext)
         if self.completedClimbCount != completedClimbCount {
             self.completedClimbCount = completedClimbCount
@@ -65,8 +73,6 @@ final class HomeDashboardViewModel {
         if self.workoutCount != workoutCount {
             self.workoutCount = workoutCount
         }
-
-        let workouts = (try? modelContext.fetch(FetchDescriptor<Workout>())) ?? []
 
         let recentPRs = fetchRecentPersonalRecords(
             modelContext: modelContext,

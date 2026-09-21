@@ -6,6 +6,10 @@ import Foundation
 struct HomeTodayActivityFeed: Equatable, Sendable {
     /// How many rows Home's sheet shows before SEE ALL. Settled at three.
     static let homeRowLimit = 3
+    /// How long a row stays under ON THE GLOBE TODAY, measured from when the server
+    /// first saw the workout. The same day the server publishes and prunes on
+    /// (`HOME_TODAY_ACTIVITY_MAX_ROW_AGE_MILLIS`).
+    static let maxRowAge: TimeInterval = 24 * 60 * 60
 
     let rows: [HomeTodayActivityRow]
     let updatedAt: Date?
@@ -23,6 +27,15 @@ struct HomeTodayActivityFeed: Equatable, Sendable {
 
     var hasMoreThanHomeRows: Bool {
         rows.count > Self.homeRowLimit
+    }
+
+    /// The same feed without the rows published more than `maxAge` before `now`.
+    /// Order is preserved, so the first rows are still the newest.
+    func keepingRows(publishedWithin maxAge: TimeInterval, of now: Date) -> HomeTodayActivityFeed {
+        HomeTodayActivityFeed(
+            rows: rows.filter { now.timeIntervalSince($0.publishedAt) <= maxAge },
+            updatedAt: updatedAt
+        )
     }
 
     /// The same feed with every row marked against the signed-in climber.

@@ -6,6 +6,8 @@ import Foundation
 /// Titles come from content the app already ships - the climb catalog and the routine
 /// templates - never from text another climber typed: a personal routine's name is the
 /// climber's own and stays private, so that row reads as a routine and opens nothing.
+/// A Live Climb the device's catalog cannot name has no Climb Detail to open either,
+/// so its row is not a door: a chevron that leads nowhere is worse than none.
 struct HomeTodayActivityRowPresentation: Equatable {
     /// Where a tap on the row leads.
     enum Destination: Equatable {
@@ -37,7 +39,11 @@ struct HomeTodayActivityRowPresentation: Equatable {
         case .liveClimb:
             title = climbName ?? "Live Climb"
             detail = [time, steps, elapsed].joined(separator: " · ")
-            destination = row.climbId.map { .climbDetail(climbId: $0) } ?? .none
+            if climbName != nil, let climbId = row.climbId {
+                destination = .climbDetail(climbId: climbId)
+            } else {
+                destination = .none
+            }
         case .justClimb:
             title = "Just Climb"
             let goal = row.justClimbGoal ?? JustClimbGoal(kind: .open)

@@ -18,6 +18,13 @@ struct HomeTodayActivityTitleResolver {
         return (try? climbService.climb(for: climbId))?.name
     }
 
+    /// The catalog climb a `climbDetail` destination opens, or nil when the catalog no
+    /// longer carries it or it is not open yet.
+    func openableClimb(for climbId: String) -> Climb? {
+        guard let climb = try? climbService.climb(for: climbId), climb.isAvailable else { return nil }
+        return climb
+    }
+
     /// Template names for the ids the rows carry. Shipped templates answer without
     /// the store; a template that only exists remotely is looked up by id.
     func routineTemplateNames(

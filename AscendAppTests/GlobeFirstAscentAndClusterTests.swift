@@ -124,6 +124,36 @@ struct GlobeFirstAscentAndClusterTests {
     }
 
     @Test
+    func aCardOpenReadsTheBoardsOnlyWhenTheLastAnswerIsStale() async {
+        let service = StubLiveReplayLeaderboardService()
+        service.completedClimberCounts = ["empire-state-building": 12]
+        let viewModel = GlobeViewModel(leaderboardService: service)
+        let entry = Date(timeIntervalSince1970: 1_800_000_000)
+
+        // Never read: a card open reads.
+        await viewModel.refreshCompletedClimberCountsIfStale(now: entry)
+        #expect(service.completedClimberCountsFetchCount == 1)
+        #expect(viewModel.completedClimberCountsReadAt == entry)
+
+        // Opened seconds after Home entry: the count in hand is shown, nothing is read.
+        await viewModel.refreshCompletedClimberCountsIfStale(now: entry.addingTimeInterval(5))
+        await viewModel.refreshCompletedClimberCountsIfStale(
+            now: entry.addingTimeInterval(GlobeViewModel.completedClimberCountsStaleness - 1)
+        )
+        #expect(service.completedClimberCountsFetchCount == 1)
+
+        // Older than the window: read again, and the clock moves to that read.
+        let later = entry.addingTimeInterval(GlobeViewModel.completedClimberCountsStaleness)
+        await viewModel.refreshCompletedClimberCountsIfStale(now: later)
+        #expect(service.completedClimberCountsFetchCount == 2)
+        #expect(viewModel.completedClimberCountsReadAt == later)
+
+        // The unconditional read (Home entry, foreground, a climb state change) always reads.
+        await viewModel.refreshCompletedClimberCounts(now: later.addingTimeInterval(1))
+        #expect(service.completedClimberCountsFetchCount == 3)
+    }
+
+    @Test
     func theCardReadsTheSameCountAsTheMarker() async throws {
         let container = try ModelContainer(
             for: AscendLocalStore.schema,

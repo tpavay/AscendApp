@@ -3,7 +3,7 @@ import Foundation
 enum LiveClimbAnalyticsEvent: TelemetryEvent {
     case homeDailyTapped(climb: Climb, homeState: ClimbHomeCardState)
     case browseOpened(entryPoint: EntryPoint, totalClimbs: Int)
-    case browsePreviewShown(climb: Climb)
+    case browsePreviewShown(climb: Climb, entryPoint: EntryPoint)
     case browseClimbOpened(climb: Climb, entryPoint: EntryPoint)
     case detailViewed(climb: Climb, entryPoint: EntryPoint)
     case detailBrowseTapped(climb: Climb)
@@ -72,8 +72,14 @@ enum LiveClimbAnalyticsEvent: TelemetryEvent {
                 ]
             )
 
-        case .browsePreviewShown(let climb):
-            return record(name: "live_climb_browse_preview_show", climb: climb)
+        case .browsePreviewShown(let climb, let entryPoint):
+            return record(
+                name: "live_climb_browse_preview_show",
+                climb: climb,
+                parameters: [
+                    "entry_point": .string(entryPoint.rawValue)
+                ]
+            )
 
         case .browseClimbOpened(let climb, let entryPoint):
             return record(

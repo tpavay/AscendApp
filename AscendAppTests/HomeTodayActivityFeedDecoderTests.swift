@@ -104,6 +104,52 @@ struct HomeTodayActivityFeedDecoderTests {
     }
 
     @Test
+    func keepingRowsWithinTheDayDropsWhatWasPublishedEarlier() {
+        let now = Date(timeIntervalSince1970: 10 * 24 * 60 * 60)
+        let day = HomeTodayActivityFeed.maxRowAge
+        let feed = HomeTodayActivityFeed(
+            rows: [
+                row(workoutId: "fresh", publishedAt: now.addingTimeInterval(-60)),
+                row(workoutId: "edge", publishedAt: now.addingTimeInterval(-day)),
+                row(workoutId: "stale", publishedAt: now.addingTimeInterval(-day - 1)),
+            ],
+            updatedAt: now
+        )
+
+        let cut = feed.keepingRows(publishedWithin: day, of: now)
+
+        #expect(cut.rows.map(\.id) == ["fresh", "edge"], "exactly a day old stays, older goes")
+        #expect(cut.updatedAt == now)
+        #expect(feed.keepingRows(publishedWithin: day, of: now.addingTimeInterval(120)).rows.map(\.id) == ["fresh"])
+    }
+
+    @Test
+    func theViewModelCutsItsRowsOnTheClockItIsTicked() async {
+        let now = Date(timeIntervalSince1970: 10 * 24 * 60 * 60)
+        let day = HomeTodayActivityFeed.maxRowAge
+        let feed = HomeTodayActivityFeed(
+            rows: (0..<4).map { index in
+                row(workoutId: "w\(index)", publishedAt: now.addingTimeInterval(-day + TimeInterval(60 * (4 - index))))
+            },
+            updatedAt: now
+        )
+        let viewModel = HomeTodayActivityViewModel(service: OneShotFeedService(feed: feed), now: now)
+        #expect(!viewModel.hasReceivedFeed)
+        await viewModel.observe(currentUserId: nil)
+        #expect(viewModel.hasReceivedFeed)
+
+        // Every row is within the day when the snapshot lands, so SEE ALL is offered.
+        viewModel.tick(now: now)
+        #expect(viewModel.allRows.count == 4)
+        #expect(viewModel.showsSeeAll)
+
+        // Three minutes on, the oldest row has crossed the day and the list is Home's three.
+        viewModel.tick(now: now.addingTimeInterval(3 * 60 + 1))
+        #expect(viewModel.allRows.map(\.id) == ["w0", "w1", "w2"])
+        #expect(!viewModel.showsSeeAll)
+    }
+
+    @Test
     func markingAgainstTheSignedInClimberFlagsOnlyTheirRows() {
         let feed = HomeTodayActivityFeed(
             rows: [row(workoutId: "w1", userId: "user-a"), row(workoutId: "w2", userId: "user-b")],
@@ -156,7 +202,8 @@ struct HomeTodayActivityFeedDecoderTests {
         userId: String = "user-a",
         kind: HomeTodayActivityKind = .liveClimb,
         goalKind: HomeTodayJustClimbGoalKind? = nil,
-        goalValue: Int? = nil
+        goalValue: Int? = nil,
+        publishedAt: Date = Date(timeIntervalSince1970: 110)
     ) -> HomeTodayActivityRow {
         HomeTodayActivityRow(
             workoutId: workoutId,
@@ -166,7 +213,7 @@ struct HomeTodayActivityFeedDecoderTests {
             steps: 1_000,
             durationSeconds: 600,
             completedAt: Date(timeIntervalSince1970: 100),
-            publishedAt: Date(timeIntervalSince1970: 110),
+            publishedAt: publishedAt,
             justClimbGoalKind: goalKind,
             justClimbGoalValue: goalValue,
             displayName: "Ada",
@@ -174,5 +221,17 @@ struct HomeTodayActivityFeedDecoderTests {
             avatarToken: "AE7",
             isSynthetic: false
         )
+    }
+}
+
+/// A feed that answers once and ends, so `observe` returns.
+private struct OneShotFeedService: HomeTodayActivityServicing {
+    let feed: HomeTodayActivityFeed
+
+    func feedUpdates() -> AsyncStream<HomeTodayActivityFeed> {
+        AsyncStream { continuation in
+            continuation.yield(feed)
+            continuation.finish()
+        }
     }
 }

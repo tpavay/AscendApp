@@ -18,8 +18,10 @@ import SwiftData
 ///
 /// Only the active tab is mounted, so the map renderer runs on Home alone, and every
 /// `.task` here is bounded: the today feed is one listener on one document, the card
-/// counts are two reads for one climb, and the catalog and dashboard refreshes are
-/// the bounded queries the previous Home already ran.
+/// counts are one catalog-sized read that a card open repeats only once a minute,
+/// the elapsed-text clock ticks once a minute, and the catalog and dashboard
+/// refreshes are the bounded queries the previous Home already ran over the
+/// `@Query` array this view already holds.
 struct HomeView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(ModerationStore.self) private var moderationStore
@@ -32,10 +34,10 @@ struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.tabBarOverlayHeight) private var tabBarOverlayHeight
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
-    @State private var enrichmentService = AppleHealthEnrichmentService.shared
+    @State private var enrichmentService: AppleHealthEnrichmentService
     private let homeDashboard: HomeDashboardViewModel
     @State private var todayActivity: HomeTodayActivityViewModel
-    @State private var globeViewModel = GlobeViewModel()
+    @State private var globeViewModel: GlobeViewModel
     @State private var showingStartActionSheet = false
     @State private var showingHelpSheet = false
     @State private var showingJustClimbSetup = false
@@ -57,16 +59,22 @@ struct HomeView: View {
     private let titleResolver = HomeTodayActivityTitleResolver()
 
     /// `initialSheetDetent` is `.compact` in the app: Home opens collapsed to the This
-    /// Week line. The evidence suite hosts the other two positions directly.
+    /// Week line. The evidence suite hosts the other two positions directly, and hands
+    /// in a globe view model and an enrichment service built on stubs so a hosted Home
+    /// reads no board and points no process-wide writer at a throwaway store.
     init(
         homeDashboard: HomeDashboardViewModel = HomeDashboardViewModel(),
         tabRouter: TabRouter,
         todayActivity: HomeTodayActivityViewModel = HomeTodayActivityViewModel(),
+        globeViewModel: GlobeViewModel = GlobeViewModel(),
+        enrichmentService: AppleHealthEnrichmentService = .shared,
         initialSheetDetent: BrowseSheetDetent = .compact
     ) {
         self.homeDashboard = homeDashboard
         self.tabRouter = tabRouter
         _todayActivity = State(initialValue: todayActivity)
+        _globeViewModel = State(initialValue: globeViewModel)
+        _enrichmentService = State(initialValue: enrichmentService)
         _sheetDetent = State(initialValue: initialSheetDetent)
     }
 
@@ -197,12 +205,28 @@ struct HomeView: View {
             await todayActivity.observe(currentUserId: authVM.user?.uid)
         }
         .task(id: globeViewModel.previewSummary?.climb.id) {
-            // A fresh read for the card the moment it opens, shared with every marker.
+            // The card shows the count already in hand; the boards are re-read only
+            // when that answer is older than the staleness window.
             guard globeViewModel.previewSummary != nil else { return }
-            await globeViewModel.refreshCompletedClimberCounts()
+            await globeViewModel.refreshCompletedClimberCountsIfStale()
+        }
+        .task {
+            // One tick a minute while Home is mounted, cancelled with the view, so
+            // "4 min ago" stays honest and a row that ages past the day leaves.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled else { return }
+                todayActivity.tick()
+                refreshTodayPresentations()
+            }
         }
         .onChange(of: todayActivity.feed) { _, _ in
             refreshTodayPresentations()
+        }
+        .onChange(of: workouts) { _, newValue in
+            // The query lands after the save notification, so a climb added or
+            // removed reaches the week line and the streak from the array itself.
+            homeDashboard.refreshLocalData(modelContext: modelContext, workouts: newValue)
         }
         .onChange(of: tabRouter.selectedTab) { _, newValue in
             guard newValue == .home else { return }
@@ -351,6 +375,7 @@ struct HomeView: View {
                     HomeTodayActivitySection(
                         rows: moderatedTodayRows(allRows: false),
                         presentations: todayPresentations,
+                        hasReceivedFeed: todayActivity.hasReceivedFeed,
                         showsSeeAll: todayActivity.showsSeeAll,
                         onOpen: { row, presentation in
                             openTodayRow(row, presentation: presentation)
@@ -492,14 +517,17 @@ struct HomeView: View {
         todayPresentations = titleResolver.presentations(for: rows, modelContext: modelContext)
     }
 
+    /// A row tapped on Home's sheet, or handed back by SEE ALL for a destination
+    /// that leaves the stack. SEE ALL pushes Climb Detail itself so Back returns to
+    /// the list; a Just Climb or routine row still pops the list first, because the
+    /// sheet and the tab switch are presented from Home.
     private func openTodayRow(
         _ row: ModeratedHomeTodayActivityRow,
         presentation: HomeTodayActivityRowPresentation
     ) {
         switch presentation.destination {
         case .climbDetail(let climbId):
-            guard let climb = try? ClimbService.shared.climb(for: climbId), climb.isAvailable else { return }
-            showingTodayActivityList = false
+            guard let climb = titleResolver.openableClimb(for: climbId) else { return }
             openClimbDetail(climb, entryPoint: .homeTodayRow)
         case .justClimb(let goal):
             pendingJustClimbGoal = goal
@@ -527,7 +555,7 @@ struct HomeView: View {
         globeViewModel.clearSearch()
         globeViewModel.selectPreview(climb, modelContext: modelContext)
         TelemetryManager.shared.track(
-            LiveClimbAnalyticsEvent.browsePreviewShown(climb: climb)
+            LiveClimbAnalyticsEvent.browsePreviewShown(climb: climb, entryPoint: .homePin)
         )
         setSheetDetent(.compact)
     }
@@ -678,7 +706,7 @@ struct HomeView: View {
     }
 
     private func refreshHomeDashboard(forceRank: Bool = false) {
-        homeDashboard.refreshLocalData(modelContext: modelContext)
+        homeDashboard.refreshLocalData(modelContext: modelContext, workouts: workouts)
         homeDashboard.refreshWeeklyRank(
             userId: authVM.user?.uid,
             displayName: authVM.displayName,

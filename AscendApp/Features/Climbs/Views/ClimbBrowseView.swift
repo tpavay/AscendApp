@@ -113,7 +113,7 @@ struct ClimbBrowseView: View {
         }
         .task(id: viewModel.previewSummary?.climb.id) {
             guard viewModel.previewSummary != nil else { return }
-            await viewModel.refreshCompletedClimberCounts()
+            await viewModel.refreshCompletedClimberCountsIfStale()
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbStateDidChange)) { _ in
             viewModel.refresh(modelContext: modelContext)
@@ -298,7 +298,7 @@ struct ClimbBrowseView: View {
         viewModel.clearSearch()
         viewModel.selectPreview(climb, modelContext: modelContext)
         TelemetryManager.shared.track(
-            LiveClimbAnalyticsEvent.browsePreviewShown(climb: climb)
+            LiveClimbAnalyticsEvent.browsePreviewShown(climb: climb, entryPoint: .browsePin)
         )
         setBrowseSheetDetent(.compact)
     }

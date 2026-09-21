@@ -78,7 +78,7 @@ struct HomeTodayActivityRowPresentationTests {
     }
 
     @Test
-    func anUnknownLandmarkStillReadsAsALiveClimb() {
+    func anUnknownLandmarkStillReadsAsALiveClimbButOpensNothing() {
         let presentation = HomeTodayActivityRowPresentation(
             row: moderated(kind: .liveClimb, climbId: "retired-climb", steps: 100, duration: 60, publishedAt: now),
             climbName: nil,
@@ -86,7 +86,10 @@ struct HomeTodayActivityRowPresentationTests {
             now: now
         )
         #expect(presentation.title == "Live Climb")
-        #expect(presentation.destination == .climbDetail(climbId: "retired-climb"))
+        // The catalog cannot name it, so there is no Climb Detail to open: no chevron,
+        // no enabled row that silently does nothing.
+        #expect(presentation.destination == .none)
+        #expect(!presentation.isTappable)
     }
 
     // MARK: - Fixtures

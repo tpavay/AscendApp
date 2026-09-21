@@ -28,6 +28,11 @@ final class GlobeViewModel {
     /// Ascent, before the boards have answered. One bounded read, shared by every
     /// marker and the card so they can never disagree.
     private(set) var completedClimberCounts: [String: Int]?
+    /// When the boards last answered, so a card opening seconds after Home entry
+    /// shows the count already in hand instead of re-reading every board root.
+    private(set) var completedClimberCountsReadAt: Date?
+    /// How long a read of the counts is trusted before a card open re-reads them.
+    static let completedClimberCountsStaleness: TimeInterval = 60
 
     private let climbService: ClimbService
     private let communityStatsService: LiveClimbCommunityStatsServicing
@@ -374,11 +379,22 @@ final class GlobeViewModel {
     /// Reads how many climbers have completed each landmark: one bounded query over
     /// the catalog-sized board roots. Every marker and the open card read this one
     /// answer. A failed read keeps the last answer rather than blanking the globe.
-    func refreshCompletedClimberCounts() async {
+    func refreshCompletedClimberCounts(now: Date = Date()) async {
         guard let counts = try? await leaderboardService.fetchLiveClimbCompletedClimberCounts() else { return }
+        completedClimberCountsReadAt = now
         if counts != completedClimberCounts {
             completedClimberCounts = counts
         }
+    }
+
+    /// The read a card open asks for: nothing while the last answer is younger than
+    /// `completedClimberCountsStaleness`, the full read once it is older or never ran.
+    func refreshCompletedClimberCountsIfStale(now: Date = Date()) async {
+        if let completedClimberCountsReadAt,
+           now.timeIntervalSince(completedClimberCountsReadAt) < Self.completedClimberCountsStaleness {
+            return
+        }
+        await refreshCompletedClimberCounts(now: now)
     }
 
     /// Distinct climbers who have completed the landmark, or nil until the boards

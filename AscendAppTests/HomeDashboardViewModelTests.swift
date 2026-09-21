@@ -20,11 +20,39 @@ struct HomeDashboardViewModelTests {
         modelContext.insert(ClimbAttempt(climbId: "mount-etna", status: .failed))
         try modelContext.save()
 
+        // The array Home's `@Query` holds, newest first, handed in rather than fetched
+        // again inside the refresh.
+        let workouts = try modelContext.fetch(
+            FetchDescriptor<Workout>(sortBy: [SortDescriptor(\.date, order: .reverse)])
+        )
+
         let viewModel = HomeDashboardViewModel()
-        viewModel.refreshLocalData(modelContext: modelContext, referenceDate: referenceDate)
+        viewModel.refreshLocalData(modelContext: modelContext, workouts: workouts, referenceDate: referenceDate)
 
         #expect(viewModel.completedClimbCount == 2)
         #expect(viewModel.workoutCount == 3)
+        // 2026-05-20 is a Wednesday, so the Monday week holds only the climb one day
+        // back; the climbs six and eight days back belong to the week before.
+        #expect(viewModel.weekSummary?.weekWorkoutCount == 1)
+        #expect(viewModel.weekSummary?.weekTotalValue == 1_000)
+        #expect(viewModel.currentStreakWeeks == Workout.calculateWeeklyStreak(from: workouts))
+    }
+
+    @Test
+    func refreshLocalDataDerivesTheWeekAndStreakFromTheArrayItIsGiven() throws {
+        let modelContext = try makeModelContext()
+        let referenceDate = utcDate(year: 2026, month: 5, day: 20, hour: 12)
+        modelContext.insert(makeWorkout(date: referenceDate.addingTimeInterval(-1 * day), duration: 1_800, steps: 1_000))
+        try modelContext.save()
+
+        let viewModel = HomeDashboardViewModel()
+        viewModel.refreshLocalData(modelContext: modelContext, workouts: [], referenceDate: referenceDate)
+
+        // The store holds a climb, but the refresh reads only what it was handed.
+        #expect(viewModel.workoutCount == 1)
+        #expect(viewModel.weekSummary?.weekWorkoutCount == 0)
+        #expect(viewModel.weekSummary?.weekTotalValue == 0)
+        #expect(viewModel.currentStreakWeeks == 0)
     }
 
     private func makeModelContext() throws -> ModelContext {
