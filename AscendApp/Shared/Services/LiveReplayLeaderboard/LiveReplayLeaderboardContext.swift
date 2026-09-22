@@ -175,17 +175,24 @@ struct LiveReplayLeaderboardContext: Hashable, Codable, Sendable {
     let id: String
     let targetSteps: Int
     let bucketIntervalSeconds: Int
+    /// The goal this session races the board against, which on a Just Climb
+    /// chooses every climber's best (`LiveReplayRaceGoal`). Always `.open` on
+    /// every other context type: a tower fixes its own target and a routine its
+    /// own clock, so a goal there would name entries the server never flags.
+    let raceGoal: LiveReplayRaceGoal
 
     init(
         type: LiveReplayLeaderboardContextType,
         id: String,
         targetSteps: Int,
-        bucketIntervalSeconds: Int = 10
+        bucketIntervalSeconds: Int = 10,
+        raceGoal: LiveReplayRaceGoal = .open
     ) {
         self.type = type
         self.id = id
         self.targetSteps = max(targetSteps, 1)
         self.bucketIntervalSeconds = max(bucketIntervalSeconds, 1)
+        self.raceGoal = type == .justClimb ? raceGoal : .open
     }
 
     static func liveClimb(
@@ -203,13 +210,15 @@ struct LiveReplayLeaderboardContext: Hashable, Codable, Sendable {
 
     static func justClimbGlobal(
         targetSteps: Int = JustClimbGoal.defaultOpenStepScale,
-        bucketIntervalSeconds: Int = 10
+        bucketIntervalSeconds: Int = 10,
+        raceGoal: LiveReplayRaceGoal = .open
     ) -> LiveReplayLeaderboardContext {
         LiveReplayLeaderboardContext(
             type: .justClimb,
             id: "global",
             targetSteps: targetSteps,
-            bucketIntervalSeconds: bucketIntervalSeconds
+            bucketIntervalSeconds: bucketIntervalSeconds,
+            raceGoal: raceGoal
         )
     }
 

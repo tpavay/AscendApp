@@ -2,302 +2,262 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {fileURLToPath} from "node:url";
-
+import {dirname, join} from "node:path";
 import {
-  MAX_REPLAY_SPLIT_CHECKPOINTS,
+  ENVIRONMENTS,
+  PRODUCTION_PROJECT_ID,
   bestAttemptWorkoutId,
-  bestForUserFlagUpdates,
+  curveFromData,
   entryWritePlan,
-  ranksOnSteps,
+  parseArgs,
+  planClimberUpdates,
+  renderReport,
+  resolveTarget,
+  resolvedContextType,
   userAttemptEntry,
 } from "../backfill-live-replay-best-per-user.mjs";
 
-const SCRIPT_SOURCE = readFileSync(
-  fileURLToPath(new URL("../backfill-live-replay-best-per-user.mjs", import.meta.url)),
-  "utf8"
+const here = dirname(fileURLToPath(import.meta.url));
+const vector = JSON.parse(
+  readFileSync(
+    join(here, "../../SharedTestVectors/live-replay-race-best-vector.json"),
+    "utf8"
+  )
 );
 
-// The runbook makes running this against production a release step, and the
-// flag it writes is what every live-race read filters on: a wrong winner is a
-// wrong rival frozen on every board until the next publish. So the selection is
-// exercised here against fixtures, on both metrics, before it ever meets a row.
-
-const LIVE_CLIMB = "live_climb";
-const ROUTINE = "routine";
-const ROUTINE_TEMPLATE = "routine_template";
-const CLIMBER = "climber-a";
-
-function attempt(overrides) {
-  return {
-    userId: CLIMBER,
-    splitBucketCount: 61,
-    ...overrides,
-  };
+/**
+ * One of the captain's climbs as its bucket-zero entry reads on the global
+ * Just Climb board, before this rule: no goal keys, whatever flag production
+ * held, and the curve the vector carries for it.
+ * @param {string} workoutId Vector attempt id.
+ * @param {{isBestForUser?: boolean, bestForGoals?: string[]}} stored Stored flags.
+ * @return {{attempt: object, curve: object}} Parsed attempt and its curve.
+ */
+function captainClimb(workoutId, stored = {}) {
+  const fixture = vector.attempts[workoutId];
+  const attempt = userAttemptEntry(
+    {
+      completionDurationSeconds: fixture.finalDurationSeconds,
+      finalSteps: fixture.finalSteps,
+      splitBucketCount: fixture.splitSteps.length,
+      splitIntervalSeconds: fixture.splitIntervalSeconds,
+      userId: "captain",
+      workoutId,
+      ...stored,
+    },
+    workoutId,
+    "just_climb"
+  );
+  assert.ok(attempt);
+  return {attempt, curve: {workoutId, ...fixture}};
 }
 
-function parsed(data, contextType) {
-  const entry = userAttemptEntry(data, data.workoutId, contextType);
-  assert.notEqual(entry, null, `${data.workoutId} should be a usable attempt`);
-  return entry;
+function plan(climbs) {
+  return planClimberUpdates({
+    attempts: climbs.map((climb) => climb.attempt),
+    contextType: "just_climb",
+    curves: new Map(climbs.map((climb) => [climb.workoutId ?? climb.curve.workoutId, climb.curve])),
+  });
 }
 
-function flagChanges(updates) {
-  return updates
-    .map((update) => [update.workoutId, update.isBestForUser])
-    .sort(([left], [right]) => left.localeCompare(right));
-}
-
-// Mirrors `ranksOnSteps` in functions/src/liveReplayLeaderboard.ts: only a
-// routine template ranks on steps. A plain routine ranks on the clock even
-// though it is a routine.
-test("only a routine_template board ranks on steps", () => {
-  assert.equal(ranksOnSteps(ROUTINE_TEMPLATE), true);
-  assert.equal(ranksOnSteps(LIVE_CLIMB), false);
-  assert.equal(ranksOnSteps(ROUTINE), false);
-  assert.equal(ranksOnSteps("just_climb"), false);
-});
-
-test("a routine_template board keeps the most steps, not the fastest run", () => {
-  const attempts = [
-    parsed(attempt({
-      workoutId: "fast-few",
-      completionDurationSeconds: 600,
-      finalSteps: 900,
-    }), ROUTINE_TEMPLATE),
-    parsed(attempt({
-      workoutId: "slow-many",
-      completionDurationSeconds: 1200,
-      finalSteps: 1400,
-      isBestForUser: false,
-    }), ROUTINE_TEMPLATE),
-    parsed(attempt({
-      workoutId: "middle",
-      completionDurationSeconds: 900,
-      finalSteps: 1100,
-      isBestForUser: true,
-    }), ROUTINE_TEMPLATE),
+// The captain's morning on production: the 149-step climb wore the only flag
+// because the collapse ran on the duration metric. With no goal his best is
+// his most steps - 1,776 across the first three, then 2,766 once that climb
+// lands.
+test("the captain's history: the open best becomes 1,776, then 2,766", () => {
+  const history = [
+    captainClimb("charminar-149", {isBestForUser: true}),
+    captainClimb("just-climb-390"),
+    captainClimb("cn-tower-1776"),
   ];
 
-  assert.equal(bestAttemptWorkoutId(attempts, ROUTINE_TEMPLATE), "slow-many");
-  assert.deepEqual(flagChanges(bestForUserFlagUpdates(attempts, ROUTINE_TEMPLATE)), [
-    ["middle", false],
-    ["slow-many", true],
-  ]);
-});
+  const first = plan(history);
+  assert.equal(first.winner, "cn-tower-1776");
+  const flags = Object.fromEntries(
+    first.updates.filter((u) => u.isBestForUser !== undefined).map((u) => [u.workoutId, u.isBestForUser])
+  );
+  assert.deepEqual(flags, {"charminar-149": false, "cn-tower-1776": true});
 
-test("a live_climb board keeps the fastest run", () => {
-  const attempts = [
-    parsed(attempt({
-      workoutId: "slow",
-      completionDurationSeconds: 700,
-      finalSteps: 551,
-      isBestForUser: true,
-    }), LIVE_CLIMB),
-    parsed(attempt({
-      workoutId: "fast",
-      completionDurationSeconds: 512,
-      finalSteps: 551,
-    }), LIVE_CLIMB),
-  ];
-
-  assert.equal(bestAttemptWorkoutId(attempts, LIVE_CLIMB), "fast");
-  assert.deepEqual(flagChanges(bestForUserFlagUpdates(attempts, LIVE_CLIMB)), [
-    ["fast", true],
-    ["slow", false],
-  ]);
-});
-
-// A plain routine sits outside collapsesRepeatFinishers next to just_climb and
-// still ranks on the clock; the metric list and the collapse list are not the
-// same list.
-test("a plain routine board ranks on the clock like a live climb", () => {
-  const attempts = [
-    parsed(attempt({
-      workoutId: "more-steps-slower",
-      completionDurationSeconds: 1500,
-      finalSteps: 2000,
-    }), ROUTINE),
-    parsed(attempt({
-      workoutId: "fewer-steps-faster",
-      completionDurationSeconds: 1200,
-      finalSteps: 1500,
-    }), ROUTINE),
-  ];
-
-  assert.equal(bestAttemptWorkoutId(attempts, ROUTINE), "fewer-steps-faster");
-});
-
-// Both the trigger and this script must pick the same row or they flag
-// different attempts; the immutable workout ID is the shared tiebreak.
-test("equal values resolve on workout ID so the trigger and the backfill agree", () => {
-  const attempts = [
-    parsed(attempt({workoutId: "b", completionDurationSeconds: 600}), LIVE_CLIMB),
-    parsed(attempt({workoutId: "a", completionDurationSeconds: 600}), LIVE_CLIMB),
-    parsed(attempt({workoutId: "c", completionDurationSeconds: 600}), LIVE_CLIMB),
-  ];
-
-  assert.equal(bestAttemptWorkoutId(attempts, LIVE_CLIMB), "a");
-});
-
-test("attempts already carrying the right flag are not rewritten", () => {
-  const attempts = [
-    parsed(attempt({
-      workoutId: "best",
-      completionDurationSeconds: 500,
-      isBestForUser: true,
-    }), LIVE_CLIMB),
-    parsed(attempt({
-      workoutId: "other",
-      completionDurationSeconds: 900,
-      isBestForUser: false,
-    }), LIVE_CLIMB),
-    parsed(attempt({
-      workoutId: "never-flagged",
-      completionDurationSeconds: 950,
-    }), LIVE_CLIMB),
-  ];
-
-  assert.deepEqual(bestForUserFlagUpdates(attempts, LIVE_CLIMB), []);
-});
-
-// The fail-closed branch. A climber whose rows carry nothing usable for the
-// board's metric resolves no winner, and the only acceptable outcome is that
-// nothing is written - never `isBestForUser: false` across their rows, which
-// would strip them out of the live race on the strength of a value that could
-// not be read.
-test("rows without a usable value for the board's metric are rejected, not demoted", () => {
-  const unusable = [
-    attempt({workoutId: "no-steps", completionDurationSeconds: 600, isBestForUser: true}),
-    attempt({workoutId: "negative-steps", completionDurationSeconds: 600, finalSteps: -5}),
-    attempt({workoutId: "string-steps", completionDurationSeconds: 600, finalSteps: "900"}),
-    attempt({workoutId: "fractional-steps", completionDurationSeconds: 600, finalSteps: 900.5}),
-    attempt({workoutId: "no-owner", userId: undefined, completionDurationSeconds: 600, finalSteps: 900}),
-  ];
-
-  for (const data of unusable) {
-    assert.equal(
-      userAttemptEntry(data, data.workoutId, ROUTINE_TEMPLATE),
-      null,
-      `${data.workoutId} must be rejected before it can reach the flag diff`
-    );
-  }
-
-  const usable = unusable
-    .map((data) => userAttemptEntry(data, data.workoutId, ROUTINE_TEMPLATE))
-    .filter((entry) => entry !== null);
-  assert.equal(bestAttemptWorkoutId(usable, ROUTINE_TEMPLATE), null);
-  assert.deepEqual(bestForUserFlagUpdates(usable, ROUTINE_TEMPLATE), []);
-});
-
-test("no winner means no writes, whatever the rows currently carry", () => {
-  assert.deepEqual(bestForUserFlagUpdates([], LIVE_CLIMB), []);
-  assert.deepEqual(bestForUserFlagUpdates([], ROUTINE_TEMPLATE), []);
-});
-
-test("a duration-ranked board rejects a row with no duration and ignores its steps", () => {
+  const later = plan([...history, captainClimb("just-climb-2766")]);
+  assert.equal(later.winner, "just-climb-2766");
   assert.equal(
-    userAttemptEntry(
-      attempt({workoutId: "steps-only", finalSteps: 551}),
-      "steps-only",
-      LIVE_CLIMB
-    ),
-    null
+    later.updates.find((u) => u.workoutId === "just-climb-2766")?.isBestForUser,
+    true
   );
   assert.equal(
-    parsed(attempt({workoutId: "no-steps", completionDurationSeconds: 600}), LIVE_CLIMB)
-      .rankingValue,
-    600
+    later.updates.find((u) => u.workoutId === "cn-tower-1776")?.isBestForUser,
+    undefined,
+    "the CN Tower climb never carried the flag, so nothing is written to demote it"
   );
 });
 
-test("a steps-ranked board takes its ranking value from finalSteps", () => {
-  const entry = parsed(attempt({
-    workoutId: "w",
-    completionDurationSeconds: 600,
-    finalSteps: 1400,
-  }), ROUTINE_TEMPLATE);
+test("a step goal key lands on the fastest climb to that count", () => {
+  const {updates, goalKeys} = plan([
+    captainClimb("charminar-149"),
+    captainClimb("just-climb-390"),
+    captainClimb("cn-tower-1776"),
+    captainClimb("just-climb-2766"),
+  ]);
 
-  assert.equal(entry.rankingValue, 1400);
-  assert.equal(entry.workoutId, "w");
-  assert.equal(entry.userId, CLIMBER);
-  assert.equal(entry.splitBucketCount, 61);
-  assert.equal(entry.hasKnownBucketSpan, true);
-  assert.equal(entry.isBestForUser, false);
+  // Fastest to 1,700 is the CN Tower climb, not the longer one; fastest to
+  // 100 is the 149-step sprint.
+  assert.ok(goalKeys.get("cn-tower-1776").includes("steps:1700"));
+  assert.ok(goalKeys.get("charminar-149").includes("steps:100"));
+  assert.equal(goalKeys.get("just-climb-2766").includes("steps:1700"), false);
+  assert.deepEqual(
+    updates.find((u) => u.workoutId === "cn-tower-1776")?.bestForGoals,
+    goalKeys.get("cn-tower-1776")
+  );
 });
 
-// A row written before the span was stored sweeps the whole checkpoint range,
-// so a promoted climber's final bucket is never stranded; the dry-run estimate
-// stays honest about how many buckets that really is.
-test("a row with no stored span sweeps every checkpoint and reports the span as unknown", () => {
-  const entry = parsed({
-    userId: CLIMBER,
-    workoutId: "legacy",
-    completionDurationSeconds: 125,
-    splitIntervalSeconds: 10,
-  }, LIVE_CLIMB);
+test("a duration goal key lands on the most steps within that time", () => {
+  const {goalKeys, updates} = plan([
+    captainClimb("charminar-149"),
+    captainClimb("just-climb-390"),
+    captainClimb("cn-tower-1776"),
+    captainClimb("just-climb-2766"),
+  ]);
 
-  assert.equal(entry.splitBucketCount, MAX_REPLAY_SPLIT_CHECKPOINTS);
-  assert.equal(entry.hasKnownBucketSpan, false);
-  assert.equal(entry.estimatedEntryCount, 13);
+  // Five minutes in the CN Tower climb was furthest (444 steps); thirty
+  // minutes in the long climb has passed every finished one.
+  assert.ok(goalKeys.get("cn-tower-1776").includes("duration:300"));
+  assert.ok(goalKeys.get("just-climb-2766").includes("duration:1800"));
+  assert.equal(goalKeys.get("just-climb-390").includes("duration:300"), false);
+  // Every attempt gets exactly the keys it wins written: the 390-step climb
+  // was the quickest of the four to 200 and 300 steps and nothing else.
+  assert.deepEqual(
+    updates.find((u) => u.workoutId === "just-climb-390")?.bestForGoals,
+    ["steps:200", "steps:300"]
+  );
 });
 
-// A legacy attempt sweeps every checkpoint because its span is unknown, and the
-// writes go through atomic batches: one update against a bucket the attempt
-// never reached would fail the whole commit. So the plan is cut to the entries
-// that exist, and an absent bucket is skipped rather than created or written.
-test("only buckets that hold the attempt are written, absent ones are skipped", () => {
-  const updates = [
-    {workoutId: "legacy", splitBucketCount: MAX_REPLAY_SPLIT_CHECKPOINTS, isBestForUser: true},
-    {workoutId: "spanned", splitBucketCount: 3, isBestForUser: false},
+test("a second run on corrected data plans nothing", () => {
+  const history = [
+    captainClimb("charminar-149"),
+    captainClimb("cn-tower-1776"),
+    captainClimb("just-climb-2766"),
   ];
-  const existing = new Map([
-    [0, new Set(["legacy", "spanned"])],
-    [1, new Set(["spanned"])],
-    [2, new Set(["spanned", "someone-else"])],
-    [7, new Set(["legacy"])],
-  ]);
+  const first = plan(history);
 
-  const plan = entryWritePlan(updates, existing);
+  const corrected = history.map(({attempt, curve}) => ({
+    attempt: {
+      ...attempt,
+      isBestForUser: attempt.workoutId === first.winner,
+      bestForGoals: first.goalKeys.get(attempt.workoutId),
+    },
+    curve,
+  }));
 
-  assert.deepEqual(plan.writes, [
-    {bucketIndex: 0, workoutId: "legacy", isBestForUser: true},
-    {bucketIndex: 7, workoutId: "legacy", isBestForUser: true},
-    {bucketIndex: 0, workoutId: "spanned", isBestForUser: false},
-    {bucketIndex: 1, workoutId: "spanned", isBestForUser: false},
-    {bucketIndex: 2, workoutId: "spanned", isBestForUser: false},
-  ]);
-  assert.equal(plan.skipped, MAX_REPLAY_SPLIT_CHECKPOINTS - 2);
+  assert.deepEqual(plan(corrected).updates, []);
 });
 
-test("a bucket that exists but holds nothing of the attempt is skipped too", () => {
+test("a tower board diffs the flag alone and reads no curves", () => {
+  const attempts = [
+    userAttemptEntry({completionDurationSeconds: 900, userId: "u", workoutId: "slow"}, "slow", "live_climb"),
+    userAttemptEntry({completionDurationSeconds: 700, userId: "u", workoutId: "fast", isBestForUser: false}, "fast", "live_climb"),
+  ];
+
+  const {winner, goalKeys, updates} = planClimberUpdates({attempts, contextType: "live_climb"});
+
+  assert.equal(winner, "fast");
+  assert.equal(goalKeys, null);
+  assert.deepEqual(updates, [{workoutId: "fast", splitBucketCount: 360, isBestForUser: true}]);
+});
+
+test("a climber whose attempts resolve no winner is left alone, never demoted", () => {
+  assert.equal(
+    userAttemptEntry({userId: "u", workoutId: "w"}, "w", "just_climb"),
+    null,
+    "an entry with no steps is unreadable on a steps-racing board"
+  );
+  assert.deepEqual(
+    planClimberUpdates({attempts: [], contextType: "just_climb", curves: new Map()}).updates,
+    []
+  );
+});
+
+test("the race metric is steps on a Just Climb and the clock on a tower", () => {
+  const steps = (workoutId, finalSteps, completionDurationSeconds) =>
+    userAttemptEntry({finalSteps, completionDurationSeconds, userId: "u", workoutId}, workoutId, "just_climb");
+  assert.equal(
+    bestAttemptWorkoutId([steps("short-fast", 149, 70), steps("long", 1776, 1201)], "just_climb"),
+    "long"
+  );
+  const clock = (workoutId, completionDurationSeconds) =>
+    userAttemptEntry({completionDurationSeconds, userId: "u", workoutId}, workoutId, "live_climb");
+  assert.equal(bestAttemptWorkoutId([clock("slow", 900), clock("fast", 700)], "live_climb"), "fast");
+});
+
+test("writes reach only the buckets an attempt published into", () => {
   const plan = entryWritePlan(
-    [{workoutId: "mine", splitBucketCount: 2, isBestForUser: true}],
-    new Map([[0, new Set(["mine"])], [1, new Set(["theirs"])]])
+    [{workoutId: "w", splitBucketCount: 4, isBestForUser: true, bestForGoals: ["steps:100"]}],
+    new Map([[0, new Set(["w"])], [1, new Set(["w"])], [3, new Set(["other"])]])
   );
 
-  assert.deepEqual(plan.writes, [{bucketIndex: 0, workoutId: "mine", isBestForUser: true}]);
-  assert.equal(plan.skipped, 1);
+  assert.deepEqual(plan.writes.map((w) => w.bucketIndex), [0, 1]);
+  assert.deepEqual(plan.writes[0].fields, {isBestForUser: true, bestForGoals: ["steps:100"]});
+  assert.equal(plan.skipped, 2);
 });
 
-// This is the release step firstmate runs by hand before an archive, and a
-// `BulkWriter.close()` that never settles is indistinguishable from a working
-// run. Every Firestore call has to carry a deadline, which only the shared bulk
-// module supplies.
-test("the backfill writes through the bounded bulk module, never BulkWriter", () => {
-  assert.ok(
-    SCRIPT_SOURCE.includes('from "./lib/firestore-bulk.mjs"'),
-    "the backfill no longer imports scripts/lib/firestore-bulk.mjs"
+test("a stored curve is read back and an unusable one is rebuilt", () => {
+  const {attempt} = captainClimb("cn-tower-1776");
+  assert.equal(curveFromData(attempt, undefined), null);
+  assert.equal(curveFromData(attempt, {splitSteps: [1, "x"]}), null);
+  assert.deepEqual(
+    curveFromData(attempt, {splitSteps: [10, 20], finalSteps: 20, finalDurationSeconds: 120, splitIntervalSeconds: 60}),
+    {workoutId: "cn-tower-1776", finalSteps: 20, finalDurationSeconds: 120, splitIntervalSeconds: 60, splitSteps: [10, 20]}
   );
-  assert.ok(
-    !/bulkWriter\(/.test(SCRIPT_SOURCE),
-    "the backfill reached for db.bulkWriter() again"
+});
+
+test("production needs its project id spelled out, dry run included", () => {
+  assert.throws(() => resolveTarget({}), /No target/);
+  assert.throws(() => resolveTarget({env: "prod"}), /--confirm-production ascend-prod-9c8f2/);
+  assert.throws(() => resolveTarget({env: "prod", confirmProduction: "yes"}), /--confirm-production/);
+  assert.throws(() => resolveTarget({env: "qa"}), /Unknown environment/);
+  assert.equal(resolveTarget({env: "staging"}).projectId, ENVIRONMENTS.staging);
+  assert.equal(
+    resolveTarget({env: "prod", confirmProduction: PRODUCTION_PROJECT_ID}).projectId,
+    PRODUCTION_PROJECT_ID
   );
-  assert.ok(
-    /createBatchWriter\(firestore, \{progress\}\)/.test(SCRIPT_SOURCE),
-    "the write phase does not commit through the worker-pool batch writer"
+
+  const args = parseArgs(["node", "script", "--env", "prod", "--confirm-production", PRODUCTION_PROJECT_ID, "--dry-run"]);
+  assert.deepEqual(args, {
+    env: "prod",
+    confirmProduction: PRODUCTION_PROJECT_ID,
+    dryRun: true,
+    contextKey: null,
+    help: false,
+  });
+  assert.throws(() => parseArgs(["node", "script", "--project", "dev"]), /Unknown argument/);
+});
+
+test("the context type comes from the summary, else the key", () => {
+  assert.equal(resolvedContextType({contextType: "just_climb"}, "x"), "just_climb");
+  assert.equal(resolvedContextType({}, "live_climb__burj-khalifa"), "live_climb");
+  assert.equal(resolvedContextType({}, ""), null);
+});
+
+test("the report names every skipped climber and says when there is nothing to write", () => {
+  const target = {label: "ascend-staging-fa7d5 (staging)"};
+  const board = {
+    contextKey: "just_climb__global", contextType: "just_climb", racesGoals: true,
+    attemptsScanned: 12, attemptsUnreadable: 0, climbersScanned: 4, climbersChanged: 0,
+    climbersSkipped: 1, attemptsPromoted: 0, attemptsDemoted: 0, goalKeyRewrites: 0,
+    curvesRebuilt: 0, entryWritesPlanned: 0, entryWritesApplied: 0, bucketsWithoutEntry: 0,
+  };
+
+  const skipped = renderReport(
+    {boards: [board], boardsSkipped: [], skippedClimbers: [
+      {contextKey: "just_climb__global", userId: "kC8GSV7h", attempts: 8, reason: "DEADLINE_EXCEEDED"},
+    ]},
+    {target, dryRun: false}
   );
-  assert.ok(
-    !/await (leaderboardRef|bucketZeroEntries|firestore\.collection\([^)]*\))\.get\(\)/.test(SCRIPT_SOURCE),
-    "a read awaits Firestore without a deadline"
+  assert.match(skipped, /Skipped climbers \(1\)/);
+  assert.match(skipped, /just_climb__global \/ kC8GSV7h \(8 attempt\(s\)\): DEADLINE_EXCEEDED/);
+
+  const settled = renderReport(
+    {boards: [{...board, climbersSkipped: 0}], boardsSkipped: [], skippedClimbers: []},
+    {target, dryRun: true}
   );
+  assert.match(settled, /Nothing to write: every board is already on the current rule\./);
 });

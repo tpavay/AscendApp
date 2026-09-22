@@ -319,6 +319,84 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "bestForGoals",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "stepsAtBucket",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "bestForGoals",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "stepsAtBucket",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "bestForGoals",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "finalSteps",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "splitBucketCount",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "bestForGoals",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "finalSteps",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "splitBucketCount",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "bestForGoals",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "userId",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [

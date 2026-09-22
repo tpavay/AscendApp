@@ -5,6 +5,11 @@ import {
   normalizeReplaySplitSteps,
 } from "./liveReplaySplitNormalization.js";
 import {
+  RaceAttemptCurve,
+  raceGoalKeysByWorkoutId,
+  sameGoalKeys,
+} from "./liveReplayRaceBest.js";
+import {
   HEADPHONE_MOTION_SOURCE,
   isRecoverableLegacyCompletion,
 } from "./legacyClimbCompletion.js";
@@ -36,6 +41,13 @@ const TARGET_REACHED_STOP_REASON = "target_reached";
 const USER_STOPPED_REASON = "user_stopped";
 const FIRESTORE_NOT_FOUND_CODE = 5;
 const BULK_WRITER_MAX_ATTEMPTS = 3;
+const ATTEMPT_CURVES_COLLECTION = "attemptCurves";
+const FINISHERS_COLLECTION = "finishers";
+/**
+ * The split interval every producer has ever published at, assumed for an
+ * entry written before the interval was stored on it.
+ */
+const DEFAULT_SPLIT_INTERVAL_SECONDS = 10;
 
 /**
  * What produced the completions a replay summary counts.
@@ -157,6 +169,11 @@ interface ReplayEntryWriteInput {
   stepsAtBucket: number;
   /** Null in contexts that publish no flag, so the field stays absent. */
   isBestForUser: boolean | null;
+  /**
+   * The goal keys this attempt is its climber's best under, or null on a
+   * board that races no goals, so the field stays absent there.
+   */
+  bestForGoals: string[] | null;
   updatedAt: unknown;
 }
 
@@ -165,16 +182,41 @@ interface ReplayEntryWriteInput {
  */
 interface UserAttemptEntry {
   workoutId: string;
-  /** The value this attempt ranks on, in the context's own metric. */
+  /**
+   * The value the live race collapses this climber's attempts on
+   * (`raceMetric`): steps on a Just Climb or a routine template, seconds on a
+   * tower or a plain routine.
+   */
+  raceValue: number;
+  /**
+   * The value this attempt ranks on in the board's own metric
+   * (`rankingMetric`) - what the finisher's standing best and every frozen
+   * standing use. The two coincide everywhere but on a Just Climb.
+   */
   rankingValue: number;
+  finalSteps: number;
+  completionDurationSeconds: number;
+  splitIntervalSeconds: number;
   splitBucketCount: number;
   isBestForUser: boolean;
+  /** The goal keys this entry carries, sorted; empty where it carries none. */
+  bestForGoals: string[];
 }
 
 interface BestForUserFlagUpdate {
   workoutId: string;
   splitBucketCount: number;
-  isBestForUser: boolean;
+  isBestForUser?: boolean;
+  bestForGoals?: string[];
+}
+
+/**
+ * A board a climber's flags are reconciled on: the two facts every replay
+ * payload carries that reconciliation actually reads.
+ */
+interface ReplayContextRef {
+  contextKey: string;
+  contextType: string;
 }
 
 /**
@@ -824,6 +866,10 @@ function deleteReplayEntries(
   for (let index = 0; index < payload.splitSteps.length; index += 1) {
     writer.delete(entryReference(payload, index, entryId));
   }
+  // Only a Just Climb writes one, and deleting an absent document is a no-op,
+  // so every context deletes unconditionally rather than re-deriving here
+  // which boards race goals.
+  writer.delete(attemptCurveReference(payload, entryId));
 }
 
 /**
@@ -884,33 +930,48 @@ function collapsesRepeatFinishers(payload: LiveReplayIndexPayload): boolean {
  * Seeds the best-per-user flag for an attempt about to publish.
  *
  * reconcileUserBestEntries is the authority; this seed only lets a new best
- * race immediately. Republishing the standing best (a workout edit fires this
- * trigger too) must not demote it out of the live field.
+ * race immediately. Judged against the climber's other published attempts on
+ * the board, read just before the transaction: a republish of the standing
+ * best (a workout edit fires this trigger too) is its own workout id among
+ * them and so keeps its flag, and a first attempt has nobody to lose to.
+ *
+ * Read from the entries rather than the finisher document because the two
+ * bests are not the same number on a Just Climb: the finisher's stored best
+ * is the board's ranking metric, and the race collapses on `raceMetric`.
  * @param {LiveReplayIndexPayload} payload Replay payload.
  * @param {string} entryId Public row document ID.
- * @param {Record<string, unknown> | undefined} finisherData Finisher document.
- * @return {boolean | null} Seed flag, or null when the context carries none.
+ * @param {UserAttemptEntry[]} attempts The climber's published attempts here.
+ * @return {boolean} Seed flag.
  */
 function seedBestForUser(
   payload: LiveReplayIndexPayload,
   entryId: string,
-  finisherData: Record<string, unknown> | undefined
+  attempts: UserAttemptEntry[]
 ): boolean {
-  const storedBest = finisherStoredBest(payload, finisherData);
+  const candidate: UserAttemptEntry = {
+    workoutId: entryId,
+    raceValue: attemptRaceValue(payload),
+    rankingValue: attemptRankingValue(payload),
+    finalSteps: payload.finalSteps,
+    completionDurationSeconds: payload.finalDurationSeconds,
+    splitIntervalSeconds: payload.splitIntervalSeconds,
+    splitBucketCount: payload.splitSteps.length,
+    isBestForUser: false,
+    bestForGoals: [],
+  };
+  const field = [
+    ...attempts.filter((attempt) => attempt.workoutId !== entryId),
+    candidate,
+  ];
 
-  return storedBest === null ||
-    beatsOnMetric(
-      payload.contextType,
-      attemptRankingValue(payload),
-      storedBest
-    ) ||
-    stringValue(finisherData?.bestWorkoutId) === entryId;
+  return bestAttemptWorkoutId(field, payload.contextType) === entryId;
 }
 
 /**
- * Selects a user's best completion in a context, on that context's metric:
- * the highest steps where it ranks on steps, the fastest time otherwise.
- * Equal values resolve on workout ID so every caller picks the same winner.
+ * Selects a user's best completion in a context on the race metric: the
+ * highest steps where the race collapses on steps, the fastest time
+ * otherwise. Equal values resolve on workout ID so every caller picks the
+ * same winner.
  * @param {UserAttemptEntry[]} attempts Published attempts for one user.
  * @param {string} contextType Replay context type.
  * @return {UserAttemptEntry | null} Winner, or null when there are none.
@@ -919,21 +980,11 @@ function bestAttempt(
   attempts: UserAttemptEntry[],
   contextType: string
 ): UserAttemptEntry | null {
-  let best: UserAttemptEntry | null = null;
-
-  for (const attempt of attempts) {
-    const isBetter = best === null ||
-      beatsOnMetric(contextType, attempt.rankingValue, best.rankingValue);
-    const breaksTie = best !== null &&
-      attempt.rankingValue === best.rankingValue &&
-      attempt.workoutId < best.workoutId;
-
-    if (isBetter || breaksTie) {
-      best = attempt;
-    }
-  }
-
-  return best;
+  return bestOf(
+    attempts,
+    (attempt) => attempt.raceValue,
+    raceBestOnSteps(contextType)
+  );
 }
 
 /**
@@ -950,35 +1001,124 @@ function bestAttemptWorkoutId(
 }
 
 /**
+ * Selects the attempt the finisher document's standing best belongs to: the
+ * best on the board's own ranking metric, which is what the frozen and the
+ * recomputed standings count. On a Just Climb this is the fastest completion
+ * while the race best is the most steps, so the two are chosen separately.
+ * @param {UserAttemptEntry[]} attempts Published attempts for one user.
+ * @param {string} contextType Replay context type.
+ * @return {UserAttemptEntry | null} Winner, or null when there are none.
+ */
+function rankingBestAttempt(
+  attempts: UserAttemptEntry[],
+  contextType: string
+): UserAttemptEntry | null {
+  return bestOf(
+    attempts,
+    (attempt) => attempt.rankingValue,
+    ranksOnSteps(contextType)
+  );
+}
+
+/**
+ * The attempt with the best value, ties resolved on workout ID.
+ * @param {UserAttemptEntry[]} attempts Candidates.
+ * @param {(attempt: UserAttemptEntry) => number} value Measure.
+ * @param {boolean} higherWins Whether a higher value is better.
+ * @return {UserAttemptEntry | null} Winner, or null when there are none.
+ */
+function bestOf(
+  attempts: UserAttemptEntry[],
+  value: (attempt: UserAttemptEntry) => number,
+  higherWins: boolean
+): UserAttemptEntry | null {
+  let best: UserAttemptEntry | null = null;
+
+  for (const attempt of attempts) {
+    const isBetter = best === null ||
+      (higherWins ?
+        value(attempt) > value(best) :
+        value(attempt) < value(best));
+    const breaksTie = best !== null &&
+      value(attempt) === value(best) &&
+      attempt.workoutId < best.workoutId;
+
+    if (isBetter || breaksTie) {
+      best = attempt;
+    }
+  }
+
+  return best;
+}
+
+/**
  * Diffs a user's published attempts against the best-per-user rule.
  * Attempts already carrying the right flag are omitted so reconciliation
  * settles to zero writes once a context is correct.
+ *
+ * `goalKeysByWorkoutId` is the goal-aware half on a board that races goals:
+ * an attempt whose stored `bestForGoals` disagrees with the derived list is
+ * updated too, in the same write as its flag where both moved.
  * @param {UserAttemptEntry[]} attempts Published attempts for one user.
  * @param {string} contextType Replay context type.
- * @return {BestForUserFlagUpdate[]} Attempts whose flag must change.
+ * @param {Map<string, string[]> | null} goalKeysByWorkoutId Derived goal keys,
+ *   or null where the board races no goals.
+ * @return {BestForUserFlagUpdate[]} Attempts whose flags must change.
  */
 function bestForUserFlagUpdates(
   attempts: UserAttemptEntry[],
-  contextType: string
+  contextType: string,
+  goalKeysByWorkoutId: Map<string, string[]> | null = null
 ): BestForUserFlagUpdate[] {
   const winningWorkoutId = bestAttemptWorkoutId(attempts, contextType);
   const updates: BestForUserFlagUpdate[] = [];
 
   for (const attempt of attempts) {
-    const isBestForUser = attempt.workoutId === winningWorkoutId;
-
-    if (isBestForUser === attempt.isBestForUser) {
-      continue;
-    }
-
-    updates.push({
+    const update: BestForUserFlagUpdate = {
       workoutId: attempt.workoutId,
       splitBucketCount: attempt.splitBucketCount,
-      isBestForUser,
-    });
+    };
+    const isBestForUser = attempt.workoutId === winningWorkoutId;
+
+    if (isBestForUser !== attempt.isBestForUser) {
+      update.isBestForUser = isBestForUser;
+    }
+
+    const goalKeys = goalKeysByWorkoutId?.get(attempt.workoutId);
+    if (
+      goalKeys !== undefined &&
+      !sameGoalKeys(attempt.bestForGoals, goalKeys)
+    ) {
+      update.bestForGoals = goalKeys;
+    }
+
+    if (
+      update.isBestForUser !== undefined ||
+      update.bestForGoals !== undefined
+    ) {
+      updates.push(update);
+    }
   }
 
   return updates;
+}
+
+/**
+ * The fields one flag update writes to each of an attempt's bucket entries.
+ * @param {BestForUserFlagUpdate} update Flag update.
+ * @return {Record<string, unknown>} Fields to `update()`.
+ */
+function flagUpdateFields(
+  update: BestForUserFlagUpdate
+): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  if (update.isBestForUser !== undefined) {
+    fields.isBestForUser = update.isBestForUser;
+  }
+  if (update.bestForGoals !== undefined) {
+    fields.bestForGoals = update.bestForGoals;
+  }
+  return fields;
 }
 
 /**
@@ -1004,7 +1144,8 @@ function attemptSplitBucketCount(data: Record<string, unknown>): number {
 
 /**
  * Reads one published attempt from its bucket-zero entry document, taking its
- * ranking value from whichever number the context's metric ranks on.
+ * race value from the metric the live race collapses on and its ranking
+ * value from the metric the board ranks on.
  * @param {Record<string, unknown>} data Bucket-zero entry data.
  * @param {string} documentId Entry document ID.
  * @param {string} contextType Replay context type.
@@ -1015,20 +1156,53 @@ function userAttemptEntry(
   documentId: string,
   contextType: string
 ): UserAttemptEntry | null {
+  const finalSteps = nonNegativeIntegerValue(data.finalSteps);
+  const completionDurationSeconds = nonNegativeNumberValue(
+    data.completionDurationSeconds
+  );
+  const raceValue = raceBestOnSteps(contextType) ?
+    finalSteps :
+    completionDurationSeconds;
   const rankingValue = ranksOnSteps(contextType) ?
-    nonNegativeIntegerValue(data.finalSteps) :
-    nonNegativeNumberValue(data.completionDurationSeconds);
+    finalSteps :
+    completionDurationSeconds;
 
-  if (rankingValue === null) {
+  if (raceValue === null || rankingValue === null) {
     return null;
   }
 
   return {
     workoutId: stringValue(data.workoutId) ?? documentId,
+    raceValue,
     rankingValue,
+    finalSteps: finalSteps ?? 0,
+    completionDurationSeconds: completionDurationSeconds ?? 0,
+    splitIntervalSeconds: positiveIntegerValue(data.splitIntervalSeconds) ??
+      DEFAULT_SPLIT_INTERVAL_SECONDS,
     splitBucketCount: attemptSplitBucketCount(data),
     isBestForUser: data.isBestForUser === true,
+    bestForGoals: goalKeyListValue(data.bestForGoals),
   };
+}
+
+/**
+ * The climber's published attempts on one board, from their bucket-zero
+ * entries - every run of theirs, flagged or not.
+ * @param {ReplayContextRef} context Board.
+ * @param {string} userId Owner user ID.
+ * @return {Promise<UserAttemptEntry[]>} Parsed attempts.
+ */
+async function readUserAttempts(
+  context: ReplayContextRef,
+  userId: string
+): Promise<UserAttemptEntry[]> {
+  const snapshot = await entriesCollectionReference(context, 0)
+    .where("userId", "==", userId)
+    .get();
+
+  return snapshot.docs
+    .map((doc) => userAttemptEntry(doc.data(), doc.id, context.contextType))
+    .filter((attempt): attempt is UserAttemptEntry => attempt !== null);
 }
 
 /**
@@ -1045,28 +1219,39 @@ function userAttemptEntry(
  * flag an open Just Climb raced a rival's four runs as four opponents and
  * showed a climber their own earlier attempts as racers.
  *
+ * On a board that races goals (`contextRacesGoals`) the same pass derives
+ * every attempt's `bestForGoals` from the climber's split curves, so a goal
+ * session's window and marker are answered by the same entries. The curves
+ * come from `attemptCurves`, and an attempt published before that collection
+ * existed has its curve rebuilt from its own bucket entries and stored, so
+ * the rebuild is paid once.
+ *
  * `collapsesRepeatFinishers` still decides what the SERVER's frozen standing
  * counts, and that is all it decides now - do not re-gate this on it.
- * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {ReplayContextRef} context Board.
  * @param {string} userId Owner user ID.
  */
 async function reconcileUserBestEntries(
-  payload: LiveReplayIndexPayload,
+  context: ReplayContextRef,
   userId: string
 ): Promise<void> {
-  const snapshot = await entriesCollectionReference(payload, 0)
-    .where("userId", "==", userId)
-    .get();
-  const attempts = snapshot.docs
-    .map((doc) => userAttemptEntry(doc.data(), doc.id, payload.contextType))
-    .filter((attempt): attempt is UserAttemptEntry => attempt !== null);
-  const winner = bestAttempt(attempts, payload.contextType);
+  const attempts = await readUserAttempts(context, userId);
+  const rankingWinner = rankingBestAttempt(attempts, context.contextType);
 
-  if (winner !== null) {
-    await repairFinisherBestAttempt(payload, userId, winner);
+  if (rankingWinner !== null) {
+    await repairFinisherBestAttempt(context, userId, rankingWinner);
   }
 
-  const updates = bestForUserFlagUpdates(attempts, payload.contextType);
+  const goalKeysByWorkoutId = contextRacesGoals(context.contextType) ?
+    raceGoalKeysByWorkoutId(
+      await readAttemptCurves(context, userId, attempts)
+    ) :
+    null;
+  const updates = bestForUserFlagUpdates(
+    attempts,
+    context.contextType,
+    goalKeysByWorkoutId
+  );
 
   if (updates.length === 0) {
     return;
@@ -1083,14 +1268,12 @@ async function reconcileUserBestEntries(
   });
 
   for (const update of updates) {
+    const fields = flagUpdateFields(update);
     for (let index = 0; index < update.splitBucketCount; index += 1) {
       // update() rather than set(): a bucket the attempt never published into
       // must stay absent, not appear as a flag-only row the counts would see.
       writer
-        .update(
-          entryReference(payload, index, update.workoutId),
-          {isBestForUser: update.isBestForUser}
-        )
+        .update(entryReference(context, index, update.workoutId), fields)
         .catch((error) => {
           if (!isNotFoundWriteError(error)) {
             failures.push(error);
@@ -1106,11 +1289,169 @@ async function reconcileUserBestEntries(
     // fail the trigger and let its retry re-derive rather than report success.
     throw new Error(
       `Failed to reconcile ${failures.length} best-per-user entry ` +
-      `write(s) for user ${userId} in ${payload.contextKey}: ${
+      `write(s) for user ${userId} in ${context.contextKey}: ${
         String(failures[0])
       }`
     );
   }
+}
+
+/**
+ * The split curves behind a climber's attempts on a board that races goals.
+ *
+ * Read from `attemptCurves`, one document per attempt written in the publish
+ * transaction. An attempt with none - published before the collection
+ * existed - is rebuilt from the `stepsAtBucket` of its own bucket entries and
+ * the rebuilt curve is stored, so the next reconciliation is a document read
+ * again. An attempt whose curve cannot be rebuilt at all falls back to a
+ * straight line from start to finish, which is what the client's projection
+ * draws for it anyway.
+ * @param {ReplayContextRef} context Board.
+ * @param {string} userId Owner user ID.
+ * @param {UserAttemptEntry[]} attempts The climber's published attempts.
+ * @return {Promise<RaceAttemptCurve[]>} One curve per attempt.
+ */
+async function readAttemptCurves(
+  context: ReplayContextRef,
+  userId: string,
+  attempts: UserAttemptEntry[]
+): Promise<RaceAttemptCurve[]> {
+  if (attempts.length === 0) {
+    return [];
+  }
+
+  const db = admin.firestore();
+  const snapshots = await db.getAll(
+    ...attempts.map((attempt) =>
+      attemptCurveReference(context, attempt.workoutId)
+    )
+  );
+  const curves: RaceAttemptCurve[] = [];
+  const writer = db.bulkWriter();
+
+  for (let index = 0; index < attempts.length; index += 1) {
+    const attempt = attempts[index];
+    const stored = attemptCurveFromData(attempt, snapshots[index].data());
+
+    if (stored !== null) {
+      curves.push(stored);
+      continue;
+    }
+
+    const rebuilt = await rebuildAttemptCurve(context, attempt);
+    curves.push(rebuilt);
+    writer.set(
+      attemptCurveReference(context, attempt.workoutId),
+      attemptCurveWrite(
+        userId,
+        rebuilt,
+        admin.firestore.FieldValue.serverTimestamp()
+      )
+    ).catch(() => {
+      // Storing the rebuild is a saving on the next pass, not a correctness
+      // step: the curve in hand is already what this pass derives from.
+    });
+  }
+
+  await writer.close();
+  return curves;
+}
+
+/**
+ * Rebuilds an attempt's split curve from its own bucket entries.
+ * @param {ReplayContextRef} context Board.
+ * @param {UserAttemptEntry} attempt The attempt.
+ * @return {Promise<RaceAttemptCurve>} The curve, straight-lined when no bucket
+ *   entry could be read.
+ */
+async function rebuildAttemptCurve(
+  context: ReplayContextRef,
+  attempt: UserAttemptEntry
+): Promise<RaceAttemptCurve> {
+  const references = [];
+  for (let index = 0; index < attempt.splitBucketCount; index += 1) {
+    references.push(entryReference(context, index, attempt.workoutId));
+  }
+
+  const splitSteps: number[] = [];
+  for (let start = 0; start < references.length; start += 100) {
+    const snapshots = await admin.firestore().getAll(
+      ...references.slice(start, start + 100)
+    );
+    let ended = false;
+    for (const snapshot of snapshots) {
+      const steps = nonNegativeIntegerValue(snapshot.data()?.stepsAtBucket);
+      if (steps === null) {
+        ended = true;
+        break;
+      }
+      splitSteps.push(steps);
+    }
+    if (ended) {
+      break;
+    }
+  }
+
+  return {
+    workoutId: attempt.workoutId,
+    finalSteps: attempt.finalSteps,
+    finalDurationSeconds: attempt.completionDurationSeconds,
+    splitIntervalSeconds: attempt.splitIntervalSeconds,
+    splitSteps,
+  };
+}
+
+/**
+ * Parses a stored attempt curve, or null when the document is absent or
+ * unusable so the caller rebuilds it.
+ * @param {UserAttemptEntry} attempt The attempt the curve belongs to.
+ * @param {Record<string, unknown> | undefined} data Curve document data.
+ * @return {RaceAttemptCurve | null} The curve, or null.
+ */
+function attemptCurveFromData(
+  attempt: UserAttemptEntry,
+  data: Record<string, unknown> | undefined
+): RaceAttemptCurve | null {
+  const splitSteps = data ? integerArrayValue(data.splitSteps) : null;
+  if (!data || splitSteps === null) {
+    return null;
+  }
+
+  return {
+    workoutId: attempt.workoutId,
+    finalSteps: nonNegativeIntegerValue(data.finalSteps) ?? attempt.finalSteps,
+    finalDurationSeconds: nonNegativeNumberValue(data.finalDurationSeconds) ??
+      attempt.completionDurationSeconds,
+    splitIntervalSeconds: positiveIntegerValue(data.splitIntervalSeconds) ??
+      attempt.splitIntervalSeconds,
+    splitSteps,
+  };
+}
+
+/**
+ * The fields an attempt's curve document carries. No identity: the curve is
+ * the climber's own numbers, keyed by uid so reconciliation can find it, and
+ * nothing a client can read.
+ * @param {string} userId Owner user ID.
+ * @param {RaceAttemptCurve} curve The curve.
+ * @param {unknown} updatedAt Write timestamp.
+ * @return {Record<string, unknown>} Fields to write.
+ */
+function attemptCurveWrite(
+  userId: string,
+  curve: RaceAttemptCurve,
+  updatedAt: unknown
+): Record<string, unknown> {
+  return {
+    finalDurationSeconds: curve.finalDurationSeconds,
+    finalSteps: curve.finalSteps,
+    schemaVersion: 1,
+    splitIntervalSeconds: curve.splitIntervalSeconds,
+    splitSteps: curve.splitSteps,
+    updatedAt,
+    userId,
+    workoutId: curve.workoutId,
+  };
 }
 
 /**
@@ -1125,22 +1466,23 @@ function isNotFoundWriteError(error: unknown): boolean {
 }
 
 /**
- * Realigns a finisher's stored best fields with the re-derived winner.
+ * Realigns a finisher's stored best fields with the re-derived winner on the
+ * board's ranking metric.
  *
- * publishReplayEntries seeds isBestForUser from these fields, and nothing else
- * repairs them once the standing best is deleted. Leaving them stale demotes
- * the surviving attempt on every later edit. Writes only on disagreement so a
- * settled context still costs no writes.
- * @param {LiveReplayIndexPayload} payload Replay payload.
+ * Nothing else repairs them once the standing best is deleted, and the
+ * client's recomputed standing counts finisher documents through these
+ * fields. Writes only on disagreement so a settled context still costs no
+ * writes.
+ * @param {ReplayContextRef} context Board.
  * @param {string} userId Owner user ID.
- * @param {UserAttemptEntry} winner Re-derived best attempt.
+ * @param {UserAttemptEntry} winner Re-derived best on the ranking metric.
  */
 async function repairFinisherBestAttempt(
-  payload: LiveReplayIndexPayload,
+  context: ReplayContextRef,
   userId: string,
   winner: UserAttemptEntry
 ): Promise<void> {
-  const finisherRef = finisherReference(payload, userId);
+  const finisherRef = finisherReference(context, userId);
   const snapshot = await finisherRef.get();
 
   if (!snapshot.exists) {
@@ -1151,13 +1493,13 @@ async function repairFinisherBestAttempt(
 
   if (
     stringValue(data?.bestWorkoutId) === winner.workoutId &&
-    finisherStoredBest(payload, data) === winner.rankingValue
+    finisherStoredBest(context.contextType, data) === winner.rankingValue
   ) {
     return;
   }
 
   await finisherRef.update(finisherBestWrite(
-    payload.contextType,
+    context.contextType,
     winner.rankingValue,
     winner.workoutId
   ));
@@ -1194,6 +1536,17 @@ async function publishReplayEntries(
   const finisherRef = finisherReference(payload, userId);
   const completionSnapshotRef = completionSnapshotReference(payload, entryId);
   const publishStatusRef = liveClimbPublishStatusReference(userId, entryId);
+  // The climber's other attempts here decide the seed flag. Read before the
+  // transaction on purpose: it is a seed, `reconcileUserBestEntries` runs
+  // right after and is the authority, and a query inside the transaction
+  // would be re-run on every retry for a number the reconciliation corrects
+  // anyway.
+  const isBestForUser = seedBestForUser(
+    payload,
+    entryId,
+    await readUserAttempts(payload, userId)
+  );
+  const racesGoals = contextRacesGoals(payload.contextType);
 
   await runIdentityProtectedTransaction(
     firestoreIdentityTransactionPort(db),
@@ -1221,11 +1574,6 @@ async function publishReplayEntries(
       const canClaimFirstAscent = payload.firstAscentEligible &&
       !hasFirstAscent &&
       previousCompletedCount === 0;
-      const isBestForUser = seedBestForUser(
-        payload,
-        entryId,
-        existingFinisherData
-      );
       const globalCompletionOrder = nextGlobalCompletionOrder({
         existingOrder,
         previousCompletedCount,
@@ -1316,6 +1664,10 @@ async function publishReplayEntries(
         );
       }
 
+      // The goal keys are seeded empty and filled by the reconciliation that
+      // follows in this same trigger: they depend on every other attempt's
+      // curve, which is the reconciliation's read, and a climber who has just
+      // finished is seconds away from racing nobody.
       for (let index = 0; index < payload.splitSteps.length; index += 1) {
         transaction.set(
           entryReference(payload, index, entryId),
@@ -1326,8 +1678,26 @@ async function publishReplayEntries(
             publicUser,
             stepsAtBucket: payload.splitSteps[index],
             isBestForUser,
+            bestForGoals: racesGoals ? [] : null,
             updatedAt: now,
           })
+        );
+      }
+
+      if (racesGoals) {
+        transaction.set(
+          attemptCurveReference(payload, entryId),
+          attemptCurveWrite(
+            userId,
+            {
+              workoutId: entryId,
+              finalSteps: payload.finalSteps,
+              finalDurationSeconds: payload.finalDurationSeconds,
+              splitIntervalSeconds: payload.splitIntervalSeconds,
+              splitSteps: payload.splitSteps,
+            },
+            now
+          )
         );
       }
     }
@@ -1393,6 +1763,45 @@ function firestoreIdentityTransactionPort(
  */
 function ranksOnSteps(contextType: string): boolean {
   return contextType === ROUTINE_TEMPLATE_CONTEXT_TYPE;
+}
+
+/**
+ * Whether a context's live race collapses a climber's attempts on steps
+ * rather than time - the metric the `BEST` marker and the rival rows are
+ * chosen on.
+ *
+ * Not the same list as `ranksOnSteps`. A Just Climb still ranks its frozen
+ * and recomputed standings on the clock, but the captain settled on
+ * 2026-09-22 that a climber's previous best there with no goal set is their
+ * most steps, all time - and the row a rival races as is chosen the same way.
+ * @param {string} contextType Replay context type.
+ * @return {boolean} True when the most steps is the race best.
+ */
+function raceBestOnSteps(contextType: string): boolean {
+  return contextType === ROUTINE_TEMPLATE_CONTEXT_TYPE ||
+    contextType === JUST_CLIMB_CONTEXT_TYPE;
+}
+
+/**
+ * Whether a context's live race can be run against a goal, so its entries
+ * carry `bestForGoals` and its attempts a stored split curve. Only the global
+ * Just Climb board: a tower fixes its own target and a routine its own clock.
+ * @param {string} contextType Replay context type.
+ * @return {boolean} True when entries carry goal keys.
+ */
+function contextRacesGoals(contextType: string): boolean {
+  return contextType === JUST_CLIMB_CONTEXT_TYPE;
+}
+
+/**
+ * The value an attempt races on, in its context's race metric.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @return {number} Race value for this attempt.
+ */
+function attemptRaceValue(payload: LiveReplayIndexPayload): number {
+  return raceBestOnSteps(payload.contextType) ?
+    payload.finalSteps :
+    payload.finalDurationSeconds;
 }
 
 /**
@@ -1494,7 +1903,10 @@ async function readCompletionField(
     const finisherSnapshot = await transaction.get(
       finisherReference(payload, userId)
     );
-    const storedBest = finisherStoredBest(payload, finisherSnapshot.data());
+    const storedBest = finisherStoredBest(
+      payload.contextType,
+      finisherSnapshot.data()
+    );
     const resultingBest = storedBest === null ||
       beatsOnMetric(payload.contextType, rankingValue, storedBest) ?
       rankingValue :
@@ -1604,15 +2016,15 @@ function finisherBestMetric(contextType: string): string {
 
 /**
  * One climber's stored best in a context, in that context's own metric.
- * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {string} contextType Replay context type.
  * @param {Record<string, unknown> | undefined} finisherData Finisher document.
  * @return {number | null} Stored best, or null when none is recorded.
  */
 function finisherStoredBest(
-  payload: LiveReplayIndexPayload,
+  contextType: string,
   finisherData: Record<string, unknown> | undefined
 ): number | null {
-  return ranksOnSteps(payload.contextType) ?
+  return ranksOnSteps(contextType) ?
     nonNegativeIntegerValue(finisherData?.[STEPS_BEST_METRIC]) :
     nonNegativeNumberValue(finisherData?.[DURATION_BEST_METRIC]);
 }
@@ -1855,6 +2267,7 @@ function replayEntryWrite(
   return {
     ...publicUserDemographicFields(input.publicUser),
     ...bestForUserFields(input.isBestForUser),
+    ...bestForGoalsFields(input.bestForGoals),
     ...routineWindowFields(input.payload),
     avatarToken: input.publicUser.avatarToken,
     completionDurationSeconds: input.payload.finalDurationSeconds,
@@ -1975,7 +2388,7 @@ function finisherBestFields(
 ): Record<string, unknown> {
   const contextType = input.payload.contextType;
   const rankingValue = attemptRankingValue(input.payload);
-  const storedBest = finisherStoredBest(input.payload, input.existingData);
+  const storedBest = finisherStoredBest(contextType, input.existingData);
 
   if (
     storedBest !== null &&
@@ -2127,64 +2540,82 @@ function liveClimbCommunityStatsReference():
 }
 
 /**
- * Bucket entry document reference for a replay payload.
- * @param {LiveReplayIndexPayload} payload Replay payload.
+ * Bucket entry document reference on a board.
+ * @param {ReplayContextRef} context Board.
  * @param {number} bucketIndex Split bucket index.
  * @param {string} entryId Public row document ID.
  * @return {FirebaseFirestore.DocumentReference} Entry document reference.
  */
 function entryReference(
-  payload: LiveReplayIndexPayload,
+  context: ReplayContextRef,
   bucketIndex: number,
   entryId: string
 ): FirebaseFirestore.DocumentReference {
-  return entriesCollectionReference(payload, bucketIndex).doc(entryId);
+  return entriesCollectionReference(context, bucketIndex).doc(entryId);
 }
 
 /**
- * Bucket entries collection reference for a replay payload.
- * @param {LiveReplayIndexPayload} payload Replay payload.
+ * Bucket entries collection reference on a board.
+ * @param {ReplayContextRef} context Board.
  * @param {number} bucketIndex Split bucket index.
  * @return {FirebaseFirestore.CollectionReference} Entries collection reference.
  */
 function entriesCollectionReference(
-  payload: LiveReplayIndexPayload,
+  context: ReplayContextRef,
   bucketIndex: number
 ): FirebaseFirestore.CollectionReference {
   return admin.firestore()
     .collection(LIVE_REPLAY_COLLECTION)
-    .doc(payload.contextKey)
+    .doc(context.contextKey)
     .collection("splitBuckets")
     .doc(String(bucketIndex))
     .collection("entries");
 }
 
 /**
- * Finisher status collection reference for a replay payload. One document per
- * climber who has completed the context.
- * @param {LiveReplayIndexPayload} payload Replay payload.
- * @return {FirebaseFirestore.CollectionReference} Finishers collection.
+ * The stored split curve behind one attempt on a board that races goals.
+ * Server-only: no rule admits a client to it, and none should.
+ * @param {ReplayContextRef} context Board.
+ * @param {string} entryId Public row document ID.
+ * @return {FirebaseFirestore.DocumentReference} Curve document reference.
  */
-function finishersCollectionReference(
-  payload: LiveReplayIndexPayload
-): FirebaseFirestore.CollectionReference {
+function attemptCurveReference(
+  context: ReplayContextRef,
+  entryId: string
+): FirebaseFirestore.DocumentReference {
   return admin.firestore()
     .collection(LIVE_REPLAY_COLLECTION)
-    .doc(payload.contextKey)
-    .collection("finishers");
+    .doc(context.contextKey)
+    .collection(ATTEMPT_CURVES_COLLECTION)
+    .doc(entryId);
 }
 
 /**
- * Per-user finisher status document reference for a replay payload.
- * @param {LiveReplayIndexPayload} payload Replay payload.
+ * Finisher status collection reference on a board. One document per climber
+ * who has completed the context.
+ * @param {ReplayContextRef} context Board.
+ * @return {FirebaseFirestore.CollectionReference} Finishers collection.
+ */
+function finishersCollectionReference(
+  context: ReplayContextRef
+): FirebaseFirestore.CollectionReference {
+  return admin.firestore()
+    .collection(LIVE_REPLAY_COLLECTION)
+    .doc(context.contextKey)
+    .collection(FINISHERS_COLLECTION);
+}
+
+/**
+ * Per-user finisher status document reference on a board.
+ * @param {ReplayContextRef} context Board.
  * @param {string} userId Owner user ID.
  * @return {FirebaseFirestore.DocumentReference} Finisher document reference.
  */
 function finisherReference(
-  payload: LiveReplayIndexPayload,
+  context: ReplayContextRef,
   userId: string
 ): FirebaseFirestore.DocumentReference {
-  return finishersCollectionReference(payload).doc(userId);
+  return finishersCollectionReference(context).doc(userId);
 }
 
 /**
@@ -2262,6 +2693,18 @@ function bestForUserFields(
   isBestForUser: boolean | null
 ): Record<string, unknown> {
   return isBestForUser === null ? {} : {isBestForUser};
+}
+
+/**
+ * The goal-key field a Just Climb entry carries, or nothing on a board that
+ * races no goals, so the field stays absent there.
+ * @param {string[] | null} bestForGoals Goal keys, or null for no field.
+ * @return {Record<string, unknown>} Field to spread into the entry write.
+ */
+function bestForGoalsFields(
+  bestForGoals: string[] | null
+): Record<string, unknown> {
+  return bestForGoals === null ? {} : {bestForGoals};
 }
 
 /**
@@ -2455,12 +2898,33 @@ function integerArrayValue(value: unknown): number[] | null {
   return values;
 }
 
+/**
+ * The goal keys an entry carries, or none when the field is absent or holds
+ * anything but strings. Sorted, so it compares against a derived list.
+ * @param {unknown} value Stored `bestForGoals`.
+ * @return {string[]} Goal keys.
+ */
+function goalKeyListValue(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((key): key is string => typeof key === "string")
+    .sort();
+}
+
 export const liveReplayLeaderboardTestHooks = {
+  attemptCurveWrite,
   attemptSplitBucketCount,
   beatsOnMetric,
   bestAttemptWorkoutId,
   bestForUserFlagUpdates,
   collapsesRepeatFinishers,
+  contextRacesGoals,
+  flagUpdateFields,
+  raceBestOnSteps,
+  rankingBestAttempt,
   completionRankSnapshotWrite,
   finisherBestMetric,
   finisherStatusWrite,

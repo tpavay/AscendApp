@@ -179,7 +179,7 @@ Probe the subcollections you expect by name (`subcollections <doc> --expect a,b,
 
 Every collection a *client* touches has a `match` block, which makes the rules file the best navigation map of the app's paths.
 It is not a list of what exists.
-A server-owned subcollection written only through the Admin SDK needs no rule at all, so it is absent from the file and unreadable by any client: `live_replay_leaderboards/{contextKey}/userBestAttempts` is written by `liveReplayLeaderboard.ts` and by the seed, exists in staging, and appears nowhere in `firestore.rules`.
+A server-owned subcollection written only through the Admin SDK needs no rule at all, so it is absent from the file and unreadable by any client: `live_replay_leaderboards/{contextKey}/userBestAttempts` is written by `liveReplayLeaderboard.ts` and by the seed, exists in staging, and appears nowhere in `firestore.rules`; `live_replay_leaderboards/{contextKey}/attemptCurves`, the split curves behind the goal-aware Just Climb collapse (`ascend-live-climbs`), is written by the same file on the same terms.
 Discover paths from the database, then confirm the client-facing contract in the rules - not the other way round.
 
 ## Storage pathing + rules

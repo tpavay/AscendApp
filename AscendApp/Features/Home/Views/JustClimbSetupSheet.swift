@@ -120,8 +120,8 @@ struct JustClimbSetupSheet: View {
                 unit: "MIN",
                 decrementDisabled: durationMinutes <= JustClimbGoal.minimumDurationMinutes,
                 incrementDisabled: durationMinutes >= JustClimbGoal.maximumDurationMinutes,
-                decrement: { durationMinutes = max(JustClimbGoal.minimumDurationMinutes, durationMinutes - 5) },
-                increment: { durationMinutes = min(JustClimbGoal.maximumDurationMinutes, durationMinutes + 5) }
+                decrement: { durationMinutes = max(JustClimbGoal.minimumDurationMinutes, durationMinutes - JustClimbGoal.durationMinutesIncrement) },
+                increment: { durationMinutes = min(JustClimbGoal.maximumDurationMinutes, durationMinutes + JustClimbGoal.durationMinutesIncrement) }
             )
         case .steps:
             numericGoalRow(
@@ -130,8 +130,8 @@ struct JustClimbSetupSheet: View {
                 unit: "STEPS",
                 decrementDisabled: stepCount <= JustClimbGoal.minimumStepCount,
                 incrementDisabled: stepCount >= JustClimbGoal.maximumStepCount,
-                decrement: { stepCount = max(JustClimbGoal.minimumStepCount, stepCount - 100) },
-                increment: { stepCount = min(JustClimbGoal.maximumStepCount, stepCount + 100) }
+                decrement: { stepCount = max(JustClimbGoal.minimumStepCount, stepCount - JustClimbGoal.stepCountIncrement) },
+                increment: { stepCount = min(JustClimbGoal.maximumStepCount, stepCount + JustClimbGoal.stepCountIncrement) }
             )
         }
     }

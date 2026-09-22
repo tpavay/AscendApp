@@ -132,8 +132,8 @@ enum LiveClimbSessionMode: Equatable {
                 climbId: climb.id,
                 targetSteps: targetSteps
             )
-        case .justClimb:
-            return .justClimbGlobal(targetSteps: targetSteps)
+        case .justClimb(let goal):
+            return .justClimbGlobal(targetSteps: targetSteps, raceGoal: goal.raceGoal)
         }
     }
 

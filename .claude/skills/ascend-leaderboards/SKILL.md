@@ -36,6 +36,21 @@ You are counted once, as yourself.
 The marker's source is your **best** previous climb across all previous attempts, never your most recent.
 What you are chasing is your best, which is why the word on it is `BEST`.
 
+**On a Just Climb, "best" follows the goal you set for this session.**
+Settled by the captain on 2026-09-22, after production 1.0.1 drew his 149-step Charminar climb - his shortest session, which the collapse had picked on the board's duration metric - as his marker.
+With no goal, your previous best is your most steps, all time: a history of 149, 390 and 1,776 is 1,776.
+With a step goal, it is your fastest time to reach that count across every previous climb, and a longer climb counts through its split at that count - a 5,000-step climb's time to 3,000 can be your fastest to 3,000.
+With a duration goal, it is the most steps you had reached within that duration across every previous climb, and a climb that ended before the duration counts at its final steps.
+"Previous climbs" is every climb published to the global Just Climb board, of every context type - the captain named his CN Tower live climb as his best - and a rival's single row is chosen by the same rule, so a goal session still races one row per climber, on the run that is each climber's best *for that goal*.
+A step count nobody has reached has no previous best and no rival row for that climber, exactly as a tower shows only its finishers.
+The three goal kinds are the whole space: the setup sheet offers no goal, a step count in hundreds from 100 to 20,000, and a duration in five-minute steps from 5 to 180 minutes, and nothing else.
+The mechanism is the server's and lives with the replay machinery in `ascend-live-climbs`: `isBestForUser` carries the no-goal answer on every board, and a Just Climb entry also carries `bestForGoals`, every goal key its attempt wins, derived in `functions/src/liveReplayRaceBest.ts`, mirrored by `LiveReplayRaceGoal` on the client and by `scripts/lib/live-replay-race-best.mjs` in the seeds, all three pinned by `SharedTestVectors/live-replay-race-best-vector.json`.
+This is the race best, not the ranking metric: a Just Climb's frozen and recomputed standings still count on the clock (`rankingMetric`), and moving them is a separate decision this ruling did not make.
+
+**And it is never a row, on any board.**
+A 2026-09-02 reading let the previous best keep a row of its own beneath the live one, wearing `YOU` and no rank cell; the captain saw that second row on production on 2026-09-22 and it is superseded.
+The live window withdraws the climber's own earlier completion from the rows it renders (`LiveReplayLeaderboardWindow.locallyRankedRows`) on every context type; it still takes part in the arithmetic that keeps the rank exact, and the marker is its only representation.
+
 ### 2. The summary right after you finish
 
 It shows **where you stood at that moment**.
@@ -115,6 +130,8 @@ Each statement has a test behind it, or a gap named here.
 1. During a climb - `AscendAppTests/LiveReplayFieldPopulationTests.onlyPerClimbAndPerTemplateContextsCollapseRepeats` for the one-row-per-climber board.
    `AscendAppTests/LiveReplayPreviousBestMarkerTests.theClimbersOwnBestIsNotCountedAsAClimberAheadOfThem` holds the half that keeps your previous best out of the rank and the field size.
    `AscendAppTests/LiveReplayPreviousBestMarkerTests.theMarkerReportsAPositionAndNothingElse` holds the rest, that the marker carries a position and no step count, time or gap sentence.
+   `AscendAppTests/LiveReplayRaceGoalTests.aPreviousBestIsNeverRenderedAsARowOnAnyBoard` holds that the previous best is never a rendered row, parameterized over every context type.
+   The three Just Climb rules are held on the server, where the choice is made: `functions/test/liveReplayRaceBest.test.ts` "with no goal the marker's source is the most-steps climb", "with a step goal a longer climb counts through its split" and "with a duration goal a climb that ended earlier counts at its final steps" - and `AscendAppTests/LiveReplayRaceGoalTests.everyGoalKeyIsSpelledTheWayTheServerWritesIt` holds the client to the keys the server writes.
 2. The summary right after you finish - `functions/test/liveReplayLeaderboard.test.ts`, "counts a repeat rival once on a board that races climbers" and "keeps a first finisher at first of one".
 3. Reopened later - `AscendAppTests/CompletedClimbRankFreezeTests.aLaterServerReadNeverMovesAnAlreadyFrozenRank`, and on the share card `AscendAppTests/SavedClimbShareRankTests.aStoredFrozenStandingReachesTheSavedClimbShareCardWithoutARequest`.
 4. Climb detail - two anchors that cover different things, and neither covers the whole statement.

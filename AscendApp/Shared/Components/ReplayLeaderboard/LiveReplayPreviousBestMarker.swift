@@ -7,9 +7,10 @@ import SwiftUI
 /// properties are the design, not styling:
 ///
 /// - **It is not a leaderboard row.** No rank cell, not tappable, never counted
-///   in the rank or the field size. The completion it stands for is still on the
-///   board as the viewer's own ghost row, flagged for the rank column to skip;
-///   inside the live row it exists only as this position.
+///   in the rank or the field size. The completion it stands for is withdrawn
+///   from the rows the window renders (captain, 2026-09-22; see
+///   `LiveReplayLeaderboardWindow.locallyRankedRows`), so this position inside
+///   the live row is its only representation.
 /// - **It is a single line, never a two-sided box.** The progress fill passes one
 ///   edge cleanly instead of straddling a box through an ambiguous half-passed
 ///   state. The line sits to the *left* of the word, which reads in vertical
