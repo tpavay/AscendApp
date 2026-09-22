@@ -325,7 +325,8 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     /// it - a ghost rather than an opponent.
     ///
     /// A live-window concept only. It is what a repeat climber's second kind of
-    /// row is *during a race*, so it decides which rows the rank column skips.
+    /// row is *during a race*, so it decides which rows the rank column skips
+    /// and which rows the window withdraws from what it renders.
     /// The static completion board draws every completion as a ranked row and
     /// never asks this, which is why it stays correct while every row of the
     /// viewer's satisfies the same two flags there.

@@ -201,7 +201,7 @@ npx -y firebase-tools@15.22.1 deploy --project production \
 ```
 
 Verify the deployment does not request deletion of an unexpected index.
-Then wait for every declared index, including both `isBestForUser + stepsAtBucket` directions and all six field overrides, to become usable:
+Then wait for every declared index, including both `isBestForUser + stepsAtBucket` directions, every `bestForGoals` index, and all six field overrides, to become usable:
 
 ```sh
 firebase_bin="$(npm exec --yes --package=firebase-tools@15.22.1 -- which firebase)"
