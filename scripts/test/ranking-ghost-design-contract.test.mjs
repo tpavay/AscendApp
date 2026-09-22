@@ -411,14 +411,16 @@ test("the climber's own cached row is scoped to them and dropped with the sessio
   // the next account cannot read it, and a teardown because a store wipe never
   // reaches a singleton. Two slots hold it - the climber's row at one bucket,
   // and what the session learned about their published rows - and both are
-  // keyed the same way.
+  // keyed the same way. The goal is part of the key too: the flagged row a
+  // session reads is the climber's best *for that goal*, so two sessions on
+  // one board under different goals must never share an answer.
   assert.ok(
-    /let key = "\\\(userId\)\|\\\(context\.contextKey\)\|/.test(repository),
-    "the own-row cache key no longer names the climber it belongs to",
+    /let key = "\\\(userId\)\|\\\(context\.contextKey\)\|\\\(context\.raceGoal\.cacheKey\)\|/.test(repository),
+    "the own-row cache key no longer names the climber and the goal it belongs to",
   );
   assert.ok(
-    /"\\\(userId\)\|\\\(context\.contextKey\)"/.test(repository),
-    "the session's own-history key no longer names the climber it belongs to",
+    /"\\\(userId\)\|\\\(context\.contextKey\)\|\\\(context\.raceGoal\.cacheKey\)"/.test(repository),
+    "the session's own-history key no longer names the climber and the goal it belongs to",
   );
   const teardown = repository.match(
     /func clearAccountScopedCaches\(\) \{[\s\S]*?\n    \}/,

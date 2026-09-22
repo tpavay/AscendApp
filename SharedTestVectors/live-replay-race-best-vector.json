@@ -1,0 +1,639 @@
+{
+  "description": "Which of a climber's previous climbs on the global Just Climb board is their best, per the goal the viewer set for this session. Settled by the captain on 2026-09-22: no goal is their most steps all time; a step goal is their fastest time to reach that count, a longer climb counting through its split; a duration goal is the most steps they had within that duration, a climb that ended earlier counting at its final steps. Read by functions/test, AscendAppTests and scripts/test so the server, the app and the seeds can never spell a goal key or pick a winner differently.",
+  "goalKeys": {
+    "stepIncrement": 100,
+    "stepMin": 100,
+    "stepMax": 20000,
+    "durationIncrementSeconds": 300,
+    "durationMinSeconds": 300,
+    "durationMaxSeconds": 10800,
+    "stepKeyFormat": "steps:{steps}",
+    "durationKeyFormat": "duration:{seconds}"
+  },
+  "keyCases": [
+    {
+      "name": "an open session filters on isBestForUser and carries no goal key",
+      "goal": {
+        "kind": "open"
+      },
+      "key": null
+    },
+    {
+      "name": "a 3,000 step goal",
+      "goal": {
+        "kind": "steps",
+        "steps": 3000
+      },
+      "key": "steps:3000"
+    },
+    {
+      "name": "the smallest step goal the picker offers",
+      "goal": {
+        "kind": "steps",
+        "steps": 100
+      },
+      "key": "steps:100"
+    },
+    {
+      "name": "the largest step goal the picker offers",
+      "goal": {
+        "kind": "steps",
+        "steps": 20000
+      },
+      "key": "steps:20000"
+    },
+    {
+      "name": "a 30 minute goal is keyed in seconds",
+      "goal": {
+        "kind": "duration",
+        "seconds": 1800
+      },
+      "key": "duration:1800"
+    },
+    {
+      "name": "the shortest duration goal the picker offers",
+      "goal": {
+        "kind": "duration",
+        "seconds": 300
+      },
+      "key": "duration:300"
+    },
+    {
+      "name": "the longest duration goal the picker offers",
+      "goal": {
+        "kind": "duration",
+        "seconds": 10800
+      },
+      "key": "duration:10800"
+    }
+  ],
+  "curveCases": [
+    {
+      "name": "steps at a checkpoint read the checkpoint",
+      "curve": {
+        "finalSteps": 300,
+        "finalDurationSeconds": 180,
+        "splitIntervalSeconds": 60,
+        "splitSteps": [
+          100,
+          200,
+          300
+        ]
+      },
+      "stepsAtElapsed": [
+        {
+          "seconds": 60,
+          "steps": 100
+        },
+        {
+          "seconds": 120,
+          "steps": 200
+        },
+        {
+          "seconds": 0,
+          "steps": 0
+        }
+      ],
+      "secondsToReach": [
+        {
+          "steps": 100,
+          "seconds": 60
+        },
+        {
+          "steps": 150,
+          "seconds": 90
+        },
+        {
+          "steps": 300,
+          "seconds": 180
+        },
+        {
+          "steps": 301,
+          "seconds": null
+        }
+      ]
+    },
+    {
+      "name": "a climb that ended before the moment counts at its final steps",
+      "curve": {
+        "finalSteps": 300,
+        "finalDurationSeconds": 180,
+        "splitIntervalSeconds": 60,
+        "splitSteps": [
+          100,
+          200,
+          300
+        ]
+      },
+      "stepsAtElapsed": [
+        {
+          "seconds": 600,
+          "steps": 300
+        }
+      ],
+      "secondsToReach": []
+    },
+    {
+      "name": "a curve cut off before the climb ended interpolates towards the finish",
+      "curve": {
+        "finalSteps": 400,
+        "finalDurationSeconds": 240,
+        "splitIntervalSeconds": 60,
+        "splitSteps": [
+          100,
+          200
+        ]
+      },
+      "stepsAtElapsed": [
+        {
+          "seconds": 180,
+          "steps": 300
+        },
+        {
+          "seconds": 240,
+          "steps": 400
+        }
+      ],
+      "secondsToReach": [
+        {
+          "steps": 300,
+          "seconds": 180
+        },
+        {
+          "steps": 400,
+          "seconds": 240
+        }
+      ]
+    },
+    {
+      "name": "a flat stretch is crossed at its first checkpoint, never divided by zero",
+      "curve": {
+        "finalSteps": 200,
+        "finalDurationSeconds": 240,
+        "splitIntervalSeconds": 60,
+        "splitSteps": [
+          100,
+          100,
+          100,
+          200
+        ]
+      },
+      "stepsAtElapsed": [
+        {
+          "seconds": 150,
+          "steps": 100
+        }
+      ],
+      "secondsToReach": [
+        {
+          "steps": 100,
+          "seconds": 60
+        },
+        {
+          "steps": 150,
+          "seconds": 210
+        }
+      ]
+    }
+  ],
+  "attempts": {
+    "charminar-149": {
+      "finalSteps": 149,
+      "finalDurationSeconds": 70,
+      "splitIntervalSeconds": 60,
+      "splitSteps": [
+        128,
+        149
+      ]
+    },
+    "just-climb-390": {
+      "finalSteps": 390,
+      "finalDurationSeconds": 250,
+      "splitIntervalSeconds": 60,
+      "splitSteps": [
+        94,
+        187,
+        281,
+        374,
+        390
+      ]
+    },
+    "cn-tower-1776": {
+      "finalSteps": 1776,
+      "finalDurationSeconds": 1200,
+      "splitIntervalSeconds": 60,
+      "splitSteps": [
+        89,
+        178,
+        266,
+        355,
+        444,
+        533,
+        622,
+        710,
+        799,
+        888,
+        977,
+        1066,
+        1154,
+        1243,
+        1332,
+        1421,
+        1510,
+        1598,
+        1687,
+        1776
+      ]
+    },
+    "just-climb-2766": {
+      "finalSteps": 2766,
+      "finalDurationSeconds": 2340,
+      "splitIntervalSeconds": 60,
+      "splitSteps": [
+        71,
+        142,
+        213,
+        284,
+        355,
+        426,
+        496,
+        567,
+        638,
+        709,
+        780,
+        851,
+        922,
+        993,
+        1064,
+        1135,
+        1206,
+        1277,
+        1348,
+        1418,
+        1489,
+        1560,
+        1631,
+        1702,
+        1773,
+        1844,
+        1915,
+        1986,
+        2057,
+        2128,
+        2199,
+        2270,
+        2340,
+        2411,
+        2482,
+        2553,
+        2624,
+        2695,
+        2766
+      ]
+    },
+    "five-thousand": {
+      "finalSteps": 5000,
+      "finalDurationSeconds": 2400,
+      "splitIntervalSeconds": 60,
+      "splitSteps": [
+        125,
+        250,
+        375,
+        500,
+        625,
+        750,
+        875,
+        1000,
+        1125,
+        1250,
+        1375,
+        1500,
+        1625,
+        1750,
+        1875,
+        2000,
+        2125,
+        2250,
+        2375,
+        2500,
+        2625,
+        2750,
+        2875,
+        3000,
+        3125,
+        3250,
+        3375,
+        3500,
+        3625,
+        3750,
+        3875,
+        4000,
+        4125,
+        4250,
+        4375,
+        4500,
+        4625,
+        4750,
+        4875,
+        5000
+      ]
+    },
+    "three-thousand": {
+      "finalSteps": 3000,
+      "finalDurationSeconds": 1500,
+      "splitIntervalSeconds": 60,
+      "splitSteps": [
+        120,
+        240,
+        360,
+        480,
+        600,
+        720,
+        840,
+        960,
+        1080,
+        1200,
+        1320,
+        1440,
+        1560,
+        1680,
+        1800,
+        1920,
+        2040,
+        2160,
+        2280,
+        2400,
+        2520,
+        2640,
+        2760,
+        2880,
+        3000
+      ]
+    },
+    "sprint-900": {
+      "finalSteps": 900,
+      "finalDurationSeconds": 300,
+      "splitIntervalSeconds": 60,
+      "splitSteps": [
+        180,
+        360,
+        540,
+        720,
+        900
+      ]
+    },
+    "steady-2000": {
+      "finalSteps": 2000,
+      "finalDurationSeconds": 1200,
+      "splitIntervalSeconds": 60,
+      "splitSteps": [
+        100,
+        200,
+        300,
+        400,
+        500,
+        600,
+        700,
+        800,
+        900,
+        1000,
+        1100,
+        1200,
+        1300,
+        1400,
+        1500,
+        1600,
+        1700,
+        1800,
+        1900,
+        2000
+      ]
+    },
+    "slow-1500": {
+      "finalSteps": 1500,
+      "finalDurationSeconds": 1200,
+      "splitIntervalSeconds": 60,
+      "splitSteps": [
+        75,
+        150,
+        225,
+        300,
+        375,
+        450,
+        525,
+        600,
+        675,
+        750,
+        825,
+        900,
+        975,
+        1050,
+        1125,
+        1200,
+        1275,
+        1350,
+        1425,
+        1500
+      ]
+    },
+    "tied-a": {
+      "finalSteps": 1000,
+      "finalDurationSeconds": 600,
+      "splitIntervalSeconds": 60,
+      "splitSteps": [
+        100,
+        200,
+        300,
+        400,
+        500,
+        600,
+        700,
+        800,
+        900,
+        1000
+      ]
+    },
+    "tied-b": {
+      "finalSteps": 1000,
+      "finalDurationSeconds": 600,
+      "splitIntervalSeconds": 60,
+      "splitSteps": [
+        100,
+        200,
+        300,
+        400,
+        500,
+        600,
+        700,
+        800,
+        900,
+        1000
+      ]
+    }
+  },
+  "selectionCases": [
+    {
+      "name": "no goal: the captain's morning history is his most steps, never his shortest climb",
+      "attemptIds": [
+        "charminar-149",
+        "just-climb-390",
+        "cn-tower-1776",
+        "just-climb-2766"
+      ],
+      "goal": {
+        "kind": "open"
+      },
+      "winner": "just-climb-2766"
+    },
+    {
+      "name": "no goal: a history of 149, 390 and 1,776 yields 1,776",
+      "attemptIds": [
+        "charminar-149",
+        "just-climb-390",
+        "cn-tower-1776"
+      ],
+      "goal": {
+        "kind": "open"
+      },
+      "winner": "cn-tower-1776"
+    },
+    {
+      "name": "no goal: equal step counts resolve on the workout id",
+      "attemptIds": [
+        "tied-b",
+        "tied-a"
+      ],
+      "goal": {
+        "kind": "open"
+      },
+      "winner": "tied-a"
+    },
+    {
+      "name": "step goal: a 5,000 step climb faster to 3,000 than a 3,000 step climb wins a 3,000 goal",
+      "attemptIds": [
+        "three-thousand",
+        "five-thousand"
+      ],
+      "goal": {
+        "kind": "steps",
+        "steps": 3000
+      },
+      "winner": "five-thousand"
+    },
+    {
+      "name": "step goal: a count nobody reached has no previous best",
+      "attemptIds": [
+        "three-thousand",
+        "five-thousand"
+      ],
+      "goal": {
+        "kind": "steps",
+        "steps": 6000
+      },
+      "winner": null
+    },
+    {
+      "name": "step goal: the only climb that reached the count is the best to it",
+      "attemptIds": [
+        "three-thousand"
+      ],
+      "goal": {
+        "kind": "steps",
+        "steps": 3000
+      },
+      "winner": "three-thousand"
+    },
+    {
+      "name": "step goal: the captain's fastest to 1,700 is the CN Tower climb, not the longer one",
+      "attemptIds": [
+        "charminar-149",
+        "just-climb-390",
+        "cn-tower-1776",
+        "just-climb-2766"
+      ],
+      "goal": {
+        "kind": "steps",
+        "steps": 1700
+      },
+      "winner": "cn-tower-1776"
+    },
+    {
+      "name": "duration goal: most steps within ten minutes beats the faster sprint that stopped early",
+      "attemptIds": [
+        "sprint-900",
+        "steady-2000"
+      ],
+      "goal": {
+        "kind": "duration",
+        "seconds": 600
+      },
+      "winner": "steady-2000"
+    },
+    {
+      "name": "duration goal: a climb that ended before the duration counts at its final steps, and wins",
+      "attemptIds": [
+        "slow-1500",
+        "sprint-900"
+      ],
+      "goal": {
+        "kind": "duration",
+        "seconds": 600
+      },
+      "winner": "sprint-900"
+    },
+    {
+      "name": "duration goal: five minutes into the captain's history the CN Tower climb was furthest",
+      "attemptIds": [
+        "charminar-149",
+        "just-climb-390",
+        "cn-tower-1776",
+        "just-climb-2766"
+      ],
+      "goal": {
+        "kind": "duration",
+        "seconds": 300
+      },
+      "winner": "cn-tower-1776"
+    },
+    {
+      "name": "duration goal: thirty minutes in, the long climb has passed every finished one",
+      "attemptIds": [
+        "charminar-149",
+        "just-climb-390",
+        "cn-tower-1776",
+        "just-climb-2766"
+      ],
+      "goal": {
+        "kind": "duration",
+        "seconds": 1800
+      },
+      "winner": "just-climb-2766"
+    },
+    {
+      "name": "duration goal: a duration every climb ended within is their most steps",
+      "attemptIds": [
+        "charminar-149",
+        "just-climb-390",
+        "cn-tower-1776",
+        "just-climb-2766"
+      ],
+      "goal": {
+        "kind": "duration",
+        "seconds": 10800
+      },
+      "winner": "just-climb-2766"
+    },
+    {
+      "name": "duration goal: equal steps within the duration resolve on the workout id",
+      "attemptIds": [
+        "tied-b",
+        "tied-a"
+      ],
+      "goal": {
+        "kind": "duration",
+        "seconds": 300
+      },
+      "winner": "tied-a"
+    }
+  ]
+}

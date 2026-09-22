@@ -723,10 +723,10 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
 
     /// Every row on this board that belongs to somebody else.
     ///
-    /// The viewer's ghost is still drawn - `locallyRankedRows` keeps it, with no
-    /// rank cell - but it is not a rival, so the window-sizing decisions that ask
-    /// whether a known row sits ahead of or behind the climber look here rather
-    /// than at `rows`.
+    /// The viewer's ghost is not a rival and is not drawn - it reaches the screen
+    /// only as the `BEST` marker - so the window-sizing decisions that ask whether
+    /// a known row sits ahead of or behind the climber look here rather than at
+    /// `rows`.
     var opponentRows: [LiveReplayLeaderboardRow] {
         rows.filter { !$0.isViewerGhost }
     }
@@ -752,6 +752,18 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
             .max()
     }
 
+    /// The rows the live board draws: every rival projected to this moment, and
+    /// the climber's own run, numbered around it.
+    ///
+    /// The climber's previous best is never one of them. Settled by the captain
+    /// on 2026-09-22, after the board drew his 149-step climb as a second `YOU`
+    /// row beneath his live one: the previous best is the `BEST` marker inside
+    /// the live row and nothing else, on every context type. The ghost still
+    /// takes part in the arithmetic above - it is projected, crossed and skipped
+    /// exactly as before, so the rank and the standing do not move - and is
+    /// withdrawn from the result here, in the one place every live surface
+    /// reads its rows from.
+    ///
     /// `displayName` is passed down from the session view model rather than
     /// resolved here: this runs on every step and elapsed tick of a live
     /// session, so it must not reach a repository.
@@ -759,6 +771,19 @@ struct LiveReplayLeaderboardWindow: Equatable, Sendable {
         currentSteps liveCurrentSteps: Int,
         currentElapsedSeconds: Int,
         displayName: String? = nil
+    ) -> [LiveReplayLeaderboardRow] {
+        rankedRowsIncludingGhosts(
+            currentSteps: liveCurrentSteps,
+            currentElapsedSeconds: currentElapsedSeconds,
+            displayName: displayName
+        )
+        .filter { !$0.isViewerGhost }
+    }
+
+    private func rankedRowsIncludingGhosts(
+        currentSteps liveCurrentSteps: Int,
+        currentElapsedSeconds: Int,
+        displayName: String?
     ) -> [LiveReplayLeaderboardRow] {
         let clampedCurrentSteps = max(liveCurrentSteps, 0)
         let projectedCompetitorRows = rows.map {

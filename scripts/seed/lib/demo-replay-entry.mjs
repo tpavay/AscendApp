@@ -1,3 +1,8 @@
+import {
+  contextRacesGoals,
+  raceGoalKeysByWorkoutId,
+} from "../../lib/live-replay-race-best.mjs";
+
 /**
  * Builds one demo-user replay entry with the server-owned context contract.
  * @param {object} input Entry inputs.
@@ -13,6 +18,21 @@ export function buildDemoReplayEntry({
   user,
 }) {
   return {
+    // A Just Climb run against a goal filters on `bestForGoals`, and a demo
+    // user's one attempt per context is their best under every goal it
+    // reached. The curve is re-anchored to the end of each interval the way
+    // the server publishes it (index 0 here is the start line).
+    ...(contextRacesGoals(context.contextType) ?
+      {
+        bestForGoals: raceGoalKeysByWorkoutId([{
+          workoutId: context.workoutId,
+          finalSteps: context.finalSteps,
+          finalDurationSeconds: context.durationSeconds,
+          splitIntervalSeconds,
+          splitSteps: context.splitSteps.slice(1),
+        }]).get(context.workoutId) ?? [],
+      } :
+      {}),
     avatarToken: user.avatarToken,
     completionDurationSeconds: context.durationSeconds,
     contextId: context.contextId,

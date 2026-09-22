@@ -43,6 +43,11 @@ import {
 } from "./lib/firestore-bulk.mjs";
 import {hashString, mulberry32} from "./seed/lib/deterministic.mjs";
 import {
+  contextRacesGoals,
+  raceBestOnSteps,
+  raceGoalKeysByWorkoutId,
+} from "./lib/live-replay-race-best.mjs";
+import {
   FIRST_ASCENT_OPEN_ACTIVITY_TIER,
   PUBLIC_IDENTITY_STATE_PUBLISHED,
   assertFirstAscentInvariant,
@@ -74,7 +79,6 @@ const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
 const LIVE_CLIMB_CONTEXT_TYPE = "live_climb";
 const JUST_CLIMB_CONTEXT_TYPE = "just_climb";
-const ROUTINE_TEMPLATE_CONTEXT_TYPE = "routine_template";
 const JUST_CLIMB_GLOBAL_CONTEXT_ID = "global";
 const DEFAULT_DEV_SEED_PACK_ID = "live-replay-v1-dev";
 const DEFAULT_STAGING_SEED_PACK_ID = "live-replay-v1-staging";
@@ -1280,6 +1284,7 @@ function prepareContexts(seedPlan, claimedOpen, db) {
   const withBestAttemptIds = (context) => ({
     ...context,
     bestAttemptIds: bestAttemptIds(context.rows, context.contextType),
+    goalKeysByAttemptId: goalKeysByAttemptId(context),
   });
   const contexts = seedPlan.climbPlans
     .filter((plan) => !claimedOpen.has(plan.climb.id))
@@ -1563,29 +1568,21 @@ function summaryWrite(context, {args, now, climbBoards, justClimbBoard, seedPlan
 }
 
 /**
- * Mirrors `ranksOnSteps` in functions/src/liveReplayLeaderboard.ts.
- * @param {string} contextType Replay context type.
- * @return {boolean} True when higher steps rank better.
- */
-function ranksOnSteps(contextType) {
-  return contextType === ROUTINE_TEMPLATE_CONTEXT_TYPE;
-}
-
-/**
  * The attempt ids one flagged `isBestForUser` row per climber belongs to.
  *
  * The live race filters on that flag on every context type, and Firestore
  * equality never matches a missing field, so a seeded board whose rows omit it
  * renders an empty field however many entries it holds. Mirrors the server's
- * best-per-user rule, including its metric: the most steps where the board
- * ranks on steps, the fastest completion otherwise, ties resolved on the
- * attempt id so every writer picks the same winner.
+ * best-per-user rule, including its race metric (`raceBestOnSteps`): the most
+ * steps on a routine template and on a Just Climb, the fastest completion
+ * otherwise, ties resolved on the attempt id so every writer picks the same
+ * winner.
  * @param {object[]} rows Prepared rows, each carrying its attempt.
  * @param {string} contextType Replay context type.
  * @return {Set<string>} Attempt ids to flag.
  */
 function bestAttemptIds(rows, contextType) {
-  const onSteps = ranksOnSteps(contextType);
+  const onSteps = raceBestOnSteps(contextType);
   const valueOf = (attempt) => (onSteps ?
     attempt.finalSteps :
     attempt.completionDurationSeconds);
@@ -1610,6 +1607,45 @@ function bestAttemptIds(rows, contextType) {
 }
 
 /**
+ * The goal keys each seeded attempt on a goal-racing board is its climber's
+ * best under, so a staging Just Climb run against a step or duration goal
+ * still has a field. Mirrors the server's `bestForGoals`: the split curve is
+ * the attempt's own bucket series, re-anchored to the end of each interval
+ * the way the server publishes it (bucket 0 here is the start line).
+ * @param {object} context Prepared context, before its best ids are attached.
+ * @return {Map<string, string[]>} Goal keys by attempt id; empty off a
+ *   goal-racing board.
+ */
+function goalKeysByAttemptId(context) {
+  const keys = new Map();
+  if (!contextRacesGoals(context.contextType)) {
+    return keys;
+  }
+
+  const rowsByUserId = new Map();
+  for (const row of context.rows) {
+    const rows = rowsByUserId.get(row.attempt.userId) ?? [];
+    rows.push(row);
+    rowsByUserId.set(row.attempt.userId, rows);
+  }
+
+  for (const rows of rowsByUserId.values()) {
+    const curves = rows.map(({attempt, series}) => ({
+      workoutId: attempt.id,
+      finalSteps: attempt.finalSteps,
+      finalDurationSeconds: attempt.durationSeconds,
+      splitIntervalSeconds: BUCKET_INTERVAL_SECONDS,
+      splitSteps: series.slice(1),
+    }));
+    for (const [attemptId, goalKeys] of raceGoalKeysByWorkoutId(curves)) {
+      keys.set(attemptId, goalKeys);
+    }
+  }
+
+  return keys;
+}
+
+/**
  * One split bucket entry.
  * @param {object} context Prepared context.
  * @param {object} attempt Generated attempt.
@@ -1619,6 +1655,9 @@ function bestAttemptIds(rows, contextType) {
  */
 function entryWrite(context, attempt, stepsAtBucket, {seedPackId, now}) {
   const entry = {
+    ...(contextRacesGoals(context.contextType) ?
+      {bestForGoals: context.goalKeysByAttemptId.get(attempt.id) ?? []} :
+      {}),
     avatarToken: attempt.avatarToken,
     completionDurationSeconds: attempt.completionDurationSeconds,
     contextId: context.contextId,

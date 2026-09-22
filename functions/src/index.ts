@@ -26,7 +26,10 @@ export {
   onUserDemographicsWrittenLeaderboardStats,
   onWorkoutWrittenLeaderboardStats,
 } from "./leaderboardStats";
-export {onWorkoutReplaySplitsWritten} from "./liveReplayLeaderboard";
+export {
+  onWorkoutReplaySplitsWritten,
+  reconcileLiveReplayRaceBests,
+} from "./liveReplayLeaderboard";
 export {
   onPublicIdentityPropagationJobWritten,
   onPublicProfileIdentityWritten,

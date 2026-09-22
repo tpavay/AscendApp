@@ -81,6 +81,53 @@ test("declares both filtered Live Replay window indexes", () => {
   );
 });
 
+/// A Just Climb run against a goal reads the same window with one different
+/// equality - `array-contains` on `bestForGoals` instead of `isBestForUser`
+/// - so every filtered window index exists a second time behind that field.
+/// Settled by the captain on 2026-09-22: a climber's previous best on a Just
+/// Climb, and every rival's row, follows the goal set for this session.
+test("declares the goal-aware Live Replay window indexes", () => {
+  const config = JSON.parse(
+    readFileSync(join(repositoryRoot, "firestore.indexes.json"), "utf8")
+  );
+  const goal = {fieldPath: "bestForGoals", arrayConfig: "CONTAINS"};
+
+  for (const fields of [
+    [goal, {fieldPath: "stepsAtBucket", order: "ASCENDING"}],
+    [goal, {fieldPath: "stepsAtBucket", order: "DESCENDING"}],
+    [
+      goal,
+      {fieldPath: "finalSteps", order: "ASCENDING"},
+      {fieldPath: "splitBucketCount", order: "ASCENDING"},
+    ],
+    [
+      goal,
+      {fieldPath: "finalSteps", order: "DESCENDING"},
+      {fieldPath: "splitBucketCount", order: "DESCENDING"},
+    ],
+    // The climber's own flagged row, read by owner under the goal.
+    [goal, {fieldPath: "userId", order: "ASCENDING"}],
+  ]) {
+    assert.ok(
+      hasIndex(config.indexes, "entries", fields),
+      `entries index missing for ${JSON.stringify(fields)}`
+    );
+  }
+
+  const repository = readFileSync(
+    join(
+      repositoryRoot,
+      "AscendApp/Shared/Repositories/Firebase/" +
+        "FirestoreLiveReplayLeaderboardRepository.swift"
+    ),
+    "utf8"
+  );
+  assert.match(
+    repository,
+    /whereField\("bestForGoals", arrayContains: goalKey\)/
+  );
+});
+
 /// Every live-window read a climber's own history needs, and the index each one
 /// selects.
 ///

@@ -49,7 +49,8 @@ The two missing Live Replay indexes are both collection-scoped `entries` indexes
 The current query filters every live race with `isBestForUser == true`, then reads the window ahead in ascending `stepsAtBucket` order and the window behind in descending order.
 Both matching definitions already exist exactly once in `firestore.indexes.json` after rebasing onto current `develop`, so this preparation does not add duplicates.
 
-Current `develop` declares 20 composite indexes because later work also added the `workouts(source, climbId)` projection index, the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index, the two `_revenuecat_analytics_outbox` delivery-queue indexes (`status + readyAt` and `status + processingStartedAt`), the climb-drop sweep's `climb_drop_dispatches(state, createdAt)` index, and four more collection-scoped `entries` indexes for the live window's finished-attempt and own-history reads: `isBestForUser + finalSteps + splitBucketCount` in both directions, `userId + stepsAtBucket`, and `userId + finalSteps + splitBucketCount`.
+Current `develop` declares 25 composite indexes because later work also added the `workouts(source, climbId)` projection index, the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index, the two `_revenuecat_analytics_outbox` delivery-queue indexes (`status + readyAt` and `status + processingStartedAt`), the climb-drop sweep's `climb_drop_dispatches(state, createdAt)` index, four more collection-scoped `entries` indexes for the live window's finished-attempt and own-history reads: `isBestForUser + finalSteps + splitBucketCount` in both directions, `userId + stepsAtBucket`, and `userId + finalSteps + splitBucketCount` - and five more collection-scoped `entries` indexes behind `bestForGoals` (`array-contains`) for a Just Climb run against a goal: `bestForGoals + stepsAtBucket` in both directions, `bestForGoals + finalSteps + splitBucketCount` in both directions, and `bestForGoals + userId` for the climber's own goal row.
+Every `bestForGoals` index mirrors an `isBestForUser` window read exactly, because the goal-aware window is the same query with one different equality (`ascend-live-climbs`).
 It also declares six field overrides, for `blocked.blockedUid`, `entries.userId`, `finishers.userId`, `entitlements.accessUntil`, `_revenuecat_webhook_events.retainUntil`, and `_revenuecat_analytics_outbox.retainUntil`.
 The first four carry a `COLLECTION_GROUP` scope, and `entries.userId` additionally restates its ascending and descending `COLLECTION`-scoped single-field indexes.
 The two `retainUntil` overrides declare no index at all: they exist to carry the TTL policies that expire the webhook dedupe ledger and the analytics outbox.
@@ -98,15 +99,16 @@ gh-axi secret list
 gh-axi variable list
 ```
 
-The captain-only replay check is:
+The captain-only replay check is that the race-best sweep has reached every board:
 
 ```sh
-node scripts/backfill-live-replay-best-per-user.mjs --project prod --dry-run
+node scripts/firestore-query.mjs get live_replay_leaderboards/just_climb__global --env prod --confirm-production
 ```
 
-Do not use `--confirm-production` for this preflight.
-If the dry-run reports writes, stop and prepare a separate migration review before deploying the binary.
-The release that first ships the every-board `isBestForUser` collapse is that reviewed migration rather than an anomaly - its ordering (Functions, then this backfill in every environment, then the binary) is owned by `ascend-live-climbs`, and a binary shipped ahead of it renders every board whose rows predate the flag empty.
+Its `fields` line must list `raceBestSweepVersion`, and the same read on any other board document must too.
+`reconcileLiveReplayRaceBests` runs every ten minutes after the Functions deploy and stamps each board once every finisher on it has been re-derived under the current rule, so the check is a wait, never a script to run by hand; the manual `backfill-live-replay-best-per-user.mjs` it replaced no longer exists.
+A binary shipped ahead of the stamp renders a Just Climb run against a goal over an empty field, because the goal keys it filters on are what the sweep writes - the ordering (indexes and Functions, the sweep's stamp, then the binary) is owned by `ascend-live-climbs`.
+Measured on production (`ascend-prod-9c8f2`) on 2026-09-22, before the sweep existed: `just_climb__global` held 12 bucket-zero entries from 4 climbers over 234 buckets, only 5 entries carried any `isBestForUser`, none carried `bestForGoals`, and the captain's one flagged row was his shortest climb rather than his most steps - which is the defect the sweep corrects on its first run and the reason a hand-run backfill is no longer part of any release.
 
 ### Public identity backfill
 

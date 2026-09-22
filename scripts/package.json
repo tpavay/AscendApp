@@ -50,8 +50,6 @@
     "seed:live-replay:staging": "node seed-live-replay-leaderboards.mjs seed --project staging",
     "backfill:live-replay-completion-snapshots": "node backfill-live-replay-completion-snapshots.mjs --project dev --dry-run",
     "backfill:live-replay-completion-snapshots:staging": "node backfill-live-replay-completion-snapshots.mjs --project staging --dry-run",
-    "backfill:live-replay-best-per-user": "node backfill-live-replay-best-per-user.mjs --project dev --dry-run",
-    "backfill:live-replay-best-per-user:staging": "node backfill-live-replay-best-per-user.mjs --project staging --dry-run",
     "backfill:legacy-replay-completions": "node backfill-legacy-live-replay-completions.mjs --env dev",
     "backfill:legacy-replay-completions:staging": "node backfill-legacy-live-replay-completions.mjs --env staging",
     "backfill:workout-climb-ids": "node backfill-workout-climb-ids.mjs --env dev",
