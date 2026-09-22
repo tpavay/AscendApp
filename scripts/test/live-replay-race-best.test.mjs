@@ -15,6 +15,8 @@ import {
   fastestToStepsAttemptId,
   mostStepsAttemptId,
   mostStepsWithinAttemptId,
+  attemptCurveWrite,
+  prepareRaceAttemptCurve,
   raceBestOnSteps,
   raceDurationGoals,
   raceGoalKeysByWorkoutId,
@@ -137,4 +139,59 @@ test("a sole attempt wins every goal it reached and nothing beyond it", () => {
   assert.equal(held.includes("steps:3100"), false);
   assert.equal(held.filter((key) => key.startsWith("duration:")).length, 36);
   assert.deepEqual(held, [...held].sort());
+});
+
+test("a prepared attempt reads exactly like its raw curve", () => {
+  for (const testCase of vector.curveCases) {
+    const raw = {workoutId: "curve", ...testCase.curve};
+    const prepared = prepareRaceAttemptCurve(raw);
+
+    assert.equal(prepareRaceAttemptCurve(prepared), prepared);
+    for (const reading of testCase.stepsAtElapsed) {
+      assert.equal(
+        stepsAtElapsed(prepared, reading.seconds),
+        stepsAtElapsed(raw, reading.seconds),
+        `${testCase.name}: steps at ${reading.seconds}s`
+      );
+    }
+    for (const reading of testCase.secondsToReach) {
+      assert.equal(
+        secondsToReach(prepared, reading.steps),
+        secondsToReach(raw, reading.steps),
+        `${testCase.name}: ${reading.steps} steps`
+      );
+    }
+  }
+
+  const raw = attempts(Object.keys(vector.attempts));
+  assert.deepEqual(
+    [...raceGoalKeysByWorkoutId(raw.map(prepareRaceAttemptCurve))],
+    [...raceGoalKeysByWorkoutId(raw)]
+  );
+});
+
+// The seeds store the curve their goal keys were judged on, in the document
+// shape the server's `attemptCurveWrite` publishes; a field the server does
+// not read back, or one it reads and the seed omits, makes the trigger and
+// the backfill rebuild a differently anchored curve from the bucket entries.
+test("a seeded curve document carries exactly the server's fields", () => {
+  const updatedAt = {kind: "server-timestamp"};
+  const curve = {
+    workoutId: "workout-1",
+    finalSteps: 1860,
+    finalDurationSeconds: 480,
+    splitIntervalSeconds: 120,
+    splitSteps: [420, 900, 1400],
+  };
+
+  assert.deepEqual(attemptCurveWrite("user-1", curve, updatedAt), {
+    finalDurationSeconds: 480,
+    finalSteps: 1860,
+    schemaVersion: 1,
+    splitIntervalSeconds: 120,
+    splitSteps: [420, 900, 1400],
+    updatedAt,
+    userId: "user-1",
+    workoutId: "workout-1",
+  });
 });

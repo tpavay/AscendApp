@@ -14,6 +14,7 @@ import {
   fastestToStepsAttemptId,
   mostStepsAttemptId,
   mostStepsWithinAttemptId,
+  prepareRaceAttemptCurve,
   raceDurationGoals,
   raceGoalKeysByWorkoutId,
   raceStepGoals,
@@ -254,4 +255,38 @@ test("a settled entry compares equal to what it should carry", () => {
   assert.equal(sameGoalKeys(["a"], ["a", "b"]), false);
   assert.equal(sameGoalKeys(["b", "a"], ["a", "b"]), false);
   assert.equal(sameGoalKeys([], []), true);
+});
+
+// The 236 goals a climber's history is judged against read one polyline per
+// attempt, built once; a prepared attempt has to answer exactly what the raw
+// curve does, or the reconciliation would pick a different winner from the
+// tests that pin the rule on raw curves.
+test("a prepared attempt reads exactly like its raw curve", () => {
+  for (const testCase of vector.curveCases) {
+    const raw = {workoutId: "curve", ...testCase.curve};
+    const prepared = prepareRaceAttemptCurve(raw);
+
+    assert.equal(prepareRaceAttemptCurve(prepared), prepared);
+    for (const reading of testCase.stepsAtElapsed) {
+      assert.equal(
+        stepsAtElapsed(prepared, reading.seconds),
+        stepsAtElapsed(raw, reading.seconds),
+        `${testCase.name}: steps at ${reading.seconds}s`
+      );
+    }
+    for (const reading of testCase.secondsToReach) {
+      assert.equal(
+        secondsToReach(prepared, reading.steps),
+        secondsToReach(raw, reading.steps),
+        `${testCase.name}: ${reading.steps} steps`
+      );
+    }
+  }
+
+  const ids = Object.keys(vector.attempts);
+  const raw = attempts(ids);
+  assert.deepEqual(
+    [...raceGoalKeysByWorkoutId(raw.map(prepareRaceAttemptCurve))],
+    [...raceGoalKeysByWorkoutId(raw)]
+  );
 });

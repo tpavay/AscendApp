@@ -8,6 +8,7 @@
  *
  * live_replay_leaderboards/{contextKey}/splitBuckets/{bucketIndex}/entries/{entryId}
  * live_replay_leaderboards/{contextKey}/finishers/{userId}
+ * live_replay_leaderboards/{contextKey}/attemptCurves/{entryId}   (Just Climb only)
  *
  * The seed pack writes per-climb Live Climb contexts and the open-ended global
  * Just Climb context used by live tracked sessions without a climb target.
@@ -43,6 +44,8 @@ import {
 } from "./lib/firestore-bulk.mjs";
 import {hashString, mulberry32} from "./seed/lib/deterministic.mjs";
 import {
+  ATTEMPT_CURVES_COLLECTION,
+  attemptCurveWrite,
   contextRacesGoals,
   raceBestOnSteps,
   raceGoalKeysByWorkoutId,
@@ -106,7 +109,7 @@ const SEED_BUCKET_COUNT_FIELD = "seedBucketCount";
  * changed constant. The step values are hashed directly, so the maths behind
  * them needs no bump.
  */
-const SEED_WRITE_REVISION = 3;
+const SEED_WRITE_REVISION = 4;
 
 /** Replay contexts enumerated at once. Each fans out again over its own buckets. */
 const CONTEXT_CONCURRENCY = 12;
@@ -1071,10 +1074,14 @@ async function seededDocumentsUnder(db, contextRef, seedPackId, progress, {
     {description: `listDocuments(${contextRef.path}/splitBuckets)`, onRetry: () => progress.retried()}
   );
   const entryCollections = bucketRefs.map((bucketRef) => bucketRef.collection("entries"));
-  const [entries, finishers] = await Promise.all([
+  const [entries, finishers, curves] = await Promise.all([
     listDocumentsAcross(entryCollections, {progress}),
     withRetry(() => contextRef.collection("finishers").listDocuments(), {
       description: `listDocuments(${contextRef.path}/finishers)`,
+      onRetry: () => progress.retried(),
+    }),
+    withRetry(() => contextRef.collection(ATTEMPT_CURVES_COLLECTION).listDocuments(), {
+      description: `listDocuments(${contextRef.path}/${ATTEMPT_CURVES_COLLECTION})`,
       onRetry: () => progress.retried(),
     }),
   ]);
@@ -1091,12 +1098,16 @@ async function seededDocumentsUnder(db, contextRef, seedPackId, progress, {
   const doomedFinishers = clearsEveryRow ?
     finishers :
     finishers.filter((document) => isSyntheticUserId(document.id));
+  const doomedCurves = clearsEveryRow ?
+    curves :
+    curves.filter((document) => isSeededAttemptId(document.id, seedPackId));
 
   // Bucket parents only go when nothing under them survives; a bucket document
   // holds no fields of its own, so deleting one that still has entries orphans
   // them behind a parent the console renders as missing.
   const doomed = appendAll([], doomedEntries);
   appendAll(doomed, doomedFinishers);
+  appendAll(doomed, doomedCurves);
   if (doomedEntries.length === entries.length) {
     appendAll(doomed, bucketRefs);
   }
@@ -1281,11 +1292,15 @@ function contextFingerprint(context, seedPackId) {
  * @return {object[]} Prepared contexts, each carrying its materialized rows.
  */
 function prepareContexts(seedPlan, claimedOpen, db) {
-  const withBestAttemptIds = (context) => ({
-    ...context,
-    bestAttemptIds: bestAttemptIds(context.rows, context.contextType),
-    goalKeysByAttemptId: goalKeysByAttemptId(context),
-  });
+  const withBestAttemptIds = (context) => {
+    const curvesByAttemptId = raceCurvesByAttemptId(context);
+    return {
+      ...context,
+      bestAttemptIds: bestAttemptIds(context.rows, context.contextType),
+      curvesByAttemptId,
+      goalKeysByAttemptId: goalKeysByAttemptId(context.rows, curvesByAttemptId),
+    };
+  };
   const contexts = seedPlan.climbPlans
     .filter((plan) => !claimedOpen.has(plan.climb.id))
     .map((plan) => ({
@@ -1295,6 +1310,7 @@ function prepareContexts(seedPlan, claimedOpen, db) {
       label: plan.climb.id,
       summaryRef: leaderboardRef(db, plan.climb.id),
       finishersRef: finishersCollection(db, plan.climb.id),
+      attemptCurvesRef: leaderboardRef(db, plan.climb.id).collection(ATTEMPT_CURVES_COLLECTION),
       entriesCollection: (bucketIndex) => entriesCollection(db, plan.climb.id, bucketIndex),
       splitBucketsRef: splitBucketsCollection(db, plan.climb.id),
       attempts: plan.attempts,
@@ -1314,6 +1330,7 @@ function prepareContexts(seedPlan, claimedOpen, db) {
     label: "just-climb-global",
     summaryRef: justClimbLeaderboardRef(db),
     finishersRef: justClimbFinishersCollection(db),
+    attemptCurvesRef: justClimbLeaderboardRef(db).collection(ATTEMPT_CURVES_COLLECTION),
     entriesCollection: (bucketIndex) => justClimbEntriesCollection(db, bucketIndex),
     splitBucketsRef: justClimbLeaderboardRef(db).collection("splitBuckets"),
     attempts: justClimb.attempts,
@@ -1350,7 +1367,8 @@ async function writeSeedPlan(db, seedPlan, args, claimedOpen = new Set()) {
     context.previousBucketCount = Number.isInteger(previous[SEED_BUCKET_COUNT_FIELD]) ?
       previous[SEED_BUCKET_COUNT_FIELD] :
       null;
-    context.entryCount = context.rows.length * (context.maxBucketIndex + 1);
+    context.entryCount = context.rows.length * (context.maxBucketIndex + 1) +
+      context.curvesByAttemptId.size;
 
     if (!args.force && previous[SEED_FINGERPRINT_FIELD] === context.fingerprint) {
       skippedEntries += context.entryCount;
@@ -1408,6 +1426,21 @@ async function writeSeedPlan(db, seedPlan, args, claimedOpen = new Set()) {
           seedPackId: args.seedPackId,
           updatedAt: now,
         })
+      );
+      writes += 1;
+    }
+
+    // The curve each Just Climb row's goal keys were judged on, stored where
+    // the trigger and the backfill read it, so neither ever rebuilds a
+    // differently anchored curve from this pack's bucket entries.
+    for (const {attempt} of context.rows) {
+      const curve = context.curvesByAttemptId.get(attempt.id);
+      if (!curve) {
+        continue;
+      }
+      writer.set(
+        context.attemptCurvesRef.doc(attempt.id),
+        attemptCurveWrite(attempt.userId, curve, now)
       );
       writes += 1;
     }
@@ -1478,10 +1511,16 @@ async function retiredRowRefs(context, seedPackId, progress) {
     listDocumentsAcross(retiredBuckets.map((ref) => ref.collection("entries")), {progress: null}),
     listDocumentsAcross(survivingBuckets.map((ref) => ref.collection("entries")), {progress: null}),
   ]);
-  const finishers = await withRetry(() => context.finishersRef.listDocuments(), {
-    description: `listDocuments(${context.finishersRef.path})`,
-    onRetry: () => progress.retried(),
-  });
+  const [finishers, curves] = await Promise.all([
+    withRetry(() => context.finishersRef.listDocuments(), {
+      description: `listDocuments(${context.finishersRef.path})`,
+      onRetry: () => progress.retried(),
+    }),
+    withRetry(() => context.attemptCurvesRef.listDocuments(), {
+      description: `listDocuments(${context.attemptCurvesRef.path})`,
+      onRetry: () => progress.retried(),
+    }),
+  ]);
 
   const plannedUserIds = new Set(context.rows.map(({attempt}) => attempt.userId));
   const retired = appendAll([], retiredEntries);
@@ -1490,6 +1529,8 @@ async function retiredRowRefs(context, seedPackId, progress) {
     !plannedIds.has(ref.id) && isSeededAttemptId(ref.id, seedPackId)));
   appendAll(retired, finishers.filter((ref) =>
     isSyntheticUserId(ref.id) && !plannedUserIds.has(ref.id)));
+  appendAll(retired, curves.filter((ref) =>
+    isSeededAttemptId(ref.id, seedPackId) && !context.curvesByAttemptId.has(ref.id)));
 
   return retired;
 }
@@ -1607,36 +1648,60 @@ function bestAttemptIds(rows, contextType) {
 }
 
 /**
- * The goal keys each seeded attempt on a goal-racing board is its climber's
- * best under, so a staging Just Climb run against a step or duration goal
- * still has a field. Mirrors the server's `bestForGoals`: the split curve is
- * the attempt's own bucket series, re-anchored to the end of each interval
- * the way the server publishes it (bucket 0 here is the start line).
+ * The split curve behind each seeded attempt on a goal-racing board, as the
+ * server stores it in `attemptCurves`: the attempt's own bucket series,
+ * re-anchored to the end of each interval the way the server publishes it
+ * (bucket 0 here is the start line, so the curve drops it and index i sits
+ * at `(i + 1) * BUCKET_INTERVAL_SECONDS`). The goal keys are judged on this
+ * curve and this curve is what lands beside the rows, so the trigger and the
+ * backfill read back the curve the keys came from.
  * @param {object} context Prepared context, before its best ids are attached.
- * @return {Map<string, string[]>} Goal keys by attempt id; empty off a
- *   goal-racing board.
+ * @return {Map<string, object>} Curves by attempt id; empty off a goal-racing
+ *   board.
  */
-function goalKeysByAttemptId(context) {
-  const keys = new Map();
+function raceCurvesByAttemptId(context) {
+  const curves = new Map();
   if (!contextRacesGoals(context.contextType)) {
-    return keys;
+    return curves;
   }
 
-  const rowsByUserId = new Map();
-  for (const row of context.rows) {
-    const rows = rowsByUserId.get(row.attempt.userId) ?? [];
-    rows.push(row);
-    rowsByUserId.set(row.attempt.userId, rows);
-  }
-
-  for (const rows of rowsByUserId.values()) {
-    const curves = rows.map(({attempt, series}) => ({
+  for (const {attempt, series} of context.rows) {
+    curves.set(attempt.id, {
       workoutId: attempt.id,
       finalSteps: attempt.finalSteps,
       finalDurationSeconds: attempt.durationSeconds,
       splitIntervalSeconds: BUCKET_INTERVAL_SECONDS,
       splitSteps: series.slice(1),
-    }));
+    });
+  }
+
+  return curves;
+}
+
+/**
+ * The goal keys each seeded attempt on a goal-racing board is its climber's
+ * best under, so a staging Just Climb run against a step or duration goal
+ * still has a field. Mirrors the server's `bestForGoals`, judged per climber
+ * on the curves `raceCurvesByAttemptId` stores.
+ * @param {object[]} rows Materialized rows of one context.
+ * @param {Map<string, object>} curvesByAttemptId The rows' curves.
+ * @return {Map<string, string[]>} Goal keys by attempt id; empty off a
+ *   goal-racing board.
+ */
+function goalKeysByAttemptId(rows, curvesByAttemptId) {
+  const keys = new Map();
+  if (curvesByAttemptId.size === 0) {
+    return keys;
+  }
+
+  const curvesByUserId = new Map();
+  for (const {attempt} of rows) {
+    const curves = curvesByUserId.get(attempt.userId) ?? [];
+    curves.push(curvesByAttemptId.get(attempt.id));
+    curvesByUserId.set(attempt.userId, curves);
+  }
+
+  for (const curves of curvesByUserId.values()) {
     for (const [attemptId, goalKeys] of raceGoalKeysByWorkoutId(curves)) {
       keys.set(attemptId, goalKeys);
     }

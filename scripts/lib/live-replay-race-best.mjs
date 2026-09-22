@@ -26,6 +26,13 @@ const ROUTINE_TEMPLATE_CONTEXT_TYPE = "routine_template";
 const JUST_CLIMB_CONTEXT_TYPE = "just_climb";
 
 /**
+ * Mirrors `ATTEMPT_CURVES_COLLECTION` in functions/src/liveReplayLeaderboard.ts:
+ * the server-only subcollection under a board that holds one split curve per
+ * attempt, keyed by workout id.
+ */
+export const ATTEMPT_CURVES_COLLECTION = "attemptCurves";
+
+/**
  * Mirrors `raceBestOnSteps` in functions/src/liveReplayLeaderboard.ts: whether
  * a board's live race collapses a climber's attempts on steps rather than
  * time. Not the ranking metric - a Just Climb still ranks its standings on
@@ -69,15 +76,57 @@ export function raceDurationGoals() {
 }
 
 /**
+ * Mirrors `attemptCurveWrite`: the fields the server stores for one attempt's
+ * curve, so a seeded curve reads back exactly as a published one and neither
+ * the trigger nor the backfill ever rebuilds a differently anchored curve
+ * from the seeded bucket entries.
+ * @param {string} userId Owner user ID.
+ * @param {object} curve Attempt curve with `splitSteps[i]` at
+ *   `(i + 1) * splitIntervalSeconds`.
+ * @param {unknown} updatedAt Write timestamp.
+ * @return {object} Fields to write.
+ */
+export function attemptCurveWrite(userId, curve, updatedAt) {
+  return {
+    finalDurationSeconds: curve.finalDurationSeconds,
+    finalSteps: curve.finalSteps,
+    schemaVersion: 1,
+    splitIntervalSeconds: curve.splitIntervalSeconds,
+    splitSteps: curve.splitSteps,
+    updatedAt,
+    userId,
+    workoutId: curve.workoutId,
+  };
+}
+
+/**
+ * Mirrors `prepareRaceAttemptCurve`: builds an attempt's polyline once so
+ * every one of the 236 goals reads it rather than rebuilding it.
+ * @param {object} attempt Attempt curve, prepared or not.
+ * @return {object} The attempt with its `points` built.
+ */
+export function prepareRaceAttemptCurve(attempt) {
+  if ("points" in attempt) {
+    return attempt;
+  }
+  return {
+    workoutId: attempt.workoutId,
+    finalSteps: attempt.finalSteps,
+    finalDurationSeconds: attempt.finalDurationSeconds,
+    points: curvePoints(attempt),
+  };
+}
+
+/**
  * The cumulative steps an attempt had reached `seconds` in: piecewise linear
  * through the origin, every checkpoint and the finish, and the finish itself
  * for any later moment.
- * @param {object} curve Attempt curve.
+ * @param {object} curve Attempt curve, prepared or not.
  * @param {number} seconds Elapsed seconds.
  * @return {number} Steps reached by then.
  */
 export function stepsAtElapsed(curve, seconds) {
-  const points = curvePoints(curve);
+  const points = prepareRaceAttemptCurve(curve).points;
   const finish = points[points.length - 1];
 
   if (seconds <= 0) {
@@ -100,7 +149,7 @@ export function stepsAtElapsed(curve, seconds) {
 
 /**
  * How long an attempt took to first reach `steps`, or null when it never did.
- * @param {object} curve Attempt curve.
+ * @param {object} curve Attempt curve, prepared or not.
  * @param {number} steps Step count.
  * @return {number | null} Seconds, or null.
  */
@@ -113,7 +162,7 @@ export function secondsToReach(curve, steps) {
   }
 
   let previous = {seconds: 0, steps: 0};
-  for (const point of curvePoints(curve)) {
+  for (const point of prepareRaceAttemptCurve(curve).points) {
     if (point.steps >= steps) {
       if (point.steps === previous.steps) {
         return point.seconds;
@@ -146,7 +195,8 @@ export function mostStepsWithinAttemptId(attempts, seconds) {
  * @return {Map<string, string[]>} Goal keys by workout id.
  */
 export function raceGoalKeysByWorkoutId(attempts) {
-  const keys = new Map(attempts.map((attempt) => [attempt.workoutId, []]));
+  const prepared = attempts.map(prepareRaceAttemptCurve);
+  const keys = new Map(prepared.map((attempt) => [attempt.workoutId, []]));
   const award = (workoutId, key) => {
     if (workoutId !== null) {
       keys.get(workoutId)?.push(key);
@@ -154,10 +204,10 @@ export function raceGoalKeysByWorkoutId(attempts) {
   };
 
   for (const steps of raceStepGoals()) {
-    award(fastestToStepsAttemptId(attempts, steps), stepGoalKey(steps));
+    award(fastestToStepsAttemptId(prepared, steps), stepGoalKey(steps));
   }
   for (const seconds of raceDurationGoals()) {
-    award(mostStepsWithinAttemptId(attempts, seconds), durationGoalKey(seconds));
+    award(mostStepsWithinAttemptId(prepared, seconds), durationGoalKey(seconds));
   }
 
   for (const list of keys.values()) {

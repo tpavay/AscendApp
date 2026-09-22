@@ -62,6 +62,47 @@ export interface RaceAttemptCurve {
   splitSteps: number[];
 }
 
+/** One point on an attempt's polyline. */
+export interface CurvePoint {
+  seconds: number;
+  steps: number;
+}
+
+/**
+ * An attempt with its polyline already built.
+ *
+ * Every goal evaluation walks the same polyline, and a climber's history is
+ * judged against 236 goals, so the points are built once per attempt and the
+ * interpolators read them rather than rebuilding the curve per goal.
+ */
+export interface PreparedRaceAttemptCurve {
+  workoutId: string;
+  finalSteps: number;
+  finalDurationSeconds: number;
+  points: CurvePoint[];
+}
+
+export type RaceAttempt = RaceAttemptCurve | PreparedRaceAttemptCurve;
+
+/**
+ * Builds an attempt's polyline once so every goal can read it.
+ * @param {RaceAttempt} attempt Attempt curve, prepared or not.
+ * @return {PreparedRaceAttemptCurve} The attempt with its points built.
+ */
+export function prepareRaceAttemptCurve(
+  attempt: RaceAttempt
+): PreparedRaceAttemptCurve {
+  if ("points" in attempt) {
+    return attempt;
+  }
+  return {
+    workoutId: attempt.workoutId,
+    finalSteps: attempt.finalSteps,
+    finalDurationSeconds: attempt.finalDurationSeconds,
+    points: curvePoints(attempt),
+  };
+}
+
 /**
  * The entry filter key for one step goal.
  * @param {number} steps Step goal.
@@ -110,15 +151,15 @@ export function raceDurationGoals(): number[] {
  * Piecewise linear through the origin, every checkpoint, and the finish. A
  * moment past the finish reads the finish: a climb that ended before the
  * duration counts at its final steps.
- * @param {RaceAttemptCurve} curve Attempt curve.
+ * @param {RaceAttempt} curve Attempt curve, prepared or not.
  * @param {number} seconds Elapsed seconds into the attempt.
  * @return {number} Steps reached by then.
  */
 export function stepsAtElapsed(
-  curve: RaceAttemptCurve,
+  curve: RaceAttempt,
   seconds: number
 ): number {
-  const points = curvePoints(curve);
+  const points = prepareRaceAttemptCurve(curve).points;
   const finish = points[points.length - 1];
 
   if (seconds <= 0) {
@@ -146,12 +187,12 @@ export function stepsAtElapsed(
  * at or past the count closes the segment, and the crossing is interpolated
  * inside it. A flat stretch is never divided through - the segment that
  * crosses the count always rises.
- * @param {RaceAttemptCurve} curve Attempt curve.
+ * @param {RaceAttempt} curve Attempt curve, prepared or not.
  * @param {number} steps Step count to reach.
  * @return {number | null} Seconds to reach it, or null when unreached.
  */
 export function secondsToReach(
-  curve: RaceAttemptCurve,
+  curve: RaceAttempt,
   steps: number
 ): number | null {
   if (steps <= 0) {
@@ -162,7 +203,7 @@ export function secondsToReach(
   }
 
   let previous = {seconds: 0, steps: 0};
-  for (const point of curvePoints(curve)) {
+  for (const point of prepareRaceAttemptCurve(curve).points) {
     if (point.steps >= steps) {
       if (point.steps === previous.steps) {
         return point.seconds;
@@ -179,11 +220,11 @@ export function secondsToReach(
 
 /**
  * The climber's best with no goal set: their most steps, all time.
- * @param {RaceAttemptCurve[]} attempts One climber's published attempts.
+ * @param {RaceAttempt[]} attempts One climber's published attempts.
  * @return {string | null} Winning workout id, or null with no attempts.
  */
 export function mostStepsAttemptId(
-  attempts: RaceAttemptCurve[]
+  attempts: RaceAttempt[]
 ): string | null {
   return winner(attempts, (attempt) => attempt.finalSteps, "highest");
 }
@@ -191,12 +232,12 @@ export function mostStepsAttemptId(
 /**
  * The climber's best for a step goal: their fastest time to reach it, across
  * every attempt that reached it.
- * @param {RaceAttemptCurve[]} attempts One climber's published attempts.
+ * @param {RaceAttempt[]} attempts One climber's published attempts.
  * @param {number} steps Step goal.
  * @return {string | null} Winning workout id, or null when none reached it.
  */
 export function fastestToStepsAttemptId(
-  attempts: RaceAttemptCurve[],
+  attempts: RaceAttempt[],
   steps: number
 ): string | null {
   return winner(attempts, (attempt) => secondsToReach(attempt, steps), "lowest");
@@ -205,12 +246,12 @@ export function fastestToStepsAttemptId(
 /**
  * The climber's best for a duration goal: the most steps they had reached
  * within it, a climb that ended earlier counting at its final steps.
- * @param {RaceAttemptCurve[]} attempts One climber's published attempts.
+ * @param {RaceAttempt[]} attempts One climber's published attempts.
  * @param {number} seconds Duration goal in seconds.
  * @return {string | null} Winning workout id, or null with no attempts.
  */
 export function mostStepsWithinAttemptId(
-  attempts: RaceAttemptCurve[],
+  attempts: RaceAttempt[],
   seconds: number
 ): string | null {
   return winner(attempts, (attempt) => stepsAtElapsed(attempt, seconds), "highest");
@@ -223,14 +264,15 @@ export function mostStepsWithinAttemptId(
  *
  * A step goal nobody reached is nobody's, so the arrays stay bounded by what
  * the climber has actually climbed.
- * @param {RaceAttemptCurve[]} attempts One climber's published attempts.
+ * @param {RaceAttempt[]} attempts One climber's published attempts.
  * @return {Map<string, string[]>} Goal keys by workout id.
  */
 export function raceGoalKeysByWorkoutId(
-  attempts: RaceAttemptCurve[]
+  attempts: RaceAttempt[]
 ): Map<string, string[]> {
+  const prepared = attempts.map(prepareRaceAttemptCurve);
   const keys = new Map<string, string[]>(
-    attempts.map((attempt) => [attempt.workoutId, []])
+    prepared.map((attempt) => [attempt.workoutId, []])
   );
   const award = (workoutId: string | null, key: string) => {
     if (workoutId !== null) {
@@ -239,11 +281,11 @@ export function raceGoalKeysByWorkoutId(
   };
 
   for (const steps of raceStepGoals()) {
-    award(fastestToStepsAttemptId(attempts, steps), stepGoalKey(steps));
+    award(fastestToStepsAttemptId(prepared, steps), stepGoalKey(steps));
   }
   for (const seconds of raceDurationGoals()) {
     award(
-      mostStepsWithinAttemptId(attempts, seconds),
+      mostStepsWithinAttemptId(prepared, seconds),
       durationGoalKey(seconds)
     );
   }
@@ -264,11 +306,6 @@ export function raceGoalKeysByWorkoutId(
 export function sameGoalKeys(stored: string[], derived: string[]): boolean {
   return stored.length === derived.length &&
     stored.every((key, index) => key === derived[index]);
-}
-
-interface CurvePoint {
-  seconds: number;
-  steps: number;
 }
 
 /**
@@ -326,14 +363,14 @@ function interpolate(
  * The attempt with the best value, ties resolved on workout id so every
  * caller - the publish seed, the reconciliation, the seeds - picks the same
  * winner. An attempt whose value is null is out of the running.
- * @param {RaceAttemptCurve[]} attempts Candidates.
- * @param {(attempt: RaceAttemptCurve) => number | null} value Measure.
+ * @param {RaceAttempt[]} attempts Candidates.
+ * @param {(attempt: RaceAttempt) => number | null} value Measure.
  * @param {"highest" | "lowest"} wins Which direction is better.
  * @return {string | null} Winning workout id, or null when nobody qualifies.
  */
 function winner(
-  attempts: RaceAttemptCurve[],
-  value: (attempt: RaceAttemptCurve) => number | null,
+  attempts: RaceAttempt[],
+  value: (attempt: RaceAttempt) => number | null,
   wins: "highest" | "lowest"
 ): string | null {
   let best: {workoutId: string; value: number} | null = null;
