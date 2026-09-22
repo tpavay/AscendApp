@@ -771,18 +771,6 @@ test("an attempt curve stores the numbers the race-best rule reads and no identi
   assert.equal("displayName" in write, false);
 });
 
-test("a board summary that never recorded its type is read off its key", () => {
-  assert.equal(
-    liveReplayLeaderboardTestHooks.contextTypeFromKey("just_climb__global"),
-    "just_climb"
-  );
-  assert.equal(
-    liveReplayLeaderboardTestHooks.contextTypeFromKey(
-      "live_climb__empire-state-building"
-    ),
-    "live_climb"
-  );
-});
 
 test("writes the flag on every context type", () => {
   const payload = liveReplayLeaderboardTestHooks.parseJustClimbReplayPayload(

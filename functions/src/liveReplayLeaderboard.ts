@@ -1,5 +1,4 @@
 import {onDocumentWritten} from "firebase-functions/v2/firestore";
-import {onSchedule} from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
 import {
   MAX_REPLAY_SPLIT_CHECKPOINTS,
@@ -44,23 +43,6 @@ const FIRESTORE_NOT_FOUND_CODE = 5;
 const BULK_WRITER_MAX_ATTEMPTS = 3;
 const ATTEMPT_CURVES_COLLECTION = "attemptCurves";
 const FINISHERS_COLLECTION = "finishers";
-/**
- * The version of the race-best rule every board has been swept to. Bump it
- * when the rule changes and `reconcileLiveReplayRaceBests` re-derives every
- * climber's flags on every board, automatically and idempotently, instead of
- * waiting for each climber's next publish. Version 1 is the captain's ruling
- * of 2026-09-22: a Just Climb's no-goal best is the most steps, and every
- * Just Climb entry carries its `bestForGoals`.
- */
-const RACE_BEST_SWEEP_VERSION = 1;
-/**
- * Climbers reconciled per sweep run. A climber costs one query, one curve
- * read per attempt, and up to `MAX_REPLAY_SPLIT_CHECKPOINTS` writes per
- * attempt whose flags change, so the run's `timeoutSeconds` bounds this rather
- * than the other way round; the next tick continues where this one stopped.
- */
-const RACE_BEST_SWEEP_CLIMBERS_PER_RUN = 40;
-const RACE_BEST_SWEEP_PAGE_SIZE = 100;
 /**
  * The split interval every producer has ever published at, assumed for an
  * entry written before the interval was stored on it.
@@ -230,8 +212,7 @@ interface BestForUserFlagUpdate {
 
 /**
  * A board a climber's flags are reconciled on: the two facts every replay
- * payload carries that reconciliation actually reads, so the sweep can name
- * a board it never parsed a workout for.
+ * payload carries that reconciliation actually reads.
  */
 interface ReplayContextRef {
   contextKey: string;
@@ -1523,162 +1504,6 @@ async function repairFinisherBestAttempt(
     winner.workoutId
   ));
 }
-
-/**
- * Re-derives every climber's race-best flags on every board, a bounded slice
- * per run, until every board is stamped with `RACE_BEST_SWEEP_VERSION`.
- *
- * The trigger reconciles a climber when *they* publish, which leaves every
- * climber who does not climb again holding flags derived under the previous
- * rule - the captain's own 149-step climb wore the flag on production for
- * twelve days. A rule change therefore has to reach the installed data by
- * itself: this walks each board's finishers, reconciles each one once, stamps
- * the finisher and then the board, and from then on costs one read per board
- * per tick. It is idempotent by construction - reconciliation settles to zero
- * writes - so a run cut short by its timeout simply resumes.
- * @param {FirebaseFirestore.Firestore} db Firestore.
- * @param {number} climberBudget Climbers to reconcile before stopping.
- * @return {Promise<RaceBestSweepSummary>} What the run did.
- */
-async function sweepRaceBests(
-  db: FirebaseFirestore.Firestore,
-  climberBudget: number
-): Promise<RaceBestSweepSummary> {
-  const summary: RaceBestSweepSummary = {
-    boardsSkipped: 0,
-    boardsStamped: 0,
-    climbersReconciled: 0,
-    exhausted: false,
-  };
-  const boards = await db.collection(LIVE_REPLAY_COLLECTION).listDocuments();
-
-  for (const boardRef of boards) {
-    const board = (await boardRef.get()).data();
-    if (board?.raceBestSweepVersion === RACE_BEST_SWEEP_VERSION) {
-      summary.boardsSkipped += 1;
-      continue;
-    }
-
-    const context: ReplayContextRef = {
-      contextKey: boardRef.id,
-      contextType: stringValue(board?.contextType) ??
-        contextTypeFromKey(boardRef.id),
-    };
-    const finished = await sweepBoardRaceBests(db, context, summary, () =>
-      summary.climbersReconciled < climberBudget
-    );
-
-    if (!finished) {
-      summary.exhausted = true;
-      return summary;
-    }
-
-    await boardRef.set(
-      {raceBestSweepVersion: RACE_BEST_SWEEP_VERSION},
-      {merge: true}
-    );
-    summary.boardsStamped += 1;
-  }
-
-  return summary;
-}
-
-/**
- * Reconciles every unstamped finisher on one board while the budget holds.
- * @param {FirebaseFirestore.Firestore} db Firestore.
- * @param {ReplayContextRef} context Board.
- * @param {RaceBestSweepSummary} summary Running totals.
- * @param {() => boolean} hasBudget Whether another climber may be reconciled.
- * @return {Promise<boolean>} True when every finisher on the board is stamped.
- */
-async function sweepBoardRaceBests(
-  db: FirebaseFirestore.Firestore,
-  context: ReplayContextRef,
-  summary: RaceBestSweepSummary,
-  hasBudget: () => boolean
-): Promise<boolean> {
-  let query = db
-    .collection(LIVE_REPLAY_COLLECTION)
-    .doc(context.contextKey)
-    .collection(FINISHERS_COLLECTION)
-    .orderBy(admin.firestore.FieldPath.documentId())
-    .limit(RACE_BEST_SWEEP_PAGE_SIZE);
-
-  for (;;) {
-    const page = await query.get();
-
-    for (const finisher of page.docs) {
-      if (finisher.data().raceBestSweepVersion === RACE_BEST_SWEEP_VERSION) {
-        continue;
-      }
-      if (!hasBudget()) {
-        return false;
-      }
-
-      await reconcileUserBestEntries(context, finisher.id);
-      await finisher.ref.update({
-        raceBestSweepVersion: RACE_BEST_SWEEP_VERSION,
-      });
-      summary.climbersReconciled += 1;
-    }
-
-    if (page.size < RACE_BEST_SWEEP_PAGE_SIZE) {
-      return true;
-    }
-    query = query.startAfter(page.docs[page.docs.length - 1]);
-  }
-}
-
-/**
- * The context type a board key was built from, for a board whose summary
- * document never recorded it.
- * @param {string} contextKey Board document ID, `<type>__<id>`.
- * @return {string} Context type.
- */
-function contextTypeFromKey(contextKey: string): string {
-  return contextKey.split("__")[0];
-}
-
-interface RaceBestSweepSummary {
-  boardsSkipped: number;
-  boardsStamped: number;
-  climbersReconciled: number;
-  /** True when the run stopped on its budget with work still to do. */
-  exhausted: boolean;
-}
-
-/**
- * Keeps every board's race-best flags on the current rule without a manual
- * backfill.
- */
-export const reconcileLiveReplayRaceBests = onSchedule(
-  {
-    // Reconciliation is idempotent, but two runs reconciling one climber at
-    // once would race each other's flag writes; one instance at a time
-    // costs nothing but a deferred tick.
-    concurrency: 1,
-    maxInstances: 1,
-    schedule: "every 10 minutes",
-    timeZone: "Etc/UTC",
-    // A climber with a long history on the global board is hundreds of
-    // writes, and a run reconciles up to `RACE_BEST_SWEEP_CLIMBERS_PER_RUN`
-    // of them; the default 60s could not execute the budget the code
-    // declares, and a killed run costs a resume rather than a duplicate.
-    timeoutSeconds: 540,
-  },
-  async () => {
-    const summary = await sweepRaceBests(
-      admin.firestore(),
-      RACE_BEST_SWEEP_CLIMBERS_PER_RUN
-    );
-    console.log(
-      summary.exhausted ?
-        "reconcileLiveReplayRaceBests stopped on its budget; resuming next tick" :
-        "reconcileLiveReplayRaceBests swept every board",
-      summary
-    );
-  }
-);
 
 /**
  * Deletes the legacy per-user best guard document.
@@ -3097,11 +2922,9 @@ export const liveReplayLeaderboardTestHooks = {
   bestForUserFlagUpdates,
   collapsesRepeatFinishers,
   contextRacesGoals,
-  contextTypeFromKey,
   flagUpdateFields,
   raceBestOnSteps,
   rankingBestAttempt,
-  sweepRaceBests,
   completionRankSnapshotWrite,
   finisherBestMetric,
   finisherStatusWrite,

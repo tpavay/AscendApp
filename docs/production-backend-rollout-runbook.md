@@ -99,16 +99,29 @@ gh-axi secret list
 gh-axi variable list
 ```
 
-The captain-only replay check is that the race-best sweep has reached every board:
+The race-best backfill is a required step of the release that ships the goal-aware Just Climb rule (captain, 2026-09-22: a one-time script run with the deploy, never a recurring job), in this order:
+
+1. Deploy the Firestore indexes and the Cloud Functions, and wait for every `bestForGoals` index to report `READY`.
+2. Run the script on staging, then verify one known climber's flagged row is their most steps (`--dry-run` first; a second run must report `Nothing to write`):
 
 ```sh
-node scripts/firestore-query.mjs get live_replay_leaderboards/just_climb__global --env prod --confirm-production
+node scripts/backfill-live-replay-best-per-user.mjs --env staging --dry-run
+node scripts/backfill-live-replay-best-per-user.mjs --env staging
+node scripts/firestore-query.mjs get live_replay_leaderboards/just_climb__global/splitBuckets/0/entries/<workoutId> --env staging
 ```
 
-Its `fields` line must list `raceBestSweepVersion`, and the same read on any other board document must too.
-`reconcileLiveReplayRaceBests` runs every ten minutes after the Functions deploy and stamps each board once every finisher on it has been re-derived under the current rule, so the check is a wait, never a script to run by hand; the manual `backfill-live-replay-best-per-user.mjs` it replaced no longer exists.
-A binary shipped ahead of the stamp renders a Just Climb run against a goal over an empty field, because the goal keys it filters on are what the sweep writes - the ordering (indexes and Functions, the sweep's stamp, then the binary) is owned by `ascend-live-climbs`.
-Measured on production (`ascend-prod-9c8f2`) on 2026-09-22, before the sweep existed: `just_climb__global` held 12 bucket-zero entries from 4 climbers over 234 buckets, only 5 entries carried any `isBestForUser`, none carried `bestForGoals`, and the captain's one flagged row was his shortest climb rather than his most steps - which is the defect the sweep corrects on its first run and the reason a hand-run backfill is no longer part of any release.
+3. Run it on production the same way, dry run first, and verify the captain's flagged row is his most steps rather than his shortest climb:
+
+```sh
+node scripts/backfill-live-replay-best-per-user.mjs --env prod --confirm-production ascend-prod-9c8f2 --dry-run
+node scripts/backfill-live-replay-best-per-user.mjs --env prod --confirm-production ascend-prod-9c8f2
+```
+
+4. Ship the iOS build after both runs report no skipped climbers.
+
+The script is idempotent and never stops on one climber: a climber whose entries could not be read or written is named in the summary and the exit code is 1, so re-run until the summary reports `no climber skipped`.
+A binary shipped ahead of the script renders a Just Climb run against a goal over an empty field, because the goal keys it filters on are what the script writes - the ordering (indexes and Functions, the script on every environment, then the binary) is owned by `ascend-live-climbs`.
+Measured on production (`ascend-prod-9c8f2`) on 2026-09-22, before the script ran: `just_climb__global` held 12 bucket-zero entries from 4 climbers over 234 buckets, only 5 entries carried any `isBestForUser`, none carried `bestForGoals`, and the captain's one flagged row was his shortest climb rather than his most steps - which is the defect the script corrects.
 
 ### Public identity backfill
 

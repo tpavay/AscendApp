@@ -1,20 +1,16 @@
 /*
  * The race-best rule against a real Firestore: the trigger publishing the
- * captain's morning history onto the global Just Climb board, and the sweep
- * that heals a board published before the rule existed.
+ * captain's morning history onto the global Just Climb board.
  *
  * The unit suite proves the selection; this proves the plumbing - that the
- * flags land on every bucket entry, that the curves are stored and rebuilt,
- * and that a sweep run resumes where its budget stopped it.
+ * flags land on every bucket entry and that the curves are stored and
+ * deleted with their attempt.
  */
 
 import test, {before, beforeEach} from "node:test";
 import assert from "node:assert/strict";
 import * as admin from "firebase-admin";
-import {
-  liveReplayLeaderboardTestHooks,
-  onWorkoutReplaySplitsWritten,
-} from "../../src/liveReplayLeaderboard.js";
+import {onWorkoutReplaySplitsWritten} from "../../src/liveReplayLeaderboard.js";
 
 type ReplayTriggerEvent =
   Parameters<typeof onWorkoutReplaySplitsWritten.run>[0];
@@ -101,75 +97,6 @@ test("deleting the flagged climb promotes the next most steps", async () => {
   assert.ok(goalKeys(await bucketEntry(0, "just-climb-390")).includes("steps:300"));
 });
 
-test("the sweep re-derives a board published before the rule and stamps it", async () => {
-  // A legacy board: entries with no flag, no goal keys and no stored curve,
-  // exactly what production held on 2026-09-22. The shortest session is the
-  // one that used to win.
-  await seedLegacyAttempt("charminar-149", 149, 70, {isBestForUser: true});
-  await seedLegacyAttempt("cn-tower-1776", 1776, 1200, {});
-  await seedFinisher(CAPTAIN);
-  await db.collection(LIVE_REPLAY_COLLECTION).doc(JUST_CLIMB_BOARD).set(
-    {contextType: "just_climb", contextId: "global"},
-    {merge: true}
-  );
-
-  const first = await liveReplayLeaderboardTestHooks.sweepRaceBests(db, 40);
-
-  assert.deepEqual(first, {
-    boardsSkipped: 0,
-    boardsStamped: 1,
-    climbersReconciled: 1,
-    exhausted: false,
-  });
-  assert.equal((await bucketEntry(0, "cn-tower-1776")).isBestForUser, true);
-  assert.equal((await bucketEntry(6, "charminar-149")).isBestForUser, false);
-  assert.ok(goalKeys(await bucketEntry(0, "cn-tower-1776")).includes("steps:1700"));
-
-  // The curve was rebuilt from the entries' own stepsAtBucket and stored.
-  const rebuilt = await attemptCurve("cn-tower-1776");
-  assert.equal((rebuilt.splitSteps as number[]).length, 120);
-  assert.equal((rebuilt.splitSteps as number[])[119], 1776);
-
-  const finisher = await db
-    .doc(`${LIVE_REPLAY_COLLECTION}/${JUST_CLIMB_BOARD}/finishers/${CAPTAIN}`)
-    .get();
-  assert.equal(finisher.data()?.raceBestSweepVersion, 1);
-  assert.equal(
-    (await db.collection(LIVE_REPLAY_COLLECTION).doc(JUST_CLIMB_BOARD).get())
-      .data()?.raceBestSweepVersion,
-    1
-  );
-
-  // A swept board costs one read on the next tick and nothing else.
-  const second = await liveReplayLeaderboardTestHooks.sweepRaceBests(db, 40);
-  assert.deepEqual(second, {
-    boardsSkipped: 1,
-    boardsStamped: 0,
-    climbersReconciled: 0,
-    exhausted: false,
-  });
-});
-
-test("a sweep that stops on its budget resumes on the next run", async () => {
-  await seedLegacyAttempt("captain-climb", 900, 600, {}, CAPTAIN);
-  await seedLegacyAttempt("rival-climb", 800, 600, {}, "rival");
-  await seedFinisher(CAPTAIN);
-  await seedFinisher("rival");
-
-  const first = await liveReplayLeaderboardTestHooks.sweepRaceBests(db, 1);
-  assert.equal(first.exhausted, true);
-  assert.equal(first.climbersReconciled, 1);
-  assert.equal(first.boardsStamped, 0);
-
-  const second = await liveReplayLeaderboardTestHooks.sweepRaceBests(db, 1);
-  assert.equal(second.exhausted, false);
-  assert.equal(second.climbersReconciled, 1);
-  assert.equal(second.boardsStamped, 1);
-
-  assert.equal((await bucketEntry(0, "captain-climb")).isBestForUser, true);
-  assert.equal((await bucketEntry(0, "rival-climb")).isBestForUser, true);
-});
-
 /**
  * Publishes one open Just Climb session for the captain through the trigger.
  * @param {string} workoutId Workout ID.
@@ -238,55 +165,6 @@ function justClimbWorkout(
     }),
     steps,
   };
-}
-
-/**
- * Seeds every bucket entry of one attempt the way the pre-rule publisher
- * wrote them: no goal keys, no curve, and whatever flag the caller says.
- * @param {string} workoutId Workout ID.
- * @param {number} steps Final steps.
- * @param {number} durationSeconds Final duration.
- * @param {{isBestForUser?: boolean}} flags Legacy flag, if any.
- * @param {string} userId Owner.
- */
-async function seedLegacyAttempt(
-  workoutId: string,
-  steps: number,
-  durationSeconds: number,
-  flags: {isBestForUser?: boolean},
-  userId: string = CAPTAIN
-): Promise<void> {
-  const curve = linearCurve(steps, durationSeconds);
-  const batch = db.batch();
-
-  for (let index = 0; index < curve.length; index += 1) {
-    batch.set(db.doc(entryPath(index, workoutId)), {
-      completionDurationSeconds: durationSeconds,
-      contextId: "global",
-      contextType: "just_climb",
-      finalSteps: steps,
-      splitBucketCount: curve.length,
-      splitIntervalSeconds: SPLIT_INTERVAL_SECONDS,
-      stepsAtBucket: curve[index],
-      userId,
-      workoutId,
-      ...(flags.isBestForUser === undefined ?
-        {} :
-        {isBestForUser: flags.isBestForUser}),
-    });
-  }
-
-  await batch.commit();
-}
-
-/**
- * Seeds a legacy finisher document, unstamped.
- * @param {string} userId Owner.
- */
-async function seedFinisher(userId: string): Promise<void> {
-  await db
-    .doc(`${LIVE_REPLAY_COLLECTION}/${JUST_CLIMB_BOARD}/finishers/${userId}`)
-    .set({globalCompletionOrder: 1, userId});
 }
 
 /**
