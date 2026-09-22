@@ -122,9 +122,11 @@ struct HomeView: View {
                     .offset(y: globeVerticalOffset(sheetHeight: sheetVisibleHeight))
 
                     GlobeEdgeOverlays()
+                        .padding(.bottom, collapsedSheetHeight)
 
                     if globeViewModel.visibleClimbs.isEmpty {
                         ClimbCatalogStateOverlay(loadErrorMessage: globeViewModel.loadErrorMessage)
+                            .padding(.bottom, collapsedSheetHeight)
                     }
 
                     topChrome(topInset: safeAreaInsets.top)

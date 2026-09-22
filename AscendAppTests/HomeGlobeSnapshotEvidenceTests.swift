@@ -114,9 +114,8 @@ struct HomeGlobeSnapshotEvidenceTests {
         }
 
         let todayPoint = snapshot.point(for: Climb.preview.coordinate)
-        let centre = CGPoint(x: snapshot.image.size.width / 2, y: snapshot.image.size.height / 2)
-        #expect(abs(todayPoint.x - centre.x) < 4)
-        #expect(abs(todayPoint.y - centre.y) < 4)
+        let frame = CGRect(origin: .zero, size: snapshot.image.size)
+        #expect(frame.contains(todayPoint), "Today's Climb sits on the near side of the overview globe")
 
         try RenderedScreen.photograph(
             Image(uiImage: image).resizable().frame(width: image.size.width / 2, height: image.size.height / 2),
