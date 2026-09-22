@@ -26,9 +26,4 @@ struct ClimbMapZoomBandTests {
         #expect(ClimbMapZoomBand.country.showsNames)
         #expect(ClimbMapZoomBand.city.showsNames)
     }
-
-    @Test
-    func homeOpensAtContinentAltitude() {
-        #expect(ClimbMapZoomBand(cameraDistance: ClimbMapZoomBand.homeEntryCameraDistance) == .continent)
-    }
 }

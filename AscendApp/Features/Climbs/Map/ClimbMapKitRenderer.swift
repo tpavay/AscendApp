@@ -29,6 +29,17 @@ struct ClimbMapKitRenderer: View {
     let onCameraChange: (MapCameraUpdateContext) -> Void
 
     @State private var layer: ClimbMapClustering.Layer = .empty
+    @State private var projectionRetry: Task<Void, Never>?
+
+    /// How many times a regroup asks again when MapKit projects nothing. MapKit
+    /// answers `convert` with nil for every coordinate while it is still laying out
+    /// or settling a camera move, and posts no event when it becomes able to; on a
+    /// camera that never moves after Home mounts, that first answer would otherwise
+    /// stand and every landmark would draw as its own marker, piled up. About two
+    /// seconds of asking covers the slowest observed settle; past that the markers
+    /// draw unclustered rather than not at all.
+    private static let projectionRetryLimit = 16
+    private static let projectionRetryInterval: Duration = .milliseconds(120)
 
     var body: some View {
         MapReader { proxy in
@@ -60,6 +71,9 @@ struct ClimbMapKitRenderer: View {
             .onAppear {
                 regroup(with: proxy)
             }
+            .onDisappear {
+                projectionRetry?.cancel()
+            }
         }
     }
 
@@ -71,13 +85,26 @@ struct ClimbMapKitRenderer: View {
         }
     }
 
-    private func regroup(with proxy: MapProxy) {
+    private func regroup(with proxy: MapProxy, attempt: Int = 0) {
+        projectionRetry?.cancel()
         var points: [String: CGPoint] = [:]
         for landmark in scene.landmarks {
             if let point = proxy.convert(landmark.climb.coordinate, to: .local) {
                 points[landmark.id] = point
             }
         }
+
+        if points.isEmpty, !scene.landmarks.isEmpty, attempt < Self.projectionRetryLimit {
+            // Nothing projected, so this is the map not ready rather than the
+            // landmarks all on the far side: keep the last grouping and ask again.
+            projectionRetry = Task { @MainActor in
+                try? await Task.sleep(for: Self.projectionRetryInterval)
+                guard !Task.isCancelled else { return }
+                regroup(with: proxy, attempt: attempt + 1)
+            }
+            return
+        }
+
         let next = ClimbMapClustering.layer(for: scene.landmarks, points: points)
         if next != layer {
             layer = next

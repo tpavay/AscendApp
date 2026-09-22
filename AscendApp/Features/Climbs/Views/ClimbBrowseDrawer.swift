@@ -119,12 +119,15 @@ struct ClimbBrowseDrawer<Content: View>: View {
         }
     }
 
+    // Opaque, so nothing under the sheet reads through it. Home's map ends under
+    // the sheet's lower positions with MapKit's attribution at its bottom edge, and
+    // that white mark ghosted through the old two per cent of translucency.
     private var drawerBackground: some View {
         drawerShape
             .fill(Color.black.opacity(0.9))
             .background(
                 drawerShape
-                    .fill(Color.night.opacity(0.8))
+                    .fill(Color.night)
             )
     }
 
