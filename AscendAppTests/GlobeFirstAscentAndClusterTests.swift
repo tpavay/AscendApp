@@ -22,13 +22,13 @@ struct GlobeFirstAscentAndClusterTests {
         viewModel.dailyRecommendedClimb = .preview
 
         viewModel.prepareForHomeEntry()
-        #expect(viewModel.cameraZoomBand == .continent)
+        #expect(viewModel.cameraZoomBand == .world, "Home opens on the whole globe")
 
         viewModel.selectPreview(.preview, modelContext: ModelContext(container))
         #expect(viewModel.cameraZoomBand == .city, "the pin fly-in is a city-altitude framing")
 
         viewModel.dismissPreview()
-        #expect(viewModel.cameraZoomBand == .continent, "closing the card returns to the frame the marker was tapped from, and the names follow at once")
+        #expect(viewModel.cameraZoomBand == .world, "closing the card returns to the frame the marker was tapped from, and the names follow at once")
     }
 
     @Test

@@ -10,11 +10,12 @@ import SwiftData
 
 /// Home is the globe.
 ///
-/// The realistic globe fills the tab and opens at continent altitude centred on
-/// Today's Climb. Over it sits a sheet with three positions, collapsed by default to
-/// the This Week line; pulled up it carries the Today's Climb row, ON THE GLOBE TODAY,
-/// the Weekly Rank and Streak tiles, Recent Personal Records, and then the catalog
-/// browse sections with search. A tapped marker shows a card that opens Climb Detail.
+/// The realistic globe fills the band above the collapsed sheet and opens fully
+/// zoomed out, the whole globe and every pin on its near side in view. Over it sits
+/// a sheet with three positions, collapsed by default to the This Week line; pulled
+/// up it carries the Today's Climb row, ON THE GLOBE TODAY, the Weekly Rank and
+/// Streak tiles, Recent Personal Records, and then the catalog browse sections with
+/// search. A tapped marker shows a card that opens Climb Detail.
 ///
 /// Only the active tab is mounted, so the map renderer runs on Home alone, and every
 /// `.task` here is bounded: the today feed is one listener on one document, the card
@@ -93,6 +94,12 @@ struct HomeView: View {
                     topInset: safeAreaInsets.top,
                     bottomInset: bottomInset
                 )
+                let collapsedSheetHeight = BrowseSheetDetent.compact.height(
+                    containerHeight: geometry.size.height,
+                    topCoverageInset: topCoverageInset,
+                    topInset: safeAreaInsets.top,
+                    bottomInset: bottomInset
+                )
 
                 ZStack {
                     GlobeView(
@@ -101,13 +108,25 @@ struct HomeView: View {
                             selectGlobePin(climb)
                         }
                     )
+                    // The map is the band above the collapsed sheet, not the whole
+                    // screen. MapKit draws the globe at a fixed fraction of the map
+                    // view's height (about 0.58 at its farthest camera, where it
+                    // clamps), so a full-screen map can only ever show a globe wider
+                    // than the phone with its sides cut off. Ending the map at the
+                    // collapsed sheet puts the whole globe on screen at the width of
+                    // the phone and keeps MapKit's attribution above the sheet; the
+                    // sheet's other positions and an open card cover everything the
+                    // full-screen map used to reach below that line.
+                    .padding(.bottom, collapsedSheetHeight)
                     .ignoresSafeArea()
                     .offset(y: globeVerticalOffset(sheetHeight: sheetVisibleHeight))
 
                     GlobeEdgeOverlays()
+                        .padding(.bottom, collapsedSheetHeight)
 
                     if globeViewModel.visibleClimbs.isEmpty {
                         ClimbCatalogStateOverlay(loadErrorMessage: globeViewModel.loadErrorMessage)
+                            .padding(.bottom, collapsedSheetHeight)
                     }
 
                     topChrome(topInset: safeAreaInsets.top)
@@ -352,13 +371,16 @@ struct HomeView: View {
     }
 
     private func sheetContent(bottomInset: CGFloat) -> some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 0) {
+            // Collapsed, the line sits centred between the grabber and the fold; pulled
+            // up, Today's Climb follows it at the same step as every other gap in the
+            // sheet, with the row's top edge landing 2pt under the collapsed fold so
+            // nothing peeks until the sheet is pulled up.
             HomeThisWeekLine(summary: homeDashboard.weekSummary)
+                .padding(.top, 8)
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 22) {
-                    // Starts just below the collapsed fold, so nothing peeks under the
-                    // This Week line until the sheet is pulled up.
                     Color.clear
                         .frame(height: 2)
 

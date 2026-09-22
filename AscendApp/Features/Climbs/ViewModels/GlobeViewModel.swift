@@ -358,22 +358,11 @@ final class GlobeViewModel {
         max(region.span.latitudeDelta, region.span.longitudeDelta / 2) * 111_000 * 1.3
     }
 
-    /// Home's opening frame: continent altitude, centred on Today's Climb. Falls back
-    /// to the default overview when no climb is recommended yet.
+    /// Home's opening frame: the whole globe, the same overview every reset lands on.
     func prepareForHomeEntry() {
         searchQuery = ""
         previewSummary = nil
-        guard let climb = dailyRecommendedClimb else {
-            resetOverviewCamera()
-            return
-        }
-        currentLatitude = climb.latitude
-        currentLongitude = climb.longitude
-        setCamera(
-            latitude: climb.latitude,
-            longitude: climb.longitude,
-            distance: ClimbMapZoomBand.homeEntryCameraDistance
-        )
+        resetOverviewCamera()
     }
 
     /// Reads how many climbers have completed each landmark: one bounded query over
@@ -615,15 +604,14 @@ final class GlobeViewModel {
     private static let dailyRecommendationDayDefaultsKey = "liveClimbDailyRecommendationDay"
     private static let dailyRecommendationClimbDefaultsKey = "liveClimbDailyRecommendationClimbId"
 
-    private static let defaultLatitude = 8.0
-    private static let defaultLongitude = -76.0
-    private static let defaultOverviewCameraDistance: CLLocationDistance = 28_000_000
-    private static let defaultOverviewPosition = MapCameraPosition.region(
-        MKCoordinateRegion(
-            center: CLLocationCoordinate2D(latitude: defaultLatitude, longitude: defaultLongitude),
-            span: MKCoordinateSpan(latitudeDelta: 138, longitudeDelta: 150)
-        )
-    )
+    /// The overview: the whole globe, facing the Atlantic so the Americas and Europe
+    /// share the near side. The distance is MapKit's farthest globe camera (it clamps
+    /// at about 34.56 million metres and reports the clamp back), so every reset and
+    /// every auto-spin tick asks for a camera MapKit honours as given.
+    private static let defaultLatitude = 30.0
+    private static let defaultLongitude = -45.0
+    private static let defaultOverviewCameraDistance: CLLocationDistance = 34_500_000
+    private static let defaultOverviewPosition = MapCameraPosition.camera(defaultOverviewCamera)
 
     private static func makeCamera(latitude: Double, longitude: Double, distance: CLLocationDistance) -> MapCamera {
         MapCamera(
@@ -634,7 +622,8 @@ final class GlobeViewModel {
         )
     }
 
-    private static let defaultCamera = makeCamera(
+    /// The overview camera itself, for anything that has to agree with where a reset lands.
+    static let defaultOverviewCamera = makeCamera(
         latitude: defaultLatitude,
         longitude: defaultLongitude,
         distance: defaultOverviewCameraDistance

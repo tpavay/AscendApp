@@ -9,12 +9,12 @@ import UIKit
 /// hierarchy capture, so the globe is photographed through `MKMapSnapshotter` at the
 /// camera Home opens with, and the markers are composited at the points the snapshot
 /// resolves for their coordinates, grouped by the same overlap rule the renderer
-/// applies. The assertions are about geometry, not pixels: Home opens centred on
-/// Today's Climb at continent altitude.
+/// applies. The assertions are about geometry, not pixels: Home opens on the whole
+/// globe, at the overview every reset lands on, whatever Today's Climb is.
 @MainActor
 struct HomeGlobeSnapshotEvidenceTests {
     @Test
-    func homeOpensCentredOnTodaysClimbAtContinentAltitude() async throws {
+    func homeOpensOnTheWholeGlobeAtTheOverview() async throws {
         let viewModel = GlobeViewModel(
             climbService: ClimbService(catalogRepository: StaticClimbCatalogRepository(climbs: [.preview, .previewComingSoon]))
         )
@@ -24,9 +24,11 @@ struct HomeGlobeSnapshotEvidenceTests {
         viewModel.prepareForHomeEntry()
 
         let camera = try #require(viewModel.cameraPosition.camera)
-        #expect(camera.distance == ClimbMapZoomBand.homeEntryCameraDistance)
-        #expect(abs(camera.centerCoordinate.latitude - Climb.preview.latitude) < 0.001)
-        #expect(abs(camera.centerCoordinate.longitude - Climb.preview.longitude) < 0.001)
+        let overview = GlobeViewModel.defaultOverviewCamera
+        #expect(camera.distance == overview.distance)
+        #expect(camera.centerCoordinate.latitude == overview.centerCoordinate.latitude)
+        #expect(camera.centerCoordinate.longitude == overview.centerCoordinate.longitude)
+        #expect(ClimbMapZoomBand(cameraDistance: camera.distance) == .world, "the whole globe is the world band")
 
         viewModel.mapCameraDidChange(
             latitude: camera.centerCoordinate.latitude,
@@ -34,12 +36,12 @@ struct HomeGlobeSnapshotEvidenceTests {
             distance: camera.distance
         )
         let scene = viewModel.mapScene
-        #expect(scene.zoomBand == .continent)
+        #expect(scene.zoomBand == .world)
         #expect(scene.landmarks.map(\.id).contains(Climb.preview.id))
         #expect(!scene.showsNames, "names wait for country zoom")
 
         guard RenderedScreen.isPhotographing else { return }
-        try await photographGlobe(camera: camera, scene: scene, named: "home-globe-continent")
+        try await photographGlobe(camera: camera, scene: scene, named: "home-globe-overview")
     }
 
     @Test
@@ -112,9 +114,8 @@ struct HomeGlobeSnapshotEvidenceTests {
         }
 
         let todayPoint = snapshot.point(for: Climb.preview.coordinate)
-        let centre = CGPoint(x: snapshot.image.size.width / 2, y: snapshot.image.size.height / 2)
-        #expect(abs(todayPoint.x - centre.x) < 4)
-        #expect(abs(todayPoint.y - centre.y) < 4)
+        let frame = CGRect(origin: .zero, size: snapshot.image.size)
+        #expect(frame.contains(todayPoint), "Today's Climb sits on the near side of the overview globe")
 
         try RenderedScreen.photograph(
             Image(uiImage: image).resizable().frame(width: image.size.width / 2, height: image.size.height / 2),

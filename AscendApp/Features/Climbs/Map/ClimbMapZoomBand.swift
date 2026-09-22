@@ -17,9 +17,6 @@ enum ClimbMapZoomBand: Int, CaseIterable, Comparable, Sendable {
     static let countryCeiling: CLLocationDistance = 3_500_000
     static let cityCeiling: CLLocationDistance = 1_200_000
 
-    /// Where Home opens: inside the continent band, centred on Today's Climb.
-    static let homeEntryCameraDistance: CLLocationDistance = 5_500_000
-
     init(cameraDistance: CLLocationDistance) {
         if cameraDistance > Self.continentCeiling {
             self = .world

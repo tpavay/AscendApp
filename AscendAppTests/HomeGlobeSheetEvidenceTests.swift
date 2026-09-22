@@ -1,4 +1,5 @@
 import HealthKit
+import MapKit
 import SwiftData
 import SwiftUI
 import Testing
@@ -78,6 +79,66 @@ struct HomeGlobeSheetEvidenceTests {
 
             try hosted.photograph(named: "home-globe-sheet-expanded")
         }
+    }
+
+    @Test
+    func collapsedTheMapEndsAtTheSheetAndTheLineSitsInsideTheFold() async throws {
+        let screen = try await makeScreen(feed: Self.sampleFeed, detent: .compact)
+
+        try await RenderedScreen.host(screen, settle: .turns(30, interval: .milliseconds(100))) { hosted in
+            let line = try #require(await hosted.frame(ofElementLabelled: "This week:"))
+            let sheet = try #require(await hosted.frame(ofElementLabelled: "Home sheet"))
+            let mapView = try #require(Self.firstMapView(under: hosted.window))
+            let map = mapView.convert(mapView.bounds, to: hosted.window)
+
+            // The map is the band above the collapsed sheet, not the whole screen, so the
+            // whole globe fits the width of the phone and MapKit's attribution stays
+            // above the sheet's fold.
+            #expect(abs(map.maxY - sheet.minY) <= 1, "map ends at the collapsed sheet's top, got map \(map) sheet \(sheet)")
+            #expect(map.maxY < hosted.bounds.maxY - 80, "the map is no longer full screen")
+            #expect(map.minY <= 0, "the map still reaches the top edge")
+            #expect(map.width == hosted.bounds.width)
+
+            // The line sits inside the collapsed fold: the 30pt row starts 8pt under the
+            // 26pt grabber, so its centre is 49pt below the sheet's top and its bottom
+            // edge 22pt above the 86pt fold.
+            #expect(abs(line.midY - (sheet.minY + 49)) <= 1, "the line's centre sits 49pt under the sheet top, got \(line) in \(sheet)")
+            #expect(line.midY + 15 <= sheet.minY + 86, "the line is above the 86pt fold")
+        }
+    }
+
+    @Test
+    func pulledUpTodaysClimbFollowsTheLineAtTheSheetsOwnStep() async throws {
+        let screen = try await makeScreen(feed: Self.sampleFeed, detent: .medium)
+
+        try await RenderedScreen.host(screen, settle: .turns(30, interval: .milliseconds(100))) { hosted in
+            let line = try #require(await hosted.frame(ofElementLabelled: "This week:"))
+            let card = try #require(await hosted.frame(ofElementLabelled: "Today's climb:"))
+            let texts = try await hosted.texts { texts in
+                texts.contains { $0.text.caseInsensitiveCompare("on the globe today") == .orderedSame }
+            }
+            let section = try #require(texts.first { $0.text.caseInsensitiveCompare("on the globe today") == .orderedSame }?.frame)
+
+            // The line's accessibility frame is its glyphs, centred in the 30pt row, and the
+            // card's includes the half-point of stroke outside its layout edge. 22pt step
+            // plus the 2pt under-fold spacer: 24pt, where it was 38pt.
+            let lineToCard = (card.minY + 0.5) - (line.midY + 15)
+            #expect(abs(lineToCard - 24) <= 1, "This Week line to Today's Climb card is \(lineToCard)pt, line \(line) card \(card)")
+
+            // The card-to-next-section gap stays at the 22pt step.
+            let cardToSection = section.minY - (card.maxY - 0.5)
+            #expect(abs(cardToSection - 22) <= 3, "Today's Climb card to ON THE GLOBE TODAY is \(cardToSection)pt, card \(card) section \(section)")
+
+            try hosted.photograph(named: "home-globe-sheet-medium-gap")
+        }
+    }
+
+    private static func firstMapView(under view: UIView) -> MKMapView? {
+        if let map = view as? MKMapView { return map }
+        for subview in view.subviews {
+            if let map = firstMapView(under: subview) { return map }
+        }
+        return nil
     }
 
     @Test
