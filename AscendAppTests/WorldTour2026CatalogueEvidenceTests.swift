@@ -6,7 +6,7 @@ import UIKit
 /// Reviewer-facing visual evidence for the 2026 World Tour catalogue additions.
 ///
 /// The catalogue is data, but a climber meets it as pixels: a raceable preview card
-/// when they tap a pin on the globe, a locked "Coming Soon" card for the venue whose
+/// when they tap a marker on the globe, a locked "Coming Soon" card for the venue whose
 /// course distance is still unpublished, and a category placeholder whenever artwork
 /// is unavailable. These tests host the shipped views against the shipped catalogue
 /// file, read the copy back off the accessibility tree (`RenderedScreen`), and write

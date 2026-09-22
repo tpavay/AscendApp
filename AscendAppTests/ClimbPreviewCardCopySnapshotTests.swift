@@ -19,28 +19,49 @@ struct ClimbPreviewCardCopySnapshotTests {
     @Test
     func previewCardRendersNoAttemptCopy() async throws {
         let availableText = try await RenderedScreen.host(
-            cardContent(summary: ClimbPreviewSummary(climb: .preview, isCompleted: false))
+            cardContent(summary: ClimbPreviewSummary(climb: .preview, isCompleted: false), completedClimberCount: 12)
         ) { screen in
             let text = try await screen.copy { $0.contains("steps") }
             try screen.photograph(named: "climb-preview-card-available")
             return text
         }
         let completedText = try await cardCopy(
-            summary: ClimbPreviewSummary(climb: .preview, isCompleted: true)
+            summary: ClimbPreviewSummary(climb: .preview, isCompleted: true),
+            completedClimberCount: 1
+        )
+        let openFirstAscentText = try await cardCopy(
+            summary: ClimbPreviewSummary(climb: .preview, isCompleted: false),
+            completedClimberCount: 0
+        )
+        let unreadText = try await cardCopy(
+            summary: ClimbPreviewSummary(climb: .preview, isCompleted: false),
+            completedClimberCount: nil
         )
         let comingSoonText = try await cardCopy(
-            summary: ClimbPreviewSummary(climb: .previewComingSoon, isCompleted: false)
+            summary: ClimbPreviewSummary(climb: .previewComingSoon, isCompleted: false),
+            completedClimberCount: nil
         )
 
         // The card still identifies the landmark and its effort.
         #expect(availableText.contains("empire state"))
         #expect(availableText.contains("new york"))
         #expect(availableText.contains("steps"))
+        #expect(availableText.contains("floors"))
 
-        // No attempt copy on any preview card state.
-        #expect(!availableText.contains("attempt"))
-        #expect(!completedText.contains("attempt"))
-        #expect(!comingSoonText.contains("attempt"))
+        // One number, counted over climbers who completed, singular-aware, and the open
+        // First Ascent reads as the claim it is. Nothing until the board has answered.
+        #expect(availableText.contains("12 climbers completed"))
+        #expect(completedText.contains("1 climber completed"))
+        #expect(openFirstAscentText.contains("first ascent open"))
+        #expect(!openFirstAscentText.contains("unclaimed"))
+        #expect(!unreadText.contains("completed"))
+        #expect(!unreadText.contains("first ascent"))
+
+        // No attempt or completions copy on any preview card state.
+        for text in [availableText, completedText, openFirstAscentText, unreadText, comingSoonText] {
+            #expect(!text.contains("attempt"))
+            #expect(!text.contains("completions"))
+        }
 
         // The reviewer-facing sheet is laid out only when a photograph is being kept.
         if RenderedScreen.isPhotographing {
@@ -51,14 +72,19 @@ struct ClimbPreviewCardCopySnapshotTests {
     // MARK: - Reading the hosted card back
 
     /// The card's on-screen copy in `summary`'s state, lowercased, off the accessibility tree.
-    private func cardCopy(summary: ClimbPreviewSummary) async throws -> String {
-        try await RenderedScreen.host(cardContent(summary: summary)) { screen in
+    private func cardCopy(summary: ClimbPreviewSummary, completedClimberCount: Int?) async throws -> String {
+        try await RenderedScreen.host(cardContent(summary: summary, completedClimberCount: completedClimberCount)) { screen in
             try await screen.copy()
         }
     }
 
-    private func cardContent(summary: ClimbPreviewSummary) -> some View {
-        ClimbPreviewCardView(summary: summary, onSelect: {}, onClose: {})
+    private func cardContent(summary: ClimbPreviewSummary, completedClimberCount: Int?) -> some View {
+        ClimbPreviewCardView(
+            summary: summary,
+            completedClimberCount: completedClimberCount,
+            onSelect: {},
+            onClose: {}
+        )
             .frame(width: 361)
             .padding(16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -77,20 +103,31 @@ private struct PreviewCardProof: View {
                 .font(.montserratBold(size: 20))
                 .foregroundStyle(.white)
 
-            section("Available climb · stacked under the First Ascent stake line") {
+            section("First Ascent open · stacked under the First Ascent stake line") {
                 VStack(alignment: .leading, spacing: 10) {
                     stakeLine
                     ClimbPreviewCardView(
                         summary: ClimbPreviewSummary(climb: .preview, isCompleted: false),
+                        completedClimberCount: 0,
                         onSelect: {},
                         onClose: {}
                     )
                 }
             }
 
+            section("Available climb · 12 climbers completed") {
+                ClimbPreviewCardView(
+                    summary: ClimbPreviewSummary(climb: .preview, isCompleted: false),
+                    completedClimberCount: 12,
+                    onSelect: {},
+                    onClose: {}
+                )
+            }
+
             section("Completed climb") {
                 ClimbPreviewCardView(
                     summary: ClimbPreviewSummary(climb: .preview, isCompleted: true),
+                    completedClimberCount: 1,
                     onSelect: {},
                     onClose: {}
                 )
@@ -111,10 +148,8 @@ private struct PreviewCardProof: View {
     }
 
     private var stakeLine: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: TodayClimbStakeLine.openFirstAscent.systemImageName)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(Color.accent)
+        HStack(alignment: .center, spacing: 8) {
+            TodayClimbStakeLineIcon(stakeLine: .openFirstAscent)
                 .frame(width: 16, alignment: .leading)
 
             Text(TodayClimbStakeLine.openFirstAscent.text)

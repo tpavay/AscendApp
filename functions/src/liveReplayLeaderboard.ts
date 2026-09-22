@@ -2219,7 +2219,7 @@ function publicUserSnapshotFromData(
  * @param {string} userId Owner user ID.
  * @return {PublicUserSnapshot} Current safe public snapshot.
  */
-function currentPublicUserSnapshotFromData(
+export function currentPublicUserSnapshotFromData(
   publicProfileData: Record<string, unknown> | undefined,
   userData: Record<string, unknown> | undefined,
   userId: string

@@ -2,9 +2,8 @@ import Foundation
 
 enum LiveClimbAnalyticsEvent: TelemetryEvent {
     case homeDailyTapped(climb: Climb, homeState: ClimbHomeCardState)
-    case homeExploreTapped(totalClimbs: Int)
     case browseOpened(entryPoint: EntryPoint, totalClimbs: Int)
-    case browsePreviewShown(climb: Climb)
+    case browsePreviewShown(climb: Climb, entryPoint: EntryPoint)
     case browseClimbOpened(climb: Climb, entryPoint: EntryPoint)
     case detailViewed(climb: Climb, entryPoint: EntryPoint)
     case detailBrowseTapped(climb: Climb)
@@ -64,14 +63,6 @@ enum LiveClimbAnalyticsEvent: TelemetryEvent {
                 ]
             )
 
-        case .homeExploreTapped(let totalClimbs):
-            return record(
-                name: "live_climb_home_explore_tap",
-                parameters: [
-                    "total_climbs_bucket": .string(CountBucket(totalClimbs).rawValue)
-                ]
-            )
-
         case .browseOpened(let entryPoint, let totalClimbs):
             return record(
                 name: "live_climb_browse_open",
@@ -81,8 +72,14 @@ enum LiveClimbAnalyticsEvent: TelemetryEvent {
                 ]
             )
 
-        case .browsePreviewShown(let climb):
-            return record(name: "live_climb_browse_preview_show", climb: climb)
+        case .browsePreviewShown(let climb, let entryPoint):
+            return record(
+                name: "live_climb_browse_preview_show",
+                climb: climb,
+                parameters: [
+                    "entry_point": .string(entryPoint.rawValue)
+                ]
+            )
 
         case .browseClimbOpened(let climb, let entryPoint):
             return record(
@@ -284,6 +281,9 @@ extension LiveClimbAnalyticsEvent {
     enum EntryPoint: String {
         case homeDaily = "home_daily"
         case homeExplore = "home_explore"
+        case homeTodayRow = "home_today_row"
+        case homePin = "home_pin"
+        case homeCard = "home_card"
         case workoutList = "workout_list"
         case browseSearch = "browse_search"
         case browseSection = "browse_section"

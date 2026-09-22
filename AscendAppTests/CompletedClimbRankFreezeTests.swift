@@ -159,6 +159,8 @@ struct CompletedClimbRankFreezeTests {
 }
 
 private actor CountingCompletionSnapshotRepository: LiveReplayLeaderboardRepository {
+    func fetchLiveClimbCompletedClimberCounts() async throws -> [String: Int] { [:] }
+
     private(set) var fetchCount = 0
     private(set) var fetchWindowCount = 0
     private let stored: LiveReplayCompletionRankSnapshot?

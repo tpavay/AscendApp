@@ -1,12 +1,14 @@
 import SwiftUI
 
-struct HomeRankGlobeSection: View {
+/// The two tiles under the today rows: this week's rank by steps, and the streak of
+/// weeks with a climb. The rank tile opens the Leaderboard tab; the streak tile opens
+/// Profile, where the activity calendar shows the weeks behind the number.
+struct HomeRankStreakSection: View {
     let weeklyRankSummary: HomeWeeklyRankSummary?
     let isRankLoading: Bool
-    let completedClimbCount: Int
-    let totalClimbCount: Int
+    let currentStreakWeeks: Int
     let onRankTapped: () -> Void
-    let onGlobeTapped: () -> Void
+    let onStreakTapped: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -16,16 +18,15 @@ struct HomeRankGlobeSection: View {
                 action: onRankTapped
             )
 
-            HomeMyGlobeCard(
-                count: completedClimbCount,
-                total: totalClimbCount,
-                action: onGlobeTapped
+            HomeStreakCard(
+                weeks: currentStreakWeeks,
+                action: onStreakTapped
             )
         }
     }
 }
 
-/// Subtle trailing disclosure cue that signals the rank / globe tiles navigate on tap.
+/// Subtle trailing disclosure cue that signals the tiles navigate on tap.
 private struct CardDisclosureChevron: View {
     var body: some View {
         Image(systemName: "chevron.forward")
@@ -56,7 +57,7 @@ private struct HomeRankCard: View {
                     CardDisclosureChevron()
                 }
 
-                Text(summary.map { "#\($0.rank)" } ?? "—")
+                Text(summary.map { "#\($0.rank)" } ?? "-")
                     .font(.montserratBold(size: 34))
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -72,7 +73,7 @@ private struct HomeRankCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
             .frame(minHeight: 116)
-            .background(cardBackground)
+            .background(HomeTileBackground())
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
@@ -93,28 +94,17 @@ private struct HomeRankCard: View {
         }
         return "Weekly rank by steps: number \(summary.rank). \(statusText)."
     }
-
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .fill(Color(hex: "111111"))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(.white.opacity(0.1), lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
 }
 
-private struct HomeMyGlobeCard: View {
-    let count: Int
-    let total: Int
+private struct HomeStreakCard: View {
+    let weeks: Int
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 4) {
-                    Text("MY GLOBE")
+                    Text("STREAK")
                         .font(.montserratSemiBold(size: 10))
                         .tracking(1.2)
                         .foregroundStyle(Color.accent)
@@ -124,56 +114,53 @@ private struct HomeMyGlobeCard: View {
                     CardDisclosureChevron()
                 }
 
-                Text("\(count) / \(resolvedTotal)")
-                    .font(.montserratBold(size: 34))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.64)
-                    .allowsTightening(true)
-                    .layoutPriority(2)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(weeks.formatted())
+                        .font(.montserratBold(size: 34))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+
+                    Text(weeks == 1 ? "wk" : "wks")
+                        .font(.montserratBold(size: 13))
+                        .foregroundStyle(.white.opacity(0.72))
+                }
 
                 Text(subtitle)
                     .font(.montserratMedium(size: 10))
                     .foregroundStyle(.white.opacity(0.55))
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .minimumScaleFactor(0.82)
-                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
             .frame(minHeight: 116)
-            .background(cardBackground)
+            .background(HomeTileBackground())
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("My globe: \(count) of \(resolvedTotal) climbs collected")
+        .accessibilityLabel(accessibilityLabel)
     }
 
-    private var resolvedTotal: Int {
-        max(total, count)
-    }
-
-    /// Frames the collection as a gap to close — a dare, not a description.
-    /// Falls back to the neutral descriptor until the catalog total has loaded.
+    /// The week ends Sunday app-wide (Monday start), so the deadline is always the
+    /// same day; what changes is whether this week already counts.
     private var subtitle: String {
-        guard resolvedTotal > 0 else { return "climbs collected" }
-        let remaining = resolvedTotal - count
-        return remaining > 0 ? "\(remaining) to claim" : "All claimed"
+        weeks > 0 ? "in a row · ends Sunday" : "Climb this week to start one"
     }
 
-    private var cardBackground: some View {
+    private var accessibilityLabel: String {
+        weeks > 0
+            ? "Streak: \(weeks) \(weeks == 1 ? "week" : "weeks") in a row. Ends Sunday."
+            : "No streak yet. Climb this week to start one."
+    }
+}
+
+/// The shared surface behind Home's tiles.
+struct HomeTileBackground: View {
+    var body: some View {
         RoundedRectangle(cornerRadius: 14, style: .continuous)
             .fill(Color(hex: "111111"))
-            .overlay(alignment: .bottomTrailing) {
-                Image("HomeMyGlobeArtwork")
-                    .resizable()
-                    .renderingMode(.original)
-                    .scaledToFit()
-                    .frame(width: 180, height: 180)
-                    .opacity(0.85)
-                    .offset(x: 40, y: 40)
-                    .accessibilityHidden(true)
-            }
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .stroke(.white.opacity(0.1), lineWidth: 1)

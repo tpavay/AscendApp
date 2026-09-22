@@ -276,21 +276,7 @@ struct GlobeViewModelTests {
     }
 }
 
-private actor StaticLiveClimbCommunityStatsService: LiveClimbCommunityStatsServicing {
-    private let summary: LiveClimbCommunitySummary
-    private(set) var fetchCount = 0
-
-    init(summary: LiveClimbCommunitySummary) {
-        self.summary = summary
-    }
-
-    func fetchSummary() async throws -> LiveClimbCommunitySummary {
-        fetchCount += 1
-        return summary
-    }
-}
-
-private struct StaticClimbCatalogRepository: ClimbCatalogRepository {
+struct StaticClimbCatalogRepository: ClimbCatalogRepository {
     let climbs: [Climb]
 
     func loadInitialCatalog() throws -> ClimbCatalogSnapshot {

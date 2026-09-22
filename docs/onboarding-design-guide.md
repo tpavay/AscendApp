@@ -1119,7 +1119,6 @@ Current local assets already support the direction:
 - `OnboardingQuestionsBackground`
 - `AuthStaircaseBackground`
 - `FirstAscentBadgeDetailed`
-- `HomeMyGlobeArtwork`
 
 Current SwiftUI scaffolds already match much of this:
 - `LandingScreen`

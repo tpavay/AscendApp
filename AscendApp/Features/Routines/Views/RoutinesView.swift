@@ -8,6 +8,9 @@ struct RoutinesView: View {
     }
 
     private let presentation: Presentation
+    // Optional on purpose: the standalone presentation is hosted outside the tab
+    // shell, where no router exists.
+    @Environment(TabRouter.self) private var tabRouter: TabRouter?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
@@ -22,6 +25,9 @@ struct RoutinesView: View {
     /// drag the sheet must not read it as a dismissal. Cancel still dismisses.
     @State private var isEditingRoutineTimeline = false
     @State private var isShowingSearch = false
+    /// True once the remote template catalog has been refreshed for this view, so a
+    /// routine request the catalog still cannot satisfy is dropped instead of kept.
+    @State private var hasRefreshedRemoteCatalog = false
     @FocusState private var isSearchFocused: Bool
 
     private var effectiveColorScheme: ColorScheme {
@@ -120,13 +126,43 @@ struct RoutinesView: View {
         .onAppear {
             viewModel.configure(modelContext: modelContext)
             viewModel.loadRoutines()
+            openRequestedRoutineTemplateIfNeeded()
             Task {
                 await viewModel.refreshRemoteRoutineTemplates()
+                hasRefreshedRemoteCatalog = true
+                openRequestedRoutineTemplateIfNeeded(catalogIsCurrent: true)
             }
+        }
+        .onChange(of: tabRouter?.requestedRoutineTemplateId) { _, _ in
+            openRequestedRoutineTemplateIfNeeded(catalogIsCurrent: hasRefreshedRemoteCatalog)
         }
         .onReceive(NotificationCenter.default.publisher(for: .routineTemplatesDidChange)) { _ in
             viewModel.loadRoutines()
+            openRequestedRoutineTemplateIfNeeded(catalogIsCurrent: hasRefreshedRemoteCatalog)
         }
+    }
+
+    /// Opens the catalog routine another surface asked for (a Home today row).
+    ///
+    /// The request is consumed only when it opens, or once the remote catalog has
+    /// been refreshed and still lacks the template: a routine another climber ran
+    /// that this device has not synced yet must wait for the refresh, not be dropped
+    /// on the first look. A template the catalog no longer carries is then dropped
+    /// rather than opening nothing on every visit.
+    private func openRequestedRoutineTemplateIfNeeded(catalogIsCurrent: Bool = false) {
+        guard presentation == .tab,
+              let tabRouter,
+              let templateId = tabRouter.requestedRoutineTemplateId else {
+            return
+        }
+        guard let routine = viewModel.builtInRoutines.first(where: { $0.templateId == templateId }) else {
+            if catalogIsCurrent {
+                _ = tabRouter.consumeRequestedRoutineTemplateId()
+            }
+            return
+        }
+        _ = tabRouter.consumeRequestedRoutineTemplateId()
+        selectedRoutine = routine
     }
 
     private var header: some View {

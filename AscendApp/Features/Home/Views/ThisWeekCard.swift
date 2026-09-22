@@ -89,7 +89,7 @@ struct ThisWeekCard: View {
                     .font(.montserratBold(size: 24))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
-                Text("\(formatCompactValue(summary.weekTotalValue)) steps · \(formatCompactDuration(summary.totalDuration))")
+                Text("\(WeekActivityFormat.compactValue(summary.weekTotalValue)) steps · \(WeekActivityFormat.compactDuration(summary.totalDuration))")
                     .font(.montserratMedium(size: 14))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
@@ -202,51 +202,6 @@ struct ThisWeekCard: View {
         WeekConfiguration.fullDayName(for: firstWeekday)
     }
 
-    private func formatDuration(_ duration: TimeInterval) -> String {
-        let totalSeconds = Int(duration)
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-
-        if hours > 0 {
-            return "\(hours)h \(minutes)m"
-        } else {
-            return "\(minutes)m"
-        }
-    }
-
-    /// Compact duration for glanceable display (e.g., "25.4h" instead of "25h 25m")
-    private func formatCompactDuration(_ duration: TimeInterval) -> String {
-        let totalHours = duration / 3600
-        if totalHours >= 1 {
-            // Show decimal for partial hours (1.5h for 1h 30m)
-            let rounded = (totalHours * 10).rounded() / 10
-            if rounded == rounded.rounded() {
-                return "\(Int(rounded))h"
-            } else {
-                return "\(rounded.formatted(.number.precision(.fractionLength(1))))h"
-            }
-        } else {
-            let minutes = Int(duration / 60)
-            return "\(minutes)m"
-        }
-    }
-
-    /// Compact value formatting (e.g., "107.5k" instead of "107,500")
-    private func formatCompactValue(_ value: Int) -> String {
-        if value >= 1000 {
-            let thousands = Double(value) / 1000.0
-            // Always show one decimal, drop if .0
-            let rounded = (thousands * 10).rounded() / 10
-            if rounded == rounded.rounded() {
-                return "\(Int(rounded))k"
-            } else {
-                return "\(rounded.formatted(.number.precision(.fractionLength(1))))k"
-            }
-        } else {
-            return "\(value)"
-        }
-    }
-
     private func dayLabel(for date: Date, calendar: Calendar) -> String {
         let weekday = calendar.component(.weekday, from: date)
         if weekday - 1 >= 0 && weekday - 1 < calendar.shortWeekdaySymbols.count {
@@ -258,7 +213,7 @@ struct ThisWeekCard: View {
 
 // MARK: - Mini Week Bar Chart
 
-private struct MiniWeekBarChart: View {
+struct MiniWeekBarChart: View {
     let data: [DailyActivityData]
     let hasData: Bool
 
@@ -313,8 +268,10 @@ private struct MiniWeekBarChart: View {
         return max(8, availableHeight * CGFloat(ratio))
     }
 
+    /// The app's lime token, spelled the way every other Home surface spells it, so
+    /// the bars can never drift to SwiftUI's default blue.
     private var barColor: Color {
-        .accentColor
+        Color.accent
     }
 
     private var emptyBarColor: Color {
@@ -338,7 +295,7 @@ private struct MiniWeekBarChart: View {
 
 // MARK: - Data Models
 
-private struct WeekActivitySummary {
+struct WeekActivitySummary: Equatable {
     let dailyBars: [DailyActivityData]
     let weekTotalValue: Int
     let weekWorkoutCount: Int
@@ -396,7 +353,7 @@ private struct WeekActivitySummary {
     }
 }
 
-private struct DailyActivityData: Identifiable {
+struct DailyActivityData: Identifiable, Equatable {
     let date: Date
     let value: Int
     let label: String
@@ -408,7 +365,7 @@ private struct DailyActivityData: Identifiable {
 
 // MARK: - Calculator
 
-private struct WeekActivitySummaryCalculator {
+struct WeekActivitySummaryCalculator {
     let workouts: [Workout]
     let firstWeekday: Int
 

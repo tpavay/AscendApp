@@ -20,6 +20,19 @@ final class GlobeViewModel {
     var isRefreshingCatalog = false
     var liveClimbCommunitySummary: LiveClimbCommunitySummary = .empty
     var todayClimbStakeLine: TodayClimbStakeLine = .unavailable
+    /// The zoom band the camera last reported. Drives clustering, names and map
+    /// detail; it changes once per band crossing, never per frame.
+    private(set) var cameraZoomBand: ClimbMapZoomBand = .world
+    /// Distinct finishers per landmark, keyed by climb id, from the boards. Nil until
+    /// read: the markers and the card show no number, and claim no open First
+    /// Ascent, before the boards have answered. One bounded read, shared by every
+    /// marker and the card so they can never disagree.
+    private(set) var completedClimberCounts: [String: Int]?
+    /// When the boards last answered, so a card opening seconds after Home entry
+    /// shows the count already in hand instead of re-reading every board root.
+    private(set) var completedClimberCountsReadAt: Date?
+    /// How long a read of the counts is trusted before a card open re-reads them.
+    static let completedClimberCountsStaleness: TimeInterval = 60
 
     private let climbService: ClimbService
     private let communityStatsService: LiveClimbCommunityStatsServicing
@@ -31,6 +44,12 @@ final class GlobeViewModel {
     private var currentLongitude = GlobeViewModel.defaultLongitude
     private var suppressCameraInteraction = false
     private var lastUserInteractionAt = Date.distantPast
+    /// The camera MapKit last reported, so a card can be closed back to the exact
+    /// view the marker was tapped from.
+    private var lastReportedCamera: MapCamera?
+    /// Where the camera stood when the open card's marker was tapped: the full globe,
+    /// or the zoom a cluster opened onto. X restores it.
+    private var cameraBeforePreview: MapCameraPosition?
 
     init(
         climbService: ClimbService = .shared,
@@ -199,6 +218,11 @@ final class GlobeViewModel {
     }
 
     func selectPreview(_ climb: Climb, modelContext: ModelContext) {
+        if previewSummary == nil {
+            // Remember where the tap came from, so X can put the camera back there
+            // rather than on the full globe every time.
+            cameraBeforePreview = lastReportedCamera.map { .camera($0) } ?? cameraPosition
+        }
         previewSummary = climbService.previewSummary(for: climb, modelContext: modelContext)
         // Fly down to the landmark itself (close, pitched 3D framing) rather
         // than the far top-down preview distance.
@@ -217,9 +241,17 @@ final class GlobeViewModel {
         completedClimbIds.contains(climb.id)
     }
 
+    /// Closes the card and puts the camera back where the marker was tapped from:
+    /// the full globe, or the cluster's zoom. Only the camera moves; the markers
+    /// stay put and regroup as it settles.
     func dismissPreview() {
         previewSummary = nil
-        setOverviewCamera()
+        if let cameraBeforePreview {
+            restoreCamera(cameraBeforePreview)
+        } else {
+            setOverviewCamera()
+        }
+        cameraBeforePreview = nil
         userDidInteract()
     }
 
@@ -248,15 +280,25 @@ final class GlobeViewModel {
     }
 
     func mapCameraDidChange(_ context: MapCameraUpdateContext) {
+        mapCameraDidChange(camera: context.camera)
+    }
+
+    /// The camera MapKit reports, whether a finger moved it or the app did.
+    func mapCameraDidChange(camera: MapCamera) {
+        lastReportedCamera = camera
         mapCameraDidChange(
-            latitude: context.camera.centerCoordinate.latitude,
-            longitude: context.camera.centerCoordinate.longitude
+            latitude: camera.centerCoordinate.latitude,
+            longitude: camera.centerCoordinate.longitude,
+            distance: camera.distance
         )
     }
 
-    func mapCameraDidChange(latitude: Double, longitude: Double) {
+    func mapCameraDidChange(latitude: Double, longitude: Double, distance: CLLocationDistance? = nil) {
         currentLatitude = latitude
         currentLongitude = wrappedLongitude(longitude)
+        if let distance {
+            updateZoomBand(forCameraDistance: distance)
+        }
 
         if suppressCameraInteraction {
             suppressCameraInteraction = false
@@ -268,6 +310,13 @@ final class GlobeViewModel {
 
     func userDidInteract() {
         lastUserInteractionAt = Date()
+    }
+
+    private func updateZoomBand(forCameraDistance distance: CLLocationDistance) {
+        let band = ClimbMapZoomBand(cameraDistance: distance)
+        if band != cameraZoomBand {
+            cameraZoomBand = band
+        }
     }
 
     func tickAutoSpin() {
@@ -288,13 +337,113 @@ final class GlobeViewModel {
         setOverviewCamera()
     }
 
+    /// Flies to the region that shows every member of the cluster with room to
+    /// separate. Members that share a street may still overlap there and draw as a
+    /// smaller pill of their own; a second tap opens that one.
+    func focusOnCluster(_ cluster: AscendMapCluster) {
+        let region = ClimbMapClustering.region(showing: cluster)
+        currentLatitude = region.center.latitude
+        currentLongitude = region.center.longitude
+        suppressCameraInteraction = true
+        cameraPosition = .region(region)
+        // A region has no distance; the band follows the span it shows.
+        updateZoomBand(forCameraDistance: Self.approximateDistance(for: region))
+        userDidInteract()
+    }
+
+    /// The camera distance that roughly frames a region, for the label band. A
+    /// degree of latitude is about 111 km, and a frame spans about 1.3 times its
+    /// height at MapKit's default field of view.
+    static func approximateDistance(for region: MKCoordinateRegion) -> CLLocationDistance {
+        max(region.span.latitudeDelta, region.span.longitudeDelta / 2) * 111_000 * 1.3
+    }
+
+    /// Home's opening frame: continent altitude, centred on Today's Climb. Falls back
+    /// to the default overview when no climb is recommended yet.
+    func prepareForHomeEntry() {
+        searchQuery = ""
+        previewSummary = nil
+        guard let climb = dailyRecommendedClimb else {
+            resetOverviewCamera()
+            return
+        }
+        currentLatitude = climb.latitude
+        currentLongitude = climb.longitude
+        setCamera(
+            latitude: climb.latitude,
+            longitude: climb.longitude,
+            distance: ClimbMapZoomBand.homeEntryCameraDistance
+        )
+    }
+
+    /// Reads how many climbers have completed each landmark: one bounded query over
+    /// the catalog-sized board roots. Every marker and the open card read this one
+    /// answer. A failed read keeps the last answer rather than blanking the globe.
+    func refreshCompletedClimberCounts(now: Date = Date()) async {
+        guard let counts = try? await leaderboardService.fetchLiveClimbCompletedClimberCounts() else { return }
+        completedClimberCountsReadAt = now
+        if counts != completedClimberCounts {
+            completedClimberCounts = counts
+        }
+    }
+
+    /// The read a card open asks for: nothing while the last answer is younger than
+    /// `completedClimberCountsStaleness`, the full read once it is older or never ran.
+    func refreshCompletedClimberCountsIfStale(now: Date = Date()) async {
+        if let completedClimberCountsReadAt,
+           now.timeIntervalSince(completedClimberCountsReadAt) < Self.completedClimberCountsStaleness {
+            return
+        }
+        await refreshCompletedClimberCounts(now: now)
+    }
+
+    /// Distinct climbers who have completed the landmark, or nil until the boards
+    /// have answered. A landmark with no board has no finisher.
+    func completedClimberCount(for climb: Climb) -> Int? {
+        guard let completedClimberCounts else { return nil }
+        return completedClimberCounts[climb.id] ?? 0
+    }
+
+    /// Whether the landmark's First Ascent is still open, once the boards have been read.
+    func isFirstAscentOpen(_ climb: Climb) -> Bool {
+        guard climb.isAvailable, !isCompleted(climb) else { return false }
+        return completedClimberCount(for: climb) == 0
+    }
+
+    /// The count the open card shows, from the same answer the markers draw.
+    var previewCompletedClimberCount: Int? {
+        guard let climb = previewSummary?.climb, climb.isAvailable else { return nil }
+        return completedClimberCount(for: climb)
+    }
+
+    /// Every programmatic camera move sets the band itself. MapKit reports a camera
+    /// change for a finger, not reliably for a position the app assigned, and a band
+    /// left behind meant the names did not follow until the next touch.
     private func setOverviewCamera() {
         suppressCameraInteraction = true
         cameraPosition = GlobeViewModel.defaultOverviewPosition
+        updateZoomBand(forCameraDistance: GlobeViewModel.defaultOverviewCameraDistance)
+    }
+
+    private func restoreCamera(_ position: MapCameraPosition) {
+        suppressCameraInteraction = true
+        cameraPosition = position
+        if let camera = position.camera {
+            currentLatitude = camera.centerCoordinate.latitude
+            currentLongitude = wrappedLongitude(camera.centerCoordinate.longitude)
+            updateZoomBand(forCameraDistance: camera.distance)
+        } else if let region = position.region {
+            currentLatitude = region.center.latitude
+            currentLongitude = wrappedLongitude(region.center.longitude)
+            updateZoomBand(forCameraDistance: Self.approximateDistance(for: region))
+        } else {
+            updateZoomBand(forCameraDistance: GlobeViewModel.defaultOverviewCameraDistance)
+        }
     }
 
     private func setCamera(latitude: Double, longitude: Double, distance: CLLocationDistance, pitch: CGFloat = 0) {
         suppressCameraInteraction = true
+        updateZoomBand(forCameraDistance: distance)
         cameraPosition = .camera(
             MapCamera(
                 centerCoordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),

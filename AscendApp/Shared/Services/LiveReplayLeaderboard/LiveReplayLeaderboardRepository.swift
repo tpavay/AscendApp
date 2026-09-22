@@ -9,6 +9,12 @@ protocol LiveReplayLeaderboardRepository: Sendable {
     /// inherit the last one's answers.
     func beginLiveSession() async
 
+    /// How many distinct climbers have completed each landmark, keyed by climb id,
+    /// from the `live_climb` board roots. One bounded read over the catalog-sized
+    /// contexts, so every marker on the globe can carry its count without a read
+    /// per pin. A landmark with no board is absent, which reads as zero.
+    func fetchLiveClimbCompletedClimberCounts() async throws -> [String: Int]
+
     func fetchSummary(
         context: LiveReplayLeaderboardContext
     ) async throws -> LiveReplayLeaderboardSummary
