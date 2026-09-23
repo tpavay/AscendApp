@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The Just Me tab's top-right heart-rate readout: a ring split into the three
-/// live effort zones (`HeartRateZone`) with the current BPM centered inside,
+/// The Just Me tab's heart-rate readout, drawn inside the stat row's last box
+/// (`LiveClimbJustMeView.heartRateCard`): a ring split into the three live
+/// effort zones (`HeartRateZone`) with the current BPM centered inside,
 /// colored to match. This is the only heart-rate surface Just Me draws - it
 /// replaces `LiveHeartRateStatusChip` there entirely rather than sitting
 /// alongside it. The Leaderboard tab is unaffected and keeps the chip.

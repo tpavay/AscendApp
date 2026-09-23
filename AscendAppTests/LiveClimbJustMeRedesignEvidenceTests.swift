@@ -191,6 +191,74 @@ struct LiveClimbJustMeRedesignEvidenceTests {
         return (monitor, recorder, client)
     }
 
+    @Test("Heart rate reads once on Just Me, in the bottom row, and the Leaderboard tab keeps its top-right chip")
+    func heartRateReadsOnceOnJustMeAndLeaderboardKeepsItsChip() async throws {
+        let container = try RetainedModelContainer.inMemory(
+            for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self,
+            ClimbAttempt.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self
+        )
+        let climb = Self.climb
+        let motionSession = FakeHeadphoneMotionSession()
+        let strap = try await Self.makeConnectedHeartRateMonitor()
+        let viewModel = LiveClimbSessionViewModel(
+            climb: climb,
+            motionSession: motionSession,
+            climbService: ClimbService(
+                catalogRepository: StubClimbCatalogRepository(climbs: [climb])
+            ),
+            leaderboardService: StubLiveReplayLeaderboardService(),
+            heartRateRecorder: strap.recorder,
+            heartRateMonitor: strap.monitor
+        )
+
+        viewModel.start(modelContext: container.mainContext)
+        motionSession.stepCount = 300
+        motionSession.duration = 754
+
+        let deviceID = try #require(strap.monitor.rememberedDevice?.id)
+        strap.client.emit(.connected(id: deviceID, name: "Test Strap"))
+        await Task.yield()
+        strap.client.emit(.measurement(
+            HeartRateMeasurement(beatsPerMinute: 128, sensorContact: .detected, receivedAt: Date())
+        ))
+        await Task.yield()
+        #expect(viewModel.liveHeartRateStatus != nil)
+
+        try await RenderedScreen.host(
+            LiveClimbSessionView(viewModel: viewModel)
+                .environment(ModerationStore.shared)
+                .modelContainer(container)
+        ) { screen in
+            let justMe = try await screen.texts(reading: 40) { texts in
+                texts.contains { $0.text.localizedCaseInsensitiveContains("HEART RATE") }
+            }
+            let heartRateBadges = justMe.filter { $0.text.localizedCaseInsensitiveContains("beats per minute") }
+            #expect(heartRateBadges.count == 1, "heart rate must read exactly once on Just Me: \(justMe.map(\.text))")
+            let endAttempt = try #require(justMe.first { $0.text == "End attempt" })
+            if let badge = heartRateBadges.first {
+                #expect(
+                    badge.frame.midY > screen.bounds.midY && badge.frame.maxY < endAttempt.frame.minY,
+                    "the only heart-rate reading must sit in the bottom stat row above End attempt, not the top-right slot: \(badge.frame.integral)"
+                )
+            }
+            try screen.photograph(named: "just-me-redesign-hr-once-just-me")
+
+            try activateAccessibilityElement(labelled: "Leaderboard", in: screen.root)
+            // The tab switch cross-fades; let it finish so the photograph shows one tab, not both.
+            try await screen.settle(.turns(30))
+            let leaderboard = try await screen.texts(reading: 80) { texts in
+                texts.contains { $0.text.localizedCaseInsensitiveContains("beats per minute") }
+                    && !texts.contains { $0.text.localizedCaseInsensitiveContains("HEART RATE") && !$0.text.localizedCaseInsensitiveContains("beats") }
+            }
+            let chip = leaderboard.first { $0.text.localizedCaseInsensitiveContains("beats per minute") }
+            #expect(chip != nil, "the Leaderboard tab's own heart-rate chip must stay: \(leaderboard.map(\.text))")
+            if let chip {
+                #expect(chip.frame.maxY < screen.bounds.height * 0.25, "the Leaderboard chip stays in the top chrome: \(chip.frame.integral)")
+            }
+            try screen.photograph(named: "just-me-redesign-hr-leaderboard-chip")
+        }
+    }
+
     private static func freshDefaults() -> UserDefaults {
         let suiteName = "LiveClimbJustMeRedesignEvidenceTests.\(UUID().uuidString)"
         return UserDefaults(suiteName: suiteName)!
