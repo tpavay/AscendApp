@@ -133,8 +133,8 @@ struct LiveClimbJustMeView: View {
     /// row always, then Pace and (when present) Heart Rate on the second - a 2x2 grid with a
     /// strap connected, two-and-one without one. Heart rate only appears when
     /// `viewModel.liveHeartRateStatus` reports a remembered strap (`LiveClimbSessionView.
-    /// topChrome` suppresses the top-right ring on this tab for the same reason, so heart
-    /// rate reads in exactly one place). Both rows share one `GeometryReader`-computed column
+    /// topChrome` draws no heart-rate indicator on this tab, so heart rate reads in exactly
+    /// one place). Both rows share one `GeometryReader`-computed column
     /// width so the lone Pace box on the second row - centered by the VStack's default
     /// alignment rather than stretched to fill - matches the width of the boxes above it
     /// exactly, keeping the two-and-one shape balanced instead of lopsided.
@@ -236,9 +236,9 @@ struct LiveClimbJustMeView: View {
         )
     }
 
-    /// The heart-rate box: the exact top-right ring badge (`LiveHeartRateZoneRingBadge`)
-    /// reused inline rather than redrawn, with a caption beneath it to match the grid's
-    /// other cards. This is now the tab's only heart-rate surface. Drawn considerably larger
+    /// The heart-rate box: the zone ring badge (`LiveHeartRateZoneRingBadge`) that used to sit
+    /// in the top chrome, reused inline rather than redrawn, with a caption beneath it to match
+    /// the grid's other cards. This is now the tab's only heart-rate surface. Drawn considerably larger
     /// than its original top-chrome size so its BPM number carries the same visual weight as
     /// the 24-26pt values in the grid's other three boxes.
     private func heartRateCard(status: LiveHeartRateStatus) -> some View {
