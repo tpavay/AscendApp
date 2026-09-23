@@ -1,6 +1,7 @@
 import Foundation
 
-/// The two paces the Just Me PACE card states, and the one place their rules live.
+/// The two paces the Just Me pace card (`LiveClimbJustMeView.paceCard`) states, and the one
+/// place their rules live.
 ///
 /// **Average** is the whole climb so far: total steps over elapsed minutes.
 /// **Current** is the trailing `windowSeconds` of the climb: the steps gained since the

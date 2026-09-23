@@ -191,7 +191,7 @@ final class LiveClimbSessionViewModel {
 
     private var hasSavedSession = false
     private var stepTimelineRecorder: LiveClimbStepTimelineRecorder
-    /// Trailing-window cadence behind the PACE card's current number; `LiveClimbPaceWindow`
+    /// Trailing-window cadence behind the Just Me pace card's CURRENT number; `LiveClimbPaceWindow`
     /// states the rules. Fed by the same samples as `stepTimelineRecorder` and reset with it.
     private var paceWindow = LiveClimbPaceWindow()
     private var isLeaderboardRefreshInFlight = false
@@ -354,7 +354,7 @@ final class LiveClimbSessionViewModel {
     }
 
     /// Steps per minute over the trailing `LiveClimbPaceWindow.defaultWindowSeconds`, or
-    /// `nil` until the clock has enough to say; the PACE card's prominent number.
+    /// `nil` until the clock has enough to say; the Just Me pace card's CURRENT value.
     var currentStepsPerMinute: Int? {
         paceWindow.currentStepsPerMinute(
             elapsedSeconds: displayedDuration,
@@ -363,7 +363,7 @@ final class LiveClimbSessionViewModel {
     }
 
     /// Steps per minute over the whole climb so far, or `nil` until the clock has enough
-    /// to say; the PACE card's average line.
+    /// to say; the Just Me pace card's AVERAGE value.
     var averageStepsPerMinute: Int? {
         LiveClimbPaceWindow.averageStepsPerMinute(
             steps: totalRecordedSteps,
