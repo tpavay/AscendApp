@@ -188,8 +188,8 @@ struct LiveClimbJustMeView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// Floors climbed so far: `Climb.calculatedFloors` (the published storey count
-    /// `ascend-live-climbs` already treats as the corrected "how tall" figure) scaled by
+    /// Floors climbed so far: `Climb.calculatedFloors` (the corrected storey count
+    /// `live-climb-content` owns as the "how tall" figure) scaled by
     /// `totalProgressFraction`. A Just Climb has no landmark to measure height against, so
     /// it reads "—" - the same no-value convention `currentRankDisplay` already uses.
     private var elevationClimbedDisplay: String {
