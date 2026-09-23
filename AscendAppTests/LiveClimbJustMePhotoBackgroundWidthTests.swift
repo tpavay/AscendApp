@@ -71,7 +71,7 @@ struct LiveClimbJustMePhotoBackgroundWidthTests {
             // `frame(ofElementLabelled:)` reads only painted text - so "missing" and "spilled"
             // are the same defect here, and every label is reported rather than the first.
             let inside = screen.bounds.insetBy(dx: Self.minimumSideGutter, dy: 0)
-            for label in ["Just Me", "Leaderboard", "900 steps", "ELAPSED", "ELEVATION CLIMBED", "CURRENT RANK", "PACE (STEPS PER MINUTE)", "End attempt"] {
+            for label in ["Just Me", "Leaderboard", "900 steps", "ELAPSED", "CURRENT RANK", "PACE (STEPS PER MINUTE)", "End attempt"] {
                 guard let frame = try await screen.frame(ofElementLabelled: label, reading: 40) else {
                     Issue.record("\(label) is not painted on the Just Me tab at \(Int(size.width))pt")
                     continue

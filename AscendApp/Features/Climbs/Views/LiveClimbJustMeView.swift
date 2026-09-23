@@ -1,66 +1,70 @@
 import SwiftUI
 
-/// The "Just Me" tab of the live climb session: a step-progress statement, an
-/// animated summit bar carrying the previous-best marker, and a 2x2 grid of live
-/// stats (elapsed, elevation climbed, rank, pace). Renders over the climb's own hero
-/// photo (`LiveClimbSessionView.sessionBackground`) rather than a flat
-/// background, so text throughout carries its own shadow.
+/// The "Just Me" tab of the live climb session: a large centered step-progress hero, an
+/// animated summit bar carrying the previous-best marker directly beneath it, and a single
+/// row of compact live stats (elapsed, rank, pace, heart rate) sitting just above the End
+/// attempt button. Renders over the climb's own hero photo
+/// (`LiveClimbSessionView.sessionBackground`) rather than a flat background, so text
+/// throughout carries its own shadow.
 struct LiveClimbJustMeView: View {
     let viewModel: LiveClimbSessionViewModel
 
+    private static let statCardHeight: CGFloat = 84
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            stepsHeader
+            stepsHero
             summitBar
+            Spacer(minLength: 20)
             statRow
-                .frame(maxHeight: .infinity)
         }
         .frame(maxHeight: .infinity)
     }
 
+    /// The tab's hero: current-vs-goal steps at a large, clearly legible size, centered above
+    /// the summit bar. An open Just Climb has no goal to measure a fraction against, so it
+    /// keeps the plain step count plus an "OPEN CLIMB" tag instead.
     @ViewBuilder
-    private var stepsHeader: some View {
-        if let targetStepCount = viewModel.mode.targetStepCount {
-            HStack(alignment: .lastTextBaseline, spacing: 6) {
-                Text(viewModel.totalRecordedSteps.formatted())
-                    .font(.montserratBold(size: 30))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
+    private var stepsHero: some View {
+        Group {
+            if let targetStepCount = viewModel.mode.targetStepCount {
+                HStack(alignment: .lastTextBaseline, spacing: 10) {
+                    Text(viewModel.totalRecordedSteps.formatted())
+                        .font(.montserratBold(size: 52))
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
 
-                Text("of")
-                    .font(.montserratMedium(size: 15))
-                    .foregroundStyle(.white.opacity(0.68))
+                    Text("of")
+                        .font(.montserratMedium(size: 22))
+                        .foregroundStyle(.white.opacity(0.68))
 
-                Text("\(targetStepCount.formatted()) steps")
-                    .font(.montserratBold(size: 17))
-                    .foregroundStyle(.white.opacity(0.86))
-            }
-            .foregroundStyle(.white)
-            .shadow(color: .black.opacity(0.55), radius: 5, y: 1)
-            .lineLimit(1)
-            .minimumScaleFactor(0.6)
-        } else {
-            HStack(alignment: .lastTextBaseline, spacing: 8) {
-                Text(viewModel.totalRecordedSteps.formatted())
-                    .font(.montserratBold(size: 30))
-                    .foregroundStyle(.white)
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
+                    Text("\(targetStepCount.formatted()) steps")
+                        .font(.montserratBold(size: 26))
+                        .foregroundStyle(.white.opacity(0.86))
+                }
+            } else {
+                HStack(alignment: .lastTextBaseline, spacing: 12) {
+                    Text(viewModel.totalRecordedSteps.formatted())
+                        .font(.montserratBold(size: 52))
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
 
-                HStack(spacing: 4) {
-                    Text("OPEN")
-                        .font(.montserratBold(size: 14))
-                        .foregroundStyle(.white)
-                    Text("CLIMB")
-                        .font(.montserratBold(size: 10))
-                        .tracking(0.8)
-                        .foregroundStyle(.white.opacity(0.62))
+                    HStack(spacing: 5) {
+                        Text("OPEN")
+                            .font(.montserratBold(size: 18))
+                        Text("CLIMB")
+                            .font(.montserratBold(size: 13))
+                            .tracking(0.8)
+                            .foregroundStyle(.white.opacity(0.62))
+                    }
                 }
             }
-            .shadow(color: .black.opacity(0.55), radius: 5, y: 1)
-            .lineLimit(1)
-            .minimumScaleFactor(0.6)
         }
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.55), radius: 5, y: 1)
+        .lineLimit(1)
+        .minimumScaleFactor(0.5)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     /// A horizontal fill that animates toward `totalProgressFraction`, with the
@@ -124,20 +128,24 @@ struct LiveClimbJustMeView: View {
         width - fillWidth >= 40
     }
 
-    /// Two rows of two rather than four across: four cards in one row leave each
-    /// under 80pt on an iPhone SE, too narrow for `CURRENT RANK` or a two-column pace
-    /// at a legible size, while the grid fills the same height the three cards did.
+    /// One horizontal row above End attempt: elapsed, rank, pace, then heart rate last -
+    /// heart rate only when `viewModel.liveHeartRateStatus` reports a remembered strap
+    /// (`LiveClimbSessionView.topChrome` suppresses the top-right ring on this tab for the
+    /// same reason, so heart rate reads in exactly one place). Dropping it from the `HStack`
+    /// entirely, rather than hiding it in place, lets the remaining cards fill the freed
+    /// width instead of leaving a gap. Card styling stays compact so four boxes still fit
+    /// an iPhone SE without clipping; the pace card's own internals are unchanged from the
+    /// merged pace work, just narrower.
     private var statRow: some View {
-        Grid(horizontalSpacing: 10, verticalSpacing: 10) {
-            GridRow {
-                statCard(value: viewModel.elapsedClock, label: "ELAPSED")
-                statCard(value: elevationClimbedDisplay, label: "ELEVATION CLIMBED", isAccent: true)
-            }
-            GridRow {
-                statCard(value: viewModel.currentRankDisplay, label: "CURRENT RANK")
-                paceCard
+        HStack(spacing: 8) {
+            statCard(value: viewModel.elapsedClock, label: "ELAPSED")
+            statCard(value: viewModel.currentRankDisplay, label: "CURRENT RANK")
+            paceCard
+            if let heartRateStatus = viewModel.liveHeartRateStatus {
+                heartRateCard(status: heartRateStatus)
             }
         }
+        .frame(height: Self.statCardHeight)
     }
 
     /// Current pace and the whole-climb average sit side by side, each carrying its own
@@ -152,10 +160,11 @@ struct LiveClimbJustMeView: View {
 
             Text("PACE (STEPS PER MINUTE)")
                 .font(.montserratBold(size: 8))
-                .tracking(0.4)
+                .tracking(0.2)
                 .foregroundStyle(.white.opacity(0.6))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
@@ -180,35 +189,51 @@ struct LiveClimbJustMeView: View {
 
             Text(label)
                 .font(.montserratBold(size: 8))
-                .tracking(0.5)
+                .tracking(0.2)
                 .foregroundStyle(.white.opacity(0.55))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.65)
         }
         .frame(maxWidth: .infinity)
     }
 
-    /// Floors climbed so far: `Climb.calculatedFloors` (the corrected storey count
-    /// `live-climb-content` owns as the "how tall" figure) scaled by
-    /// `totalProgressFraction`. A Just Climb has no landmark to measure height against, so
-    /// it reads "—" - the same no-value convention `currentRankDisplay` already uses.
-    private var elevationClimbedDisplay: String {
-        guard let climb = viewModel.mode.climb else { return "—" }
-        let floorsClimbed = (viewModel.totalProgressFraction * Double(climb.calculatedFloors)).rounded()
-        return Int(floorsClimbed).formatted()
-    }
-
-    private func statCard(value: String, label: String, isAccent: Bool = false) -> some View {
+    private func statCard(value: String, label: String) -> some View {
         VStack(spacing: 6) {
             Text(value)
                 .font(.montserratBold(size: 22))
-                .foregroundStyle(isAccent ? Color.accent : .white)
+                .foregroundStyle(.white)
                 .monospacedDigit()
                 .contentTransition(.numericText())
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
 
             Text(label)
+                .font(.montserratBold(size: 9))
+                .tracking(0.6)
+                .foregroundStyle(.white.opacity(0.6))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.black.opacity(0.34))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(.white.opacity(0.1), lineWidth: 1)
+        )
+    }
+
+    /// The heart-rate box: the exact top-right ring badge (`LiveHeartRateZoneRingBadge`)
+    /// reused inline rather than redrawn, with a caption beneath it to match the row's
+    /// other cards. This is now the tab's only heart-rate surface.
+    private func heartRateCard(status: LiveHeartRateStatus) -> some View {
+        VStack(spacing: 6) {
+            LiveHeartRateZoneRingBadge(status: status)
+
+            Text("HEART RATE")
                 .font(.montserratBold(size: 9))
                 .tracking(0.6)
                 .foregroundStyle(.white.opacity(0.6))
