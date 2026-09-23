@@ -31,10 +31,18 @@ struct ClimbArtworkView: View {
     var body: some View {
         ZStack {
             if let displayImage {
-                Image(uiImage: displayImage)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // A filled image reports the size it scaled to, not the size it was offered - a
+                // landscape hero filling a phone's height is several phones wide - and `.clipped()`
+                // bounds the drawing, never the layout. Drawn as an overlay on a view that takes
+                // exactly the proposal, the photo can no longer widen the siblings drawn over it:
+                // full-bleed behind the Just Me tab it laid the whole session panel out at its own
+                // width, spilling the chrome and stats off both screen edges.
+                Color.clear
+                    .overlay {
+                        Image(uiImage: displayImage)
+                            .resizable()
+                            .scaledToFill()
+                    }
             } else {
                 placeholder
             }
