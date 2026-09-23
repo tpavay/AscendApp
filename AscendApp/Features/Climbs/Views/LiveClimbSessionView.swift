@@ -337,7 +337,7 @@ struct LiveClimbSessionView: View {
 
             Spacer(minLength: 0)
 
-            // Just Me reads heart rate once, in the stat row's bottom-right box
+            // Just Me reads heart rate once, in the stat grid's heart-rate box
             // (`LiveClimbJustMeView.heartRateCard`) - this top-right slot is the
             // Leaderboard tab's only heart-rate surface now.
             if selectedTab != .justMe, let heartRateStatus = viewModel.liveHeartRateStatus {

@@ -200,6 +200,15 @@ struct LiveClimbJustMeRedesignEvidenceTests {
                     )
                 }
 
+                if let elapsed, let rank {
+                    let paceSpread = paceAverage.midX - paceCurrent.midX
+                    let columnPitch = rank.midX - elapsed.midX
+                    #expect(
+                        paceSpread > 0 && paceSpread < columnPitch * 0.75,
+                        "the Pace card (label spread \(paceSpread)) must match the grid's column width (column pitch \(columnPitch)), not stretch across the row, at \(Int(size.width))pt"
+                    )
+                }
+
                 if heartRateConnected, let heartRate, let elapsed, let rank {
                     // 2x2: Pace sits under Elapsed's column, Heart Rate under Rank's column.
                     #expect(heartRate.midY > elapsed.midY, "Heart Rate \(heartRate.integral) must sit on the second grid row")
