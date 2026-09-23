@@ -1,3 +1,4 @@
+import CoreLocation
 import HealthKit
 import MapKit
 import SwiftData
@@ -133,6 +134,84 @@ struct HomeGlobeSheetEvidenceTests {
         }
     }
 
+    /// Zoomed in, the band above the collapsed sheet is bright map all the way down,
+    /// and the bottom vignette has to reach the map's bottom edge: a gradient ending
+    /// one safe-area inset short of it left a 34pt strip of map at full brightness
+    /// directly under the gradient's darkest stop, a bright line across the bottom of
+    /// the globe just above the fold. Tiles need the network, so the probe is what
+    /// MapKit draws itself: the attribution at the map's bottom edge, dim under the
+    /// vignette and white when nothing covers it.
+    @Test
+    func zoomedInTheVignetteReachesTheMapsBottomEdge() async throws {
+        let globeViewModel = Self.makeGlobeViewModel()
+        let screen = try await makeScreen(feed: Self.sampleFeed, detent: .compact, globeViewModel: globeViewModel)
+
+        try await RenderedScreen.host(screen, settle: .turns(30, interval: .milliseconds(100))) { hosted in
+            globeViewModel.userDidInteract()
+            globeViewModel.cameraPosition = .camera(
+                MapCamera(centerCoordinate: Self.zoomedInCentre, distance: Self.zoomedInDistance, heading: 0, pitch: 0)
+            )
+            try await hosted.settle(.turns(60, interval: .milliseconds(100)))
+
+            let sheet = try #require(await hosted.frame(ofElementLabelled: "Home sheet"))
+            let mapView = try #require(Self.firstMapView(under: hosted.window))
+            let map = mapView.convert(mapView.bounds, to: hosted.window)
+            #expect(abs(map.maxY - sheet.minY) <= 1, "map ends at the collapsed sheet's top, got map \(map) sheet \(sheet)")
+
+            let attribution = try #require(
+                Self.attributionFrames(in: mapView, window: hosted.window).first,
+                "MapKit draws its attribution at the map's bottom edge"
+            )
+            let report = try hosted.withPixels { pixels in
+                pixels.inkReport(in: attribution, contrast: 0)
+            }
+            let brightest = try hosted.withPixels { pixels in
+                pixels.luminanceRange(in: attribution).upperBound
+            }
+            #expect(
+                brightest < 96,
+                "the attribution at the map's bottom edge sits under the vignette, not in an uncovered strip: \(report)"
+            )
+
+            try hosted.photograph(named: "home-globe-zoomed-in-bottom-edge")
+        }
+    }
+
+    /// Continent altitude over the Gulf of Mexico: land and sea fill the band above the
+    /// sheet, the way the captain's own zoom did.
+    private static let zoomedInCentre = CLLocationCoordinate2D(latitude: 18, longitude: -92)
+    private static let zoomedInDistance: CLLocationDistance = 6_000_000
+
+    private static func makeGlobeViewModel() -> GlobeViewModel {
+        GlobeViewModel(
+            communityStatsService: StaticLiveClimbCommunityStatsService(),
+            leaderboardService: StubLiveReplayLeaderboardService()
+        )
+    }
+
+    /// MapKit's attribution views (the Apple Maps logo and the Legal link): the small
+    /// views it hangs off the bottom edge of the map, in window points.
+    private static func attributionFrames(in mapView: MKMapView, window: UIWindow) -> [CGRect] {
+        var frames: [CGRect] = []
+        func walk(_ view: UIView) {
+            for subview in view.subviews {
+                let frame = subview.convert(subview.bounds, to: window)
+                let mapFrame = mapView.convert(mapView.bounds, to: window)
+                if !subview.isHidden,
+                   subview.alpha > 0,
+                   frame.height > 0, frame.height <= 32,
+                   frame.width > 0, frame.width <= 160,
+                   mapFrame.maxY - frame.maxY <= 24,
+                   frame.maxY <= mapFrame.maxY + 0.5 {
+                    frames.append(frame)
+                }
+                walk(subview)
+            }
+        }
+        walk(mapView)
+        return frames.sorted { $0.minX < $1.minX }
+    }
+
     private static func firstMapView(under view: UIView) -> MKMapView? {
         if let map = view as? MKMapView { return map }
         for subview in view.subviews {
@@ -159,7 +238,11 @@ struct HomeGlobeSheetEvidenceTests {
 
     // MARK: - Screen
 
-    private func makeScreen(feed: HomeTodayActivityFeed, detent: BrowseSheetDetent) async throws -> some View {
+    private func makeScreen(
+        feed: HomeTodayActivityFeed,
+        detent: BrowseSheetDetent,
+        globeViewModel: GlobeViewModel = makeGlobeViewModel()
+    ) async throws -> some View {
         let container = try ModelContainer(
             for: AscendLocalStore.schema,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
@@ -167,10 +250,6 @@ struct HomeGlobeSheetEvidenceTests {
         let dashboard = HomeDashboardViewModel()
         let tabRouter = TabRouter()
         let todayActivity = HomeTodayActivityViewModel(service: StaticHomeTodayActivityService(feed: feed))
-        let globeViewModel = GlobeViewModel(
-            communityStatsService: StaticLiveClimbCommunityStatsService(),
-            leaderboardService: StubLiveReplayLeaderboardService()
-        )
         let enrichmentService = AppleHealthEnrichmentService(
             authorizationController: EvidenceHealthAuthorization(),
             metricsReader: EvidenceMetricsReader(),

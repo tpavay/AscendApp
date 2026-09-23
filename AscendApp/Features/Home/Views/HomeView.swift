@@ -102,12 +102,6 @@ struct HomeView: View {
                 )
 
                 ZStack {
-                    GlobeView(
-                        viewModel: globeViewModel,
-                        onSelectClimb: { climb in
-                            selectGlobePin(climb)
-                        }
-                    )
                     // The map is the band above the collapsed sheet, not the whole
                     // screen. MapKit draws the globe at a fixed fraction of the map
                     // view's height (about 0.58 at its farthest camera, where it
@@ -117,17 +111,31 @@ struct HomeView: View {
                     // the phone and keeps MapKit's attribution above the sheet; the
                     // sheet's other positions and an open card cover everything the
                     // full-screen map used to reach below that line.
+                    //
+                    // The vignette and the catalog state card are in the same band, so
+                    // the three share one bottom edge by construction. Padded on its
+                    // own, inside the safe area, the vignette ended one bottom inset
+                    // short of a map that was padded and then extended into it, and
+                    // zoomed in that left a 34pt strip of bright map under the
+                    // gradient's darkest stop: a hard line across the bottom of the
+                    // globe, just above the fold.
+                    ZStack {
+                        GlobeView(
+                            viewModel: globeViewModel,
+                            onSelectClimb: { climb in
+                                selectGlobePin(climb)
+                            }
+                        )
+                        .offset(y: globeVerticalOffset(sheetHeight: sheetVisibleHeight))
+
+                        GlobeEdgeOverlays()
+
+                        if globeViewModel.visibleClimbs.isEmpty {
+                            ClimbCatalogStateOverlay(loadErrorMessage: globeViewModel.loadErrorMessage)
+                        }
+                    }
                     .padding(.bottom, collapsedSheetHeight)
                     .ignoresSafeArea()
-                    .offset(y: globeVerticalOffset(sheetHeight: sheetVisibleHeight))
-
-                    GlobeEdgeOverlays()
-                        .padding(.bottom, collapsedSheetHeight)
-
-                    if globeViewModel.visibleClimbs.isEmpty {
-                        ClimbCatalogStateOverlay(loadErrorMessage: globeViewModel.loadErrorMessage)
-                            .padding(.bottom, collapsedSheetHeight)
-                    }
 
                     topChrome(topInset: safeAreaInsets.top)
 
