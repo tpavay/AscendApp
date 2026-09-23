@@ -222,6 +222,9 @@ struct LiveClimbJustMeRedesignEvidenceTests {
                     )
                 } else {
                     // Two-and-one: the lone Pace box is centered, not stretched to fill the row.
+                    // The width pin above already rules out a stretch-to-fill regression (a
+                    // stretched box would still pass a centering-only check); this adds the
+                    // centering itself.
                     #expect(
                         abs(paceCenterX - screen.bounds.midX) < 6,
                         "the lone Pace box (center x \(paceCenterX)) must be horizontally centered, not lopsided, at \(Int(size.width))pt"

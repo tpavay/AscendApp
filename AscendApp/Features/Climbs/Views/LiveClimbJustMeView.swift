@@ -238,10 +238,12 @@ struct LiveClimbJustMeView: View {
 
     /// The heart-rate box: the exact top-right ring badge (`LiveHeartRateZoneRingBadge`)
     /// reused inline rather than redrawn, with a caption beneath it to match the grid's
-    /// other cards. This is now the tab's only heart-rate surface.
+    /// other cards. This is now the tab's only heart-rate surface. Drawn considerably larger
+    /// than its original top-chrome size so its BPM number carries the same visual weight as
+    /// the 24-26pt values in the grid's other three boxes.
     private func heartRateCard(status: LiveHeartRateStatus) -> some View {
         VStack(spacing: 8) {
-            LiveHeartRateZoneRingBadge(status: status)
+            LiveHeartRateZoneRingBadge(status: status, diameter: 52, contentFontSize: 17)
 
             Text("HEART RATE")
                 .font(.montserratBold(size: 10))
