@@ -199,15 +199,6 @@ struct LiveClimbJustMeView: View {
     }
 
     private func statCard(value: String, label: String, isAccent: Bool = false) -> some View {
-        statCard(value: value, label: label, isAccent: isAccent) { EmptyView() }
-    }
-
-    private func statCard(
-        value: String,
-        label: String,
-        isAccent: Bool = false,
-        @ViewBuilder secondary: () -> some View
-    ) -> some View {
         VStack(spacing: 6) {
             Text(value)
                 .font(.montserratBold(size: 22))
@@ -216,8 +207,6 @@ struct LiveClimbJustMeView: View {
                 .contentTransition(.numericText())
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
-
-            secondary()
 
             Text(label)
                 .font(.montserratBold(size: 9))

@@ -53,6 +53,24 @@ struct LiveClimbSessionPaceTests {
         #expect(viewModel.averageStepsPerMinute == 80)
     }
 
+    @Test("Step samples between fractional ticks share the ticks' clock and never restart the window")
+    func stepSamplesBetweenFractionalTicksKeepTheWindow() throws {
+        let (viewModel, motionSession) = try Self.startedSession()
+
+        for second in 1...90 {
+            let steps = second <= 60 ? second : 60 + (second - 60) * 2
+            motionSession.duration = TimeInterval(second) + 0.6
+            motionSession.stepCount = steps
+            viewModel.recordLiveSplitSample()
+
+            motionSession.duration = TimeInterval(second) + 0.8
+            motionSession.emitStepSample()
+        }
+
+        #expect(viewModel.currentStepsPerMinute == 120)
+        #expect(viewModel.averageStepsPerMinute == 79)
+    }
+
     @Test("A landmark climb's pace counts the clamped step total, never steps past the summit")
     func paceCountsTheClampedTotal() throws {
         let (viewModel, motionSession) = try Self.startedSession()

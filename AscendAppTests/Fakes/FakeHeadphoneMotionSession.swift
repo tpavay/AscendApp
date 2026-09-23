@@ -25,7 +25,20 @@ final class FakeHeadphoneMotionSession: HeadphoneMotionSessionServicing {
         nil
     }
 
-    func setStepSampleHandler(_ handler: ((LiveClimbStepSample) -> Void)?) {}
+    private var stepSampleHandler: ((LiveClimbStepSample) -> Void)?
+
+    func setStepSampleHandler(_ handler: ((LiveClimbStepSample) -> Void)?) {
+        stepSampleHandler = handler
+    }
+
+    /// Delivers a step sample the way the sensor does, stamped with the whole elapsed second.
+    func emitStepSample() {
+        stepSampleHandler?(LiveClimbStepSample(
+            elapsedSeconds: Int(duration.rounded(.down)),
+            cumulativeSteps: stepCount,
+            source: .headphoneMotion
+        ))
+    }
 
     func startRecording(
         targetStepCount: Int?,

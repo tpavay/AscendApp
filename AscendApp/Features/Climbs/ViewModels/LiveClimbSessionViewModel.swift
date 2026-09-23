@@ -937,7 +937,7 @@ final class LiveClimbSessionViewModel {
               motionSession.status.isRecording else { return }
 
         _ = stepTimelineRecorder.record(sample)
-        paceWindow.record(elapsedSeconds: TimeInterval(sample.elapsedSeconds), steps: totalRecordedSteps)
+        paceWindow.record(elapsedSeconds: motionSession.duration, steps: totalRecordedSteps)
         Task { [weak self] in
             await self?.updateLiveActivity()
         }
