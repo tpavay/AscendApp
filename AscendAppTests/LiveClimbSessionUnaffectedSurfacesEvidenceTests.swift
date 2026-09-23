@@ -126,7 +126,7 @@ struct LiveClimbSessionUnaffectedSurfacesEvidenceTests {
             try screen.photograph(named: "just-climb-just-me-\(Int(size.width))pt")
 
             let inside = screen.bounds.insetBy(dx: Self.minimumSideGutter, dy: 0)
-            for label in ["Just Me", "Leaderboard", "2,000 steps", "ELAPSED", "CURRENT RANK", "PACE (STEPS PER MINUTE)", "End attempt"] {
+            for label in ["Just Me", "Leaderboard", "2,000 steps", "ELAPSED", "CURRENT RANK", "AVERAGE", "End attempt"] {
                 guard let frame = try await screen.frame(ofElementLabelled: label, reading: 40) else {
                     Issue.record("\(label) is not painted on the Just Climb tab at \(Int(size.width))pt")
                     continue
