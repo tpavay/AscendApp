@@ -224,7 +224,7 @@ The watchdog's drift check only alerts when the undeployed commits touch paths i
 **Target (not yet implemented):** move deploys to OIDC + GCP Workload Identity Federation and retire the standing long-lived credential. This is a real open security gap, not a settled decision - `FIREBASE_TOKEN` is a broad, non-expiring credential that OIDC's short-lived tokens would replace.
 
 The migration needs work that does not exist yet, so do not assume any of it is in place:
-- No OIDC or WIF reference exists anywhere in `.github/`.
+- No OIDC or WIF deploy-auth step exists anywhere in `.github/` - the only mention of WIF is a comment on `deploy-production.yml`'s artwork-audit job (a separate, non-Firebase-deploy job) noting it was never provisioned there either.
 - These secrets are **not currently configured** - do not reference them from a workflow until they are provisioned: `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT_EMAIL`, and the `_PRODUCTION` variants of both.
 - The deploy jobs would additionally need `permissions: id-token: write`.
 

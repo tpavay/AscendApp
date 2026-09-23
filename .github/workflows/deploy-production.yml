@@ -306,8 +306,11 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
-      # Workload Identity Federation needs the job's OIDC token to authenticate
-      # the climb-artwork audit against the production Storage bucket.
+      # Workload Identity Federation was never provisioned for production, so
+      # PR #576 switched the climb-artwork audit's Google Cloud auth to a
+      # dedicated service account key (GCP_SERVICE_ACCOUNT_KEY) instead. This
+      # job no longer mints an OIDC token for that step; id-token: write is a
+      # leftover from the WIF attempt and is unverified as still needed.
       id-token: write
 
     steps:

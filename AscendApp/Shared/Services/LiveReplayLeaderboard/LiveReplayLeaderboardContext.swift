@@ -46,10 +46,12 @@ enum LiveReplayLeaderboardContextType: String, CaseIterable, Codable, Sendable {
     /// What one row of this context's field stands for, so a surface can name the
     /// population it counts rather than guess a noun that happens to fit a climb.
     ///
-    /// This is the board's own population, and so also the one the server's
-    /// frozen stamp counted: a stamp counts whatever the board it sits beside
-    /// counts. A standing the client recomputes counts `recomputedFieldPopulation`
-    /// instead, and the two deliberately differ where a board races attempts.
+    /// This is the population the server's frozen stamp and the field-size line
+    /// count. A standing the client recomputes counts `recomputedFieldPopulation`
+    /// instead, and the two deliberately differ on `just_climb` and `routine`:
+    /// there the stamp counts attempts (Option A, settled 2026-09-06), while the
+    /// board itself still draws one row per climber and does not race attempts
+    /// as opponents.
     var fieldPopulation: LiveReplayFieldPopulation {
         collapsesRepeatFinishers ? .climbers : .completions
     }

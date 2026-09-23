@@ -278,11 +278,13 @@ struct LiveClimbSummaryRankHero: Equatable {
     /// Who the field this hero's standing was measured against counts.
     ///
     /// The noun has to follow the number that is actually on screen, and the two
-    /// bases count different fields on a board that races attempts: the server
-    /// froze its stamp over completed attempts there, while a standing the
-    /// client recomputes counts climbers on every board. Reading one noun off
-    /// the context alone would name a population the figure beside it never
-    /// counted.
+    /// bases count different fields on `just_climb` and `routine`: the server
+    /// froze its stamp over completed attempts there (Option A), while a standing
+    /// the client recomputes counts climbers on every board. The board itself
+    /// draws one row per climber either way and does not race attempts as
+    /// opponents; only the frozen stamp and the field-size line count them.
+    /// Reading one noun off the context alone would name a population the figure
+    /// beside it never counted.
     ///
     /// A `.liveSession` standing has no field line at all - its population is
     /// the caller's own race window - so the board's own noun stands in and is

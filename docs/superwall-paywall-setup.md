@@ -311,19 +311,17 @@ Before the first review submission:
 10. Verify the enabled Superwall campaign targets `app_access_gate` and contains no weekly or separate discount variant.
 11. Complete the required App Store submission step for both subscriptions, verify Superwall no longer reports them as `Incomplete`, and publish the verified paywall `232372` revision.
 
-### Published artifact status on August 29, 2026
+### Published artifact status on August 29, 2026 (historical - fixed 2026-09-06)
 
 The versioned captures under `scripts/test/fixtures/superwall` contain no SDK keys or user data.
 They record only the selected placement, response, product and entitlement mapping, runtime document, action graph, and state references needed for deterministic validation.
 
-Staging currently selects response `249435` and runtime document `pj6GhBq8K0IxskBJ7ui6z`.
-Its annual and monthly products grant `app_access`, but the purchase abandon action references missing state `state:`.
+As of August 29, 2026, staging selected response `249435` and runtime document `pj6GhBq8K0IxskBJ7ui6z`; its annual and monthly products granted `app_access`, but the purchase abandon action referenced missing state `state:`.
+Production selected response `232372` and runtime document `odpvyL4GHznbb1E4cghT4`; its annual and monthly products granted `ascend_membership` instead of the app contract's exact `app_access`, and its purchase abandon action also referenced missing state `state:`.
 
-Production currently selects response `232372` and runtime document `odpvyL4GHznbb1E4cghT4`.
-Its annual and monthly products grant `ascend_membership` instead of the app contract's exact `app_access`, and its purchase abandon action also references missing state `state:`.
+The fixtures under `scripts/test/fixtures/superwall` are frozen captures of that failing state, kept so the validator's failure-detection logic stays covered - they do not track the live dashboards and were not updated by the fix below.
 
-Both live checks intentionally fail until a human approves and publishes corrected Editor artifacts.
-This repository change does not mutate either dashboard.
+**Both defects were corrected directly on the Superwall dashboards on 2026-09-06**, ahead of the 1.0.1 submission: production's entitlement now grants `app_access` (matching the app contract, not `ascend_membership`), and the broken `onAbandon` click action (`set-state` against the missing `state:` reference) was removed from the purchase node. This was a dashboard-side publish, not a repository change - re-run `node scripts/validate-superwall-live-artifact.mjs production` against the live artifact to reconfirm before relying on this note, rather than trusting the frozen fixture above.
 
 The static Editor store can prove that purchase and Close are not sibling actions on one click behavior.
 It cannot prove rendered hit-region geometry because final frames depend on the runtime layout engine, device viewport, safe areas, and dynamic product copy.

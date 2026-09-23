@@ -21,10 +21,10 @@ The failures all land on the seam between two surfaces rather than inside one, s
 
 ### 1. During a climb
 
-On a tower (`live_climb`) and on a routine template (`routine_template`), the board shows **one row per unique climber, at that climber's best time**.
+On a tower (`live_climb`), a routine template (`routine_template`), an open Just Climb, and a plain routine, the board shows **one row per unique climber, at that climber's best time**.
 Never one row per attempt.
 You are one of those climbers, and your row is ranked like anyone else's.
-An open Just Climb and a plain routine draw every completed attempt as its own row instead, and their rank sentence still counts unique climbers - that is the row-versus-rank seam below.
+This is one mechanism across all four context types since the captain's 2026-09-02 best-per-climber ruling (`isBestForUser` is written and filtered on unconditionally); only the static Climb Detail board (statement 4) still draws every completed attempt as its own row.
 
 **Your row shows your current run** - the live time and the current steps of the climb happening right now.
 
@@ -89,13 +89,15 @@ If a field size moves when your own previous best appears, it counted you twice.
 
 **A rank sentence versus the rows a board draws.**
 These are different questions, and the answers are allowed to differ on one screen.
-An open Just Climb has no target and a plain routine ranks on steps, so both draw every completed attempt as its own row and race it as its own opponent.
-The rank sentence beside those rows still counts **unique climbers on both halves**: a tower with 41 finishes from 16 climbers, where 5 distinct climbers beat you, reads `6TH OF 16`.
+Live, this seam is closed: since the captain's 2026-09-02 best-per-climber ruling, an open Just Climb and a plain routine draw one row per climber like every other board, so the rows and the rank sentence agree.
+The seam persists between the static Climb Detail board (statement 4) and the finish summary for the same climb.
+Climb Detail draws every completed attempt as its own row, ranks those rows as attempts, and counts completions in its field-size line (`N COMPLETIONS`); it renders no unique-climber rank sentence.
+The finish summary's recomputed standing for that same climb counts **unique climbers on both halves** (`recomputedFieldPopulation`, `countFinishersBetterThan`): a tower with 41 finishes from 16 climbers, where 5 distinct climbers beat you, reads `6TH OF 16`.
 Never `13TH OF 16`, and never `13TH OF 41`.
 Settled by the captain on 2026-09-02.
 `LiveReplayLeaderboardContextType.recomputedFieldPopulation` is `.climbers` unconditionally, on every context type, with no `collapsesRepeatFinishers` branch - folding it into that predicate would change the server's frozen-standing meaning by implication, which is why it is kept separate.
 
-**The field-size line and the server's frozen stamp count the board's own population instead - Option A, scoped to boards that collapse repeats.** Settled by the captain on 2026-09-06, closing the `key=live-board-attempt-board-denominator` escalation for good. `LiveReplayLeaderboardContextType.fieldPopulation` is `.climbers` only where `collapsesRepeatFinishers` is true (`live_climb`, `routine_template`); on `just_climb` and `routine`, which draw every attempt as its own row, it stays `.completions` - matching the rows actually on screen rather than a population the board did not draw. `frozenCompletionStanding` in `functions/src/liveReplayLeaderboard.ts` mirrors this exactly: `population` is `input.completedCount` where the payload collapses repeats, else `input.reading.attemptCount`. This is the final form, not a transitional one - do not describe the attempt-counting branch as superseded.
+**The field-size line and the server's frozen stamp count the board's own population instead - Option A, scoped to boards that collapse repeats.** Settled by the captain on 2026-09-06, closing the `key=live-board-attempt-board-denominator` escalation for good. `LiveReplayLeaderboardContextType.fieldPopulation` is `.climbers` only where `collapsesRepeatFinishers` is true (`live_climb`, `routine_template`); on `just_climb` and `routine` it stays `.completions`. Those boards draw one row per climber like every other live board, with a climber's previous best as the `BEST` marker inside their own row; `.completions` is scoped to the frozen/stamped field-size population only - the attempt count the server freezes with a standing - and says nothing about the rows the board draws. `frozenCompletionStanding` in `functions/src/liveReplayLeaderboard.ts` mirrors this exactly: `population` is `input.completedCount` where the payload collapses repeats, else `input.reading.attemptCount`. This is the final form, not a transitional one - do not describe the attempt-counting branch as superseded.
 
 **One card, two bases, two nouns, and that is intentional.** `LiveClimbSummaryRankHero.fieldPopulation(on:)` reads `recomputedFieldPopulation` (always climbers) for a `.current` standing and `fieldPopulation` (Option A) for `.atCompletion` / `.liveSession`. The captain's "the saved card has to match the live one" instruction (`key=climbers-noun-vs-frozen-basis`, option (a)) was scoped to the recomputed basis only - the frozen stamp keeps the board's own population. That is why a `just_climb` summary can read `CLIMBERS` while the standing is still live-recomputed, then `COMPLETIONS` once the server's frozen stamp lands - both are true statements about different moments, not drift.
 
