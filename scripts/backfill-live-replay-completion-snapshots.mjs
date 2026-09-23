@@ -474,7 +474,8 @@ function climberStanding(completedSoFar, entry) {
 }
 
 /**
- * Standing on a board that races every attempt as its own opponent.
+ * Standing frozen over every completed attempt - the Option A stamp on
+ * `just_climb` and `routine`, whose boards still draw one row per climber.
  *
  * Strictly better only, so attempts tied on the metric share a rank. Every row
  * counted here is one of the rows `completedCount` counted, so the pair is

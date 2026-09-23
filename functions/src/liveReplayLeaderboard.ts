@@ -232,10 +232,10 @@ interface CompletionFieldReading {
    */
   betterRowCount: number;
   /**
-   * Published attempts in the context, this one included - the denominator for
-   * a board that races attempts. Null where the board collapses repeat
-   * finishers instead, whose denominator is the distinct-finisher count the
-   * publish transaction resolves.
+   * Published attempts in the context, this one included - the frozen stamp's
+   * denominator on `just_climb` and `routine` (Option A). Null where the board
+   * collapses repeat finishers instead, whose denominator is the
+   * distinct-finisher count the publish transaction resolves.
    */
   attemptCount: number | null;
 }
@@ -2686,9 +2686,9 @@ export function currentPublicUserSnapshotFromData(
 }
 
 /**
- * Returns the best-per-user flag field, or nothing in contexts without one.
+ * Returns the best-per-user flag field, or nothing when the publish has none.
  *
- * A context that races every attempt must leave the field absent rather than
+ * A publish that carries no flag must leave the field absent rather than
  * store false: Firestore equality never matches a missing field, so an absent
  * flag cannot be filtered on by mistake, while a stored false could be.
  * @param {boolean | null} isBestForUser Seed flag, or null for no flag.
