@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// The "Just Me" tab of the live climb session: a step-progress statement, an
-/// animated summit bar carrying the previous-best marker, and a row of live
-/// stats (elapsed, steps remaining, rank). Renders over the climb's own hero
+/// animated summit bar carrying the previous-best marker, and a 2x2 grid of live
+/// stats (elapsed, steps remaining, rank, pace). Renders over the climb's own hero
 /// photo (`LiveClimbSessionView.sessionBackground`) rather than a flat
 /// background, so text throughout carries its own shadow.
 struct LiveClimbJustMeView: View {
@@ -124,11 +124,40 @@ struct LiveClimbJustMeView: View {
         width - fillWidth >= 40
     }
 
+    /// Two rows of two rather than four across: four cards in one row leave each
+    /// under 80pt on an iPhone SE, too narrow for `CURRENT RANK` or a two-line pace
+    /// at a legible size, while the grid fills the same height the three cards did.
     private var statRow: some View {
-        HStack(spacing: 10) {
-            statCard(value: viewModel.elapsedClock, label: "ELAPSED")
-            statCard(value: remainingStepsDisplay, label: "REMAINING", isAccent: true)
-            statCard(value: viewModel.currentRankDisplay, label: "CURRENT RANK")
+        Grid(horizontalSpacing: 10, verticalSpacing: 10) {
+            GridRow {
+                statCard(value: viewModel.elapsedClock, label: "ELAPSED")
+                statCard(value: remainingStepsDisplay, label: "REMAINING", isAccent: true)
+            }
+            GridRow {
+                statCard(value: viewModel.currentRankDisplay, label: "CURRENT RANK")
+                paceCard
+            }
+        }
+    }
+
+    /// Current pace leads, the whole-climb average sits under it, and the label names
+    /// the unit once for both. `—` on either line is the same no-value convention the
+    /// rank card uses: the clock has not run long enough to say.
+    private var paceCard: some View {
+        statCard(value: viewModel.currentPaceDisplay, label: "PACE · SPM") {
+            HStack(alignment: .lastTextBaseline, spacing: 4) {
+                Text("AVG")
+                    .font(.montserratBold(size: 9))
+                    .tracking(0.6)
+                    .foregroundStyle(.white.opacity(0.6))
+                Text(viewModel.averagePaceDisplay)
+                    .font(.montserratBold(size: 13))
+                    .foregroundStyle(.white.opacity(0.86))
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
         }
     }
 
@@ -141,6 +170,15 @@ struct LiveClimbJustMeView: View {
     }
 
     private func statCard(value: String, label: String, isAccent: Bool = false) -> some View {
+        statCard(value: value, label: label, isAccent: isAccent) { EmptyView() }
+    }
+
+    private func statCard(
+        value: String,
+        label: String,
+        isAccent: Bool = false,
+        @ViewBuilder secondary: () -> some View
+    ) -> some View {
         VStack(spacing: 6) {
             Text(value)
                 .font(.montserratBold(size: 22))
@@ -149,6 +187,8 @@ struct LiveClimbJustMeView: View {
                 .contentTransition(.numericText())
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
+
+            secondary()
 
             Text(label)
                 .font(.montserratBold(size: 9))

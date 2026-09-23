@@ -191,6 +191,9 @@ final class LiveClimbSessionViewModel {
 
     private var hasSavedSession = false
     private var stepTimelineRecorder: LiveClimbStepTimelineRecorder
+    /// Trailing-window cadence behind the PACE card's current number; `LiveClimbPaceWindow`
+    /// states the rules. Fed by the same samples as `stepTimelineRecorder` and reset with it.
+    private var paceWindow = LiveClimbPaceWindow()
     private var isLeaderboardRefreshInFlight = false
     /// Whether the leaderboard service has been told this session started. Done
     /// on the first window refresh rather than in `start`, so it is ordered
@@ -350,9 +353,30 @@ final class LiveClimbSessionViewModel {
         return (Double(targetStepCount) / Double(spm)) * 60
     }
 
-    var currentStepsPerMinute: Int {
-        guard displayedDuration > 0 else { return 0 }
-        return Int((Double(totalRecordedSteps) / (displayedDuration / 60)).rounded())
+    /// Steps per minute over the trailing `LiveClimbPaceWindow.defaultWindowSeconds`, or
+    /// `nil` until the clock has enough to say; the PACE card's prominent number.
+    var currentStepsPerMinute: Int? {
+        paceWindow.currentStepsPerMinute(
+            elapsedSeconds: displayedDuration,
+            steps: totalRecordedSteps
+        )
+    }
+
+    /// Steps per minute over the whole climb so far, or `nil` until the clock has enough
+    /// to say; the PACE card's average line.
+    var averageStepsPerMinute: Int? {
+        LiveClimbPaceWindow.averageStepsPerMinute(
+            steps: totalRecordedSteps,
+            elapsedSeconds: displayedDuration
+        )
+    }
+
+    var currentPaceDisplay: String {
+        currentStepsPerMinute.map { $0.formatted() } ?? "—"
+    }
+
+    var averagePaceDisplay: String {
+        averageStepsPerMinute.map { $0.formatted() } ?? "—"
     }
 
     var elapsedClock: String {
@@ -562,6 +586,7 @@ final class LiveClimbSessionViewModel {
 
         do {
             stepTimelineRecorder.reset()
+            paceWindow.reset()
             if let splitCurve = activeDraft?.splitCurve {
                 stepTimelineRecorder.restore(curve: splitCurve)
             }
@@ -575,6 +600,7 @@ final class LiveClimbSessionViewModel {
                     cumulativeSteps: 0,
                     source: .headphoneMotion
                 )
+                paceWindow.record(elapsedSeconds: 0, steps: 0)
             }
 
             let draft = try prepareDraftIfNeeded(modelContext: modelContext)
@@ -799,6 +825,9 @@ final class LiveClimbSessionViewModel {
         }
 
         _ = stepTimelineRecorder.recordCorrection(correction)
+        // The corrected count is a new baseline: a pace read across it would measure the
+        // correction, not the climber.
+        paceWindow.reset()
         stepSyncPrompt = nil
         stepSyncConfirmation = LiveStepSyncConfirmation(correctedSteps: correction.correctedSteps)
 
@@ -828,6 +857,7 @@ final class LiveClimbSessionViewModel {
             cumulativeSteps: motionSession.stepCount,
             source: .headphoneMotion
         )
+        paceWindow.record(elapsedSeconds: motionSession.duration, steps: totalRecordedSteps)
         recordHeartRateSampleForSessionTick()
         if let modelContext {
             checkpointDraft(modelContext: modelContext)
@@ -907,6 +937,7 @@ final class LiveClimbSessionViewModel {
               motionSession.status.isRecording else { return }
 
         _ = stepTimelineRecorder.record(sample)
+        paceWindow.record(elapsedSeconds: TimeInterval(sample.elapsedSeconds), steps: totalRecordedSteps)
         Task { [weak self] in
             await self?.updateLiveActivity()
         }

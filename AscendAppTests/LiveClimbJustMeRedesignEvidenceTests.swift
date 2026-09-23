@@ -8,7 +8,7 @@ import UIKit
 
 /// Product-level evidence for the Just Me tab redesign: a plain-language step
 /// count header, a horizontal summit bar carrying the live percentage, and a
-/// three-card stat row (Elapsed/Remaining/Rank) - all read off the real,
+/// 2x2 stat grid (Elapsed/Remaining/Rank/Pace) - all read off the real,
 /// shipping `LiveClimbSessionView` mid-recording, not a redrawn copy.
 ///
 /// Photographed when `ASCEND_EVIDENCE_DIR` is set, and not drawn otherwise.
@@ -59,7 +59,12 @@ struct LiveClimbJustMeRedesignEvidenceTests {
             #expect(text.contains("600"), "900 target - 300 recorded = 600 steps remaining")
             #expect(text.contains("elapsed"))
             #expect(text.contains("current rank"))
-            #expect(!text.contains("pace"), "the PACE · SPM card was dropped from this tab's redesign")
+            // The fourth card: current pace leads, the climb-so-far average sits under it,
+            // both in steps per minute (300 steps over 12:34 is 24, and with no window of
+            // ticks yet the current reading is the same climb-so-far ratio).
+            #expect(text.contains("pace · spm"), "the PACE card is back on this tab: \(text)")
+            #expect(text.contains("avg"))
+            #expect(text.contains("24"), "300 steps / 12.57 minutes = 24 steps per minute")
 
             // The live percentage rides the summit bar's fill, mid-climb (300/900 = 33%).
             #expect(text.contains("33%"))

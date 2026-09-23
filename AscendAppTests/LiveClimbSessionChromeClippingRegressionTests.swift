@@ -79,7 +79,7 @@ struct LiveClimbSessionChromeClippingRegressionTests {
         on screen: HostedScreen,
         phase: String
     ) async throws {
-        let anchors = ["Berlin TV Tower", "Berlin, Germany", "ELAPSED", "REMAINING", "CURRENT RANK"]
+        let anchors = ["Berlin TV Tower", "Berlin, Germany", "ELAPSED", "REMAINING", "CURRENT RANK", "PACE · SPM"]
 
         for anchor in anchors {
             let frame = try await screen.frame(ofElementLabelled: anchor)
