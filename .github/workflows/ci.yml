@@ -501,7 +501,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.ios == 'true'
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -715,10 +715,19 @@ jobs:
       # runner is. The script's silence watchdog normally fires long before
       # either (five minutes in which no test starts or finishes while the
       # host is alive); this is the backstop.
+      #
+      # The cap bounds a hung script, not a slow runner, so it sits well above
+      # what a healthy run takes. Green runs spent 23-31 minutes in this step
+      # between 2026-09-11 and 2026-09-23, and run 35853374398 was killed at
+      # 34 with pass 2 five suites from the end: that runner compiled 18 minutes
+      # against the 14 of the green run an hour earlier and ran the untouched
+      # movie-export pass 2.5x slower, so the old 34 turned runner speed into a
+      # red check. The silence watchdog and the per-test allowance are what
+      # name a real hang, long before this fires.
       - name: Run tests
         id: tests
         shell: bash
-        timeout-minutes: 34
+        timeout-minutes: 48
         run: ./scripts/ci/run-ios-test-passes.sh "${{ steps.simulator.outputs.id }}"
 
       # A step killed by the job-level timeout-minutes reports `cancelled`,
