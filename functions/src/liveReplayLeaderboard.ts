@@ -1873,9 +1873,12 @@ function tiePolicy(contextType: string): string {
  * second. This read owns both the finisher document and the count, so the two
  * halves of a collapsing standing can never be measured from different moments.
  *
- * Every other context races each attempt as its own opponent, so it counts
- * attempts on both sides - including the one publishing now, which the write
- * that follows has not committed yet.
+ * Every other context (`just_climb`, `routine`) freezes an attempt-counted
+ * stamp (Option A, settled 2026-09-06), so this read counts attempts on both
+ * sides - including the one publishing now, which the write that follows has
+ * not committed yet. That scope is the stamp and the field-size line only: the
+ * board those contexts draw is still one row per climber, and it does not race
+ * attempts as opponents.
  *
  * Ranks stay competition-style either way: only strictly better rows count, so
  * everything tied on the metric shares a rank. Steps are coarse integers, so
@@ -1971,7 +1974,9 @@ function leadingRows(
  * Resolves the permanent standing a finished attempt freezes.
  *
  * Both halves count one population: distinct climbers where the board collapses
- * repeat finishers, attempts where it races every one of them. The reading
+ * repeat finishers, attempts on `just_climb` and `routine` - the frozen stamp's
+ * own population there, not a description of the board, which draws one row
+ * per climber on every context. The reading
  * already measured its numerator against the same population its denominator
  * names, so nothing is subtracted here and nothing is clamped - a rank outside
  * its own denominator means the two halves counted different things, and

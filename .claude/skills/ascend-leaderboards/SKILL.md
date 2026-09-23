@@ -90,7 +90,9 @@ If a field size moves when your own previous best appears, it counted you twice.
 **A rank sentence versus the rows a board draws.**
 These are different questions, and the answers are allowed to differ on one screen.
 Live, this seam is closed: since the captain's 2026-09-02 best-per-climber ruling, an open Just Climb and a plain routine draw one row per climber like every other board, so the rows and the rank sentence agree.
-The seam persists only on the static Climb Detail board (statement 4), which draws every completed attempt as its own row while its rank sentence still counts **unique climbers on both halves**: a tower with 41 finishes from 16 climbers, where 5 distinct climbers beat you, reads `6TH OF 16`.
+The seam persists between the static Climb Detail board (statement 4) and the finish summary for the same climb.
+Climb Detail draws every completed attempt as its own row, ranks those rows as attempts, and counts completions in its field-size line (`N COMPLETIONS`); it renders no unique-climber rank sentence.
+The finish summary's recomputed standing for that same climb counts **unique climbers on both halves** (`recomputedFieldPopulation`, `countFinishersBetterThan`): a tower with 41 finishes from 16 climbers, where 5 distinct climbers beat you, reads `6TH OF 16`.
 Never `13TH OF 16`, and never `13TH OF 41`.
 Settled by the captain on 2026-09-02.
 `LiveReplayLeaderboardContextType.recomputedFieldPopulation` is `.climbers` unconditionally, on every context type, with no `collapsesRepeatFinishers` branch - folding it into that predicate would change the server's frozen-standing meaning by implication, which is why it is kept separate.
