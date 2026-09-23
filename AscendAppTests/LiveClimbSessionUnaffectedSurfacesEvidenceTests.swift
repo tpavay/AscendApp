@@ -45,7 +45,7 @@ struct LiveClimbSessionUnaffectedSurfacesEvidenceTests {
 
         viewModel.start(modelContext: context)
         motionSession.stepCount = 214
-        motionSession.duration = 15
+        motionSession.duration = 150 // 2:30, so the pace card reads a plausible 86 steps per minute
         #expect(viewModel.isRecording)
 
         try await RenderedScreen.host(
@@ -110,7 +110,7 @@ struct LiveClimbSessionUnaffectedSurfacesEvidenceTests {
 
         viewModel.start(modelContext: context)
         motionSession.stepCount = 214
-        motionSession.duration = 15
+        motionSession.duration = 150 // 2:30, so the pace card reads a plausible 86 steps per minute
         #expect(viewModel.isRecording)
         #expect(viewModel.mode.climb == nil, "a Just Climb has no landmark, so no photo can be drawn")
 
@@ -126,7 +126,7 @@ struct LiveClimbSessionUnaffectedSurfacesEvidenceTests {
             try screen.photograph(named: "just-climb-just-me-\(Int(size.width))pt")
 
             let inside = screen.bounds.insetBy(dx: Self.minimumSideGutter, dy: 0)
-            for label in ["Just Me", "Leaderboard", "2,000 steps", "ELAPSED", "REMAINING", "CURRENT RANK", "End attempt"] {
+            for label in ["Just Me", "Leaderboard", "2,000 steps", "ELAPSED", "ELEVATION CLIMBED", "CURRENT RANK", "PACE (STEPS PER MINUTE)", "End attempt"] {
                 guard let frame = try await screen.frame(ofElementLabelled: label, reading: 40) else {
                     Issue.record("\(label) is not painted on the Just Climb tab at \(Int(size.width))pt")
                     continue
