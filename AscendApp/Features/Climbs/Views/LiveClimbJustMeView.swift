@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The "Just Me" tab of the live climb session: a step-progress statement, an
 /// animated summit bar carrying the previous-best marker, and a 2x2 grid of live
-/// stats (elapsed, steps remaining, rank, pace). Renders over the climb's own hero
+/// stats (elapsed, elevation climbed, rank, pace). Renders over the climb's own hero
 /// photo (`LiveClimbSessionView.sessionBackground`) rather than a flat
 /// background, so text throughout carries its own shadow.
 struct LiveClimbJustMeView: View {
@@ -125,13 +125,13 @@ struct LiveClimbJustMeView: View {
     }
 
     /// Two rows of two rather than four across: four cards in one row leave each
-    /// under 80pt on an iPhone SE, too narrow for `CURRENT RANK` or a two-line pace
+    /// under 80pt on an iPhone SE, too narrow for `CURRENT RANK` or a two-column pace
     /// at a legible size, while the grid fills the same height the three cards did.
     private var statRow: some View {
         Grid(horizontalSpacing: 10, verticalSpacing: 10) {
             GridRow {
                 statCard(value: viewModel.elapsedClock, label: "ELAPSED")
-                statCard(value: remainingStepsDisplay, label: "REMAINING", isAccent: true)
+                statCard(value: elevationClimbedDisplay, label: "ELEVATION CLIMBED", isAccent: true)
             }
             GridRow {
                 statCard(value: viewModel.currentRankDisplay, label: "CURRENT RANK")
@@ -140,33 +140,62 @@ struct LiveClimbJustMeView: View {
         }
     }
 
-    /// Current pace leads, the whole-climb average sits under it, and the label names
-    /// the unit once for both. `—` on either line is the same no-value convention the
-    /// rank card uses: the clock has not run long enough to say.
+    /// Current pace and the whole-climb average sit side by side, each carrying its own
+    /// "current"/"average" label directly beneath it so neither number reads as bare -
+    /// the shared unit is named once, centered under both columns.
     private var paceCard: some View {
-        statCard(value: viewModel.currentPaceDisplay, label: "PACE · SPM") {
-            HStack(alignment: .lastTextBaseline, spacing: 4) {
-                Text("AVG")
-                    .font(.montserratBold(size: 9))
-                    .tracking(0.6)
-                    .foregroundStyle(.white.opacity(0.6))
-                Text(viewModel.averagePaceDisplay)
-                    .font(.montserratBold(size: 13))
-                    .foregroundStyle(.white.opacity(0.86))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
+        VStack(spacing: 5) {
+            HStack(alignment: .lastTextBaseline, spacing: 14) {
+                paceColumn(value: viewModel.currentPaceDisplay, label: "CURRENT", valueSize: 20, valueOpacity: 1)
+                paceColumn(value: viewModel.averagePaceDisplay, label: "AVERAGE", valueSize: 16, valueOpacity: 0.75)
             }
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
+
+            Text("PACE (STEPS PER MINUTE)")
+                .font(.montserratBold(size: 8))
+                .tracking(0.4)
+                .foregroundStyle(.white.opacity(0.6))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.black.opacity(0.34))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(.white.opacity(0.1), lineWidth: 1)
+        )
     }
 
-    /// Steps left to the summit, or "—" on an open Just Climb, where there is no
-    /// target to count down from - the same no-value convention `currentRankDisplay`
-    /// already uses rather than inventing a second one.
-    private var remainingStepsDisplay: String {
-        guard let targetStepCount = viewModel.mode.targetStepCount else { return "—" }
-        return max(targetStepCount - viewModel.totalRecordedSteps, 0).formatted()
+    private func paceColumn(value: String, label: String, valueSize: CGFloat, valueOpacity: Double) -> some View {
+        VStack(spacing: 3) {
+            Text(value)
+                .font(.montserratBold(size: valueSize))
+                .foregroundStyle(.white.opacity(valueOpacity))
+                .monospacedDigit()
+                .contentTransition(.numericText())
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+
+            Text(label)
+                .font(.montserratBold(size: 8))
+                .tracking(0.5)
+                .foregroundStyle(.white.opacity(0.55))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Floors climbed so far: `Climb.calculatedFloors` (the published storey count
+    /// `ascend-live-climbs` already treats as the corrected "how tall" figure) scaled by
+    /// `totalProgressFraction`. A Just Climb has no landmark to measure height against, so
+    /// it reads "—" - the same no-value convention `currentRankDisplay` already uses.
+    private var elevationClimbedDisplay: String {
+        guard let climb = viewModel.mode.climb else { return "—" }
+        let floorsClimbed = (viewModel.totalProgressFraction * Double(climb.calculatedFloors)).rounded()
+        return Int(floorsClimbed).formatted()
     }
 
     private func statCard(value: String, label: String, isAccent: Bool = false) -> some View {
