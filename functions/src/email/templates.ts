@@ -11,6 +11,8 @@ import type {
   FirstAscentClaimedPayload,
   FirstClimbCompletedPayload,
   LeaderboardFirstPlacePayload,
+  RecapActivePayload,
+  RecapInactivePayload,
   TransactionalEmailRenderResult,
 } from "./types";
 
@@ -128,6 +130,84 @@ function requiredUrl(
   }
 
   return value;
+}
+
+/**
+ * Reads an optional, non-empty string from a stored template payload.
+ * @param {Record<string, unknown>} payload - Stored job payload
+ * @param {string} key - Payload key
+ * @return {string | undefined} Trimmed string, when present
+ */
+function optionalString(
+  payload: Record<string, unknown>,
+  key: string
+): string | undefined {
+  const value = payload[key];
+  return typeof value === "string" && value.trim().length > 0 ?
+    value.trim() :
+    undefined;
+}
+
+/**
+ * Reads a required finite number from a stored template payload.
+ * @param {Record<string, unknown>} payload - Stored job payload
+ * @param {string} key - Payload key
+ * @param {string} errorCode - Error to throw when invalid
+ * @return {number} The number
+ */
+function requiredNumber(
+  payload: Record<string, unknown>,
+  key: string,
+  errorCode: string
+): number {
+  const value = payload[key];
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(errorCode);
+  }
+  return value;
+}
+
+/**
+ * Reads an optional finite number from a stored template payload.
+ * @param {Record<string, unknown>} payload - Stored job payload
+ * @param {string} key - Payload key
+ * @return {number | undefined} The number, when present
+ */
+function optionalNumber(
+  payload: Record<string, unknown>,
+  key: string
+): number | undefined {
+  const value = payload[key];
+  return typeof value === "number" && Number.isFinite(value) ?
+    value :
+    undefined;
+}
+
+/**
+ * Reads a string array from a stored template payload, dropping anything
+ * that is not a non-empty string rather than rejecting the whole email.
+ * @param {Record<string, unknown>} payload - Stored job payload
+ * @param {string} key - Payload key
+ * @return {string[]} Non-empty trimmed strings
+ */
+function stringArray(payload: Record<string, unknown>, key: string): string[] {
+  const value = payload[key];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((entry): entry is string =>
+      typeof entry === "string" && entry.trim().length > 0)
+    .map((entry) => entry.trim());
+}
+
+/**
+ * Formats a count with thousands separators for recap copy.
+ * @param {number} value - Raw count
+ * @return {string} Locale-formatted count
+ */
+function formatCount(value: number): string {
+  return Math.max(0, Math.round(value)).toLocaleString("en-US");
 }
 
 /**
@@ -659,6 +739,298 @@ export function renderLeaderboardFirstPlaceEmailFromPayload(
 ): TransactionalEmailRenderResult {
   return renderLeaderboardFirstPlaceEmail(
     parseLeaderboardFirstPlacePayload(payload),
+    context
+  );
+}
+
+// =============================================================================
+// Weekly / Monthly Recap
+// =============================================================================
+
+/**
+ * Parses a recap payload shared by an active climber's weekly or monthly
+ * email.
+ * @param {EmailJobPayload} payload - Stored job payload
+ * @param {string} errorCode - Error to throw when invalid
+ * @return {RecapActivePayload} Validated payload
+ */
+function parseRecapActivePayload(
+  payload: EmailJobPayload,
+  errorCode: string
+): RecapActivePayload {
+  if (!isPlainObject(payload)) {
+    throw new Error(errorCode);
+  }
+
+  return {
+    periodLabel: requiredString(payload, "periodLabel", errorCode),
+    climbsCompleted: requiredNumber(payload, "climbsCompleted", errorCode),
+    totalSteps: requiredNumber(payload, "totalSteps", errorCode),
+    totalFloors: requiredNumber(payload, "totalFloors", errorCode),
+    landmarksFinished: stringArray(payload, "landmarksFinished"),
+    bestRankLabel: optionalString(payload, "bestRankLabel"),
+    currentStreakWeeks: optionalNumber(payload, "currentStreakWeeks"),
+    comparisonNote: optionalString(payload, "comparisonNote"),
+    climbsUrl: requiredUrl(payload, "climbsUrl", errorCode),
+  };
+}
+
+/**
+ * Parses a recap payload shared by a zero-activity climber's re-engagement
+ * email.
+ * @param {EmailJobPayload} payload - Stored job payload
+ * @param {string} errorCode - Error to throw when invalid
+ * @return {RecapInactivePayload} Validated payload
+ */
+function parseRecapInactivePayload(
+  payload: EmailJobPayload,
+  errorCode: string
+): RecapInactivePayload {
+  if (!isPlainObject(payload)) {
+    throw new Error(errorCode);
+  }
+
+  return {
+    periodLabel: requiredString(payload, "periodLabel", errorCode),
+    suggestedClimbName: optionalString(payload, "suggestedClimbName"),
+    suggestedClimbUrl: requiredUrl(payload, "suggestedClimbUrl", errorCode),
+  };
+}
+
+/**
+ * Builds the body paragraphs shared by the weekly and monthly active recap -
+ * every optional line is left out entirely rather than rendered hollow.
+ * @param {RecapActivePayload} payload - Validated recap payload
+ * @param {string} landmarksLabel - "Landmarks finished" vs "conquered"
+ * @return {string[]} Body paragraphs
+ */
+function buildRecapActiveBodyParagraphs(
+  payload: RecapActivePayload,
+  landmarksLabel: string
+): string[] {
+  const paragraphs: string[] = [
+    `${payload.periodLabel}: ${formatCount(payload.climbsCompleted)} ` +
+      `climbs, ${formatCount(payload.totalSteps)} steps, ` +
+      `${formatCount(payload.totalFloors)} floors.`,
+  ];
+
+  if (payload.landmarksFinished.length > 0) {
+    paragraphs.push(
+      `${landmarksLabel}: ${payload.landmarksFinished.join(", ")}.`
+    );
+  }
+
+  if (payload.bestRankLabel) {
+    paragraphs.push(payload.bestRankLabel);
+  }
+
+  if (payload.currentStreakWeeks && payload.currentStreakWeeks >= 2) {
+    paragraphs.push(
+      `${payload.currentStreakWeeks} weeks running. Keep it alive.`
+    );
+  }
+
+  if (payload.comparisonNote) {
+    paragraphs.push(payload.comparisonNote);
+  }
+
+  return paragraphs;
+}
+
+/**
+ * Renders the weekly recap email for a climber active in the window.
+ * @param {RecapActivePayload} payload - Template payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+export function renderWeeklyRecapActiveEmail(
+  payload: RecapActivePayload,
+  context: EmailRenderContext = {}
+): TransactionalEmailRenderResult {
+  return renderBrandedEmail({
+    unsubscribeUrl: context.unsubscribeUrl,
+    subject: "Your week on the board",
+    preheader: `${formatCount(payload.climbsCompleted)} climbs, ` +
+      `${formatCount(payload.totalSteps)} steps. Here's the tally.`,
+    eyebrow: "Weekly Recap",
+    headline: "YOU PUT IN THE WORK.",
+    bodyParagraphs: [
+      ...buildRecapActiveBodyParagraphs(payload, "Landmarks finished"),
+      "Pick your next climb and keep the board moving.",
+    ],
+    ctaLabel: "Climb again",
+    ctaUrl: payload.climbsUrl,
+    whyReceived: [
+      "You received this because Ascend sends climbers a weekly recap",
+      "of their climbs.",
+    ].join(" "),
+  });
+}
+
+/**
+ * Validates and renders the weekly recap email for an active climber.
+ * @param {EmailJobPayload} payload - Stored job payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+export function renderWeeklyRecapActiveEmailFromPayload(
+  payload: EmailJobPayload,
+  context: EmailRenderContext = {}
+): TransactionalEmailRenderResult {
+  return renderWeeklyRecapActiveEmail(
+    parseRecapActivePayload(payload, "invalid_weekly_recap_active_payload"),
+    context
+  );
+}
+
+/**
+ * Renders the weekly re-engagement email for a climber with no activity in
+ * the window. Gentle by design - the state, then one clear action, never a
+ * guilt-trip about the gap.
+ * @param {RecapInactivePayload} payload - Template payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+export function renderWeeklyRecapInactiveEmail(
+  payload: RecapInactivePayload,
+  context: EmailRenderContext = {}
+): TransactionalEmailRenderResult {
+  const bodyParagraphs = [
+    "No new steps on the board this week. Pick a climb and put your name " +
+      "back on it.",
+  ];
+  if (payload.suggestedClimbName) {
+    bodyParagraphs.push(`${payload.suggestedClimbName} is open and ready.`);
+  }
+
+  return renderBrandedEmail({
+    unsubscribeUrl: context.unsubscribeUrl,
+    subject: "A climb is waiting",
+    preheader: "The board missed you. Here's one to try.",
+    eyebrow: "Next Climb",
+    headline: "THE BOARD MISSED YOU.",
+    bodyParagraphs,
+    ctaLabel: "Start climbing",
+    ctaUrl: payload.suggestedClimbUrl,
+    whyReceived: [
+      "You received this because a week passed with no Ascend climbs",
+      "on your account.",
+    ].join(" "),
+  });
+}
+
+/**
+ * Validates and renders the weekly re-engagement email.
+ * @param {EmailJobPayload} payload - Stored job payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+export function renderWeeklyRecapInactiveEmailFromPayload(
+  payload: EmailJobPayload,
+  context: EmailRenderContext = {}
+): TransactionalEmailRenderResult {
+  return renderWeeklyRecapInactiveEmail(
+    parseRecapInactivePayload(payload, "invalid_weekly_recap_inactive_payload"),
+    context
+  );
+}
+
+/**
+ * Renders the monthly recap email for a climber active in the window.
+ * @param {RecapActivePayload} payload - Template payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+export function renderMonthlyRecapActiveEmail(
+  payload: RecapActivePayload,
+  context: EmailRenderContext = {}
+): TransactionalEmailRenderResult {
+  return renderBrandedEmail({
+    unsubscribeUrl: context.unsubscribeUrl,
+    subject: "Your month on the board",
+    preheader: `${formatCount(payload.climbsCompleted)} climbs, ` +
+      `${formatCount(payload.totalSteps)} steps this month.`,
+    eyebrow: "Monthly Recap",
+    headline: "A MONTH OF REAL CLIMBS.",
+    bodyParagraphs: [
+      ...buildRecapActiveBodyParagraphs(payload, "Landmarks conquered"),
+      "Start the next month with a climb.",
+    ],
+    ctaLabel: "Climb again",
+    ctaUrl: payload.climbsUrl,
+    whyReceived: [
+      "You received this because Ascend sends climbers a monthly recap",
+      "of their climbs.",
+    ].join(" "),
+  });
+}
+
+/**
+ * Validates and renders the monthly recap email for an active climber.
+ * @param {EmailJobPayload} payload - Stored job payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+export function renderMonthlyRecapActiveEmailFromPayload(
+  payload: EmailJobPayload,
+  context: EmailRenderContext = {}
+): TransactionalEmailRenderResult {
+  return renderMonthlyRecapActiveEmail(
+    parseRecapActivePayload(payload, "invalid_monthly_recap_active_payload"),
+    context
+  );
+}
+
+/**
+ * Renders the monthly re-engagement email for a climber with no activity in
+ * the window.
+ * @param {RecapInactivePayload} payload - Template payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+export function renderMonthlyRecapInactiveEmail(
+  payload: RecapInactivePayload,
+  context: EmailRenderContext = {}
+): TransactionalEmailRenderResult {
+  const bodyParagraphs = [
+    "No new steps on the board this month. Pick a climb and put your " +
+      "name back on it.",
+  ];
+  if (payload.suggestedClimbName) {
+    bodyParagraphs.push(`${payload.suggestedClimbName} is open and ready.`);
+  }
+
+  return renderBrandedEmail({
+    unsubscribeUrl: context.unsubscribeUrl,
+    subject: "Still time to climb this month",
+    preheader: "The board is still there. Here's one to try.",
+    eyebrow: "Next Climb",
+    headline: "THE BOARD IS STILL THERE.",
+    bodyParagraphs,
+    ctaLabel: "Start climbing",
+    ctaUrl: payload.suggestedClimbUrl,
+    whyReceived: [
+      "You received this because a month passed with no Ascend climbs",
+      "on your account.",
+    ].join(" "),
+  });
+}
+
+/**
+ * Validates and renders the monthly re-engagement email.
+ * @param {EmailJobPayload} payload - Stored job payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+export function renderMonthlyRecapInactiveEmailFromPayload(
+  payload: EmailJobPayload,
+  context: EmailRenderContext = {}
+): TransactionalEmailRenderResult {
+  return renderMonthlyRecapInactiveEmail(
+    parseRecapInactivePayload(
+      payload,
+      "invalid_monthly_recap_inactive_payload"
+    ),
     context
   );
 }

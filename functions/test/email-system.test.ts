@@ -17,13 +17,23 @@ import {
   renderFirstAscentClaimedEmailFromPayload,
   renderFirstClimbCompletedEmail,
   renderLeaderboardFirstPlaceEmail,
+  renderMonthlyRecapActiveEmail,
+  renderMonthlyRecapActiveEmailFromPayload,
+  renderMonthlyRecapInactiveEmail,
   renderOnboardingAbandonedAfterPaywallEmail,
   renderOnboardingAbandonedBeforePaywallEmail,
   renderRatingNegativeFeedbackEmail,
   renderRatingPositiveFollowupEmail,
   renderFeedbackAdminNotifyEmail,
+  renderWeeklyRecapActiveEmail,
+  renderWeeklyRecapActiveEmailFromPayload,
+  renderWeeklyRecapInactiveEmail,
 } from "../src/email/templates";
-import type {EmailJobDocument, EmailType} from "../src/email/types";
+import type {
+  EmailJobDocument,
+  EmailJobPayload,
+  EmailType,
+} from "../src/email/types";
 
 test("rating prompt email automation maps responses to email types", () => {
   assert.equal(
@@ -246,6 +256,140 @@ test("achievement payload renderers reject missing or unsafe urls", () => {
     }),
     /invalid_first_ascent_claimed_payload/
   );
+});
+
+// =============================================================================
+// Weekly / Monthly Recap Templates
+// =============================================================================
+
+const baseWeeklyActivePayload = {
+  bestRankLabel: undefined,
+  climbsCompleted: 3,
+  climbsUrl: "https://ascendstepper.com/app/climbs",
+  comparisonNote: undefined,
+  currentStreakWeeks: undefined,
+  landmarksFinished: [] as string[],
+  periodLabel: "Sep 15 – Sep 21",
+  totalFloors: 210,
+  totalSteps: 8500,
+};
+
+test("weekly active recap states the period totals", () => {
+  const rendered = renderWeeklyRecapActiveEmail(baseWeeklyActivePayload);
+
+  assert.equal(rendered.subject, "Your week on the board");
+  assert.match(rendered.text, /Sep 15 – Sep 21: 3 climbs, 8,500 steps, 210 floors\./);
+  assert.match(rendered.text, /Climb again:/);
+  assert.doesNotMatch(rendered.text, /Landmarks finished:/);
+  assert.doesNotMatch(rendered.text, /weeks running/);
+});
+
+test("weekly active recap includes landmarks, rank, and streak when present", () => {
+  const rendered = renderWeeklyRecapActiveEmail({
+    ...baseWeeklyActivePayload,
+    bestRankLabel: "You placed Top 10 globally this week - #7.",
+    currentStreakWeeks: 3,
+    landmarksFinished: ["Eiffel Tower", "Burj Khalifa"],
+  });
+
+  assert.match(rendered.text, /Landmarks finished: Eiffel Tower, Burj Khalifa\./);
+  assert.match(rendered.text, /You placed Top 10 globally this week - #7\./);
+  assert.match(rendered.text, /3 weeks running\. Keep it alive\./);
+});
+
+test("a one-week streak is not announced as a running streak", () => {
+  const rendered = renderWeeklyRecapActiveEmail({
+    ...baseWeeklyActivePayload,
+    currentStreakWeeks: 1,
+  });
+
+  assert.doesNotMatch(rendered.text, /weeks running/);
+});
+
+test("weekly active recap escapes a landmark name in html", () => {
+  const rendered = renderWeeklyRecapActiveEmail({
+    ...baseWeeklyActivePayload,
+    landmarksFinished: ["<script>alert('xss')</script>"],
+  });
+
+  assert.doesNotMatch(rendered.html, /<script>/);
+  assert.match(rendered.html, /&lt;script&gt;/);
+});
+
+test("weekly active payload renderer requires the numeric fields", () => {
+  assert.throws(
+    () => renderWeeklyRecapActiveEmailFromPayload({
+      climbsUrl: "https://ascendstepper.com/app/climbs",
+      periodLabel: "Sep 15 – Sep 21",
+    } as unknown as EmailJobPayload),
+    /invalid_weekly_recap_active_payload/
+  );
+});
+
+test("weekly inactive recap is gentle - a state, then one action", () => {
+  const rendered = renderWeeklyRecapInactiveEmail({
+    periodLabel: "Sep 15 – Sep 21",
+    suggestedClimbName: "Tokyo Skytree",
+    suggestedClimbUrl: "https://ascendstepper.com/app/climbs/tokyo-skytree",
+  });
+
+  assert.equal(rendered.subject, "A climb is waiting");
+  assert.match(rendered.text, /No new steps on the board this week/);
+  assert.match(rendered.text, /Tokyo Skytree is open and ready\./);
+  assert.match(rendered.text, /Start climbing:/);
+  assert.doesNotMatch(rendered.text, /didn't climb|you missed|streak.*lost/i);
+});
+
+test("weekly inactive recap omits the suggestion line without a climb", () => {
+  const rendered = renderWeeklyRecapInactiveEmail({
+    periodLabel: "Sep 15 – Sep 21",
+    suggestedClimbUrl: "https://ascendstepper.com/app/climbs",
+  });
+
+  assert.doesNotMatch(rendered.text, /is open and ready/);
+});
+
+const baseMonthlyActivePayload = {
+  ...baseWeeklyActivePayload,
+  periodLabel: "September 2026",
+};
+
+test("monthly active recap states month totals and a comparison note", () => {
+  const rendered = renderMonthlyRecapActiveEmail({
+    ...baseMonthlyActivePayload,
+    comparisonNote: "Up 18% from last month.",
+    landmarksFinished: ["Space Needle"],
+  });
+
+  assert.equal(rendered.subject, "Your month on the board");
+  assert.match(rendered.text, /September 2026: 3 climbs, 8,500 steps, 210 floors\./);
+  assert.match(rendered.text, /Landmarks conquered: Space Needle\./);
+  assert.match(rendered.text, /Up 18% from last month\./);
+});
+
+test("monthly active payload renderer validates and renders", () => {
+  const rendered = renderMonthlyRecapActiveEmailFromPayload(
+    baseMonthlyActivePayload
+  );
+  assert.equal(rendered.subject, "Your month on the board");
+
+  assert.throws(
+    () => renderMonthlyRecapActiveEmailFromPayload({
+      periodLabel: "September 2026",
+    } as unknown as EmailJobPayload),
+    /invalid_monthly_recap_active_payload/
+  );
+});
+
+test("monthly inactive recap never guilt-trips a dormant climber", () => {
+  const rendered = renderMonthlyRecapInactiveEmail({
+    periodLabel: "September 2026",
+    suggestedClimbUrl: "https://ascendstepper.com/app/climbs",
+  });
+
+  assert.equal(rendered.subject, "Still time to climb this month");
+  assert.match(rendered.text, /No new steps on the board this month/);
+  assert.doesNotMatch(rendered.text, /didn't climb|you missed|streak.*lost/i);
 });
 
 // =============================================================================

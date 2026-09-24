@@ -8,7 +8,11 @@ export type EmailType =
   | "onboarding_abandoned_after_paywall"
   | "first_climb_completed"
   | "first_ascent_claimed"
-  | "leaderboard_first_place";
+  | "leaderboard_first_place"
+  | "weekly_recap_active"
+  | "weekly_recap_inactive"
+  | "monthly_recap_active"
+  | "monthly_recap_inactive";
 export type EmailJobStatus =
   | "queued"
   | "processing"
@@ -77,11 +81,38 @@ export interface LeaderboardFirstPlacePayload {
   leaderboardUrl: string;
 }
 
+/**
+ * Stats for a climber who had activity in a closed weekly or monthly window.
+ * `bestRankLabel`, `currentStreakWeeks`, and `comparisonNote` are each
+ * omitted rather than sent as zero/null when there is nothing to report -
+ * an absent field renders no line, never a hollow "0 week streak".
+ */
+export interface RecapActivePayload {
+  periodLabel: string;
+  climbsCompleted: number;
+  totalSteps: number;
+  totalFloors: number;
+  landmarksFinished: string[];
+  bestRankLabel?: string;
+  currentStreakWeeks?: number;
+  comparisonNote?: string;
+  climbsUrl: string;
+}
+
+/** Gentle re-engagement copy for a climber with no activity in the window. */
+export interface RecapInactivePayload {
+  periodLabel: string;
+  suggestedClimbName?: string;
+  suggestedClimbUrl: string;
+}
+
 export type EmailJobPayload =
   | EmptyEmailPayload
   | FirstClimbCompletedPayload
   | FirstAscentClaimedPayload
-  | LeaderboardFirstPlacePayload;
+  | LeaderboardFirstPlacePayload
+  | RecapActivePayload
+  | RecapInactivePayload;
 
 export interface EmailJobDocument {
   attemptCount: number;
