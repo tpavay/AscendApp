@@ -7,6 +7,7 @@ struct ClimbBrowseSectionsView: View {
     @Bindable var viewModel: GlobeViewModel
     @Binding var selectedStepTier: ClimbTier?
     var showsTodaysClimb = true
+    let effectiveSPM: Int
     let onOpenClimb: (Climb, LiveClimbAnalyticsEvent.EntryPoint) -> Void
     /// Called when a section asks for the whole list, which lives in the expanded sheet.
     let onExpand: () -> Void
@@ -35,6 +36,7 @@ struct ClimbBrowseSectionsView: View {
             ClimbBrowseResultRow(
                 climb: climb,
                 isCompleted: viewModel.isCompleted(climb),
+                effectiveSPM: effectiveSPM,
                 isHighlighted: true
             ) {
                 onOpenClimb(climb, .browseSection)
@@ -68,6 +70,7 @@ struct ClimbBrowseSectionsView: View {
                     ClimbBrowseResultRow(
                         climb: climb,
                         isCompleted: viewModel.isCompleted(climb),
+                        effectiveSPM: effectiveSPM,
                         isHighlighted: climb.id == viewModel.dailyRecommendedClimb?.id
                     ) {
                         onOpenClimb(climb, .browseAll)
@@ -241,6 +244,7 @@ struct ClimbBrowseSectionHeader: View {
 struct ClimbBrowseResultRow: View {
     let climb: Climb
     let isCompleted: Bool
+    let effectiveSPM: Int
     var isHighlighted = false
     let onOpen: () -> Void
 
@@ -248,7 +252,8 @@ struct ClimbBrowseResultRow: View {
         Button(action: onOpen) {
             ClimbResultRowView(
                 climb: climb,
-                isCompleted: isCompleted
+                isCompleted: isCompleted,
+                effectiveSPM: effectiveSPM
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -264,6 +269,7 @@ struct ClimbBrowseResultRow: View {
 /// The results of the sheet's climb search.
 struct ClimbSearchResultsView: View {
     @Bindable var viewModel: GlobeViewModel
+    let effectiveSPM: Int
     let onOpenClimb: (Climb) -> Void
 
     var body: some View {
@@ -277,7 +283,8 @@ struct ClimbSearchResultsView: View {
                     ForEach(viewModel.searchSuggestions) { climb in
                         ClimbBrowseResultRow(
                             climb: climb,
-                            isCompleted: viewModel.isCompleted(climb)
+                            isCompleted: viewModel.isCompleted(climb),
+                            effectiveSPM: effectiveSPM
                         ) {
                             onOpenClimb(climb)
                         }
