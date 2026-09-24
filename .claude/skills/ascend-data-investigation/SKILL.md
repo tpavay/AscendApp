@@ -170,7 +170,7 @@ live_replay_leaderboards/{contextKey}                    <- context summary, fir
   completionSnapshots/{workoutId}                        <- immutable rank at completion
 ```
 
-Storage objects live under `users/{uid}/...` prefixes (`photos`, `videos`, `workout_heart_rate`, `profile_pictures`) plus the shared `climb-images/`, `share-card-templates/` and `live-replay-avatars/` trees; `storage.rules` is the authority, and the flat `photos/`, `videos/`, `profile_pictures/` roots are legacy.
+Storage objects live under `users/{uid}/...` prefixes (`photos`, `videos`, `workout_heart_rate`, `step_accuracy_debug`, `profile_pictures`) plus the shared `climb-images/`, `share-card-templates/` and `live-replay-avatars/` trees; `storage.rules` is the authority, and the flat `photos/`, `videos/`, `profile_pictures/` roots are legacy.
 
 ## Before you answer
 

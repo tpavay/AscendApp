@@ -284,3 +284,51 @@ for (const media of accountDeletionMedia) {
     await assertFails(deleteObject(ref(storage, mediaPath(unentitledOwnerId, media))));
   });
 }
+
+// The step-accuracy raw capture is written by the app with the canonical workout
+// id and `application/gzip`; the upload path must accept exactly that shape from
+// its paid owner and nothing else.
+const stepAccuracyDebugPath = (userId) =>
+  `users/${userId}/step_accuracy_debug/C4D5E6F7-0819-4A2B-B3C4-D5E6F708192A.json.gz`;
+
+test('a paid owner can upload a step-accuracy raw capture, and nobody else can', async () => {
+  const owner = testEnv.authenticatedContext(ownerId).storage();
+  await assertSucceeds(
+    uploadBytes(ref(owner, stepAccuracyDebugPath(ownerId)), gzipBytes, { contentType: 'application/gzip' })
+  );
+
+  const unentitled = testEnv.authenticatedContext(unentitledOwnerId).storage();
+  await assertFails(
+    uploadBytes(ref(unentitled, stepAccuracyDebugPath(unentitledOwnerId)), gzipBytes, {
+      contentType: 'application/gzip',
+    })
+  );
+
+  const intruder = testEnv.authenticatedContext(intruderId).storage();
+  await assertFails(
+    uploadBytes(ref(intruder, stepAccuracyDebugPath(ownerId)), gzipBytes, { contentType: 'application/gzip' })
+  );
+  await assertFails(getBytes(ref(intruder, stepAccuracyDebugPath(ownerId))));
+
+  const anonymous = testEnv.unauthenticatedContext().storage();
+  await assertFails(
+    uploadBytes(ref(anonymous, stepAccuracyDebugPath(ownerId)), gzipBytes, { contentType: 'application/gzip' })
+  );
+});
+
+test('a step-accuracy raw capture upload is bounded by size, content type, and file name', async () => {
+  const owner = testEnv.authenticatedContext(ownerId).storage();
+
+  const oversized = new Uint8Array(5 * 1024 * 1024 + 1);
+  await assertFails(
+    uploadBytes(ref(owner, stepAccuracyDebugPath(ownerId)), oversized, { contentType: 'application/gzip' })
+  );
+  await assertFails(
+    uploadBytes(ref(owner, stepAccuracyDebugPath(ownerId)), gzipBytes, { contentType: 'application/json' })
+  );
+  await assertFails(
+    uploadBytes(ref(owner, `users/${ownerId}/step_accuracy_debug/not-a-workout.json.gz`), gzipBytes, {
+      contentType: 'application/gzip',
+    })
+  );
+});
