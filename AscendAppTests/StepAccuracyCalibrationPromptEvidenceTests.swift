@@ -35,6 +35,9 @@ struct StepAccuracyCalibrationPromptEvidenceTests {
             #expect(submitted.isEmpty)
 
             let field = try #require(Self.textField(in: screen.root))
+            // Focus first, as a tap does: SwiftUI applies the field's font to typed text when
+            // editing begins, so inserting into an unfocused field draws it in the system face.
+            field.becomeFirstResponder()
             field.insertText("605")
             try await screen.settle()
             try screen.photograph(named: "step-accuracy-calibration-2-machine-count-typed")
