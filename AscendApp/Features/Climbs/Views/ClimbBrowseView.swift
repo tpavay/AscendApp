@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// The globe with the browse sheet, pushed from a Climb Detail reached outside Home.
 ///
@@ -12,6 +13,7 @@ struct ClimbBrowseView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.tabBarOverlayHeight) private var tabBarOverlayHeight
+    @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
     @State private var selectedDetailClimb: Climb?
     @State private var selectedDetailEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown
     @State private var showingHelpSheet = false
@@ -20,6 +22,7 @@ struct ClimbBrowseView: View {
     @State private var isSearchMode = false
     @State private var searchFocusTask: Task<Void, Never>?
     @State private var didTrackBrowseOpened = false
+    @State private var personalizedClimbSPM = SettingsManager.shared.effectiveBaseLevelSPM
     @FocusState private var isSearchFocused: Bool
 
     init(
@@ -109,7 +112,11 @@ struct ClimbBrowseView: View {
         .task {
             viewModel.loadIfNeeded(modelContext: modelContext)
             trackBrowseOpenedIfNeeded()
+            personalizedClimbSPM = PersonalizedClimbPaceService.effectiveSPM(workouts: workouts)
             await viewModel.refreshCompletedClimberCounts()
+        }
+        .onChange(of: workouts) { _, newValue in
+            personalizedClimbSPM = PersonalizedClimbPaceService.effectiveSPM(workouts: newValue)
         }
         .task(id: viewModel.previewSummary?.climb.id) {
             guard viewModel.previewSummary != nil else { return }
@@ -219,6 +226,7 @@ struct ClimbBrowseView: View {
         ClimbBrowseSectionsView(
             viewModel: viewModel,
             selectedStepTier: $selectedStepTier,
+            effectiveSPM: personalizedClimbSPM,
             onOpenClimb: { climb, source in
                 openClimbFromDrawer(climb, source: source)
             },
@@ -246,7 +254,7 @@ struct ClimbBrowseView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 22) {
                     if isSearching {
-                        ClimbSearchResultsView(viewModel: viewModel) { climb in
+                        ClimbSearchResultsView(viewModel: viewModel, effectiveSPM: personalizedClimbSPM) { climb in
                             openClimbFromDrawer(climb, source: .browseSearch)
                         }
                     } else {

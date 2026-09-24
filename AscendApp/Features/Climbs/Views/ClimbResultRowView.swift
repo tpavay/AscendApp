@@ -3,6 +3,11 @@ import SwiftUI
 struct ClimbResultRowView: View {
     let climb: Climb
     let isCompleted: Bool
+    let effectiveSPM: Int
+
+    private var estimatedTimeText: String {
+        ClimbEstimatedTimeFormatter.estimatedTimeText(for: climb.referenceStepCount, spm: effectiveSPM)
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -41,6 +46,10 @@ struct ClimbResultRowView: View {
                     .font(.montserratMedium(size: 9))
                     .tracking(0.8)
                     .foregroundStyle(.white.opacity(0.42))
+
+                Text(estimatedTimeText)
+                    .font(.montserratMedium(size: 10))
+                    .foregroundStyle(.white.opacity(0.56))
             }
         }
         .padding(10)
@@ -53,8 +62,8 @@ struct ClimbResultRowView: View {
 
 #Preview {
     VStack {
-        ClimbResultRowView(climb: .preview, isCompleted: false)
-        ClimbResultRowView(climb: .preview, isCompleted: true)
+        ClimbResultRowView(climb: .preview, isCompleted: false, effectiveSPM: 66)
+        ClimbResultRowView(climb: .preview, isCompleted: true, effectiveSPM: 66)
     }
     .padding()
     .background(Color.black)

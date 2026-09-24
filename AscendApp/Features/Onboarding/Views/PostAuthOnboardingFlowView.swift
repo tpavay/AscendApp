@@ -1464,9 +1464,11 @@ private struct PostAuthFirstClimbCard: View {
     }
 
     private var estimatedTimeText: String {
-        ClimbEstimatedTimeFormatter.estimatedTimeText(
-            for: climb.referenceStepCount,
-            spm: 65
+        // A brand-new user has no completed climbs yet, so this always resolves
+        // to the app's existing default pace - see `PersonalizedClimbPaceService`.
+        PersonalizedClimbPaceService.estimatedTimeText(
+            forStepCount: climb.referenceStepCount,
+            workouts: []
         )
     }
 }

@@ -54,6 +54,7 @@ struct HomeView: View {
     @State private var searchFocusTask: Task<Void, Never>?
     @State private var hasPreparedHomeEntry = false
     @State private var todayPresentations: [String: HomeTodayActivityRowPresentation] = [:]
+    @State private var personalizedClimbSPM = SettingsManager.shared.effectiveBaseLevelSPM
     @FocusState private var isSearchFocused: Bool
     @AppStorage("firstLaunchDate") private var firstLaunchDate: Double = 0
 
@@ -216,6 +217,7 @@ struct HomeView: View {
 
             enrichmentService.configure(modelContext: modelContext)
             globeViewModel.loadIfNeeded(modelContext: modelContext)
+            personalizedClimbSPM = PersonalizedClimbPaceService.effectiveSPM(workouts: workouts)
             prepareHomeEntryIfNeeded()
             refreshHomeDashboard(forceRank: true)
             refreshLiveClimbCommunityStats()
@@ -254,6 +256,7 @@ struct HomeView: View {
             // The query lands after the save notification, so a climb added or
             // removed reaches the week line and the streak from the array itself.
             homeDashboard.refreshLocalData(modelContext: modelContext, workouts: newValue)
+            personalizedClimbSPM = PersonalizedClimbPaceService.effectiveSPM(workouts: newValue)
         }
         .onChange(of: tabRouter.selectedTab) { _, newValue in
             guard newValue == .home else { return }
@@ -464,6 +467,7 @@ struct HomeView: View {
             viewModel: globeViewModel,
             selectedStepTier: $selectedStepTier,
             showsTodaysClimb: false,
+            effectiveSPM: personalizedClimbSPM,
             onOpenClimb: { climb, source in
                 openClimbFromSheet(climb, source: source)
             },
@@ -491,7 +495,7 @@ struct HomeView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 22) {
                     if isSearching {
-                        ClimbSearchResultsView(viewModel: globeViewModel) { climb in
+                        ClimbSearchResultsView(viewModel: globeViewModel, effectiveSPM: personalizedClimbSPM) { climb in
                             openClimbFromSheet(climb, source: .browseSearch)
                         }
                     } else {
