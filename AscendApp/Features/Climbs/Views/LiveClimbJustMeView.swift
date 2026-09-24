@@ -22,9 +22,11 @@ struct LiveClimbJustMeView: View {
         .frame(maxHeight: .infinity)
     }
 
-    /// The tab's hero: current-vs-goal steps at a large, clearly legible size, centered above
-    /// the summit bar. An open Just Climb has no goal to measure a fraction against, so it
-    /// keeps the plain step count plus an "OPEN CLIMB" tag instead.
+    /// The tab's hero, driven by the session's goal type. A step goal measures current steps
+    /// against the target; a duration goal measures elapsed time against the target instead,
+    /// in the same "current of goal" shape; an open Just Climb has no target of any kind to
+    /// measure a fraction against, so it falls back to the plain step count with a "STEPS"
+    /// label.
     @ViewBuilder
     private var stepsHero: some View {
         Group {
@@ -43,21 +45,33 @@ struct LiveClimbJustMeView: View {
                         .font(.montserratBold(size: 26))
                         .foregroundStyle(.white.opacity(0.86))
                 }
+            } else if let targetDurationClock = viewModel.targetDurationClock {
+                HStack(alignment: .lastTextBaseline, spacing: 10) {
+                    Text(viewModel.elapsedClock)
+                        .font(.montserratBold(size: 52))
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+
+                    Text("of")
+                        .font(.montserratMedium(size: 22))
+                        .foregroundStyle(.white.opacity(0.68))
+
+                    Text(targetDurationClock)
+                        .font(.montserratBold(size: 26))
+                        .monospacedDigit()
+                        .foregroundStyle(.white.opacity(0.86))
+                }
             } else {
-                HStack(alignment: .lastTextBaseline, spacing: 12) {
+                HStack(alignment: .lastTextBaseline, spacing: 10) {
                     Text(viewModel.totalRecordedSteps.formatted())
                         .font(.montserratBold(size: 52))
                         .monospacedDigit()
                         .contentTransition(.numericText())
 
-                    HStack(spacing: 5) {
-                        Text("OPEN")
-                            .font(.montserratBold(size: 18))
-                        Text("CLIMB")
-                            .font(.montserratBold(size: 13))
-                            .tracking(0.8)
-                            .foregroundStyle(.white.opacity(0.62))
-                    }
+                    Text("STEPS")
+                        .font(.montserratBold(size: 18))
+                        .tracking(0.8)
+                        .foregroundStyle(.white.opacity(0.62))
                 }
             }
         }
@@ -70,18 +84,21 @@ struct LiveClimbJustMeView: View {
 
     /// A horizontal fill that animates toward `totalProgressFraction`, with the
     /// live percentage riding its trailing edge - it moves for free because the
-    /// label is anchored to the fill, not the track. On an open Just Climb there
-    /// is no target to measure a fraction against, so the bar and its percent
-    /// don't render at all rather than showing a fraction of nothing.
+    /// label is anchored to the fill, not the track. A step or duration goal both
+    /// have a target to measure that fraction against; an open Just Climb has
+    /// neither, so the bar and its percent don't render at all rather than
+    /// showing a fraction of nothing.
     ///
     /// Where the climber has finished this tower before, `LiveReplayPreviousBestMarker`
     /// - the same marker the replay leaderboard row draws - overlays the bar at
     /// their previous-best position. Reused rather than redrawn: it already
     /// carries every locked invariant (single line, no comparison number, never
-    /// fades) for a horizontal fill, which is exactly what this bar is.
+    /// fades) for a horizontal fill, which is exactly what this bar is. It only
+    /// ever has a position to draw on a step goal (`previousBestProgressFraction`
+    /// is step-based), so it stays absent on a duration goal.
     @ViewBuilder
     private var summitBar: some View {
-        if viewModel.mode.targetStepCount != nil {
+        if viewModel.mode.targetStepCount != nil || viewModel.mode.targetDuration != nil {
             GeometryReader { proxy in
                 let width = max(proxy.size.width, 1)
                 let fraction = min(max(viewModel.totalProgressFraction, 0), 1)
@@ -129,9 +146,9 @@ struct LiveClimbJustMeView: View {
         width - fillWidth >= 40
     }
 
-    /// A centered grid directly below the summit bar: Elapsed and Current Rank on the first
-    /// row always, then Pace and (when present) Heart Rate on the second - a 2x2 grid with a
-    /// strap connected, two-and-one without one. Heart rate only appears when
+    /// A centered grid directly below the summit bar: the top-left box and Current Rank on
+    /// the first row always, then Pace and (when present) Heart Rate on the second - a 2x2
+    /// grid with a strap connected, two-and-one without one. Heart rate only appears when
     /// `viewModel.liveHeartRateStatus` reports a remembered strap (`LiveClimbSessionView.
     /// topChrome` draws no heart-rate indicator on this tab, so heart rate reads in exactly
     /// one place). Both rows share one `GeometryReader`-computed column
@@ -144,7 +161,7 @@ struct LiveClimbJustMeView: View {
 
             VStack(spacing: Self.statBoxSpacing) {
                 HStack(spacing: Self.statBoxSpacing) {
-                    statCard(value: viewModel.elapsedClock, label: "ELAPSED")
+                    topLeftStatCard
                         .frame(width: columnWidth)
                     statCard(value: viewModel.currentRankDisplay, label: "CURRENT RANK")
                         .frame(width: columnWidth)
@@ -161,6 +178,17 @@ struct LiveClimbJustMeView: View {
             }
         }
         .frame(height: Self.statBoxHeight * 2 + Self.statBoxSpacing)
+    }
+
+    /// The grid's top-left box: elapsed time for every goal type except a duration goal,
+    /// which has already moved elapsed time into the hero - so this box shows the step
+    /// count instead, the slot's mirror image of the step-goal hero/box pairing.
+    private var topLeftStatCard: some View {
+        if viewModel.mode.targetDuration != nil {
+            return statCard(value: viewModel.totalRecordedSteps.formatted(), label: "STEPS")
+        }
+
+        return statCard(value: viewModel.elapsedClock, label: "ELAPSED")
     }
 
     /// Current pace and the whole-climb average sit side by side, each labeled directly -
