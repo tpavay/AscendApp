@@ -581,9 +581,12 @@ final class LiveClimbSessionViewModel {
     }
 
     /// Whether the post-climb step-accuracy calibration prompt has anything to offer. True for
-    /// any saved session - `finishAndSave` never saves one with zero steps.
+    /// any saved session, completed or incomplete/saved-progress alike, whose recorded step count
+    /// clears `StepAccuracyCalibrationOfferPolicy.minimumRecordedSteps` - a trivially short save
+    /// is noise, not a discrepancy worth reporting.
     var shouldOfferStepAccuracyCalibration: Bool {
-        savedWorkout != nil
+        guard let savedWorkout else { return false }
+        return StepAccuracyCalibrationOfferPolicy.shouldOffer(recordedSteps: savedWorkout.steps)
     }
 
     var durationGoalReached: Bool {
