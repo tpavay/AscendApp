@@ -24,7 +24,7 @@ final class ClimbDetailViewModel {
     private let leaderboardService: LiveReplayLeaderboardServicing
     private let completionLeaderboardPageSize = 25
     private let completionLeaderboardPrefetchDistance = 5
-    private var workoutsForEstimate: [Workout] = []
+    var effectiveSPM = SettingsManager.shared.effectiveBaseLevelSPM
 
     init(
         climb: Climb,
@@ -69,9 +69,9 @@ final class ClimbDetailViewModel {
     }
 
     var estimatedTimeText: String {
-        PersonalizedClimbPaceService.estimatedTimeText(
-            forStepCount: climb.referenceStepCount,
-            workouts: workoutsForEstimate
+        ClimbEstimatedTimeFormatter.estimatedTimeText(
+            for: climb.referenceStepCount,
+            spm: effectiveSPM
         )
     }
 
@@ -153,9 +153,7 @@ final class ClimbDetailViewModel {
                 climb = refreshedClimb
             }
             historySummary = climbService.historySummary(for: climb, modelContext: modelContext)
-            let workouts = (try? modelContext.fetch(FetchDescriptor<Workout>())) ?? []
-            workoutsForEstimate = workouts
-            publicResultSyncWorkout = latestCompletedWorkout(for: climb, workouts: workouts, modelContext: modelContext)
+            publicResultSyncWorkout = latestCompletedWorkout(for: climb, modelContext: modelContext)
             loadErrorMessage = nil
         } catch {
             historySummary = .empty(for: climb)
@@ -329,7 +327,6 @@ final class ClimbDetailViewModel {
 
     private func latestCompletedWorkout(
         for climb: Climb,
-        workouts: [Workout],
         modelContext: ModelContext
     ) -> Workout? {
         let completedStatus = ClimbAttemptStatus.completed.rawValue
@@ -341,7 +338,8 @@ final class ClimbDetailViewModel {
         )
 
         guard let attempts = try? modelContext.fetch(attemptsDescriptor),
-              !attempts.isEmpty else {
+              !attempts.isEmpty,
+              let workouts = try? modelContext.fetch(FetchDescriptor<Workout>()) else {
             return nil
         }
 
