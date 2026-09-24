@@ -27,6 +27,10 @@ struct LiveClimbSessionView: View {
     /// the answer is tapped, which would remount the summary - and re-fire its `summaryViewed`
     /// telemetry - underneath the pop animation.
     @State private var didHandOffToRatingPrompt = false
+    @State private var showingStepAccuracyCalibration = false
+    /// Same latch as `didHandOffToRatingPrompt`, for the same reason: once the summary hands off
+    /// to the calibration sheet, the summary must not remount underneath it.
+    @State private var didHandOffToStepAccuracyCalibration = false
 
     private let liveTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -58,7 +62,7 @@ struct LiveClimbSessionView: View {
         ZStack {
             sessionBackground
 
-            if didHandOffToRatingPrompt {
+            if didHandOffToRatingPrompt || didHandOffToStepAccuracyCalibration {
                 EmptyView()
             } else if let savedWorkout = viewModel.savedWorkout {
                 // A saved attempt always earns the same completion summary, ranked or not - an
@@ -106,6 +110,23 @@ struct LiveClimbSessionView: View {
             CompatibleHeadphonesHelpSheet()
                 .appSheetStyle(.fitted())
         }
+        .sheet(isPresented: $showingStepAccuracyCalibration) {
+            StepAccuracyCalibrationPromptView(
+                appSteps: viewModel.savedWorkout?.steps ?? 0,
+                onSubmit: { machineSteps in
+                    viewModel.submitStepAccuracyCalibration(
+                        machineReportedSteps: machineSteps,
+                        modelContext: modelContext
+                    )
+                    showingStepAccuracyCalibration = false
+                },
+                onSkip: {
+                    viewModel.skipStepAccuracyCalibration()
+                    showingStepAccuracyCalibration = false
+                }
+            )
+            .appSheetStyle(.fitted())
+        }
         .alert("Enjoying Ascend?", isPresented: $showingRatingEnjoymentPrompt) {
             Button("Yes") {
                 handleRatingEnjoymentResponse(.yes)
@@ -122,6 +143,12 @@ struct LiveClimbSessionView: View {
             // whether the climber answered or the system took the alert away.
             guard didHandOffToRatingPrompt, !isPresenting else { return }
             dismiss()
+        }
+        .onChange(of: showingStepAccuracyCalibration) { _, isPresenting in
+            // The calibration sheet closing (submit or skip) hands off to whatever the rating
+            // prompt would otherwise have done next, mirroring the alert's own handoff above.
+            guard didHandOffToStepAccuracyCalibration, !isPresenting else { return }
+            presentRatingPromptOrDismiss()
         }
         .onAppear {
             if viewModel.phase != .idle {
@@ -189,8 +216,25 @@ struct LiveClimbSessionView: View {
     private func handleCompletionSummaryDismissed(
         _ surface: LiveClimbAnalyticsEvent.SummaryDismissSurface
     ) {
-        guard case .doneButton = surface,
-              viewModel.mode.climb != nil,
+        guard case .doneButton = surface else {
+            dismiss()
+            return
+        }
+
+        // The result screen has already been dismissed at this point, so both the calibration
+        // prompt and the sentiment question below land after the celebration rather than
+        // covering the rank and stats the climber just earned.
+        guard viewModel.shouldOfferStepAccuracyCalibration else {
+            presentRatingPromptOrDismiss()
+            return
+        }
+
+        didHandOffToStepAccuracyCalibration = true
+        showingStepAccuracyCalibration = true
+    }
+
+    private func presentRatingPromptOrDismiss() {
+        guard viewModel.mode.climb != nil,
               AppStoreRatingManager.shared.shouldAskEnjoymentQuestionAfterFirstLiveClimb(
                   completedLiveClimbCount: completedLiveClimbCount
               ) else {
@@ -198,9 +242,6 @@ struct LiveClimbSessionView: View {
             return
         }
 
-        // The result screen has already been dismissed at this point. The app-owned sentiment
-        // question therefore lands after the celebration instead of covering the rank and stats
-        // the climber just earned.
         didHandOffToRatingPrompt = true
         showingRatingEnjoymentPrompt = true
     }

@@ -72,8 +72,12 @@ struct HeadphoneMotionStepCorrection: Codable, Equatable, Sendable {
         self.detectedSteps = max(detectedSteps, 0)
         self.correctedSteps = max(correctedSteps, 0)
         self.deltaSteps = deltaSteps
-        self.trackingGapDurationSeconds = max(trackingGapDurationSeconds, 0)
-        self.totalUnavailableDurationSeconds = max(totalUnavailableDurationSeconds, 0)
+        // Rounded to a hundredth of a second: `Workout.sourceMetadata` is bounded to 4000 chars
+        // server-side (`firestore.rules`), and an unrounded `TimeInterval` from date/interval
+        // math can carry a dozen-plus insignificant digits - real budget lost to precision
+        // nobody reads.
+        self.trackingGapDurationSeconds = (max(trackingGapDurationSeconds, 0) * 100).rounded() / 100
+        self.totalUnavailableDurationSeconds = (max(totalUnavailableDurationSeconds, 0) * 100).rounded() / 100
         self.interruptionCount = max(interruptionCount, 0)
     }
 }
@@ -152,6 +156,31 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
     let stepCorrections: [HeadphoneMotionStepCorrection]?
     let heartRateCoverage: HeartRateTraceCoverage?
 
+    // MARK: - Step accuracy telemetry
+    //
+    // All optional (rather than defaulted non-optionals) so a `sourceMetadata` string persisted
+    // before these fields existed still decodes cleanly - Swift's synthesized `Decodable`
+    // requires a key to be present only when the property is non-optional.
+
+    /// The connected audio output at the moment this climb was saved. `nil` only for a
+    /// `sourceMetadata` payload written before this field existed.
+    let headphoneRoute: HeadphoneAudioRouteSnapshot?
+    /// Apple's own signal (`CMHeadphoneMotionManager.isDeviceMotionAvailable`) for whether a
+    /// motion-capable headphone was connected, read via `HeadphoneMotionReadinessService`.
+    let isMotionCapableHeadphoneConnected: Bool?
+    /// Whether headphone motion samples actually arrived during the session - the strongest
+    /// quality signal, since availability alone doesn't guarantee data flowed.
+    let didHeadphoneMotionDataFlow: Bool?
+    /// The step count the climber's stair-stepper machine displayed, entered through the
+    /// optional post-climb calibration prompt. Set after the workout is first saved, so this
+    /// is the one field on this struct mutated post-hoc (`var`, like `stopReason`).
+    var machineReportedSteps: Int?
+    /// `abs(machineReportedSteps - <app steps at calibration time>)`.
+    var stepDiscrepancyAbs: Int?
+    /// `stepDiscrepancyAbs / machineReportedSteps * 100`, signed by which side over-counted -
+    /// positive means the app counted more than the machine, negative means it undercounted.
+    var stepDiscrepancyPercent: Double?
+
     init(
         sampleCount: Int,
         trackingMode: HeadphoneMotionWorkoutTrackingMode = .liveClimb,
@@ -166,7 +195,10 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
         splitCurve: LiveReplaySplitCurve? = nil,
         trackingIntegrity: HeadphoneMotionTrackingIntegrity = .verified,
         stepCorrections: [HeadphoneMotionStepCorrection] = [],
-        heartRateCoverage: HeartRateTraceCoverage? = nil
+        heartRateCoverage: HeartRateTraceCoverage? = nil,
+        headphoneRoute: HeadphoneAudioRouteSnapshot? = nil,
+        isMotionCapableHeadphoneConnected: Bool? = nil,
+        didHeadphoneMotionDataFlow: Bool? = nil
     ) {
         self.source = HeadphoneMotionWorkoutMetadata.headphoneMotionSource
         self.algorithmVersion = HeadphoneMotionStepDetector.algorithmVersion
@@ -179,15 +211,26 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
         self.routineIntervalCount = routineIntervalCount
         self.targetStepCount = targetStepCount
         self.climbTargetStepCount = climbTargetStepCount
-        self.targetDurationSeconds = targetDurationSeconds
+        self.targetDurationSeconds = targetDurationSeconds.map { (($0 * 100).rounded()) / 100 }
         self.stopReason = stopReason
         self.splitIntervalSeconds = splitCurve?.intervalSeconds
         self.splitSteps = splitCurve?.steps
-        self.trackingUnavailableDurationSeconds = trackingIntegrity.totalUnavailableDuration
-        self.longestTrackingUnavailableDurationSeconds = trackingIntegrity.longestUnavailableDuration
+        self.trackingUnavailableDurationSeconds = ((trackingIntegrity.totalUnavailableDuration * 100).rounded()) / 100
+        self.longestTrackingUnavailableDurationSeconds =
+            ((trackingIntegrity.longestUnavailableDuration * 100).rounded()) / 100
         self.trackingInterruptionCount = trackingIntegrity.interruptionCount
-        self.stepCorrections = stepCorrections.isEmpty ? nil : stepCorrections
+        // `sourceMetadata` is bounded to 4000 chars server-side (`firestore.rules`), and a
+        // session with a flaky Bluetooth connection can accumulate many corrections - keeping
+        // only the most recent bounds the worst case without losing what happened near the end
+        // of the climb, the part most relevant to how it actually finished.
+        self.stepCorrections = stepCorrections.isEmpty ? nil : Array(stepCorrections.suffix(20))
         self.heartRateCoverage = heartRateCoverage
+        self.headphoneRoute = headphoneRoute
+        self.isMotionCapableHeadphoneConnected = isMotionCapableHeadphoneConnected
+        self.didHeadphoneMotionDataFlow = didHeadphoneMotionDataFlow
+        self.machineReportedSteps = nil
+        self.stepDiscrepancyAbs = nil
+        self.stepDiscrepancyPercent = nil
     }
 
     var jsonString: String? {
@@ -195,5 +238,30 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(self) else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    /// The symmetric read for `jsonString`, tolerant of a payload written before any of the
+    /// step-accuracy fields existed - every field added since is optional for exactly that
+    /// reason. Returns `nil` for a workout that never carried headphone-motion metadata at all
+    /// (a legacy source, or a malformed string).
+    static func decode(from jsonString: String?) -> HeadphoneMotionWorkoutMetadata? {
+        guard let jsonString, let data = jsonString.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(HeadphoneMotionWorkoutMetadata.self, from: data)
+    }
+
+    /// Applies a machine-entered step count read after the climb was already saved, computing
+    /// the discrepancy against the app's own count at that moment. Never touches `Workout.steps`
+    /// itself - this is calibration data for the algorithm, not a correction to the climber's
+    /// recorded result.
+    mutating func applyMachineStepCalibration(machineReportedSteps: Int, appSteps: Int) {
+        self.machineReportedSteps = machineReportedSteps
+        let discrepancy = appSteps - machineReportedSteps
+        self.stepDiscrepancyAbs = abs(discrepancy)
+        guard machineReportedSteps > 0 else {
+            self.stepDiscrepancyPercent = nil
+            return
+        }
+        let percent = (Double(discrepancy) / Double(machineReportedSteps)) * 100
+        self.stepDiscrepancyPercent = (percent * 10).rounded() / 10
     }
 }
