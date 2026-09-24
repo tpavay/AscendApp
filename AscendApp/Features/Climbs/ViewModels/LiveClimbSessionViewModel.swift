@@ -228,6 +228,12 @@ final class LiveClimbSessionViewModel {
     /// checkpoints force it, bounding what an interruption can lose.
     private var lastHeartRateCheckpointAt: Date?
     private let heartRateCheckpointInterval: TimeInterval = 15
+    /// Captured once, when recording actually begins - the headphone that drove step detection
+    /// for a session with no mid-climb change. A save-time-only read would misattribute exactly
+    /// the climbs this pair exists to explain: one where headphones disconnected or switched
+    /// mid-climb, whose save-time read reports whatever was connected at the end.
+    private var headphoneRouteAtStart: HeadphoneAudioRouteSnapshot?
+    private var isMotionCapableHeadphoneConnectedAtStart: Bool?
 
     init(
         climb: Climb,
@@ -616,6 +622,9 @@ final class LiveClimbSessionViewModel {
             )
             backgroundSessionService.start(at: draft?.startedAt ?? Date())
             phase = .recording
+            headphoneRouteAtStart = HeadphoneAudioRouteInspector.currentSnapshot()
+            HeadphoneMotionReadinessService.shared.refresh()
+            isMotionCapableHeadphoneConnectedAtStart = HeadphoneMotionReadinessService.shared.readiness.canStartLiveClimb
             AppDiagnosticsRecorder.shared.record(
                 "headphone_session_recording_started",
                 details: draft?.diagnosticDetails ?? [
@@ -1310,9 +1319,9 @@ final class LiveClimbSessionViewModel {
         }
 
         let floors = Workout.stepsToFloors(result.steps)
-        let headphoneRoute = HeadphoneAudioRouteInspector.currentSnapshot()
+        let headphoneRouteAtSave = HeadphoneAudioRouteInspector.currentSnapshot()
         HeadphoneMotionReadinessService.shared.refresh()
-        let isMotionCapableHeadphoneConnected = HeadphoneMotionReadinessService.shared.readiness.canStartLiveClimb
+        let isMotionCapableHeadphoneConnectedAtSave = HeadphoneMotionReadinessService.shared.readiness.canStartLiveClimb
         let didHeadphoneMotionDataFlow = result.sampleCount > 0
         let metadata = HeadphoneMotionWorkoutMetadata(
             sampleCount: result.sampleCount,
@@ -1330,8 +1339,10 @@ final class LiveClimbSessionViewModel {
                 sessionStartedAt: result.startedAt,
                 sessionDuration: result.duration
             ),
-            headphoneRoute: headphoneRoute,
-            isMotionCapableHeadphoneConnected: isMotionCapableHeadphoneConnected,
+            headphoneRouteAtStart: headphoneRouteAtStart,
+            headphoneRouteAtSave: headphoneRouteAtSave,
+            isMotionCapableHeadphoneConnectedAtStart: isMotionCapableHeadphoneConnectedAtStart,
+            isMotionCapableHeadphoneConnectedAtSave: isMotionCapableHeadphoneConnectedAtSave,
             didHeadphoneMotionDataFlow: didHeadphoneMotionDataFlow
         )
 
@@ -1373,9 +1384,13 @@ final class LiveClimbSessionViewModel {
 
         TelemetryManager.shared.track(
             WorkoutStepAccuracyAnalyticsEvent.recorded(
-                headphoneFamily: headphoneRoute.family,
-                isHeadphoneClassOutputConnected: headphoneRoute.isHeadphoneClassOutputConnected,
-                isMotionCapableHeadphoneConnected: isMotionCapableHeadphoneConnected,
+                headphoneFamilyAtStart: headphoneRouteAtStart?.family ?? .none,
+                isHeadphoneClassOutputConnectedAtStart: headphoneRouteAtStart?.isHeadphoneClassOutputConnected ?? false,
+                isMotionCapableHeadphoneConnectedAtStart: isMotionCapableHeadphoneConnectedAtStart ?? false,
+                headphoneFamilyAtSave: headphoneRouteAtSave.family,
+                isHeadphoneClassOutputConnectedAtSave: headphoneRouteAtSave.isHeadphoneClassOutputConnected,
+                isMotionCapableHeadphoneConnectedAtSave: isMotionCapableHeadphoneConnectedAtSave,
+                didHeadphoneChangeDuringClimb: metadata.didHeadphoneChangeDuringClimb ?? false,
                 didHeadphoneMotionDataFlow: didHeadphoneMotionDataFlow,
                 steps: result.steps,
                 trackingMode: mode.trackingMode

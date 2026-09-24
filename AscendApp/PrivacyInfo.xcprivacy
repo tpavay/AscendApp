@@ -349,7 +349,8 @@
           `app_version`, and `build_number` onto every analytics event and screen view.
 
           Also covers the connected headphone's raw name and port type
-          (AVAudioSession.currentRoute), persisted with the climb record
+          (AVAudioSession.currentRoute), read once when a climb's recording
+          begins and again when it is saved, persisted with the climb record
           (Workout.sourceMetadata) so the captain can investigate step-counting
           accuracy by headphone. The name is device diagnostic info read from the
           system, not typed by the climber, but commonly carries the climber's

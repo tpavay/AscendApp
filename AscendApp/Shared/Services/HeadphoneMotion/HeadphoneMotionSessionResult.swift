@@ -162,15 +162,36 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
     // before these fields existed still decodes cleanly - Swift's synthesized `Decodable`
     // requires a key to be present only when the property is non-optional.
 
-    /// The connected audio output at the moment this climb was saved. `nil` only for a
-    /// `sourceMetadata` payload written before this field existed.
-    private(set) var headphoneRoute: HeadphoneAudioRouteSnapshot?
+    /// The connected audio output when recording began - the headphone that actually drove step
+    /// detection for a session with no mid-climb change. `nil` only for a `sourceMetadata`
+    /// payload written before this field existed.
+    private(set) var headphoneRouteAtStart: HeadphoneAudioRouteSnapshot?
+    /// The connected audio output at the moment this climb was saved. Captured a second time,
+    /// alongside `headphoneRouteAtStart` rather than instead of it, because a save-time-only read
+    /// misattributes exactly the climbs this telemetry most needs to explain - one where
+    /// headphones disconnected or switched mid-climb reports whatever was connected at the end,
+    /// not what produced the motion samples.
+    private(set) var headphoneRouteAtSave: HeadphoneAudioRouteSnapshot?
     /// Apple's own signal (`CMHeadphoneMotionManager.isDeviceMotionAvailable`) for whether a
-    /// motion-capable headphone was connected, read via `HeadphoneMotionReadinessService`.
-    let isMotionCapableHeadphoneConnected: Bool?
+    /// motion-capable headphone was connected when recording began, read via
+    /// `HeadphoneMotionReadinessService`.
+    let isMotionCapableHeadphoneConnectedAtStart: Bool?
+    /// The same signal read again at save time, for the same reason `headphoneRouteAtSave` is
+    /// captured alongside `headphoneRouteAtStart`.
+    let isMotionCapableHeadphoneConnectedAtSave: Bool?
     /// Whether headphone motion samples actually arrived during the session - the strongest
     /// quality signal, since availability alone doesn't guarantee data flowed.
     let didHeadphoneMotionDataFlow: Bool?
+    /// Whether the classified family differs between start and save - a mid-climb disconnect or
+    /// swap surfaced as its own signal, rather than left implicit in two separate fields a reader
+    /// has to compare by hand. Computed, not stored: it can never drift out of sync with the two
+    /// snapshots it derives from, and costs nothing in `jsonString`.
+    var didHeadphoneChangeDuringClimb: Bool? {
+        guard let start = headphoneRouteAtStart?.family, let save = headphoneRouteAtSave?.family else {
+            return nil
+        }
+        return start != save
+    }
     /// The step count the climber's stair-stepper machine displayed, entered through the
     /// optional post-climb calibration prompt. Set after the workout is first saved, so this
     /// is the one field on this struct mutated post-hoc (`var`, like `stopReason`).
@@ -196,8 +217,10 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
         trackingIntegrity: HeadphoneMotionTrackingIntegrity = .verified,
         stepCorrections: [HeadphoneMotionStepCorrection] = [],
         heartRateCoverage: HeartRateTraceCoverage? = nil,
-        headphoneRoute: HeadphoneAudioRouteSnapshot? = nil,
-        isMotionCapableHeadphoneConnected: Bool? = nil,
+        headphoneRouteAtStart: HeadphoneAudioRouteSnapshot? = nil,
+        headphoneRouteAtSave: HeadphoneAudioRouteSnapshot? = nil,
+        isMotionCapableHeadphoneConnectedAtStart: Bool? = nil,
+        isMotionCapableHeadphoneConnectedAtSave: Bool? = nil,
         didHeadphoneMotionDataFlow: Bool? = nil
     ) {
         self.source = HeadphoneMotionWorkoutMetadata.headphoneMotionSource
@@ -225,8 +248,10 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
         // of the climb, the part most relevant to how it actually finished.
         self.stepCorrections = stepCorrections.isEmpty ? nil : Array(stepCorrections.suffix(20))
         self.heartRateCoverage = heartRateCoverage
-        self.headphoneRoute = headphoneRoute
-        self.isMotionCapableHeadphoneConnected = isMotionCapableHeadphoneConnected
+        self.headphoneRouteAtStart = headphoneRouteAtStart
+        self.headphoneRouteAtSave = headphoneRouteAtSave
+        self.isMotionCapableHeadphoneConnectedAtStart = isMotionCapableHeadphoneConnectedAtStart
+        self.isMotionCapableHeadphoneConnectedAtSave = isMotionCapableHeadphoneConnectedAtSave
         self.didHeadphoneMotionDataFlow = didHeadphoneMotionDataFlow
         self.machineReportedSteps = nil
         self.stepDiscrepancyAbs = nil
@@ -235,8 +260,10 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
 
     /// The encoded form stored in `Workout.sourceMetadata`. `firestore.rules` refuses a string
     /// longer than `WorkoutRemoteSyncLimits.maximumSourceMetadataLength`, so an oversized payload
-    /// sheds its least essential detail - the raw headphone name first, then the oldest step
-    /// corrections - rather than producing a workout the server rejects forever.
+    /// sheds its least essential detail first - the start-time raw headphone name, then the
+    /// save-time one, then the oldest step corrections - rather than producing a workout the
+    /// server rejects forever. The classified `family` on each snapshot survives every round, so
+    /// `didHeadphoneChangeDuringClimb` still resolves even once both raw names are gone.
     var jsonString: String? {
         var candidate = self
         while true {
@@ -244,8 +271,10 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
             if encoded.utf8.count <= WorkoutRemoteSyncLimits.maximumSourceMetadataLength {
                 return encoded
             }
-            if let route = candidate.headphoneRoute, route.rawPortName != nil {
-                candidate.headphoneRoute = route.withoutRawPortName
+            if let route = candidate.headphoneRouteAtStart, route.rawPortName != nil {
+                candidate.headphoneRouteAtStart = route.withoutRawPortName
+            } else if let route = candidate.headphoneRouteAtSave, route.rawPortName != nil {
+                candidate.headphoneRouteAtSave = route.withoutRawPortName
             } else if let corrections = candidate.stepCorrections, !corrections.isEmpty {
                 let remaining = corrections.dropFirst()
                 candidate.stepCorrections = remaining.isEmpty ? nil : Array(remaining)

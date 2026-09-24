@@ -11,11 +11,18 @@ import Foundation
 /// review - see `ascend-analytics` (low-cardinality parameter rule) and `ascend-privacy-manifest`.
 enum WorkoutStepAccuracyAnalyticsEvent: TelemetryEvent {
     /// Emitted once for every climb saved through the headphone-motion session flow, whatever
-    /// the connected output turned out to be.
+    /// the connected output turned out to be. Carries both a start-time and a save-time read of
+    /// the connected headphone - a save-time-only read would misattribute exactly the climbs
+    /// this telemetry most needs to explain: one where headphones disconnected or switched
+    /// mid-climb reports whatever was connected at the end, not what drove the motion samples.
     case recorded(
-        headphoneFamily: HeadphoneFamily,
-        isHeadphoneClassOutputConnected: Bool,
-        isMotionCapableHeadphoneConnected: Bool,
+        headphoneFamilyAtStart: HeadphoneFamily,
+        isHeadphoneClassOutputConnectedAtStart: Bool,
+        isMotionCapableHeadphoneConnectedAtStart: Bool,
+        headphoneFamilyAtSave: HeadphoneFamily,
+        isHeadphoneClassOutputConnectedAtSave: Bool,
+        isMotionCapableHeadphoneConnectedAtSave: Bool,
+        didHeadphoneChangeDuringClimb: Bool,
         didHeadphoneMotionDataFlow: Bool,
         steps: Int,
         trackingMode: HeadphoneMotionWorkoutTrackingMode
@@ -31,9 +38,13 @@ enum WorkoutStepAccuracyAnalyticsEvent: TelemetryEvent {
     var record: TelemetryRecord {
         switch self {
         case .recorded(
-            let headphoneFamily,
-            let isHeadphoneClassOutputConnected,
-            let isMotionCapableHeadphoneConnected,
+            let headphoneFamilyAtStart,
+            let isHeadphoneClassOutputConnectedAtStart,
+            let isMotionCapableHeadphoneConnectedAtStart,
+            let headphoneFamilyAtSave,
+            let isHeadphoneClassOutputConnectedAtSave,
+            let isMotionCapableHeadphoneConnectedAtSave,
+            let didHeadphoneChangeDuringClimb,
             let didHeadphoneMotionDataFlow,
             let steps,
             let trackingMode
@@ -41,9 +52,13 @@ enum WorkoutStepAccuracyAnalyticsEvent: TelemetryEvent {
             return TelemetryRecord(
                 name: "step_accuracy_telemetry_recorded",
                 parameters: [
-                    "headphone_family": .string(headphoneFamily.rawValue),
-                    "headphone_output_connected": .bool(isHeadphoneClassOutputConnected),
-                    "motion_capable_headphone_connected": .bool(isMotionCapableHeadphoneConnected),
+                    "headphone_family_at_start": .string(headphoneFamilyAtStart.rawValue),
+                    "headphone_output_connected_at_start": .bool(isHeadphoneClassOutputConnectedAtStart),
+                    "motion_capable_headphone_connected_at_start": .bool(isMotionCapableHeadphoneConnectedAtStart),
+                    "headphone_family_at_save": .string(headphoneFamilyAtSave.rawValue),
+                    "headphone_output_connected_at_save": .bool(isHeadphoneClassOutputConnectedAtSave),
+                    "motion_capable_headphone_connected_at_save": .bool(isMotionCapableHeadphoneConnectedAtSave),
+                    "headphone_changed_during_climb": .bool(didHeadphoneChangeDuringClimb),
                     "headphone_motion_data_flowed": .bool(didHeadphoneMotionDataFlow),
                     "steps_bucket": .string(LiveClimbAnalyticsEvent.CountBucket(steps).rawValue),
                     "session_type": .string(trackingMode.rawValue)

@@ -51,18 +51,21 @@ struct StepAccuracyCalibrationPromptEvidenceTests {
 
     @Test
     func theCalibratedClimbRecordAndAnalyticsPayloadAreWrittenAsEvidence() throws {
+        let route = HeadphoneAudioRouteSnapshot(
+            rawPortName: "Tyler's AirPods Pro",
+            rawPortType: "BluetoothA2DPOutput",
+            family: .airPodsPro,
+            isHeadphoneClassOutputConnected: true
+        )
         var metadata = HeadphoneMotionWorkoutMetadata(
             sampleCount: 5_400,
             climbId: "empire-state-building",
             targetStepCount: 1_576,
             stopReason: .userStopped,
-            headphoneRoute: HeadphoneAudioRouteSnapshot(
-                rawPortName: "Tyler's AirPods Pro",
-                rawPortType: "BluetoothA2DPOutput",
-                family: .airPodsPro,
-                isHeadphoneClassOutputConnected: true
-            ),
-            isMotionCapableHeadphoneConnected: true,
+            headphoneRouteAtStart: route,
+            headphoneRouteAtSave: route,
+            isMotionCapableHeadphoneConnectedAtStart: true,
+            isMotionCapableHeadphoneConnectedAtSave: true,
             didHeadphoneMotionDataFlow: true
         )
         metadata.applyMachineStepCalibration(machineReportedSteps: 605, appSteps: 500)
@@ -71,9 +74,13 @@ struct StepAccuracyCalibrationPromptEvidenceTests {
         #expect(json.contains("Tyler's AirPods Pro"))
 
         let recorded = WorkoutStepAccuracyAnalyticsEvent.recorded(
-            headphoneFamily: .airPodsPro,
-            isHeadphoneClassOutputConnected: true,
-            isMotionCapableHeadphoneConnected: true,
+            headphoneFamilyAtStart: .airPodsPro,
+            isHeadphoneClassOutputConnectedAtStart: true,
+            isMotionCapableHeadphoneConnectedAtStart: true,
+            headphoneFamilyAtSave: .airPodsPro,
+            isHeadphoneClassOutputConnectedAtSave: true,
+            isMotionCapableHeadphoneConnectedAtSave: true,
+            didHeadphoneChangeDuringClimb: false,
             didHeadphoneMotionDataFlow: true,
             steps: 500,
             trackingMode: .liveClimb

@@ -55,18 +55,21 @@ struct HeadphoneMotionStepAccuracyMetadataTests {
 
     @Test
     func decodeIsSymmetricWithJsonString() throws {
+        let route = HeadphoneAudioRouteSnapshot(
+            rawPortName: "AirPods Pro",
+            rawPortType: "BluetoothA2DPOutput",
+            family: .airPodsPro,
+            isHeadphoneClassOutputConnected: true
+        )
         var metadata = HeadphoneMotionWorkoutMetadata(
             sampleCount: 10,
             climbId: nil,
             targetStepCount: nil,
             stopReason: .userStopped,
-            headphoneRoute: HeadphoneAudioRouteSnapshot(
-                rawPortName: "AirPods Pro",
-                rawPortType: "BluetoothA2DPOutput",
-                family: .airPodsPro,
-                isHeadphoneClassOutputConnected: true
-            ),
-            isMotionCapableHeadphoneConnected: true,
+            headphoneRouteAtStart: route,
+            headphoneRouteAtSave: route,
+            isMotionCapableHeadphoneConnectedAtStart: true,
+            isMotionCapableHeadphoneConnectedAtSave: true,
             didHeadphoneMotionDataFlow: true
         )
         metadata.applyMachineStepCalibration(machineReportedSteps: 100, appSteps: 90)
@@ -75,6 +78,51 @@ struct HeadphoneMotionStepAccuracyMetadataTests {
         let decoded = try #require(HeadphoneMotionWorkoutMetadata.decode(from: jsonString))
 
         #expect(decoded == metadata)
+    }
+
+    @Test
+    func headphoneChangeDuringClimbIsDetectedFromFamilyMismatch() {
+        let airPods = HeadphoneAudioRouteSnapshot(
+            rawPortName: "AirPods Pro",
+            rawPortType: "BluetoothA2DPOutput",
+            family: .airPodsPro,
+            isHeadphoneClassOutputConnected: true
+        )
+        let beats = HeadphoneAudioRouteSnapshot(
+            rawPortName: "Beats Fit Pro",
+            rawPortType: "BluetoothA2DPOutput",
+            family: .beats,
+            isHeadphoneClassOutputConnected: true
+        )
+
+        let switched = HeadphoneMotionWorkoutMetadata(
+            sampleCount: 10,
+            climbId: nil,
+            targetStepCount: nil,
+            stopReason: .userStopped,
+            headphoneRouteAtStart: airPods,
+            headphoneRouteAtSave: beats
+        )
+        #expect(switched.didHeadphoneChangeDuringClimb == true)
+
+        let unchanged = HeadphoneMotionWorkoutMetadata(
+            sampleCount: 10,
+            climbId: nil,
+            targetStepCount: nil,
+            stopReason: .userStopped,
+            headphoneRouteAtStart: airPods,
+            headphoneRouteAtSave: airPods
+        )
+        #expect(unchanged.didHeadphoneChangeDuringClimb == false)
+
+        let onlyStartKnown = HeadphoneMotionWorkoutMetadata(
+            sampleCount: 10,
+            climbId: nil,
+            targetStepCount: nil,
+            stopReason: .userStopped,
+            headphoneRouteAtStart: airPods
+        )
+        #expect(onlyStartKnown.didHeadphoneChangeDuringClimb == nil)
     }
 
     @Test
@@ -88,9 +136,12 @@ struct HeadphoneMotionStepAccuracyMetadataTests {
 
         let decoded = try #require(HeadphoneMotionWorkoutMetadata.decode(from: legacyJSON))
 
-        #expect(decoded.headphoneRoute == nil)
-        #expect(decoded.isMotionCapableHeadphoneConnected == nil)
+        #expect(decoded.headphoneRouteAtStart == nil)
+        #expect(decoded.headphoneRouteAtSave == nil)
+        #expect(decoded.isMotionCapableHeadphoneConnectedAtStart == nil)
+        #expect(decoded.isMotionCapableHeadphoneConnectedAtSave == nil)
         #expect(decoded.didHeadphoneMotionDataFlow == nil)
+        #expect(decoded.didHeadphoneChangeDuringClimb == nil)
         #expect(decoded.machineReportedSteps == nil)
     }
 
@@ -147,10 +198,16 @@ struct HeadphoneMotionStepAccuracyMetadataTests {
             stopReason: .userStopped,
             splitCurve: LiveReplaySplitCurve(intervalSeconds: 30, steps: Array(repeating: 12_345, count: 400)),
             stepCorrections: corrections,
-            headphoneRoute: HeadphoneAudioRouteSnapshot(
+            headphoneRouteAtStart: HeadphoneAudioRouteSnapshot(
                 rawPortName: String(repeating: "A", count: 64),
                 rawPortType: "BluetoothA2DPOutput",
                 family: .airPodsPro,
+                isHeadphoneClassOutputConnected: true
+            ),
+            headphoneRouteAtSave: HeadphoneAudioRouteSnapshot(
+                rawPortName: String(repeating: "B", count: 64),
+                rawPortType: "BluetoothA2DPOutput",
+                family: .beats,
                 isHeadphoneClassOutputConnected: true
             )
         )
@@ -159,8 +216,11 @@ struct HeadphoneMotionStepAccuracyMetadataTests {
         #expect(json.utf8.count <= WorkoutRemoteSyncLimits.maximumSourceMetadataLength)
 
         let decoded = try #require(HeadphoneMotionWorkoutMetadata.decode(from: json))
-        #expect(decoded.headphoneRoute?.rawPortName == nil)
-        #expect(decoded.headphoneRoute?.family == .airPodsPro)
+        #expect(decoded.headphoneRouteAtStart?.rawPortName == nil)
+        #expect(decoded.headphoneRouteAtStart?.family == .airPodsPro)
+        #expect(decoded.headphoneRouteAtSave?.rawPortName == nil)
+        #expect(decoded.headphoneRouteAtSave?.family == .beats)
+        #expect(decoded.didHeadphoneChangeDuringClimb == true)
         #expect(decoded.splitSteps?.count == 400)
         let keptCorrections = try #require(decoded.stepCorrections)
         #expect(keptCorrections.count < 20)
@@ -180,11 +240,13 @@ struct HeadphoneMotionStepAccuracyMetadataTests {
             climbId: nil,
             targetStepCount: nil,
             stopReason: .userStopped,
-            headphoneRoute: route
+            headphoneRouteAtStart: route,
+            headphoneRouteAtSave: route
         )
 
         let decoded = try #require(HeadphoneMotionWorkoutMetadata.decode(from: metadata.jsonString))
-        #expect(decoded.headphoneRoute == route)
+        #expect(decoded.headphoneRouteAtStart == route)
+        #expect(decoded.headphoneRouteAtSave == route)
     }
 
     @Test
