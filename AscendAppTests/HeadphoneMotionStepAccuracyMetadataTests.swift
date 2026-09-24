@@ -126,4 +126,76 @@ struct HeadphoneMotionStepAccuracyMetadataTests {
         // The most recent corrections are kept, not the earliest.
         #expect(metadata.stepCorrections?.last?.elapsedSeconds == 49)
     }
+
+    @Test
+    func jsonStringShedsRawPortNameThenOldestCorrectionsToStayWithinRulesBound() throws {
+        let corrections = (0..<20).map { index in
+            HeadphoneMotionStepCorrection(
+                elapsedSeconds: 1_000 + index,
+                detectedSteps: 10_000 + index,
+                correctedSteps: 10_000 + index,
+                deltaSteps: 0,
+                trackingGapDurationSeconds: 12.34,
+                totalUnavailableDurationSeconds: 56.78,
+                interruptionCount: index
+            )
+        }
+        let metadata = HeadphoneMotionWorkoutMetadata(
+            sampleCount: 300_000,
+            climbId: "burj-khalifa",
+            targetStepCount: 12_000,
+            stopReason: .userStopped,
+            splitCurve: LiveReplaySplitCurve(intervalSeconds: 30, steps: Array(repeating: 12_345, count: 400)),
+            stepCorrections: corrections,
+            headphoneRoute: HeadphoneAudioRouteSnapshot(
+                rawPortName: String(repeating: "A", count: 64),
+                rawPortType: "BluetoothA2DPOutput",
+                family: .airPodsPro,
+                isHeadphoneClassOutputConnected: true
+            )
+        )
+
+        let json = try #require(metadata.jsonString)
+        #expect(json.utf8.count <= WorkoutRemoteSyncLimits.maximumSourceMetadataLength)
+
+        let decoded = try #require(HeadphoneMotionWorkoutMetadata.decode(from: json))
+        #expect(decoded.headphoneRoute?.rawPortName == nil)
+        #expect(decoded.headphoneRoute?.family == .airPodsPro)
+        #expect(decoded.splitSteps?.count == 400)
+        let keptCorrections = try #require(decoded.stepCorrections)
+        #expect(keptCorrections.count < 20)
+        #expect(keptCorrections.last?.elapsedSeconds == 1_019)
+    }
+
+    @Test
+    func jsonStringKeepsEverythingWhenWithinBound() throws {
+        let route = HeadphoneAudioRouteSnapshot(
+            rawPortName: "Climber's AirPods Pro",
+            rawPortType: "BluetoothA2DPOutput",
+            family: .airPodsPro,
+            isHeadphoneClassOutputConnected: true
+        )
+        let metadata = HeadphoneMotionWorkoutMetadata(
+            sampleCount: 10,
+            climbId: nil,
+            targetStepCount: nil,
+            stopReason: .userStopped,
+            headphoneRoute: route
+        )
+
+        let decoded = try #require(HeadphoneMotionWorkoutMetadata.decode(from: metadata.jsonString))
+        #expect(decoded.headphoneRoute == route)
+    }
+
+    @Test
+    func rawPortNameIsBoundedToSixtyFourCharacters() {
+        let route = HeadphoneAudioRouteSnapshot(
+            rawPortName: String(repeating: "x", count: 248),
+            rawPortType: "BluetoothA2DPOutput",
+            family: .other,
+            isHeadphoneClassOutputConnected: true
+        )
+
+        #expect(route.rawPortName?.count == HeadphoneAudioRouteSnapshot.maximumRawPortNameLength)
+    }
 }

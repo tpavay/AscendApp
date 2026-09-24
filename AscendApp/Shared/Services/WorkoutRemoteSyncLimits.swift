@@ -28,4 +28,7 @@ enum WorkoutRemoteSyncLimits {
     /// `WorkoutParticipationService` has a routine producer and a climb-attempt producer, and
     /// every path that creates a workout runs one or the other, never both.
     static let maximumParticipations = 4
+
+    /// Matches the `sourceMetadata.size() <= 4000` bound in `firestore.rules`.
+    static let maximumSourceMetadataLength = 4000
 }

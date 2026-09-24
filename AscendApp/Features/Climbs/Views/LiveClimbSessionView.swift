@@ -31,6 +31,7 @@ struct LiveClimbSessionView: View {
     /// Same latch as `didHandOffToRatingPrompt`, for the same reason: once the summary hands off
     /// to the calibration sheet, the summary must not remount underneath it.
     @State private var didHandOffToStepAccuracyCalibration = false
+    @State private var didSubmitStepAccuracyCalibration = false
 
     private let liveTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -110,10 +111,14 @@ struct LiveClimbSessionView: View {
             CompatibleHeadphonesHelpSheet()
                 .appSheetStyle(.fitted())
         }
-        .sheet(isPresented: $showingStepAccuracyCalibration) {
+        .sheet(
+            isPresented: $showingStepAccuracyCalibration,
+            onDismiss: handleStepAccuracyCalibrationDismissed
+        ) {
             StepAccuracyCalibrationPromptView(
                 appSteps: viewModel.savedWorkout?.steps ?? 0,
                 onSubmit: { machineSteps in
+                    didSubmitStepAccuracyCalibration = true
                     viewModel.submitStepAccuracyCalibration(
                         machineReportedSteps: machineSteps,
                         modelContext: modelContext
@@ -121,7 +126,6 @@ struct LiveClimbSessionView: View {
                     showingStepAccuracyCalibration = false
                 },
                 onSkip: {
-                    viewModel.skipStepAccuracyCalibration()
                     showingStepAccuracyCalibration = false
                 }
             )
@@ -143,12 +147,6 @@ struct LiveClimbSessionView: View {
             // whether the climber answered or the system took the alert away.
             guard didHandOffToRatingPrompt, !isPresenting else { return }
             dismiss()
-        }
-        .onChange(of: showingStepAccuracyCalibration) { _, isPresenting in
-            // The calibration sheet closing (submit or skip) hands off to whatever the rating
-            // prompt would otherwise have done next, mirroring the alert's own handoff above.
-            guard didHandOffToStepAccuracyCalibration, !isPresenting else { return }
-            presentRatingPromptOrDismiss()
         }
         .onAppear {
             if viewModel.phase != .idle {
@@ -231,6 +229,16 @@ struct LiveClimbSessionView: View {
 
         didHandOffToStepAccuracyCalibration = true
         showingStepAccuracyCalibration = true
+    }
+
+    /// Runs once the sheet has finished leaving the screen, however it left - Submit, Skip, or a
+    /// swipe down - so the rating alert is never raised against a sheet still animating out.
+    private func handleStepAccuracyCalibrationDismissed() {
+        guard didHandOffToStepAccuracyCalibration else { return }
+        if !didSubmitStepAccuracyCalibration {
+            viewModel.skipStepAccuracyCalibration()
+        }
+        presentRatingPromptOrDismiss()
     }
 
     private func presentRatingPromptOrDismiss() {

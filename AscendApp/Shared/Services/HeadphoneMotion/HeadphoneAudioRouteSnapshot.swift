@@ -32,6 +32,31 @@ struct HeadphoneAudioRouteSnapshot: Codable, Equatable, Sendable {
     /// headset), independent of whether it happens to support headphone motion.
     let isHeadphoneClassOutputConnected: Bool
 
+    /// Longest raw port name stored. A Bluetooth name is user-set and can run to ~248 bytes,
+    /// which would spend a large share of `sourceMetadata`'s budget on the least useful field.
+    static let maximumRawPortNameLength = 64
+
+    init(
+        rawPortName: String?,
+        rawPortType: String?,
+        family: HeadphoneFamily,
+        isHeadphoneClassOutputConnected: Bool
+    ) {
+        self.rawPortName = rawPortName.map { String($0.prefix(Self.maximumRawPortNameLength)) }
+        self.rawPortType = rawPortType
+        self.family = family
+        self.isHeadphoneClassOutputConnected = isHeadphoneClassOutputConnected
+    }
+
+    var withoutRawPortName: HeadphoneAudioRouteSnapshot {
+        HeadphoneAudioRouteSnapshot(
+            rawPortName: nil,
+            rawPortType: rawPortType,
+            family: family,
+            isHeadphoneClassOutputConnected: isHeadphoneClassOutputConnected
+        )
+    }
+
     static let none = HeadphoneAudioRouteSnapshot(
         rawPortName: nil,
         rawPortType: nil,

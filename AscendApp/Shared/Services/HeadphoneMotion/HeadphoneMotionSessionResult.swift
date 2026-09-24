@@ -153,7 +153,7 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
     let trackingUnavailableDurationSeconds: TimeInterval?
     let longestTrackingUnavailableDurationSeconds: TimeInterval?
     let trackingInterruptionCount: Int?
-    let stepCorrections: [HeadphoneMotionStepCorrection]?
+    private(set) var stepCorrections: [HeadphoneMotionStepCorrection]?
     let heartRateCoverage: HeartRateTraceCoverage?
 
     // MARK: - Step accuracy telemetry
@@ -164,7 +164,7 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
 
     /// The connected audio output at the moment this climb was saved. `nil` only for a
     /// `sourceMetadata` payload written before this field existed.
-    let headphoneRoute: HeadphoneAudioRouteSnapshot?
+    private(set) var headphoneRoute: HeadphoneAudioRouteSnapshot?
     /// Apple's own signal (`CMHeadphoneMotionManager.isDeviceMotionAvailable`) for whether a
     /// motion-capable headphone was connected, read via `HeadphoneMotionReadinessService`.
     let isMotionCapableHeadphoneConnected: Bool?
@@ -233,7 +233,29 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
         self.stepDiscrepancyPercent = nil
     }
 
+    /// The encoded form stored in `Workout.sourceMetadata`. `firestore.rules` refuses a string
+    /// longer than `WorkoutRemoteSyncLimits.maximumSourceMetadataLength`, so an oversized payload
+    /// sheds its least essential detail - the raw headphone name first, then the oldest step
+    /// corrections - rather than producing a workout the server rejects forever.
     var jsonString: String? {
+        var candidate = self
+        while true {
+            guard let encoded = candidate.encodedJSONString else { return nil }
+            if encoded.utf8.count <= WorkoutRemoteSyncLimits.maximumSourceMetadataLength {
+                return encoded
+            }
+            if let route = candidate.headphoneRoute, route.rawPortName != nil {
+                candidate.headphoneRoute = route.withoutRawPortName
+            } else if let corrections = candidate.stepCorrections, !corrections.isEmpty {
+                let remaining = corrections.dropFirst()
+                candidate.stepCorrections = remaining.isEmpty ? nil : Array(remaining)
+            } else {
+                return encoded
+            }
+        }
+    }
+
+    private var encodedJSONString: String? {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(self) else { return nil }
