@@ -198,6 +198,31 @@ test(
 );
 
 test(
+  "a landmark the catalogue cannot name still counts as finished",
+  async () => {
+    await seedUser("unlisted-1", "unlisted@example.com");
+    await seedWeeklyStats("unlisted-1", closedWeek, {
+      totalFloors: 20,
+      totalSteps: 1200,
+      totalWorkouts: 1,
+    });
+    await seedCompletedLandmarkWorkout(
+      "unlisted-1",
+      "unlisted-climb",
+      addDays(closedWeek.startAt, 1)
+    );
+
+    await runRecapSweep("weekly", now);
+
+    const job = await readJob(
+      buildRecapDedupeKey("weekly", closedWeek.key, "unlisted-1")
+    );
+    const payload = job.payload as RecapActivePayload;
+    assert.deepEqual(payload.landmarksFinished, ["unlisted-climb"]);
+  }
+);
+
+test(
   "an abandoned Live Climb attempt is never reported as a finished landmark",
   async () => {
     await seedUser("attempter-1", "attempter@example.com");
@@ -250,11 +275,13 @@ test(
 );
 
 test(
-  "a dormant climber's real gap comes from the all-time row's lastUpdated",
+  "a dormant climber's real gap comes from their latest workout, not lastUpdated",
   async () => {
     await seedUser("dormant-2", "dormant2@example.com");
-    // Last active 3 weeks before `now` (2026-09-28).
-    await seedAllTimeStats("dormant-2", addDays(now, -21));
+    // A demographics edit restamped the all-time row yesterday, but the
+    // last climb was 3 weeks before `now` (2026-09-28).
+    await seedAllTimeStats("dormant-2", addDays(now, -1));
+    await seedCompletedLandmarkWorkout("dormant-2", "eiffel", addDays(now, -21));
 
     await runRecapSweep("weekly", now);
 
@@ -263,6 +290,25 @@ test(
     );
     const payload = job.payload as RecapInactivePayload;
     assert.equal(payload.gapCount, 3);
+  }
+);
+
+test(
+  "a climber who already came back after the closed week gets no we-missed-you email",
+  async () => {
+    await seedUser("returner-1", "returner@example.com");
+    await seedAllTimeStats("returner-1");
+    await seedCompletedLandmarkWorkout("returner-1", "eiffel", closedWeek.endAt);
+
+    const summary = await runRecapSweep("weekly", now);
+
+    const jobId = buildEmailJobId(
+      buildRecapDedupeKey("weekly", closedWeek.key, "returner-1")
+    );
+    const snapshot = await db.collection(EMAIL_JOBS).doc(jobId).get();
+    assert.equal(snapshot.exists, false);
+    assert.ok(summary.suppressed >= 1);
+    assert.equal(summary.errors, 0);
   }
 );
 
@@ -556,7 +602,7 @@ async function seedWeeklyStats(
 /**
  * Seeds the never-closing all-time `leaderboard_stats` row, the signal this
  * sweep uses for "has ever completed a climb". `lastUpdated`, when given,
- * is the real-gap source the zero-activity email's `gapCount` reads.
+ * is the reconcile stamp the zero-activity gap must never read.
  * @param {string} uid - Firebase Auth user ID
  * @param {Date} lastUpdatedAt - When this row last moved
  * @param {number} totalSteps - All-time steps on the row

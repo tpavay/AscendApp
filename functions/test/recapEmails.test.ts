@@ -84,13 +84,13 @@ test("landmark names dedupe by climb id in first-seen order", () => {
   );
 });
 
-test("a landmark not in the catalogue is dropped, never printed raw", () => {
+test("a landmark not in the catalogue keeps its raw climb id so it still counts", () => {
   assert.deepEqual(
     dedupeLandmarkNames(
-      ["global", "eiffel"],
+      ["retired-climb", "eiffel"],
       new Map([["eiffel", "Eiffel Tower"]])
     ),
-    ["Eiffel Tower"]
+    ["retired-climb", "Eiffel Tower"]
   );
 });
 

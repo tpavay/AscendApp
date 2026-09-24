@@ -92,13 +92,15 @@
  *     never read as a scolding. A flat or down period simply shows no chip
  *     on that stat.
  *   - The zero-activity email's gap ("We haven't seen you in N weeks/
- *     months") reads the `all_time` `leaderboard_stats` row's `lastUpdated`
- *     field, which moves on every eligible workout write - it doubles as
- *     "when this climber was last active" without a dedicated field or an
- *     extra read, since that row is already loaded to build the
- *     zero-activity cohort. Falls back to the closed period's own start
- *     date (a floor of "at least since this period began") on the
- *     defensive case where the field is somehow missing.
+ *     months") reads the climber's latest workout `startedAt` - one indexed
+ *     `orderBy("startedAt", "desc").limit(1)` read per zero-activity
+ *     climber, never their history. The `all_time` row's `lastUpdated` is
+ *     not a last-activity time: every reconcile (a demographics edit, an
+ *     old workout's edit or delete, a backfill) restamps it. A latest
+ *     workout at or after the closed period's end means the climber already
+ *     came back, so no zero-activity email is sent. Falls back to the
+ *     closed period's own start date on the defensive case where no
+ *     workout is found.
  *   - First Ascents in the zero-activity email read
  *     `live_replay_leaderboards` where `firstAscentUserId == uid` - the one
  *     durable, permanent record `liveReplayLeaderboard.ts` writes when a
@@ -193,13 +195,6 @@ const RECIPIENT_CONCURRENCY = 10;
 export type RecapCadence = "weekly" | "monthly";
 
 interface LeaderboardStatsRow {
-  /**
-   * When this row was last recomputed - for the `all_time` row, this moves
-   * on every eligible workout write, so it doubles as "when this climber was
-   * last active" for the zero-activity email's real gap ("We haven't seen
-   * you in N weeks").
-   */
-  lastUpdated: Date | null;
   totalFloors: number;
   totalSteps: number;
   totalWorkouts: number;
@@ -311,7 +306,7 @@ export function formatMonthlyPeriodLabel(
 
 /**
  * Resolves landmark climb IDs to display names, deduped in first-seen order.
- * An ID the catalogue cannot resolve is dropped, never printed raw.
+ * An ID the catalogue cannot resolve keeps its raw ID, so it still counts.
  * @param {string[]} climbIds - Distinct completed-landmark climb IDs
  * @param {Map<string, string>} climbNameById - Catalogue name lookup
  * @return {string[]} Distinct display names
@@ -327,10 +322,7 @@ export function dedupeLandmarkNames(
       continue;
     }
     seen.add(climbId);
-    const name = climbNameById.get(climbId);
-    if (name) {
-      names.push(name);
-    }
+    names.push(climbNameById.get(climbId) ?? climbId);
   }
   return names;
 }
@@ -626,9 +618,6 @@ async function pageLeaderboardStatsRows(
         continue;
       }
       rows.set(userId, {
-        lastUpdated: data.lastUpdated instanceof admin.firestore.Timestamp ?
-          data.lastUpdated.toDate() :
-          null,
         totalFloors: numberValue(data.totalFloors),
         totalSteps: numberValue(data.totalSteps),
         totalWorkouts: numberValue(data.totalWorkouts),
@@ -712,6 +701,30 @@ async function fetchPeriodWorkoutDetails(
 }
 
 /**
+ * Reads when the climber's latest workout started, or null with none.
+ * @param {admin.firestore.Firestore} firestore - Admin Firestore instance
+ * @param {string} uid - Firebase Auth user ID
+ * @return {Promise<Date | null>} Latest workout's start time
+ */
+async function fetchLatestWorkoutStartedAt(
+  firestore: admin.firestore.Firestore,
+  uid: string
+): Promise<Date | null> {
+  const snapshot = await firestore
+    .collection(USERS_COLLECTION)
+    .doc(uid)
+    .collection(WORKOUTS_COLLECTION)
+    .orderBy("startedAt", "desc")
+    .limit(1)
+    .select("startedAt")
+    .get();
+  const startedAt = snapshot.docs[0]?.get("startedAt");
+  return startedAt instanceof admin.firestore.Timestamp ?
+    startedAt.toDate() :
+    null;
+}
+
+/**
  * Reads the prior period's totals for the same climber, when they had a
  * standing then, for the stat cards' delta chips.
  * @param {admin.firestore.Firestore} firestore - Admin Firestore instance
@@ -740,7 +753,6 @@ async function fetchPreviousPeriodTotals(
   }
   const data = snapshot.data() ?? {};
   return {
-    lastUpdated: null,
     totalFloors: numberValue(data.totalFloors),
     totalSteps: numberValue(data.totalSteps),
     totalWorkouts: numberValue(data.totalWorkouts),
@@ -966,11 +978,16 @@ async function composeAndEnqueueInactiveRecap(
   period: ClosedLeaderboardPeriod,
   now: Date,
   uid: string,
-  lastActiveAt: Date | null,
   suggestedClimb: CatalogClimb | null,
   climbNameById: Map<string, string>,
   summary: RecapSweepSummary
 ): Promise<void> {
+  const lastActiveAt = await fetchLatestWorkoutStartedAt(firestore, uid);
+  if (lastActiveAt && lastActiveAt >= period.endAt) {
+    summary.suppressed += 1;
+    return;
+  }
+
   const email = await fetchUserEmail(firestore, uid);
   if (!email) {
     summary.skippedNoEmail += 1;
@@ -978,7 +995,10 @@ async function composeAndEnqueueInactiveRecap(
   }
 
   const firstAscentClimbIds = await fetchFirstAscentClimbIds(firestore, uid);
-  const firstAscents = dedupeLandmarkNames(firstAscentClimbIds, climbNameById);
+  const firstAscents = dedupeLandmarkNames(
+    firstAscentClimbIds.filter((climbId) => climbNameById.has(climbId)),
+    climbNameById
+  );
   const since = lastActiveAt ?? period.startAt;
 
   const payload: RecapInactivePayload = {
@@ -1122,14 +1142,13 @@ export async function runRecapSweep(
   const inactiveFailures = await runWithBoundedConcurrency(
     inactiveEntries,
     RECIPIENT_CONCURRENCY,
-    async ([uid, allTimeRow]) => {
+    async ([uid]) => {
       await composeAndEnqueueInactiveRecap(
         firestore,
         cadence,
         period,
         now,
         uid,
-        allTimeRow.lastUpdated,
         catalog.suggestedClimb,
         catalog.climbNameById,
         summary
