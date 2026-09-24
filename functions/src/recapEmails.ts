@@ -78,8 +78,8 @@
  *     `firstAscentWorkoutId` and matched in memory against the closed
  *     period's completed-landmark workouts the workout query already read -
  *     never a second Firestore filter, so no new composite index. It runs
- *     only when the closed period holds a completed landmark, since no
- *     other climber can have a First Ascent badge that period.
+ *     only when the closed period holds a completed landmark, since without
+ *     one the climber cannot have a First Ascent badge that period.
  * This never sweeps the full `users` collection and never reads a user's
  * full workout history. Each climber costs exactly one workout query,
  * bounded by cohort size: an active climber's is a `startedAt` range query
