@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// The "Just Me" tab of the live climb session: a large centered step-progress hero, an
-/// animated summit bar carrying the previous-best marker directly beneath it, and a centered
-/// grid of medium live stats (elapsed, rank, pace, heart rate) sitting directly below the
-/// bar - a 2x2 grid when heart rate is present, two-and-one when it is not. Renders over the
+/// The "Just Me" tab of the live climb session: a large centered progress hero shaped by the
+/// session's goal type, an animated summit bar carrying the previous-best marker directly
+/// beneath it whenever there is a goal to measure against, and a centered grid of medium live
+/// stats (elapsed - or steps on a duration goal - rank, pace, heart rate) sitting directly
+/// below - a 2x2 grid when heart rate is present, two-and-one when it is not. Renders over the
 /// climb's own hero photo (`LiveClimbSessionView.sessionBackground`) rather than a flat
 /// background, so text throughout carries its own shadow.
 struct LiveClimbJustMeView: View {
