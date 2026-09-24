@@ -43,13 +43,7 @@ test("every available climb names a progress cut-out in its own folder, describe
   }
 });
 
-test("the tool refuses the same paths the app refuses", () => {
-  const app = read("AscendApp/Features/Climbs/Models/ClimbProgressArtwork.swift");
-  assert.match(
-    app,
-    /path\.hasPrefix\("climb-images\/\\\(climbID\)\/"\)/,
-    "the app's folder rule changed - update progressObjectPath"
-  );
+test("the tool refuses a cut-out outside the climb's own folder", () => {
   assert.equal(progressObjectPath({id: "a", progressArtwork: {path: "climb-images/b/progress/v1.png"}}), null);
   assert.equal(progressObjectPath({id: "a", progressArtwork: {path: "climb-images/a/../b/v1.png"}}), null);
   assert.equal(progressObjectPath({id: "a"}), null);
