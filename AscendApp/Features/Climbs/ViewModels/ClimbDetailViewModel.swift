@@ -24,14 +24,18 @@ final class ClimbDetailViewModel {
     private let leaderboardService: LiveReplayLeaderboardServicing
     private let completionLeaderboardPageSize = 25
     private let completionLeaderboardPrefetchDistance = 5
-    var effectiveSPM = SettingsManager.shared.effectiveBaseLevelSPM
+    /// Threaded in by the Home and Browse rows that already computed it, so opening Climb Detail
+    /// costs no workout fetch; every other entry point keeps the default pace.
+    var effectiveSPM: Int
 
     init(
         climb: Climb,
+        effectiveSPM: Int = SettingsManager.shared.effectiveBaseLevelSPM,
         climbService: ClimbService = .shared,
         leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared
     ) {
         self.climb = climb
+        self.effectiveSPM = effectiveSPM
         self.historySummary = .empty(for: climb)
         self.climbService = climbService
         self.leaderboardService = leaderboardService

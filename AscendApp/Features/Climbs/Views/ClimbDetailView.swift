@@ -102,7 +102,6 @@ struct ClimbDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
     @Environment(ModerationStore.self) private var moderationStore
-    @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
     @State private var themeManager = ThemeManager.shared
     @State private var viewModel: ClimbDetailViewModel
     @State private var resultSyncStore = LiveClimbPublicResultSyncStore.shared
@@ -131,6 +130,7 @@ struct ClimbDetailView: View {
         showsBrowseBackButton: Bool = false,
         analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown,
         onboardingCoach: ClimbDetailOnboardingCoachMode? = nil,
+        effectiveSPM: Int = SettingsManager.shared.effectiveBaseLevelSPM,
         climbService: ClimbService = .shared,
         leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared
     ) {
@@ -140,6 +140,7 @@ struct ClimbDetailView: View {
         _viewModel = State(
             initialValue: ClimbDetailViewModel(
                 climb: climb,
+                effectiveSPM: effectiveSPM,
                 climbService: climbService,
                 leaderboardService: leaderboardService
             )
@@ -249,14 +250,10 @@ struct ClimbDetailView: View {
         .task {
             trackDetailViewedIfNeeded()
             headphoneMotionService.refresh()
-            viewModel.effectiveSPM = PersonalizedClimbPaceService.effectiveSPM(workouts: workouts)
             viewModel.refresh(modelContext: modelContext)
             await viewModel.refreshLeaderboardSummary(modelContext: modelContext)
             await refreshPublicResultSyncStatusIfNeeded()
             startOnboardingCoachIfNeeded()
-        }
-        .onChange(of: workouts) { _, newValue in
-            viewModel.effectiveSPM = PersonalizedClimbPaceService.effectiveSPM(workouts: newValue)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             headphoneMotionService.refresh()

@@ -169,7 +169,11 @@ struct HomeView: View {
         .background(Color.black.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(item: $selectedDetailClimb) { climb in
-            ClimbDetailView(climb: climb, analyticsEntryPoint: selectedDetailEntryPoint)
+            ClimbDetailView(
+                climb: climb,
+                analyticsEntryPoint: selectedDetailEntryPoint,
+                effectiveSPM: personalizedClimbSPM
+            )
         }
         .navigationDestination(item: $activeJustClimbGoal) { goal in
             LiveClimbSessionView(

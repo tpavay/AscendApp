@@ -102,7 +102,8 @@ struct ClimbBrowseView: View {
             ClimbDetailView(
                 climb: climb,
                 showsBrowseBackButton: true,
-                analyticsEntryPoint: selectedDetailEntryPoint
+                analyticsEntryPoint: selectedDetailEntryPoint,
+                effectiveSPM: personalizedClimbSPM
             )
         }
         .sheet(isPresented: $showingHelpSheet) {
