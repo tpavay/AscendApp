@@ -14,6 +14,7 @@ import type {
   RecapActivePayload,
   RecapCalendarCell,
   RecapDeltaChip,
+  RecapEarnedBadge,
   RecapInactivePayload,
   TransactionalEmailRenderResult,
 } from "./types";
@@ -846,12 +847,12 @@ function parseRecapActivePayload(
   }
 
   return {
-    achievementLabel: optionalString(payload, "achievementLabel"),
     calendar: calendarArray(payload.calendar),
     climbsCompleted: requiredNumber(payload, "climbsCompleted", errorCode),
     climbsDelta: parseDeltaChip(payload.climbsDelta),
     ctaUrl: requiredUrl(payload, "ctaUrl", errorCode),
     currentStreakWeeks: optionalNumber(payload, "currentStreakWeeks"),
+    earnedBadges: earnedBadgeArray(payload.earnedBadges),
     fieldSize: optionalNumber(payload, "fieldSize"),
     floorsDelta: parseDeltaChip(payload.floorsDelta),
     landmarksFinished: stringArray(payload, "landmarksFinished"),
@@ -881,6 +882,7 @@ function parseRecapInactivePayload(
 
   return {
     ctaUrl: requiredUrl(payload, "ctaUrl", errorCode),
+    earnedBadges: earnedBadgeArray(payload.earnedBadges),
     firstAscents: stringArray(payload, "firstAscents"),
     gapCount: requiredNumber(payload, "gapCount", errorCode),
     periodLabel: requiredString(payload, "periodLabel", errorCode),
@@ -929,6 +931,35 @@ function calendarArray(value: unknown): RecapCalendarCell[] {
     cells.push({dayOfMonth, level});
   }
   return cells;
+}
+
+/**
+ * Parses a stored earned-badge array, dropping anything that does not carry
+ * a recognized badge id and a non-empty label.
+ * @param {unknown} value - Raw stored field
+ * @return {RecapEarnedBadge[]} Parsed badges
+ */
+function earnedBadgeArray(value: unknown): RecapEarnedBadge[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const badges: RecapEarnedBadge[] = [];
+  for (const entry of value) {
+    if (!isPlainObject(entry)) {
+      continue;
+    }
+    const id = entry.id;
+    if (id !== "top10" && id !== "top100" && id !== "first-ascent") {
+      continue;
+    }
+    const label = typeof entry.label === "string" ? entry.label : "";
+    if (!label) {
+      continue;
+    }
+    const detail = typeof entry.detail === "string" ? entry.detail : undefined;
+    badges.push({detail, id, label});
+  }
+  return badges;
 }
 
 /**
@@ -1130,25 +1161,92 @@ function renderRankHeroHtml(
 }
 
 /**
- * Renders the achievement-earned outlined callout, when the climber earned
- * one of the app's existing tracked achievements for the period.
- * @param {string | undefined} achievementLabel - Achievement label, if any
- * @return {string} Callout HTML, or an empty string with none
+ * Maps an earned badge id to its email-safe artwork, copied from the app's
+ * own `ProfileAchievementCatalogue` assets
+ * (`AscendApp/Resources/Assets.xcassets/Images/LeaderboardTop10`,
+ * `LeaderboardTop100`, `FirstAscentBadgeDetailed`) into
+ * `web/public/images/badges/`, so this never invents new badge art.
+ * @param {RecapEarnedBadge["id"]} id - Which badge
+ * @return {string} Marketing-site-relative image path
  */
-function renderAchievementCalloutHtml(
-  achievementLabel: string | undefined
-): string {
-  if (!achievementLabel) {
+function recapBadgeImagePath(id: RecapEarnedBadge["id"]): string {
+  switch (id) {
+  case "top10":
+    return "images/badges/top10.png";
+  case "top100":
+    return "images/badges/top100.png";
+  case "first-ascent":
+    return "images/badges/first-ascent.png";
+  }
+}
+
+/**
+ * Renders one earned-badge card: the real app badge artwork, its locked
+ * label, and an optional detail line (the landmark name(s) for a First
+ * Ascent badge, "globally" for a rank badge). The Top 10 / First Ascent
+ * badges use the gold "rank-prestige" token, matching
+ * `ProfileAchievementCatalogue`'s own gold tint for those two; Top 100 stays
+ * on the neutral card treatment, matching the catalogue's secondary-text
+ * tint for that badge.
+ * @param {RecapEarnedBadge} badge - The earned badge
+ * @return {string} Card HTML (no outer `<td>`)
+ */
+function renderAchievementBadgeCardHtml(badge: RecapEarnedBadge): string {
+  const isGold = badge.id !== "top100";
+  const border = isGold ? RECAP_GOLD_BORDER : RECAP_BORDER;
+  const background = isGold ? RECAP_GOLD_BG : RECAP_CARD_BG;
+  const imageUrl = escapeHtml(
+    `${getMarketingWebsiteUrl()}/${recapBadgeImagePath(badge.id)}`
+  );
+  const detailHtml = badge.detail ? [
+    "<p style=\"margin:4px 0 0;font-size:12px;line-height:1.4;color:",
+    `${RECAP_TEXT_MUTED};">${escapeHtml(badge.detail)}</p>`,
+  ].join("") : "";
+
+  return [
+    `<div style="border:1px solid ${border};border-radius:16px;`,
+    `padding:16px 14px;background:${background};box-shadow:`,
+    `${RECAP_CARD_SHADOW};text-align:center;">`,
+    // The artwork's own dark chrome/gold rendering assumes a light backdrop
+    // (see ProfileAchievementCatalogue) - a plate behind just the image
+    // keeps it legible against this card's dark, tinted fill.
+    "<div style=\"display:inline-block;background:#ffffff;",
+    "border-radius:12px;padding:8px 10px;margin:0 0 10px;line-height:0;\">",
+    `<img src="${imageUrl}" width="72" height="48" alt="${escapeHtml(badge.label)} badge" `,
+    "style=\"display:block;width:72px;height:48px;border:0;\" />",
+    "</div>",
+    "<p style=\"margin:0;font-size:13px;font-weight:800;color:",
+    `${RECAP_TEXT};">${escapeHtml(badge.label)}</p>`,
+    detailHtml,
+    "</div>",
+  ].join("");
+}
+
+/**
+ * Renders every earned-badge card side by side, when the climber earned at
+ * least one - the app's real achievement badge artwork for the period
+ * (round 5: "we should include our achievement badges that we have in the
+ * app"), replacing the old text-only "Achievement earned" callout.
+ * @param {RecapEarnedBadge[]} badges - Earned badges, in display order
+ * @return {string} Badge row HTML, or an empty string with none earned
+ */
+function renderAchievementBadgesHtml(badges: RecapEarnedBadge[]): string {
+  if (badges.length === 0) {
     return "";
   }
+  const widthPercent = Math.floor(100 / badges.length);
+  const cells = badges.map((badge, index) => {
+    const padding = badges.length === 1 ?
+      "0" :
+      index === 0 ? "0 8px 0 0" : "0 0 0 8px";
+    return `<td width="${widthPercent}%" style="padding:${padding};` +
+      `vertical-align:top;">${renderAchievementBadgeCardHtml(badge)}</td>`;
+  }).join("");
+
   return [
-    `<div style="margin-top:16px;border:1px solid ${RECAP_ACCENT_BORDER};`,
-    `border-radius:16px;padding:16px 20px;box-shadow:${RECAP_CARD_SHADOW};">`,
-    "<p style=\"margin:0 0 6px;font-size:11px;letter-spacing:0.16em;",
-    `text-transform:uppercase;color:${BRAND_ACCENT_COLOR};font-weight:700;">`,
-    "Achievement earned</p>",
-    `<p style="margin:0;font-size:15px;line-height:1.5;color:${RECAP_TEXT};`,
-    `font-weight:600;">${escapeHtml(achievementLabel)}</p>`,
+    "<div style=\"margin-top:16px;\">",
+    "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" ",
+    `cellpadding="0" border="0"><tr>${cells}</tr></table>`,
     "</div>",
   ].join("");
 }
@@ -1251,6 +1349,21 @@ function renderRecapCtaHtml(label: string, url: string): string {
 }
 
 /**
+ * Builds the plain-text "Achievement earned" lines for a set of earned
+ * badges, shared by both cadences and both variants' plain-text renders -
+ * plain text has no images, so this is where a badge's fact still has to
+ * land.
+ * @param {RecapEarnedBadge[]} badges - Earned badges, in display order
+ * @return {string[]} Plain-text lines, one per badge
+ */
+function buildEarnedBadgeTextLines(badges: RecapEarnedBadge[]): string[] {
+  return badges.map((badge) => {
+    const detail = badge.detail ? ` (${badge.detail})` : "";
+    return `Achievement earned: ${badge.label}${detail}`;
+  });
+}
+
+/**
  * Builds the plain-text stat lines shared by both cadences' active recap.
  * @param {RecapActivePayload} payload - Validated recap payload
  * @return {string[]} Plain-text lines
@@ -1274,9 +1387,7 @@ function buildRecapActiveTextLines(payload: RecapActivePayload): string[] {
     lines.push(`You ranked #${payload.rank} of ${payload.fieldSize} ` +
       `climbers${band}`);
   }
-  if (payload.achievementLabel) {
-    lines.push(`Achievement earned: ${payload.achievementLabel}`);
-  }
+  lines.push(...buildEarnedBadgeTextLines(payload.earnedBadges));
   if (payload.landmarksFinished.length > 0) {
     lines.push(`Landmarks finished: ${payload.landmarksFinished.join(", ")}`);
   }
@@ -1334,7 +1445,7 @@ function renderRecapActiveEmail(
     escapeHtml(payload.periodLabel),
     "</p>",
     renderRankHeroHtml(payload.rank, payload.fieldSize, payload.percentileBand),
-    renderAchievementCalloutHtml(payload.achievementLabel),
+    renderAchievementBadgesHtml(payload.earnedBadges),
     "</td></tr>",
     "<tr><td style=\"padding:0 30px 34px;\">",
     "<h2 style=\"margin:0 0 18px;font-size:20px;font-weight:800;color:",
@@ -1469,6 +1580,7 @@ function renderRecapInactiveEmail(
     `${RECAP_TEXT_MUTED};">${escapeHtml(gapSentence)} Pick a climb and `,
     "get back on the stair stepper.</p>",
     secondLineHtml,
+    renderAchievementBadgesHtml(payload.earnedBadges),
     "<div style=\"padding-top:28px;\">",
     renderRecapCtaHtml("Open Ascend", payload.ctaUrl),
     "</div></td></tr>",
@@ -1480,6 +1592,7 @@ function renderRecapInactiveEmail(
     "",
     `${gapSentence} Pick a climb and get back on the stair stepper.`,
     ...(secondLine ? [secondLine] : []),
+    ...buildEarnedBadgeTextLines(payload.earnedBadges),
     "",
     `Open Ascend: ${payload.ctaUrl}`,
     "",

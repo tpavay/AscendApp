@@ -326,6 +326,9 @@ test(
     );
     const payload = job.payload as RecapInactivePayload;
     assert.deepEqual(payload.firstAscents, ["Eiffel Tower"]);
+    assert.deepEqual(payload.earnedBadges, [
+      {detail: "Eiffel Tower", id: "first-ascent", label: "First Ascent"},
+    ]);
   }
 );
 
@@ -389,7 +392,7 @@ test(
 );
 
 test(
-  "an achievement earned this period is reused from the canonical record",
+  "an achievement earned this period earns the real Top 10 badge, reused from the canonical record",
   async () => {
     await seedUser("achiever-1", "achiever@example.com");
     await seedWeeklyStats("achiever-1", closedWeek, {
@@ -405,12 +408,37 @@ test(
       buildRecapDedupeKey("weekly", closedWeek.key, "achiever-1")
     );
     const payload = job.payload as RecapActivePayload;
-    assert.equal(payload.achievementLabel, "Top 10 globally");
+    assert.deepEqual(payload.earnedBadges, [
+      {detail: "globally", id: "top10", label: "Top 10"},
+    ]);
   }
 );
 
 test(
-  "no achievement callout when the climber earned none this period",
+  "an achievement rank outside the top 10 earns the Top 100 badge instead",
+  async () => {
+    await seedUser("achiever-2", "achiever2@example.com");
+    await seedWeeklyStats("achiever-2", closedWeek, {
+      totalFloors: 5,
+      totalSteps: 100,
+      totalWorkouts: 1,
+    });
+    await seedAchievement("achiever-2", "weekly", closedWeek.key, 42);
+
+    await runRecapSweep("weekly", now);
+
+    const job = await readJob(
+      buildRecapDedupeKey("weekly", closedWeek.key, "achiever-2")
+    );
+    const payload = job.payload as RecapActivePayload;
+    assert.deepEqual(payload.earnedBadges, [
+      {detail: "globally", id: "top100", label: "Top 100"},
+    ]);
+  }
+);
+
+test(
+  "no achievement badge when the climber earned none this period",
   async () => {
     await seedUser("no-achiever-1", "noachiever@example.com");
     await seedWeeklyStats("no-achiever-1", closedWeek, {
@@ -425,7 +453,69 @@ test(
       buildRecapDedupeKey("weekly", closedWeek.key, "no-achiever-1")
     );
     const payload = job.payload as RecapActivePayload;
-    assert.equal(payload.achievementLabel, undefined);
+    assert.deepEqual(payload.earnedBadges, []);
+  }
+);
+
+test(
+  "a First Ascent claimed this period earns a badge on the active recap",
+  async () => {
+    await seedUser("period-ascender-1", "periodascender@example.com");
+    await seedWeeklyStats("period-ascender-1", closedWeek, {
+      totalFloors: 5,
+      totalSteps: 100,
+      totalWorkouts: 1,
+    });
+    await seedCompletedLandmarkWorkout(
+      "period-ascender-1",
+      "eiffel",
+      closedWeek.startAt
+    );
+    await seedFirstAscent("period-ascender-1", "eiffel", closedWeek.startAt);
+
+    await runRecapSweep("weekly", now);
+
+    const job = await readJob(
+      buildRecapDedupeKey("weekly", closedWeek.key, "period-ascender-1")
+    );
+    const payload = job.payload as RecapActivePayload;
+    assert.deepEqual(payload.earnedBadges, [
+      {detail: "Eiffel Tower", id: "first-ascent", label: "First Ascent"},
+    ]);
+  }
+);
+
+test(
+  "a First Ascent claimed in an earlier period is never re-badged as new",
+  async () => {
+    await seedUser("period-ascender-2", "periodascender2@example.com");
+    await seedWeeklyStats("period-ascender-2", closedWeek, {
+      totalFloors: 5,
+      totalSteps: 100,
+      totalWorkouts: 1,
+    });
+    // Re-climbed this period, but first-ascended it back in the previous one.
+    await seedCompletedLandmarkWorkout(
+      "period-ascender-2",
+      "eiffel",
+      closedWeek.startAt
+    );
+    await seedFirstAscent(
+      "period-ascender-2",
+      "eiffel",
+      previousWeek.startAt
+    );
+
+    await runRecapSweep("weekly", now);
+
+    const job = await readJob(
+      buildRecapDedupeKey("weekly", closedWeek.key, "period-ascender-2")
+    );
+    const payload = job.payload as RecapActivePayload;
+    assert.deepEqual(payload.earnedBadges, []);
+    // The re-climb still counts toward landmarks finished - only the badge
+    // is period-scoped.
+    assert.deepEqual(payload.landmarksFinished, ["Eiffel Tower"]);
   }
 );
 
@@ -660,16 +750,31 @@ async function seedAllTimeStats(
 
 /**
  * Seeds the permanent First Ascent record `liveReplayLeaderboard.ts` writes
- * once a climb's First Ascent is claimed - the record the zero-activity
- * email's `firstAscents` list reads.
+ * once a climb's First Ascent is claimed - the record both the
+ * zero-activity email's `firstAscents` list and the active recap's
+ * period-scoped First Ascent badge read. `completedAt`, when given, is what
+ * the active recap filters against to decide whether the badge belongs to
+ * the closed period being composed; omitted, the record still counts for
+ * the lifetime-scoped inactive list but never for a period badge.
  * @param {string} uid - Firebase Auth user ID
  * @param {string} climbId - Landmark climb ID this climber first-ascended
+ * @param {Date} [completedAt] - When the First Ascent was claimed
  * @return {Promise<void>}
  */
-async function seedFirstAscent(uid: string, climbId: string): Promise<void> {
+async function seedFirstAscent(
+  uid: string,
+  climbId: string,
+  completedAt?: Date
+): Promise<void> {
   await db.collection("live_replay_leaderboards").doc(climbId).set({
     contextId: climbId,
     contextType: "live_climb",
+    ...(completedAt ?
+      {
+        firstAscentCompletedAt:
+          admin.firestore.Timestamp.fromDate(completedAt),
+      } :
+      {}),
     firstAscentUserId: uid,
   });
 }

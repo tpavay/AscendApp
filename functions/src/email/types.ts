@@ -103,6 +103,23 @@ export interface RecapCalendarCell {
 }
 
 /**
+ * One of the app's own tracked achievement badges, earned for the period (or,
+ * for a First Ascent in the zero-activity email, ever) - reusing
+ * `ProfileAchievementCatalogue`'s real badge artwork, names, and tiers
+ * (`ascend-leaderboards`' locked Top 10 / Top 100 / First Ascent
+ * terminology) rather than inventing new ones. `id` selects the artwork
+ * (`AscendApp/Resources/Assets.xcassets/Images/LeaderboardTop10`,
+ * `LeaderboardTop100`, `FirstAscentBadgeDetailed`, copied email-safe into
+ * `web/public/images/badges/`); `detail` carries the landmark name(s) for a
+ * First Ascent badge and "globally" for a rank badge.
+ */
+export interface RecapEarnedBadge {
+  id: "top10" | "top100" | "first-ascent";
+  label: string;
+  detail?: string;
+}
+
+/**
  * Stats for a climber who had activity in a closed weekly or monthly window.
  * Every optional field is omitted rather than sent as zero/hollow when there
  * is nothing to report - no delta chip for a flat or down period, no rank
@@ -111,14 +128,18 @@ export interface RecapCalendarCell {
  * `rank`/`fieldSize` are the hero's lead metric (round 3): shown together as
  * "#{rank} of {fieldSize} climbers" whenever `fieldSize` is large enough for
  * a rank to mean anything, with `percentileBand` as an optional secondary
- * badge alongside it. `achievementLabel` is a distinct, separate callout
- * sourced from the app's existing tracked achievement for the period (not
- * re-derived from `rank`) - present only when the climber actually earned
- * one. There is deliberately no milestone field (round 4: the captain found
- * the milestone-unlocked concept confusing and asked for it to be removed).
+ * badge alongside it. `earnedBadges` (round 5) is the app's real achievement
+ * badge artwork earned for the period - a Top 10 or Top 100 badge sourced
+ * from the same tracked achievement record the old text-only
+ * `achievementLabel` callout read (not re-derived from `rank`), plus a First
+ * Ascent badge for any landmark first-ascended during this period
+ * specifically (a strict subset of `landmarksFinished`, never a lifetime
+ * total) - empty when the climber earned neither. There is deliberately no
+ * milestone field (round 4: the captain found the milestone-unlocked concept
+ * confusing and asked for it to be removed).
  */
 export interface RecapActivePayload {
-  achievementLabel?: string;
+  earnedBadges: RecapEarnedBadge[];
   periodLabel: string;
   climbsCompleted: number;
   climbsDelta?: RecapDeltaChip;
@@ -141,12 +162,16 @@ export interface RecapActivePayload {
  * (monthly) since the climber was last active, always at least 1.
  * `firstAscents` lists every landmark the climber holds the permanent First
  * Ascent of; when it is non-empty the email names them instead of the
- * generic `suggestedClimbName` nudge.
+ * generic `suggestedClimbName` nudge, and `earnedBadges` (round 5) carries
+ * the matching First Ascent badge artwork alongside that same list - empty
+ * with no First Ascents, never a rank badge (there is no ranked period to
+ * have earned one in).
  */
 export interface RecapInactivePayload {
   periodLabel: string;
   gapCount: number;
   firstAscents: string[];
+  earnedBadges: RecapEarnedBadge[];
   suggestedClimbName?: string;
   ctaUrl: string;
 }

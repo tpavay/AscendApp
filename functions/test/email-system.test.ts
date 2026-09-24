@@ -33,6 +33,7 @@ import type {
   EmailJobDocument,
   EmailJobPayload,
   EmailType,
+  RecapEarnedBadge,
 } from "../src/email/types";
 
 test("rating prompt email automation maps responses to email types", () => {
@@ -268,6 +269,7 @@ const baseWeeklyActivePayload = {
   calendar: [] as {dayOfMonth: number | null; level: "none"}[],
   climbsCompleted: 3,
   ctaUrl: APP_STORE_TEST_URL,
+  earnedBadges: [] as RecapEarnedBadge[],
   landmarksFinished: [] as string[],
   periodLabel: "Sep 15 – Sep 21",
   totalFloors: 210,
@@ -349,22 +351,43 @@ test("a rank with no qualifying percentile band still shows the concrete rank", 
   assert.doesNotMatch(rendered.text, /Top \d+%/);
 });
 
-test("achievements reuse the app's existing tracked achievement", () => {
+test("earned badges reuse the app's real achievement badge artwork", () => {
   const rendered = renderWeeklyRecapActiveEmail({
     ...baseWeeklyActivePayload,
-    achievementLabel: "Top 10 globally",
+    earnedBadges: [{detail: "globally", id: "top10", label: "Top 10"}],
     fieldSize: 900,
     rank: 42,
   });
 
-  assert.match(rendered.text, /Achievement earned: Top 10 globally/);
-  assert.match(rendered.html, /Achievement earned/);
-  assert.match(rendered.html, /Top 10 globally/);
+  assert.match(rendered.text, /Achievement earned: Top 10 \(globally\)/);
+  assert.match(rendered.html, /Top 10/);
+  assert.match(rendered.html, /images\/badges\/top10\.png/);
 });
 
-test("no achievement callout without an earned achievement", () => {
+test("a first ascent this period earns its own badge alongside a rank badge", () => {
+  const rendered = renderWeeklyRecapActiveEmail({
+    ...baseWeeklyActivePayload,
+    earnedBadges: [
+      {detail: "globally", id: "top100", label: "Top 100"},
+      {detail: "Eiffel Tower", id: "first-ascent", label: "First Ascent"},
+    ],
+    fieldSize: 900,
+    rank: 42,
+  });
+
+  assert.match(rendered.html, /images\/badges\/top100\.png/);
+  assert.match(rendered.html, /images\/badges\/first-ascent\.png/);
+  assert.match(rendered.text, /Achievement earned: Top 100 \(globally\)/);
+  assert.match(
+    rendered.text,
+    /Achievement earned: First Ascent \(Eiffel Tower\)/
+  );
+});
+
+test("no achievement badge without an earned achievement", () => {
   const rendered = renderWeeklyRecapActiveEmail(baseWeeklyActivePayload);
   assert.doesNotMatch(rendered.html, /Achievement earned/);
+  assert.doesNotMatch(rendered.html, /images\/badges\//);
 });
 
 test("a podium rank uses the gold medal token, not the green accent", () => {
@@ -434,6 +457,7 @@ test("weekly active payload renderer requires the numeric fields", () => {
 test("weekly inactive recap states the real gap, gently, in past tense", () => {
   const rendered = renderWeeklyRecapInactiveEmail({
     ctaUrl: APP_STORE_TEST_URL,
+    earnedBadges: [],
     firstAscents: [],
     gapCount: 2,
     periodLabel: "Sep 15-21, 2026",
@@ -452,6 +476,7 @@ test("weekly inactive recap states the real gap, gently, in past tense", () => {
 test("a one-week gap is singular, not '1 weeks'", () => {
   const rendered = renderWeeklyRecapInactiveEmail({
     ctaUrl: APP_STORE_TEST_URL,
+    earnedBadges: [],
     firstAscents: [],
     gapCount: 1,
     periodLabel: "Sep 15-21, 2026",
@@ -463,6 +488,7 @@ test("a one-week gap is singular, not '1 weeks'", () => {
 test("weekly inactive recap omits the suggestion line without a climb", () => {
   const rendered = renderWeeklyRecapInactiveEmail({
     ctaUrl: APP_STORE_TEST_URL,
+    earnedBadges: [],
     firstAscents: [],
     gapCount: 2,
     periodLabel: "Sep 15-21, 2026",
@@ -471,9 +497,12 @@ test("weekly inactive recap omits the suggestion line without a climb", () => {
   assert.doesNotMatch(rendered.text, /is open and ready/);
 });
 
-test("first ascents are listed instead of a suggested climb when the climber holds any", () => {
+test("first ascents are listed instead of a suggested climb when the climber holds any, with the real badge artwork", () => {
   const rendered = renderWeeklyRecapInactiveEmail({
     ctaUrl: APP_STORE_TEST_URL,
+    earnedBadges: [
+      {detail: "Eiffel Tower", id: "first-ascent", label: "First Ascent"},
+    ],
     firstAscents: ["Eiffel Tower"],
     gapCount: 3,
     periodLabel: "Sep 15-21, 2026",
@@ -483,11 +512,31 @@ test("first ascents are listed instead of a suggested climb when the climber hol
   assert.match(rendered.text, /You hold the First Ascent of Eiffel Tower\./);
   // The generic suggestion is not also shown - one clear thing to look at.
   assert.doesNotMatch(rendered.text, /Tokyo Skytree is open and ready/);
+  assert.match(rendered.html, /images\/badges\/first-ascent\.png/);
+});
+
+test("no achievement badge for a dormant climber with no First Ascents", () => {
+  const rendered = renderWeeklyRecapInactiveEmail({
+    ctaUrl: APP_STORE_TEST_URL,
+    earnedBadges: [],
+    firstAscents: [],
+    gapCount: 3,
+    periodLabel: "Sep 15-21, 2026",
+  });
+
+  assert.doesNotMatch(rendered.html, /images\/badges\//);
 });
 
 test("multiple first ascents are all named", () => {
   const rendered = renderWeeklyRecapInactiveEmail({
     ctaUrl: APP_STORE_TEST_URL,
+    earnedBadges: [
+      {
+        detail: "Eiffel Tower, Burj Khalifa",
+        id: "first-ascent",
+        label: "First Ascents",
+      },
+    ],
     firstAscents: ["Eiffel Tower", "Burj Khalifa"],
     gapCount: 3,
     periodLabel: "Sep 15-21, 2026",
@@ -537,6 +586,7 @@ test("monthly active payload renderer validates and renders", () => {
 test("monthly inactive recap never guilt-trips a dormant climber", () => {
   const rendered = renderMonthlyRecapInactiveEmail({
     ctaUrl: APP_STORE_TEST_URL,
+    earnedBadges: [],
     firstAscents: [],
     gapCount: 3,
     periodLabel: "September 2026",

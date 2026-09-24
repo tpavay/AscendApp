@@ -4,6 +4,8 @@ import {
   achievementTierLabel,
   buildCalendarCells,
   buildDeltaChip,
+  buildFirstAscentBadge,
+  buildRankBadge,
   buildRecapDedupeKey,
   computeCurrentStreakWeeks,
   dedupeLandmarkNames,
@@ -47,6 +49,60 @@ test("achievement tier boundaries follow the locked Top 1/3/10/100 ladder", () =
   assert.equal(achievementTierLabel(10), "Top 10");
   assert.equal(achievementTierLabel(11), "Top 100");
   assert.equal(achievementTierLabel(100), "Top 100");
+});
+
+test("the rank badge is Top 10 for any achievement rank 1-10", () => {
+  assert.deepEqual(buildRankBadge(1), {
+    detail: "globally",
+    id: "top10",
+    label: "Top 10",
+  });
+  assert.deepEqual(buildRankBadge(3), {
+    detail: "globally",
+    id: "top10",
+    label: "Top 10",
+  });
+  assert.deepEqual(buildRankBadge(10), {
+    detail: "globally",
+    id: "top10",
+    label: "Top 10",
+  });
+});
+
+test("the rank badge is Top 100 for an achievement rank 11-100", () => {
+  assert.deepEqual(buildRankBadge(11), {
+    detail: "globally",
+    id: "top100",
+    label: "Top 100",
+  });
+  assert.deepEqual(buildRankBadge(100), {
+    detail: "globally",
+    id: "top100",
+    label: "Top 100",
+  });
+});
+
+test("no First Ascent badge without any First Ascents", () => {
+  assert.equal(buildFirstAscentBadge([]), undefined);
+});
+
+test("a single First Ascent badge is singular, with the landmark named", () => {
+  assert.deepEqual(buildFirstAscentBadge(["Eiffel Tower"]), {
+    detail: "Eiffel Tower",
+    id: "first-ascent",
+    label: "First Ascent",
+  });
+});
+
+test("multiple First Ascents badge together, plural, every landmark named", () => {
+  assert.deepEqual(
+    buildFirstAscentBadge(["Eiffel Tower", "Burj Khalifa"]),
+    {
+      detail: "Eiffel Tower, Burj Khalifa",
+      id: "first-ascent",
+      label: "First Ascents",
+    }
+  );
 });
 
 test("weekly period label is a concrete, dated range with the year", () => {
