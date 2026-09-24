@@ -178,6 +178,7 @@ const WORKOUTS_COLLECTION = "workouts";
 const LEADERBOARD_STATS_COLLECTION = "leaderboard_stats";
 const ACHIEVEMENTS_COLLECTION = "achievements";
 const LIVE_REPLAY_LEADERBOARDS_COLLECTION = "live_replay_leaderboards";
+const LIVE_CLIMB_CONTEXT_TYPE = "live_climb";
 
 /** Page size and page budget for the two `leaderboard_stats` cohort scans. */
 const COHORT_PAGE_SIZE = 200;
@@ -309,8 +310,8 @@ export function formatMonthlyPeriodLabel(
 }
 
 /**
- * Resolves the closed period's finished-landmark climb IDs to display names,
- * deduped in first-seen order.
+ * Resolves landmark climb IDs to display names, deduped in first-seen order.
+ * An ID the catalogue cannot resolve is dropped, never printed raw.
  * @param {string[]} climbIds - Distinct completed-landmark climb IDs
  * @param {Map<string, string>} climbNameById - Catalogue name lookup
  * @return {string[]} Distinct display names
@@ -326,7 +327,10 @@ export function dedupeLandmarkNames(
       continue;
     }
     seen.add(climbId);
-    names.push(climbNameById.get(climbId) ?? climbId);
+    const name = climbNameById.get(climbId);
+    if (name) {
+      names.push(name);
+    }
   }
   return names;
 }
@@ -500,14 +504,22 @@ export function weeksSince(since: Date, now: Date): number {
 }
 
 /**
- * Whole calendar months since an instant, floored at 1.
+ * Whole elapsed months since an instant, floored at 1 - a month only counts
+ * once `now` has passed the same day-of-month and time-of-day as `since`.
  * @param {Date} since - The climber's last known activity
  * @param {Date} now - The sweep's clock
  * @return {number} Months since, at least 1
  */
 export function monthsSince(since: Date, now: Date): number {
-  const months = (now.getUTCFullYear() - since.getUTCFullYear()) * 12 +
+  let months = (now.getUTCFullYear() - since.getUTCFullYear()) * 12 +
     (now.getUTCMonth() - since.getUTCMonth());
+  const nowWithinMonth = now.getTime() -
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+  const sinceWithinMonth = since.getTime() -
+    Date.UTC(since.getUTCFullYear(), since.getUTCMonth(), 1);
+  if (nowWithinMonth < sinceWithinMonth) {
+    months -= 1;
+  }
   return Math.max(1, months);
 }
 
@@ -573,19 +585,21 @@ export function buildCalendarCells(
  * expireRevenueCatAccessGrants for the same shape). Bounded by
  * `COHORT_PAGE_SIZE` / `MAX_COHORT_PAGES` rather than resumed across runs -
  * documented as a scale assumption in the file header, not built ahead of
- * need - and logs loudly if that bound is ever actually hit, so a silent
- * truncation cannot masquerade as a complete cohort.
+ * need - and reports and logs loudly if that bound is ever actually hit, so
+ * a silent truncation cannot masquerade as a complete cohort.
  * @param {admin.firestore.Firestore} firestore - Admin Firestore instance
  * @param {admin.firestore.Query} baseQuery - Query before ordering/paging
  * @param {string} label - Identifies which scan this is, for the truncation
  *   log
- * @return {Promise<Map<string, LeaderboardStatsRow>>} Rows keyed by userId
+ * @return {Promise<{rows: Map<string, LeaderboardStatsRow>,
+ *   truncated: boolean}>} Rows keyed by userId, and whether the page bound
+ *   cut the scan short
  */
 async function pageLeaderboardStatsRows(
   firestore: admin.firestore.Firestore,
   baseQuery: admin.firestore.Query,
   label: string
-): Promise<Map<string, LeaderboardStatsRow>> {
+): Promise<{rows: Map<string, LeaderboardStatsRow>; truncated: boolean}> {
   const rows = new Map<string, LeaderboardStatsRow>();
   let cursor: admin.firestore.QueryDocumentSnapshot | undefined;
   let pagesRead = 0;
@@ -601,7 +615,7 @@ async function pageLeaderboardStatsRows(
 
     const snapshot = await query.get();
     if (snapshot.empty) {
-      return rows;
+      return {rows, truncated: false};
     }
     cursor = snapshot.docs[snapshot.docs.length - 1];
 
@@ -622,7 +636,7 @@ async function pageLeaderboardStatsRows(
     }
 
     if (snapshot.size < COHORT_PAGE_SIZE) {
-      return rows;
+      return {rows, truncated: false};
     }
   }
 
@@ -631,7 +645,7 @@ async function pageLeaderboardStatsRows(
     pagesRead,
     rowsRead: rows.size,
   });
-  return rows;
+  return {rows, truncated: true};
 }
 
 /**
@@ -773,9 +787,9 @@ async function fetchAchievementLabel(
  *
  * `live_replay_leaderboards` is the durable record - `firstAscentUserId` is
  * set once, forever, the moment a climb's First Ascent is claimed
- * (liveReplayLeaderboard.ts) - and a First Ascent is landmark-only, never a
- * routine, so a single-field equality query on it is already correctly
- * scoped with no further filter. Auto-indexed, so this is an index lookup
+ * (liveReplayLeaderboard.ts). Just Climb's global board can carry a
+ * `firstAscentUserId` too, so only `live_climb` contexts count as a landmark
+ * First Ascent. The equality query is auto-indexed, so this is an index lookup
  * per climber, not a scan, and independent of catalogue size - cheaper than
  * the app's own profile screen, which loops the whole catalogue client-side
  * for one climber's own view of this same fact.
@@ -791,11 +805,14 @@ async function fetchFirstAscentClimbIds(
   const snapshot = await firestore
     .collection(LIVE_REPLAY_LEADERBOARDS_COLLECTION)
     .where("firstAscentUserId", "==", uid)
-    .select("contextId")
+    .select("contextId", "contextType")
     .get();
 
   const climbIds: string[] = [];
   for (const document of snapshot.docs) {
+    if (document.get("contextType") !== LIVE_CLIMB_CONTEXT_TYPE) {
+      continue;
+    }
     const climbId = stringValue(document.get("contextId"));
     if (climbId) {
       climbIds.push(climbId);
@@ -1021,7 +1038,7 @@ export async function runRecapSweep(
   const firestore = admin.firestore();
   const period = previousPeriod(cadence, now);
 
-  const [activeRows, everActiveRows, catalog] = await Promise.all([
+  const [activeScan, allTimeScan, catalog] = await Promise.all([
     pageLeaderboardStatsRows(
       firestore,
       firestore
@@ -1044,6 +1061,10 @@ export async function runRecapSweep(
     loadClimbCatalogSafely(),
   ]);
 
+  const activeRows = activeScan.rows;
+  const everActiveRows = new Map(
+    [...allTimeScan.rows.entries()].filter(([, row]) => row.totalSteps > 0)
+  );
   const standings = rankActiveCohort(activeRows);
 
   const summary: RecapSweepSummary = {
@@ -1087,8 +1108,17 @@ export async function runRecapSweep(
     });
   }
 
+  if (activeScan.truncated) {
+    logger.error("recapEmails.inactivePhaseSkipped", {
+      cadence,
+      periodKey: period.key,
+      reason: "active_cohort_scan_truncated",
+    });
+    return summary;
+  }
+
   const inactiveEntries = [...everActiveRows.entries()]
-    .filter(([uid]) => !standings.has(uid));
+    .filter(([uid]) => !activeRows.has(uid));
   const inactiveFailures = await runWithBoundedConcurrency(
     inactiveEntries,
     RECIPIENT_CONCURRENCY,

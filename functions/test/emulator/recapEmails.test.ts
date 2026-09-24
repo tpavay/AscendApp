@@ -284,6 +284,65 @@ test(
 );
 
 test(
+  "Just Climb's global board never reads as a landmark First Ascent",
+  async () => {
+    await seedUser("first-ascender-2", "firstascender2@example.com");
+    await seedAllTimeStats("first-ascender-2");
+    await seedFirstAscent("first-ascender-2", "eiffel");
+    await db.collection(LIVE_REPLAY_LEADERBOARDS).doc("just_climb:global").set({
+      contextId: "global",
+      contextType: "just_climb",
+      firstAscentUserId: "first-ascender-2",
+    });
+
+    await runRecapSweep("weekly", now);
+
+    const job = await readJob(
+      buildRecapDedupeKey("weekly", closedWeek.key, "first-ascender-2")
+    );
+    const payload = job.payload as RecapInactivePayload;
+    assert.deepEqual(payload.firstAscents, ["Eiffel Tower"]);
+  }
+);
+
+test(
+  "a zero-step climb this week is activity, never a we-missed-you email",
+  async () => {
+    await seedUser("zero-step-1", "zerostep@example.com");
+    await seedAllTimeStats("zero-step-1");
+    await seedWeeklyStats("zero-step-1", closedWeek, {
+      totalFloors: 0,
+      totalSteps: 0,
+      totalWorkouts: 1,
+    });
+
+    await runRecapSweep("weekly", now);
+
+    const jobId = buildEmailJobId(
+      buildRecapDedupeKey("weekly", closedWeek.key, "zero-step-1")
+    );
+    const snapshot = await db.collection(EMAIL_JOBS).doc(jobId).get();
+    assert.equal(snapshot.exists, false);
+  }
+);
+
+test(
+  "an all-time row with zero steps is not a completed climb",
+  async () => {
+    await seedUser("zero-step-2", "zerostep2@example.com");
+    await seedAllTimeStats("zero-step-2", undefined, 0);
+
+    await runRecapSweep("weekly", now);
+
+    const jobId = buildEmailJobId(
+      buildRecapDedupeKey("weekly", closedWeek.key, "zero-step-2")
+    );
+    const snapshot = await db.collection(EMAIL_JOBS).doc(jobId).get();
+    assert.equal(snapshot.exists, false);
+  }
+);
+
+test(
   "an achievement earned this period is reused from the canonical record",
   async () => {
     await seedUser("achiever-1", "achiever@example.com");
@@ -500,11 +559,13 @@ async function seedWeeklyStats(
  * is the real-gap source the zero-activity email's `gapCount` reads.
  * @param {string} uid - Firebase Auth user ID
  * @param {Date} lastUpdatedAt - When this row last moved
+ * @param {number} totalSteps - All-time steps on the row
  * @return {Promise<void>}
  */
 async function seedAllTimeStats(
   uid: string,
-  lastUpdatedAt?: Date
+  lastUpdatedAt?: Date,
+  totalSteps = 100
 ): Promise<void> {
   const docId = leaderboardDocumentId(uid, "all_time", "all");
   await db.collection(LEADERBOARD_STATS).doc(docId).set({
@@ -519,7 +580,7 @@ async function seedAllTimeStats(
     timeFrame: "all_time",
     totalDuration: 100,
     totalFloors: 10,
-    totalSteps: 100,
+    totalSteps,
     totalWorkouts: 1,
     userId: uid,
   });

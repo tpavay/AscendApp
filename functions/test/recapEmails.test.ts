@@ -84,10 +84,13 @@ test("landmark names dedupe by climb id in first-seen order", () => {
   );
 });
 
-test("a landmark not in the catalogue falls back to its raw climb id", () => {
+test("a landmark not in the catalogue is dropped, never printed raw", () => {
   assert.deepEqual(
-    dedupeLandmarkNames(["retired-climb"], new Map()),
-    ["retired-climb"]
+    dedupeLandmarkNames(
+      ["global", "eiffel"],
+      new Map([["eiffel", "Eiffel Tower"]])
+    ),
+    ["Eiffel Tower"]
   );
 });
 
@@ -254,12 +257,20 @@ test("weeks since floors at 1 - a zero-activity climber is gone at least a week"
   assert.equal(weeksSince(now, now), 1);
 });
 
-test("months since counts calendar months, floored at 1", () => {
+test("months since counts elapsed months, floored at 1", () => {
   const now = new Date("2026-09-24T00:00:00Z");
   assert.equal(monthsSince(new Date("2026-09-01T00:00:00Z"), now), 1);
   assert.equal(monthsSince(new Date("2026-07-15T00:00:00Z"), now), 2);
   assert.equal(monthsSince(new Date("2025-09-24T00:00:00Z"), now), 12);
   assert.equal(monthsSince(now, now), 1);
+  // Aug 31 late to the Oct 1 sweep is one month and a few hours, not two.
+  assert.equal(
+    monthsSince(
+      new Date("2026-08-31T23:00:00Z"),
+      new Date("2026-10-01T13:00:00Z")
+    ),
+    1
+  );
 });
 
 test("a weekly calendar is exactly 7 filled cells, Monday first, no blanks", () => {
