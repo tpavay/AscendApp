@@ -870,16 +870,30 @@ final class LiveClimbSessionViewModel {
         guard let workout = savedWorkout, machineReportedSteps > 0 else { return }
 
         let appSteps = workout.steps
-        var metadata = HeadphoneMotionWorkoutMetadata.decode(from: workout.sourceMetadata) ?? HeadphoneMotionWorkoutMetadata(
-            sampleCount: 0,
-            trackingMode: mode.trackingMode,
-            climbId: mode.climb?.id,
-            targetStepCount: targetRemainingSteps,
-            stopReason: .userStopped
-        )
+        guard var metadata = HeadphoneMotionWorkoutMetadata.decode(from: workout.sourceMetadata) else {
+            AppDiagnosticsRecorder.shared.record(
+                "step_accuracy_calibration_skipped",
+                level: .warning,
+                details: [
+                    "session_id": liveActivitySessionID,
+                    "reason": "source_metadata_undecodable"
+                ]
+            )
+            return
+        }
         metadata.applyMachineStepCalibration(machineReportedSteps: machineReportedSteps, appSteps: appSteps)
 
-        guard let jsonString = metadata.jsonString else { return }
+        guard let jsonString = metadata.jsonString else {
+            AppDiagnosticsRecorder.shared.record(
+                "step_accuracy_calibration_skipped",
+                level: .warning,
+                details: [
+                    "session_id": liveActivitySessionID,
+                    "reason": "source_metadata_unencodable"
+                ]
+            )
+            return
+        }
 
         let leaderboardSnapshotBeforeEdit = LeaderboardWorkoutSnapshot(workout: workout)
         workout.sourceMetadata = jsonString
