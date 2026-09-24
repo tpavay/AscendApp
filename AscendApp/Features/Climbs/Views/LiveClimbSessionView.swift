@@ -337,15 +337,12 @@ struct LiveClimbSessionView: View {
 
             Spacer(minLength: 0)
 
-            if let heartRateStatus = viewModel.liveHeartRateStatus {
-                Group {
-                    if selectedTab == .justMe {
-                        LiveHeartRateZoneRingBadge(status: heartRateStatus)
-                    } else {
-                        LiveHeartRateStatusChip(status: heartRateStatus)
-                    }
-                }
-                .padding(.leading, 10)
+            // Just Me reads heart rate once, in the centered stat grid's heart-rate box
+            // (`LiveClimbJustMeView.heartRateCard`) - this top-right slot is the
+            // Leaderboard tab's only heart-rate surface now.
+            if selectedTab != .justMe, let heartRateStatus = viewModel.liveHeartRateStatus {
+                LiveHeartRateStatusChip(status: heartRateStatus)
+                    .padding(.leading, 10)
             }
 
             if !(viewModel.isRecording && selectedTab == .justMe) {
