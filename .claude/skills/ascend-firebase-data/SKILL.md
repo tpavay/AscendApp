@@ -189,12 +189,13 @@ User-generated media must be stored under user-scoped prefixes:
 - `users/{uid}/videos/...`
 - `users/{uid}/profile_pictures/...`
 - `users/{uid}/workout_heart_rate/...`
+- `users/{uid}/step_accuracy_debug/...` - raw headphone-motion capture for a badly-miscounted climb, uploaded only when `StepAccuracyRawCaptureRetentionPolicy` fires (calibration entered, discrepancy >= 30 steps either direction, headphones connected the whole climb); never downloaded back into the app.
 
 Rules:
 - Never write user media to shared root paths. `photos/`, `videos/`, and `profile_pictures/` at the bucket root are closed to every client (`read, write: if false`) and must stay that way: a flat path carries no owner segment, so any rule permissive enough to admit the owner admits every signed-in account. Objects predating the user-scoped migration still sit there, unattributable and reachable only by the backend.
 - Server-owned synthetic Live Replay avatar fixtures may live under `live-replay-avatars/{seedPackId}/...`; they are not user media, should be read-only to clients, and must be written only by admin/server tooling.
 - Legacy share card template assets may still live under `share-card-templates/...`, but workout share cards in v1 must not fetch their backgrounds or layout config from Firebase.
-- Account deletion and cleanup should target only the authenticated user's scoped prefixes, including durable workout heart-rate sidecars and private workout backup documents.
+- Account deletion and cleanup should target only the authenticated user's scoped prefixes, including durable workout heart-rate sidecars, step-accuracy debug captures, and private workout backup documents.
 
 ## Account deletion (Apple 5.1.1(v))
 

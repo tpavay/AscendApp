@@ -1,3 +1,4 @@
+import FirebaseAuth
 import Foundation
 import Observation
 import SwiftData
@@ -171,6 +172,11 @@ final class LiveClimbSessionViewModel {
     private let backgroundSessionService: LiveClimbBackgroundSessionService
     private let draftStore: ActiveHeadphoneWorkoutDraftStore
     private let heartRateRecorder: LiveHeartRateRecorder
+    private let rawCaptureRepository: any StepAccuracyRawCaptureStorageRepositoryProtocol
+    /// Resolves the signed-in climber's uid for a step-accuracy raw capture upload. Injectable
+    /// the same way `now` is, so the upload path is testable without a live Firebase session;
+    /// production always takes the default.
+    private let currentUserId: () -> String?
     private let now: () -> Date
     /// Read once per session. `leaderboardRows` is rebuilt on every step and
     /// elapsed tick, so the climber's name cannot be resolved from the cache
@@ -220,6 +226,10 @@ final class LiveClimbSessionViewModel {
     private var promptedStepSyncInterruptionCounts: Set<Int> = []
     private var skippedStepSyncInterruptionCounts: Set<Int> = []
     private let stepSyncPromptMinimumGapDuration: TimeInterval = 20
+    /// The in-flight step-accuracy raw capture upload, if the retention trigger fired. Held the
+    /// same way `leaderboardSummaryFetchTask` is - fire-and-forget for production, but an
+    /// awaitable handle for tests to settle on deterministically instead of polling.
+    @ObservationIgnored private(set) var rawCaptureUploadTask: Task<Void, Never>?
     private var activeDraft: ActiveHeadphoneWorkoutDraft?
     private var lastDraftCheckpointAt: Date?
     private let draftCheckpointInterval: TimeInterval = 2
@@ -247,6 +257,9 @@ final class LiveClimbSessionViewModel {
         draftStore: ActiveHeadphoneWorkoutDraftStore = ActiveHeadphoneWorkoutDraftStore(),
         heartRateRecorder: LiveHeartRateRecorder = LiveHeartRateRecorder(),
         heartRateMonitor: HeartRateMonitorService = .shared,
+        rawCaptureRepository: any StepAccuracyRawCaptureStorageRepositoryProtocol =
+            StepAccuracyRawCaptureStorageRepository.shared,
+        currentUserId: @escaping () -> String? = { Auth.auth().currentUser?.uid },
         liveActivitySessionID: String = UUID().uuidString,
         recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil,
         now: @escaping () -> Date = Date.init
@@ -263,6 +276,8 @@ final class LiveClimbSessionViewModel {
         self.draftStore = draftStore
         self.heartRateRecorder = heartRateRecorder
         self.heartRateMonitor = heartRateMonitor
+        self.rawCaptureRepository = rawCaptureRepository
+        self.currentUserId = currentUserId
         self.activeDraft = recoveredDraft
         self.now = now
         heartRateRecorder.restore(samples: recoveredDraft?.heartRateSamples ?? [])
@@ -284,6 +299,9 @@ final class LiveClimbSessionViewModel {
         draftStore: ActiveHeadphoneWorkoutDraftStore = ActiveHeadphoneWorkoutDraftStore(),
         heartRateRecorder: LiveHeartRateRecorder = LiveHeartRateRecorder(),
         heartRateMonitor: HeartRateMonitorService = .shared,
+        rawCaptureRepository: any StepAccuracyRawCaptureStorageRepositoryProtocol =
+            StepAccuracyRawCaptureStorageRepository.shared,
+        currentUserId: @escaping () -> String? = { Auth.auth().currentUser?.uid },
         liveActivitySessionID: String = UUID().uuidString,
         recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil,
         now: @escaping () -> Date = Date.init
@@ -300,6 +318,8 @@ final class LiveClimbSessionViewModel {
         self.draftStore = draftStore
         self.heartRateRecorder = heartRateRecorder
         self.heartRateMonitor = heartRateMonitor
+        self.rawCaptureRepository = rawCaptureRepository
+        self.currentUserId = currentUserId
         self.activeDraft = recoveredDraft
         self.now = now
         heartRateRecorder.restore(samples: recoveredDraft?.heartRateSamples ?? [])
@@ -920,16 +940,86 @@ final class LiveClimbSessionViewModel {
             return
         }
 
+        let discrepancyAbs = metadata.stepDiscrepancyAbs ?? abs(appSteps - machineReportedSteps)
         TelemetryManager.shared.track(
             WorkoutStepAccuracyAnalyticsEvent.calibrationSubmitted(
                 appSteps: appSteps,
                 machineSteps: machineReportedSteps,
-                discrepancyAbs: metadata.stepDiscrepancyAbs ?? abs(appSteps - machineReportedSteps),
+                discrepancyAbs: discrepancyAbs,
                 discrepancyPercent: metadata.stepDiscrepancyPercent ?? 0
             )
         )
+
+        uploadRawCaptureIfWarranted(
+            workout: workout,
+            metadata: metadata,
+            appSteps: appSteps,
+            machineReportedSteps: machineReportedSteps,
+            discrepancyAbs: discrepancyAbs
+        )
     }
 
+    /// Applies the retention trigger and, only when every gate clears, uploads the climb's
+    /// buffered raw motion capture for algorithm debugging. Every other outcome - no calibration,
+    /// too small a discrepancy, a headphone dropout during the climb - simply never uploads the
+    /// buffer, which is the entirety of "discard" here: nothing was ever persisted to begin with.
+    private func uploadRawCaptureIfWarranted(
+        workout: Workout,
+        metadata: HeadphoneMotionWorkoutMetadata,
+        appSteps: Int,
+        machineReportedSteps: Int,
+        discrepancyAbs: Int
+    ) {
+        guard StepAccuracyRawCaptureRetentionPolicy.shouldRetain(
+            machineReportedSteps: machineReportedSteps,
+            discrepancyAbs: discrepancyAbs,
+            wasHeadphoneConnectedThroughoutClimb: metadata.wasHeadphoneConnectedThroughoutClimb
+        ), let rawCapture = recordedResult?.rawCapture,
+           let userId = workout.ownerUserId ?? currentUserId() else {
+            return
+        }
+
+        let blob = StepAccuracyRawCaptureBlob(
+            workoutId: WorkoutDocumentID.canonicalString(for: workout.id),
+            metadata: metadata,
+            appSteps: appSteps,
+            machineReportedSteps: machineReportedSteps,
+            stepDiscrepancyAbs: discrepancyAbs,
+            rawCapture: rawCapture
+        )
+        let sessionID = liveActivitySessionID
+        let repository = rawCaptureRepository
+        let workoutId = workout.id
+        let sampleCount = rawCapture.samples.count
+
+        rawCaptureUploadTask = Task {
+            defer { self.rawCaptureUploadTask = nil }
+            do {
+                try await repository.uploadRawCapture(userId: userId, workoutId: workoutId, blob: blob)
+                AppDiagnosticsRecorder.shared.record(
+                    "step_accuracy_raw_capture_uploaded",
+                    details: [
+                        "session_id": sessionID,
+                        "sample_count": String(sampleCount),
+                        "discrepancy_abs": String(discrepancyAbs)
+                    ]
+                )
+            } catch {
+                AppDiagnosticsRecorder.shared.record(
+                    "step_accuracy_raw_capture_upload_failed",
+                    level: .error,
+                    details: [
+                        "session_id": sessionID,
+                        "error": error.localizedDescription
+                    ]
+                )
+            }
+        }
+    }
+
+    /// Skipping calibration also means the climb's buffered raw motion capture is discarded: the
+    /// upload trigger in `uploadRawCaptureIfWarranted` requires an entered machine count, which
+    /// this path never produces.
     func skipStepAccuracyCalibration() {
         TelemetryManager.shared.track(WorkoutStepAccuracyAnalyticsEvent.calibrationSkipped)
     }

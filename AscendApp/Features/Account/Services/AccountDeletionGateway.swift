@@ -145,6 +145,7 @@ struct FirebaseAccountDeletionGateway: AccountDeletionGateway {
             userRoot.child("videos"),
             userRoot.child("profile_pictures"),
             userRoot.child("workout_heart_rate"),
+            userRoot.child("step_accuracy_debug"),
         ]
 
         for prefix in prefixes {

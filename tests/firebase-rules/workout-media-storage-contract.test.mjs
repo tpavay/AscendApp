@@ -65,6 +65,13 @@ const accountDeletionMedia = [
     contentType: 'application/gzip',
     paidContent: true,
   },
+  {
+    prefix: 'step_accuracy_debug',
+    fileName: 'be5d6f70-8192-4a34-b567-c8d9e0f1a2b3.json.gz',
+    bytes: gzipBytes,
+    contentType: 'application/gzip',
+    paidContent: true,
+  },
 ];
 
 function mediaPath(userId, media) {

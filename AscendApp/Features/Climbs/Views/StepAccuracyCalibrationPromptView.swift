@@ -70,6 +70,11 @@ struct StepAccuracyCalibrationPromptView: View {
             )
             .accessibilityLabel("Machine step count")
 
+            Text("A climb far off the mark may upload its raw motion data so we can find where the count drifted.")
+                .font(.montserratRegular(size: 11))
+                .foregroundStyle(secondaryTextStyle.opacity(0.8))
+                .fixedSize(horizontal: false, vertical: true)
+
             VStack(spacing: 10) {
                 Button {
                     guard let enteredSteps else { return }

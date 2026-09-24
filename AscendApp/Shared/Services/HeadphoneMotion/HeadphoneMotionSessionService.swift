@@ -257,7 +257,8 @@ final class HeadphoneMotionSessionService {
                 sampleCount: finalSampleCount,
                 stopReason: sessionResult.stopReason,
                 trackingIntegrity: finalTrackingIntegrity,
-                stepCorrections: stepCorrections
+                stepCorrections: stepCorrections,
+                rawCapture: sessionResult.rawCapture
             )
             stepCount = result.steps
             sampleCount = result.sampleCount
@@ -695,6 +696,9 @@ private final class HeadphoneMotionSessionProcessor: @unchecked Sendable {
     private var pausedAt: Date?
     private var accumulatedPausedDuration: TimeInterval = 0
     private var sampleCount = 0
+    /// Buffered on the same confined queue every sample and detection is already produced on,
+    /// so no additional synchronization is needed to keep it in sync with `detector`.
+    private var rawCaptureBuffer = HeadphoneMotionRawCaptureBuffer()
 
     func start(startedAt: Date) {
         detector.reset()
@@ -702,6 +706,7 @@ private final class HeadphoneMotionSessionProcessor: @unchecked Sendable {
         pausedAt = nil
         accumulatedPausedDuration = 0
         sampleCount = 0
+        rawCaptureBuffer.reset()
     }
 
     func pause(pausedAt: Date) {
@@ -742,6 +747,10 @@ private final class HeadphoneMotionSessionProcessor: @unchecked Sendable {
             motion: motion
         )
         let detection = detector.process(sample)
+        rawCaptureBuffer.recordSample(sample)
+        if let detection {
+            rawCaptureBuffer.recordDetection(detection)
+        }
 
         return HeadphoneMotionSessionUpdate(
             stepCount: detector.stepCount,
@@ -767,7 +776,8 @@ private final class HeadphoneMotionSessionProcessor: @unchecked Sendable {
             duration: max(0, endedAt.timeIntervalSince(startedAt) - accumulatedPausedDuration - activePausedDuration),
             steps: detector.stepCount,
             sampleCount: sampleCount,
-            stopReason: reason
+            stopReason: reason,
+            rawCapture: rawCaptureBuffer.snapshot()
         )
 
         self.startedAt = nil
@@ -775,6 +785,7 @@ private final class HeadphoneMotionSessionProcessor: @unchecked Sendable {
         accumulatedPausedDuration = 0
         sampleCount = 0
         detector.reset()
+        rawCaptureBuffer.reset()
 
         return .success(result)
     }

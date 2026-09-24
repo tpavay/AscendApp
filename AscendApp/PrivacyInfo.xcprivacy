@@ -171,6 +171,19 @@
           The machine count and discrepancy are stored for algorithm analysis
           only and never change the climb's own recorded step count.
 
+          Also covers step-accuracy raw motion capture: when a climb's app step
+          count differs from the entered machine count by
+          StepAccuracyRawCaptureRetentionPolicy.minimumDiscrepancyAbs (30) steps
+          or more in either direction, AND headphones stayed connected for the
+          whole climb, Ascend uploads that climb's buffered raw headphone
+          motion samples (timestamped accelerometer/rotation-rate/gravity
+          readings) and detected step events to Firebase Storage
+          (users/{uid}/step_accuracy_debug/), private to the owner, for the
+          captain's own offline algorithm debugging. Every other climb's
+          buffered capture is discarded, never uploaded. See
+          StepAccuracyRawCaptureRetentionPolicy and
+          StepAccuracyRawCaptureStorageRepository.
+
           The routine backup is private to its owner - readable only by the
           signed-in climber, never published to any surface another user can see
           - so it adds no purpose beyond App Functionality.

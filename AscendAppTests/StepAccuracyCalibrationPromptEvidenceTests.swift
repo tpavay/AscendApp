@@ -24,6 +24,7 @@ struct StepAccuracyCalibrationPromptEvidenceTests {
             let copy = try await screen.copy()
             #expect(copy.contains("sharpen the count"))
             #expect(copy.contains("500 steps stay exactly as recorded"))
+            #expect(copy.contains("raw motion data"))
             #expect(copy.contains("skip"))
             try screen.photograph(named: "step-accuracy-calibration-1-empty")
 
