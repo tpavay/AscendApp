@@ -2,11 +2,14 @@
  * Weekly recap composition against a real Firestore.
  *
  * The unit suite (test/recapEmails.test.ts) proves the pure math - dedupe
- * keys, tier labels, streak walk, comparison note - in isolation. This suite
- * proves the thing that only exists once real documents are involved: that
- * the active/zero-activity cohort split reads correctly off
- * `leaderboard_stats`, that a suppressed climber gets no job at all, and that
- * a climber who has never completed a climb gets neither recap variant.
+ * keys, tier labels, streak walk, ranking, percentile bands, delta chips,
+ * the calendar grid - in isolation. This suite proves the things that only
+ * exist once real documents are involved: that the active/zero-activity
+ * cohort split reads correctly off `leaderboard_stats`, that rank and
+ * percentile come out right for a real multi-climber field, that an
+ * abandoned Live Climb attempt is never reported as a finished landmark,
+ * that a suppressed climber gets no job at all, and that a climber who has
+ * never completed a climb gets neither recap variant.
  *
  * Lives under test/emulator/ - see emailQueue.test.ts for why, and for the
  * shared-database-between-tests caveat this suite follows the same way.
@@ -32,11 +35,13 @@ import type {
 
 const EMAIL_JOBS = "email_jobs";
 const LEADERBOARD_STATS = "leaderboard_stats";
+const APP_STORE_URL = "https://apps.apple.com/app/id6757202987";
 
 // A fixed instant so every test seeds and asserts against the same closed
 // week, regardless of when the suite runs.
 const now = new Date("2026-09-28T13:00:00Z");
 const closedWeek = previousPeriod("weekly", now);
+const previousWeek = previousPeriod("weekly", closedWeek.startAt);
 
 let db: admin.firestore.Firestore;
 
@@ -101,17 +106,42 @@ beforeEach(async () => {
 });
 
 test(
-  "an active climber gets a stats recap with landmarks and a rank moment",
+  "an active climber's recap carries stats, landmarks, deltas, rank, and a calendar",
   async () => {
     await seedUser("active-1", "active@example.com");
+    await seedUser("active-2", "active2@example.com");
+    await seedUser("active-3", "active3@example.com");
     await seedWeeklyStats("active-1", closedWeek, {
       totalFloors: 200,
       totalSteps: 8000,
       totalWorkouts: 2,
     });
-    await seedWorkout("active-1", "eiffel", addDays(closedWeek.startAt, 1));
-    await seedWorkout("active-1", "short-climb", addDays(closedWeek.startAt, 2));
-    await seedAchievement("active-1", "weekly", closedWeek.key, 5);
+    await seedWeeklyStats("active-2", closedWeek, {
+      totalFloors: 50,
+      totalSteps: 3000,
+      totalWorkouts: 1,
+    });
+    await seedWeeklyStats("active-3", closedWeek, {
+      totalFloors: 10,
+      totalSteps: 500,
+      totalWorkouts: 1,
+    });
+    // The prior week, for active-1's delta chips.
+    await seedWeeklyStats("active-1", previousWeek, {
+      totalFloors: 150,
+      totalSteps: 6000,
+      totalWorkouts: 1,
+    });
+    await seedCompletedLandmarkWorkout(
+      "active-1",
+      "eiffel",
+      addDays(closedWeek.startAt, 1)
+    );
+    await seedCompletedLandmarkWorkout(
+      "active-1",
+      "short-climb",
+      addDays(closedWeek.startAt, 2)
+    );
 
     const summary = await runRecapSweep("weekly", now);
 
@@ -126,15 +156,44 @@ test(
     assert.equal(payload.climbsCompleted, 2);
     assert.equal(payload.totalSteps, 8000);
     assert.equal(payload.totalFloors, 200);
+    assert.equal(payload.ctaUrl, APP_STORE_URL);
     assert.deepEqual(
       [...payload.landmarksFinished].sort(),
       ["Eiffel Tower", "Short Climb"]
     );
+    // Two landmarks finished outrank the rank-based milestone in priority.
     assert.equal(
-      payload.bestRankLabel,
-      "You placed Top 10 globally this week - #5."
+      payload.milestoneText,
+      "You finished Eiffel Tower and 1 more landmark."
     );
-    assert.equal(payload.currentStreakWeeks, 1);
+    assert.equal(payload.currentStreakWeeks, 2);
+
+    // Ranked first of three active climbers this week.
+    assert.equal(payload.rank, 1);
+    assert.equal(payload.fieldSize, 3);
+    // A top-3 finish states the exact position, not a coarse percentile band.
+    assert.equal(payload.percentileLabel, "#1 of 3 climbers");
+
+    // 8000 > 6000 the prior week - a genuine improvement.
+    assert.deepEqual(payload.stepsDelta, {
+      direction: "up",
+      label: "vs last week",
+      value: "2,000",
+    });
+    assert.deepEqual(payload.floorsDelta, {
+      direction: "up",
+      label: "vs last week",
+      value: "50",
+    });
+    assert.deepEqual(payload.climbsDelta, {
+      direction: "up",
+      label: "vs last week",
+      value: "1",
+    });
+
+    // A weekly calendar is always exactly 7 Monday-aligned cells.
+    assert.equal(payload.calendar.length, 7);
+    assert.ok(payload.calendar.some((cell) => cell.level === "peak"));
 
     assert.equal(summary.queued >= 1, true);
     assert.equal(summary.errors, 0);
@@ -142,7 +201,37 @@ test(
 );
 
 test(
-  "a climber with history but nothing this week gets a gentle nudge",
+  "an abandoned Live Climb attempt is never reported as a finished landmark",
+  async () => {
+    await seedUser("attempter-1", "attempter@example.com");
+    await seedWeeklyStats("attempter-1", closedWeek, {
+      totalFloors: 20,
+      totalSteps: 1000,
+      totalWorkouts: 2,
+    });
+    await seedCompletedLandmarkWorkout(
+      "attempter-1",
+      "eiffel",
+      addDays(closedWeek.startAt, 1)
+    );
+    await seedAbandonedLandmarkAttempt(
+      "attempter-1",
+      "short-climb",
+      addDays(closedWeek.startAt, 2)
+    );
+
+    await runRecapSweep("weekly", now);
+
+    const job = await readJob(
+      buildRecapDedupeKey("weekly", "active", closedWeek.key, "attempter-1")
+    );
+    const payload = job.payload as RecapActivePayload;
+    assert.deepEqual(payload.landmarksFinished, ["Eiffel Tower"]);
+  }
+);
+
+test(
+  "a climber with history but nothing this week gets a gentle nudge to the App Store",
   async () => {
     await seedUser("dormant-1", "dormant@example.com");
     await seedAllTimeStats("dormant-1");
@@ -157,9 +246,28 @@ test(
     const payload = job.payload as RecapInactivePayload;
     // The shortest available climb - the most approachable comeback pick.
     assert.equal(payload.suggestedClimbName, "Short Climb");
-    assert.match(payload.suggestedClimbUrl, /\/short-climb$/);
+    assert.equal(payload.ctaUrl, APP_STORE_URL);
   }
 );
+
+test("a field of one active climber gets no percentile callout", async () => {
+  await seedUser("solo-1", "solo@example.com");
+  await seedWeeklyStats("solo-1", closedWeek, {
+    totalFloors: 5,
+    totalSteps: 100,
+    totalWorkouts: 1,
+  });
+
+  await runRecapSweep("weekly", now);
+
+  const job = await readJob(
+    buildRecapDedupeKey("weekly", "active", closedWeek.key, "solo-1")
+  );
+  const payload = job.payload as RecapActivePayload;
+  assert.equal(payload.rank, 1);
+  assert.equal(payload.fieldSize, 1);
+  assert.equal(payload.percentileLabel, undefined);
+});
 
 test("unsubscribe suppresses a recap even for an active climber", async () => {
   await seedUser("unsub-1", "unsub@example.com", {lifecycleEmailsEnabled: false});
@@ -208,8 +316,8 @@ test(
 );
 
 test("re-running the same closed week does not double-queue", async () => {
-  await seedUser("active-2", "active2@example.com");
-  await seedWeeklyStats("active-2", closedWeek, {
+  await seedUser("active-solo", "activesolo@example.com");
+  await seedWeeklyStats("active-solo", closedWeek, {
     totalFloors: 10,
     totalSteps: 500,
     totalWorkouts: 1,
@@ -223,7 +331,7 @@ test("re-running the same closed week does not double-queue", async () => {
 
   const snapshot = await db.collection(EMAIL_JOBS).get();
   const matching = snapshot.docs.filter(
-    (doc) => doc.data().recipientEmail === "active2@example.com"
+    (doc) => doc.data().recipientEmail === "activesolo@example.com"
   );
   assert.equal(matching.length, 1);
 });
@@ -321,46 +429,53 @@ async function seedAllTimeStats(uid: string): Promise<void> {
 }
 
 /**
- * Seeds one workout inside the closed period, just the fields the recap
- * sweep reads.
+ * Seeds a workout that `parseCompletedLandmarkWorkout`
+ * (climbCompletions.ts) recognizes as a genuine landmark finish: a
+ * headphone-motion capture whose legacy `stopReason` is `target_reached`.
  * @param {string} uid - Firebase Auth user ID
  * @param {string} climbId - Landmark climb ID
  * @param {Date} startedAt - Workout start time
  * @return {Promise<void>}
  */
-async function seedWorkout(
+async function seedCompletedLandmarkWorkout(
   uid: string,
   climbId: string,
   startedAt: Date
 ): Promise<void> {
-  await db
-    .collection("users")
-    .doc(uid)
-    .collection("workouts")
-    .add({climbId, startedAt: admin.firestore.Timestamp.fromDate(startedAt)});
+  await db.collection("users").doc(uid).collection("workouts").add({
+    durationSeconds: 600,
+    source: "headphone_motion",
+    sourceMetadata: JSON.stringify({climbId, stopReason: "target_reached"}),
+    startedAt: admin.firestore.Timestamp.fromDate(startedAt),
+    steps: 1200,
+  });
 }
 
 /**
- * Seeds the closed-period global steps achievement
- * `finalizeLeaderboardAchievements` would have already written.
+ * Seeds a workout that looks like a Live Climb attempt on a landmark but
+ * never finished it - the exact shape the pre-fix bug misreported as a
+ * completed landmark.
  * @param {string} uid - Firebase Auth user ID
- * @param {string} timeFrame - "weekly" or "monthly"
- * @param {string} periodKey - Closed period key
- * @param {number} rank - Finishing rank
+ * @param {string} climbId - Landmark climb ID
+ * @param {Date} startedAt - Workout start time
  * @return {Promise<void>}
  */
-async function seedAchievement(
+async function seedAbandonedLandmarkAttempt(
   uid: string,
-  timeFrame: string,
-  periodKey: string,
-  rank: number
+  climbId: string,
+  startedAt: Date
 ): Promise<void> {
-  await db
-    .collection("users")
-    .doc(uid)
-    .collection("achievements")
-    .doc(`global_steps_${timeFrame}_${periodKey}`)
-    .set({rank, schemaVersion: 1, type: `${timeFrame}_top_10`});
+  await db.collection("users").doc(uid).collection("workouts").add({
+    durationSeconds: 120,
+    source: "headphone_motion",
+    sourceMetadata: JSON.stringify({
+      climbId,
+      climbTargetStepCount: 5000,
+      stopReason: "manual_stop",
+    }),
+    startedAt: admin.firestore.Timestamp.fromDate(startedAt),
+    steps: 900,
+  });
 }
 
 /**

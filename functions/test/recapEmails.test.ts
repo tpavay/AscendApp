@@ -2,14 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   achievementTierLabel,
-  buildBestRankLabel,
-  buildComparisonNote,
+  buildCalendarCells,
+  buildDeltaChip,
   buildRecapDedupeKey,
   computeCurrentStreakWeeks,
   dedupeLandmarkNames,
   formatMonthlyPeriodLabel,
   formatWeeklyPeriodLabel,
+  pickMilestoneText,
   pickSuggestedClimb,
+  rankActiveCohort,
+  percentileLabel,
 } from "../src/recapEmails.js";
 import {previousPeriod} from "../src/leaderboardPeriod.js";
 import type {CatalogClimb} from "../src/climbDropNotifications.js";
@@ -43,17 +46,6 @@ test("achievement tier boundaries follow the locked Top 1/3/10/100 ladder", () =
   assert.equal(achievementTierLabel(10), "Top 10");
   assert.equal(achievementTierLabel(11), "Top 100");
   assert.equal(achievementTierLabel(100), "Top 100");
-});
-
-test("best rank label names the cadence and the exact rank", () => {
-  assert.equal(
-    buildBestRankLabel("weekly", 7),
-    "You placed Top 10 globally this week - #7."
-  );
-  assert.equal(
-    buildBestRankLabel("monthly", 1),
-    "You placed Top 1 globally this month - #1."
-  );
 });
 
 test("weekly period label formats a Monday-to-Sunday date range", () => {
@@ -167,13 +159,152 @@ test("the streak walk never reads more than the lookback bound", async () => {
   assert.equal(reads, 5);
 });
 
-test("comparison note reports a percent change against the prior period", () => {
-  assert.equal(buildComparisonNote(1200, 1000), "Up 20% from last month.");
-  assert.equal(buildComparisonNote(800, 1000), "Down 20% from last month.");
-  assert.equal(buildComparisonNote(1000, 1000), "Even with last month.");
+test("ranking the active cohort uses standard competition ranking (1,2,2,4)", () => {
+  const cohort = new Map([
+    ["a", {totalSteps: 500}],
+    ["b", {totalSteps: 700}],
+    ["c", {totalSteps: 700}],
+    ["d", {totalSteps: 100}],
+  ]);
+
+  const standings = rankActiveCohort(cohort);
+
+  assert.deepEqual(standings.get("b"), {fieldSize: 4, rank: 1});
+  assert.deepEqual(standings.get("c"), {fieldSize: 4, rank: 1});
+  assert.deepEqual(standings.get("a"), {fieldSize: 4, rank: 3});
+  assert.deepEqual(standings.get("d"), {fieldSize: 4, rank: 4});
 });
 
-test("comparison note is omitted with no prior period to compare against", () => {
-  assert.equal(buildComparisonNote(1000, null), undefined);
-  assert.equal(buildComparisonNote(1000, 0), undefined);
+test("ranking ties break deterministically by user id", () => {
+  const cohort = new Map([
+    ["zzz", {totalSteps: 500}],
+    ["aaa", {totalSteps: 500}],
+  ]);
+
+  // Both tie at rank 1 regardless of id order, but the sort that produces the
+  // ranking must be stable - assert the ranks themselves, not iteration order.
+  const standings = rankActiveCohort(cohort);
+  assert.equal(standings.get("aaa")?.rank, 1);
+  assert.equal(standings.get("zzz")?.rank, 1);
+});
+
+test("percentile band names the locked ladder (1/5/10/25/50%)", () => {
+  assert.equal(percentileLabel(5, 1000), "Top 1% of climbers");
+  assert.equal(percentileLabel(40, 1000), "Top 5% of climbers");
+  assert.equal(percentileLabel(90, 1000), "Top 10% of climbers");
+  assert.equal(percentileLabel(200, 1000), "Top 25% of climbers");
+  assert.equal(percentileLabel(480, 1000), "Top 50% of climbers");
+});
+
+test("percentile falls back to an explicit rank below the top half", () => {
+  assert.equal(percentileLabel(900, 1000), "#900 of 1000 climbers");
+});
+
+test("a top-3 finish states the exact position, never a percentile band", () => {
+  // In a field of 3, rank 1 is honestly only the top 33rd percentile -
+  // "Top 50% of climbers" would undersell a literal first place.
+  assert.equal(percentileLabel(1, 3), "#1 of 3 climbers");
+  assert.equal(percentileLabel(2, 3), "#2 of 3 climbers");
+  assert.equal(percentileLabel(3, 3), "#3 of 3 climbers");
+  // Even in a huge field, a top-3 finish states the position, not "Top 1%".
+  assert.equal(percentileLabel(1, 10000), "#1 of 10000 climbers");
+});
+
+test("a number nobody can lose is not a result - no percentile for a field of one", () => {
+  assert.equal(percentileLabel(1, 1), undefined);
+  assert.equal(percentileLabel(1, 0), undefined);
+});
+
+test("a delta chip only ever reports a genuine improvement", () => {
+  assert.deepEqual(buildDeltaChip(1200, 1000, "vs last week"), {
+    direction: "up",
+    label: "vs last week",
+    value: "200",
+  });
+});
+
+test("a decline or a flat period gets no delta chip - never a scolding", () => {
+  assert.equal(buildDeltaChip(800, 1000, "vs last week"), undefined);
+  assert.equal(buildDeltaChip(1000, 1000, "vs last week"), undefined);
+  assert.equal(buildDeltaChip(1000, null, "vs last week"), undefined);
+});
+
+test("the milestone prefers a finished landmark over everything else", () => {
+  assert.equal(
+    pickMilestoneText("weekly", ["Eiffel Tower"], 5, 3),
+    "You finished Eiffel Tower."
+  );
+});
+
+test("multiple finished landmarks are summarized, not all named", () => {
+  assert.equal(
+    pickMilestoneText("weekly", ["Eiffel Tower", "Burj Khalifa", "CN Tower"], undefined, 200),
+    "You finished Eiffel Tower and 2 more landmarks."
+  );
+});
+
+test("with no landmark, the milestone falls back to a weekly streak", () => {
+  assert.equal(
+    pickMilestoneText("weekly", [], 3, 200),
+    "3 weeks running. That is a streak."
+  );
+});
+
+test("a one-week streak is not a milestone on its own", () => {
+  assert.equal(pickMilestoneText("weekly", [], 1, 200), undefined);
+});
+
+test("with no landmark or streak, a Top 100 finish is the milestone", () => {
+  assert.equal(
+    pickMilestoneText("weekly", [], undefined, 7),
+    "You placed Top 10 globally last week."
+  );
+  assert.equal(
+    pickMilestoneText("monthly", [], undefined, 1),
+    "You placed Top 1 globally last month."
+  );
+});
+
+test("nothing notable means no milestone callout at all", () => {
+  assert.equal(pickMilestoneText("weekly", [], undefined, 500), undefined);
+});
+
+test("a weekly calendar is exactly 7 filled cells, Monday first, no blanks", () => {
+  const cells = buildCalendarCells(closedWeek, new Map());
+  assert.equal(cells.length, 7);
+  assert.ok(cells.every((cell) => cell.level === "none"));
+  assert.deepEqual(cells.map((cell) => cell.dayOfMonth), [
+    closedWeek.startAt.getUTCDate(),
+    ...Array.from({length: 6}, (_, i) =>
+      new Date(closedWeek.startAt.getTime() + (i + 1) * 86400000).getUTCDate()),
+  ]);
+});
+
+test("the peak day is the single highest-step day, everything else active", () => {
+  const dayKey = (offset: number): string => {
+    const date = new Date(closedWeek.startAt.getTime() + offset * 86400000);
+    const pad = (value: number): string => String(value).padStart(2, "0");
+    return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+  };
+  const stepsByDayKey = new Map([
+    [dayKey(0), 1000],
+    [dayKey(2), 5000],
+  ]);
+
+  const cells = buildCalendarCells(closedWeek, stepsByDayKey);
+  assert.equal(cells[0].level, "active");
+  assert.equal(cells[2].level, "peak");
+  assert.equal(cells[1].level, "none");
+});
+
+test("a monthly calendar aligns to its starting weekday with leading blanks", () => {
+  // September 2026 opens on a Tuesday (2026-09-01), so exactly one blank
+  // leading cell (Monday) is needed before day 1.
+  const september = previousPeriod("monthly", new Date("2026-10-01T00:00:00Z"));
+  const cells = buildCalendarCells(september, new Map());
+
+  assert.equal(cells[0].level, "blank");
+  assert.equal(cells[0].dayOfMonth, null);
+  assert.equal(cells[1].dayOfMonth, 1);
+  assert.equal(cells.length % 7, 0);
 });

@@ -3,12 +3,22 @@
  *
  * Two scheduled sweeps - one per cadence - that compose and enqueue a recap
  * for every climber who has ever had at least one eligible workout. An
- * ACTIVE climber (activity in the closed window) gets their stats; a
+ * ACTIVE climber (activity in the closed window) gets a stats recap: a
+ * milestone callout, a rank/percentile callout, stat cards with delta chips
+ * against the prior period, and an activity calendar heatmap. A
  * ZERO-ACTIVITY climber (no activity in the window, but a real history
  * before it) gets a gentle re-engagement email instead. A climber who has
  * never completed a climb at all gets neither - that gap belongs to the
  * onboarding-abandonment lifecycle emails, not this one, so a brand-new
  * signup mid-onboarding is never told "the board missed you".
+ *
+ * Design direction (captain, 2026-09-24, Wispr-Flow-inspired layout,
+ * Ascend's own dark/green/landmark brand - see templates.ts for the render
+ * layer): bold editorial hero, an optional milestone-unlocked callout, a
+ * percentile/rank callout, stat cards with green "up only" delta chips, and
+ * a per-day activity calendar heatmap. Copy is past-tense throughout ("last
+ * week" / "last month") because every send lands well after the period it
+ * describes has closed.
  *
  * REUSE, NOT A SECOND PATH. Every send goes through the same
  * `enqueueLifecycleEmailIfAllowed` transaction the rating-prompt automation
@@ -28,35 +38,56 @@
  *   - The "has ever climbed" population is exactly the rows at
  *     {timeFrame: "all_time"} - same shape, same cost.
  *   - ZERO-ACTIVITY is the set difference of those two, computed in memory.
+ *   - RANK AND PERCENTILE come from ranking the already-loaded active cohort
+ *     in memory (mirroring leaderboardAchievements.ts's standard competition
+ *     ranking, uncapped) rather than a second Firestore read per user - the
+ *     whole cohort is already resident for the active/inactive split, so
+ *     ranking it is free.
  * This never sweeps the full `users` collection and never reads a user's
  * full workout history: the one per-user workout query load-bears is a
  * `startedAt` range query bounded to the single closed period, run only for
- * the (small) active cohort, to resolve which landmarks they finished.
+ * the (small) active cohort, to resolve landmark completions and the daily
+ * activity calendar.
+ * Per-recipient composition and enqueue runs with bounded concurrency
+ * (`RECIPIENT_CONCURRENCY`), not sequentially, so a large cohort cannot run
+ * the 540s invocation out the clock and silently strand the rest of a
+ * period's recipients - `onSchedule` does not retry a timed-out run.
  *
- * DOCUMENTED ASSUMPTIONS (no captain decision needed to proceed, brief
- * allows proceeding with assumptions on exactly these two points):
+ * DOCUMENTED ASSUMPTIONS:
  *   - Send time: weekly Monday 13:00 UTC, monthly the 1st at 13:00 UTC. Both
  *     land comfortably after the 00:15 UTC finalizer
  *     (leaderboardAchievements.ts) has frozen that closed period's global
- *     steps achievements, so "notable rank moments" are never read before
- *     they exist.
+ *     steps achievements - moot for rank/percentile now that both are
+ *     computed directly from `leaderboard_stats`, but still true for the
+ *     permanent achievement records themselves.
  *   - The monthly recap does not suppress the weekly recap in the same
- *     calendar week (the two answer different questions - "this week" vs.
- *     "this month" - and neither is a subset view of the other; a week can
+ *     calendar week (the two answer different questions - "last week" vs.
+ *     "last month" - and neither is a subset view of the other; a week can
  *     straddle a month boundary, so nesting them is not even well-defined).
- *   - "Notable rank moments / best placements" is scoped to the closed
- *     period's GLOBAL steps leaderboard achievement tier
- *     (users/{uid}/achievements/global_steps_{timeFrame}_{periodKey}, the
- *     one leaderboardAchievements.ts already derives) - not a re-derivation
- *     of live per-climb rank or First Ascent status, which already has its
- *     own immediate `first_ascent_claimed` email and a materially more
- *     complex derivation (liveReplayLeaderboard.ts).
- *   - "Landmarks finished" is distinct `climbId`s among that closed period's
- *     workouts, names resolved off the same hosted climb catalogue
- *     `announceClimbDrops` reads (climbDropNotifications.ts) - not
- *     `landmarkResults`, whose `firstCompletedAtMillis` records only a
- *     climber's first-ever finish of a landmark, not "finished in this
- *     window".
+ *   - The CTA in every recap email is the App Store listing
+ *     (`https://apps.apple.com/app/id6757202987`, Ascend's production App
+ *     Store Connect app id), not a deep link into the app - no `/app/...`
+ *     hosting route or universal link exists yet. A landmark named in copy
+ *     (a finished landmark, a suggested comeback climb) is text only, never
+ *     a link target. Upgrading the CTA to a universal link is a later,
+ *     separate change.
+ *   - Delta chips are built only for a genuine improvement over the prior
+ *     period - never a decline or an unchanged figure - so the recap can
+ *     never read as a scolding. A flat or down period simply shows no chip
+ *     on that stat.
+ *   - The milestone callout, when there is one, prefers a landmark finished,
+ *     then a weekly streak of 2+, then a Top 1/3/10/100 global finish - in
+ *     that order, so it rarely restates the separate percentile callout's
+ *     own number.
+ *   - "Landmarks finished" uses `climbCompletions.ts`'s
+ *     `parseCompletedLandmarkWorkout` (the single definition of "finished a
+ *     landmark" shared with Swift and the backfill), not a bare "carried a
+ *     climbId" check - an abandoned Live Climb attempt is never reported as
+ *     finished. It does not re-apply leaderboardStats.ts's
+ *     competition-eligibility source filter or plausibility envelope: a
+ *     workout that finished a landmark but did not count toward the scored
+ *     leaderboard total can still appear in the list, since the landmark was
+ *     still finished regardless of whether it scored.
  *   - The suggested climb in a zero-activity email is the shortest currently
  *     available climb (most approachable comeback), the same pick for every
  *     recipient of one run - not personalized per climber, since nothing in
@@ -66,40 +97,49 @@
  *     computation (Workout.calculateWeeklyStreak) - there is no server field
  *     to read, and the two are expected to differ by at most a day at a week
  *     boundary.
- *   - "Landmarks finished" does not re-apply leaderboardStats.ts's
- *     competition-eligibility source filter or plausibility envelope: a
- *     workout that finished a landmark but did not count toward the
- *     leaderboard total (a rare, non-scoring source or an implausible
- *     session already excluded from `climbsCompleted`) can still appear in
- *     the list, since the landmark was still finished regardless of whether
- *     it scored.
  */
 
 import {onSchedule} from "firebase-functions/v2/scheduler";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import {
-  CatalogClimb,
+  type CompletedLandmarkWorkout,
+  parseCompletedLandmarkWorkout,
+} from "./climbCompletions";
+import {
+  type CatalogClimb,
   availableClimbIds,
   makeHostedClimbCatalogSource,
   referenceStepCount,
 } from "./climbDropNotifications";
-import {getMarketingWebsiteUrl} from "./email/config";
+import {runWithBoundedConcurrency} from "./concurrency";
 import {
   enqueueLifecycleEmailIfAllowed,
   type EnqueueLifecycleEmailOutcome,
 } from "./email/queue";
-import type {RecapActivePayload, RecapInactivePayload} from "./email/types";
+import type {
+  RecapActivePayload,
+  RecapCalendarCell,
+  RecapDeltaChip,
+  RecapInactivePayload,
+} from "./email/types";
 import {
-  ClosedLeaderboardPeriod,
+  type ClosedLeaderboardPeriod,
   currentPeriod,
   leaderboardDocumentId,
   previousPeriod,
 } from "./leaderboardPeriod";
 
+/**
+ * Ascend's production App Store Connect app id (data/app-setup-runbook.md).
+ * Deliberately environment-invariant, unlike `getMarketingWebsiteUrl()`: this
+ * is the one public App Store listing, the same regardless of which Firebase
+ * project the sweep happens to run in.
+ */
+const APP_STORE_URL = "https://apps.apple.com/app/id6757202987";
+
 const USERS_COLLECTION = "users";
 const WORKOUTS_COLLECTION = "workouts";
-const ACHIEVEMENTS_COLLECTION = "achievements";
 const LEADERBOARD_STATS_COLLECTION = "leaderboard_stats";
 
 /** Page size and page budget for the two `leaderboard_stats` cohort scans. */
@@ -107,8 +147,10 @@ const COHORT_PAGE_SIZE = 200;
 const MAX_COHORT_PAGES = 50;
 /** Bounds how far back the streak walk reads before giving up. */
 const MAX_WEEKLY_STREAK_LOOKBACK = 26;
-/** Matches TOP_RANK_LIMIT in leaderboardAchievements.ts. */
-const ACHIEVEMENT_RANK_LIMIT = 100;
+/** The rank a Top 100 global finish - the milestone-worthy band - requires. */
+const MILESTONE_RANK_LIMIT = 100;
+/** Recipients composed and enqueued at once, per sweep. */
+const RECIPIENT_CONCURRENCY = 10;
 
 export type RecapCadence = "weekly" | "monthly";
 type RecapVariant = "active" | "inactive";
@@ -117,6 +159,11 @@ interface LeaderboardStatsRow {
   totalFloors: number;
   totalSteps: number;
   totalWorkouts: number;
+}
+
+export interface RecapStanding {
+  fieldSize: number;
+  rank: number;
 }
 
 export interface RecapSweepSummary {
@@ -163,21 +210,6 @@ export function achievementTierLabel(rank: number): string {
 }
 
 /**
- * Builds the recap sentence for a closed-period global steps achievement.
- * @param {RecapCadence} cadence - Weekly or monthly
- * @param {number} rank - Final leaderboard rank for the closed period
- * @return {string} One-sentence rank callout
- */
-export function buildBestRankLabel(
-  cadence: RecapCadence,
-  rank: number
-): string {
-  const cadenceNoun = cadence === "weekly" ? "week" : "month";
-  return `You placed ${achievementTierLabel(rank)} globally this ` +
-    `${cadenceNoun} - #${rank}.`;
-}
-
-/**
  * Formats a closed week as a short date range, e.g. "Sep 15 – Sep 21".
  * @param {ClosedLeaderboardPeriod} period - Closed weekly period
  * @return {string} Display label
@@ -210,9 +242,9 @@ export function formatMonthlyPeriodLabel(
 }
 
 /**
- * Resolves the closed period's workout climb IDs to display names, deduped
- * in first-seen order.
- * @param {string[]} climbIds - Raw climb IDs from the period's workouts
+ * Resolves the closed period's finished-landmark climb IDs to display names,
+ * deduped in first-seen order.
+ * @param {string[]} climbIds - Distinct completed-landmark climb IDs
  * @param {Map<string, string>} climbNameById - Catalogue name lookup
  * @return {string[]} Distinct display names
  */
@@ -292,31 +324,181 @@ export async function computeCurrentStreakWeeks(
 }
 
 /**
- * Builds the monthly progress-vs-prior-period sentence. Omitted entirely
- * rather than claiming a comparison when there is no prior month to compare
- * against.
- * @param {number} currentSteps - This month's total steps
- * @param {number | null} previousSteps - Prior month's total steps, if any
- * @return {string | undefined} Comparison sentence, when comparable
+ * Ranks every active climber in a closed period against each other by total
+ * steps, mirroring leaderboardAchievements.ts's standard competition ranking
+ * (1, 2, 2, 4; tie-broken by user id for a stable order) - uncapped, since a
+ * percentile callout needs a real rank for every climber, not just a top-100
+ * band.
+ * @param {Map<string, {totalSteps: number}>} rows - This period's active
+ *   cohort, keyed by userId
+ * @return {Map<string, RecapStanding>} Rank and field size per userId
  */
-export function buildComparisonNote(
-  currentSteps: number,
-  previousSteps: number | null
+export function rankActiveCohort(
+  rows: Map<string, {totalSteps: number}>
+): Map<string, RecapStanding> {
+  const sorted = [...rows.entries()]
+    .sort(([leftId, left], [rightId, right]) => {
+      if (left.totalSteps !== right.totalSteps) {
+        return right.totalSteps - left.totalSteps;
+      }
+      return leftId.localeCompare(rightId);
+    });
+
+  const fieldSize = sorted.length;
+  const standings = new Map<string, RecapStanding>();
+  let currentRank = 0;
+  let previousSteps: number | null = null;
+
+  sorted.forEach(([uid, row], index) => {
+    if (previousSteps === null || previousSteps !== row.totalSteps) {
+      currentRank = index + 1;
+      previousSteps = row.totalSteps;
+    }
+    standings.set(uid, {fieldSize, rank: currentRank});
+  });
+
+  return standings;
+}
+
+/**
+ * Names a rank's percentile band, or nothing when the field is too small for
+ * a rank to mean anything - the same honesty rule as the app's "1ST OF 1
+ * CLIMBER never appears".
+ *
+ * A top-3 finish always states the exact position rather than a percentile
+ * band: in a field of 3, rank 1 is honestly only the top 33rd percentile,
+ * and "Top 50% of climbers" would undersell a literal first place. Every
+ * other rank prefers the nicer percentile-band phrasing where it qualifies,
+ * falling back to the same explicit "#N of M" form outside the bands.
+ * @param {number} rank - This climber's rank in the closed period
+ * @param {number} fieldSize - Total climbers ranked in the closed period
+ * @return {string | undefined} Percentile band, or an explicit "#N of M"
+ */
+export function percentileLabel(
+  rank: number,
+  fieldSize: number
 ): string | undefined {
-  if (previousSteps === null || previousSteps <= 0) {
+  if (fieldSize <= 1) {
     return undefined;
   }
+  if (rank <= 3) {
+    return `#${rank} of ${fieldSize} climbers`;
+  }
 
-  const deltaPercent = Math.round(
-    ((currentSteps - previousSteps) / previousSteps) * 100
+  const percentile = (rank / fieldSize) * 100;
+  if (percentile <= 1) return "Top 1% of climbers";
+  if (percentile <= 5) return "Top 5% of climbers";
+  if (percentile <= 10) return "Top 10% of climbers";
+  if (percentile <= 25) return "Top 25% of climbers";
+  if (percentile <= 50) return "Top 50% of climbers";
+  return `#${rank} of ${fieldSize} climbers`;
+}
+
+/**
+ * Builds a green "up" delta chip against the prior period - never a decline
+ * or an unchanged figure, so a recap can never read as a scolding.
+ * @param {number} current - This period's total
+ * @param {number | null} previous - The prior period's total, if any
+ * @param {string} label - Chip label, e.g. "vs last week"
+ * @return {RecapDeltaChip | undefined} The chip, only for a genuine increase
+ */
+export function buildDeltaChip(
+  current: number,
+  previous: number | null,
+  label: string
+): RecapDeltaChip | undefined {
+  if (previous === null || current <= previous) {
+    return undefined;
+  }
+  return {direction: "up", label, value: formatCount(current - previous)};
+}
+
+/**
+ * Picks the single most notable fact for the hero's milestone callout, or
+ * nothing when there is no genuine milestone to name. Prefers a finished
+ * landmark, then a weekly streak, then a Top 100 global finish - in that
+ * order, so it rarely just restates the separate percentile callout.
+ * @param {RecapCadence} cadence - Weekly or monthly
+ * @param {string[]} landmarksFinished - This period's finished landmarks
+ * @param {number | undefined} currentStreakWeeks - Weekly-only streak length
+ * @param {number} rank - This climber's rank in the closed period
+ * @return {string | undefined} Milestone sentence, past tense
+ */
+export function pickMilestoneText(
+  cadence: RecapCadence,
+  landmarksFinished: string[],
+  currentStreakWeeks: number | undefined,
+  rank: number
+): string | undefined {
+  if (landmarksFinished.length === 1) {
+    return `You finished ${landmarksFinished[0]}.`;
+  }
+  if (landmarksFinished.length > 1) {
+    const more = landmarksFinished.length - 1;
+    return `You finished ${landmarksFinished[0]} and ${more} more ` +
+      `landmark${more === 1 ? "" : "s"}.`;
+  }
+  if (cadence === "weekly" && currentStreakWeeks !== undefined &&
+    currentStreakWeeks >= 2) {
+    return `${currentStreakWeeks} weeks running. That is a streak.`;
+  }
+  if (rank <= MILESTONE_RANK_LIMIT) {
+    const cadenceNoun = cadence === "weekly" ? "week" : "month";
+    return `You placed ${achievementTierLabel(rank)} globally last ` +
+      `${cadenceNoun}.`;
+  }
+  return undefined;
+}
+
+/**
+ * Builds the period's activity calendar heatmap: one cell per day, plus
+ * leading/trailing blank cells so a monthly grid aligns to its starting
+ * weekday. A weekly grid is always exactly 7 filled cells, Monday first.
+ * @param {ClosedLeaderboardPeriod} period - The closed window
+ * @param {Map<string, number>} stepsByDayKey - Steps per UTC day
+ *   ("YYYY-MM-DD") inside the period
+ * @return {RecapCalendarCell[]} Calendar cells, Monday-aligned
+ */
+export function buildCalendarCells(
+  period: ClosedLeaderboardPeriod,
+  stepsByDayKey: Map<string, number>
+): RecapCalendarCell[] {
+  const totalDays = Math.round(
+    (period.endAt.getTime() - period.startAt.getTime()) /
+      (24 * 60 * 60 * 1000)
   );
-  if (deltaPercent > 0) {
-    return `Up ${deltaPercent}% from last month.`;
+  const leadingBlanks = (period.startAt.getUTCDay() + 6) % 7;
+
+  let peakKey: string | null = null;
+  let peakSteps = 0;
+  for (let day = 0; day < totalDays; day++) {
+    const key = dayKeyUTC(addDaysUTC(period.startAt, day));
+    const steps = stepsByDayKey.get(key) ?? 0;
+    if (steps > peakSteps) {
+      peakSteps = steps;
+      peakKey = key;
+    }
   }
-  if (deltaPercent < 0) {
-    return `Down ${Math.abs(deltaPercent)}% from last month.`;
+
+  const cells: RecapCalendarCell[] = [];
+  for (let i = 0; i < leadingBlanks; i++) {
+    cells.push({dayOfMonth: null, level: "blank"});
   }
-  return "Even with last month.";
+  for (let day = 0; day < totalDays; day++) {
+    const date = addDaysUTC(period.startAt, day);
+    const key = dayKeyUTC(date);
+    const steps = stepsByDayKey.get(key) ?? 0;
+    const level: RecapCalendarCell["level"] = steps <= 0 ?
+      "none" :
+      key === peakKey ? "peak" : "active";
+    cells.push({dayOfMonth: date.getUTCDate(), level});
+  }
+  const trailingBlanks = (7 - (cells.length % 7)) % 7;
+  for (let i = 0; i < trailingBlanks; i++) {
+    cells.push({dayOfMonth: null, level: "blank"});
+  }
+
+  return cells;
 }
 
 // =============================================================================
@@ -330,19 +512,25 @@ export function buildComparisonNote(
  * expireRevenueCatAccessGrants for the same shape). Bounded by
  * `COHORT_PAGE_SIZE` / `MAX_COHORT_PAGES` rather than resumed across runs -
  * documented as a scale assumption in the file header, not built ahead of
- * need.
+ * need - and logs loudly if that bound is ever actually hit, so a silent
+ * truncation cannot masquerade as a complete cohort.
  * @param {admin.firestore.Firestore} firestore - Admin Firestore instance
  * @param {admin.firestore.Query} baseQuery - Query before ordering/paging
+ * @param {string} label - Identifies which scan this is, for the truncation
+ *   log
  * @return {Promise<Map<string, LeaderboardStatsRow>>} Rows keyed by userId
  */
 async function pageLeaderboardStatsRows(
   firestore: admin.firestore.Firestore,
-  baseQuery: admin.firestore.Query
+  baseQuery: admin.firestore.Query,
+  label: string
 ): Promise<Map<string, LeaderboardStatsRow>> {
   const rows = new Map<string, LeaderboardStatsRow>();
   let cursor: admin.firestore.QueryDocumentSnapshot | undefined;
+  let pagesRead = 0;
 
   for (let page = 0; page < MAX_COHORT_PAGES; page++) {
+    pagesRead += 1;
     let query = baseQuery
       .orderBy(admin.firestore.FieldPath.documentId())
       .limit(COHORT_PAGE_SIZE);
@@ -352,7 +540,7 @@ async function pageLeaderboardStatsRows(
 
     const snapshot = await query.get();
     if (snapshot.empty) {
-      break;
+      return rows;
     }
     cursor = snapshot.docs[snapshot.docs.length - 1];
 
@@ -370,10 +558,15 @@ async function pageLeaderboardStatsRows(
     }
 
     if (snapshot.size < COHORT_PAGE_SIZE) {
-      break;
+      return rows;
     }
   }
 
+  logger.error("recapEmails.cohortScanTruncated", {
+    label,
+    pagesRead,
+    rowsRead: rows.size,
+  });
   return rows;
 }
 
@@ -392,19 +585,23 @@ async function fetchUserEmail(
 }
 
 /**
- * Reads the distinct landmark climb IDs a climber finished during a closed
- * period, bounded to that period's own date range - never the climber's
- * full workout history.
+ * Reads a closed period's workouts once and derives both the landmark
+ * completions and the per-day step totals from the same rows - bounded to
+ * that period's own date range, never the climber's full workout history.
  * @param {admin.firestore.Firestore} firestore - Admin Firestore instance
  * @param {string} uid - Firebase Auth user ID
  * @param {ClosedLeaderboardPeriod} period - The closed window
- * @return {Promise<string[]>} Climb IDs, in completion order
+ * @return {Promise<{completedClimbIds: string[], stepsByDayKey: Map<string,
+ *   number>}>} Finished-landmark climb IDs and per-UTC-day step totals
  */
-async function fetchPeriodClimbIds(
+async function fetchPeriodWorkoutDetails(
   firestore: admin.firestore.Firestore,
   uid: string,
   period: ClosedLeaderboardPeriod
-): Promise<string[]> {
+): Promise<{
+  completedClimbIds: string[];
+  stepsByDayKey: Map<string, number>;
+}> {
   const snapshot = await firestore
     .collection(USERS_COLLECTION)
     .doc(uid)
@@ -413,67 +610,48 @@ async function fetchPeriodClimbIds(
     .where("startedAt", "<", admin.firestore.Timestamp.fromDate(period.endAt))
     .get();
 
-  const climbIds: string[] = [];
+  const completedClimbIds: string[] = [];
+  const stepsByDayKey = new Map<string, number>();
+
   for (const document of snapshot.docs) {
-    const climbId = stringValue(document.get("climbId"));
-    if (climbId) {
-      climbIds.push(climbId);
+    const data = document.data();
+    const completion: CompletedLandmarkWorkout | null =
+      parseCompletedLandmarkWorkout(document.id, data);
+    if (completion) {
+      completedClimbIds.push(completion.climbId);
+    }
+
+    const startedAt = data.startedAt;
+    const steps = numberValue(data.steps);
+    if (startedAt instanceof admin.firestore.Timestamp && steps > 0) {
+      const key = dayKeyUTC(startedAt.toDate());
+      stepsByDayKey.set(key, (stepsByDayKey.get(key) ?? 0) + steps);
     }
   }
-  return climbIds;
+
+  return {completedClimbIds, stepsByDayKey};
 }
 
 /**
- * Reads the closed period's global steps achievement, when the climber
- * earned one - the same document `finalizeLeaderboardAchievements` writes.
+ * Reads the prior period's totals for the same climber, when they had a
+ * standing then, for the stat cards' delta chips.
  * @param {admin.firestore.Firestore} firestore - Admin Firestore instance
  * @param {string} uid - Firebase Auth user ID
  * @param {RecapCadence} cadence - Weekly or monthly
- * @param {string} periodKey - Closed period key
- * @return {Promise<string | undefined>} Rank callout sentence, when earned
+ * @param {ClosedLeaderboardPeriod} period - This recap's closed period
+ * @return {Promise<LeaderboardStatsRow | null>} Prior period's totals
  */
-async function fetchBestRankLabel(
+async function fetchPreviousPeriodTotals(
   firestore: admin.firestore.Firestore,
   uid: string,
   cadence: RecapCadence,
-  periodKey: string
-): Promise<string | undefined> {
-  const achievementId = `global_steps_${cadence}_${periodKey}`;
-  const snapshot = await firestore
-    .collection(USERS_COLLECTION)
-    .doc(uid)
-    .collection(ACHIEVEMENTS_COLLECTION)
-    .doc(achievementId)
-    .get();
-  if (!snapshot.exists) {
-    return undefined;
-  }
-
-  const rank = snapshot.get("rank");
-  if (typeof rank !== "number" || rank < 1 || rank > ACHIEVEMENT_RANK_LIMIT) {
-    return undefined;
-  }
-  return buildBestRankLabel(cadence, rank);
-}
-
-/**
- * Reads the prior month's total steps for the same climber, when they had a
- * standing then.
- * @param {admin.firestore.Firestore} firestore - Admin Firestore instance
- * @param {string} uid - Firebase Auth user ID
- * @param {ClosedLeaderboardPeriod} currentMonth - This recap's closed month
- * @return {Promise<number | null>} Prior month's total steps
- */
-async function fetchPreviousMonthSteps(
-  firestore: admin.firestore.Firestore,
-  uid: string,
-  currentMonth: ClosedLeaderboardPeriod
-): Promise<number | null> {
-  const oneDayBeforeThisMonth = new Date(
-    currentMonth.startAt.getTime() - 24 * 60 * 60 * 1000
+  period: ClosedLeaderboardPeriod
+): Promise<LeaderboardStatsRow | null> {
+  const oneDayBeforeThisPeriod = new Date(
+    period.startAt.getTime() - 24 * 60 * 60 * 1000
   );
-  const previousMonth = currentPeriod("monthly", oneDayBeforeThisMonth);
-  const docId = leaderboardDocumentId(uid, "monthly", previousMonth.key);
+  const previousPeriodInfo = currentPeriod(cadence, oneDayBeforeThisPeriod);
+  const docId = leaderboardDocumentId(uid, cadence, previousPeriodInfo.key);
   const snapshot = await firestore
     .collection(LEADERBOARD_STATS_COLLECTION)
     .doc(docId)
@@ -481,8 +659,12 @@ async function fetchPreviousMonthSteps(
   if (!snapshot.exists) {
     return null;
   }
-  const totalSteps = snapshot.get("totalSteps");
-  return typeof totalSteps === "number" ? totalSteps : null;
+  const data = snapshot.data() ?? {};
+  return {
+    totalFloors: numberValue(data.totalFloors),
+    totalSteps: numberValue(data.totalSteps),
+    totalWorkouts: numberValue(data.totalWorkouts),
+  };
 }
 
 /**
@@ -521,8 +703,8 @@ async function loadClimbCatalogSafely(): Promise<{
  * @param {ClosedLeaderboardPeriod} period - The closed window
  * @param {string} uid - Firebase Auth user ID
  * @param {LeaderboardStatsRow} aggregate - This period's totals
+ * @param {RecapStanding} standing - This period's rank and field size
  * @param {Map<string, string>} climbNameById - Catalogue name lookup
- * @param {string} climbsUrl - Generic "keep climbing" CTA URL
  * @param {RecapSweepSummary} summary - Sweep counters to update
  * @return {Promise<void>} Resolves once queued, suppressed, or skipped
  */
@@ -532,8 +714,8 @@ async function composeAndEnqueueActiveRecap(
   period: ClosedLeaderboardPeriod,
   uid: string,
   aggregate: LeaderboardStatsRow,
+  standing: RecapStanding,
   climbNameById: Map<string, string>,
-  climbsUrl: string,
   summary: RecapSweepSummary
 ): Promise<void> {
   const email = await fetchUserEmail(firestore, uid);
@@ -542,25 +724,18 @@ async function composeAndEnqueueActiveRecap(
     return;
   }
 
-  const [climbIds, bestRankLabel] = await Promise.all([
-    fetchPeriodClimbIds(firestore, uid, period),
-    fetchBestRankLabel(firestore, uid, cadence, period.key),
+  const [workoutDetails, previousTotals] = await Promise.all([
+    fetchPeriodWorkoutDetails(firestore, uid, period),
+    fetchPreviousPeriodTotals(firestore, uid, cadence, period),
   ]);
+  const landmarksFinished = dedupeLandmarkNames(
+    workoutDetails.completedClimbIds,
+    climbNameById
+  );
 
-  const payload: RecapActivePayload = {
-    bestRankLabel,
-    climbsCompleted: aggregate.totalWorkouts,
-    climbsUrl,
-    landmarksFinished: dedupeLandmarkNames(climbIds, climbNameById),
-    periodLabel: cadence === "weekly" ?
-      formatWeeklyPeriodLabel(period) :
-      formatMonthlyPeriodLabel(period),
-    totalFloors: aggregate.totalFloors,
-    totalSteps: aggregate.totalSteps,
-  };
-
+  let currentStreakWeeks: number | undefined;
   if (cadence === "weekly") {
-    payload.currentStreakWeeks = await computeCurrentStreakWeeks(
+    currentStreakWeeks = await computeCurrentStreakWeeks(
       period,
       async (periodKey) => {
         const docId = leaderboardDocumentId(uid, "weekly", periodKey);
@@ -568,20 +743,55 @@ async function composeAndEnqueueActiveRecap(
           .collection(LEADERBOARD_STATS_COLLECTION)
           .doc(docId)
           .get();
-        return snapshot.exists && numberValue(snapshot.get("totalWorkouts")) > 0;
+        return snapshot.exists &&
+          numberValue(snapshot.get("totalWorkouts")) > 0;
       }
-    );
-  } else {
-    const previousSteps = await fetchPreviousMonthSteps(firestore, uid, period);
-    payload.comparisonNote = buildComparisonNote(
-      aggregate.totalSteps,
-      previousSteps
     );
   }
 
+  const deltaLabel = cadence === "weekly" ? "vs last week" : "vs last month";
+  const payload: RecapActivePayload = {
+    calendar: buildCalendarCells(period, workoutDetails.stepsByDayKey),
+    climbsCompleted: aggregate.totalWorkouts,
+    climbsDelta: buildDeltaChip(
+      aggregate.totalWorkouts,
+      previousTotals?.totalWorkouts ?? null,
+      deltaLabel
+    ),
+    ctaUrl: APP_STORE_URL,
+    currentStreakWeeks,
+    fieldSize: standing.fieldSize,
+    floorsDelta: buildDeltaChip(
+      aggregate.totalFloors,
+      previousTotals?.totalFloors ?? null,
+      deltaLabel
+    ),
+    landmarksFinished,
+    milestoneText: pickMilestoneText(
+      cadence,
+      landmarksFinished,
+      currentStreakWeeks,
+      standing.rank
+    ),
+    percentileLabel: percentileLabel(standing.rank, standing.fieldSize),
+    periodLabel: cadence === "weekly" ?
+      formatWeeklyPeriodLabel(period) :
+      formatMonthlyPeriodLabel(period),
+    rank: standing.rank,
+    stepsDelta: buildDeltaChip(
+      aggregate.totalSteps,
+      previousTotals?.totalSteps ?? null,
+      deltaLabel
+    ),
+    totalFloors: aggregate.totalFloors,
+    totalSteps: aggregate.totalSteps,
+  };
+
   const outcome = await enqueueLifecycleEmailIfAllowed(firestore, {
     dedupeKey: buildRecapDedupeKey(cadence, "active", period.key, uid),
-    emailType: cadence === "weekly" ? "weekly_recap_active" : "monthly_recap_active",
+    emailType: cadence === "weekly" ?
+      "weekly_recap_active" :
+      "monthly_recap_active",
     payload,
     recipientEmail: email,
     sourceRef: `leaderboard_stats/${leaderboardDocumentId(uid, cadence, period.key)}`,
@@ -597,7 +807,6 @@ async function composeAndEnqueueActiveRecap(
  * @param {ClosedLeaderboardPeriod} period - The closed window
  * @param {string} uid - Firebase Auth user ID
  * @param {CatalogClimb | null} suggestedClimb - This run's comeback pick
- * @param {string} climbsUrl - Fallback CTA when no climb could be suggested
  * @param {RecapSweepSummary} summary - Sweep counters to update
  * @return {Promise<void>} Resolves once queued, suppressed, or skipped
  */
@@ -607,7 +816,6 @@ async function composeAndEnqueueInactiveRecap(
   period: ClosedLeaderboardPeriod,
   uid: string,
   suggestedClimb: CatalogClimb | null,
-  climbsUrl: string,
   summary: RecapSweepSummary
 ): Promise<void> {
   const email = await fetchUserEmail(firestore, uid);
@@ -617,13 +825,11 @@ async function composeAndEnqueueInactiveRecap(
   }
 
   const payload: RecapInactivePayload = {
+    ctaUrl: APP_STORE_URL,
     periodLabel: cadence === "weekly" ?
       formatWeeklyPeriodLabel(period) :
       formatMonthlyPeriodLabel(period),
     suggestedClimbName: suggestedClimb?.name,
-    suggestedClimbUrl: suggestedClimb ?
-      `${climbsUrl}/${suggestedClimb.id}` :
-      climbsUrl,
   };
 
   const outcome = await enqueueLifecycleEmailIfAllowed(firestore, {
@@ -670,7 +876,6 @@ export async function runRecapSweep(
 ): Promise<RecapSweepSummary> {
   const firestore = admin.firestore();
   const period = previousPeriod(cadence, now);
-  const climbsUrl = `${getMarketingWebsiteUrl()}/app/climbs`;
 
   const [activeRows, everActiveRows, catalog] = await Promise.all([
     pageLeaderboardStatsRows(
@@ -682,16 +887,20 @@ export async function runRecapSweep(
           "periodStartAt",
           "==",
           admin.firestore.Timestamp.fromDate(period.startAt)
-        )
+        ),
+      "active"
     ),
     pageLeaderboardStatsRows(
       firestore,
       firestore
         .collection(LEADERBOARD_STATS_COLLECTION)
-        .where("timeFrame", "==", "all_time")
+        .where("timeFrame", "==", "all_time"),
+      "all_time"
     ),
     loadClimbCatalogSafely(),
   ]);
+
+  const standings = rankActiveCohort(activeRows);
 
   const summary: RecapSweepSummary = {
     activeUserCount: activeRows.size,
@@ -703,50 +912,64 @@ export async function runRecapSweep(
     suppressed: 0,
   };
 
-  for (const [uid, aggregate] of activeRows) {
-    try {
+  const activeFailures = await runWithBoundedConcurrency(
+    [...activeRows.entries()],
+    RECIPIENT_CONCURRENCY,
+    async ([uid, aggregate]) => {
+      const standing = standings.get(uid);
+      // Every active row was just ranked, so this is structurally always
+      // present - the guard keeps the type honest without a non-null cast.
+      if (!standing) {
+        return;
+      }
       await composeAndEnqueueActiveRecap(
         firestore,
         cadence,
         period,
         uid,
         aggregate,
+        standing,
         catalog.climbNameById,
-        climbsUrl,
         summary
       );
-    } catch (error) {
-      summary.errors += 1;
-      logger.error("recapEmails.activeComposeFailed", {
-        cadence,
-        errorMessage: error instanceof Error ? error.message : "unknown_error",
-        uid,
-      });
     }
+  );
+  for (const failure of activeFailures) {
+    summary.errors += 1;
+    logger.error("recapEmails.activeComposeFailed", {
+      cadence,
+      errorMessage: failure.error instanceof Error ?
+        failure.error.message :
+        "unknown_error",
+      uid: failure.item[0],
+    });
   }
 
-  for (const uid of everActiveRows.keys()) {
-    if (activeRows.has(uid)) {
-      continue;
-    }
-    try {
+  const inactiveUids = [...everActiveRows.keys()]
+    .filter((uid) => !activeRows.has(uid));
+  const inactiveFailures = await runWithBoundedConcurrency(
+    inactiveUids,
+    RECIPIENT_CONCURRENCY,
+    async (uid) => {
       await composeAndEnqueueInactiveRecap(
         firestore,
         cadence,
         period,
         uid,
         catalog.suggestedClimb,
-        climbsUrl,
         summary
       );
-    } catch (error) {
-      summary.errors += 1;
-      logger.error("recapEmails.inactiveComposeFailed", {
-        cadence,
-        errorMessage: error instanceof Error ? error.message : "unknown_error",
-        uid,
-      });
     }
+  );
+  for (const failure of inactiveFailures) {
+    summary.errors += 1;
+    logger.error("recapEmails.inactiveComposeFailed", {
+      cadence,
+      errorMessage: failure.error instanceof Error ?
+        failure.error.message :
+        "unknown_error",
+      uid: failure.item,
+    });
   }
 
   return summary;
@@ -770,6 +993,36 @@ function stringValue(value: unknown): string | null {
  */
 function numberValue(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * Formats a count with thousands separators for chip and stat copy.
+ * @param {number} value - Raw count
+ * @return {string} Locale-formatted count
+ */
+function formatCount(value: number): string {
+  return Math.max(0, Math.round(value)).toLocaleString("en-US");
+}
+
+/**
+ * Shifts a UTC date by whole days.
+ * @param {Date} date - Starting instant
+ * @param {number} days - Days to add
+ * @return {Date} Shifted instant
+ */
+function addDaysUTC(date: Date, days: number): Date {
+  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
+/**
+ * Formats a UTC instant as a "YYYY-MM-DD" day key.
+ * @param {Date} date - The instant
+ * @return {string} Day key
+ */
+function dayKeyUTC(date: Date): string {
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-` +
+    `${pad(date.getUTCDate())}`;
 }
 
 /**

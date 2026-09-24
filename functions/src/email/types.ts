@@ -82,28 +82,56 @@ export interface LeaderboardFirstPlacePayload {
 }
 
 /**
+ * A small green "up" callout comparing a stat to the prior period. Only ever
+ * built for a genuine improvement - never a decline or an unchanged figure -
+ * so a recap never reads like a scolding.
+ */
+export interface RecapDeltaChip {
+  direction: "up";
+  label: string;
+  value: string;
+}
+
+/**
+ * One cell of the period's activity calendar heatmap.
+ * `dayOfMonth` is null only for a "blank" filler cell used to align a
+ * monthly grid to its starting weekday - a weekly calendar never has one.
+ */
+export interface RecapCalendarCell {
+  dayOfMonth: number | null;
+  level: "blank" | "none" | "active" | "peak";
+}
+
+/**
  * Stats for a climber who had activity in a closed weekly or monthly window.
- * `bestRankLabel`, `currentStreakWeeks`, and `comparisonNote` are each
- * omitted rather than sent as zero/null when there is nothing to report -
- * an absent field renders no line, never a hollow "0 week streak".
+ * Every optional field is omitted rather than sent as zero/hollow when there
+ * is nothing to report - no delta chip for a flat or down period, no
+ * milestone line with nothing to celebrate, no rank line with too small a
+ * field to mean anything.
  */
 export interface RecapActivePayload {
   periodLabel: string;
   climbsCompleted: number;
+  climbsDelta?: RecapDeltaChip;
   totalSteps: number;
+  stepsDelta?: RecapDeltaChip;
   totalFloors: number;
+  floorsDelta?: RecapDeltaChip;
   landmarksFinished: string[];
-  bestRankLabel?: string;
+  milestoneText?: string;
+  rank?: number;
+  fieldSize?: number;
+  percentileLabel?: string;
   currentStreakWeeks?: number;
-  comparisonNote?: string;
-  climbsUrl: string;
+  calendar: RecapCalendarCell[];
+  ctaUrl: string;
 }
 
 /** Gentle re-engagement copy for a climber with no activity in the window. */
 export interface RecapInactivePayload {
   periodLabel: string;
   suggestedClimbName?: string;
-  suggestedClimbUrl: string;
+  ctaUrl: string;
 }
 
 export type EmailJobPayload =
