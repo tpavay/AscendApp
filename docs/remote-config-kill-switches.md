@@ -20,13 +20,16 @@ The catalog is `AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift`;
 | `routine_remote_deletes_enabled` | Deleting remote routine and routine folder documents | `PendingRoutineDeletion` rows stay queued and replay. The routine they point at is still held back from re-upload, so the switch cannot resurrect a deleted routine |
 | `routine_cloud_restore_enabled` | Decoding routine backups into local storage | The next bootstrap still treats it as the initial hydration |
 | `apple_health_enrichment_enabled` | The background Apple Health pass that writes heart rate and calories onto climbs Ascend recorded | The attempt ledger is left completely untouched, so every pending climb resumes its own retry series when the flag returns |
+| `step_accuracy_raw_capture_upload_enabled` | Uploading a badly-miscounted climb's raw headphone-motion capture to `users/{uid}/step_accuracy_debug/` | Nothing - the buffered capture was never persisted, so a blocked climb's capture is simply not uploaded, not queued for later |
 | `local_data_migrations_enabled` | One-shot local backfills that rewrite stored workouts, and the bootstrap sweep that claims ownerless user-authored routines and folders - the ones that predate the backup and the ones saved while nobody was signed in - for the signed-in climber, catalog templates excluded | The workout backfill's version key is not stamped, so it runs later. The routine sweep stamps nothing at all: it is not one-shot, so it simply runs again on the next authenticated bootstrap after the flag returns |
 | `public_profile_publishing_enabled` | Publishing the public profile mirror, stats, summaries | Republished from local state on the next bootstrap |
 
 The invariant across all of them: **a blocked path defers its work, it never drops it.**
+The one exception is `step_accuracy_raw_capture_upload_enabled`: its capture lives only in memory until the calibration sheet decides its fate, so there is no pending state to leave behind, and what a blocked climb loses is diagnostic data only.
 Pending state survives untouched, so turning a switch back on drains the queue with no user action and no further release.
 
 `AscendAppTests/RemoteFeatureGateTests.swift` pins it for the five gates whose collaborators can be faked - backup writes, remote deletes, cloud restore, media uploads, and local backfills - including the "turn it back on and the queue drains" half.
+`AscendAppTests/LiveClimbSessionStepAccuracyRawCaptureTests.swift` pins the raw-capture upload gate through a real `LiveClimbSessionViewModel`.
 Public profile publishing reaches a shared service that would need a live backend to observe, so its gate is reviewed rather than tested; making it injectable is worth doing the next time it is touched.
 
 `leaderboard_publishing_enabled` was retired with issue #307.

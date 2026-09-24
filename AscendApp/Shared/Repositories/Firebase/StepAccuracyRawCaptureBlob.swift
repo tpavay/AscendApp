@@ -17,6 +17,17 @@ struct StepAccuracyRawCaptureBlob: Codable, Equatable, Sendable {
     let machineReportedSteps: Int
     let stepDiscrepancyAbs: Int
     let stepDiscrepancyPercent: Double?
+    /// Every mid-climb step-sync correction, in full - `appSteps` includes them, the detections
+    /// do not, so reconciling the two needs every one rather than metadata's bounded suffix.
+    let stepCorrections: [HeadphoneMotionStepCorrection]
+    /// The session's total motion sample count, including any recorded before a resume.
+    let sampleCount: Int
+    /// Set when the session was recovered from a draft after the app was killed: the capture
+    /// then starts at the resume, and these are the steps and samples it cannot replay.
+    let resumeBase: HeadphoneMotionRawCaptureResumeBase?
+    /// Whether the capture misses part of the climb - a resumed session, or a buffer cap hit -
+    /// so a gap between the detections and `appSteps` is not read as an algorithm miss.
+    let isPartialCapture: Bool
 
     let headphoneRouteAtStart: HeadphoneAudioRouteSnapshot?
     let headphoneRouteAtSave: HeadphoneAudioRouteSnapshot?
@@ -37,6 +48,7 @@ struct StepAccuracyRawCaptureBlob: Codable, Equatable, Sendable {
         appSteps: Int,
         machineReportedSteps: Int,
         stepDiscrepancyAbs: Int,
+        stepCorrections: [HeadphoneMotionStepCorrection],
         detectorThresholds: HeadphoneMotionDetectorThresholds = .current,
         rawCapture: HeadphoneMotionRawCapture
     ) {
@@ -48,6 +60,12 @@ struct StepAccuracyRawCaptureBlob: Codable, Equatable, Sendable {
         self.machineReportedSteps = machineReportedSteps
         self.stepDiscrepancyAbs = stepDiscrepancyAbs
         self.stepDiscrepancyPercent = metadata.stepDiscrepancyPercent
+        self.stepCorrections = stepCorrections
+        self.sampleCount = metadata.sampleCount
+        self.resumeBase = rawCapture.resumeBase
+        self.isPartialCapture = rawCapture.resumeBase != nil
+            || rawCapture.didTruncateSamples
+            || rawCapture.didTruncateDetections
         self.headphoneRouteAtStart = metadata.headphoneRouteAtStart
         self.headphoneRouteAtSave = metadata.headphoneRouteAtSave
         self.isMotionCapableHeadphoneConnectedAtStart = metadata.isMotionCapableHeadphoneConnectedAtStart

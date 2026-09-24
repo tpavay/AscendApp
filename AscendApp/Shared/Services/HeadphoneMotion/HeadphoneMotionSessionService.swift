@@ -63,6 +63,7 @@ final class HeadphoneMotionSessionService {
     private var originalRecordingStartedAt: Date?
     private var resumedBaseDuration: TimeInterval = 0
     private var resumedBaseSampleCount = 0
+    private var rawCaptureResumeBase: HeadphoneMotionRawCaptureResumeBase?
     private var accumulatedPausedDuration: TimeInterval = 0
     private var pauseStartedAt: Date?
     private var lastMotionUpdateAt: Date?
@@ -165,6 +166,9 @@ final class HeadphoneMotionSessionService {
         originalRecordingStartedAt = resumeState?.startedAt ?? startedAt
         resumedBaseDuration = initialDuration
         resumedBaseSampleCount = initialSampleCount
+        rawCaptureResumeBase = resumeState.map {
+            HeadphoneMotionRawCaptureResumeBase(steps: $0.steps, sampleCount: $0.sampleCount)
+        }
         accumulatedPausedDuration = 0
         pauseStartedAt = nil
         lastMotionUpdateAt = nil
@@ -258,7 +262,7 @@ final class HeadphoneMotionSessionService {
                 stopReason: sessionResult.stopReason,
                 trackingIntegrity: finalTrackingIntegrity,
                 stepCorrections: stepCorrections,
-                rawCapture: sessionResult.rawCapture
+                rawCapture: sessionResult.rawCapture?.resumed(from: rawCaptureResumeBase)
             )
             stepCount = result.steps
             sampleCount = result.sampleCount
@@ -270,6 +274,7 @@ final class HeadphoneMotionSessionService {
             originalRecordingStartedAt = nil
             resumedBaseDuration = 0
             resumedBaseSampleCount = 0
+            rawCaptureResumeBase = nil
             accumulatedPausedDuration = 0
             pauseStartedAt = nil
             lastMotionUpdateAt = nil

@@ -177,6 +177,7 @@ final class LiveClimbSessionViewModel {
     /// the same way `now` is, so the upload path is testable without a live Firebase session;
     /// production always takes the default.
     private let currentUserId: () -> String?
+    private let featureFlags: RemoteFeatureFlagStore
     private let now: () -> Date
     /// Read once per session. `leaderboardRows` is rebuilt on every step and
     /// elapsed tick, so the climber's name cannot be resolved from the cache
@@ -260,6 +261,7 @@ final class LiveClimbSessionViewModel {
         rawCaptureRepository: any StepAccuracyRawCaptureStorageRepositoryProtocol =
             StepAccuracyRawCaptureStorageRepository.shared,
         currentUserId: @escaping () -> String? = { Auth.auth().currentUser?.uid },
+        featureFlags: RemoteFeatureFlagStore = .shared,
         liveActivitySessionID: String = UUID().uuidString,
         recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil,
         now: @escaping () -> Date = Date.init
@@ -278,6 +280,7 @@ final class LiveClimbSessionViewModel {
         self.heartRateMonitor = heartRateMonitor
         self.rawCaptureRepository = rawCaptureRepository
         self.currentUserId = currentUserId
+        self.featureFlags = featureFlags
         self.activeDraft = recoveredDraft
         self.now = now
         heartRateRecorder.restore(samples: recoveredDraft?.heartRateSamples ?? [])
@@ -302,6 +305,7 @@ final class LiveClimbSessionViewModel {
         rawCaptureRepository: any StepAccuracyRawCaptureStorageRepositoryProtocol =
             StepAccuracyRawCaptureStorageRepository.shared,
         currentUserId: @escaping () -> String? = { Auth.auth().currentUser?.uid },
+        featureFlags: RemoteFeatureFlagStore = .shared,
         liveActivitySessionID: String = UUID().uuidString,
         recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil,
         now: @escaping () -> Date = Date.init
@@ -320,6 +324,7 @@ final class LiveClimbSessionViewModel {
         self.heartRateMonitor = heartRateMonitor
         self.rawCaptureRepository = rawCaptureRepository
         self.currentUserId = currentUserId
+        self.featureFlags = featureFlags
         self.activeDraft = recoveredDraft
         self.now = now
         heartRateRecorder.restore(samples: recoveredDraft?.heartRateSamples ?? [])
@@ -961,7 +966,8 @@ final class LiveClimbSessionViewModel {
 
     /// Applies the retention trigger and, only when every gate clears, uploads the climb's
     /// buffered raw motion capture for algorithm debugging. Every other outcome - no calibration,
-    /// too small a discrepancy, a headphone dropout during the climb - simply never uploads the
+    /// too small a discrepancy, a headphone dropout during the climb, or
+    /// `RemoteFeatureFlag.stepAccuracyRawCaptureUpload` switched off - simply never uploads the
     /// buffer, which is the entirety of "discard" here: nothing was ever persisted to begin with.
     private func uploadRawCaptureIfWarranted(
         workout: Workout,
@@ -974,8 +980,13 @@ final class LiveClimbSessionViewModel {
             machineReportedSteps: machineReportedSteps,
             discrepancyAbs: discrepancyAbs,
             wasHeadphoneConnectedThroughoutClimb: metadata.wasHeadphoneConnectedThroughoutClimb
-        ), let rawCapture = recordedResult?.rawCapture,
-           let userId = workout.ownerUserId ?? currentUserId() else {
+        ), let recordedResult, let rawCapture = recordedResult.rawCapture,
+           let userId = workout.ownerUserId ?? currentUserId(),
+           RemoteFeatureGate.allows(
+               .stepAccuracyRawCaptureUpload,
+               path: "LiveClimbSessionViewModel.uploadRawCaptureIfWarranted",
+               store: featureFlags
+           ) else {
             return
         }
 
@@ -985,6 +996,7 @@ final class LiveClimbSessionViewModel {
             appSteps: appSteps,
             machineReportedSteps: machineReportedSteps,
             stepDiscrepancyAbs: discrepancyAbs,
+            stepCorrections: recordedResult.stepCorrections,
             rawCapture: rawCapture
         )
         let sessionID = liveActivitySessionID

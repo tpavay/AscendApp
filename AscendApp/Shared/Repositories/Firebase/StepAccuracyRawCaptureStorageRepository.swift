@@ -3,9 +3,9 @@ import FirebaseStorage
 
 enum StepAccuracyRawCaptureError: LocalizedError {
     /// The gzip-compressed payload still exceeds `maximumCompressedBytes` despite the sample-
-    /// count cap in `HeadphoneMotionRawCaptureLimits` - only reachable with extremely
-    /// incompressible motion data. Uploading is skipped rather than fighting `storage.rules`'
-    /// own size cap.
+    /// count cap in `HeadphoneMotionRawCaptureLimits` and the quantized sample shape, which keep a
+    /// full-cap capture near a third of the bound (see `maximumSampleCount`). Uploading is
+    /// skipped rather than fighting `storage.rules`' own size cap.
     case oversized
 
     var errorDescription: String? {

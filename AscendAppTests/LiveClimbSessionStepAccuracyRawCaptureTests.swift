@@ -28,6 +28,62 @@ struct LiveClimbSessionStepAccuracyRawCaptureTests {
         #expect(upload.blob.stepDiscrepancyAbs == 30)
         #expect(upload.blob.samples.count == 3)
         #expect(upload.blob.detections.count == 1)
+        #expect(upload.blob.stepCorrections == [Self.stepCorrection])
+        #expect(upload.blob.sampleCount == 3)
+        #expect(upload.blob.isPartialCapture == false)
+    }
+
+    @Test("A session recovered after an app kill uploads a capture marked partial, with its resume base")
+    func resumedSessionUploadIsMarkedPartial() async throws {
+        let repository = FakeStepAccuracyRawCaptureStorageRepository()
+        let resumeBase = HeadphoneMotionRawCaptureResumeBase(steps: 200, sampleCount: 7_500)
+        let (viewModel, context) = try await Self.recordAndSaveAClimb(
+            appSteps: 500,
+            rawCaptureRepository: repository,
+            resumeBase: resumeBase
+        )
+
+        viewModel.submitStepAccuracyCalibration(machineReportedSteps: 600, modelContext: context)
+        await viewModel.rawCaptureUploadTask?.value
+
+        let upload = try #require(await repository.uploads.first)
+        #expect(upload.blob.resumeBase == resumeBase)
+        #expect(upload.blob.isPartialCapture)
+    }
+
+    @Test("The kill switch off skips a qualifying upload, and it proceeds once the switch is on")
+    func killSwitchGatesTheUpload() async throws {
+        let blockedRepository = FakeStepAccuracyRawCaptureStorageRepository()
+        let (blockedViewModel, blockedContext) = try await Self.recordAndSaveAClimb(
+            appSteps: 500,
+            rawCaptureRepository: blockedRepository,
+            featureFlags: RemoteFeatureFlagStore(
+                snapshot: .resolving(
+                    remoteValues: [RemoteFeatureFlag.stepAccuracyRawCaptureUpload.key: false]
+                )
+            )
+        )
+
+        blockedViewModel.submitStepAccuracyCalibration(machineReportedSteps: 600, modelContext: blockedContext)
+
+        #expect(blockedViewModel.rawCaptureUploadTask == nil)
+        #expect(await blockedRepository.uploads.isEmpty)
+
+        let allowedRepository = FakeStepAccuracyRawCaptureStorageRepository()
+        let (allowedViewModel, allowedContext) = try await Self.recordAndSaveAClimb(
+            appSteps: 500,
+            rawCaptureRepository: allowedRepository,
+            featureFlags: RemoteFeatureFlagStore(
+                snapshot: .resolving(
+                    remoteValues: [RemoteFeatureFlag.stepAccuracyRawCaptureUpload.key: true]
+                )
+            )
+        )
+
+        allowedViewModel.submitStepAccuracyCalibration(machineReportedSteps: 600, modelContext: allowedContext)
+        await allowedViewModel.rawCaptureUploadTask?.value
+
+        #expect(await allowedRepository.uploads.count == 1)
     }
 
     @Test("An overcount at or above thirty also uploads - the trigger is direction-agnostic")
@@ -99,7 +155,9 @@ struct LiveClimbSessionStepAccuracyRawCaptureTests {
     private static func recordAndSaveAClimb(
         appSteps: Int,
         rawCaptureRepository: FakeStepAccuracyRawCaptureStorageRepository,
-        trackingIntegrity: HeadphoneMotionTrackingIntegrity = .verified
+        trackingIntegrity: HeadphoneMotionTrackingIntegrity = .verified,
+        resumeBase: HeadphoneMotionRawCaptureResumeBase? = nil,
+        featureFlags: RemoteFeatureFlagStore = RemoteFeatureFlagStore()
     ) async throws -> (LiveClimbSessionViewModel, ModelContext) {
         let climb = Self.climb
         let startedAt = Date().addingTimeInterval(-600)
@@ -127,7 +185,8 @@ struct LiveClimbSessionStepAccuracyRawCaptureTests {
             sampleCount: 3,
             stopReason: .targetReached,
             trackingIntegrity: trackingIntegrity,
-            rawCapture: buffer.snapshot()
+            stepCorrections: [Self.stepCorrection],
+            rawCapture: buffer.snapshot().resumed(from: resumeBase)
         )
 
         let container = try RetainedModelContainer.inMemory(
@@ -142,7 +201,8 @@ struct LiveClimbSessionStepAccuracyRawCaptureTests {
             climbService: ClimbService(catalogRepository: StubClimbCatalogRepository(climbs: [climb])),
             leaderboardService: StubLiveReplayLeaderboardService(),
             rawCaptureRepository: rawCaptureRepository,
-            currentUserId: { "test-user-id" }
+            currentUserId: { "test-user-id" },
+            featureFlags: featureFlags
         )
 
         viewModel.start(modelContext: context)
@@ -150,6 +210,16 @@ struct LiveClimbSessionStepAccuracyRawCaptureTests {
 
         return (viewModel, context)
     }
+
+    private static let stepCorrection = HeadphoneMotionStepCorrection(
+        elapsedSeconds: 90,
+        detectedSteps: 140,
+        correctedSteps: 150,
+        deltaSteps: 10,
+        trackingGapDurationSeconds: 0,
+        totalUnavailableDurationSeconds: 0,
+        interruptionCount: 0
+    )
 
     private static let climb = Climb(
         id: "raw-capture-test-tower",

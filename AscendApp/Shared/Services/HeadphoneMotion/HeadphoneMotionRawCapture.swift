@@ -1,20 +1,43 @@
 import Foundation
 
-/// One raw headphone-motion sample as fed to `HeadphoneMotionStepDetector`, plus the vertical
-/// acceleration the detector derives from it - the exact input the algorithm consumed.
+/// One raw headphone-motion sample as fed to `HeadphoneMotionStepDetector` - the exact input the
+/// algorithm consumed. The detector's vertical-acceleration projection is deliberately not stored:
+/// replay recomputes it with `HeadphoneMotionStepDetector.verticalAcceleration(from:)` from the
+/// retained `userAcceleration` and `gravity`, so storing it would only duplicate data.
+///
+/// Values are quantized before they are kept - the timestamp to the millisecond, every vector
+/// component to `vectorDecimalPlaces` - because full-precision `Double` text is mostly sensor
+/// noise gzip cannot compress, and that noise is what pushed a full capture past the upload cap.
+/// Both resolutions sit well below the sensor's own noise floor and the 50Hz sample spacing.
 struct HeadphoneMotionRawCaptureSample: Codable, Equatable, Sendable {
+    static let timestampDecimalPlaces = 3
+    static let vectorDecimalPlaces = 4
+
     let timestamp: TimeInterval
     let userAcceleration: HeadphoneMotionVector
     let rotationRate: HeadphoneMotionVector
     let gravity: HeadphoneMotionVector
-    let verticalAcceleration: Double
 
     init(sample: HeadphoneMotionSample) {
-        timestamp = sample.timestamp
-        userAcceleration = sample.userAcceleration
-        rotationRate = sample.rotationRate
-        gravity = sample.gravity
-        verticalAcceleration = HeadphoneMotionStepDetector.verticalAcceleration(from: sample)
+        timestamp = sample.timestamp.quantized(toDecimalPlaces: Self.timestampDecimalPlaces)
+        userAcceleration = Self.quantized(sample.userAcceleration)
+        rotationRate = Self.quantized(sample.rotationRate)
+        gravity = Self.quantized(sample.gravity)
+    }
+
+    private static func quantized(_ vector: HeadphoneMotionVector) -> HeadphoneMotionVector {
+        HeadphoneMotionVector(
+            x: vector.x.quantized(toDecimalPlaces: vectorDecimalPlaces),
+            y: vector.y.quantized(toDecimalPlaces: vectorDecimalPlaces),
+            z: vector.z.quantized(toDecimalPlaces: vectorDecimalPlaces)
+        )
+    }
+}
+
+private extension Double {
+    func quantized(toDecimalPlaces places: Int) -> Double {
+        let scale = pow(10, Double(places))
+        return (self * scale).rounded() / scale
     }
 }
 
@@ -59,9 +82,12 @@ struct HeadphoneMotionDetectorThresholds: Codable, Equatable, Sendable {
 /// just not past the cap.
 enum HeadphoneMotionRawCaptureLimits {
     /// ~20 minutes of continuous capture at the detector's assumed 50Hz input rate. Generous
-    /// enough to cover the overwhelming majority of Live Climb attempts in full, while keeping
-    /// the gzip-compressed upload (see `StepAccuracyRawCaptureStorageRepository`) well under its
-    /// own size cap even for noisy, poorly-compressible motion data.
+    /// enough to cover the overwhelming majority of Live Climb attempts in full. With the
+    /// quantized `HeadphoneMotionRawCaptureSample` shape, a synthetic full-cap capture of
+    /// deliberately noisy motion gzips to ~31 bytes per sample - ~1.9MB at this cap, about a
+    /// third of `StepAccuracyRawCaptureStorageRepository.maximumCompressedBytes`. The earlier
+    /// full-precision shape with a stored vertical acceleration measured ~110 bytes per sample
+    /// (~6.6MB), past the cap, which is why samples are quantized and carry only raw inputs.
     static let maximumSampleCount = 60_000
     /// The detector's own 0.3s minimum time between peaks caps the fastest possible cadence at
     /// ~3.3 steps/sec, so 20 minutes at that ceiling is ~4,000 detections - rounded up for
@@ -78,6 +104,25 @@ struct HeadphoneMotionRawCapture: Equatable, Sendable {
     let detections: [HeadphoneMotionRawStepDetectionRecord]
     let didTruncateSamples: Bool
     let didTruncateDetections: Bool
+    /// Where the session stood when this capture began, for a session recovered from a draft
+    /// after the app was killed. The buffer lives only in memory, so a resumed session captures
+    /// only what happened after the resume, and its detections' `stepCount` restarts at zero -
+    /// `nil` means the capture covers the climb from its first sample.
+    let resumeBase: HeadphoneMotionRawCaptureResumeBase?
+
+    init(
+        samples: [HeadphoneMotionRawCaptureSample],
+        detections: [HeadphoneMotionRawStepDetectionRecord],
+        didTruncateSamples: Bool,
+        didTruncateDetections: Bool,
+        resumeBase: HeadphoneMotionRawCaptureResumeBase? = nil
+    ) {
+        self.samples = samples
+        self.detections = detections
+        self.didTruncateSamples = didTruncateSamples
+        self.didTruncateDetections = didTruncateDetections
+        self.resumeBase = resumeBase
+    }
 
     static let empty = HeadphoneMotionRawCapture(
         samples: [],
@@ -85,6 +130,23 @@ struct HeadphoneMotionRawCapture: Equatable, Sendable {
         didTruncateSamples: false,
         didTruncateDetections: false
     )
+
+    func resumed(from resumeBase: HeadphoneMotionRawCaptureResumeBase?) -> HeadphoneMotionRawCapture {
+        HeadphoneMotionRawCapture(
+            samples: samples,
+            detections: detections,
+            didTruncateSamples: didTruncateSamples,
+            didTruncateDetections: didTruncateDetections,
+            resumeBase: resumeBase
+        )
+    }
+}
+
+/// The steps and samples a recovered session had already counted before its raw capture began -
+/// the part of the climb the capture cannot replay.
+struct HeadphoneMotionRawCaptureResumeBase: Codable, Equatable, Sendable {
+    let steps: Int
+    let sampleCount: Int
 }
 
 /// Accumulates a `HeadphoneMotionRawCapture` while a session records. Confined to whatever queue

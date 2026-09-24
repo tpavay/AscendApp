@@ -85,7 +85,24 @@ struct HeadphoneMotionRawCaptureTests {
     }
 
     @Test
-    func rawCaptureSampleStoresTheDetectorsVerticalAccelerationProjection() {
+    func rawCaptureSampleQuantizesTimestampAndVectors() {
+        let sample = HeadphoneMotionSample(
+            timestamp: 183_456.123_456_789,
+            userAcceleration: HeadphoneMotionVector(x: 0.012_345_678, y: -0.987_654_321, z: 0.5),
+            rotationRate: HeadphoneMotionVector(x: 1.234_567_89, y: 0, z: -0.000_04),
+            gravity: HeadphoneMotionVector(x: 0, y: 0.999_999_9, z: 0)
+        )
+
+        let record = HeadphoneMotionRawCaptureSample(sample: sample)
+
+        #expect(record.timestamp == 183_456.123)
+        #expect(record.userAcceleration == HeadphoneMotionVector(x: 0.0123, y: -0.9877, z: 0.5))
+        #expect(record.rotationRate == HeadphoneMotionVector(x: 1.2346, y: 0, z: -0.0))
+        #expect(record.gravity == HeadphoneMotionVector(x: 0, y: 1, z: 0))
+    }
+
+    @Test
+    func quantizedSamplesStillReplayTheDetectorsVerticalProjection() {
         let sample = HeadphoneMotionSample(
             timestamp: 1.5,
             userAcceleration: HeadphoneMotionVector(x: 0.2, y: 0.4, z: 0.6),
@@ -93,8 +110,54 @@ struct HeadphoneMotionRawCaptureTests {
         )
 
         let record = HeadphoneMotionRawCaptureSample(sample: sample)
+        let replayed = HeadphoneMotionStepDetector.verticalAcceleration(from: HeadphoneMotionSample(
+            timestamp: record.timestamp,
+            userAcceleration: record.userAcceleration,
+            rotationRate: record.rotationRate,
+            gravity: record.gravity
+        ))
 
-        #expect(record.verticalAcceleration == HeadphoneMotionStepDetector.verticalAcceleration(from: sample))
+        #expect(replayed == HeadphoneMotionStepDetector.verticalAcceleration(from: sample))
+    }
+
+    @Test
+    func fullCapCaptureOfNoisyMotionFitsWellUnderTheUploadCap() throws {
+        var generator = SplitMix64(seed: 0x5EED)
+        func noise(_ scale: Double) -> Double {
+            (0..<6).reduce(0) { sum, _ in sum + Double.random(in: -1...1, using: &generator) } / 2 * scale
+        }
+
+        var buffer = HeadphoneMotionRawCaptureBuffer()
+        var timestamp: TimeInterval = 183_456.123_456_789
+        for index in 0..<HeadphoneMotionRawCaptureLimits.maximumSampleCount {
+            timestamp += 0.02 + noise(0.0002)
+            let phase = Double(index) * 0.02 * 2 * .pi * 1.4
+            buffer.recordSample(HeadphoneMotionSample(
+                timestamp: timestamp,
+                userAcceleration: HeadphoneMotionVector(x: noise(0.05), y: noise(0.05), z: 0.25 * sin(phase) + noise(0.08)),
+                rotationRate: HeadphoneMotionVector(x: noise(0.3), y: noise(0.3), z: noise(0.3)),
+                gravity: HeadphoneMotionVector(x: 0.1 + noise(0.01), y: -0.2 + noise(0.01), z: -0.97 + noise(0.01))
+            ))
+        }
+        let rawCapture = buffer.snapshot()
+        let blob = StepAccuracyRawCaptureBlob(
+            workoutId: "full-cap",
+            metadata: HeadphoneMotionWorkoutMetadata(
+                sampleCount: rawCapture.samples.count,
+                climbId: nil,
+                targetStepCount: nil,
+                stopReason: .userStopped
+            ),
+            appSteps: 1_000,
+            machineReportedSteps: 1_100,
+            stepDiscrepancyAbs: 100,
+            stepCorrections: [],
+            rawCapture: rawCapture
+        )
+
+        let compressed = try GzipCodec.compress(try JSONEncoder().encode(blob))
+
+        #expect(compressed.count * 2 < StepAccuracyRawCaptureStorageRepository.maximumCompressedBytes)
     }
 
     @Test
@@ -136,12 +199,22 @@ struct HeadphoneMotionRawCaptureTests {
         )
         metadata.applyMachineStepCalibration(machineReportedSteps: 630, appSteps: 500)
 
+        let correction = HeadphoneMotionStepCorrection(
+            elapsedSeconds: 120,
+            detectedSteps: 180,
+            correctedSteps: 200,
+            deltaSteps: 20,
+            trackingGapDurationSeconds: 0,
+            totalUnavailableDurationSeconds: 0,
+            interruptionCount: 0
+        )
         let blob = StepAccuracyRawCaptureBlob(
             workoutId: "workout-1",
             metadata: metadata,
             appSteps: 500,
             machineReportedSteps: 630,
             stepDiscrepancyAbs: try #require(metadata.stepDiscrepancyAbs),
+            stepCorrections: [correction],
             rawCapture: rawCapture
         )
 
@@ -158,6 +231,41 @@ struct HeadphoneMotionRawCaptureTests {
         #expect(decoded.stepDiscrepancyAbs == 130)
         #expect(decoded.headphoneRouteAtStart?.family == .airPodsPro)
         #expect(decoded.detectorThresholds.algorithmVersion == HeadphoneMotionStepDetector.algorithmVersion)
+        #expect(decoded.stepCorrections == [correction])
+        #expect(decoded.sampleCount == 2)
+        #expect(decoded.resumeBase == nil)
+        #expect(decoded.isPartialCapture == false)
+    }
+
+    @Test
+    func blobFromAResumedSessionIsMarkedPartialWithItsResumeBase() throws {
+        var buffer = HeadphoneMotionRawCaptureBuffer()
+        buffer.recordSample(makeSample(timestamp: 0))
+        let resumeBase = HeadphoneMotionRawCaptureResumeBase(steps: 240, sampleCount: 9_000)
+        let rawCapture = buffer.snapshot().resumed(from: resumeBase)
+
+        let blob = StepAccuracyRawCaptureBlob(
+            workoutId: "workout-3",
+            metadata: HeadphoneMotionWorkoutMetadata(
+                sampleCount: 9_001,
+                climbId: nil,
+                targetStepCount: nil,
+                stopReason: .userStopped
+            ),
+            appSteps: 300,
+            machineReportedSteps: 400,
+            stepDiscrepancyAbs: 100,
+            stepCorrections: [],
+            rawCapture: rawCapture
+        )
+        let decoded = try JSONDecoder().decode(
+            StepAccuracyRawCaptureBlob.self,
+            from: try GzipCodec.decompress(try GzipCodec.compress(try JSONEncoder().encode(blob)))
+        )
+
+        #expect(decoded.resumeBase == resumeBase)
+        #expect(decoded.sampleCount == 9_001)
+        #expect(decoded.isPartialCapture)
     }
 
     @Test
@@ -181,10 +289,28 @@ struct HeadphoneMotionRawCaptureTests {
             appSteps: 100,
             machineReportedSteps: 200,
             stepDiscrepancyAbs: 100,
+            stepCorrections: [],
             rawCapture: rawCapture
         )
 
         #expect(blob.didTruncateSamples)
+        #expect(blob.isPartialCapture)
         #expect(blob.samples.count == HeadphoneMotionRawCaptureLimits.maximumSampleCount)
+    }
+}
+
+private struct SplitMix64: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seed: UInt64) {
+        state = seed
+    }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var value = state
+        value = (value ^ (value >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        value = (value ^ (value >> 27)) &* 0x94D0_49BB_1331_11EB
+        return value ^ (value >> 31)
     }
 }
