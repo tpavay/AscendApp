@@ -56,9 +56,18 @@ struct LiveClimbRatingPromptPlacementEvidenceTests {
             _ = try await screen.elements()
             try activateAccessibilityElement(labelled: "DONE", in: screen.window)
 
+            // The optional step-accuracy calibration sheet is offered first. Skipping it is the
+            // path that asks nothing extra of the climber, and the question has to follow it.
+            let calibration = try await presentedController(in: screen) { _ in true }
+            #expect(
+                calibration is UIAlertController == false,
+                "The optional calibration sheet comes before the sentiment question"
+            )
+            try activateAccessibilityElement(labelled: "Skip", in: calibration.view)
+
             // The question is a presented controller, so waiting for it is a fact about the
             // screen rather than a guess at how long presentation takes on a busy host.
-            let alert = try await presentedAlert(in: screen)
+            let alert = try await presentedController(in: screen) { $0 is UIAlertController }
             let question = try #require(alert as? UIAlertController, "The question is a UIKit alert")
             #expect(question.title == "Enjoying Ascend?")
             #expect(question.message == "If Ascend made this climb better, leave a quick rating.")
@@ -155,12 +164,16 @@ struct LiveClimbRatingPromptPlacementEvidenceTests {
 
     // MARK: - The question
 
-    /// Waits for the sentiment question to be really presented, rather than assuming a settle was
-    /// long enough on a host that is running other suites at the same time.
-    private func presentedAlert(in screen: HostedScreen) async throws -> UIViewController {
+    /// Waits for a controller to be really presented, rather than assuming a settle was long
+    /// enough on a host that is running other suites at the same time.
+    private func presentedController(
+        in screen: HostedScreen,
+        matching isMatch: (UIViewController) -> Bool
+    ) async throws -> UIViewController {
         for _ in 0..<120 {
             if let presented = screen.window.rootViewController?.presentedViewController,
-               presented.isBeingPresented == false {
+               presented.isBeingPresented == false,
+               isMatch(presented) {
                 return presented
             }
 
@@ -170,7 +183,7 @@ struct LiveClimbRatingPromptPlacementEvidenceTests {
 
         return try #require(
             screen.window.rootViewController?.presentedViewController,
-            "Pressing DONE on a first completed climb has to present the sentiment question"
+            "Pressing DONE on a first completed climb has to present the calibration sheet, then the sentiment question"
         )
     }
 

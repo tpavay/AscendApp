@@ -43,6 +43,7 @@ struct TelemetryScreenCatalogTests {
         "workout_detail": "WorkoutDetailView",
         "edit_workout": "EditWorkoutView",
         "active_headphone_workout_recovery": "ActiveHeadphoneWorkoutRecoveryView",
+        "step_accuracy_calibration": "StepAccuracyCalibrationPromptView",
         "best_efforts": "BestEffortsListView",
         "best_effort_record_detail": "BestEffortRecordDetailView",
         "routine_detail": "RoutineDetailView",

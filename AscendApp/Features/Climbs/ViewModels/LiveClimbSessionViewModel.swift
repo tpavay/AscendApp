@@ -228,6 +228,12 @@ final class LiveClimbSessionViewModel {
     /// checkpoints force it, bounding what an interruption can lose.
     private var lastHeartRateCheckpointAt: Date?
     private let heartRateCheckpointInterval: TimeInterval = 15
+    /// Captured once, when recording actually begins - the headphone that drove step detection
+    /// for a session with no mid-climb change. A save-time-only read would misattribute exactly
+    /// the climbs this pair exists to explain: one where headphones disconnected or switched
+    /// mid-climb, whose save-time read reports whatever was connected at the end.
+    private var headphoneRouteAtStart: HeadphoneAudioRouteSnapshot?
+    private var isMotionCapableHeadphoneConnectedAtStart: Bool?
 
     init(
         climb: Climb,
@@ -538,6 +544,12 @@ final class LiveClimbSessionViewModel {
         return true
     }
 
+    /// Whether the post-climb step-accuracy calibration prompt has anything to offer. True for
+    /// any saved session - `finishAndSave` never saves one with zero steps.
+    var shouldOfferStepAccuracyCalibration: Bool {
+        savedWorkout != nil
+    }
+
     var durationGoalReached: Bool {
         guard let targetDuration = mode.targetDuration,
               targetDuration > 0 else {
@@ -610,6 +622,9 @@ final class LiveClimbSessionViewModel {
             )
             backgroundSessionService.start(at: draft?.startedAt ?? Date())
             phase = .recording
+            headphoneRouteAtStart = HeadphoneAudioRouteInspector.currentSnapshot()
+            HeadphoneMotionReadinessService.shared.refresh()
+            isMotionCapableHeadphoneConnectedAtStart = HeadphoneMotionReadinessService.shared.readiness.canStartLiveClimb
             AppDiagnosticsRecorder.shared.record(
                 "headphone_session_recording_started",
                 details: draft?.diagnosticDetails ?? [
@@ -846,6 +861,77 @@ final class LiveClimbSessionViewModel {
 
     func dismissStepSyncConfirmation() {
         stepSyncConfirmation = nil
+    }
+
+    /// Records what the climber's stair-stepper machine displayed against the already-saved
+    /// workout, for step-counting algorithm analysis only. Never rewrites `Workout.steps` - the
+    /// climb's recorded result stays exactly as tracked.
+    func submitStepAccuracyCalibration(machineReportedSteps: Int, modelContext: ModelContext) {
+        guard let workout = savedWorkout, machineReportedSteps > 0 else { return }
+
+        let appSteps = workout.steps
+        guard var metadata = HeadphoneMotionWorkoutMetadata.decode(from: workout.sourceMetadata) else {
+            AppDiagnosticsRecorder.shared.record(
+                "step_accuracy_calibration_skipped",
+                level: .warning,
+                details: [
+                    "session_id": liveActivitySessionID,
+                    "reason": "source_metadata_undecodable"
+                ]
+            )
+            return
+        }
+        metadata.applyMachineStepCalibration(machineReportedSteps: machineReportedSteps, appSteps: appSteps)
+
+        guard let jsonString = metadata.jsonString else {
+            AppDiagnosticsRecorder.shared.record(
+                "step_accuracy_calibration_skipped",
+                level: .warning,
+                details: [
+                    "session_id": liveActivitySessionID,
+                    "reason": "source_metadata_unencodable"
+                ]
+            )
+            return
+        }
+
+        let leaderboardSnapshotBeforeEdit = LeaderboardWorkoutSnapshot(workout: workout)
+        workout.sourceMetadata = jsonString
+
+        do {
+            try modelContext.save()
+            try WorkoutMutationHandler.shared.workoutsDidChange(
+                modelContext: modelContext,
+                mutation: .updated(
+                    before: leaderboardSnapshotBeforeEdit,
+                    after: LeaderboardWorkoutSnapshot(workout: workout)
+                ),
+                changedWorkouts: [workout]
+            )
+        } catch {
+            AppDiagnosticsRecorder.shared.record(
+                "step_accuracy_calibration_save_failed",
+                level: .error,
+                details: [
+                    "session_id": liveActivitySessionID,
+                    "error": error.localizedDescription
+                ]
+            )
+            return
+        }
+
+        TelemetryManager.shared.track(
+            WorkoutStepAccuracyAnalyticsEvent.calibrationSubmitted(
+                appSteps: appSteps,
+                machineSteps: machineReportedSteps,
+                discrepancyAbs: metadata.stepDiscrepancyAbs ?? abs(appSteps - machineReportedSteps),
+                discrepancyPercent: metadata.stepDiscrepancyPercent ?? 0
+            )
+        )
+    }
+
+    func skipStepAccuracyCalibration() {
+        TelemetryManager.shared.track(WorkoutStepAccuracyAnalyticsEvent.calibrationSkipped)
     }
 
     func recordLiveSplitSample(modelContext: ModelContext? = nil) {
@@ -1247,6 +1333,10 @@ final class LiveClimbSessionViewModel {
         }
 
         let floors = Workout.stepsToFloors(result.steps)
+        let headphoneRouteAtSave = HeadphoneAudioRouteInspector.currentSnapshot()
+        HeadphoneMotionReadinessService.shared.refresh()
+        let isMotionCapableHeadphoneConnectedAtSave = HeadphoneMotionReadinessService.shared.readiness.canStartLiveClimb
+        let didHeadphoneMotionDataFlow = result.sampleCount > 0
         let metadata = HeadphoneMotionWorkoutMetadata(
             sampleCount: result.sampleCount,
             trackingMode: mode.trackingMode,
@@ -1262,7 +1352,12 @@ final class LiveClimbSessionViewModel {
                 samples: heartRateRecorder.samples,
                 sessionStartedAt: result.startedAt,
                 sessionDuration: result.duration
-            )
+            ),
+            headphoneRouteAtStart: headphoneRouteAtStart,
+            headphoneRouteAtSave: headphoneRouteAtSave,
+            isMotionCapableHeadphoneConnectedAtStart: isMotionCapableHeadphoneConnectedAtStart,
+            isMotionCapableHeadphoneConnectedAtSave: isMotionCapableHeadphoneConnectedAtSave,
+            didHeadphoneMotionDataFlow: didHeadphoneMotionDataFlow
         )
 
         let heartRateSummary = heartRateWorkoutSummary
@@ -1299,6 +1394,21 @@ final class LiveClimbSessionViewModel {
         AppleHealthEnrichmentService.shared.trackNewlyRecordedWorkout(
             workout,
             modelContext: modelContext
+        )
+
+        TelemetryManager.shared.track(
+            WorkoutStepAccuracyAnalyticsEvent.recorded(
+                headphoneFamilyAtStart: headphoneRouteAtStart?.family ?? .none,
+                isHeadphoneClassOutputConnectedAtStart: headphoneRouteAtStart?.isHeadphoneClassOutputConnected ?? false,
+                isMotionCapableHeadphoneConnectedAtStart: isMotionCapableHeadphoneConnectedAtStart ?? false,
+                headphoneFamilyAtSave: headphoneRouteAtSave.family,
+                isHeadphoneClassOutputConnectedAtSave: headphoneRouteAtSave.isHeadphoneClassOutputConnected,
+                isMotionCapableHeadphoneConnectedAtSave: isMotionCapableHeadphoneConnectedAtSave,
+                didHeadphoneChangeDuringClimb: metadata.didHeadphoneChangeDuringClimb ?? false,
+                didHeadphoneMotionDataFlow: didHeadphoneMotionDataFlow,
+                steps: result.steps,
+                trackingMode: mode.trackingMode
+            )
         )
 
         // Just Climb sessions have no attempt to rank - saving one is the finish.

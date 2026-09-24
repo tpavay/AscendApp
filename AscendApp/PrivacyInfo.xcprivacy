@@ -163,6 +163,14 @@
           `stair_stepper_exp`, `exercise_level`, `motivation`,
           `planned_frequency`, and the `goal_*` selections.
 
+          Also covers headphone-motion step-accuracy telemetry: whether a
+          motion-capable headphone was connected and whether motion data flowed
+          during a climb, the app's counted steps, and - only when the climber
+          answers the optional post-climb calibration prompt - the step count
+          their stair-stepper machine displayed plus the computed discrepancy.
+          The machine count and discrepancy are stored for algorithm analysis
+          only and never change the climb's own recorded step count.
+
           The routine backup is private to its owner - readable only by the
           signed-in climber, never published to any surface another user can see
           - so it adds no purpose beyond App Functionality.
@@ -339,6 +347,19 @@
           `destinations: [.analytics]`, so they reach Firebase Analytics and Mixpanel,
           and because TelemetryEnvelope stamps `app_environment`, `build_config`,
           `app_version`, and `build_number` onto every analytics event and screen view.
+
+          Also covers the connected headphone's raw name and port type
+          (AVAudioSession.currentRoute), read once when a climb's recording
+          begins and again when it is saved, persisted with the climb record
+          (Workout.sourceMetadata) so the captain can investigate step-counting
+          accuracy by headphone. The name is device diagnostic info read from the
+          system, not typed by the climber, but commonly carries the climber's
+          own name (iOS defaults a personal AirPods name to "<Owner>'s AirPods
+          Pro"); it is stored only in the private per-owner workout record and is
+          never sent to analytics - only a bucketed family (AirPods Pro / AirPods
+          Max / AirPods / Beats / other / unknown) and a connected/not boolean
+          reach Firebase Analytics and Mixpanel, under the Fitness declaration
+          above.
         -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>

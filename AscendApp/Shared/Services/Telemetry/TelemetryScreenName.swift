@@ -65,6 +65,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     case workoutDetail = "workout_detail"
     case editWorkout = "edit_workout"
     case activeHeadphoneWorkoutRecovery = "active_headphone_workout_recovery"
+    case stepAccuracyCalibration = "step_accuracy_calibration"
 
     // MARK: - Progress
 
@@ -148,6 +149,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .workoutDetail: "WorkoutDetailView"
         case .editWorkout: "EditWorkoutView"
         case .activeHeadphoneWorkoutRecovery: "ActiveHeadphoneWorkoutRecoveryView"
+        case .stepAccuracyCalibration: "StepAccuracyCalibrationPromptView"
         case .bestEfforts: "BestEffortsListView"
         case .bestEffortRecordDetail: "BestEffortRecordDetailView"
         case .routineDetail: "RoutineDetailView"
