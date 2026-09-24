@@ -22,7 +22,12 @@ struct LiveClimbSessionStepAccuracyRawCaptureTests {
         await viewModel.rawCaptureUploadTask?.value
 
         let upload = try #require(await repository.uploads.first)
-        #expect(upload.userId == "test-user-id")
+        // The save path stamps the owner from the ambient Firebase session, which the stub cannot
+        // reach, so the upload must name the saved workout's owner and fall back to the stub only
+        // when no session stamped one.
+        let savedWorkout = try #require(try context.fetch(FetchDescriptor<Workout>()).first)
+        #expect(upload.userId == (savedWorkout.ownerUserId ?? "test-user-id"))
+        #expect(upload.workoutId == savedWorkout.id)
         #expect(upload.blob.appSteps == 500)
         #expect(upload.blob.machineReportedSteps == 530)
         #expect(upload.blob.stepDiscrepancyAbs == 30)

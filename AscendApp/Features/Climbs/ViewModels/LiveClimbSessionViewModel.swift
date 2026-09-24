@@ -411,7 +411,18 @@ final class LiveClimbSessionViewModel {
     }
 
     var elapsedClock: String {
-        let totalSeconds = max(Int(displayedDuration.rounded(.down)), 0)
+        Self.formattedClock(displayedDuration)
+    }
+
+    /// The duration-goal hero's denominator - the Just Climb goal formatted with the same
+    /// clock shape as `elapsedClock` so the two read as one fraction. `nil` for every other
+    /// mode, since only a duration goal has a duration to measure against.
+    var targetDurationClock: String? {
+        mode.targetDuration.map(Self.formattedClock)
+    }
+
+    private static func formattedClock(_ duration: TimeInterval) -> String {
+        let totalSeconds = max(Int(duration.rounded(.down)), 0)
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
         let seconds = totalSeconds % 60
