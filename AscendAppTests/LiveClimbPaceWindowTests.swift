@@ -12,33 +12,50 @@ struct LiveClimbPaceWindowTests {
         #expect(LiveClimbPaceWindow.averageStepsPerMinute(steps: 0, elapsedSeconds: 60) == 0)
     }
 
-    @Test("Neither pace answers before the clock has run five seconds", arguments: [0.0, 0.4, 1, 4.9])
-    func nothingIsStatedBeforeEnoughClock(elapsed: TimeInterval) {
-        var window = LiveClimbPaceWindow()
-        window.record(elapsedSeconds: 0, steps: 0)
-
-        #expect(LiveClimbPaceWindow.averageStepsPerMinute(steps: 3, elapsedSeconds: elapsed) == nil)
-        #expect(window.currentStepsPerMinute(elapsedSeconds: elapsed, steps: 3) == nil)
+    @Test(
+        "The average answers from the start: zero before a full second, the real ratio after",
+        arguments: [
+            (elapsed: 0.0, steps: 0, expected: 0),
+            (elapsed: 0.4, steps: 1, expected: 0),
+            (elapsed: 1, steps: 1, expected: 60),
+            (elapsed: 4.9, steps: 6, expected: 73),
+            (elapsed: 12, steps: 16, expected: 80),
+        ]
+    )
+    func averageAnswersFromTheStart(elapsed: TimeInterval, steps: Int, expected: Int) {
+        #expect(LiveClimbPaceWindow.averageStepsPerMinute(steps: steps, elapsedSeconds: elapsed) == expected)
     }
 
-    @Test("A window with no samples still answers the climb-so-far pace, never a division by zero")
-    func emptyWindowFallsBackToTheAverage() {
+    @Test("The average never divides by a bad clock")
+    func averageSurvivesABadClock() {
+        #expect(LiveClimbPaceWindow.averageStepsPerMinute(steps: 10, elapsedSeconds: -5) == 0)
+        #expect(LiveClimbPaceWindow.averageStepsPerMinute(steps: 10, elapsedSeconds: .nan) == 0)
+        #expect(LiveClimbPaceWindow.averageStepsPerMinute(steps: 10, elapsedSeconds: .infinity) == 0)
+    }
+
+    @Test("Current pace states nothing until the window spans a full thirty seconds, then a number")
+    func currentWaitsForTheWholeWindow() {
+        var window = LiveClimbPaceWindow()
+        window.record(elapsedSeconds: 0, steps: 0)
+        for second in 1...29 {
+            window.record(elapsedSeconds: TimeInterval(second), steps: second * 2)
+            #expect(
+                window.currentStepsPerMinute(elapsedSeconds: TimeInterval(second), steps: second * 2) == nil,
+                "a CURRENT number at \(second)s would describe a window the climb has not had"
+            )
+        }
+
+        window.record(elapsedSeconds: 30, steps: 60)
+        #expect(window.currentStepsPerMinute(elapsedSeconds: 30, steps: 60) == 120)
+    }
+
+    @Test("A window with no samples states no current pace, never a division by zero")
+    func emptyWindowStatesNothing() {
         let window = LiveClimbPaceWindow()
 
         #expect(window.currentStepsPerMinute(elapsedSeconds: 0, steps: 0) == nil)
-        #expect(window.currentStepsPerMinute(elapsedSeconds: 30, steps: 45) == 90)
-    }
-
-    @Test("Current pace equals the average until the window has elapsed")
-    func currentMatchesAverageInsideTheFirstWindow() {
-        var window = LiveClimbPaceWindow()
-        window.record(elapsedSeconds: 0, steps: 0)
-        for second in 1...20 {
-            window.record(elapsedSeconds: TimeInterval(second), steps: second * 2)
-        }
-
-        #expect(window.currentStepsPerMinute(elapsedSeconds: 20, steps: 40) == 120)
-        #expect(LiveClimbPaceWindow.averageStepsPerMinute(steps: 40, elapsedSeconds: 20) == 120)
+        #expect(window.currentStepsPerMinute(elapsedSeconds: 30, steps: 45) == nil)
+        #expect(window.currentStepsPerMinute(elapsedSeconds: .nan, steps: 45) == nil)
     }
 
     @Test("Current pace follows the trailing window while the average follows the whole climb")
@@ -92,7 +109,8 @@ struct LiveClimbPaceWindowTests {
 
         #expect(window.samples.count == 1)
         #expect(window.currentStepsPerMinute(elapsedSeconds: 6, steps: 3) == nil)
-        #expect(window.currentStepsPerMinute(elapsedSeconds: 15, steps: 20) == 120)
+        #expect(window.currentStepsPerMinute(elapsedSeconds: 34, steps: 58) == nil, "the restarted window is only 29 seconds long")
+        #expect(window.currentStepsPerMinute(elapsedSeconds: 35, steps: 60) == 120)
     }
 
     @Test("Reset forgets every sample")
@@ -104,7 +122,7 @@ struct LiveClimbPaceWindowTests {
         window.reset()
 
         #expect(window.samples.isEmpty)
-        #expect(window.currentStepsPerMinute(elapsedSeconds: 41, steps: 41) == 60)
+        #expect(window.currentStepsPerMinute(elapsedSeconds: 41, steps: 41) == nil, "after a reset the window starts over")
     }
 
     @Test("A count that fell below the anchor never reads as a negative pace")

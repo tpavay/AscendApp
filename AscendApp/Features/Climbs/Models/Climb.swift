@@ -26,6 +26,9 @@ struct Climb: Codable, Identifiable, Hashable, Sendable {
     let sourceURL: String
     let imageSetVersion: Int
     let releaseState: ClimbReleaseState
+    /// The photographic cut-out the Just Me tab reveals as the climb progresses, or nil for a
+    /// climb that has none (it keeps the photo layout).
+    let progressArtwork: ClimbProgressArtwork?
 
     var isAvailable: Bool {
         releaseState.isAvailable
@@ -154,6 +157,7 @@ struct Climb: Codable, Identifiable, Hashable, Sendable {
         case imageSetVersion
         case releaseState
         case isPublished
+        case progressArtwork
     }
 
     init(
@@ -179,7 +183,8 @@ struct Climb: Codable, Identifiable, Hashable, Sendable {
         sourceURL: String,
         imageSetVersion: Int = 1,
         releaseState: ClimbReleaseState = .available,
-        isPublished: Bool? = nil
+        isPublished: Bool? = nil,
+        progressArtwork: ClimbProgressArtwork? = nil
     ) {
         self.id = id
         self.name = name
@@ -202,6 +207,7 @@ struct Climb: Codable, Identifiable, Hashable, Sendable {
         self.funFact = funFact
         self.sourceURL = sourceURL
         self.imageSetVersion = imageSetVersion
+        self.progressArtwork = progressArtwork
         if isPublished == false {
             self.releaseState = .hidden
         } else {
@@ -232,6 +238,8 @@ struct Climb: Codable, Identifiable, Hashable, Sendable {
         funFact = try container.decode(String.self, forKey: .funFact)
         sourceURL = try container.decode(String.self, forKey: .sourceURL)
         imageSetVersion = try container.decodeIfPresent(Int.self, forKey: .imageSetVersion) ?? 1
+        // Optional content: a malformed entry costs that one climb its cut-out, never the catalog.
+        progressArtwork = (try? container.decodeIfPresent(ClimbProgressArtwork.self, forKey: .progressArtwork)) ?? nil
         if let decodedReleaseState = try container.decodeIfPresent(ClimbReleaseState.self, forKey: .releaseState) {
             releaseState = decodedReleaseState
         } else if try container.decodeIfPresent(Bool.self, forKey: .isPublished) == false {
@@ -265,6 +273,7 @@ struct Climb: Codable, Identifiable, Hashable, Sendable {
         try container.encode(sourceURL, forKey: .sourceURL)
         try container.encode(imageSetVersion, forKey: .imageSetVersion)
         try container.encode(releaseState, forKey: .releaseState)
+        try container.encodeIfPresent(progressArtwork, forKey: .progressArtwork)
     }
 
     private func clampedCameraDistance(

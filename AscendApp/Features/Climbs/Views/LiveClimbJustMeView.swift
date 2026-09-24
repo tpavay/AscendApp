@@ -7,6 +7,10 @@ import SwiftUI
 /// below - a 2x2 grid when heart rate is present, two-and-one when it is not. Renders over the
 /// climb's own hero photo (`LiveClimbSessionView.sessionBackground`) rather than a flat
 /// background, so text throughout carries its own shadow.
+///
+/// Once a climb's progress cut-out has loaded (`LiveClimbSessionViewModel.progressArtwork`) the
+/// tab draws `LiveClimbJustMeLandmarkView` instead, over a plain black backdrop. Until then -
+/// still loading, failed, or no cut-out at all - it stays on this photo layout.
 struct LiveClimbJustMeView: View {
     let viewModel: LiveClimbSessionViewModel
 
@@ -14,13 +18,17 @@ struct LiveClimbJustMeView: View {
     private static let statBoxHeight: CGFloat = 104
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            stepsHero
-            summitBar
-            statGrid
-            Spacer(minLength: 0)
+        if let progressArtwork = viewModel.progressArtwork {
+            LiveClimbJustMeLandmarkView(viewModel: viewModel, loaded: progressArtwork)
+        } else {
+            VStack(alignment: .leading, spacing: 18) {
+                stepsHero
+                summitBar
+                statGrid
+                Spacer(minLength: 0)
+            }
+            .frame(maxHeight: .infinity)
         }
-        .frame(maxHeight: .infinity)
     }
 
     /// The tab's hero, driven by the session's goal type. A step goal measures current steps

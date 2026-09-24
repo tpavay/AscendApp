@@ -31,6 +31,13 @@ enum LiveHeartRateStatus: Equatable {
         }
     }
 
+    /// Whether a strap is delivering a fresh reading right now, as opposed to connecting,
+    /// reconnecting, silent, or gone.
+    var hasCurrentReading: Bool {
+        if case .connected = self { return true }
+        return false
+    }
+
     var displayText: String {
         switch self {
         case .connecting:

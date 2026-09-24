@@ -23,7 +23,16 @@
     ],
     "funFact": "France gifted the Statue of Liberty to the United States in 1886.",
     "sourceURL": "https://en.wikipedia.org/wiki/Statue_of_Liberty",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/statue-of-liberty/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 270, "top": 16, "right": 819, "bottom": 1430},
+      "progressTopY": 0.011073,
+      "progressBottomY": 0.989619,
+      "sha256": "3338d27cdd4dac74eba54fb9907c420bf59776051cc30d38be5642c204fe2cb7"
+    }
   },
   {
     "id": "space-needle",
@@ -49,7 +58,16 @@
     ],
     "funFact": "The Space Needle was built for the 1962 World's Fair.",
     "sourceURL": "https://en.wikipedia.org/wiki/Space_Needle",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/space-needle/progress/v1.png",
+      "canvasWidth": 1024,
+      "canvasHeight": 1536,
+      "visibleBoundsPixels": {"left": 266, "top": 27, "right": 756, "bottom": 1523},
+      "progressTopY": 0.017578,
+      "progressBottomY": 0.991536,
+      "sha256": "f31dd7480e0683d95f8e106ec27a76e12c0fc5a0eadadace8e1c6790c7bc724c"
+    }
   },
   {
     "id": "empire-state-building",
@@ -75,7 +93,16 @@
     ],
     "funFact": "The Empire State Building opened in 1931 during the Great Depression.",
     "sourceURL": "https://en.wikipedia.org/wiki/Empire_State_Building",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/empire-state-building/progress/v1.png",
+      "canvasWidth": 1024,
+      "canvasHeight": 1536,
+      "visibleBoundsPixels": {"left": 332, "top": 10, "right": 692, "bottom": 1523},
+      "progressTopY": 0.00651,
+      "progressBottomY": 0.991536,
+      "sha256": "8bb3207b6d1dfc41e4bfd0c1efef47f509e7d3d80a18b158b766b4dfdda67f44"
+    }
   },
   {
     "id": "one-world-trade-center",
@@ -101,7 +128,16 @@
     ],
     "funFact": "One World Trade Center rises to a symbolic 1,776 feet.",
     "sourceURL": "https://en.wikipedia.org/wiki/One_World_Trade_Center",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/one-world-trade-center/progress/v1.png",
+      "canvasWidth": 1024,
+      "canvasHeight": 1536,
+      "visibleBoundsPixels": {"left": 352, "top": 6, "right": 672, "bottom": 1525},
+      "progressTopY": 0.003906,
+      "progressBottomY": 0.992839,
+      "sha256": "942155036029774dc8a4b6de40a35464624fe03d442185360e6832ea68b21a54"
+    }
   },
   {
     "id": "willis-tower",
@@ -127,7 +163,16 @@
     ],
     "funFact": "Willis Tower was known as Sears Tower when it became the world's tallest building in 1974.",
     "sourceURL": "https://en.wikipedia.org/wiki/Willis_Tower",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/willis-tower/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 376, "top": 4, "right": 713, "bottom": 1443},
+      "progressTopY": 0.002768,
+      "progressBottomY": 0.998616,
+      "sha256": "7df6866c7f0a4046c6b23c06d174895ca63e99b7eb18f3f8e7fe602b16d38a55"
+    }
   },
   {
     "id": "cn-tower",
@@ -153,7 +198,16 @@
     ],
     "funFact": "The CN Tower was the tallest free-standing structure in the world for more than 30 years.",
     "sourceURL": "https://en.wikipedia.org/wiki/CN_Tower",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/cn-tower/progress/v1.png",
+      "canvasWidth": 1024,
+      "canvasHeight": 1536,
+      "visibleBoundsPixels": {"left": 400, "top": 20, "right": 622, "bottom": 1525},
+      "progressTopY": 0.013021,
+      "progressBottomY": 0.992839,
+      "sha256": "d642b2395a69cc88b8be413cfd283115c16e824e6c4a084aa86c357a2f3e9340"
+    }
   },
   {
     "id": "torre-latinoamericana",
@@ -179,7 +233,16 @@
     ],
     "funFact": "Torre Latinoamericana is famous for surviving multiple major earthquakes.",
     "sourceURL": "https://en.wikipedia.org/wiki/Torre_Latinoamericana",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/torre-latinoamericana/progress/v1.png",
+      "canvasWidth": 1024,
+      "canvasHeight": 1536,
+      "visibleBoundsPixels": {"left": 318, "top": 13, "right": 707, "bottom": 1534},
+      "progressTopY": 0.008464,
+      "progressBottomY": 0.998698,
+      "sha256": "52f0c4f3097fd5c56e8209c2fda1ceae5e216a114b4fb20b0c43440d074163fc"
+    }
   },
   {
     "id": "half-dome",
@@ -309,7 +372,16 @@
     ],
     "funFact": "Reunion Tower's glowing geodesic sphere makes it one of Dallas's most recognizable landmarks.",
     "sourceURL": "https://en.wikipedia.org/wiki/Reunion_Tower",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/reunion-tower/progress/v1.png",
+      "canvasWidth": 1024,
+      "canvasHeight": 1536,
+      "visibleBoundsPixels": {"left": 263, "top": 36, "right": 760, "bottom": 1507},
+      "progressTopY": 0.023438,
+      "progressBottomY": 0.98112,
+      "sha256": "0561e472bab88eb4b3f9b3471f825cb289477cd51f1267d8c0cce9405f54d8b1"
+    }
   },
   {
     "id": "aconcagua",
@@ -361,7 +433,16 @@
     ],
     "funFact": "Monserrate rises above Bogota with a church at its summit.",
     "sourceURL": "https://en.wikipedia.org/wiki/Monserrate",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/monserrate/progress/v1.png",
+      "canvasWidth": 1163,
+      "canvasHeight": 1353,
+      "visibleBoundsPixels": {"left": 27, "top": 19, "right": 1156, "bottom": 1321},
+      "progressTopY": 0.014043,
+      "progressBottomY": 0.976349,
+      "sha256": "b8f7461311de6bfbf8946b96db142cb55cdb4e08a9ced89b8c6039ef3516d388"
+    }
   },
   {
     "id": "torres-del-paine",
@@ -413,7 +494,16 @@
     ],
     "funFact": "A famous zigzag staircase is carved into the side of this giant granite monolith.",
     "sourceURL": "https://en.wikipedia.org/wiki/El_Penon_de_Guatape",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/el-penon-de-guatape/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 19, "top": 14, "right": 1072, "bottom": 1429},
+      "progressTopY": 0.009689,
+      "progressBottomY": 0.988927,
+      "sha256": "b648f030e058d63eb5684b6b882ac6eaeaaf6a60126ae33ac99b1c3b0e95ab01"
+    }
   },
   {
     "id": "mount-roraima",
@@ -465,7 +555,16 @@
     ],
     "funFact": "This former bank tower is now an arts and observation space in downtown Sao Paulo.",
     "sourceURL": "https://en.wikipedia.org/wiki/Farol_Santander",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/farol-santander/progress/v1.png",
+      "canvasWidth": 1024,
+      "canvasHeight": 1536,
+      "visibleBoundsPixels": {"left": 220, "top": 7, "right": 803, "bottom": 1524},
+      "progressTopY": 0.004557,
+      "progressBottomY": 0.992188,
+      "sha256": "4fcabd6cf0f6d75c1ecac90199e303903d1cd8e037bce2ad397b80e08b1d01d7"
+    }
   },
   {
     "id": "llaima-volcano",
@@ -517,7 +616,16 @@
     ],
     "funFact": "The Eiffel Tower was built as the entrance arch for the 1889 World's Fair.",
     "sourceURL": "https://en.wikipedia.org/wiki/Eiffel_Tower",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/eiffel-tower/progress/v1.png",
+      "canvasWidth": 1024,
+      "canvasHeight": 1536,
+      "visibleBoundsPixels": {"left": 98, "top": 22, "right": 927, "bottom": 1505},
+      "progressTopY": 0.014323,
+      "progressBottomY": 0.979818,
+      "sha256": "b536af533316e77ab902e7b29131daf34786858a0c4d422732913e73cb042bfd"
+    }
   },
   {
     "id": "elizabeth-tower",
@@ -543,7 +651,16 @@
     ],
     "funFact": "Big Ben is the nickname of the tower's Great Bell, not the tower itself.",
     "sourceURL": "https://en.wikipedia.org/wiki/Elizabeth_Tower",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/elizabeth-tower/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 361, "top": 16, "right": 730, "bottom": 1428},
+      "progressTopY": 0.011073,
+      "progressBottomY": 0.988235,
+      "sha256": "cd765c84e8e4b16e6983ea0709f0b20464ff359433e56e782367d3271020d4ab"
+    }
   },
   {
     "id": "the-shard",
@@ -595,7 +712,16 @@
     ],
     "funFact": "The sphere of the Berlin TV Tower often reflects sunlight in a cross shape nicknamed the Pope's Revenge.",
     "sourceURL": "https://en.wikipedia.org/wiki/Fernsehturm_Berlin",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/berlin-tv-tower/progress/v1.png",
+      "canvasWidth": 887,
+      "canvasHeight": 1774,
+      "visibleBoundsPixels": {"left": 278, "top": 35, "right": 610, "bottom": 1753},
+      "progressTopY": 0.019729,
+      "progressBottomY": 0.988162,
+      "sha256": "39ba7bd095d9e0ff37a50642d89a2e414e0ec956b7b0d39a1074e3d8b35c2c74"
+    }
   },
   {
     "id": "leaning-tower-of-pisa",
@@ -621,7 +747,16 @@
     ],
     "funFact": "The Leaning Tower of Pisa began tilting during construction in the 12th century.",
     "sourceURL": "https://en.wikipedia.org/wiki/Leaning_Tower_of_Pisa",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/leaning-tower-of-pisa/progress/v1.png",
+      "canvasWidth": 1029,
+      "canvasHeight": 1528,
+      "visibleBoundsPixels": {"left": 235, "top": 17, "right": 831, "bottom": 1519},
+      "progressTopY": 0.011126,
+      "progressBottomY": 0.99411,
+      "sha256": "1e977fb0f7d8a4364c03c74a043f4075ed92a025a238bbb8b32ad251aaabc9b2"
+    }
   },
   {
     "id": "sagrada-familia",
@@ -751,7 +886,16 @@
     ],
     "funFact": "St. Peter's Basilica stands over the traditional burial site of Saint Peter.",
     "sourceURL": "https://en.wikipedia.org/wiki/St._Peter%27s_Basilica",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/st-peters-basilica/progress/v1.png",
+      "canvasWidth": 1224,
+      "canvasHeight": 1285,
+      "visibleBoundsPixels": {"left": 4, "top": 20, "right": 1221, "bottom": 1275},
+      "progressTopY": 0.015564,
+      "progressBottomY": 0.992218,
+      "sha256": "53e3bf68e0af2ad65b0b8470f1fa0e8c06bf1aa9db829c22cdb4650d59038624"
+    }
   },
   {
     "id": "sacre-coeur",
@@ -777,7 +921,16 @@
     ],
     "funFact": "Sacre-Coeur sits at the summit of Montmartre, the highest natural point in Paris.",
     "sourceURL": "https://en.wikipedia.org/wiki/Sacre-Coeur,_Paris",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/sacre-coeur/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 25, "top": 6, "right": 1065, "bottom": 1442},
+      "progressTopY": 0.004152,
+      "progressBottomY": 0.997924,
+      "sha256": "d99fe4f3525f3fbddba1f71f966abcdb490bc048e6e430ddbabda657eac8bc3e"
+    }
   },
   {
     "id": "burj-khalifa",
@@ -803,7 +956,16 @@
     ],
     "funFact": "Burj Khalifa has held the tallest-building title since 2010.",
     "sourceURL": "https://en.wikipedia.org/wiki/Burj_Khalifa",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/burj-khalifa/progress/v1.png",
+      "canvasWidth": 1024,
+      "canvasHeight": 1536,
+      "visibleBoundsPixels": {"left": 398, "top": 10, "right": 641, "bottom": 1526},
+      "progressTopY": 0.00651,
+      "progressBottomY": 0.99349,
+      "sha256": "bcebab32b2772faef6ad98955466f834d6d96d2a791f4aae9bc146a89c52887d"
+    }
   },
   {
     "id": "petronas-towers",
@@ -829,7 +991,16 @@
     ],
     "funFact": "The Petronas Towers were the world's tallest buildings from 1998 to 2004.",
     "sourceURL": "https://en.wikipedia.org/wiki/Petronas_Towers",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/petronas-towers/progress/v1.png",
+      "canvasWidth": 1024,
+      "canvasHeight": 1536,
+      "visibleBoundsPixels": {"left": 34, "top": 13, "right": 992, "bottom": 1520},
+      "progressTopY": 0.008464,
+      "progressBottomY": 0.989583,
+      "sha256": "eab581718ec718aab1b16936958af17fca1d2201da6369799811e36daf958b7b"
+    }
   },
   {
     "id": "taipei-101",
@@ -855,7 +1026,16 @@
     ],
     "funFact": "Taipei 101 uses a massive tuned-mass damper to steady the tower during typhoons and earthquakes.",
     "sourceURL": "https://en.wikipedia.org/wiki/Taipei_101",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/taipei-101/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 395, "top": 8, "right": 693, "bottom": 1438},
+      "progressTopY": 0.005536,
+      "progressBottomY": 0.995156,
+      "sha256": "7d5cdc0336575cdf341955cb5bc8ca069deb65e1faf895095b40e10f3ed29e79"
+    }
   },
   {
     "id": "tokyo-tower",
@@ -881,7 +1061,16 @@
     ],
     "funFact": "Tokyo Tower's color scheme follows international air safety rules for tall structures.",
     "sourceURL": "https://en.wikipedia.org/wiki/Tokyo_Tower",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/tokyo-tower/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 5, "top": 15, "right": 1083, "bottom": 1432},
+      "progressTopY": 0.010381,
+      "progressBottomY": 0.991003,
+      "sha256": "fbc96a05cb96209e7b776d843328a991ea8c0a857998c12bf8a8f6ab0bdbb63e"
+    }
   },
   {
     "id": "shanghai-tower",
@@ -907,7 +1096,16 @@
     ],
     "funFact": "Shanghai Tower has one of the world's fastest elevators.",
     "sourceURL": "https://en.wikipedia.org/wiki/Shanghai_Tower",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/shanghai-tower/progress/v1.png",
+      "canvasWidth": 1024,
+      "canvasHeight": 1536,
+      "visibleBoundsPixels": {"left": 348, "top": 16, "right": 714, "bottom": 1526},
+      "progressTopY": 0.010417,
+      "progressBottomY": 0.99349,
+      "sha256": "f28ce86ea0f3d6a5f68bfc2b9235f5254ba36d8ea3c5e310fc740a08c9aaf239"
+    }
   },
   {
     "id": "canton-tower",
@@ -933,7 +1131,16 @@
     ],
     "funFact": "Canton Tower's twisted form is sometimes called the Supermodel Tower.",
     "sourceURL": "https://en.wikipedia.org/wiki/Canton_Tower",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/canton-tower/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 371, "top": 11, "right": 720, "bottom": 1431},
+      "progressTopY": 0.007612,
+      "progressBottomY": 0.990311,
+      "sha256": "992461468b746a298d53c4589931e2108d0f5b68de48b02b3eb2e88f12f2f9b5"
+    }
   },
   {
     "id": "oriental-pearl-tower",
@@ -959,7 +1166,16 @@
     ],
     "funFact": "The Oriental Pearl Tower became a symbol of modern Shanghai soon after opening in 1994.",
     "sourceURL": "https://en.wikipedia.org/wiki/Oriental_Pearl_Tower",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/oriental-pearl-tower/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 367, "top": 9, "right": 728, "bottom": 1430},
+      "progressTopY": 0.006228,
+      "progressBottomY": 0.989619,
+      "sha256": "095d1f786bef768858b031955a44c3be17a5bf27023354a1afb45d6a0f6ed948"
+    }
   },
   {
     "id": "lotte-world-tower",
@@ -985,7 +1201,16 @@
     ],
     "funFact": "Lotte World Tower is the tallest building on the Korean Peninsula.",
     "sourceURL": "https://en.wikipedia.org/wiki/Lotte_World_Tower",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/lotte-world-tower/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 403, "top": 7, "right": 689, "bottom": 1444},
+      "progressTopY": 0.004844,
+      "progressBottomY": 0.999308,
+      "sha256": "b6934c0d63633f021ba01fa36a65027a9b3a2f0e93a682a458fe99d66d5d9ffa"
+    }
   },
   {
     "id": "n-seoul-tower",
@@ -1037,7 +1262,16 @@
     ],
     "funFact": "Merdeka 118 became one of the tallest buildings in the world after topping out in 2021.",
     "sourceURL": "https://en.wikipedia.org/wiki/Merdeka_118",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/merdeka-118/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 55, "top": 8, "right": 1033, "bottom": 1425},
+      "progressTopY": 0.005536,
+      "progressBottomY": 0.986159,
+      "sha256": "3d8577d3577eee08969f0f12129186313152848d22f655db9427b4e869d6b056"
+    }
   },
   {
     "id": "marina-bay-sands",
@@ -1167,7 +1401,16 @@
     ],
     "funFact": "The Charminar has four grand arches and four minarets at a historic crossroads in Hyderabad.",
     "sourceURL": "https://en.wikipedia.org/wiki/Charminar",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/charminar/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 113, "top": 8, "right": 976, "bottom": 1429},
+      "progressTopY": 0.005536,
+      "progressBottomY": 0.988927,
+      "sha256": "4bb6922af64e2fe3cd05255cc30a23945a1a024d8ceec86f4ec3ad4ef25f8792"
+    }
   },
   {
     "id": "osaka-castle",
@@ -1323,7 +1566,16 @@
     ],
     "funFact": "Sky Tower is the tallest freestanding structure in the Southern Hemisphere.",
     "sourceURL": "https://en.wikipedia.org/wiki/Sky_Tower_(Auckland)",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/sky-tower-auckland/progress/v1.png",
+      "canvasWidth": 1024,
+      "canvasHeight": 1536,
+      "visibleBoundsPixels": {"left": 352, "top": 12, "right": 671, "bottom": 1526},
+      "progressTopY": 0.007812,
+      "progressBottomY": 0.99349,
+      "sha256": "616f975333c290144dfe8934474e3541c3023d7eb3ee581025d28489e3297c4a"
+    }
   },
   {
     "id": "eureka-tower",
@@ -1349,7 +1601,16 @@
     ],
     "funFact": "Eureka Tower's top floors are wrapped in gold-plated glass.",
     "sourceURL": "https://en.wikipedia.org/wiki/Eureka_Tower",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/eureka-tower/progress/v1.png",
+      "canvasWidth": 1089,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 385, "top": 22, "right": 706, "bottom": 1427},
+      "progressTopY": 0.015225,
+      "progressBottomY": 0.987543,
+      "sha256": "10eb35e403917756905c24f32f75dc8311a626c7bba828808d8cc7b9a7bee3bd"
+    }
   },
   {
     "id": "q1-tower",
@@ -1375,7 +1636,16 @@
     ],
     "funFact": "Q1 Tower's spire was inspired by the Sydney Olympic torch.",
     "sourceURL": "https://en.wikipedia.org/wiki/Q1_(building)",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/q1-tower/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 360, "top": 18, "right": 726, "bottom": 1438},
+      "progressTopY": 0.012457,
+      "progressBottomY": 0.995156,
+      "sha256": "36b90aa68de122de19d4b1798a8f83ac41020388836db72ead78d7f0aec95228"
+    }
   },
   {
     "id": "mount-kosciuszko",
@@ -1505,7 +1775,16 @@
     ],
     "funFact": "Sydney Tower is the tallest structure in the city's central business district.",
     "sourceURL": "https://en.wikipedia.org/wiki/Sydney_Tower",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/sydney-tower/progress/v1.png",
+      "canvasWidth": 1002,
+      "canvasHeight": 1570,
+      "visibleBoundsPixels": {"left": 371, "top": 12, "right": 631, "bottom": 1549},
+      "progressTopY": 0.007643,
+      "progressBottomY": 0.986624,
+      "sha256": "2bb6afa98e63c1ecbb58b25194148531f84be3400ee6c98e4507eb6d5e975882"
+    }
   },
   {
     "id": "ping-an-finance-centre",
@@ -1527,7 +1806,16 @@
     "tags": ["supertall", "shenzhen", "world tour"],
     "funFact": "The race climbs 116 floors and 3,201 stairs over 541 vertical metres.",
     "sourceURL": "https://www.towerrunning.com/2026/01/10/tea-faber-wai-ching-soh-pingan-champions/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/ping-an-finance-centre/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 431, "top": 16, "right": 658, "bottom": 1427},
+      "progressTopY": 0.011073,
+      "progressBottomY": 0.987543,
+      "sha256": "05ab41026d031c3902ee0defeda0eb07ffab23a545c970d7086d5380a3c0c4a4"
+    }
   },
   {
     "id": "ctf-finance-centre-guangzhou",
@@ -1549,7 +1837,16 @@
     "tags": ["supertall", "guangzhou", "world tour"],
     "funFact": "The Guangzhou race climbs 109 floors and 3,160 stairs.",
     "sourceURL": "https://www.towerrunning.com/races/r3103/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/ctf-finance-centre-guangzhou/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 264, "top": 6, "right": 855, "bottom": 1437},
+      "progressTopY": 0.004152,
+      "progressBottomY": 0.994464,
+      "sha256": "cdcef2da52076108fb5bdd117524455c7a91d252c0f5478b51f21df0a9d03ecc"
+    }
   },
   {
     "id": "shanghai-world-financial-center",
@@ -1571,7 +1868,16 @@
     "tags": ["observation deck", "shanghai", "world tour"],
     "funFact": "The Sky Marathon finishes after 100 floors and 2,726 stairs.",
     "sourceURL": "https://www.towerrunning.com/races/r2854/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/shanghai-world-financial-center/progress/v1.png",
+      "canvasWidth": 1086,
+      "canvasHeight": 1448,
+      "visibleBoundsPixels": {"left": 398, "top": 28, "right": 711, "bottom": 1431},
+      "progressTopY": 0.019337,
+      "progressBottomY": 0.98826,
+      "sha256": "88cbb21f636b990e93ddfc08a6c84e99ef58698ffc9e18f04816efcbe12d34ec"
+    }
   },
   {
     "id": "sommerbergbahn-stair",
@@ -1593,7 +1899,16 @@
     "tags": ["outdoor stairs", "black forest", "world tour"],
     "funFact": "Germany's longest staircase runs 720 metres beside the Sommerbergbahn and pitches up to 52 percent.",
     "sourceURL": "https://calw.wlv-sport.de/home/details/news/17-bad-wildbader-staeffeleslauf-entlang-der-bergbahntrasse-am-freitag-19-juni-2026-auf-deutschland-laengster-treppe",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/sommerbergbahn-stair/progress/v1.png",
+      "canvasWidth": 1086,
+      "canvasHeight": 1448,
+      "visibleBoundsPixels": {"left": 380, "top": 40, "right": 741, "bottom": 1424},
+      "progressTopY": 0.027624,
+      "progressBottomY": 0.983425,
+      "sha256": "b05f0c005967e160407ded76992fee9cf8faf463ff1a74a2789cac0b54aef91a"
+    }
   },
   {
     "id": "capitamall-one",
@@ -1637,7 +1952,16 @@
     "tags": ["harbour skyline", "hong kong", "world tour"],
     "funFact": "Hong Chi's full course climbs from ground level to the 75th floor.",
     "sourceURL": "https://www.hongchi.org.hk/en/climbathon/page/competition-details",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/central-plaza-hong-kong/progress/v1.png",
+      "canvasWidth": 1024,
+      "canvasHeight": 1536,
+      "visibleBoundsPixels": {"left": 352, "top": 15, "right": 672, "bottom": 1522},
+      "progressTopY": 0.009766,
+      "progressBottomY": 0.990885,
+      "sha256": "29ac52fb1cce5e8f7f5ef30f63944173c5fa7e759486adb27760bc94f20f8759"
+    }
   },
   {
     "id": "875-north-michigan-avenue",
@@ -1660,7 +1984,16 @@
     "tags": ["x-braced", "chicago", "world tour"],
     "funFact": "Chicago still knows the 100-storey X-braced landmark by its former John Hancock Center name.",
     "sourceURL": "https://www.towerrunning.com/races/r3137/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/875-north-michigan-avenue/progress/v1.png",
+      "canvasWidth": 1086,
+      "canvasHeight": 1448,
+      "visibleBoundsPixels": {"left": 376, "top": 14, "right": 716, "bottom": 1437},
+      "progressTopY": 0.009669,
+      "progressBottomY": 0.992403,
+      "sha256": "47419b1209b3d130a4c89d4efd16a38cf3518d230e62e642a403bab2379ba286"
+    }
   },
   {
     "id": "dc-tower-1",
@@ -1682,7 +2015,17 @@
     "tags": ["danube skyline", "vienna", "world tour"],
     "funFact": "The race runs from the lobby to floor 58 over a 210-metre ascent.",
     "sourceURL": "https://www.towerrunning.com/races/r3181/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/dc-tower-1/progress/v1.png",
+      "canvasWidth": 1086,
+      "canvasHeight": 1448,
+      "visibleBoundsPixels": {"left": 122, "top": 65, "right": 961, "bottom": 1430},
+      "progressTopY": 0.04489,
+      "progressBottomY": 0.987569,
+      "layout": "side-by-side",
+      "sha256": "ecb772b87198ce97b23db8f3e1627eb24825e327fa886e7bfab89b25fd10ab77"
+    }
   },
   {
     "id": "yingkai-square",
@@ -1704,7 +2047,16 @@
     "tags": ["bamboo facade", "guangzhou", "world tour"],
     "funFact": "Its segmented facade was inspired by the joints of Chinese bamboo.",
     "sourceURL": "https://www.towerrunning.com/races/r3278/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/yingkai-square/progress/v1.png",
+      "canvasWidth": 1086,
+      "canvasHeight": 1448,
+      "visibleBoundsPixels": {"left": 361, "top": 8, "right": 764, "bottom": 1432},
+      "progressTopY": 0.005525,
+      "progressBottomY": 0.98895,
+      "sha256": "db0e29ade83c8978f85bc8cb040115336292bbee0a773a79d03af0206d56155b"
+    }
   },
   {
     "id": "tk-elevator-test-tower",
@@ -1726,7 +2078,16 @@
     "tags": ["test tower", "rottweil", "world tour"],
     "funFact": "Its 12 test shafts can run elevators at speeds up to 18 metres per second.",
     "sourceURL": "https://www.towerrunning.com/races/r2703/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/tk-elevator-test-tower/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1446,
+      "visibleBoundsPixels": {"left": 420, "top": 8, "right": 671, "bottom": 1428},
+      "progressTopY": 0.005533,
+      "progressBottomY": 0.987552,
+      "sha256": "4fc0425a4c74ab39bd1a714b64b1b878a3cdd1fc4e94d838fc24fce7cf662563"
+    }
   },
   {
     "id": "varso-tower",
@@ -1748,7 +2109,16 @@
     "tags": ["observation deck", "warsaw", "world tour"],
     "funFact": "Its 310-metre spire makes it the European Union's tallest building.",
     "sourceURL": "https://www.towerrunning.com/races/r2704/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/varso-tower/progress/v1.png",
+      "canvasWidth": 1086,
+      "canvasHeight": 1448,
+      "visibleBoundsPixels": {"left": 391, "top": 22, "right": 723, "bottom": 1429},
+      "progressTopY": 0.015193,
+      "progressBottomY": 0.986878,
+      "sha256": "960a14bba37c25f9f19859a2ba855bd97fca91c55830d5e3f903cb6b75c8a943"
+    }
   },
   {
     "id": "tianjin-tv-tower",
@@ -1770,7 +2140,16 @@
     "tags": ["broadcast tower", "tianjin", "world tour"],
     "funFact": "The New Year course circles the tower base before climbing 253 vertical metres to the observation hall.",
     "sourceURL": "https://www.sohu.com/a/844232355_267106",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/tianjin-tv-tower/progress/v1.png",
+      "canvasWidth": 1086,
+      "canvasHeight": 1448,
+      "visibleBoundsPixels": {"left": 385, "top": 17, "right": 701, "bottom": 1441},
+      "progressTopY": 0.01174,
+      "progressBottomY": 0.995166,
+      "sha256": "e5a10310ac4574356d9eeed6cc629b05dee870233dee1868ad0516f4a51871b2"
+    }
   },
   {
     "id": "macau-tower",
@@ -1792,7 +2171,16 @@
     "tags": ["observation deck", "macau", "world tour"],
     "funFact": "The full Oxfam course climbs 61 floors to the observation deck.",
     "sourceURL": "https://www.towerrunning.com/races/r2806/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/macau-tower/progress/v1.png",
+      "canvasWidth": 1086,
+      "canvasHeight": 1448,
+      "visibleBoundsPixels": {"left": 347, "top": 28, "right": 748, "bottom": 1419},
+      "progressTopY": 0.019337,
+      "progressBottomY": 0.979972,
+      "sha256": "0892c528f3178d6aaf6df3ad711e28cc6dbaff16d8aa1cfac00821d059cec64a"
+    }
   },
   {
     "id": "frasers-tower",
@@ -1814,7 +2202,16 @@
     "tags": ["green tower", "singapore", "world tour"],
     "funFact": "The 235-metre office tower rises from a three-storey cascading retail podium.",
     "sourceURL": "https://www.towerrunning.com/races/r3037/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/frasers-tower/progress/v1.png",
+      "canvasWidth": 1086,
+      "canvasHeight": 1448,
+      "visibleBoundsPixels": {"left": 329, "top": 8, "right": 761, "bottom": 1436},
+      "progressTopY": 0.005525,
+      "progressBottomY": 0.991713,
+      "sha256": "43db4e87671688d68662234231dbf3e0e4c2a2598e0e4e37a999c0a4093f6456"
+    }
   },
   {
     "id": "torre-reforma",
@@ -1836,7 +2233,16 @@
     "tags": ["concrete walls", "mexico city", "firefighter race"],
     "funFact": "The 2024 firefighter race extended the course to 56 floors and 1,487 stairs.",
     "sourceURL": "https://www.publimetro.com.mx/noticias/2024/09/21/esto-es-lo-que-tienes-que-saber-de-la-carrera-vertical-del-cuerpo-de-bomberos-de-la-cdmx/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/torre-reforma/progress/v1.png",
+      "canvasWidth": 1024,
+      "canvasHeight": 1536,
+      "visibleBoundsPixels": {"left": 107, "top": 2, "right": 919, "bottom": 1532},
+      "progressTopY": 0.001302,
+      "progressBottomY": 0.997396,
+      "sha256": "997412dcba01c3f03fc71ec4fd6cc2af2e8eed10bada59ea1a6c8ea1babd1e95"
+    }
   },
   {
     "id": "messeturm-frankfurt",
@@ -1858,7 +2264,16 @@
     "tags": ["pyramid crown", "frankfurt", "world tour"],
     "funFact": "A pyramid crown tops the red-granite tower above Frankfurt's trade-fair grounds.",
     "sourceURL": "https://www.towerrunning.com/races/r3182/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/messeturm-frankfurt/progress/v1.png",
+      "canvasWidth": 1086,
+      "canvasHeight": 1448,
+      "visibleBoundsPixels": {"left": 211, "top": 12, "right": 872, "bottom": 1444},
+      "progressTopY": 0.008287,
+      "progressBottomY": 0.997238,
+      "sha256": "2b64130321239f7a7cbe5e8ddb216098eac8782267631b12578d7e05efbe20ed"
+    }
   },
   {
     "id": "sky-tower-wroclaw",
@@ -1880,7 +2295,17 @@
     "tags": ["mixed use", "wroclaw", "world tour"],
     "funFact": "The race starts five levels below ground before climbing 49 floors.",
     "sourceURL": "https://www.towerrunning.com/races/r2714/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/sky-tower-wroclaw/progress/v1.png",
+      "canvasWidth": 1086,
+      "canvasHeight": 1448,
+      "visibleBoundsPixels": {"left": 95, "top": 20, "right": 940, "bottom": 1437},
+      "progressTopY": 0.013812,
+      "progressBottomY": 0.992403,
+      "layout": "side-by-side",
+      "sha256": "42fae164b77f13b65de7194f34c8c3c5d0271ebc4eb1e729e5dcd617a23d5228"
+    }
   },
   {
     "id": "gran-hotel-bali",
@@ -1902,7 +2327,16 @@
     "tags": ["hotel", "benidorm", "world tour"],
     "funFact": "The race finishes 180 metres above Benidorm after 52 floors.",
     "sourceURL": "https://www.towerrunning.com/races/r3068/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/gran-hotel-bali/progress/v1.png",
+      "canvasWidth": 1024,
+      "canvasHeight": 1536,
+      "visibleBoundsPixels": {"left": 268, "top": 19, "right": 755, "bottom": 1530},
+      "progressTopY": 0.01237,
+      "progressBottomY": 0.996094,
+      "sha256": "409c70591a2f2ff393be9085d712b60def7a6ab9bac41a77b5fb80f5546e33ae"
+    }
   },
   {
     "id": "tallinn-tv-tower",
@@ -1924,7 +2358,16 @@
     "tags": ["broadcast tower", "tallinn", "world tour"],
     "funFact": "The race climbs 870 stairs inside Estonia's tallest building.",
     "sourceURL": "https://www.towerrunning.com/races/r2433/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/tallinn-tv-tower/progress/v1.png",
+      "canvasWidth": 1086,
+      "canvasHeight": 1448,
+      "visibleBoundsPixels": {"left": 346, "top": 15, "right": 754, "bottom": 1429},
+      "progressTopY": 0.010359,
+      "progressBottomY": 0.986878,
+      "sha256": "1c6a0cefcceb5fbb63ac1c7bb793cbd92b999253ce4f34125d709efdb8f7a56a"
+    }
   },
   {
     "id": "rondo-1",
@@ -1946,7 +2389,16 @@
     "tags": ["left-turn stairs", "warsaw", "world tour"],
     "funFact": "The race's left-turn staircase gains 142 metres over 38 floors.",
     "sourceURL": "https://www.towerrunning.com/2026/02/02/announcement-towerrunning-120-bieg-na-szczyt-rondo-1-warsaw-march-28-2026/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/rondo-1/progress/v1.png",
+      "canvasWidth": 1086,
+      "canvasHeight": 1448,
+      "visibleBoundsPixels": {"left": 224, "top": 13, "right": 864, "bottom": 1436},
+      "progressTopY": 0.008978,
+      "progressBottomY": 0.991713,
+      "sha256": "a32baf6225c79f1106129127354aece8198802bd336ce3eec6fde82fd5077ab9"
+    }
   },
   {
     "id": "post-tower",
@@ -1968,7 +2420,16 @@
     "tags": ["headquarters", "bonn", "world tour"],
     "funFact": "The race climbs 41 floors inside Deutsche Post's Bonn headquarters.",
     "sourceURL": "https://www.towerrunning.com/races/r3207/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/post-tower/progress/v1.png",
+      "canvasWidth": 1086,
+      "canvasHeight": 1448,
+      "visibleBoundsPixels": {"left": 360, "top": 15, "right": 742, "bottom": 1431},
+      "progressTopY": 0.010359,
+      "progressBottomY": 0.98826,
+      "sha256": "7d5069472897823fa27e7acd48363def59494510ec3aeee71981c0e3a8843dd4"
+    }
   },
   {
     "id": "sky-tower-bucharest",
@@ -1990,7 +2451,16 @@
     "tags": ["observation deck", "bucharest", "world tour"],
     "funFact": "The 36-floor course gains 126 metres to the observation deck.",
     "sourceURL": "https://www.towerrunning.com/races/r2937/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/sky-tower-bucharest/progress/v1.png",
+      "canvasWidth": 1086,
+      "canvasHeight": 1448,
+      "visibleBoundsPixels": {"left": 163, "top": 15, "right": 926, "bottom": 1434},
+      "progressTopY": 0.010359,
+      "progressBottomY": 0.990331,
+      "sha256": "0c9d85647285afa1348324b8aa7227856067076fb759d16886c105d5ad61ef51"
+    }
   },
   {
     "id": "koelnturm",
@@ -2012,7 +2482,16 @@
     "tags": ["office tower", "cologne", "world tour"],
     "funFact": "Germany's championship course climbs from ground level to the 40th floor.",
     "sourceURL": "https://www.koelner-treppenlauf.de/infos_en/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/koelnturm/progress/v1.png",
+      "canvasWidth": 1086,
+      "canvasHeight": 1448,
+      "visibleBoundsPixels": {"left": 337, "top": 19, "right": 747, "bottom": 1428},
+      "progressTopY": 0.013122,
+      "progressBottomY": 0.986188,
+      "sha256": "f1933bce7de89c4ed2ad6ccaee318469932e39f62733ed25c538c778cd2d3d60"
+    }
   },
   {
     "id": "torre-glories",
@@ -2034,7 +2513,16 @@
     "tags": ["observation deck", "barcelona", "world tour"],
     "funFact": "The night race climbs 34 floors to the tower's observation deck.",
     "sourceURL": "https://www.towerrunning.com/2025/11/26/announcement-towerrunning-120-cupra-barcelona-tower-running-challenge-barcelona-fanuary-17-2026/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/torre-glories/progress/v1.png",
+      "canvasWidth": 1024,
+      "canvasHeight": 1536,
+      "visibleBoundsPixels": {"left": 300, "top": 16, "right": 725, "bottom": 1519},
+      "progressTopY": 0.010417,
+      "progressBottomY": 0.988932,
+      "sha256": "e8c1ac491890271691247562e04dcca3a8f73c56dfddcf164994285852c5f019"
+    }
   },
   {
     "id": "az-tower",
@@ -2056,7 +2544,16 @@
     "tags": ["rooftop finish", "brno", "world tour"],
     "funFact": "The current course reaches the roof after 29 floors.",
     "sourceURL": "https://www.towerrunning.com/races/r2867/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/az-tower/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 312, "top": 27, "right": 795, "bottom": 1429},
+      "progressTopY": 0.018685,
+      "progressBottomY": 0.988927,
+      "sha256": "7efcfbca13a85a0b80696e09ede4d7e6c9b69e7c5dc70e9aad1fd9e73f9cbfb1"
+    }
   },
   {
     "id": "hyatt-regency-barcelona-tower",
@@ -2078,7 +2575,16 @@
     "tags": ["outdoor stairs", "barcelona", "world tour"],
     "funFact": "The outdoor staircase rises 105 metres to the glass dome.",
     "sourceURL": "https://metropolitanskyrun.com/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/hyatt-regency-barcelona-tower/progress/v1.png",
+      "canvasWidth": 1024,
+      "canvasHeight": 1536,
+      "visibleBoundsPixels": {"left": 197, "top": 12, "right": 824, "bottom": 1501},
+      "progressTopY": 0.007812,
+      "progressBottomY": 0.977214,
+      "sha256": "b1cf616043cd7c3f1b47872dccc924e1edbc78edd372a8360920eeaee22bf275"
+    }
   },
   {
     "id": "messeturm-basel",
@@ -2100,7 +2606,16 @@
     "tags": ["green glass", "basel", "world tour"],
     "funFact": "The green-glass slab was Switzerland's tallest building when it opened in 2003.",
     "sourceURL": "https://www.towerrunning.com/races/r3024/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/messeturm-basel/progress/v1.png",
+      "canvasWidth": 1086,
+      "canvasHeight": 1448,
+      "visibleBoundsPixels": {"left": 210, "top": 4, "right": 888, "bottom": 1444},
+      "progressTopY": 0.002762,
+      "progressBottomY": 0.997238,
+      "sha256": "67ecbe84ab7c5e315c67c7a75476fddbe14a25a43eadab8957da17f9ea02c83c"
+    }
   },
   {
     "id": "pyramidenkogel",
@@ -2122,7 +2637,16 @@
     "tags": ["wooden tower", "carinthia", "world tour"],
     "funFact": "Its 71-metre finish platform sits inside the world's tallest wooden observation tower.",
     "sourceURL": "https://www.towerrunning.com/2025/07/27/announcement-towerrunning-120-pyramidenkogel-turmlauf-september-14/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/pyramidenkogel/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 306, "top": 17, "right": 780, "bottom": 1425},
+      "progressTopY": 0.011765,
+      "progressBottomY": 0.986159,
+      "sha256": "4e0cec3d9be4e32e198b6d67525b950569ef6dbe68fb83f7505e64b1fce91354"
+    }
   },
   {
     "id": "ufo-tower-bratislava",
@@ -2144,6 +2668,15 @@
     "tags": ["bridge pylon", "bratislava", "world tour"],
     "funFact": "The race climbs a steep, slanted stair inside one bridge pylon before finishing on the roof.",
     "sourceURL": "https://www.towerrunning.com/races/r3235/",
-    "releaseState": "available"
+    "releaseState": "available",
+    "progressArtwork": {
+      "path": "climb-images/ufo-tower-bratislava/progress/v1.png",
+      "canvasWidth": 1088,
+      "canvasHeight": 1445,
+      "visibleBoundsPixels": {"left": 242, "top": 12, "right": 976, "bottom": 1427},
+      "progressTopY": 0.008304,
+      "progressBottomY": 0.987543,
+      "sha256": "626fe971f53d228d390bd14609cbf66f1f422f795bbec3c96bf4dcd1f0feb86e"
+    }
   }
 ]

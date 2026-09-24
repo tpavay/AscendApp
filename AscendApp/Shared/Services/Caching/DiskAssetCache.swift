@@ -6,10 +6,13 @@ final class DiskAssetCache: @unchecked Sendable {
         maxBytes: 12 * 1024 * 1024
     )
 
+    /// Hero, card, thumb and progress cut-out for every climb: four files a climb, the cut-outs
+    /// ~1.2 MB each. Sized so a climber who opens every climb's detail page keeps all of it
+    /// rather than churning the card art out to make room.
     static let climbImages = DiskAssetCache(
         namespace: "ClimbImages",
-        maxBytes: 200 * 1024 * 1024,
-        maxFileCount: 180
+        maxBytes: 320 * 1024 * 1024,
+        maxFileCount: 300
     )
 
     private let fileManager: FileManager
