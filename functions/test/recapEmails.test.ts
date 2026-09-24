@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  achievementTierLabel,
   buildCalendarCells,
   buildDeltaChip,
   buildFirstAscentBadge,
@@ -41,16 +40,6 @@ test("recap dedupe keys are namespaced by cadence, period, and user", () => {
   );
 });
 
-test("achievement tier boundaries follow the locked Top 1/3/10/100 ladder", () => {
-  assert.equal(achievementTierLabel(1), "Top 1");
-  assert.equal(achievementTierLabel(2), "Top 3");
-  assert.equal(achievementTierLabel(3), "Top 3");
-  assert.equal(achievementTierLabel(4), "Top 10");
-  assert.equal(achievementTierLabel(10), "Top 10");
-  assert.equal(achievementTierLabel(11), "Top 100");
-  assert.equal(achievementTierLabel(100), "Top 100");
-});
-
 test("the rank badge is Top 10 for any achievement rank 1-10", () => {
   assert.deepEqual(buildRankBadge(1), {
     detail: "globally",
@@ -82,12 +71,17 @@ test("the rank badge is Top 100 for an achievement rank 11-100", () => {
   });
 });
 
+const landmarkNames = new Map([
+  ["eiffel", "Eiffel Tower"],
+  ["burj-khalifa", "Burj Khalifa"],
+]);
+
 test("no First Ascent badge without any First Ascents", () => {
-  assert.equal(buildFirstAscentBadge([]), undefined);
+  assert.equal(buildFirstAscentBadge([], landmarkNames), undefined);
 });
 
 test("a single First Ascent badge is singular, with the landmark named", () => {
-  assert.deepEqual(buildFirstAscentBadge(["Eiffel Tower"]), {
+  assert.deepEqual(buildFirstAscentBadge(["eiffel", "eiffel"], landmarkNames), {
     detail: "Eiffel Tower",
     id: "first-ascent",
     label: "First Ascent",
@@ -96,12 +90,23 @@ test("a single First Ascent badge is singular, with the landmark named", () => {
 
 test("multiple First Ascents badge together, plural, every landmark named", () => {
   assert.deepEqual(
-    buildFirstAscentBadge(["Eiffel Tower", "Burj Khalifa"]),
+    buildFirstAscentBadge(["eiffel", "burj-khalifa"], landmarkNames),
     {
       detail: "Eiffel Tower, Burj Khalifa",
       id: "first-ascent",
       label: "First Ascents",
     }
+  );
+});
+
+test("an unresolvable landmark keeps the badge but never prints a raw ID", () => {
+  assert.deepEqual(
+    buildFirstAscentBadge(["eiffel", "burj-khalifa"], new Map()),
+    {id: "first-ascent", label: "First Ascents"}
+  );
+  assert.deepEqual(
+    buildFirstAscentBadge(["eiffel", "unknown-tower"], landmarkNames),
+    {id: "first-ascent", label: "First Ascents"}
   );
 });
 

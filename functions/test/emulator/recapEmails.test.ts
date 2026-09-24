@@ -466,12 +466,17 @@ test(
       totalSteps: 100,
       totalWorkouts: 1,
     });
-    await seedCompletedLandmarkWorkout(
+    // Climbed late on the closed week's Sunday; the claim only processed
+    // after the week closed, once the workout synced.
+    const workoutId = await seedCompletedLandmarkWorkout(
       "period-ascender-1",
       "eiffel",
-      closedWeek.startAt
+      new Date(closedWeek.endAt.getTime() - 20 * 60 * 1000)
     );
-    await seedFirstAscent("period-ascender-1", "eiffel", closedWeek.startAt);
+    await seedFirstAscent("period-ascender-1", "eiffel", {
+      claimedAt: new Date(closedWeek.endAt.getTime() + 10 * 60 * 1000),
+      workoutId,
+    });
 
     await runRecapSweep("weekly", now);
 
@@ -500,11 +505,15 @@ test(
       "eiffel",
       closedWeek.startAt
     );
-    await seedFirstAscent(
+    const claimingWorkoutId = await seedCompletedLandmarkWorkout(
       "period-ascender-2",
       "eiffel",
       previousWeek.startAt
     );
+    await seedFirstAscent("period-ascender-2", "eiffel", {
+      claimedAt: previousWeek.startAt,
+      workoutId: claimingWorkoutId,
+    });
 
     await runRecapSweep("weekly", now);
 
@@ -752,27 +761,28 @@ async function seedAllTimeStats(
  * Seeds the permanent First Ascent record `liveReplayLeaderboard.ts` writes
  * once a climb's First Ascent is claimed - the record both the
  * zero-activity email's `firstAscents` list and the active recap's
- * period-scoped First Ascent badge read. `completedAt`, when given, is what
- * the active recap filters against to decide whether the badge belongs to
- * the closed period being composed; omitted, the record still counts for
- * the lifetime-scoped inactive list but never for a period badge.
+ * period-scoped First Ascent badge read. `claim.workoutId` is the claiming
+ * workout the active recap matches against the closed period's own
+ * workouts; `claim.claimedAt` is the server's processing time, which the
+ * recap must never key on.
  * @param {string} uid - Firebase Auth user ID
  * @param {string} climbId - Landmark climb ID this climber first-ascended
- * @param {Date} [completedAt] - When the First Ascent was claimed
+ * @param {{workoutId: string, claimedAt: Date}} [claim] - The claim
  * @return {Promise<void>}
  */
 async function seedFirstAscent(
   uid: string,
   climbId: string,
-  completedAt?: Date
+  claim?: {workoutId: string; claimedAt: Date}
 ): Promise<void> {
   await db.collection("live_replay_leaderboards").doc(climbId).set({
     contextId: climbId,
     contextType: "live_climb",
-    ...(completedAt ?
+    ...(claim ?
       {
         firstAscentCompletedAt:
-          admin.firestore.Timestamp.fromDate(completedAt),
+          admin.firestore.Timestamp.fromDate(claim.claimedAt),
+        firstAscentWorkoutId: claim.workoutId,
       } :
       {}),
     firstAscentUserId: uid,
@@ -811,20 +821,25 @@ async function seedAchievement(
  * @param {string} uid - Firebase Auth user ID
  * @param {string} climbId - Landmark climb ID
  * @param {Date} startedAt - Workout start time
- * @return {Promise<void>}
+ * @return {Promise<string>} The seeded workout's ID
  */
 async function seedCompletedLandmarkWorkout(
   uid: string,
   climbId: string,
   startedAt: Date
-): Promise<void> {
-  await db.collection("users").doc(uid).collection("workouts").add({
-    durationSeconds: 600,
-    source: "headphone_motion",
-    sourceMetadata: JSON.stringify({climbId, stopReason: "target_reached"}),
-    startedAt: admin.firestore.Timestamp.fromDate(startedAt),
-    steps: 1200,
-  });
+): Promise<string> {
+  const reference = await db
+    .collection("users")
+    .doc(uid)
+    .collection("workouts")
+    .add({
+      durationSeconds: 600,
+      source: "headphone_motion",
+      sourceMetadata: JSON.stringify({climbId, stopReason: "target_reached"}),
+      startedAt: admin.firestore.Timestamp.fromDate(startedAt),
+      steps: 1200,
+    });
+  return reference.id;
 }
 
 /**

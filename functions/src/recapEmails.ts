@@ -74,9 +74,9 @@
  *     second per-user read: the same equality-only, index-free
  *     `live_replay_leaderboards` query `fetchFirstAscentRecords` already
  *     used for the inactive email's lifetime list, now also selecting
- *     `firstAscentCompletedAt` and filtered in memory to this closed
- *     period's window - never a second Firestore filter, so no new
- *     composite index.
+ *     `firstAscentWorkoutId` and matched in memory against the closed
+ *     period's completed-landmark workouts the workout query already read -
+ *     never a second Firestore filter, so no new composite index.
  * This never sweeps the full `users` collection and never reads a user's
  * full workout history. Each climber costs exactly one workout query,
  * bounded by cohort size: an active climber's is a `startedAt` range query
@@ -129,10 +129,15 @@
  *     artwork (round 5); a climber with none gets the existing
  *     suggested-comeback-climb nudge instead, and no badge.
  *   - The active recap's First Ascent badge (round 5) reads the same
- *     `live_replay_leaderboards` record but filters to `firstAscentCompletedAt`
- *     falling inside the closed period, so a climber who merely re-climbed a
- *     landmark they first-ascended in an earlier period is never told it was
- *     a new achievement this week/month.
+ *     `live_replay_leaderboards` record but keeps only a claim whose
+ *     `firstAscentWorkoutId` is one of the closed period's own
+ *     completed-landmark workouts - the same `startedAt` window every other
+ *     period stat uses, not the server's claim time, which a late sync can
+ *     push into the next period. So the badge is always a subset of
+ *     landmarks finished, and a climber who merely re-climbed a landmark
+ *     they first-ascended in an earlier period is never told it was a new
+ *     achievement this week/month. A landmark the catalogue cannot name
+ *     keeps the badge but drops its detail line rather than print a raw ID.
  *   - Achievement badges reuse the app's real artwork and locked terminology
  *     (`ProfileAchievementCatalogue`, `ascend-leaderboards`): a rank badge is
  *     "Top 10" for any achievement rank <= 10 (the app's own cumulative
@@ -227,8 +232,6 @@ const DEFAULT_COHORT_SCAN_BOUND: CohortScanBound = {
 };
 /** Bounds how far back the streak walk reads before giving up. */
 const MAX_WEEKLY_STREAK_LOOKBACK = 26;
-/** The widest achievement tier's ceiling rank ("Top 100"). */
-const ACHIEVEMENT_TIER_CEILING = 100;
 /** Recipients composed and enqueued at once, per sweep. */
 const RECIPIENT_CONCURRENCY = 10;
 
@@ -281,27 +284,6 @@ export function buildRecapDedupeKey(
 }
 
 /**
- * Names the locked achievement tier for a finishing rank.
- * @param {number} rank - Final leaderboard rank for the closed period
- * @return {string} "Top 1" | "Top 3" | "Top 10" | "Top 100"
- */
-export function achievementTierLabel(rank: number): string {
-  return `Top ${achievementTierLimit(rank)}`;
-}
-
-/**
- * The upper rank bound of a finishing rank's achievement tier.
- * @param {number} rank - Final leaderboard rank for the closed period
- * @return {number} 1 | 3 | 10 | 100
- */
-function achievementTierLimit(rank: number): number {
-  if (rank === 1) return 1;
-  if (rank <= 3) return 3;
-  if (rank <= 10) return 10;
-  return ACHIEVEMENT_TIER_CEILING;
-}
-
-/**
  * Builds the real Top 10 / Top 100 badge earned for an achievement rank -
  * the app's own cumulative counting (a Top 1 or Top 3 finish also counts
  * toward Top 10), collapsed to exactly the two badges the captain asked
@@ -317,24 +299,33 @@ export function buildRankBadge(rank: number): RecapEarnedBadge {
 }
 
 /**
- * Builds the First Ascent badge for a non-empty list of landmark names, or
- * nothing for an empty one. Shared by the active recap (period-scoped) and
- * the zero-activity recap (lifetime-scoped) so both read the same label and
- * pluralization.
- * @param {string[]} firstAscentNames - Distinct landmark names, in display
- *   order
+ * Builds the First Ascent badge for a non-empty list of first-ascended
+ * landmark climb IDs, or nothing for an empty one. Shared by the active
+ * recap (period-scoped) and the zero-activity recap (lifetime-scoped) so
+ * both read the same label and pluralization. The detail names every
+ * landmark only when the catalogue resolves all of them; otherwise the
+ * badge carries no detail rather than a raw climb ID.
+ * @param {string[]} climbIds - First-ascended landmark climb IDs
+ * @param {Map<string, string>} climbNameById - Catalogue name lookup
  * @return {RecapEarnedBadge | undefined} The badge, or nothing with none
  */
 export function buildFirstAscentBadge(
-  firstAscentNames: string[]
+  climbIds: string[],
+  climbNameById: Map<string, string>
 ): RecapEarnedBadge | undefined {
-  if (firstAscentNames.length === 0) {
+  const distinctIds = [...new Set(climbIds)];
+  if (distinctIds.length === 0) {
     return undefined;
   }
+  const label = distinctIds.length === 1 ? "First Ascent" : "First Ascents";
+  const allResolved = distinctIds.every((climbId) =>
+    climbNameById.has(climbId));
   return {
-    detail: firstAscentNames.join(", "),
+    ...(allResolved ?
+      {detail: dedupeLandmarkNames(distinctIds, climbNameById).join(", ")} :
+      {}),
     id: "first-ascent",
-    label: firstAscentNames.length === 1 ? "First Ascent" : "First Ascents",
+    label,
   };
 }
 
@@ -742,8 +733,9 @@ async function fetchUserEmail(
  * @param {admin.firestore.Firestore} firestore - Admin Firestore instance
  * @param {string} uid - Firebase Auth user ID
  * @param {ClosedLeaderboardPeriod} period - The closed window
- * @return {Promise<{completedClimbIds: string[], stepsByDayKey: Map<string,
- *   number>}>} Finished-landmark climb IDs and per-UTC-day step totals
+ * @return {Promise<{completedClimbIds: string[], completedWorkoutIds:
+ *   Set<string>, stepsByDayKey: Map<string, number>}>} Finished-landmark
+ *   climb IDs, the workouts that finished them, and per-UTC-day step totals
  */
 async function fetchPeriodWorkoutDetails(
   firestore: admin.firestore.Firestore,
@@ -751,6 +743,7 @@ async function fetchPeriodWorkoutDetails(
   period: ClosedLeaderboardPeriod
 ): Promise<{
   completedClimbIds: string[];
+  completedWorkoutIds: Set<string>;
   stepsByDayKey: Map<string, number>;
 }> {
   const snapshot = await firestore
@@ -763,6 +756,7 @@ async function fetchPeriodWorkoutDetails(
     .get();
 
   const completedClimbIds: string[] = [];
+  const completedWorkoutIds = new Set<string>();
   const stepsByDayKey = new Map<string, number>();
 
   for (const document of snapshot.docs) {
@@ -771,6 +765,7 @@ async function fetchPeriodWorkoutDetails(
       parseCompletedLandmarkWorkout(document.id, data);
     if (completion) {
       completedClimbIds.push(completion.climbId);
+      completedWorkoutIds.add(completion.workoutId);
     }
 
     const startedAt = data.startedAt;
@@ -781,7 +776,7 @@ async function fetchPeriodWorkoutDetails(
     }
   }
 
-  return {completedClimbIds, stepsByDayKey};
+  return {completedClimbIds, completedWorkoutIds, stepsByDayKey};
 }
 
 /**
@@ -878,12 +873,12 @@ async function fetchAchievementRank(
 
 interface FirstAscentRecord {
   climbId: string;
-  completedAt: Date | null;
+  workoutId: string | null;
 }
 
 /**
  * Reads every landmark a climber holds the permanent First Ascent of, with
- * when each was claimed.
+ * the workout that claimed each.
  *
  * `live_replay_leaderboards` is the durable record - `firstAscentUserId` is
  * set once, forever, the moment a climb's First Ascent is claimed
@@ -892,14 +887,16 @@ interface FirstAscentRecord {
  * First Ascent. The equality query is auto-indexed, so this is an index lookup
  * per climber, not a scan, and independent of catalogue size - cheaper than
  * the app's own profile screen, which loops the whole catalogue client-side
- * for one climber's own view of this same fact. `firstAscentCompletedAt` is
- * selected alongside the existing fields (round 5) so a caller can filter to
- * a specific closed period in memory without a second Firestore query or a
- * new composite index.
+ * for one climber's own view of this same fact. `firstAscentWorkoutId` is
+ * selected alongside the existing fields so a caller can match a claim to the
+ * closed period's own workouts in memory, without a second Firestore query or
+ * a new composite index. It is the claiming workout, not
+ * `firstAscentCompletedAt`: that is the server's processing time, which a
+ * late sync pushes past the period the climb actually happened in.
  * @param {admin.firestore.Firestore} firestore - Admin Firestore instance
  * @param {string} uid - Firebase Auth user ID
  * @return {Promise<FirstAscentRecord[]>} Climb IDs this climber holds the
- *   First Ascent of, with when each was claimed
+ *   First Ascent of, with the workout that claimed each
  */
 async function fetchFirstAscentRecords(
   firestore: admin.firestore.Firestore,
@@ -908,7 +905,7 @@ async function fetchFirstAscentRecords(
   const snapshot = await firestore
     .collection(LIVE_REPLAY_LEADERBOARDS_COLLECTION)
     .where("firstAscentUserId", "==", uid)
-    .select("contextId", "contextType", "firstAscentCompletedAt")
+    .select("contextId", "contextType", "firstAscentWorkoutId")
     .get();
 
   const records: FirstAscentRecord[] = [];
@@ -920,12 +917,9 @@ async function fetchFirstAscentRecords(
     if (!climbId) {
       continue;
     }
-    const completedAt = document.get("firstAscentCompletedAt");
     records.push({
       climbId,
-      completedAt: completedAt instanceof admin.firestore.Timestamp ?
-        completedAt.toDate() :
-        null,
+      workoutId: stringValue(document.get("firstAscentWorkoutId")),
     });
   }
   return records;
@@ -999,17 +993,13 @@ async function composeAndEnqueueActiveRecap(
     workoutDetails.completedClimbIds,
     climbNameById
   );
-  const firstAscentsThisPeriod = dedupeLandmarkNames(
-    firstAscentRecords
-      .filter((record) => record.completedAt !== null &&
-        record.completedAt >= period.startAt &&
-        record.completedAt < period.endAt)
-      .map((record) => record.climbId),
-    climbNameById
-  );
+  const firstAscentClimbIdsThisPeriod = firstAscentRecords
+    .filter((record) => record.workoutId !== null &&
+      workoutDetails.completedWorkoutIds.has(record.workoutId))
+    .map((record) => record.climbId);
   const earnedBadges: RecapEarnedBadge[] = [
     achievementRank !== undefined ? buildRankBadge(achievementRank) : undefined,
-    buildFirstAscentBadge(firstAscentsThisPeriod),
+    buildFirstAscentBadge(firstAscentClimbIdsThisPeriod, climbNameById),
   ].filter((badge): badge is RecapEarnedBadge => badge !== undefined);
 
   let currentStreakWeeks: number | undefined;
@@ -1107,17 +1097,17 @@ async function composeAndEnqueueInactiveRecap(
   }
 
   const firstAscentRecords = await fetchFirstAscentRecords(firestore, uid);
-  const firstAscents = dedupeLandmarkNames(
-    firstAscentRecords
-      .map((record) => record.climbId)
-      .filter((climbId) => climbNameById.has(climbId)),
-    climbNameById
-  );
+  const firstAscentClimbIds = firstAscentRecords
+    .map((record) => record.climbId)
+    .filter((climbId) => climbNameById.has(climbId));
+  const firstAscents = dedupeLandmarkNames(firstAscentClimbIds, climbNameById);
   const since = lastActiveAt ?? period.startAt;
 
   const payload: RecapInactivePayload = {
     ctaUrl: APP_STORE_URL,
-    earnedBadges: [buildFirstAscentBadge(firstAscents)].filter(
+    earnedBadges: [
+      buildFirstAscentBadge(firstAscentClimbIds, climbNameById),
+    ].filter(
       (badge): badge is RecapEarnedBadge => badge !== undefined
     ),
     firstAscents,
