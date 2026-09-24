@@ -931,7 +931,12 @@ function renderStatCardHtml(
     `border-radius:8px;background:${RECAP_CHIP_BG};color:`,
     `${BRAND_ACCENT_COLOR};font-size:12px;font-weight:700;">▲ `,
     `${escapeHtml(chip.value)} ${escapeHtml(chip.label)}</span>`,
-  ].join("") : "";
+  ].join("") : [
+    // Reserves the chip's height so a chip-less card matches its row-mate.
+    "<span aria-hidden=\"true\" style=\"display:inline-block;",
+    "margin-top:10px;padding:4px 10px;font-size:12px;visibility:hidden;\">",
+    "&nbsp;</span>",
+  ].join("");
 
   return [
     `<div style="border:1px solid ${RECAP_BORDER};border-radius:16px;`,
@@ -954,18 +959,27 @@ function renderStatCardHtml(
 function renderStatGridHtml(
   cards: Array<[string, string, RecapDeltaChip | undefined]>
 ): string {
-  const cell = (card: [string, string, RecapDeltaChip | undefined]): string =>
-    "<td width=\"50%\" style=\"padding:0 8px 16px 0;vertical-align:top;\">" +
+  // The gutter sits between the two cards only, so the outer edges stay
+  // flush with the milestone and percentile boxes above the grid.
+  const cell = (
+    card: [string, string, RecapDeltaChip | undefined],
+    padding: string
+  ): string =>
+    `<td width="50%" style="padding:${padding};vertical-align:top;">` +
     `${renderStatCardHtml(card[0], card[1], card[2])}</td>`;
+  const left = (card: [string, string, RecapDeltaChip | undefined]) =>
+    cell(card, "0 8px 16px 0");
+  const right = (card: [string, string, RecapDeltaChip | undefined]) =>
+    cell(card, "0 0 16px 8px");
 
   return [
     "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" ",
     "cellpadding=\"0\" border=\"0\"><tr>",
-    cell(cards[0]),
-    cell(cards[1]),
+    left(cards[0]),
+    right(cards[1]),
     "</tr><tr>",
-    cell(cards[2]),
-    cell(cards[3]),
+    left(cards[2]),
+    right(cards[3]),
     "</tr></table>",
   ].join("");
 }
