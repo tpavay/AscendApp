@@ -23,18 +23,18 @@ const closedMonth = previousPeriod(
   new Date("2026-09-24T00:00:00Z")
 );
 
-test("recap dedupe keys are namespaced by cadence, variant, period, and user", () => {
+test("recap dedupe keys are namespaced by cadence, period, and user", () => {
   assert.equal(
-    buildRecapDedupeKey("weekly", "active", "2026-W38", "user_1"),
-    "weekly-recap-active:2026-W38:user_1"
+    buildRecapDedupeKey("weekly", "2026-W38", "user_1"),
+    "weekly-recap:2026-W38:user_1"
   );
   assert.equal(
-    buildRecapDedupeKey("monthly", "inactive", "2026-M09", "user_1"),
-    "monthly-recap-inactive:2026-M09:user_1"
+    buildRecapDedupeKey("monthly", "2026-M09", "user_1"),
+    "monthly-recap:2026-M09:user_1"
   );
   assert.notEqual(
-    buildRecapDedupeKey("weekly", "active", "2026-W38", "user_1"),
-    buildRecapDedupeKey("weekly", "inactive", "2026-W38", "user_1")
+    buildRecapDedupeKey("weekly", "2026-W38", "user_1"),
+    buildRecapDedupeKey("monthly", "2026-W38", "user_1")
   );
 });
 
@@ -175,6 +175,18 @@ test("ranking the active cohort uses standard competition ranking (1,2,2,4)", ()
   assert.deepEqual(standings.get("d"), {fieldSize: 4, rank: 4});
 });
 
+test("ranking the active cohort drops zero-step rows from rank and field size", () => {
+  const cohort = new Map([
+    ["a", {totalSteps: 500}],
+    ["b", {totalSteps: 0}],
+  ]);
+
+  const standings = rankActiveCohort(cohort);
+
+  assert.deepEqual(standings.get("a"), {fieldSize: 1, rank: 1});
+  assert.equal(standings.has("b"), false);
+});
+
 test("ranking ties break deterministically by user id", () => {
   const cohort = new Map([
     ["zzz", {totalSteps: 500}],
@@ -231,42 +243,70 @@ test("a decline or a flat period gets no delta chip - never a scolding", () => {
 
 test("the milestone prefers a finished landmark over everything else", () => {
   assert.equal(
-    pickMilestoneText("weekly", ["Eiffel Tower"], 5, 3),
+    pickMilestoneText("weekly", ["Eiffel Tower"], 5, 3, 1000),
     "You finished Eiffel Tower."
   );
 });
 
 test("multiple finished landmarks are summarized, not all named", () => {
   assert.equal(
-    pickMilestoneText("weekly", ["Eiffel Tower", "Burj Khalifa", "CN Tower"], undefined, 200),
+    pickMilestoneText("weekly", ["Eiffel Tower", "Burj Khalifa", "CN Tower"], undefined, 200, 1000),
     "You finished Eiffel Tower and 2 more landmarks."
   );
 });
 
 test("with no landmark, the milestone falls back to a weekly streak", () => {
   assert.equal(
-    pickMilestoneText("weekly", [], 3, 200),
+    pickMilestoneText("weekly", [], 3, 200, 1000),
     "3 weeks running. That is a streak."
   );
 });
 
 test("a one-week streak is not a milestone on its own", () => {
-  assert.equal(pickMilestoneText("weekly", [], 1, 200), undefined);
+  assert.equal(pickMilestoneText("weekly", [], 1, 200, 1000), undefined);
 });
 
 test("with no landmark or streak, a Top 100 finish is the milestone", () => {
   assert.equal(
-    pickMilestoneText("weekly", [], undefined, 7),
+    pickMilestoneText("weekly", [], undefined, 7, 1000),
     "You placed Top 10 globally last week."
   );
   assert.equal(
-    pickMilestoneText("monthly", [], undefined, 1),
+    pickMilestoneText("monthly", [], undefined, 1, 1000),
     "You placed Top 1 globally last month."
   );
 });
 
+test("a podium finish is a milestone even in a tiny field", () => {
+  assert.equal(
+    pickMilestoneText("weekly", [], undefined, 1, 3),
+    "You placed Top 1 globally last week."
+  );
+  assert.equal(
+    pickMilestoneText("monthly", [], undefined, 3, 4),
+    "You placed Top 3 globally last month."
+  );
+});
+
+test("a field of one never earns a placement milestone", () => {
+  assert.equal(pickMilestoneText("weekly", [], undefined, 1, 1), undefined);
+});
+
+test("a non-podium rank in a small field gets no placement milestone", () => {
+  // Every climber in a field of 50 is inside the Top 100 - that is no claim.
+  assert.equal(pickMilestoneText("weekly", [], undefined, 20, 50), undefined);
+  assert.equal(pickMilestoneText("weekly", [], undefined, 48, 50), undefined);
+  // Top 10 in a field of 8 is every climber.
+  assert.equal(pickMilestoneText("weekly", [], undefined, 7, 8), undefined);
+  // Top 10 of 50 is a real band and a real claim.
+  assert.equal(
+    pickMilestoneText("weekly", [], undefined, 7, 50),
+    "You placed Top 10 globally last week."
+  );
+});
+
 test("nothing notable means no milestone callout at all", () => {
-  assert.equal(pickMilestoneText("weekly", [], undefined, 500), undefined);
+  assert.equal(pickMilestoneText("weekly", [], undefined, 500, 1000), undefined);
 });
 
 test("a weekly calendar is exactly 7 filled cells, Monday first, no blanks", () => {

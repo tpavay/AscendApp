@@ -78,7 +78,9 @@
  *   - The milestone callout, when there is one, prefers a landmark finished,
  *     then a weekly streak of 2+, then a Top 1/3/10/100 global finish - in
  *     that order, so it rarely restates the separate percentile callout's
- *     own number.
+ *     own number. A podium finish qualifies in any field of two or more;
+ *     any other rank needs a real percentile band and a field larger than
+ *     its tier, so a small field never reads as an inflated "Top 100".
  *   - "Landmarks finished" uses `climbCompletions.ts`'s
  *     `parseCompletedLandmarkWorkout` (the single definition of "finished a
  *     landmark" shared with Swift and the backfill), not a bare "carried a
@@ -153,7 +155,6 @@ const MILESTONE_RANK_LIMIT = 100;
 const RECIPIENT_CONCURRENCY = 10;
 
 export type RecapCadence = "weekly" | "monthly";
-type RecapVariant = "active" | "inactive";
 
 interface LeaderboardStatsRow {
   totalFloors: number;
@@ -181,20 +182,19 @@ export interface RecapSweepSummary {
 // =============================================================================
 
 /**
- * Builds the one-send-per-user-per-period dedupe key for a recap email.
+ * Builds the one-send-per-user-per-period dedupe key for a recap email,
+ * shared by both variants.
  * @param {RecapCadence} cadence - Weekly or monthly
- * @param {RecapVariant} variant - Active-stats or zero-activity re-engagement
  * @param {string} periodKey - Closed period key (e.g. "2026-W38", "2026-M09")
  * @param {string} uid - Firebase Auth user ID
  * @return {string} Stable dedupe key
  */
 export function buildRecapDedupeKey(
   cadence: RecapCadence,
-  variant: RecapVariant,
   periodKey: string,
   uid: string
 ): string {
-  return `${cadence}-recap-${variant}:${periodKey}:${uid}`;
+  return `${cadence}-recap:${periodKey}:${uid}`;
 }
 
 /**
@@ -203,10 +203,19 @@ export function buildRecapDedupeKey(
  * @return {string} "Top 1" | "Top 3" | "Top 10" | "Top 100"
  */
 export function achievementTierLabel(rank: number): string {
-  if (rank === 1) return "Top 1";
-  if (rank <= 3) return "Top 3";
-  if (rank <= 10) return "Top 10";
-  return "Top 100";
+  return `Top ${achievementTierLimit(rank)}`;
+}
+
+/**
+ * The upper rank bound of a finishing rank's achievement tier.
+ * @param {number} rank - Final leaderboard rank for the closed period
+ * @return {number} 1 | 3 | 10 | 100
+ */
+function achievementTierLimit(rank: number): number {
+  if (rank === 1) return 1;
+  if (rank <= 3) return 3;
+  if (rank <= 10) return 10;
+  return MILESTONE_RANK_LIMIT;
 }
 
 /**
@@ -326,7 +335,8 @@ export async function computeCurrentStreakWeeks(
 /**
  * Ranks every active climber in a closed period against each other by total
  * steps, mirroring leaderboardAchievements.ts's standard competition ranking
- * (1, 2, 2, 4; tie-broken by user id for a stable order) - uncapped, since a
+ * (1, 2, 2, 4; tie-broken by user id for a stable order) and its exclusion of
+ * zero-step rows - uncapped, since a
  * percentile callout needs a real rank for every climber, not just a top-100
  * band.
  * @param {Map<string, {totalSteps: number}>} rows - This period's active
@@ -337,6 +347,7 @@ export function rankActiveCohort(
   rows: Map<string, {totalSteps: number}>
 ): Map<string, RecapStanding> {
   const sorted = [...rows.entries()]
+    .filter(([, row]) => row.totalSteps > 0)
     .sort(([leftId, left], [rightId, right]) => {
       if (left.totalSteps !== right.totalSteps) {
         return right.totalSteps - left.totalSteps;
@@ -378,20 +389,68 @@ export function percentileLabel(
   rank: number,
   fieldSize: number
 ): string | undefined {
-  if (fieldSize <= 1) {
+  if (!isRankableField(fieldSize)) {
     return undefined;
   }
-  if (rank <= 3) {
+  if (isPodiumRank(rank)) {
     return `#${rank} of ${fieldSize} climbers`;
   }
+  return percentileBand(rank, fieldSize) ??
+    `#${rank} of ${fieldSize} climbers`;
+}
 
+/**
+ * Whether a field holds enough climbers for a rank in it to mean anything.
+ * @param {number} fieldSize - Total climbers ranked in the closed period
+ * @return {boolean} True for a field of two or more
+ */
+function isRankableField(fieldSize: number): boolean {
+  return fieldSize > 1;
+}
+
+/**
+ * Whether a rank is a podium finish, which is always stated exactly.
+ * @param {number} rank - This climber's rank in the closed period
+ * @return {boolean} True for ranks 1-3
+ */
+function isPodiumRank(rank: number): boolean {
+  return rank <= 3;
+}
+
+/**
+ * Names the percentile band a rank falls in, if it reaches one.
+ * @param {number} rank - This climber's rank in the closed period
+ * @param {number} fieldSize - Total climbers ranked in the closed period
+ * @return {string | undefined} Band label, or nothing below the top half
+ */
+function percentileBand(rank: number, fieldSize: number): string | undefined {
   const percentile = (rank / fieldSize) * 100;
   if (percentile <= 1) return "Top 1% of climbers";
   if (percentile <= 5) return "Top 5% of climbers";
   if (percentile <= 10) return "Top 10% of climbers";
   if (percentile <= 25) return "Top 25% of climbers";
   if (percentile <= 50) return "Top 50% of climbers";
-  return `#${rank} of ${fieldSize} climbers`;
+  return undefined;
+}
+
+/**
+ * Whether a rank earns the hero's global-placement milestone. A podium
+ * finish always does in any real field; any other rank needs a real
+ * percentile band and a field larger than its achievement tier, so "Top 100"
+ * never lands on a climber in a field of 50.
+ * @param {number} rank - This climber's rank in the closed period
+ * @param {number} fieldSize - Total climbers ranked in the closed period
+ * @return {boolean} True when the rank is worth naming as a milestone
+ */
+function isMilestoneRank(rank: number, fieldSize: number): boolean {
+  if (!isRankableField(fieldSize) || rank > MILESTONE_RANK_LIMIT) {
+    return false;
+  }
+  if (isPodiumRank(rank)) {
+    return true;
+  }
+  return percentileBand(rank, fieldSize) !== undefined &&
+    fieldSize > achievementTierLimit(rank);
 }
 
 /**
@@ -416,19 +475,21 @@ export function buildDeltaChip(
 /**
  * Picks the single most notable fact for the hero's milestone callout, or
  * nothing when there is no genuine milestone to name. Prefers a finished
- * landmark, then a weekly streak, then a Top 100 global finish - in that
+ * landmark, then a weekly streak, then a meaningful global finish - in that
  * order, so it rarely just restates the separate percentile callout.
  * @param {RecapCadence} cadence - Weekly or monthly
  * @param {string[]} landmarksFinished - This period's finished landmarks
  * @param {number | undefined} currentStreakWeeks - Weekly-only streak length
  * @param {number} rank - This climber's rank in the closed period
+ * @param {number} fieldSize - Total climbers ranked in the closed period
  * @return {string | undefined} Milestone sentence, past tense
  */
 export function pickMilestoneText(
   cadence: RecapCadence,
   landmarksFinished: string[],
   currentStreakWeeks: number | undefined,
-  rank: number
+  rank: number,
+  fieldSize: number
 ): string | undefined {
   if (landmarksFinished.length === 1) {
     return `You finished ${landmarksFinished[0]}.`;
@@ -442,7 +503,7 @@ export function pickMilestoneText(
     currentStreakWeeks >= 2) {
     return `${currentStreakWeeks} weeks running. That is a streak.`;
   }
-  if (rank <= MILESTONE_RANK_LIMIT) {
+  if (isMilestoneRank(rank, fieldSize)) {
     const cadenceNoun = cadence === "weekly" ? "week" : "month";
     return `You placed ${achievementTierLabel(rank)} globally last ` +
       `${cadenceNoun}.`;
@@ -608,6 +669,7 @@ async function fetchPeriodWorkoutDetails(
     .collection(WORKOUTS_COLLECTION)
     .where("startedAt", ">=", admin.firestore.Timestamp.fromDate(period.startAt))
     .where("startedAt", "<", admin.firestore.Timestamp.fromDate(period.endAt))
+    .select("startedAt", "steps", "durationSeconds", "source", "sourceMetadata")
     .get();
 
   const completedClimbIds: string[] = [];
@@ -771,7 +833,8 @@ async function composeAndEnqueueActiveRecap(
       cadence,
       landmarksFinished,
       currentStreakWeeks,
-      standing.rank
+      standing.rank,
+      standing.fieldSize
     ),
     percentileLabel: percentileLabel(standing.rank, standing.fieldSize),
     periodLabel: cadence === "weekly" ?
@@ -788,7 +851,7 @@ async function composeAndEnqueueActiveRecap(
   };
 
   const outcome = await enqueueLifecycleEmailIfAllowed(firestore, {
-    dedupeKey: buildRecapDedupeKey(cadence, "active", period.key, uid),
+    dedupeKey: buildRecapDedupeKey(cadence, period.key, uid),
     emailType: cadence === "weekly" ?
       "weekly_recap_active" :
       "monthly_recap_active",
@@ -833,7 +896,7 @@ async function composeAndEnqueueInactiveRecap(
   };
 
   const outcome = await enqueueLifecycleEmailIfAllowed(firestore, {
-    dedupeKey: buildRecapDedupeKey(cadence, "inactive", period.key, uid),
+    dedupeKey: buildRecapDedupeKey(cadence, period.key, uid),
     emailType: cadence === "weekly" ?
       "weekly_recap_inactive" :
       "monthly_recap_inactive",
@@ -903,7 +966,7 @@ export async function runRecapSweep(
   const standings = rankActiveCohort(activeRows);
 
   const summary: RecapSweepSummary = {
-    activeUserCount: activeRows.size,
+    activeUserCount: standings.size,
     alreadyQueued: 0,
     errors: 0,
     everActiveUserCount: everActiveRows.size,
@@ -913,12 +976,10 @@ export async function runRecapSweep(
   };
 
   const activeFailures = await runWithBoundedConcurrency(
-    [...activeRows.entries()],
+    [...activeRows.entries()].filter(([uid]) => standings.has(uid)),
     RECIPIENT_CONCURRENCY,
     async ([uid, aggregate]) => {
       const standing = standings.get(uid);
-      // Every active row was just ranked, so this is structurally always
-      // present - the guard keeps the type honest without a non-null cast.
       if (!standing) {
         return;
       }
@@ -946,7 +1007,7 @@ export async function runRecapSweep(
   }
 
   const inactiveUids = [...everActiveRows.keys()]
-    .filter((uid) => !activeRows.has(uid));
+    .filter((uid) => !standings.has(uid));
   const inactiveFailures = await runWithBoundedConcurrency(
     inactiveUids,
     RECIPIENT_CONCURRENCY,

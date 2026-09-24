@@ -146,7 +146,7 @@ test(
     const summary = await runRecapSweep("weekly", now);
 
     const job = await readJob(
-      buildRecapDedupeKey("weekly", "active", closedWeek.key, "active-1")
+      buildRecapDedupeKey("weekly", closedWeek.key, "active-1")
     );
     assert.equal(job.type, "weekly_recap_active");
     assert.equal(job.status, "queued");
@@ -223,7 +223,7 @@ test(
     await runRecapSweep("weekly", now);
 
     const job = await readJob(
-      buildRecapDedupeKey("weekly", "active", closedWeek.key, "attempter-1")
+      buildRecapDedupeKey("weekly", closedWeek.key, "attempter-1")
     );
     const payload = job.payload as RecapActivePayload;
     assert.deepEqual(payload.landmarksFinished, ["Eiffel Tower"]);
@@ -239,7 +239,7 @@ test(
     await runRecapSweep("weekly", now);
 
     const job = await readJob(
-      buildRecapDedupeKey("weekly", "inactive", closedWeek.key, "dormant-1")
+      buildRecapDedupeKey("weekly", closedWeek.key, "dormant-1")
     );
     assert.equal(job.type, "weekly_recap_inactive");
 
@@ -261,12 +261,13 @@ test("a field of one active climber gets no percentile callout", async () => {
   await runRecapSweep("weekly", now);
 
   const job = await readJob(
-    buildRecapDedupeKey("weekly", "active", closedWeek.key, "solo-1")
+    buildRecapDedupeKey("weekly", closedWeek.key, "solo-1")
   );
   const payload = job.payload as RecapActivePayload;
   assert.equal(payload.rank, 1);
   assert.equal(payload.fieldSize, 1);
   assert.equal(payload.percentileLabel, undefined);
+  assert.equal(payload.milestoneText, undefined);
 });
 
 test("unsubscribe suppresses a recap even for an active climber", async () => {
@@ -280,7 +281,7 @@ test("unsubscribe suppresses a recap even for an active climber", async () => {
   const summary = await runRecapSweep("weekly", now);
 
   const jobId = buildEmailJobId(
-    buildRecapDedupeKey("weekly", "active", closedWeek.key, "unsub-1")
+    buildRecapDedupeKey("weekly", closedWeek.key, "unsub-1")
   );
   const snapshot = await db.collection(EMAIL_JOBS).doc(jobId).get();
   assert.equal(snapshot.exists, false, "unsubscribed climber got no job at all");
@@ -296,22 +297,11 @@ test(
 
     await runRecapSweep("weekly", now);
 
-    const activeJobId = buildEmailJobId(
-      buildRecapDedupeKey("weekly", "active", closedWeek.key, "new-1")
+    const jobId = buildEmailJobId(
+      buildRecapDedupeKey("weekly", closedWeek.key, "new-1")
     );
-    const inactiveJobId = buildEmailJobId(
-      buildRecapDedupeKey("weekly", "inactive", closedWeek.key, "new-1")
-    );
-    const activeSnapshot = await db
-      .collection(EMAIL_JOBS)
-      .doc(activeJobId)
-      .get();
-    const inactiveSnapshot = await db
-      .collection(EMAIL_JOBS)
-      .doc(inactiveJobId)
-      .get();
-    assert.equal(activeSnapshot.exists, false);
-    assert.equal(inactiveSnapshot.exists, false);
+    const snapshot = await db.collection(EMAIL_JOBS).doc(jobId).get();
+    assert.equal(snapshot.exists, false);
   }
 );
 
@@ -335,6 +325,32 @@ test("re-running the same closed week does not double-queue", async () => {
   );
   assert.equal(matching.length, 1);
 });
+
+test(
+  "a late-synced climb never earns a second recap for the same closed week",
+  async () => {
+    await seedUser("late-1", "late@example.com");
+    await seedAllTimeStats("late-1");
+
+    const first = await runRecapSweep("weekly", now);
+    await seedWeeklyStats("late-1", closedWeek, {
+      totalFloors: 10,
+      totalSteps: 500,
+      totalWorkouts: 1,
+    });
+    const second = await runRecapSweep("weekly", now);
+
+    assert.ok(first.queued >= 1);
+    assert.ok(second.alreadyQueued >= 1);
+
+    const snapshot = await db.collection(EMAIL_JOBS).get();
+    const matching = snapshot.docs.filter(
+      (doc) => doc.data().recipientEmail === "late@example.com"
+    );
+    assert.equal(matching.length, 1);
+    assert.equal(matching[0].data().type, "weekly_recap_inactive");
+  }
+);
 
 /**
  * Reads a queued recap job by its dedupe key.
