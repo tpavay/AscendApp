@@ -60,10 +60,12 @@
  *     names the app's one existing tracked concept and must not drift from
  *     it by being re-derived from this file's own ranking math.
  * This never sweeps the full `users` collection and never reads a user's
- * full workout history: the one per-user workout query load-bears is a
- * `startedAt` range query bounded to the single closed period, run only for
- * the (small) active cohort, to resolve landmark completions and the daily
- * activity calendar.
+ * full workout history. Each climber costs exactly one workout query,
+ * bounded by cohort size: an active climber's is a `startedAt` range query
+ * bounded to the single closed period, to resolve landmark completions and
+ * the daily activity calendar; a zero-activity climber's is one indexed
+ * `orderBy("startedAt", "desc").limit(1)` read of their latest workout, for
+ * the real gap (`fetchLatestWorkoutStartedAt`). Neither is a scan.
  * Per-recipient composition and enqueue runs with bounded concurrency
  * (`RECIPIENT_CONCURRENCY`), not sequentially, so a large cohort cannot run
  * the 540s invocation out the clock and silently strand the rest of a
@@ -183,8 +185,10 @@ const LIVE_REPLAY_LEADERBOARDS_COLLECTION = "live_replay_leaderboards";
 const LIVE_CLIMB_CONTEXT_TYPE = "live_climb";
 
 /** Page size and page budget for the two `leaderboard_stats` cohort scans. */
-const COHORT_PAGE_SIZE = 200;
-const MAX_COHORT_PAGES = 50;
+const DEFAULT_COHORT_SCAN_BOUND: CohortScanBound = {
+  maxPages: 50,
+  pageSize: 200,
+};
 /** Bounds how far back the streak walk reads before giving up. */
 const MAX_WEEKLY_STREAK_LOOKBACK = 26;
 /** The widest achievement tier's ceiling rank ("Top 100"). */
@@ -203,6 +207,11 @@ interface LeaderboardStatsRow {
 export interface RecapStanding {
   fieldSize: number;
   rank: number;
+}
+
+export interface CohortScanBound {
+  maxPages: number;
+  pageSize: number;
 }
 
 export interface RecapSweepSummary {
@@ -574,8 +583,8 @@ export function buildCalendarCells(
  * Pages a `leaderboard_stats` query into a userId -> totals map.
  *
  * Ordered by document ID for a stable, index-free cursor (see
- * expireRevenueCatAccessGrants for the same shape). Bounded by
- * `COHORT_PAGE_SIZE` / `MAX_COHORT_PAGES` rather than resumed across runs -
+ * expireRevenueCatAccessGrants for the same shape). Bounded by a
+ * `CohortScanBound` rather than resumed across runs -
  * documented as a scale assumption in the file header, not built ahead of
  * need - and reports and logs loudly if that bound is ever actually hit, so
  * a silent truncation cannot masquerade as a complete cohort.
@@ -583,6 +592,7 @@ export function buildCalendarCells(
  * @param {admin.firestore.Query} baseQuery - Query before ordering/paging
  * @param {string} label - Identifies which scan this is, for the truncation
  *   log
+ * @param {CohortScanBound} bound - Page size and page budget
  * @return {Promise<{rows: Map<string, LeaderboardStatsRow>,
  *   truncated: boolean}>} Rows keyed by userId, and whether the page bound
  *   cut the scan short
@@ -590,17 +600,18 @@ export function buildCalendarCells(
 async function pageLeaderboardStatsRows(
   firestore: admin.firestore.Firestore,
   baseQuery: admin.firestore.Query,
-  label: string
+  label: string,
+  bound: CohortScanBound
 ): Promise<{rows: Map<string, LeaderboardStatsRow>; truncated: boolean}> {
   const rows = new Map<string, LeaderboardStatsRow>();
   let cursor: admin.firestore.QueryDocumentSnapshot | undefined;
   let pagesRead = 0;
 
-  for (let page = 0; page < MAX_COHORT_PAGES; page++) {
+  for (let page = 0; page < bound.maxPages; page++) {
     pagesRead += 1;
     let query = baseQuery
       .orderBy(admin.firestore.FieldPath.documentId())
-      .limit(COHORT_PAGE_SIZE);
+      .limit(bound.pageSize);
     if (cursor) {
       query = query.startAfter(cursor);
     }
@@ -624,7 +635,7 @@ async function pageLeaderboardStatsRows(
       });
     }
 
-    if (snapshot.size < COHORT_PAGE_SIZE) {
+    if (snapshot.size < bound.pageSize) {
       return {rows, truncated: false};
     }
   }
@@ -1049,11 +1060,14 @@ function recordOutcome(
  * Runs one weekly or monthly recap sweep end to end.
  * @param {RecapCadence} cadence - Weekly or monthly
  * @param {Date} now - The sweep's clock, injectable for tests
+ * @param {CohortScanBound} cohortScanBound - Cohort scan page bound,
+ *   injectable for tests
  * @return {Promise<RecapSweepSummary>} What the sweep did
  */
 export async function runRecapSweep(
   cadence: RecapCadence,
-  now: Date
+  now: Date,
+  cohortScanBound: CohortScanBound = DEFAULT_COHORT_SCAN_BOUND
 ): Promise<RecapSweepSummary> {
   const firestore = admin.firestore();
   const period = previousPeriod(cadence, now);
@@ -1069,14 +1083,16 @@ export async function runRecapSweep(
           "==",
           admin.firestore.Timestamp.fromDate(period.startAt)
         ),
-      "active"
+      "active",
+      cohortScanBound
     ),
     pageLeaderboardStatsRows(
       firestore,
       firestore
         .collection(LEADERBOARD_STATS_COLLECTION)
         .where("timeFrame", "==", "all_time"),
-      "all_time"
+      "all_time",
+      cohortScanBound
     ),
     loadClimbCatalogSafely(),
   ]);
@@ -1096,6 +1112,15 @@ export async function runRecapSweep(
     skippedNoEmail: 0,
     suppressed: 0,
   };
+
+  if (activeScan.truncated) {
+    logger.error("recapEmails.sweepSkipped", {
+      cadence,
+      periodKey: period.key,
+      reason: "active_cohort_scan_truncated",
+    });
+    return summary;
+  }
 
   const activeFailures = await runWithBoundedConcurrency(
     [...activeRows.entries()].filter(([uid]) => standings.has(uid)),
@@ -1126,15 +1151,6 @@ export async function runRecapSweep(
         "unknown_error",
       uid: failure.item[0],
     });
-  }
-
-  if (activeScan.truncated) {
-    logger.error("recapEmails.inactivePhaseSkipped", {
-      cadence,
-      periodKey: period.key,
-      reason: "active_cohort_scan_truncated",
-    });
-    return summary;
   }
 
   const inactiveEntries = [...everActiveRows.entries()]

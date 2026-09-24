@@ -483,6 +483,32 @@ test(
   }
 );
 
+test(
+  "a truncated active-cohort scan sends nothing to either cohort",
+  async () => {
+    for (const uid of ["trunc-a", "trunc-b", "trunc-c"]) {
+      await seedUser(uid, `${uid}@example.com`);
+      await seedAllTimeStats(uid);
+      await seedWeeklyStats(uid, closedWeek, {
+        totalFloors: 10,
+        totalSteps: 500,
+        totalWorkouts: 1,
+      });
+    }
+    await seedUser("trunc-dormant", "trunc-dormant@example.com");
+    await seedAllTimeStats("trunc-dormant");
+
+    const summary = await runRecapSweep("weekly", now, {
+      maxPages: 2,
+      pageSize: 1,
+    });
+
+    assert.equal(summary.queued, 0);
+    const snapshot = await db.collection(EMAIL_JOBS).get();
+    assert.equal(snapshot.size, 0);
+  }
+);
+
 test("re-running the same closed week does not double-queue", async () => {
   await seedUser("active-solo", "activesolo@example.com");
   await seedWeeklyStats("active-solo", closedWeek, {
