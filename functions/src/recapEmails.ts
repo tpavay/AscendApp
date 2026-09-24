@@ -77,7 +77,9 @@
  *     used for the inactive email's lifetime list, now also selecting
  *     `firstAscentWorkoutId` and matched in memory against the closed
  *     period's completed-landmark workouts the workout query already read -
- *     never a second Firestore filter, so no new composite index.
+ *     never a second Firestore filter, so no new composite index. It runs
+ *     only when the closed period holds a completed landmark, since no
+ *     other climber can have a First Ascent badge that period.
  * This never sweeps the full `users` collection and never reads a user's
  * full workout history. Each climber costs exactly one workout query,
  * bounded by cohort size: an active climber's is a `startedAt` range query
@@ -983,13 +985,14 @@ async function composeAndEnqueueActiveRecap(
     return;
   }
 
-  const [workoutDetails, previousTotals, achievementRank, firstAscentRecords] =
-    await Promise.all([
-      fetchPeriodWorkoutDetails(firestore, uid, period),
-      fetchPreviousPeriodTotals(firestore, uid, cadence, period),
-      fetchAchievementRank(firestore, uid, cadence, period.key),
-      fetchFirstAscentRecords(firestore, uid),
-    ]);
+  const [workoutDetails, previousTotals, achievementRank] = await Promise.all([
+    fetchPeriodWorkoutDetails(firestore, uid, period),
+    fetchPreviousPeriodTotals(firestore, uid, cadence, period),
+    fetchAchievementRank(firestore, uid, cadence, period.key),
+  ]);
+  const firstAscentRecords = workoutDetails.completedWorkoutIds.size > 0 ?
+    await fetchFirstAscentRecords(firestore, uid) :
+    [];
   const landmarksFinished = dedupeLandmarkNames(
     workoutDetails.completedClimbIds,
     climbNameById
