@@ -4,14 +4,15 @@
  * Two scheduled sweeps - one per cadence - that compose and enqueue a recap
  * for every climber who has ever had at least one eligible workout. An
  * ACTIVE climber (activity in the closed window) gets a stats recap: a
- * rank/percentile hero, an optional achievement callout, stat cards with
- * delta chips against the prior period, and an activity calendar heatmap. A
- * ZERO-ACTIVITY climber (no activity in the window, but a real history
- * before it) gets a gentle re-engagement email instead, naming the real gap
- * since they were last active and their First Ascents, if they hold any. A
- * climber who has never completed a climb at all gets neither - that gap
- * belongs to the onboarding-abandonment lifecycle emails, not this one, so a
- * brand-new signup mid-onboarding is never told "we missed you".
+ * rank/percentile hero, an optional row of earned achievement badges, stat
+ * cards with delta chips against the prior period, and an activity
+ * calendar heatmap. A ZERO-ACTIVITY climber (no activity in the window, but
+ * a real history before it) gets a gentle re-engagement email instead,
+ * naming the real gap since they were last active and their First Ascents,
+ * if they hold any. A climber who has never completed a climb at all gets
+ * neither - that gap belongs to the onboarding-abandonment lifecycle emails,
+ * not this one, so a brand-new signup mid-onboarding is never told "we
+ * missed you".
  *
  * Design direction (captain, 2026-09-24, Wispr-Flow-inspired layout,
  * Ascend's own dark/green/landmark brand - see templates.ts for the render

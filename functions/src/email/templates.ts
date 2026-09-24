@@ -752,10 +752,10 @@ export function renderLeaderboardFirstPlaceEmailFromPayload(
 // Bespoke dark-themed layout (captain, 2026-09-24, Wispr-Flow-inspired
 // structure in Ascend's own brand - dark, green accent, no borrowed colors,
 // mascot, or copy). Does not use renderBrandedEmail's light card layout: a
-// bold editorial hero leading with rank + percentile, an optional
-// achievement callout, stat cards with green "up only" delta chips, and a
-// per-day activity calendar heatmap. Copy is past tense throughout ("last
-// week" / "last month") since every send lands after the period it
+// bold editorial hero leading with rank + percentile, an optional row of
+// earned achievement badges, stat cards with green "up only" delta chips,
+// and a per-day activity calendar heatmap. Copy is past tense throughout
+// ("last week" / "last month") since every send lands after the period it
 // describes has closed.
 //
 // Round 4 (2026-09-24, captain review of the rendered emails): the base
@@ -1009,7 +1009,7 @@ function renderStatGridHtml(
   cards: Array<[string, string, RecapDeltaChip | undefined]>
 ): string {
   // The gutter sits between the two cards only, so the outer edges stay
-  // flush with the milestone and percentile boxes above the grid.
+  // flush with the rank hero and badge boxes above the grid.
   const cell = (
     card: [string, string, RecapDeltaChip | undefined],
     padding: string
