@@ -751,30 +751,45 @@ export function renderLeaderboardFirstPlaceEmailFromPayload(
 // Bespoke dark-themed layout (captain, 2026-09-24, Wispr-Flow-inspired
 // structure in Ascend's own brand - dark, green accent, no borrowed colors,
 // mascot, or copy). Does not use renderBrandedEmail's light card layout: a
-// bold editorial hero with an optional milestone callout, a percentile/rank
-// callout, stat cards with green "up only" delta chips, and a per-day
-// activity calendar heatmap. Copy is past tense throughout ("last week" /
-// "last month") since every send lands after the period it describes has
-// closed.
+// bold editorial hero leading with rank + percentile, an optional
+// achievement callout, stat cards with green "up only" delta chips, and a
+// per-day activity calendar heatmap. Copy is past tense throughout ("last
+// week" / "last month") since every send lands after the period it
+// describes has closed.
+//
+// Round 4 (2026-09-24, captain review of the rendered emails): the base
+// background is true black (`ThemedBackground`'s own `Color.black`, not an
+// off-black), and every surface color is derived from ONE source - white at
+// the app's own opacity scale for text/borders/card fills, the brand accent
+// at reduced opacity for the calendar's "active" heat step - rather than
+// scattered one-off hex values, matching AscendApp/Shared/Managers's
+// documented dark theming tokens. Podium ranks (1-3) use the gold medal
+// token for the hero box, reserved for exactly this "rank-prestige moment"
+// per the design system - every other rank keeps the green accent.
 // =============================================================================
 
-const RECAP_BG = "#0c0e10";
-const RECAP_CARD_BG = "#1c1f22";
+const RECAP_BG = "#000000";
+const RECAP_CARD_BG = "rgba(255,255,255,0.05)";
 const RECAP_BORDER = "rgba(255,255,255,0.10)";
 const RECAP_ACCENT_BORDER = "rgba(134,211,10,0.35)";
-const RECAP_TEXT = "#f5f5f5";
-const RECAP_TEXT_MUTED = "#9aa0a6";
+const RECAP_TEXT = "#ffffff";
+const RECAP_TEXT_MUTED = "rgba(255,255,255,0.6)";
 const RECAP_CHIP_BG = "rgba(134,211,10,0.16)";
-const RECAP_CAL_NONE = "#1f2226";
-const RECAP_CAL_ACTIVE = "#2f4c14";
+const RECAP_CAL_NONE = "rgba(255,255,255,0.05)";
+const RECAP_CAL_ACTIVE = "rgba(134,211,10,0.35)";
 const RECAP_ON_ACCENT_TEXT = "#0c0e10";
+const RECAP_GOLD = "#D4AF37";
+const RECAP_GOLD_BG = "rgba(212,175,55,0.10)";
+const RECAP_GOLD_BORDER = "rgba(212,175,55,0.45)";
+const RECAP_CARD_SHADOW = "0 1px 3px rgba(0,0,0,0.55)," +
+  "inset 0 1px 0 rgba(255,255,255,0.05)";
 
 interface RecapCadenceCopy {
   ctaLabel: string;
   eyebrow: string;
+  gapNoun: string;
   headlineAccent: string;
   headlineLead: string;
-  inactiveHeadline: string;
   periodNoun: string;
   reviewHeading: string;
   subject: string;
@@ -786,13 +801,13 @@ interface RecapCadenceCopy {
 const WEEKLY_RECAP_COPY: RecapCadenceCopy = {
   ctaLabel: "Open Ascend",
   eyebrow: "Weekly Recap",
-  headlineAccent: "ON THE STAIRSTEPPER.",
+  gapNoun: "week",
+  headlineAccent: "ON THE STAIR STEPPER.",
   headlineLead: "YOUR WEEK",
-  inactiveHeadline: "THE BOARD MISSED YOU.",
   periodNoun: "last week",
   reviewHeading: "Your week in review",
-  subject: "Your week on the board",
-  subjectInactive: "A climb is waiting",
+  subject: "Your week on the stair stepper",
+  subjectInactive: "We missed you",
   whyReceivedActive: "You received this because Ascend sends climbers a " +
     "weekly recap of their climbs.",
   whyReceivedInactive: "You received this because a week passed with no " +
@@ -802,13 +817,13 @@ const WEEKLY_RECAP_COPY: RecapCadenceCopy = {
 const MONTHLY_RECAP_COPY: RecapCadenceCopy = {
   ctaLabel: "Open Ascend",
   eyebrow: "Monthly Recap",
-  headlineAccent: "ON THE STAIRSTEPPER.",
+  gapNoun: "month",
+  headlineAccent: "ON THE STAIR STEPPER.",
   headlineLead: "YOUR MONTH",
-  inactiveHeadline: "THE BOARD IS STILL THERE.",
   periodNoun: "last month",
   reviewHeading: "Your month in review",
-  subject: "Your month on the board",
-  subjectInactive: "Still time to climb this month",
+  subject: "Your month on the stair stepper",
+  subjectInactive: "We missed you",
   whyReceivedActive: "You received this because Ascend sends climbers a " +
     "monthly recap of their climbs.",
   whyReceivedInactive: "You received this because a month passed with no " +
@@ -840,7 +855,6 @@ function parseRecapActivePayload(
     fieldSize: optionalNumber(payload, "fieldSize"),
     floorsDelta: parseDeltaChip(payload.floorsDelta),
     landmarksFinished: stringArray(payload, "landmarksFinished"),
-    milestoneText: optionalString(payload, "milestoneText"),
     percentileBand: optionalString(payload, "percentileBand"),
     periodLabel: requiredString(payload, "periodLabel", errorCode),
     rank: optionalNumber(payload, "rank"),
@@ -867,6 +881,8 @@ function parseRecapInactivePayload(
 
   return {
     ctaUrl: requiredUrl(payload, "ctaUrl", errorCode),
+    firstAscents: stringArray(payload, "firstAscents"),
+    gapCount: requiredNumber(payload, "gapCount", errorCode),
     periodLabel: requiredString(payload, "periodLabel", errorCode),
     suggestedClimbName: optionalString(payload, "suggestedClimbName"),
   };
@@ -941,10 +957,11 @@ function renderStatCardHtml(
 
   return [
     `<div style="border:1px solid ${RECAP_BORDER};border-radius:16px;`,
-    `padding:18px;background:${RECAP_CARD_BG};">`,
-    `<p style="margin:0;font-size:28px;font-weight:800;color:${RECAP_TEXT};`,
-    `line-height:1.1;">${escapeHtml(value)}</p>`,
-    `<p style="margin:6px 0 0;font-size:13px;color:${RECAP_TEXT_MUTED};">`,
+    `padding:20px;background:${RECAP_CARD_BG};box-shadow:`,
+    `${RECAP_CARD_SHADOW};">`,
+    `<p style="margin:0;font-size:30px;font-weight:800;color:${RECAP_TEXT};`,
+    `line-height:1.1;letter-spacing:-0.01em;">${escapeHtml(value)}</p>`,
+    `<p style="margin:8px 0 0;font-size:13px;color:${RECAP_TEXT_MUTED};">`,
     `${escapeHtml(label)}</p>`,
     chipHtml,
     "</div>",
@@ -992,16 +1009,21 @@ function renderStatGridHtml(
  */
 function renderCalendarCellHtml(cell: RecapCalendarCell): string {
   if (cell.level === "blank") {
-    return "<td style=\"padding:3px;\"></td>";
+    return "<td style=\"padding:4px;\"></td>";
   }
   const background = cell.level === "peak" ?
     BRAND_ACCENT_COLOR :
     cell.level === "active" ? RECAP_CAL_ACTIVE : RECAP_CAL_NONE;
+  const border = cell.level === "peak" ?
+    "1px solid transparent" :
+    `1px solid ${RECAP_BORDER}`;
   const textColor = cell.level === "peak" ? RECAP_ON_ACCENT_TEXT : RECAP_TEXT;
   return [
-    "<td style=\"padding:3px;\"><div style=\"background:",
+    "<td style=\"padding:4px;\"><div style=\"background:",
     background,
-    ";border-radius:8px;padding:8px 0;text-align:center;font-size:12px;",
+    ";border:",
+    border,
+    ";border-radius:10px;padding:10px 0;text-align:center;font-size:12px;",
     "font-weight:700;color:",
     textColor,
     ";\">",
@@ -1034,8 +1056,8 @@ function renderCalendarHtml(cells: RecapCalendarCell[]): string {
 
   const legendSwatch = (color: string, label: string): string => [
     "<span style=\"display:inline-block;width:10px;height:10px;",
-    `border-radius:3px;background:${color};margin-right:6px;`,
-    "vertical-align:middle;\"></span>",
+    `border-radius:3px;background:${color};border:1px solid `,
+    `${RECAP_BORDER};margin-right:6px;vertical-align:middle;"></span>`,
     `<span style="font-size:12px;color:${RECAP_TEXT_MUTED};`,
     "margin-right:16px;vertical-align:middle;\">",
     label,
@@ -1058,31 +1080,14 @@ function renderCalendarHtml(cells: RecapCalendarCell[]): string {
 }
 
 /**
- * Renders the milestone-unlocked outlined callout, when there is one.
- * @param {string | undefined} milestoneText - Milestone sentence
- * @return {string} Callout HTML, or an empty string with no milestone
- */
-function renderMilestoneCalloutHtml(milestoneText: string | undefined): string {
-  if (!milestoneText) {
-    return "";
-  }
-  return [
-    `<div style="margin-top:24px;border:1px solid ${RECAP_ACCENT_BORDER};`,
-    "border-radius:16px;padding:16px 20px;\">",
-    "<p style=\"margin:0 0 6px;font-size:11px;letter-spacing:0.16em;",
-    `text-transform:uppercase;color:${BRAND_ACCENT_COLOR};font-weight:700;">`,
-    "Milestone unlocked</p>",
-    `<p style="margin:0;font-size:15px;line-height:1.5;color:${RECAP_TEXT};`,
-    `font-weight:600;">${escapeHtml(milestoneText)}</p>`,
-    "</div>",
-  ].join("");
-}
-
-/**
  * Renders the hero's lead metric (round 3): the climber's concrete rank AND
  * percentile shown together, whenever the field is large enough for a rank
  * to mean anything. The rank is always stated exactly; the percentile band
  * is an optional badge alongside it, since not every rank reaches one.
+ *
+ * A podium finish (rank 1-3) uses the gold medal token instead of the green
+ * accent - the design system reserves gold for exactly this "rank-prestige
+ * moment", applied sparingly and never as a primary surface color.
  * @param {number | undefined} rank - This climber's rank in the closed
  *   period
  * @param {number | undefined} fieldSize - Total climbers ranked
@@ -1097,21 +1102,27 @@ function renderRankHeroHtml(
   if (rank === undefined || fieldSize === undefined || fieldSize <= 1) {
     return "";
   }
+  const isPodium = rank <= 3;
+  const accentColor = isPodium ? RECAP_GOLD : BRAND_ACCENT_COLOR;
+  const boxBorder = isPodium ? RECAP_GOLD_BORDER : RECAP_ACCENT_BORDER;
+  const boxBg = isPodium ? RECAP_GOLD_BG : "rgba(134,211,10,0.08)";
+  const badgeTextColor = isPodium ? "#2b2205" : RECAP_ON_ACCENT_TEXT;
+
   const bandBadgeHtml = band ? [
     "<span style=\"display:inline-block;margin-top:12px;padding:6px 14px;",
-    `border-radius:999px;background:${BRAND_ACCENT_COLOR};color:`,
-    `${RECAP_ON_ACCENT_TEXT};font-size:13px;font-weight:800;">`,
+    `border-radius:999px;background:${accentColor};color:`,
+    `${badgeTextColor};font-size:13px;font-weight:800;">`,
     escapeHtml(band),
     "</span>",
   ].join("") : "";
 
   return [
-    `<div style="margin-top:24px;border:1px solid ${RECAP_ACCENT_BORDER};`,
-    "border-radius:20px;padding:26px 20px;text-align:center;background:",
-    "rgba(134,211,10,0.06);\">",
+    `<div style="margin-top:24px;border:1px solid ${boxBorder};`,
+    "border-radius:20px;padding:28px 20px;text-align:center;background:",
+    `${boxBg};box-shadow:${RECAP_CARD_SHADOW};">`,
     "<p style=\"margin:0 0 8px;font-size:12px;letter-spacing:0.12em;",
     `text-transform:uppercase;color:${RECAP_TEXT_MUTED};">You ranked</p>`,
-    `<p style="margin:0;font-size:30px;font-weight:900;color:${RECAP_TEXT};`,
+    `<p style="margin:0;font-size:32px;font-weight:900;color:${RECAP_TEXT};`,
     `letter-spacing:-0.01em;">#${rank} of ${fieldSize} climbers</p>`,
     bandBadgeHtml,
     "</div>",
@@ -1120,9 +1131,7 @@ function renderRankHeroHtml(
 
 /**
  * Renders the achievement-earned outlined callout, when the climber earned
- * one of the app's existing tracked achievements for the period. A distinct
- * box from the milestone callout below it - this one names a permanent,
- * canonical record; the milestone callout is a same-email highlight.
+ * one of the app's existing tracked achievements for the period.
  * @param {string | undefined} achievementLabel - Achievement label, if any
  * @return {string} Callout HTML, or an empty string with none
  */
@@ -1134,7 +1143,7 @@ function renderAchievementCalloutHtml(
   }
   return [
     `<div style="margin-top:16px;border:1px solid ${RECAP_ACCENT_BORDER};`,
-    "border-radius:16px;padding:16px 20px;\">",
+    `border-radius:16px;padding:16px 20px;box-shadow:${RECAP_CARD_SHADOW};">`,
     "<p style=\"margin:0 0 6px;font-size:11px;letter-spacing:0.16em;",
     `text-transform:uppercase;color:${BRAND_ACCENT_COLOR};font-weight:700;">`,
     "Achievement earned</p>",
@@ -1154,7 +1163,14 @@ function renderRecapShellHtml(preheader: string, bodyRowsHtml: string): string {
   const iconUrl = escapeHtml(`${getMarketingWebsiteUrl()}/images/ascend-a-icon.png`);
   return [
     "<!doctype html>",
-    "<html lang=\"en\" xmlns=\"http://www.w3.org/1999/xhtml\"><body style=",
+    "<html lang=\"en\" xmlns=\"http://www.w3.org/1999/xhtml\"><head>",
+    "<meta charset=\"utf-8\">",
+    "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">",
+    // This layout is dark by design, not by client-side inversion - these
+    // tell Apple Mail / Outlook.com not to "helpfully" re-theme it.
+    "<meta name=\"color-scheme\" content=\"dark\">",
+    "<meta name=\"supported-color-schemes\" content=\"dark\">",
+    "</head><body style=",
     `"margin:0;padding:0;background:${RECAP_BG};font-family:-apple-system,`,
     `BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:${RECAP_TEXT};">`,
     "<div style=\"display:none;max-height:0;overflow:hidden;opacity:0;",
@@ -1168,7 +1184,8 @@ function renderRecapShellHtml(preheader: string, bodyRowsHtml: string): string {
     "cellpadding=\"0\" border=\"0\" style=\"max-width:620px;background:",
     RECAP_BG,
     `;border:1px solid ${RECAP_BORDER};border-radius:28px;overflow:hidden;">`,
-    "<tr><td style=\"background:#000000;padding:24px 30px;\"><table role=",
+    "<tr><td style=\"background:#000000;padding:24px 30px;border-bottom:",
+    `1px solid ${RECAP_BORDER};"><table role=`,
     "\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\"><tr>",
     "<td valign=\"middle\" style=\"padding-right:12px;\"><img src=\"",
     iconUrl,
@@ -1318,7 +1335,6 @@ function renderRecapActiveEmail(
     "</p>",
     renderRankHeroHtml(payload.rank, payload.fieldSize, payload.percentileBand),
     renderAchievementCalloutHtml(payload.achievementLabel),
-    renderMilestoneCalloutHtml(payload.milestoneText),
     "</td></tr>",
     "<tr><td style=\"padding:0 30px 34px;\">",
     "<h2 style=\"margin:0 0 18px;font-size:20px;font-weight:800;color:",
@@ -1358,10 +1374,6 @@ function renderRecapActiveEmail(
     copy.headlineLead + " " + copy.headlineAccent,
     payload.periodLabel,
     "",
-    ...(payload.milestoneText ? [
-      `Milestone unlocked: ${payload.milestoneText}`,
-      "",
-    ] : []),
     ...buildRecapActiveTextLines(payload),
     "",
     `${copy.ctaLabel}: ${payload.ctaUrl}`,
@@ -1385,9 +1397,45 @@ function renderRecapActiveEmail(
 }
 
 /**
+ * Names the gap sentence and the first-ascents-or-suggestion line shared by
+ * both the html and text renders of the inactive email.
+ * @param {RecapCadenceCopy} copy - Cadence-specific copy
+ * @param {RecapInactivePayload} payload - Template payload
+ * @return {{gapSentence: string, secondLine: string | undefined}} Body copy
+ */
+function buildRecapInactiveBodyCopy(
+  copy: RecapCadenceCopy,
+  payload: RecapInactivePayload
+): {gapSentence: string; secondLine: string | undefined} {
+  const gapNoun = payload.gapCount === 1 ? copy.gapNoun : `${copy.gapNoun}s`;
+  const gapSentence = `We haven't seen you in ${payload.gapCount} ${gapNoun}.`;
+
+  if (payload.firstAscents.length === 1) {
+    return {
+      gapSentence,
+      secondLine: `You hold the First Ascent of ${payload.firstAscents[0]}.`,
+    };
+  }
+  if (payload.firstAscents.length > 1) {
+    return {
+      gapSentence,
+      secondLine: `You hold ${payload.firstAscents.length} First Ascents: ` +
+        `${payload.firstAscents.join(", ")}.`,
+    };
+  }
+  return {
+    gapSentence,
+    secondLine: payload.suggestedClimbName ?
+      `${payload.suggestedClimbName} is open and ready.` :
+      undefined,
+  };
+}
+
+/**
  * Renders the zero-activity re-engagement email for either cadence. Gentle
- * by design - a softer version of the same visual language, the state, then
- * one clear action, never a guilt-trip about the gap.
+ * by design - the real gap, then one clear thing to look at (First Ascents
+ * they hold, or a comeback climb), then one clear action - never a
+ * guilt-trip about the gap.
  * @param {RecapCadenceCopy} copy - Cadence-specific copy
  * @param {RecapInactivePayload} payload - Template payload
  * @param {EmailRenderContext} context - Per-recipient render context
@@ -1398,11 +1446,13 @@ function renderRecapInactiveEmail(
   payload: RecapInactivePayload,
   context: EmailRenderContext
 ): TransactionalEmailRenderResult {
-  const suggestionLine = payload.suggestedClimbName ? [
+  const {gapSentence, secondLine} = buildRecapInactiveBodyCopy(copy, payload);
+
+  const secondLineHtml = secondLine ? [
     "<p style=\"margin:14px 0 0;font-size:16px;line-height:1.6;color:",
     `${RECAP_TEXT};">`,
-    escapeHtml(payload.suggestedClimbName),
-    " is open and ready.</p>",
+    escapeHtml(secondLine),
+    "</p>",
   ].join("") : "";
 
   const bodyRowsHtml = [
@@ -1413,12 +1463,12 @@ function renderRecapInactiveEmail(
     "</p>",
     "<h1 style=\"margin:0 0 18px;font-size:34px;line-height:1.1;",
     "font-weight:800;color:#ffffff;letter-spacing:-0.02em;\">",
-    escapeHtml(copy.inactiveHeadline),
+    "WE MISSED YOU.",
     "</h1>",
     "<p style=\"margin:0;font-size:16px;line-height:1.6;color:",
-    `${RECAP_TEXT_MUTED};">No new steps on the board ${copy.periodNoun}. `,
-    "Pick a climb and put your name back on it.</p>",
-    suggestionLine,
+    `${RECAP_TEXT_MUTED};">${escapeHtml(gapSentence)} Pick a climb and `,
+    "get back on the stair stepper.</p>",
+    secondLineHtml,
     "<div style=\"padding-top:28px;\">",
     renderRecapCtaHtml("Open Ascend", payload.ctaUrl),
     "</div></td></tr>",
@@ -1426,13 +1476,10 @@ function renderRecapInactiveEmail(
   ].join("");
 
   const textLines = [
-    copy.inactiveHeadline,
+    "WE MISSED YOU.",
     "",
-    `No new steps on the board ${copy.periodNoun}. Pick a climb and put ` +
-      "your name back on it.",
-    ...(payload.suggestedClimbName ?
-      [`${payload.suggestedClimbName} is open and ready.`] :
-      []),
+    `${gapSentence} Pick a climb and get back on the stair stepper.`,
+    ...(secondLine ? [secondLine] : []),
     "",
     `Open Ascend: ${payload.ctaUrl}`,
     "",
@@ -1444,10 +1491,7 @@ function renderRecapInactiveEmail(
   ].join("\n");
 
   return {
-    html: renderRecapShellHtml(
-      `The board missed you ${copy.periodNoun}. Here's one to try.`,
-      bodyRowsHtml
-    ),
+    html: renderRecapShellHtml(gapSentence, bodyRowsHtml),
     subject: copy.subjectInactive,
     text: textLines,
   };

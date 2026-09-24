@@ -9,10 +9,11 @@ import {
   dedupeLandmarkNames,
   formatMonthlyPeriodLabel,
   formatWeeklyPeriodLabel,
-  pickMilestoneText,
+  monthsSince,
   pickSuggestedClimb,
   rankActiveCohort,
   percentileBand,
+  weeksSince,
 } from "../src/recapEmails.js";
 import {previousPeriod} from "../src/leaderboardPeriod.js";
 import type {CatalogClimb} from "../src/climbDropNotifications.js";
@@ -244,72 +245,21 @@ test("a decline or a flat period gets no delta chip - never a scolding", () => {
   assert.equal(buildDeltaChip(1000, null, "vs last week"), undefined);
 });
 
-test("the milestone prefers a finished landmark over everything else", () => {
-  assert.equal(
-    pickMilestoneText("weekly", ["Eiffel Tower"], 5, 3, 1000),
-    "You finished Eiffel Tower."
-  );
+test("weeks since floors at 1 - a zero-activity climber is gone at least a week", () => {
+  const now = new Date("2026-09-24T00:00:00Z");
+  assert.equal(weeksSince(new Date("2026-09-20T00:00:00Z"), now), 1);
+  assert.equal(weeksSince(new Date("2026-09-17T00:00:00Z"), now), 1);
+  assert.equal(weeksSince(new Date("2026-08-01T00:00:00Z"), now), 8);
+  // Even "last active right now" reports as 1 week, never 0.
+  assert.equal(weeksSince(now, now), 1);
 });
 
-test("multiple finished landmarks are summarized, not all named", () => {
-  assert.equal(
-    pickMilestoneText("weekly", ["Eiffel Tower", "Burj Khalifa", "CN Tower"], undefined, 200, 1000),
-    "You finished Eiffel Tower and 2 more landmarks."
-  );
-});
-
-test("with no landmark, the milestone falls back to a weekly streak", () => {
-  assert.equal(
-    pickMilestoneText("weekly", [], 3, 200, 1000),
-    "3 weeks running. That is a streak."
-  );
-});
-
-test("a one-week streak is not a milestone on its own", () => {
-  assert.equal(pickMilestoneText("weekly", [], 1, 200, 1000), undefined);
-});
-
-test("with no landmark or streak, a Top 100 finish is the milestone", () => {
-  assert.equal(
-    pickMilestoneText("weekly", [], undefined, 7, 1000),
-    "You placed Top 10 globally last week."
-  );
-  assert.equal(
-    pickMilestoneText("monthly", [], undefined, 1, 1000),
-    "You placed Top 1 globally last month."
-  );
-});
-
-test("a podium finish is a milestone even in a tiny field", () => {
-  assert.equal(
-    pickMilestoneText("weekly", [], undefined, 1, 3),
-    "You placed Top 1 globally last week."
-  );
-  assert.equal(
-    pickMilestoneText("monthly", [], undefined, 3, 4),
-    "You placed Top 3 globally last month."
-  );
-});
-
-test("a field of one never earns a placement milestone", () => {
-  assert.equal(pickMilestoneText("weekly", [], undefined, 1, 1), undefined);
-});
-
-test("a non-podium rank in a small field gets no placement milestone", () => {
-  // Every climber in a field of 50 is inside the Top 100 - that is no claim.
-  assert.equal(pickMilestoneText("weekly", [], undefined, 20, 50), undefined);
-  assert.equal(pickMilestoneText("weekly", [], undefined, 48, 50), undefined);
-  // Top 10 in a field of 8 is every climber.
-  assert.equal(pickMilestoneText("weekly", [], undefined, 7, 8), undefined);
-  // Top 10 of 50 is a real band and a real claim.
-  assert.equal(
-    pickMilestoneText("weekly", [], undefined, 7, 50),
-    "You placed Top 10 globally last week."
-  );
-});
-
-test("nothing notable means no milestone callout at all", () => {
-  assert.equal(pickMilestoneText("weekly", [], undefined, 500, 1000), undefined);
+test("months since counts calendar months, floored at 1", () => {
+  const now = new Date("2026-09-24T00:00:00Z");
+  assert.equal(monthsSince(new Date("2026-09-01T00:00:00Z"), now), 1);
+  assert.equal(monthsSince(new Date("2026-07-15T00:00:00Z"), now), 2);
+  assert.equal(monthsSince(new Date("2025-09-24T00:00:00Z"), now), 12);
+  assert.equal(monthsSince(now, now), 1);
 });
 
 test("a weekly calendar is exactly 7 filled cells, Monday first, no blanks", () => {

@@ -4,26 +4,32 @@
  * Two scheduled sweeps - one per cadence - that compose and enqueue a recap
  * for every climber who has ever had at least one eligible workout. An
  * ACTIVE climber (activity in the closed window) gets a stats recap: a
- * milestone callout, a rank/percentile callout, stat cards with delta chips
- * against the prior period, and an activity calendar heatmap. A
+ * rank/percentile hero, an optional achievement callout, stat cards with
+ * delta chips against the prior period, and an activity calendar heatmap. A
  * ZERO-ACTIVITY climber (no activity in the window, but a real history
- * before it) gets a gentle re-engagement email instead. A climber who has
- * never completed a climb at all gets neither - that gap belongs to the
- * onboarding-abandonment lifecycle emails, not this one, so a brand-new
- * signup mid-onboarding is never told "the board missed you".
+ * before it) gets a gentle re-engagement email instead, naming the real gap
+ * since they were last active and their First Ascents, if they hold any. A
+ * climber who has never completed a climb at all gets neither - that gap
+ * belongs to the onboarding-abandonment lifecycle emails, not this one, so a
+ * brand-new signup mid-onboarding is never told "we missed you".
  *
  * Design direction (captain, 2026-09-24, Wispr-Flow-inspired layout,
  * Ascend's own dark/green/landmark brand - see templates.ts for the render
  * layer): bold editorial hero leading with the climber's rank AND percentile
  * shown together, an optional achievement callout (the app's existing
- * tracked achievements, reused rather than invented), an optional
- * milestone-unlocked callout, stat cards with green "up only" delta chips,
- * and a per-day activity calendar heatmap. Copy is past-tense throughout
- * ("last week" / "last month") because every send lands well after the
- * period it describes has closed. Round 3 (2026-09-24) promoted rank and
- * percentile to the hero's lead metric (previously a secondary callout
- * below the fold) and added the achievement callout; round 2's
- * milestone-honesty gate is unchanged.
+ * tracked achievements, reused rather than invented), stat cards with green
+ * "up only" delta chips, and a per-day activity calendar heatmap. Copy is
+ * past-tense throughout ("last week" / "last month") because every send
+ * lands well after the period it describes has closed.
+ *
+ * Round 3 (2026-09-24) promoted rank and percentile to the hero's lead
+ * metric (previously a secondary callout below the fold) and added the
+ * achievement callout. Round 4 (2026-09-24, captain review of the rendered
+ * emails) removed the milestone-unlocked callout entirely ("I don't like
+ * the whole milestone unlocked thing. That doesn't make any sense."),
+ * renamed every "on the board" phrase to "on the stair stepper", and
+ * rewrote the zero-activity email around the real elapsed gap and the
+ * climber's First Ascents instead of a generic "the board missed you".
  *
  * REUSE, NOT A SECOND PATH. Every send goes through the same
  * `enqueueLifecycleEmailIfAllowed` transaction the rating-prompt automation
@@ -85,13 +91,22 @@
  *     period - never a decline or an unchanged figure - so the recap can
  *     never read as a scolding. A flat or down period simply shows no chip
  *     on that stat.
- *   - The milestone callout, when there is one, prefers a landmark finished,
- *     then a weekly streak of 2+, then a Top 1/3/10/100 global finish - in
- *     that order, so it rarely restates the separate percentile callout's
- *     own number. A podium finish qualifies in any field of two or more;
- *     any other rank needs a real percentile band and a field larger than
- *     its tier, so a small field never reads as an inflated "Top 100".
- *   - "Landmarks finished" uses `climbCompletions.ts`'s
+ *   - The zero-activity email's gap ("We haven't seen you in N weeks/
+ *     months") reads the `all_time` `leaderboard_stats` row's `lastUpdated`
+ *     field, which moves on every eligible workout write - it doubles as
+ *     "when this climber was last active" without a dedicated field or an
+ *     extra read, since that row is already loaded to build the
+ *     zero-activity cohort. Falls back to the closed period's own start
+ *     date (a floor of "at least since this period began") on the
+ *     defensive case where the field is somehow missing.
+ *   - First Ascents in the zero-activity email read
+ *     `live_replay_leaderboards` where `firstAscentUserId == uid` - the one
+ *     durable, permanent record `liveReplayLeaderboard.ts` writes when a
+ *     climb's First Ascent is claimed - not a re-derivation. A climber with
+ *     any First Ascents gets them named; a climber with none gets the
+ *     existing suggested-comeback-climb nudge instead.
+ *   - "Landmarks finished" (the active-recap stat, distinct from First
+ *     Ascents above) uses `climbCompletions.ts`'s
  *     `parseCompletedLandmarkWorkout` (the single definition of "finished a
  *     landmark" shared with Swift and the backfill), not a bare "carried a
  *     climbId" check - an abandoned Live Climb attempt is never reported as
@@ -162,20 +177,28 @@ const USERS_COLLECTION = "users";
 const WORKOUTS_COLLECTION = "workouts";
 const LEADERBOARD_STATS_COLLECTION = "leaderboard_stats";
 const ACHIEVEMENTS_COLLECTION = "achievements";
+const LIVE_REPLAY_LEADERBOARDS_COLLECTION = "live_replay_leaderboards";
 
 /** Page size and page budget for the two `leaderboard_stats` cohort scans. */
 const COHORT_PAGE_SIZE = 200;
 const MAX_COHORT_PAGES = 50;
 /** Bounds how far back the streak walk reads before giving up. */
 const MAX_WEEKLY_STREAK_LOOKBACK = 26;
-/** The rank a Top 100 global finish - the milestone-worthy band - requires. */
-const MILESTONE_RANK_LIMIT = 100;
+/** The widest achievement tier's ceiling rank ("Top 100"). */
+const ACHIEVEMENT_TIER_CEILING = 100;
 /** Recipients composed and enqueued at once, per sweep. */
 const RECIPIENT_CONCURRENCY = 10;
 
 export type RecapCadence = "weekly" | "monthly";
 
 interface LeaderboardStatsRow {
+  /**
+   * When this row was last recomputed - for the `all_time` row, this moves
+   * on every eligible workout write, so it doubles as "when this climber was
+   * last active" for the zero-activity email's real gap ("We haven't seen
+   * you in N weeks").
+   */
+  lastUpdated: Date | null;
   totalFloors: number;
   totalSteps: number;
   totalWorkouts: number;
@@ -234,7 +257,7 @@ function achievementTierLimit(rank: number): number {
   if (rank === 1) return 1;
   if (rank <= 3) return 3;
   if (rank <= 10) return 10;
-  return MILESTONE_RANK_LIMIT;
+  return ACHIEVEMENT_TIER_CEILING;
 }
 
 /**
@@ -419,15 +442,6 @@ export function isRankableField(fieldSize: number): boolean {
 }
 
 /**
- * Whether a rank is a podium finish.
- * @param {number} rank - This climber's rank in the closed period
- * @return {boolean} True for ranks 1-3
- */
-function isPodiumRank(rank: number): boolean {
-  return rank <= 3;
-}
-
-/**
  * Names the percentile band a rank falls in, if it reaches one - the
  * secondary badge shown alongside the always-stated concrete rank (round 3:
  * "show BOTH"). Nothing below the top half; a recap never claims a
@@ -453,26 +467,6 @@ export function percentileBand(
 }
 
 /**
- * Whether a rank earns the hero's global-placement milestone. A podium
- * finish always does in any real field; any other rank needs a real
- * percentile band and a field larger than its achievement tier, so "Top 100"
- * never lands on a climber in a field of 50.
- * @param {number} rank - This climber's rank in the closed period
- * @param {number} fieldSize - Total climbers ranked in the closed period
- * @return {boolean} True when the rank is worth naming as a milestone
- */
-function isMilestoneRank(rank: number, fieldSize: number): boolean {
-  if (!isRankableField(fieldSize) || rank > MILESTONE_RANK_LIMIT) {
-    return false;
-  }
-  if (isPodiumRank(rank)) {
-    return true;
-  }
-  return percentileBand(rank, fieldSize) !== undefined &&
-    fieldSize > achievementTierLimit(rank);
-}
-
-/**
  * Builds a green "up" delta chip against the prior period - never a decline
  * or an unchanged figure, so a recap can never read as a scolding.
  * @param {number} current - This period's total
@@ -492,42 +486,29 @@ export function buildDeltaChip(
 }
 
 /**
- * Picks the single most notable fact for the hero's milestone callout, or
- * nothing when there is no genuine milestone to name. Prefers a finished
- * landmark, then a weekly streak, then a meaningful global finish - in that
- * order, so it rarely just restates the separate percentile callout.
- * @param {RecapCadence} cadence - Weekly or monthly
- * @param {string[]} landmarksFinished - This period's finished landmarks
- * @param {number | undefined} currentStreakWeeks - Weekly-only streak length
- * @param {number} rank - This climber's rank in the closed period
- * @param {number} fieldSize - Total climbers ranked in the closed period
- * @return {string | undefined} Milestone sentence, past tense
+ * Whole weeks since an instant, floored at 1 - a zero-activity climber has
+ * been gone at least a week by definition, so "0 weeks" never renders.
+ * @param {Date} since - The climber's last known activity
+ * @param {Date} now - The sweep's clock
+ * @return {number} Weeks since, at least 1
  */
-export function pickMilestoneText(
-  cadence: RecapCadence,
-  landmarksFinished: string[],
-  currentStreakWeeks: number | undefined,
-  rank: number,
-  fieldSize: number
-): string | undefined {
-  if (landmarksFinished.length === 1) {
-    return `You finished ${landmarksFinished[0]}.`;
-  }
-  if (landmarksFinished.length > 1) {
-    const more = landmarksFinished.length - 1;
-    return `You finished ${landmarksFinished[0]} and ${more} more ` +
-      `landmark${more === 1 ? "" : "s"}.`;
-  }
-  if (cadence === "weekly" && currentStreakWeeks !== undefined &&
-    currentStreakWeeks >= 2) {
-    return `${currentStreakWeeks} weeks running. That is a streak.`;
-  }
-  if (isMilestoneRank(rank, fieldSize)) {
-    const cadenceNoun = cadence === "weekly" ? "week" : "month";
-    return `You placed ${achievementTierLabel(rank)} globally last ` +
-      `${cadenceNoun}.`;
-  }
-  return undefined;
+export function weeksSince(since: Date, now: Date): number {
+  const weeks = Math.round(
+    (now.getTime() - since.getTime()) / (7 * 24 * 60 * 60 * 1000)
+  );
+  return Math.max(1, weeks);
+}
+
+/**
+ * Whole calendar months since an instant, floored at 1.
+ * @param {Date} since - The climber's last known activity
+ * @param {Date} now - The sweep's clock
+ * @return {number} Months since, at least 1
+ */
+export function monthsSince(since: Date, now: Date): number {
+  const months = (now.getUTCFullYear() - since.getUTCFullYear()) * 12 +
+    (now.getUTCMonth() - since.getUTCMonth());
+  return Math.max(1, months);
 }
 
 /**
@@ -631,6 +612,9 @@ async function pageLeaderboardStatsRows(
         continue;
       }
       rows.set(userId, {
+        lastUpdated: data.lastUpdated instanceof admin.firestore.Timestamp ?
+          data.lastUpdated.toDate() :
+          null,
         totalFloors: numberValue(data.totalFloors),
         totalSteps: numberValue(data.totalSteps),
         totalWorkouts: numberValue(data.totalWorkouts),
@@ -742,6 +726,7 @@ async function fetchPreviousPeriodTotals(
   }
   const data = snapshot.data() ?? {};
   return {
+    lastUpdated: null,
     totalFloors: numberValue(data.totalFloors),
     totalSteps: numberValue(data.totalSteps),
     totalWorkouts: numberValue(data.totalWorkouts),
@@ -781,6 +766,42 @@ async function fetchAchievementLabel(
     return undefined;
   }
   return `${achievementTierLabel(rank)} globally`;
+}
+
+/**
+ * Reads every landmark a climber holds the permanent First Ascent of.
+ *
+ * `live_replay_leaderboards` is the durable record - `firstAscentUserId` is
+ * set once, forever, the moment a climb's First Ascent is claimed
+ * (liveReplayLeaderboard.ts) - and a First Ascent is landmark-only, never a
+ * routine, so a single-field equality query on it is already correctly
+ * scoped with no further filter. Auto-indexed, so this is an index lookup
+ * per climber, not a scan, and independent of catalogue size - cheaper than
+ * the app's own profile screen, which loops the whole catalogue client-side
+ * for one climber's own view of this same fact.
+ * @param {admin.firestore.Firestore} firestore - Admin Firestore instance
+ * @param {string} uid - Firebase Auth user ID
+ * @return {Promise<string[]>} Climb IDs this climber holds the First Ascent
+ *   of
+ */
+async function fetchFirstAscentClimbIds(
+  firestore: admin.firestore.Firestore,
+  uid: string
+): Promise<string[]> {
+  const snapshot = await firestore
+    .collection(LIVE_REPLAY_LEADERBOARDS_COLLECTION)
+    .where("firstAscentUserId", "==", uid)
+    .select("contextId")
+    .get();
+
+  const climbIds: string[] = [];
+  for (const document of snapshot.docs) {
+    const climbId = stringValue(document.get("contextId"));
+    if (climbId) {
+      climbIds.push(climbId);
+    }
+  }
+  return climbIds;
 }
 
 /**
@@ -885,13 +906,6 @@ async function composeAndEnqueueActiveRecap(
       deltaLabel
     ),
     landmarksFinished,
-    milestoneText: pickMilestoneText(
-      cadence,
-      landmarksFinished,
-      currentStreakWeeks,
-      standing.rank,
-      standing.fieldSize
-    ),
     percentileBand: percentileBand(standing.rank, standing.fieldSize),
     periodLabel: cadence === "weekly" ?
       formatWeeklyPeriodLabel(period) :
@@ -933,8 +947,11 @@ async function composeAndEnqueueInactiveRecap(
   firestore: admin.firestore.Firestore,
   cadence: RecapCadence,
   period: ClosedLeaderboardPeriod,
+  now: Date,
   uid: string,
+  lastActiveAt: Date | null,
   suggestedClimb: CatalogClimb | null,
+  climbNameById: Map<string, string>,
   summary: RecapSweepSummary
 ): Promise<void> {
   const email = await fetchUserEmail(firestore, uid);
@@ -943,8 +960,16 @@ async function composeAndEnqueueInactiveRecap(
     return;
   }
 
+  const firstAscentClimbIds = await fetchFirstAscentClimbIds(firestore, uid);
+  const firstAscents = dedupeLandmarkNames(firstAscentClimbIds, climbNameById);
+  const since = lastActiveAt ?? period.startAt;
+
   const payload: RecapInactivePayload = {
     ctaUrl: APP_STORE_URL,
+    firstAscents,
+    gapCount: cadence === "weekly" ?
+      weeksSince(since, now) :
+      monthsSince(since, now),
     periodLabel: cadence === "weekly" ?
       formatWeeklyPeriodLabel(period) :
       formatMonthlyPeriodLabel(period),
@@ -1062,18 +1087,21 @@ export async function runRecapSweep(
     });
   }
 
-  const inactiveUids = [...everActiveRows.keys()]
-    .filter((uid) => !standings.has(uid));
+  const inactiveEntries = [...everActiveRows.entries()]
+    .filter(([uid]) => !standings.has(uid));
   const inactiveFailures = await runWithBoundedConcurrency(
-    inactiveUids,
+    inactiveEntries,
     RECIPIENT_CONCURRENCY,
-    async (uid) => {
+    async ([uid, allTimeRow]) => {
       await composeAndEnqueueInactiveRecap(
         firestore,
         cadence,
         period,
+        now,
         uid,
+        allTimeRow.lastUpdated,
         catalog.suggestedClimb,
+        catalog.climbNameById,
         summary
       );
     }
@@ -1085,7 +1113,7 @@ export async function runRecapSweep(
       errorMessage: failure.error instanceof Error ?
         failure.error.message :
         "unknown_error",
-      uid: failure.item,
+      uid: failure.item[0],
     });
   }
 

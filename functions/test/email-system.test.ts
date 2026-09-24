@@ -277,26 +277,27 @@ const baseWeeklyActivePayload = {
 test("weekly active recap states the period totals in past tense", () => {
   const rendered = renderWeeklyRecapActiveEmail(baseWeeklyActivePayload);
 
-  assert.equal(rendered.subject, "Your week on the board");
+  assert.equal(rendered.subject, "Your week on the stair stepper");
   assert.match(rendered.text, /8,500 steps/);
   assert.match(rendered.text, /210 floors/);
   assert.match(rendered.text, /3 climbs completed/);
   assert.match(rendered.text, /Open Ascend: https:\/\/apps\.apple\.com/);
   assert.doesNotMatch(rendered.text, /Landmarks finished:/);
-  assert.doesNotMatch(rendered.text, /Milestone unlocked:/);
   assert.doesNotMatch(rendered.text, /Ranked:/);
+  // Round 4: the captain removed the milestone-unlocked concept entirely.
+  assert.doesNotMatch(rendered.text, /Milestone unlocked/i);
+  assert.doesNotMatch(rendered.html, /Milestone unlocked/i);
   // Carried forward from the pre-redesign review: past tense, never present.
   assert.doesNotMatch(rendered.text, /this week/i);
 });
 
-test("weekly active recap surfaces deltas, milestone, and streak", () => {
+test("weekly active recap surfaces deltas and streak", () => {
   const rendered = renderWeeklyRecapActiveEmail({
     ...baseWeeklyActivePayload,
     climbsDelta: {direction: "up", label: "vs last week", value: "1"},
     currentStreakWeeks: 3,
     floorsDelta: {direction: "up", label: "vs last week", value: "40"},
     landmarksFinished: ["Eiffel Tower", "Burj Khalifa"],
-    milestoneText: "You finished Eiffel Tower.",
     stepsDelta: {direction: "up", label: "vs last week", value: "1,200"},
   });
 
@@ -304,7 +305,6 @@ test("weekly active recap surfaces deltas, milestone, and streak", () => {
   assert.match(rendered.text, /up 40 vs last week/);
   assert.match(rendered.text, /3-week streak/);
   assert.match(rendered.text, /Landmarks finished: Eiffel Tower, Burj Khalifa/);
-  assert.match(rendered.text, /Milestone unlocked: You finished Eiffel Tower\./);
   assert.match(rendered.html, /▲/);
 });
 
@@ -349,20 +349,17 @@ test("a rank with no qualifying percentile band still shows the concrete rank", 
   assert.doesNotMatch(rendered.text, /Top \d+%/);
 });
 
-test("achievements reuse the app's existing tracked achievement, separately from the milestone", () => {
+test("achievements reuse the app's existing tracked achievement", () => {
   const rendered = renderWeeklyRecapActiveEmail({
     ...baseWeeklyActivePayload,
     achievementLabel: "Top 10 globally",
     fieldSize: 900,
-    milestoneText: "3 weeks running. That is a streak.",
     rank: 42,
   });
 
   assert.match(rendered.text, /Achievement earned: Top 10 globally/);
   assert.match(rendered.html, /Achievement earned/);
   assert.match(rendered.html, /Top 10 globally/);
-  // Distinct from the milestone callout, which still renders alongside it.
-  assert.match(rendered.text, /Milestone unlocked: 3 weeks running/);
 });
 
 test("no achievement callout without an earned achievement", () => {
@@ -370,17 +367,26 @@ test("no achievement callout without an earned achievement", () => {
   assert.doesNotMatch(rendered.html, /Achievement earned/);
 });
 
-test("the hero title reads 'your week on the stairstepper', not last week's climb", () => {
-  const rendered = renderWeeklyRecapActiveEmail(baseWeeklyActivePayload);
-  assert.match(rendered.html, />YOUR WEEK</);
-  assert.match(rendered.html, />ON THE STAIRSTEPPER\.</);
+test("a podium rank uses the gold medal token, not the green accent", () => {
+  const rendered = renderWeeklyRecapActiveEmail({
+    ...baseWeeklyActivePayload,
+    fieldSize: 50,
+    percentileBand: "Top 5%",
+    rank: 2,
+  });
+  assert.match(rendered.html, /#D4AF37/);
 });
 
-test("weekly active recap escapes a landmark and milestone in html", () => {
+test("the hero title reads 'your week on the stair stepper'", () => {
+  const rendered = renderWeeklyRecapActiveEmail(baseWeeklyActivePayload);
+  assert.match(rendered.html, />YOUR WEEK</);
+  assert.match(rendered.html, />ON THE STAIR STEPPER\.</);
+});
+
+test("weekly active recap escapes a landmark name in html", () => {
   const rendered = renderWeeklyRecapActiveEmail({
     ...baseWeeklyActivePayload,
     landmarksFinished: ["<script>alert('xss')</script>"],
-    milestoneText: "<script>alert('milestone')</script>",
   });
 
   assert.doesNotMatch(rendered.html, /<script>/);
@@ -390,7 +396,8 @@ test("weekly active recap escapes a landmark and milestone in html", () => {
 test("weekly active recap is dark-themed, not the light lifecycle layout", () => {
   const rendered = renderWeeklyRecapActiveEmail(baseWeeklyActivePayload);
 
-  assert.match(rendered.html, /#0c0e10/);
+  assert.match(rendered.html, /#000000/);
+  assert.match(rendered.html, /color-scheme/);
   assert.doesNotMatch(rendered.html, /#f4f2eb/);
 });
 
@@ -424,28 +431,72 @@ test("weekly active payload renderer requires the numeric fields", () => {
   );
 });
 
-test("weekly inactive recap is gentle - a state, then one action, past tense", () => {
+test("weekly inactive recap states the real gap, gently, in past tense", () => {
   const rendered = renderWeeklyRecapInactiveEmail({
     ctaUrl: APP_STORE_TEST_URL,
-    periodLabel: "Sep 15 – Sep 21",
+    firstAscents: [],
+    gapCount: 2,
+    periodLabel: "Sep 15-21, 2026",
     suggestedClimbName: "Tokyo Skytree",
   });
 
-  assert.equal(rendered.subject, "A climb is waiting");
-  assert.match(rendered.text, /No new steps on the board last week/);
+  assert.equal(rendered.subject, "We missed you");
+  assert.match(rendered.text, /We haven't seen you in 2 weeks\./);
+  assert.match(rendered.text, /get back on the stair stepper/);
   assert.match(rendered.text, /Tokyo Skytree is open and ready\./);
   assert.match(rendered.text, /Open Ascend: https:\/\/apps\.apple\.com/);
   assert.doesNotMatch(rendered.text, /didn't climb|you missed|streak.*lost/i);
-  assert.doesNotMatch(rendered.text, /this week/i);
+  assert.doesNotMatch(rendered.text, /on the board/i);
+});
+
+test("a one-week gap is singular, not '1 weeks'", () => {
+  const rendered = renderWeeklyRecapInactiveEmail({
+    ctaUrl: APP_STORE_TEST_URL,
+    firstAscents: [],
+    gapCount: 1,
+    periodLabel: "Sep 15-21, 2026",
+  });
+  assert.match(rendered.text, /We haven't seen you in 1 week\./);
+  assert.doesNotMatch(rendered.text, /1 weeks/);
 });
 
 test("weekly inactive recap omits the suggestion line without a climb", () => {
   const rendered = renderWeeklyRecapInactiveEmail({
     ctaUrl: APP_STORE_TEST_URL,
-    periodLabel: "Sep 15 – Sep 21",
+    firstAscents: [],
+    gapCount: 2,
+    periodLabel: "Sep 15-21, 2026",
   });
 
   assert.doesNotMatch(rendered.text, /is open and ready/);
+});
+
+test("first ascents are listed instead of a suggested climb when the climber holds any", () => {
+  const rendered = renderWeeklyRecapInactiveEmail({
+    ctaUrl: APP_STORE_TEST_URL,
+    firstAscents: ["Eiffel Tower"],
+    gapCount: 3,
+    periodLabel: "Sep 15-21, 2026",
+    suggestedClimbName: "Tokyo Skytree",
+  });
+
+  assert.match(rendered.text, /You hold the First Ascent of Eiffel Tower\./);
+  // The generic suggestion is not also shown - one clear thing to look at.
+  assert.doesNotMatch(rendered.text, /Tokyo Skytree is open and ready/);
+});
+
+test("multiple first ascents are all named", () => {
+  const rendered = renderWeeklyRecapInactiveEmail({
+    ctaUrl: APP_STORE_TEST_URL,
+    firstAscents: ["Eiffel Tower", "Burj Khalifa"],
+    gapCount: 3,
+    periodLabel: "Sep 15-21, 2026",
+  });
+
+  assert.match(
+    rendered.text,
+    /You hold 2 First Ascents: Eiffel Tower, Burj Khalifa\./
+  );
 });
 
 const baseMonthlyActivePayload = {
@@ -460,20 +511,20 @@ test("monthly active recap states month totals in past tense", () => {
     stepsDelta: {direction: "up", label: "vs last month", value: "2,000"},
   });
 
-  assert.equal(rendered.subject, "Your month on the board");
+  assert.equal(rendered.subject, "Your month on the stair stepper");
   assert.match(rendered.text, /8,500 steps/);
   assert.match(rendered.text, /Landmarks finished: Space Needle/);
   assert.match(rendered.text, /up 2,000 vs last month/);
   assert.doesNotMatch(rendered.text, /this month/i);
   assert.match(rendered.html, />YOUR MONTH</);
-  assert.match(rendered.html, />ON THE STAIRSTEPPER\.</);
+  assert.match(rendered.html, />ON THE STAIR STEPPER\.</);
 });
 
 test("monthly active payload renderer validates and renders", () => {
   const rendered = renderMonthlyRecapActiveEmailFromPayload(
     baseMonthlyActivePayload
   );
-  assert.equal(rendered.subject, "Your month on the board");
+  assert.equal(rendered.subject, "Your month on the stair stepper");
 
   assert.throws(
     () => renderMonthlyRecapActiveEmailFromPayload({
@@ -486,13 +537,16 @@ test("monthly active payload renderer validates and renders", () => {
 test("monthly inactive recap never guilt-trips a dormant climber", () => {
   const rendered = renderMonthlyRecapInactiveEmail({
     ctaUrl: APP_STORE_TEST_URL,
+    firstAscents: [],
+    gapCount: 3,
     periodLabel: "September 2026",
   });
 
-  assert.equal(rendered.subject, "Still time to climb this month");
-  assert.match(rendered.text, /No new steps on the board last month/);
+  assert.equal(rendered.subject, "We missed you");
+  assert.match(rendered.text, /We haven't seen you in 3 months\./);
   assert.doesNotMatch(rendered.text, /didn't climb|you missed|streak.*lost/i);
   assert.doesNotMatch(rendered.text, /this month/i);
+  assert.doesNotMatch(rendered.text, /on the board/i);
 });
 
 // =============================================================================

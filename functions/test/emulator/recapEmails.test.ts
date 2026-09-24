@@ -35,6 +35,7 @@ import type {
 
 const EMAIL_JOBS = "email_jobs";
 const LEADERBOARD_STATS = "leaderboard_stats";
+const LIVE_REPLAY_LEADERBOARDS = "live_replay_leaderboards";
 const APP_STORE_URL = "https://apps.apple.com/app/id6757202987";
 
 // A fixed instant so every test seeds and asserts against the same closed
@@ -102,6 +103,7 @@ before(() => {
 beforeEach(async () => {
   await clearCollection(EMAIL_JOBS);
   await clearCollection(LEADERBOARD_STATS);
+  await clearCollection(LIVE_REPLAY_LEADERBOARDS);
   await clearCollection("users");
 });
 
@@ -160,11 +162,6 @@ test(
     assert.deepEqual(
       [...payload.landmarksFinished].sort(),
       ["Eiffel Tower", "Short Climb"]
-    );
-    // Two landmarks finished outrank the rank-based milestone in priority.
-    assert.equal(
-      payload.milestoneText,
-      "You finished Eiffel Tower and 1 more landmark."
     );
     assert.equal(payload.currentStreakWeeks, 2);
 
@@ -247,6 +244,42 @@ test(
     // The shortest available climb - the most approachable comeback pick.
     assert.equal(payload.suggestedClimbName, "Short Climb");
     assert.equal(payload.ctaUrl, APP_STORE_URL);
+    assert.deepEqual(payload.firstAscents, []);
+    assert.ok(payload.gapCount >= 1);
+  }
+);
+
+test(
+  "a dormant climber's real gap comes from the all-time row's lastUpdated",
+  async () => {
+    await seedUser("dormant-2", "dormant2@example.com");
+    // Last active 3 weeks before `now` (2026-09-28).
+    await seedAllTimeStats("dormant-2", addDays(now, -21));
+
+    await runRecapSweep("weekly", now);
+
+    const job = await readJob(
+      buildRecapDedupeKey("weekly", closedWeek.key, "dormant-2")
+    );
+    const payload = job.payload as RecapInactivePayload;
+    assert.equal(payload.gapCount, 3);
+  }
+);
+
+test(
+  "a climber's First Ascents are named instead of the generic comeback nudge",
+  async () => {
+    await seedUser("first-ascender-1", "firstascender@example.com");
+    await seedAllTimeStats("first-ascender-1");
+    await seedFirstAscent("first-ascender-1", "eiffel");
+
+    await runRecapSweep("weekly", now);
+
+    const job = await readJob(
+      buildRecapDedupeKey("weekly", closedWeek.key, "first-ascender-1")
+    );
+    const payload = job.payload as RecapInactivePayload;
+    assert.deepEqual(payload.firstAscents, ["Eiffel Tower"]);
   }
 );
 
@@ -308,7 +341,6 @@ test("a field of one active climber gets no percentile callout", async () => {
   assert.equal(payload.rank, 1);
   assert.equal(payload.fieldSize, 1);
   assert.equal(payload.percentileBand, undefined);
-  assert.equal(payload.milestoneText, undefined);
 });
 
 test("unsubscribe suppresses a recap even for an active climber", async () => {
@@ -464,14 +496,22 @@ async function seedWeeklyStats(
 
 /**
  * Seeds the never-closing all-time `leaderboard_stats` row, the signal this
- * sweep uses for "has ever completed a climb".
+ * sweep uses for "has ever completed a climb". `lastUpdated`, when given,
+ * is the real-gap source the zero-activity email's `gapCount` reads.
  * @param {string} uid - Firebase Auth user ID
+ * @param {Date} lastUpdatedAt - When this row last moved
  * @return {Promise<void>}
  */
-async function seedAllTimeStats(uid: string): Promise<void> {
+async function seedAllTimeStats(
+  uid: string,
+  lastUpdatedAt?: Date
+): Promise<void> {
   const docId = leaderboardDocumentId(uid, "all_time", "all");
   await db.collection(LEADERBOARD_STATS).doc(docId).set({
     isSynthetic: false,
+    ...(lastUpdatedAt ?
+      {lastUpdated: admin.firestore.Timestamp.fromDate(lastUpdatedAt)} :
+      {}),
     periodKey: "all",
     periodStartAt: admin.firestore.Timestamp.fromDate(new Date(0)),
     schemaVersion: 2,
@@ -482,6 +522,22 @@ async function seedAllTimeStats(uid: string): Promise<void> {
     totalSteps: 100,
     totalWorkouts: 1,
     userId: uid,
+  });
+}
+
+/**
+ * Seeds the permanent First Ascent record `liveReplayLeaderboard.ts` writes
+ * once a climb's First Ascent is claimed - the record the zero-activity
+ * email's `firstAscents` list reads.
+ * @param {string} uid - Firebase Auth user ID
+ * @param {string} climbId - Landmark climb ID this climber first-ascended
+ * @return {Promise<void>}
+ */
+async function seedFirstAscent(uid: string, climbId: string): Promise<void> {
+  await db.collection("live_replay_leaderboards").doc(climbId).set({
+    contextId: climbId,
+    contextType: "live_climb",
+    firstAscentUserId: uid,
   });
 }
 

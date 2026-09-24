@@ -105,9 +105,8 @@ export interface RecapCalendarCell {
 /**
  * Stats for a climber who had activity in a closed weekly or monthly window.
  * Every optional field is omitted rather than sent as zero/hollow when there
- * is nothing to report - no delta chip for a flat or down period, no
- * milestone line with nothing to celebrate, no rank line with too small a
- * field to mean anything.
+ * is nothing to report - no delta chip for a flat or down period, no rank
+ * line with too small a field to mean anything.
  *
  * `rank`/`fieldSize` are the hero's lead metric (round 3): shown together as
  * "#{rank} of {fieldSize} climbers" whenever `fieldSize` is large enough for
@@ -115,7 +114,8 @@ export interface RecapCalendarCell {
  * badge alongside it. `achievementLabel` is a distinct, separate callout
  * sourced from the app's existing tracked achievement for the period (not
  * re-derived from `rank`) - present only when the climber actually earned
- * one.
+ * one. There is deliberately no milestone field (round 4: the captain found
+ * the milestone-unlocked concept confusing and asked for it to be removed).
  */
 export interface RecapActivePayload {
   achievementLabel?: string;
@@ -127,7 +127,6 @@ export interface RecapActivePayload {
   totalFloors: number;
   floorsDelta?: RecapDeltaChip;
   landmarksFinished: string[];
-  milestoneText?: string;
   rank?: number;
   fieldSize?: number;
   percentileBand?: string;
@@ -136,9 +135,18 @@ export interface RecapActivePayload {
   ctaUrl: string;
 }
 
-/** Gentle re-engagement copy for a climber with no activity in the window. */
+/**
+ * Gentle re-engagement copy for a climber with no activity in the window
+ * (round 4). `gapCount` is the real elapsed weeks (weekly) or months
+ * (monthly) since the climber was last active, always at least 1.
+ * `firstAscents` lists every landmark the climber holds the permanent First
+ * Ascent of; when it is non-empty the email names them instead of the
+ * generic `suggestedClimbName` nudge.
+ */
 export interface RecapInactivePayload {
   periodLabel: string;
+  gapCount: number;
+  firstAscents: string[];
   suggestedClimbName?: string;
   ctaUrl: string;
 }
