@@ -163,6 +163,11 @@ struct LiveClimbSessionView: View {
         .task(id: countdownRunID) {
             await runCountdownThenStart()
         }
+        .task {
+            // The cut-out comes from the climb-image cache (prefetched from Climb Detail) or is
+            // fetched now; the photo layout holds the tab until it lands, however long that takes.
+            await viewModel.loadProgressArtworkIfNeeded()
+        }
         .task(id: viewModel.stepSyncConfirmation?.id) {
             guard viewModel.stepSyncConfirmation != nil else { return }
 
@@ -276,7 +281,9 @@ struct LiveClimbSessionView: View {
     /// A flat black backdrop everywhere except the Just Me tab on a real landmark
     /// climb, which gets the climb's own hero photo instead - full-bleed, with a
     /// bottom-anchored scrim carrying legibility for the chrome and stats drawn
-    /// over it. An open Just Climb has no landmark and therefore no photo to show.
+    /// over it. An open Just Climb has no landmark and therefore no photo to show,
+    /// and a climb with a progress cut-out keeps the black: its landmark is drawn
+    /// in the tab itself, and a photo of the same landmark behind it would compete.
     private var sessionBackground: some View {
         ZStack {
             Color.black
@@ -306,6 +313,12 @@ struct LiveClimbSessionView: View {
     /// redesigned Just Me content - as opposed to the idle/countdown screen or
     /// the leaderboard panel - is actually on screen.
     private var showsClimbPhotoBackground: Bool {
+        showsLandmarkOnJustMe && viewModel.progressArtwork == nil
+    }
+
+    /// Whether the Just Me tab is on screen drawing this climb's landmark - as the full-bleed
+    /// photo or as the progress cut-out - which is what makes the chrome thumbnail redundant.
+    private var showsLandmarkOnJustMe: Bool {
         viewModel.isRecording && selectedTab == .justMe && viewModel.mode.climb != nil
     }
 
@@ -361,13 +374,13 @@ struct LiveClimbSessionView: View {
                 .frame(width: hasStartedRecording ? 0 : 10)
 
             sessionArtwork
-                .frame(width: showsClimbPhotoBackground ? 0 : 42, height: showsClimbPhotoBackground ? 0 : 42)
-                .opacity(showsClimbPhotoBackground ? 0 : 1)
-                .accessibilityHidden(showsClimbPhotoBackground)
+                .frame(width: showsLandmarkOnJustMe ? 0 : 42, height: showsLandmarkOnJustMe ? 0 : 42)
+                .opacity(showsLandmarkOnJustMe ? 0 : 1)
+                .accessibilityHidden(showsLandmarkOnJustMe)
                 .clipped()
 
             Spacer(minLength: 0)
-                .frame(width: showsClimbPhotoBackground ? 0 : 10)
+                .frame(width: showsLandmarkOnJustMe ? 0 : 10)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(viewModel.mode.title)
@@ -388,9 +401,13 @@ struct LiveClimbSessionView: View {
 
             // Just Me reads heart rate once, in the centered stat grid's heart-rate box
             // (`LiveClimbJustMeView.heartRateCard`) - this top-right slot is the
-            // Leaderboard tab's only heart-rate surface now.
+            // Leaderboard tab's heart-rate surface, and Just Me's on a climb with a
+            // progress cut-out, whose metrics column carries no heart rate.
             if selectedTab != .justMe, let heartRateStatus = viewModel.liveHeartRateStatus {
                 LiveHeartRateStatusChip(status: heartRateStatus)
+                    .padding(.leading, 10)
+            } else if let heartRateStatus = landmarkHeartRateStatus {
+                landmarkHeartRate(status: heartRateStatus)
                     .padding(.leading, 10)
             }
 
@@ -412,13 +429,36 @@ struct LiveClimbSessionView: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 14)
-        // Recording start flips `hasStartedRecording` and `showsClimbPhotoBackground` in the same
+        // Recording start flips `hasStartedRecording` and `showsLandmarkOnJustMe` in the same
         // instant that `sessionBackground`'s photo/gradient crossfades in over 250ms - without a
         // matching animation here, this HStack's child count changes (back button and thumbnail
         // removed) and the title/subtitle reflow instantly, one frame ahead of the background's
         // animated transaction, which can paint a transitional layout pass mid-crossfade.
         .animation(.easeInOut(duration: 0.25), value: hasStartedRecording)
-        .animation(.easeInOut(duration: 0.25), value: showsClimbPhotoBackground)
+        .animation(.easeInOut(duration: 0.25), value: showsLandmarkOnJustMe)
+    }
+
+    /// Heart rate for the Just Me tab of a climb with a progress cut-out, and only while a strap
+    /// is delivering a current reading - a connecting, lost or failed strap shows nothing.
+    private var landmarkHeartRateStatus: LiveHeartRateStatus? {
+        guard showsLandmarkOnJustMe,
+              viewModel.progressArtwork != nil,
+              let status = viewModel.liveHeartRateStatus,
+              status.hasCurrentReading else { return nil }
+        return status
+    }
+
+    private func landmarkHeartRate(status: LiveHeartRateStatus) -> some View {
+        HStack(spacing: 10) {
+            LiveHeartRateZoneRingBadge(status: status, diameter: 44, contentFontSize: 15)
+
+            Text("HEART RATE")
+                .font(.montserratBold(size: 10))
+                .tracking(0.6)
+                .foregroundStyle(.white.opacity(0.6))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
     }
 
     @ViewBuilder
@@ -456,6 +496,9 @@ struct LiveClimbSessionView: View {
         // tab bar) in the same instant `sessionBackground`'s photo crossfades in - without this,
         // the swap is an instant, unanimated remount racing that 250ms animated transaction.
         .animation(.easeInOut(duration: 0.25), value: viewModel.isRecording)
+        // A cut-out that arrives mid-climb swaps the photo layout for the landmark one on the
+        // same curve the photo backdrop fades out on.
+        .animation(.easeInOut(duration: 0.25), value: viewModel.progressArtwork != nil)
     }
 
     private var leaderboardPanel: some View {

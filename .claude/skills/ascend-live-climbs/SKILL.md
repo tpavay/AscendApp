@@ -182,7 +182,7 @@ A completed climb is **1:1 with a `Workout`** (the sole canonical record; verdic
 
 ## Climb content (catalog + images)
 - When adding, editing, releasing, or validating Live Climb catalog content, use the `live-climb-content` skill. That file is intentionally harness-neutral so Codex, Claude, Cursor, or any other AI provider can follow the same workflow.
-- Climb content is remote-first by default. The catalog ships as a hosted manifest + versioned catalog file; climb images live in Storage as hero / card / thumb sizes. Adding a new climb means publishing new content, never shipping app code (see Content-driven over rebuild in the core guide).
+- Climb content is remote-first by default. The catalog ships as a hosted manifest + versioned catalog file; climb images live in Storage as hero / card / thumb sizes, plus an optional progress cut-out for the Just Me tab (`live-climb-content`). Adding a new climb means publishing new content, never shipping app code (see Content-driven over rebuild in the core guide).
 - A bundled bootstrap catalog ships with the app for *metadata only*, so Home and Browse render even if the remote catalog has never been fetched. Once a remote catalog has been successfully fetched, subsequent launches prefer the disk-cached catalog over the bundled bootstrap.
 - Climb images do not ship in the app bundle - artwork is remote-only. Missing images render a placeholder until the remote image is cached locally.
 - Catalog and image fetching use shared disk-backed cache infrastructure. Climb-specific fetch/decode logic stays in climb repositories; the cache layer is generic.

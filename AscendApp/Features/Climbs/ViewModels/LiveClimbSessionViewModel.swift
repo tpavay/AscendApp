@@ -164,6 +164,15 @@ final class LiveClimbSessionViewModel {
     let motionSession: any HeadphoneMotionSessionServicing
     let analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint
     let liveActivitySessionID: String
+    /// The landmark cut-out the Just Me tab reveals as the climb progresses, once its image is
+    /// in hand. Nil for an open Just Climb, for a climb whose catalog entry has none, and - for a
+    /// climb that has one - while the image is still loading or after it failed to: the tab
+    /// shows its photo layout until then, so the climb is never blocked or blank, and switches
+    /// when the image arrives without touching the session.
+    private(set) var progressArtwork: LoadedClimbProgressArtwork?
+    /// The catalog's description of the cut-out still to be loaded, when there is one.
+    private let pendingProgressArtwork: ClimbProgressArtwork?
+    private let progressImageRepository: any ClimbProgressImageRepository
 
     private let climbService: ClimbService
     private let settingsManager: SettingsManager
@@ -264,9 +273,13 @@ final class LiveClimbSessionViewModel {
         featureFlags: RemoteFeatureFlagStore = .shared,
         liveActivitySessionID: String = UUID().uuidString,
         recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil,
+        progressImageRepository: any ClimbProgressImageRepository = StorageClimbProgressImageRepository.shared,
         now: @escaping () -> Date = Date.init
     ) {
         self.mode = .liveClimb(climb)
+        self.progressArtwork = nil
+        self.pendingProgressArtwork = climb.progressArtwork.flatMap { $0.isUsable(forClimbID: climb.id) ? $0 : nil }
+        self.progressImageRepository = progressImageRepository
         self.analyticsEntryPoint = analyticsEntryPoint
         self.liveActivitySessionID = liveActivitySessionID
         self.motionSession = motionSession
@@ -311,6 +324,9 @@ final class LiveClimbSessionViewModel {
         now: @escaping () -> Date = Date.init
     ) {
         self.mode = .justClimb(justClimbGoal)
+        self.progressArtwork = nil
+        self.pendingProgressArtwork = nil
+        self.progressImageRepository = StorageClimbProgressImageRepository.shared
         self.analyticsEntryPoint = analyticsEntryPoint
         self.liveActivitySessionID = liveActivitySessionID
         self.motionSession = motionSession
@@ -385,7 +401,7 @@ final class LiveClimbSessionViewModel {
     }
 
     /// Steps per minute over the trailing `LiveClimbPaceWindow.defaultWindowSeconds`, or
-    /// `nil` until the clock has enough to say; the Just Me pace card's CURRENT value.
+    /// `nil` until the window has run that long; the Just Me CURRENT value.
     var currentStepsPerMinute: Int? {
         paceWindow.currentStepsPerMinute(
             elapsedSeconds: displayedDuration,
@@ -393,9 +409,9 @@ final class LiveClimbSessionViewModel {
         )
     }
 
-    /// Steps per minute over the whole climb so far, or `nil` until the clock has enough
-    /// to say; the Just Me pace card's AVERAGE value.
-    var averageStepsPerMinute: Int? {
+    /// Steps per minute over the whole climb so far, stated from the start; the Just Me
+    /// AVERAGE value.
+    var averageStepsPerMinute: Int {
         LiveClimbPaceWindow.averageStepsPerMinute(
             steps: totalRecordedSteps,
             elapsedSeconds: displayedDuration
@@ -407,7 +423,7 @@ final class LiveClimbSessionViewModel {
     }
 
     var averagePaceDisplay: String {
-        averageStepsPerMinute.map { $0.formatted() } ?? "—"
+        averageStepsPerMinute.formatted()
     }
 
     var elapsedClock: String {
@@ -569,6 +585,15 @@ final class LiveClimbSessionViewModel {
 
     var isRecording: Bool {
         phase == .recording
+    }
+
+    /// Loads the climb's cut-out from the climb-image cache, fetching it if it is not there yet.
+    /// A failure leaves the photo layout in place; the next call (the session view reappearing)
+    /// tries again.
+    func loadProgressArtworkIfNeeded() async {
+        guard progressArtwork == nil, let pendingProgressArtwork else { return }
+        guard let image = await progressImageRepository.image(for: pendingProgressArtwork) else { return }
+        progressArtwork = LoadedClimbProgressArtwork(artwork: pendingProgressArtwork, image: image)
     }
 
     var isActivelyRecording: Bool {

@@ -125,6 +125,9 @@ final class GlobeViewModel {
             refresh(modelContext: modelContext)
             loadErrorMessage = nil
             hasLoaded = true
+            if let firstFeaturedClimb {
+                ClimbProgressArtworkPrefetcher.prefetch(for: firstFeaturedClimb)
+            }
             refreshCatalogInBackground()
         } catch {
             visibleClimbs = []

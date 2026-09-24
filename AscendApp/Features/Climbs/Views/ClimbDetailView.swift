@@ -249,6 +249,7 @@ struct ClimbDetailView: View {
         }
         .task {
             trackDetailViewedIfNeeded()
+            ClimbProgressArtworkPrefetcher.prefetch(for: viewModel.climb)
             headphoneMotionService.refresh()
             viewModel.refresh(modelContext: modelContext)
             await viewModel.refreshLeaderboardSummary(modelContext: modelContext)

@@ -3,16 +3,17 @@ import Foundation
 /// The two paces the Just Me pace card (`LiveClimbJustMeView.paceCard`) states, and the one
 /// place their rules live.
 ///
-/// **Average** is the whole climb so far: total steps over elapsed minutes.
+/// **Average** is the whole climb so far: total steps over elapsed minutes. It answers from the
+/// start - zero until the clock has run a full second, since there is no time to average over
+/// before that - so the climber always has a pace to read.
 /// **Current** is the trailing `windowSeconds` of the climb: the steps gained since the
-/// newest sample at least that old, over the time since it. A fresh climb has no sample that
-/// old until the window has elapsed, so its current pace is the same climb-so-far ratio and
-/// the two numbers agree until the climber's cadence actually diverges from it.
+/// newest sample at least that old, over the time since it. Until the window genuinely spans
+/// `windowSeconds` - a sample that old exists - it answers `nil` and the card shows its
+/// placeholder. It never borrows the average to fill the gap: a number labelled CURRENT in the
+/// first half minute would be a claim about a window the climb has not had yet.
 ///
-/// Both answer `nil` rather than a number until `minimumSpanSeconds` of evidence exist: a
-/// single step in the first second is 60 steps per minute, and the card would flicker through
-/// absurd values before the clock had anything to say. Neither can produce NaN or infinity - a
-/// zero span is `nil`, never a division.
+/// Neither can produce NaN or infinity: a span too short to divide by answers zero (average)
+/// or `nil` (current), never a division.
 ///
 /// A value type, mutated by the session view model on every step and every one-second tick,
 /// and reset by anything that rewrites the count it measures (a machine sync correction, or a
@@ -25,7 +26,8 @@ struct LiveClimbPaceWindow: Equatable, Sendable {
     }
 
     static let defaultWindowSeconds: TimeInterval = 30
-    static let minimumSpanSeconds: TimeInterval = 5
+    /// The shortest clock the average divides by; below it the average is zero.
+    static let minimumAverageSpanSeconds: TimeInterval = 1
 
     let windowSeconds: TimeInterval
     private(set) var samples: [Sample] = []
@@ -34,9 +36,10 @@ struct LiveClimbPaceWindow: Equatable, Sendable {
         self.windowSeconds = max(windowSeconds, 1)
     }
 
-    /// Total steps over elapsed minutes, or `nil` before `minimumSpanSeconds` of climb exist.
-    static func averageStepsPerMinute(steps: Int, elapsedSeconds: TimeInterval) -> Int? {
-        stepsPerMinute(steps: steps, seconds: elapsedSeconds)
+    /// Total steps over elapsed minutes, from the start: zero before `minimumAverageSpanSeconds`.
+    static func averageStepsPerMinute(steps: Int, elapsedSeconds: TimeInterval) -> Int {
+        guard elapsedSeconds.isFinite, elapsedSeconds >= minimumAverageSpanSeconds else { return 0 }
+        return stepsPerMinute(steps: steps, seconds: elapsedSeconds)
     }
 
     mutating func reset() {
@@ -55,13 +58,12 @@ struct LiveClimbPaceWindow: Equatable, Sendable {
         trim(to: elapsed)
     }
 
-    /// The trailing-window pace as of the live counter at `elapsedSeconds`, or `nil` before
-    /// `minimumSpanSeconds` of evidence exist.
+    /// The trailing-window pace as of the live counter at `elapsedSeconds`, or `nil` until a
+    /// sample at least `windowSeconds` old exists to measure it from.
     func currentStepsPerMinute(elapsedSeconds: TimeInterval, steps: Int) -> Int? {
+        guard elapsedSeconds.isFinite else { return nil }
         let elapsed = max(elapsedSeconds, 0)
-        guard let anchor = anchor(for: elapsed) else {
-            return Self.averageStepsPerMinute(steps: steps, elapsedSeconds: elapsed)
-        }
+        guard let anchor = anchor(for: elapsed) else { return nil }
 
         return Self.stepsPerMinute(
             steps: steps - anchor.steps,
@@ -69,10 +71,11 @@ struct LiveClimbPaceWindow: Equatable, Sendable {
         )
     }
 
-    /// The newest sample at least `windowSeconds` old, else the oldest sample there is.
+    /// The newest sample at least `windowSeconds` old, or `nil` while the window is still
+    /// shorter than that.
     private func anchor(for elapsedSeconds: TimeInterval) -> Sample? {
         let windowStart = elapsedSeconds - windowSeconds
-        return samples.last(where: { $0.elapsedSeconds <= windowStart }) ?? samples.first
+        return samples.last(where: { $0.elapsedSeconds <= windowStart })
     }
 
     /// Drops every sample older than the window's anchor for `elapsedSeconds`: the anchor
@@ -86,8 +89,9 @@ struct LiveClimbPaceWindow: Equatable, Sendable {
         samples.removeFirst(anchorIndex)
     }
 
-    private static func stepsPerMinute(steps: Int, seconds: TimeInterval) -> Int? {
-        guard seconds >= minimumSpanSeconds else { return nil }
-        return max(Int((Double(steps) / (seconds / 60)).rounded()), 0)
+    /// Only ever called with `seconds` of at least one: the average guards its own span, and
+    /// the current window spans `windowSeconds`.
+    private static func stepsPerMinute(steps: Int, seconds: TimeInterval) -> Int {
+        max(Int((Double(steps) / (seconds / 60)).rounded()), 0)
     }
 }

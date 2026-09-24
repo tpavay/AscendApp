@@ -7,21 +7,42 @@ import Testing
 /// The session view model's two pace readings, as the PACE card consumes them.
 @MainActor
 struct LiveClimbSessionPaceTests {
-    @Test("A fresh session states no pace until the clock has run")
-    func freshSessionStatesNoPace() throws {
+    @Test("A fresh session states its average from the start and no current pace")
+    func freshSessionStatesAverageButNoCurrent() throws {
         let (viewModel, motionSession) = try Self.startedSession()
 
         #expect(viewModel.currentStepsPerMinute == nil)
-        #expect(viewModel.averageStepsPerMinute == nil)
+        #expect(viewModel.averageStepsPerMinute == 0)
         #expect(viewModel.currentPaceDisplay == "—")
-        #expect(viewModel.averagePaceDisplay == "—")
+        #expect(viewModel.averagePaceDisplay == "0")
 
         motionSession.stepCount = 3
         motionSession.duration = 2
-        #expect(viewModel.currentStepsPerMinute == nil, "two seconds and three steps is not a pace")
+        #expect(viewModel.averagePaceDisplay == "90")
+        #expect(viewModel.currentPaceDisplay == "—", "two seconds is not a thirty-second window")
     }
 
-    @Test("Average is total steps over elapsed minutes, and current agrees until the window has run")
+    @Test("CURRENT SPM shows the placeholder through the first thirty seconds of ticks and a number from then on")
+    func currentIsGatedOnTheThirtySecondWindow() throws {
+        let (viewModel, motionSession) = try Self.startedSession()
+
+        for second in 1...29 {
+            motionSession.duration = TimeInterval(second)
+            motionSession.stepCount = second * 4 / 3
+            viewModel.recordLiveSplitSample()
+            #expect(viewModel.currentPaceDisplay == "—", "CURRENT stated a number at \(second)s")
+            #expect(viewModel.averagePaceDisplay != "—", "AVG is blank at \(second)s")
+        }
+
+        motionSession.duration = 30
+        motionSession.stepCount = 40
+        viewModel.recordLiveSplitSample()
+        #expect(viewModel.currentStepsPerMinute == 80)
+        #expect(viewModel.currentPaceDisplay == "80")
+        #expect(viewModel.averagePaceDisplay == "80")
+    }
+
+    @Test("Average is total steps over elapsed minutes, and past the first window current measures from the start")
     func averageAndCurrentAgreeInsideTheFirstWindow() throws {
         let (viewModel, motionSession) = try Self.startedSession()
 
